@@ -307,10 +307,16 @@ SELF_TEST_CASES = [
         "See " + _MISSING_TOOL + " for enforcement.\n\n## Part VII-A",
         "a dangling tool path planted in the LIVE COC v1.2 additive baseline",
     ),
+    # ANCHOR ON THE PATH, NOT THE HANDLE. This case originally matched
+    # "/spec/  @owner" and broke the moment the placeholder was replaced with a
+    # real account -- the harness reported "the mutation did not apply", which
+    # is the correct behaviour and is why the case is anchored differently now.
+    # The governed PATH is the stable part of the line; the reviewer identity
+    # is owner data and will change again.
     (
         "CODEOWNERS",
-        "/spec/                          @owner",
-        "/spec/                          @owner\n# see " + _MISSING_CONTRACT,
+        "\n/spec/",
+        "\n# see " + _MISSING_CONTRACT + "\n/spec/",
         "a dangling contract path planted in CODEOWNERS",
     ),
 ]
