@@ -1,40 +1,40 @@
 # VESPER CODEOWNERS
 #
-# Replace @owner with the project owner's account when the repository is
+# Replace @desagencydes-rgb with the project owner's account when the repository is
 # hosted. Until branch protection is enabled these lines are documentation --
 # see SETUP.md.
 #
 # REM-004: the surfaces below are GOVERNED_PATHS. The running VESPER runtime
 # may PROPOSE changes to any of them and may MERGE none of them.
 
-*                               @owner
+*                               @desagencydes-rgb
 
 # --- Owner-only. No delegated reviewer. -------------------------------------
-/docs/source/                   @owner
-/docs/COC/                      @owner
-/contracts/policy/              @owner
-/verification/traceability/     @owner
-/safety/                        @owner
+/docs/source/                   @desagencydes-rgb
+/docs/COC/                      @desagencydes-rgb
+/contracts/policy/              @desagencydes-rgb
+/verification/traceability/     @desagencydes-rgb
+/safety/                        @desagencydes-rgb
 
 # --- Governed: owner or an explicitly delegated human reviewer --------------
-/security/                      @owner
-/core/                          @owner
-/policy/                        @owner
-/verification/                  @owner
-/tools/                         @owner
-/spec/                          @owner
-/.github/workflows/             @owner
-/autonomy/triggers/             @owner
-/contracts/                     @owner
-/docs/ADR/                      @owner
-/models/                        @owner
-/config/prompts/                @owner
-/config/personas/               @owner
-/routing/                       @owner
-/safety/interlock/              @owner
-/build/                         @owner
-/deploy/                        @owner
-/CODEOWNERS                     @owner
+/security/                      @desagencydes-rgb
+/core/                          @desagencydes-rgb
+/policy/                        @desagencydes-rgb
+/verification/                  @desagencydes-rgb
+/tools/                         @desagencydes-rgb
+/spec/                          @desagencydes-rgb
+/.github/workflows/             @desagencydes-rgb
+/autonomy/triggers/             @desagencydes-rgb
+/contracts/                     @desagencydes-rgb
+/docs/ADR/                      @desagencydes-rgb
+/models/                        @desagencydes-rgb
+/config/prompts/                @desagencydes-rgb
+/config/personas/               @desagencydes-rgb
+/routing/                       @desagencydes-rgb
+/safety/interlock/              @desagencydes-rgb
+/build/                         @desagencydes-rgb
+/deploy/                        @desagencydes-rgb
+/CODEOWNERS                     @desagencydes-rgb
 
 # 2026-08-12: /spec/ and /CODEOWNERS were absent. Every invariant, state machine
 # and decision function in this system lives under spec/, and CODEOWNERS decides
