@@ -1,0 +1,305 @@
+##############################################################################
+# VESPER SHIPPED TRIGGER REGISTRY
+#
+# REM-007 §4.2 / REM-008. This is the registry the PRODUCT ships with -- not a
+# test fixture, not a sample. CI-026 (non-schedule-trigger-present) scans THIS
+# FILE, and INV-AUTO-5 fails a build whose registry is exclusively SCHEDULE-class.
+#
+# THE ANTI-CRON RULE, AND WHY THIS FILE IS SHAPED THIS WAY
+#
+#   A deterministic predicate over world-model state decides WHETHER a goal
+#   exists. A model decides HOW to satisfy a goal that is already justified.
+#   The model never decides whether to act.
+#
+# A clock may be AN input. It may never be the ONLY input. Every row below has
+# a `source` field naming the requirement that wanted the BEHAVIOUR -- so a
+# trigger invented to keep CI green is visible as a row with no source, and
+# CI-026 fails it. Two guards that fail for unrelated reasons: a check that
+# fails, and somebody who wanted the thing the check measures.
+#
+#   DO NOT ADD A TRIGGER TO SATISFY CI-026.
+#   If this file ever needs a filler row, the correct action is to let CI-026
+#   fail and report that the architecture has lost its state-driven behaviour.
+#
+# Predicate semantics (REM-007 §4.3), restated because they are load-bearing:
+#   * UNKNOWN is NOT falsy. Any comparison against UNKNOWN yields UNKNOWN, and
+#     a predicate evaluating to UNKNOWN DOES NOT FIRE (INV-TRIG-4). CONFLICTED
+#     behaves identically. A trigger cannot fire on a fact the system lacks.
+#   * No model calls, no I/O, no unbounded loops. The evaluator sandbox holds
+#     NO model capability; an attempt emits autonomy.model_call_in_decision_path
+#     and raises (INV-TRIG-2, CI-023).
+#   * Every predicate is total and provably terminating (INV-TRIG-5, CI-024).
+#
+# This file is a GOVERNED SURFACE (governed_surfaces.toml surface 7). A model
+# may PROPOSE a trigger; a model may not BE one (INV-TRIG-7). Registry entries
+# arrive only through the promotion gate plus a human merge.
+##############################################################################
+
+schema_version = 1
+authority = "REM-007 §4.2-4.5 · REM-008 · SR-036, SR-042, SR-048 · INV-TRIG-1..7, INV-AUTO-5, INV-IDEA-5"
+entry_schema = "contracts/entities/trigger.schema.json"
+
+# --------------------------------------------------------------------------
+# 1. Improvement backlog — REM-015. COMPOSITE.
+#
+# The load-bearing row. Before REM-015 the only non-SCHEDULE trigger in the
+# corpus was the A-029 test fixture, so CI-026 was satisfiable by an artifact
+# that existed only to keep CI green -- and such artifacts are deleted during
+# cleanup and then argued away. This one exists because the owner wanted the
+# behaviour: ideas are logged when they arise and researched when VESPER
+# notices it is free.
+# --------------------------------------------------------------------------
+[triggers.trg_improvement_backlog]
+name = "Investigate a backlog idea during genuine idle"
+source = "REM-015 · owner requirement 2026-08-12 · SR-027, SR-044, SR-048"
+enabled = true
+predicate_class = "COMPOSITE"
+predicate = """
+  world.system.operating_period in { IDLE, FREE_TIME }
+  AND tasks.count(RUNNING) == 0
+  AND world.owner.attention_state != focused
+  AND backlog.count(state = LOGGED, staleness > staleness_floor) > 0
+  AND schedule.elapsed_since(last_backlog_investigation) > idle_threshold
+"""
+predicate_note = """COMPOSITE, not SCHEDULE: the clock term is a floor on
+frequency, never the cause. With an empty backlog this predicate is false at
+every instant of every day. A-049.4 fires BECAUSE work kept preventing it --
+a statement that is unmakeable in a request-scoped architecture, since there
+is no continuous self to have been prevented."""
+debounce_s = 300
+cooldown_s = 1800
+priority = "proactive"
+required_authority = "L2"
+actuation_scope = "AUTONOMOUS_ACTUATION"
+resource_budget = { max_runtime_ms = 3600000, max_tool_calls = 400, cost_class_ceiling = "free" }
+stop_conditions = ["operating_period exits IDLE/FREE_TIME", "enable token absent", "resource budget exhausted"]
+reporting_policy = "queue_to_boundary"
+provenance = "authored"
+tunables = ["staleness_floor", "idle_threshold", "revisit_after", "starvation_count"]
+
+# --------------------------------------------------------------------------
+# 2. Placement re-evaluation — REM-014 / SR-060. STATE.
+#
+# "Where should I be running right now?" A chatbot cannot ask this. The
+# predicate is over reachability and measured capability, never over time.
+# --------------------------------------------------------------------------
+[triggers.trg_placement_reevaluate]
+name = "Re-evaluate placement when the reachable fabric changes"
+source = "REM-014 · SR-060 (COC v1.2) · SR-019, SR-058"
+enabled = true
+predicate_class = "STATE"
+predicate = """
+  nodes.reachable_set.changed_since(last_placement_decision)
+  OR world.current_host.health in { DEGRADED, FAILING }
+  OR world.current_host.power_source == battery_critical
+"""
+predicate_note = """Pure STATE. DF-PLACE applies hysteresis (INV-PLACE-2) so a
+node flapping in and out of reachability does not cause a relocation storm;
+degradation or loss of the CURRENT host bypasses both damping terms, because
+waiting politely while the host dies is the wrong failure direction."""
+debounce_s = 30
+cooldown_s = 120
+priority = "active_user_task"
+required_authority = "L2"
+actuation_scope = "AUTONOMOUS_ACTUATION"
+resource_budget = { max_runtime_ms = 120000, max_tool_calls = 40, cost_class_ceiling = "free" }
+stop_conditions = ["no candidate improves on current placement", "hysteresis window not elapsed"]
+reporting_policy = "silent_unless_degraded"
+provenance = "authored"
+tunables = ["placement_min_dwell_s", "relocation_gain_threshold"]
+
+# --------------------------------------------------------------------------
+# 3. World-fact expiry — REM-001. STATE.
+#
+# A fact reaching its TTL becomes UNKNOWN. This is the trigger that makes
+# "no guessing" active rather than passive: something must NOTICE the
+# expiry and stop serving the stale value.
+# --------------------------------------------------------------------------
+[triggers.trg_fact_expiry_sweep]
+name = "Transition expired world facts to UNKNOWN and re-observe where cheap"
+source = "REM-001 §4.5 · RB-002 · INV-COORD-2"
+enabled = true
+predicate_class = "STATE"
+predicate = """
+  world.facts.any(valid_until_passed AND value != UNKNOWN)
+"""
+predicate_note = """Fires because a fact EXPIRED, not because a sweep interval
+arrived. INV-COORD-2 forbids reading an expired fact as current, so the
+transition must happen at expiry rather than at the next convenient poll --
+a stale fact presented as current IS a guess."""
+debounce_s = 5
+cooldown_s = 0
+priority = "active_user_task"
+required_authority = "L1"
+actuation_scope = "NONE"
+resource_budget = { max_runtime_ms = 5000, max_tool_calls = 0, cost_class_ceiling = "free" }
+stop_conditions = ["no expired facts remain"]
+reporting_policy = "silent"
+provenance = "authored"
+
+# --------------------------------------------------------------------------
+# 4. Record-loss detection — REM-016. EVENT.
+#
+# A tombstone whose record has vanished. Class C bypasses the interruption
+# budget entirely; class A waits for a natural boundary.
+# --------------------------------------------------------------------------
+[triggers.trg_record_loss_detected]
+name = "Classify and surface a detected record loss"
+source = "REM-016 · owner requirement 2026-08-12 · SR-041, SR-046, SR-049"
+enabled = true
+predicate_class = "EVENT"
+predicate = """
+  events.seen(storage.tombstone_without_record, within = 1 tick)
+  OR events.seen(storage.integrity_chain_break, within = 1 tick)
+  OR events.seen(storage.mass_loss_detected, within = 1 tick)
+"""
+predicate_note = """EVENT-class. DF-LOSS-CLASS reads the STORE the record lived
+in -- a deterministic property, no model call (INV-LOSS-6). Class C surfaces
+immediately as an incident with NO affect template (INV-LOSS-2): the charm has
+a hard edge, and the edge is where VESPER's own integrity begins."""
+debounce_s = 0
+cooldown_s = 0
+priority = "alarm_safety"
+required_authority = "L1"
+actuation_scope = "ALARM_ACTUATION"
+resource_budget = { max_runtime_ms = 30000, max_tool_calls = 20, cost_class_ceiling = "free" }
+stop_conditions = ["all detected losses classified and recorded"]
+reporting_policy = "immediate_if_class_c"
+provenance = "authored"
+
+# --------------------------------------------------------------------------
+# 5. Alarm fire — REM-012 / SR-043. COMPOSITE.
+#
+# The one place where a schedule term is genuinely primary -- and even here it
+# is COMPOSITE, because ownership and partition state decide the fire direction.
+# --------------------------------------------------------------------------
+[triggers.trg_alarm_fire]
+name = "Fire a due alarm, with partition-tolerant ownership"
+source = "SR-043 · REM-012 §3 · INV-ALARM-1, INV-ALARM-2, INV-ALARM-3"
+enabled = true
+predicate_class = "COMPOSITE"
+predicate = """
+  schedule.now_in(alarm.window)
+  AND ( alarm.holds_fire_lease
+        OR world.fabric.partition_suspected )
+  AND NOT alarm.acknowledged
+"""
+predicate_note = """On partition: FIRE. This is the single place in VESPER
+where availability is chosen over consistency, and it is chosen deliberately --
+a missed wake-up violates SR-043; a duplicate wake-up is an annoyance.
+Exempt from the interruption budget, ambience policy, resource yielding and
+device quiet hours (INV-ALARM-3), and survives STOP_AUTONOMY because
+actuation_scope is ALARM_ACTUATION, not AUTONOMOUS_ACTUATION."""
+debounce_s = 0
+cooldown_s = 0
+priority = "alarm_safety"
+required_authority = "L2"
+actuation_scope = "ALARM_ACTUATION"
+resource_budget = { max_runtime_ms = 900000, max_tool_calls = 100, cost_class_ceiling = "free" }
+stop_conditions = ["acknowledged on any channel", "hard escalation cap reached (900 s)"]
+reporting_policy = "immediate"
+provenance = "authored"
+
+# --------------------------------------------------------------------------
+# 6. Proposal surfacing — REM-004 §4.4a. EVENT.
+#
+# Proposals are EMITTED the instant the runtime's work reaches a governed
+# surface. This trigger governs only whether the owner hears about it NOW.
+# --------------------------------------------------------------------------
+[triggers.trg_proposal_awaiting_review]
+name = "Surface a queued change proposal at the right moment"
+source = "REM-004 §4.4a · OWNER-DECISION-001 · SR-042, SR-048, SR-049"
+enabled = true
+predicate_class = "COMPOSITE"
+predicate = """
+  proposals.count(state = QUEUED) > 0
+  AND ( proposals.any(urgency = security)
+        OR world.owner.attention_state == available )
+"""
+predicate_note = """EMISSION is event-driven and immediate; INTERRUPTION is
+budgeted. An urgent security fix reaches the owner immediately; a routine
+refactor waits for a natural boundary. A SCHEDULE-class variant of this row
+was explicitly rejected by OWNER-DECISION-001 -- batching proposals would
+destroy the link between the reasoning that produced them and the moment they
+were produced, and would be the same anti-pattern as cron autonomy."""
+debounce_s = 60
+cooldown_s = 600
+priority = "proactive"
+required_authority = "L1"
+actuation_scope = "NONE"
+resource_budget = { max_runtime_ms = 20000, max_tool_calls = 5, cost_class_ceiling = "free" }
+stop_conditions = ["proposal queue empty", "interruption budget exhausted"]
+reporting_policy = "df_proactive"
+provenance = "authored"
+
+# --------------------------------------------------------------------------
+# 7. Knowledge map staleness — REM-010 / SR-007. STATE.
+#
+# REM-007 §4.5's worked example of a standing goal: "keep the research library
+# indexed" is a STATE predicate over index freshness, NOT a nightly prompt.
+# --------------------------------------------------------------------------
+[triggers.trg_map_stale]
+name = "Re-index a knowledge map whose corpus has changed"
+source = "REM-007 §4.5 · SR-007, SR-052, SR-053"
+enabled = true
+predicate_class = "STATE"
+predicate = """
+  maps.any(node.content_hash != locator.current_hash)
+  OR maps.any(freshness.valid_until_passed)
+"""
+predicate_note = """The worked example the corpus already uses to explain what
+a standing goal IS. Fires because the corpus changed. A nightly re-index
+would be the SCHEDULE-class version and is what REM-007 §4.5 names as wrong."""
+debounce_s = 120
+cooldown_s = 900
+priority = "ambience"
+required_authority = "L2"
+actuation_scope = "AUTONOMOUS_ACTUATION"
+resource_budget = { max_runtime_ms = 1800000, max_tool_calls = 200, cost_class_ceiling = "free" }
+stop_conditions = ["no stale map nodes remain", "operating period exits IDLE/FREE_TIME"]
+reporting_policy = "silent"
+provenance = "authored"
+
+# --------------------------------------------------------------------------
+# 8. Node enrollment re-attestation — ADR-007 D4. STATE.
+# --------------------------------------------------------------------------
+[triggers.trg_reattestation_due]
+name = "Re-attest a node whose attestation has aged out or whose posture changed"
+source = "ADR-007 D4 · REM-011 §3.7 · SR-015, SR-050 · INV-TRUST-1, INV-HW-2"
+enabled = true
+predicate_class = "COMPOSITE"
+predicate = """
+  nodes.any(schedule.elapsed_since(last_attestation) > node.reattest_interval)
+  OR nodes.any(security_baseline.changed_since(last_attestation))
+  OR nodes.any(key_storage_class.changed_since(last_attestation))
+"""
+predicate_note = """A node whose key storage has DEGRADED is demoted
+automatically and the demotion is emitted, never silent. The posture terms are
+what make this COMPOSITE rather than SCHEDULE: a node that changes posture is
+re-attested immediately, not at its next interval."""
+debounce_s = 60
+cooldown_s = 300
+priority = "ambience"
+required_authority = "L2"
+actuation_scope = "AUTONOMOUS_ACTUATION"
+resource_budget = { max_runtime_ms = 60000, max_tool_calls = 20, cost_class_ceiling = "free" }
+stop_conditions = ["all reachable nodes attested"]
+reporting_policy = "silent_unless_demotion"
+provenance = "authored"
+
+##############################################################################
+# REGISTRY SELF-CHECK (asserted by CI-026 against this file)
+#
+#   total triggers                     8
+#   SCHEDULE-class                     0
+#   non-SCHEDULE-class                 8   <- INV-AUTO-5 requires >= 1
+#   rows with no `source`              0   <- a filler trigger would appear here
+#   rows with actuation_scope set      8
+#   rows with resource_budget set      8
+#
+# A-029 part 3 does NOT rely on any row above. It relies on an externally
+# injected observation arriving through contracts/commands/observation_ingress
+# at a time drawn OUTSIDE the system, causing a STATE-class trigger to fire.
+# The registry proves the product is state-driven; A-029 proves it is not
+# anticipating the clock. Both are required, and they fail for different reasons.
+##############################################################################

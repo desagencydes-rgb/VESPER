@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/task.schema.json",
+  "title": "VESPER Task",
+  "description": "IC-007. REM-002 §4.6 (transition table), REM-010 §4.2/§4.4 (typed verification). A task is the unit that survives model, device and session transitions -- DR-007, DR-022. Authority: SR-013, SR-042, SR-048, SR-055; REM-002, REM-010, REM-016.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["task_id", "schema_version", "goal", "state", "verification_criteria", "created_at_hlc", "lease_epoch"],
+  "properties": {
+    "task_id": { "type": "string", "pattern": "^tsk_[0-9a-z]{8,}$" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "goal": {
+      "type": "string",
+      "minLength": 1,
+      "description": "RB-029: refinable by evidence. A resumed task may not silently become a different objective; a changed goal is a new task with a `supersedes` link."
+    },
+    "state": {
+      "enum": ["CREATED", "READY", "RUNNING", "WAITING", "VERIFYING", "RETRYING", "BLOCKED", "RESUMABLE", "SUCCEEDED", "FAILED", "CANCELLED"],
+      "description": "SM-TASK. There is no RUNNING -> SUCCEEDED edge: SUCCEEDED is reachable only through VERIFYING with a passing strategy (INV-TASK-1). A worker's own claim of completion is not a transition."
+    },
+    "verification_criteria": {
+      "$ref": "https://vesper.local/contracts/entities/verification_strategy.schema.json",
+      "description": "REM-010 §4.2. TYPED, never free text. A task whose criteria are untyped cannot be created -- CI-032 fails the fixture, and RB-004's 'machine-checkable acceptance condition' becomes a schema property."
+    },
+    "verified_by": {
+      "type": ["string", "null"],
+      "enum": ["deterministic", "retrieval_grounded", "model_critic", "self_model", "human", "deferred", "none_declared", null],
+      "description": "INV-VERIF-3. `self_model` is never silently reported as accepted -- the value is recorded so the weakness is visible in the result, not inferable only from absence."
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["user_request", "autonomous", "recovery", "improvement_idea"] },
+        "trigger_id": { "type": ["string", "null"], "pattern": "^trg_[0-9a-z]{8,}$" },
+        "enable_token_id": { "type": ["string", "null"] },
+        "idea_id": { "type": ["string", "null"] },
+        "requested_by": { "type": ["string", "null"] }
+      }
+    },
+    "priority_class": {
+      "enum": ["alarm_safety", "active_user_task", "ambience", "proactive"],
+      "description": "REM-007 §4.6 priority lattice, in strict order. Named as an enum so a quiet-hours policy cannot silently outrank an alarm (INV-ALARM-3)."
+    },
+    "plan": { "type": ["array", "null"], "items": { "type": "object" } },
+    "checkpoint_ref": { "type": ["string", "null"] },
+    "outbox_cursor": {
+      "type": ["string", "null"],
+      "description": "INV-TASK-2. Resume replays from here, never from plan start."
+    },
+    "lease_epoch": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The epoch under which the last write was authorized (INV-OWN-3). Also makes authority-at-time-of-action reconstructible for A-018."
+    },
+    "resource_budget": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "max_runtime_ms": { "type": "integer" },
+        "max_tool_calls": { "type": "integer" },
+        "max_spend": { "type": "number" },
+        "cost_class_ceiling": { "enum": ["free", "metered_free_tier", "paid"] }
+      },
+      "description": "Budgets are CUMULATIVE across resumption. A task cannot reset its own budget by being migrated or resumed (RB-018, RB-035)."
+    },
+    "blocked_reason": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["cause"],
+      "properties": {
+        "cause": { "enum": ["verifier_disagreement", "authorization_denied", "cost_policy", "missing_capability", "record_loss_unrecoverable", "awaiting_owner"] },
+        "detail": { "type": "string" },
+        "evidence_refs": { "type": "array", "items": { "type": "string" } }
+      },
+      "description": "Verifier disagreement is PRESERVED as evidence, not discarded. Re-running until the verifier agrees is prohibited (INV-VERIF-1) and A-023 tests for convergence-by-retry directly. `record_loss_unrecoverable` is INV-LOSS-4: forgetting is permitted, pretending the work happened is not."
+    },
+    "created_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" },
+    "updated_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" },
+    "supersedes": { "type": ["string", "null"] }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "const": "BLOCKED" } }, "required": ["state"] },
+      "then": { "required": ["blocked_reason"], "properties": { "blocked_reason": { "type": "object" } } }
+    },
+    {
+      "if": { "properties": { "state": { "const": "SUCCEEDED" } }, "required": ["state"] },
+      "then": {
+        "required": ["verified_by"],
+        "properties": { "verified_by": { "enum": ["deterministic", "retrieval_grounded", "model_critic", "self_model", "human"] } },
+        "description": "SUCCEEDED requires a recorded verifier. `deferred` and `none_declared` cannot appear on a succeeded task, so 'we never checked' is unexpressible as success."
+      }
+    },
+    {
+      "if": { "properties": { "origin": { "properties": { "kind": { "const": "autonomous" } }, "required": ["kind"] } }, "required": ["origin"] },
+      "then": {
+        "properties": { "origin": { "required": ["trigger_id", "enable_token_id"], "properties": { "trigger_id": { "type": "string" }, "enable_token_id": { "type": "string" } } } },
+        "description": "INV-TRIG-1 + INV-STOP-1: an autonomous task with no trigger_id or no enable_token_id is MALFORMED, not merely unauthorized. CI-025 cannot be satisfied by a build that constructs one."
+      }
+    }
+  ],
+  "$comment": "EXCLUDED BY DESIGN: free-text verification criteria, a `completed` boolean, and any field a worker could set to assert its own success. The absence of a self-report field is the schema-level expression of INV-TASK-1."
+}

@@ -1,0 +1,142 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/endpoint_surface_state.schema.json",
+  "title": "EndpointSurfaceState",
+  "description": "What VESPER can currently see of a computer or device surface. REM-011 / REM-012, SR-020 (\"see screens\").\n\nTHE PERCEIVE HALF OF COMPUTER AGENCY. semantic_scene.schema.json is what VESPER PRESENTS; this is what VESPER PERCEIVES of a machine. They are deliberately different types: conflating them is how a system ends up narrating its own output back to itself.\n\nTHREE PROPERTIES THAT ARE NOT NEGOTIABLE:\n\n1. TYPED, NOT A BLOB. The surface is an element tree with roles, labels, values and geometry. A screenshot alone is not a surface state, because no post-condition can be asserted against it deterministically and no retry can be planned from it. `raw_capture_ref` may accompany the tree; it may never replace it.\n\n2. UNTRUSTED BY CONSTRUCTION. `trust_class` is fixed to `retrieved_external`. Text on a screen is written by whoever wrote the screen. An instruction read off a machine is an untrusted input, and the endpoint is where it is most convincing (INV-ACT-3, INV-AUTH-6).\n\n3. IT EXPIRES. `valid_until` is required and there is no edge from expiry to the previous value. Past `valid_until` the only readable value is UNKNOWN, and UNKNOWN is not falsy: a precondition over an expired surface does not fire (INV-COORD-2, SM-WORLD-FACT).\n\nNO MARKDOWN, NO HTML, NO free-form rich text field exists here. The same closed-vocabulary discipline INV-SCENE-3 applies to output is applied to input.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "observation_id",
+    "node_id",
+    "surface_class",
+    "surface_ref",
+    "observed_at_hlc",
+    "valid_until",
+    "capture_path",
+    "trust_class",
+    "confidence",
+    "elements"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "observation_id": { "type": "string", "minLength": 1 },
+
+    "node_id": { "type": "string", "minLength": 1, "description": "Cryptographic node identity (ADR-007), not a product name (INV-HW-1)." },
+    "surface_class": {
+      "type": "string",
+      "enum": ["shell", "filesystem", "gui_window", "web_document", "application_api", "os_service", "peripheral"]
+    },
+    "surface_ref": { "type": "string", "minLength": 1, "description": "Stable handle for the surface within the node: window id, path, document url, service name." },
+
+    "observed_at_hlc": { "type": "string", "minLength": 1, "description": "HLC, not wall clock (INV-COORD-4)." },
+    "valid_until": {
+      "type": "string",
+      "minLength": 1,
+      "description": "REQUIRED. After this the surface reads UNKNOWN. A screen has a shorter TTL than almost anything else in the world model."
+    },
+
+    "capture_path": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sensor_id", "method"],
+      "description": "HOW this was read. INV-ACT-2 compares this against the actuating adapter: an observation captured through the acting path does not close an episode.",
+      "properties": {
+        "sensor_id": { "type": "string", "minLength": 1 },
+        "method": {
+          "type": "string",
+          "enum": ["accessibility_tree", "screen_ocr", "dom_query", "filesystem_stat", "process_query", "api_query", "terminal_readback"]
+        },
+        "actuator_path": {
+          "type": ["string", "null"],
+          "description": "The adapter that acted, when this observation follows an action. DF-ENDPOINT-OBSERVE refuses a plan whose sensor_id equals this."
+        }
+      }
+    },
+
+    "trust_class": {
+      "const": "retrieved_external",
+      "description": "Structurally fixed. There is no value of this field that would let screen content raise authority. A schema permitting `owner_direct` here would make the most convincing injection surface in the system also the most trusted."
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "OCR and accessibility trees are both lossy. An element read at low confidence is not a fact."
+    },
+
+    "elements": {
+      "type": "array",
+      "description": "The typed element tree. Empty is legitimate and means 'nothing readable was found', which is distinct from UNKNOWN.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["element_id", "role"],
+        "properties": {
+          "element_id": { "type": "string" },
+          "parent_id": { "type": ["string", "null"] },
+          "role": {
+            "type": "string",
+            "enum": ["window", "button", "text", "text_field", "list", "list_item", "menu", "menu_item", "checkbox", "link", "image", "table", "row", "cell", "dialog", "progress", "unknown_role"],
+            "description": "Closed enum. `unknown_role` is honest and usable; an open string field would let an adapter smuggle arbitrary structure past every consumer."
+          },
+          "label": { "type": ["string", "null"] },
+          "value": { "type": ["string", "null"] },
+          "enabled": { "type": ["boolean", "null"] },
+          "focused": { "type": ["boolean", "null"] },
+          "bounds": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "properties": {
+              "x": { "type": "number" }, "y": { "type": "number" },
+              "w": { "type": "number" }, "h": { "type": "number" }
+            }
+          },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+
+    "text_regions": {
+      "type": "array",
+      "description": "OCR output where no accessibility tree is available. Each region carries its own confidence; a low-confidence region is evidence, not a reading.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["text", "confidence"],
+        "properties": {
+          "text": { "type": "string" },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "bounds": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "properties": {
+              "x": { "type": "number" }, "y": { "type": "number" },
+              "w": { "type": "number" }, "h": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+
+    "raw_capture_ref": {
+      "type": ["string", "null"],
+      "description": "Optional pointer to raw media, subject to INV-PRIV-3 retention (not persisted beyond the processing window). It ACCOMPANIES the element tree and never substitutes for it: a post-condition cannot be asserted deterministically against an image."
+    },
+
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unknown_person_present": {
+          "type": "boolean",
+          "description": "When true, derived inference is suppressed and the sensor moves to PAUSED (SM-SENSOR, INV-PRIV-1)."
+        },
+        "indicator_driven": {
+          "type": "boolean",
+          "description": "Whether the capture indicator was verifiably ON. A capture recorded with this false is a contract violation, not a degraded reading (INV-PRIV-4)."
+        }
+      }
+    }
+  }
+}

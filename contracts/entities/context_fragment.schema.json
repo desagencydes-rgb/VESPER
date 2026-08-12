@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/context_fragment.schema.json",
+  "title": "VESPER Context Fragment",
+  "description": "REM-003 §4.4-4.5. Every piece of content entering a model context is a fragment carrying a trust class, and the context ceiling is the minimum over all of them. Taint propagates through summarisation, embedding and cache reuse -- that single sentence is the whole defence against unattended overnight research with shell and comms access, and it is the one an implementation omits, because summarisation naturally produces a clean-looking new string. Authority: SR-025, SR-054; INV-AUTH-3/6/7; CI-012, CI-014.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fragment_id", "schema_version", "trust_class", "context_role", "origin"],
+  "properties": {
+    "fragment_id": { "type": "string" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "trust_class": {
+      "enum": ["system", "owner", "verified_local", "retrieved_local", "retrieved_external", "model_generated"],
+      "description": "Maps to allowed_level for STATE-CHANGING capabilities: system L5, owner L5, verified_local L4, retrieved_local L3, model_generated L2, retrieved_external L1. context_ceiling = min over all fragments in context."
+    },
+    "context_role": {
+      "enum": ["planner", "extraction", "conversation", "reference"],
+      "description": "REM-003 §4.5, the two-context research pattern. `planner` holds full authority; `extraction` holds L1 and no state-changing tools and must emit schema-validated output."
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["system_prompt", "user_utterance", "retrieval", "web_fetch", "ocr", "sub_agent_output", "cache", "summary", "embedding", "tool_result"] },
+        "uri": { "type": ["string", "null"] },
+        "retrieved_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" }
+      }
+    },
+    "derived_from": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Fragment ids this one was derived from. A summary, an embedding, or a cache hit MUST list its inputs: `trust_class` is then the WEAKEST of them, computed rather than declared. This array is what CI-012 follows to prove taint survived the summariser."
+    },
+    "cache_tier": {
+      "type": ["string", "null"],
+      "enum": ["file_hash", "chunk", "embedding", "summary", "prompt_prefix", null],
+      "description": "SR-054's five tiers. Present here rather than only in the cache subsystem because a cache entry INHERITS the taint of what it caches (GAP-027) -- a clean-looking prefix cache is otherwise a laundering path straight into the planner context."
+    },
+    "sensitive": {
+      "type": "boolean",
+      "default": false,
+      "description": "Secrets are never fragments. This flag marks content that must not reach telemetry (INV-OBS-1); it is not a mechanism for admitting secrets into context."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "context_role": { "const": "planner" } }, "required": ["context_role"] },
+      "then": {
+        "properties": { "trust_class": { "enum": ["system", "owner", "verified_local", "retrieved_local", "model_generated"] } },
+        "$comment": "INV-AUTH-6 as a schema property: a retrieved_external fragment CANNOT carry context_role planner. The high-authority planner context never ingests raw external content -- injected instructions cannot survive schema validation into a field the planner treats as an instruction, because no such field exists."
+      }
+    },
+    {
+      "if": { "properties": { "origin": { "properties": { "kind": { "enum": ["summary", "embedding", "cache"] } }, "required": ["kind"] } }, "required": ["origin"] },
+      "then": {
+        "required": ["derived_from"],
+        "properties": { "derived_from": { "minItems": 1 } },
+        "$comment": "A summary, embedding or cache entry with no declared inputs is malformed. Without this, the natural implementation returns a fresh untainted string and the ceiling silently rises -- the exact build A-025's negative control must be shown failing against."
+      }
+    },
+    {
+      "if": { "properties": { "context_role": { "const": "extraction" } }, "required": ["context_role"] },
+      "then": {
+        "properties": { "sensitive": { "const": false } },
+        "$comment": "The extraction context is the one that ingests hostile content. Nothing sensitive is placed in it."
+      }
+    }
+  ],
+  "$comment": "EXCLUDED BY DESIGN: any `trusted: true` override field, and any way to set trust_class higher than the minimum of derived_from. Taint is monotone downward; there is no sanitisation operation, because a sanitiser is a thing an attacker writes input for."
+}

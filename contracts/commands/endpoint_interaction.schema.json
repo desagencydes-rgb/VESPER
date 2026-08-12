@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/commands/endpoint_interaction.schema.json",
+  "title": "EndpointInteraction",
+  "description": "ONE act of operating a computer or device. REM-012 / SR-020 (self-interact across available hardware), SR-021 (run/execute code, scripts, commands), SR-030 (computer action).\n\nWHY THIS SHAPE. A conventional assistant sends a free-text instruction to a tool and treats the tool's reply as the outcome. That build satisfies every other rule in this corpus. The three fields that make it impossible here are `expected_post_condition`, `observation_plan` and `verification_strategy`: all three are REQUIRED, so an interaction with nothing to check cannot be constructed, and `SM-ENDPOINT-EPISODE` has no edge from ACTUATED to VERIFIED (INV-ACT-1, INV-ACT-2).\n\nMODEL-AGNOSTIC AND NODE-AGNOSTIC BY CONSTRUCTION. There is no field naming a model, a vendor or a product. The target is a NODE ID plus a SURFACE CLASS plus a measured capability requirement; which node satisfies it is DF-PLACE's answer at the moment of acting, and it may be a different node next time (INV-HW-1, INV-PLACE-1).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "interaction_id",
+    "episode_id",
+    "target",
+    "capability",
+    "action",
+    "args",
+    "declared_level",
+    "precondition",
+    "freshness_bound_ms",
+    "expected_post_condition",
+    "observation_plan",
+    "verification_strategy",
+    "effect_class",
+    "idempotent",
+    "derived_from",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "interaction_id": { "type": "string", "minLength": 1 },
+    "episode_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The SM-ENDPOINT-EPISODE instance this interaction belongs to. A retry after recovery re-uses the episode, so attempt counting and budget are per episode, not per call."
+    },
+
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "surface_class", "required_capability"],
+      "description": "WHERE to act, expressed as a capability requirement rather than a machine name.",
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "description": "Cryptographic node identity (ADR-007). Resolved by DF-PLACE at plan time; not a product name."
+        },
+        "surface_class": {
+          "type": "string",
+          "enum": ["shell", "filesystem", "gui_window", "web_document", "application_api", "os_service", "peripheral"],
+          "description": "The KIND of surface being operated. Closed enum: an interaction that does not fit one of these has no adapter and no observation path, and must be specified before it can be attempted."
+        },
+        "required_capability": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The MEASURED endpoint capability this action needs (INV-HW-2). An unmeasured capability is treated as unavailable and DF-ENDPOINT-ACT refuses."
+        },
+        "max_trust_zone": {
+          "type": "string",
+          "enum": ["Z0", "Z1", "Z2", "Z3"],
+          "default": "Z1",
+          "description": "The weakest trust zone permitted to host this action. Survival never lowers a trust floor (INV-TRUST-1)."
+        }
+      }
+    },
+
+    "capability": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The authorization capability name evaluated by DF-AUTHORIZE."
+    },
+    "action": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The typed operation within the surface class (e.g. `run`, `click`, `type`, `read_element_tree`, `write_file`). Never a natural-language sentence."
+    },
+    "args": {
+      "type": "object",
+      "description": "Structured arguments. DF-AUTHORIZE computes declared_level(args); a capability whose declared_level ignores args is rejected by CI-011."
+    },
+    "declared_level": {
+      "type": "string",
+      "enum": ["L0", "L1", "L2", "L3", "L4", "L5"],
+      "description": "The level these SPECIFIC arguments resolve to. shell.run('ls') and shell.run('rm -rf ~') are different levels of the same capability (INV-AUTH-5)."
+    },
+
+    "precondition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "assertion"],
+      "description": "What must be true of the endpoint BEFORE acting. Checked against a surface observation no older than freshness_bound_ms; an UNKNOWN or stale surface refuses the action rather than proceeding hopefully (INV-COORD-2).",
+      "properties": {
+        "kind": { "type": "string", "enum": ["element_present", "text_matches", "file_state", "process_state", "api_state", "none_required"] },
+        "assertion": { "type": "string", "minLength": 1 },
+        "surface_observation_id": { "type": "string", "description": "The EndpointSurfaceState this assertion was evaluated against." }
+      }
+    },
+    "freshness_bound_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "How old the precondition observation may be. A stale screen is a different screen."
+    },
+
+    "expected_post_condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "assertion"],
+      "description": "REQUIRED. What must be true of the endpoint AFTER acting for this interaction to have succeeded. This field is what makes the action checkable; an action with no post-condition cannot be verified, cannot be recovered, and is therefore not an action.",
+      "properties": {
+        "kind": { "type": "string", "enum": ["element_present", "element_absent", "text_matches", "file_state", "file_hash", "exit_code", "process_state", "api_state"] },
+        "assertion": { "type": "string", "minLength": 1 }
+      }
+    },
+
+    "observation_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["independent_of_actuator", "sources"],
+      "description": "REQUIRED. HOW the post-state will be read. DF-ENDPOINT-OBSERVE fills this in and INV-ACT-2 constrains it: the observing path may not be the actuating path.",
+      "properties": {
+        "independent_of_actuator": {
+          "const": true,
+          "description": "Structurally fixed to true. A schema in which this could be false would permit an actuator to grade its own work, which is the whole failure this contract exists to prevent."
+        },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "Sensor or reader identities distinct from the actuator adapter."
+        },
+        "deadline_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+
+    "verification_strategy": {
+      "type": "string",
+      "enum": ["deterministic", "retrieval_grounded", "model_critic", "human"],
+      "description": "REQUIRED. Selected by DF-VERIFY-SELECT, strongest applicable. `model_critic` is inadmissible for autonomous completion during FREE_TIME (INV-VERIF-2)."
+    },
+
+    "effect_class": {
+      "type": "string",
+      "enum": ["read_only", "reversible", "irreversible"],
+      "description": "`irreversible` requires an outbox record with an idempotency key BEFORE the effect (INV-EXT-1, INV-ACT-6)."
+    },
+    "idempotent": {
+      "type": "boolean",
+      "description": "Whether repeating this action with the same arguments is safe. A non-idempotent action is NEVER retried on an UNKNOWN outcome; it is compensated or escalated (INV-ACT-5)."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "description": "Required when effect_class is irreversible. Replay after crash re-uses it so the effect happens once."
+    },
+    "compensating_action": {
+      "type": ["string", "null"],
+      "description": "The interaction that undoes this one, where one exists. Itself an EndpointInteraction with its own post-condition and verification."
+    },
+
+    "derived_from": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fragment_id", "trust_class"],
+        "properties": {
+          "fragment_id": { "type": "string" },
+          "trust_class": { "type": "string", "enum": ["owner_direct", "system_derived", "retrieved_external", "tool_output"] }
+        }
+      },
+      "description": "The context that produced this plan. If any fragment is retrieved_external -- screen text, OCR, a web page, command output -- the action is ceiling-bound to L1 and an above-ceiling attempt becomes a queued proposal with security.injection_suspected, never a silent drop (INV-AUTH-6, INV-AUTH-7, INV-ACT-3)."
+    },
+
+    "trigger_id": {
+      "type": "string",
+      "description": "REQUIRED when provenance.subject_kind is `runtime`. No autonomous action exists without the trigger that justified it (INV-TRIG-1)."
+    },
+    "enable_token_id": {
+      "type": "string",
+      "description": "REQUIRED when provenance.subject_kind is `runtime`. Per action, not per session."
+    },
+    "outbox_record_id": {
+      "type": "string",
+      "description": "REQUIRED when effect_class is irreversible. Written before the effect."
+    },
+
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject_kind", "planned_at_hlc"],
+      "properties": {
+        "subject_kind": { "type": "string", "enum": ["owner", "runtime", "delegated_agent"] },
+        "planned_at_hlc": { "type": "string" },
+        "planner": { "type": "string" }
+      }
+    }
+  },
+
+  "allOf": [
+    {
+      "if": { "properties": { "effect_class": { "const": "irreversible" } }, "required": ["effect_class"] },
+      "then": { "required": ["idempotency_key", "outbox_record_id"] }
+    },
+    {
+      "if": { "properties": { "provenance": { "properties": { "subject_kind": { "const": "runtime" } }, "required": ["subject_kind"] } }, "required": ["provenance"] },
+      "then": { "required": ["trigger_id", "enable_token_id"] }
+    }
+  ]
+}

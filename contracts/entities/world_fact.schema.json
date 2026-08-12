@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/world_fact.schema.json",
+  "title": "VESPER WorldFact",
+  "description": "The unit of the persistent world model. COC ARCH-05 states 'use timestamps and confidence so stale observations do not become current truth' -- sound only if clocks agree, which across a roaming laptop, a legacy handset and a sleeping desktop they do not. This contract makes freshness decidable. Authority: DR-003, DR-011, RB-002, RB-003, ARCH-05, ARCH-22; REM-001, REM-011.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["fact_id", "schema_version", "subject", "attribute", "state", "observed_at_hlc", "valid_until", "confidence", "source", "trust_class"],
+  "properties": {
+    "fact_id": { "type": "string" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "subject": { "type": "string", "description": "Stable entity id. Evidence -> identity resolution is an explicit policy (DF-IDENTITY-RESOLVE), never an implicit join." },
+    "attribute": { "type": "string" },
+    "state": {
+      "type": "string",
+      "enum": ["CURRENT", "UNKNOWN", "CONFLICTED"],
+      "description": "SM-WORLD-FACT. UNKNOWN is a FIRST-CLASS VALUE, not an absence and never a degradation to 'last known value' (INV-COORD-2). A reader receiving UNKNOWN has received an answer, and the correct downstream behaviour is to retrieve, observe, ask or report uncertainty -- which is RB-002 executed rather than asserted."
+    },
+    "value": { "description": "MUST be absent when state is UNKNOWN. Typed per attribute." },
+    "observed_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" },
+    "observed_at_wall": { "type": "string", "format": "date-time", "description": "Display and policy windows only. INV-COORD-4." },
+    "valid_until": { "type": "string", "format": "date-time", "description": "Absolute, derived from the observation type's declared TTL. Every observation type MUST declare one; a type with no TTL cannot be registered." },
+    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["sensor", "node_telemetry", "external_service", "synthetic_observer", "user_statement", "inference", "source_of_record"] },
+        "id": { "type": "string" }
+      },
+      "description": "INV-AUTO-4: the world model is writable by observation sources EXTERNAL to the decision loop. 'synthetic_observer' is an enrolled Z2 node using the same production ingress as a camera -- which is what makes A-029 part 3 a test of the product rather than of scaffolding."
+    },
+    "provenance": { "type": "array", "items": { "type": "string" } },
+    "trust_class": { "type": "string", "enum": ["system", "owner", "verified_local", "retrieved_local", "retrieved_external", "model_generated"] },
+    "supersedes": { "type": ["string", "null"], "description": "Previous fact_id, retained. Corrections preserve provenance (IC-006)." },
+    "conflict_with": { "type": ["array", "null"], "items": { "type": "string" }, "description": "Set when state is CONFLICTED. INV-COORD-3: no conflict is resolved without an emitted world.conflict event, and the world model never selects a winner silently." }
+  },
+  "allOf": [
+    { "$comment": "INV-COORD-2 -- UNKNOWN carries no value.",
+      "if": { "properties": { "state": { "const": "UNKNOWN" } }, "required": ["state"] },
+      "then": { "not": { "required": ["value"] } } },
+    { "$comment": "A CONFLICTED fact names its counterpart.",
+      "if": { "properties": { "state": { "const": "CONFLICTED" } }, "required": ["state"] },
+      "then": { "required": ["conflict_with"] } }
+  ]
+}

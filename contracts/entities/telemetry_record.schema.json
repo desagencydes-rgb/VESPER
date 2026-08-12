@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/telemetry_record.schema.json",
+  "title": "VESPER Telemetry Record",
+  "description": "SR-011: 'records model, context, response time, tokens, RAM, GPU, CPU, quality notes; VISIBLE TO THE MODEL AND ACTIONABLE'. That pairing is a hazard as well as a requirement -- a model-visible value that directly actuates a governor is a control loop a model can drive. This schema carries the values; DF-GOVERNOR-LEVEL is the damped path that consumes them; CI-039 forbids the direct path. Authority: SR-011, SR-026, SR-057; REM-012 §6; INV-OBS-1/2, INV-PERF-1, INV-HW-2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["record_id", "schema_version", "recorded_at_hlc", "node_id", "sensitivity", "measurement"],
+  "properties": {
+    "record_id": { "type": "string" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "recorded_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" },
+    "node_id": { "type": "string", "pattern": "^nd_[a-z2-7]{26}$" },
+    "correlation_id": {
+      "type": ["string", "null"],
+      "description": "INV-OBS-2: purge removes payloads; the event SKELETON and this correlation chain survive. A privacy deletion must not destroy the ability to reconstruct that something happened."
+    },
+    "sensitivity": {
+      "enum": ["public", "operational", "personal", "secret_excluded"],
+      "description": "INV-OBS-1: sensitivity is enforced AT WRITE TIME by the telemetry writer, never by caller discipline. `secret_excluded` is not a permission to store a secret -- it marks a record from which secret-bearing fields were structurally removed before the write."
+    },
+    "measurement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "model_profile_id": { "type": ["string", "null"] },
+        "context_tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "output_tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "response_time_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "stage": {
+          "type": ["string", "null"],
+          "enum": ["asr", "perception_fuse", "retrieval_bag", "route", "plan", "verify_inline", "scene_build", "tts_first_sample", "tts_complete", "checkpoint_write", null],
+          "description": "Matches the stage ids in contracts/policy/latency_budgets.toml, so a measured record can be compared against its budget without a mapping table that could drift."
+        },
+        "cpu_norm": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "mem_norm": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "accelerator_norm": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "swap_norm": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "thermal_norm": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "queue_depth": { "type": ["integer", "null"], "minimum": 0 },
+        "power_source": { "type": ["string", "null"], "enum": ["mains", "battery", "battery_critical", null] }
+      },
+      "description": "Normalised 0..1 pressure values, so DF-GOVERNOR-LEVEL is comparable across heterogeneous nodes without naming any of them (INV-HW-1). Every field is nullable because a node genuinely may not expose it -- and a null means UNMEASURED, which DF-GOVERNOR-LEVEL treats as absent rather than as zero."
+    },
+    "source": {
+      "enum": ["measured", "derived"],
+      "default": "measured",
+      "description": "INV-HW-2. A telemetry value is MEASURED. `derived` marks a computed aggregate and may never be used where a measured value is required -- notably, never to populate a NodeCapabilityProfile field."
+    },
+    "quality_note": {
+      "type": ["string", "null"],
+      "description": "SR-011's 'quality notes'. Free text is acceptable HERE and nowhere else in this corpus, because this field is an observation about an interaction rather than an input to a decision. DF-GOVERNOR-LEVEL does not read it."
+    },
+    "model_visible": {
+      "type": "boolean",
+      "default": true,
+      "description": "SR-011 requires telemetry to be visible to the model. Visible means READABLE. It does not mean ACTIONABLE-BY-WRITING: there is no field on this record through which a model can request a governor level, and CI-039 fails any code path in which a model-visible value actuates a level change without traversing DF-GOVERNOR-LEVEL's damping."
+    },
+    "actuated": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["governor_level", "decided_by"],
+      "properties": {
+        "governor_level": { "enum": ["NORMAL", "REDUCED", "MINIMAL", "YIELD"] },
+        "decided_by": {
+          "const": "DF-GOVERNOR-LEVEL",
+          "description": "One permitted value. A governor level attributed to anything else -- a model, a heuristic at a call site, an operator override without a record -- is unrecordable, which is the schema-level form of CI-039."
+        },
+        "dwell_elapsed_ms": { "type": "integer", "minimum": 0 },
+        "owner_confirmation_required": {
+          "type": "boolean",
+          "description": "SR-057: forced closure of the owner's applications REQUIRES ASKING. YIELD while the owner has a foreground application active sets this true and does NOT apply the level."
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "sensitivity": { "enum": ["personal", "secret_excluded"] } }, "required": ["sensitivity"] },
+      "then": { "required": ["correlation_id"], "properties": { "correlation_id": { "type": "string" } },
+        "$comment": "A record that may later be purged must be correlatable, or INV-OBS-2's surviving skeleton has nothing to hang on." }
+    },
+    {
+      "if": { "properties": { "actuated": { "type": "object" } }, "required": ["actuated"] },
+      "then": { "properties": { "source": { "const": "measured" } },
+        "$comment": "A governor level may only be actuated from a MEASURED record. Actuating from a derived aggregate is how a smoothed average ends up hiding the spike that mattered." }
+    }
+  ],
+  "$comment": "EXCLUDED BY DESIGN: any field carrying a credential, token, key, prompt body or retrieved content. Provider credentials are the highest-value target on the network, and telemetry is the least-guarded store in any system. Enforcement is at the writer (INV-OBS-1), not at the caller: `additionalProperties: false` means a caller cannot smuggle a field through, and the writer strips before the write rather than trusting the caller to have done so."
+}

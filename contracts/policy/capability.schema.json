@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/policy/capability.schema.json",
+  "title": "VESPER Capability Registration",
+  "description": "REM-003 §4.2. The registration record for a capability (a tool, an actuator, a write path). Its whole purpose is `declared_level_rules`: COC Part VII classifies ACTIONS but supplies no evaluator, so `shell.run(\"ls\")` and `shell.run(\"rm -rf ~\")` are the same tool. Argument sensitivity is mandatory and is the point. Authority: SR-021, SR-022; COC Part VII; INV-AUTH-5; CI-011.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["capability_id", "schema_version", "argument_schema", "declared_level_rules", "reversibility", "actuation_scope"],
+  "properties": {
+    "capability_id": { "type": "string", "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "description": { "type": "string" },
+    "argument_schema": {
+      "type": "object",
+      "description": "JSON Schema for this capability's arguments. `declared_level_rules` is a TOTAL function over it: every argument shape must match at least one rule, which is why the catch-all rule is mandatory below."
+    },
+    "declared_level_rules": {
+      "type": "array",
+      "minItems": 2,
+      "description": "INV-AUTH-5. At least two entries, so a constant level is UNEXPRESSIBLE. This is the structural form of 'a tool that returns a constant regardless of arguments is rejected at registration' -- CI-011 checks the shape, and the schema makes the violating shape invalid before CI ever runs.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["when", "level"],
+        "properties": {
+          "when": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["predicate"],
+            "properties": {
+              "predicate": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A total, side-effect-free expression over the declared arguments. Example for fs.write: `path in GOVERNED_PATHS`. Evaluated with no model access."
+              },
+              "is_catch_all": { "type": "boolean", "default": false }
+            }
+          },
+          "level": { "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] },
+          "rationale": { "type": "string" }
+        }
+      }
+    },
+    "required_level_rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["when", "level"],
+        "properties": {
+          "when": { "type": "object", "additionalProperties": false, "required": ["predicate"], "properties": { "predicate": { "type": "string" }, "is_catch_all": { "type": "boolean", "default": false } } },
+          "level": { "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] }
+        }
+      },
+      "description": "`authorized  <=>  effective_level >= required_level(args)`. Separate from declared_level because the level an action REACHES and the level it DEMANDS are different questions; collapsing them is how an under-privileged call silently becomes a privileged one."
+    },
+    "reversibility": {
+      "enum": ["reversible", "compensatable", "irreversible"],
+      "description": "REM-012 §4. `irreversible` capabilities are the class where a duplicate is unrecoverable, so INV-EXT-1's outbox and INV-EXT-2's reconciliation probe are mandatory for them."
+    },
+    "actuation_scope": {
+      "enum": ["NONE", "AUTONOMOUS_ACTUATION", "ALARM_ACTUATION"],
+      "description": "REM-005. A capability with AUTONOMOUS_ACTUATION requires a fresh enable token per invocation when driven autonomously (INV-STOP-1). ALARM_ACTUATION survives STOP_AUTONOMY so that stopping autonomy does not silently defeat SR-043's alarms."
+    },
+    "external_effect": {
+      "type": "boolean",
+      "default": false,
+      "description": "True if invoking this capability can be observed outside VESPER. Requires an outbox record before the effect (INV-EXT-1) and a reconciliation probe before any retry (INV-EXT-2)."
+    },
+    "requires_owner_confirmation": {
+      "type": "boolean",
+      "default": false,
+      "description": "L4 semantics: binds to exactly one command instance. See grant.schema.json `issued_for_command_id`."
+    },
+    "owner_administrative": {
+      "type": "boolean",
+      "default": false,
+      "description": "INV-ADMIN-1: per-instance owner confirmation, never delegable, never invocable during FREE_TIME. RB-013's narrowing is recorded as an owner-approved deviation (SR-039)."
+    },
+    "model_access": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether invoking this capability may reach a model. MUST be false for anything reachable from the trigger evaluator sandbox: INV-TRIG-2 requires model-denial in the decision path to be observable, and CI-023 scans for it."
+    }
+  },
+  "allOf": [
+    {
+      "properties": {
+        "declared_level_rules": {
+          "contains": { "properties": { "when": { "properties": { "is_catch_all": { "const": true } }, "required": ["is_catch_all"] } }, "required": ["when"] }
+        }
+      },
+      "description": "TOTALITY: exactly one catch-all rule is required. Without it, an argument shape matching no rule has an undefined level, and an undefined level becomes a permissive one at the first call site that needs it to work."
+    },
+    {
+      "if": { "properties": { "external_effect": { "const": true } }, "required": ["external_effect"] },
+      "then": { "properties": { "reversibility": { "enum": ["reversible", "compensatable", "irreversible"] } }, "required": ["reversibility"] }
+    },
+    {
+      "if": { "properties": { "owner_administrative": { "const": true } }, "required": ["owner_administrative"] },
+      "then": { "properties": { "requires_owner_confirmation": { "const": true } } }
+    }
+  ],
+  "$comment": "EXCLUDED BY DESIGN: a scalar `level` field. Its absence is what makes argument-insensitive authorization unexpressible rather than merely discouraged. An implementation cannot register `shell.run` at a single level, because there is no field to put it in."
+}

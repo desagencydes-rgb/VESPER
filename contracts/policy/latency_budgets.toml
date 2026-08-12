@@ -1,0 +1,144 @@
+##############################################################################
+# VESPER LATENCY BUDGETS
+#
+# REM-010 §4.7. INV-PERF-1:
+#
+#     Latency budgets are REQUIREMENTS SET BEFORE MEASUREMENT.
+#     A budget may not be modified in the same change as the code that failed it.
+#
+# A target defined as whatever was measured can never fail. These values are
+# derived from interaction-design constraints -- what SR-047 ("fast, realtime,
+# realistic") means operationally -- and are recorded now, before any hardware
+# exists, precisely so that measurement produces a GAP ANALYSIS and never a
+# retarget.
+#
+# WHERE A BUDGET IS UNMEETABLE ON THE MINIMUM HARDWARE PROFILE, THE DELIVERABLE
+# IS A COC PART XIV.3 LIMITATION RECORD WITH AN R&D PATH -- NOT A RELAXED
+# BUDGET. This applies to SPIKE-002's findings without exception.
+#
+# Enforced by: CI-031 (budget-not-relaxed-with-code), A-020, SPIKE-002.
+# This file is a GOVERNED SURFACE. The runtime may propose changes; never apply.
+##############################################################################
+
+schema_version = 1
+authority = "REM-010 §4.7 · SR-046, SR-047 · RB-004 · INV-PERF-1"
+set_before_measurement = true
+measured = false
+note = "measured = false is the honest state today. SPIKE-002 sets it true and populates `measured_ms` per path. No `budget_ms` value may change in the same commit."
+
+# --------------------------------------------------------------------------
+# Profile against which these budgets are asserted.
+# --------------------------------------------------------------------------
+[profile]
+target = "minimum_viable_node"
+conditions = ["offline", "OperatingPeriod = FREE_TIME", "local models only"]
+note = """The budgets are asserted on the MINIMUM profile under the HARDEST
+conditions, not on the best machine while online. A latency budget that only
+holds on the strongest node while a paid API is reachable is not a budget for
+this system -- SR-045 forbids paid providers in FREE_TIME, and SR-060 means the
+minimum node may be the only one running."""
+
+# --------------------------------------------------------------------------
+# Per-path budgets. `budget_ms` is normative; `measured_ms` is filled by SPIKE-002.
+# --------------------------------------------------------------------------
+[[path]]
+id = "wake_to_first_audio"
+description = "Wake word detected -> first audible response begins"
+budget_ms = 800
+measured_ms = "UNKNOWN"
+independent_of_total = true
+spike = "SPIKE-002"
+note = "Asserted INDEPENDENTLY of total completion. A system that stays silent for four seconds and then answers perfectly has failed SR-047, and a total-only budget cannot express that."
+
+[[path]]
+id = "speech_end_to_response_onset"
+description = "End of user speech -> response onset, routine query"
+budget_ms = 1200
+measured_ms = "UNKNOWN"
+independent_of_total = true
+spike = "SPIKE-002"
+
+[[path]]
+id = "scene_update_visible"
+description = "SemanticScene update emitted -> visible on the selected endpoint"
+budget_ms = 300
+measured_ms = "UNKNOWN"
+spike = "SPIKE-002"
+
+[[path]]
+id = "barge_in_honoured"
+description = "User interrupts -> output actually stops"
+budget_ms = 200
+measured_ms = "UNKNOWN"
+spike = "SPIKE-002"
+note = "The interaction property most responsible for a system feeling present rather than scripted. Also the one an implementation defers, because it requires the output path to be cancellable end to end."
+
+[[path]]
+id = "tool_invocation_ack"
+description = "Tool invoked -> result acknowledged"
+budget_ms = 500
+measured_ms = "UNKNOWN"
+spike = "SPIKE-002"
+
+[[path]]
+id = "checkpoint_write"
+description = "Checkpoint transaction committed and acknowledged"
+budget_ms = 200
+measured_ms = "UNKNOWN"
+spike = "SPIKE-001"
+note = "ADR-002 D6: acknowledged BEFORE the plan step is marked complete. Ordering matters more than the number -- a task that marks the step first and checkpoints after resumes having forgotten what it just did."
+
+[[path]]
+id = "node_failover_task_resumed"
+description = "Node loss detected -> task resumed on a new owner from checkpoint"
+budget_ms = 30000
+measured_ms = "UNKNOWN"
+spike = "SPIKE-001"
+
+# --------------------------------------------------------------------------
+# The SR-046 x SR-047 x RB-004 x SR-045 intersection (AR-024).
+# The stage budgets must sum within the end-to-end budget, offline, in FREE_TIME.
+# This is the arithmetic that was never done, and SPIKE-002 exists to do it.
+# --------------------------------------------------------------------------
+[chain.voice_round_trip]
+end_to_end_budget_ms = 1200
+first_output_budget_ms = 800
+stages = [
+  { id = "asr",                 budget_ms = 250, measured_ms = "UNKNOWN" },
+  { id = "perception_fuse",     budget_ms =  50, measured_ms = "UNKNOWN" },
+  { id = "retrieval_bag",       budget_ms = 200, measured_ms = "UNKNOWN" },
+  { id = "route",               budget_ms =  20, measured_ms = "UNKNOWN" },
+  { id = "plan",                budget_ms = 200, measured_ms = "UNKNOWN" },
+  { id = "verify_inline",       budget_ms = 150, measured_ms = "UNKNOWN" },
+  { id = "scene_build",         budget_ms =  30, measured_ms = "UNKNOWN" },
+  { id = "tts_first_audio",     budget_ms = 100, measured_ms = "UNKNOWN" },
+]
+sum_of_stage_budgets_ms = 1000
+headroom_ms = 200
+
+[chain.voice_round_trip.async_permitted]
+stages = ["verify_model_critic"]
+note = """REM-010 §4.5: model_critic verification may run ASYNCHRONOUSLY with
+honest post-hoc correction ("Correction -- I checked that: it is 60 minutes, not
+15"). This is how the four-way intersection is resolved WITHOUT weakening
+verification. Inline retrieval_grounded verification stays in the chain and is
+counted above. Moving any other stage to async requires a REM-010 change."""
+
+# --------------------------------------------------------------------------
+# What happens when a budget is missed. Fixed here so it is not decided
+# under schedule pressure by whoever is holding the failing measurement.
+# --------------------------------------------------------------------------
+[on_miss]
+permitted = [
+  "optimise the implementation",
+  "move a stage to async where REM-010 permits it",
+  "raise the minimum node profile and re-run SPIKE-001",
+  "record a COC Part XIV.3 limitation with an R&D path",
+]
+prohibited = [
+  "relax budget_ms",
+  "redefine the path so the slow part falls outside it",
+  "measure on a stronger profile and report that number",
+  "report total completion in place of first-output latency",
+]
+enforcement = "CI-031 rejects any commit that changes a budget_ms value and an implementation file under the same change."

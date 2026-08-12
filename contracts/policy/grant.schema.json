@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/policy/grant.schema.json",
+  "title": "VESPER Capability Grant",
+  "description": "REM-003 §4.1, §4.3. There is no ambient authority: a subject holding no grant may act at L0 only. 'Default deny' is not a configuration setting -- it is the absence of any code path that produces a level without a grant. Authority: SR-014, SR-021, SR-022, SR-039, SR-049; INV-AUTH-1/2, INV-SELF-3.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["grant_id", "schema_version", "subject", "capability_id", "target_scope", "max_level", "expiry", "delegable", "issued_by", "lease_epoch"],
+  "properties": {
+    "grant_id": { "type": "string", "pattern": "^grt_[0-9a-z]{8,}$" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": {
+          "enum": ["user_session", "task", "runtime_worker", "node", "runtime"],
+          "description": "`runtime` is VESPER itself as a subject of its own change control (INV-SELF-1). Naming it here is what makes REM-004's boundary expressible: the corpus previously classified actions but never named the running system as a subject."
+        },
+        "id": { "type": "string" }
+      }
+    },
+    "capability_id": { "type": "string" },
+    "target_scope": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "Where the grant applies. `authorized` requires `target IN grant.target_scope`; an empty scope would authorize nothing, and a wildcard must be written as one, visibly."
+    },
+    "max_level": { "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] },
+    "expiry": { "type": "string", "format": "date-time" },
+    "delegable": {
+      "type": "boolean",
+      "default": false,
+      "description": "INV-AUTH-2. Defaults false. L4 and L5 are NEVER delegable -- enforced structurally below. Unattenuated inheritance, not self-grant, was the real escalation path: a sub-agent summarising a web page must not hold its parent's L4."
+    },
+    "issued_by": { "type": "string" },
+    "issued_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" },
+    "issued_for_command_id": {
+      "type": ["string", "null"],
+      "description": "Binds L4/L5 to ONE command instance. INV-AUTH-2: a consumed L4 grant cannot authorize a second action. One confirmation authorizes one action -- not a task, not a session, and never six agents' worth of external action."
+    },
+    "consumed_at_hlc": {
+      "type": ["object", "null"],
+      "description": "Set when a single-use grant is spent. A grant with consumed_at_hlc set is dead; re-presenting it is an audited denial, not a retry."
+    },
+    "parent_grant_id": {
+      "type": ["string", "null"],
+      "description": "DF-ATTENUATE: child.grants must be a SUBSET of parent.grants. The link is recorded so the subset property is checkable after the fact, not only at issue time."
+    },
+    "lease_epoch": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "REM-002. `authorized` requires the epoch to be current, so authority-at-time-of-action is reconstructible for A-018 and a grant issued under a fenced epoch is not honoured."
+    },
+    "break_glass": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["authorized_by_owner", "expires_at", "audit_ref"],
+      "properties": {
+        "authorized_by_owner": { "const": true },
+        "expires_at": { "type": "string", "format": "date-time" },
+        "audit_ref": { "type": "string" }
+      },
+      "description": "REM-003 §4.6. Time-boxed, owner-authenticated, fully audited -- and it cannot be used to modify the PDP itself (REM-004). INV-SELF-3 holds even here: effective_level L5 with subject.kind == runtime is DENY, always, including under break-glass."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "max_level": { "enum": ["L4", "L5"] } }, "required": ["max_level"] },
+      "then": {
+        "properties": { "delegable": { "const": false } },
+        "required": ["issued_for_command_id"],
+        "$comment": "L4/L5 are never delegable and always bind to one command instance. Both are schema properties, so the escalation path is unexpressible rather than merely prohibited."
+      }
+    },
+    {
+      "if": { "properties": { "subject": { "properties": { "kind": { "const": "runtime" } }, "required": ["kind"] } }, "required": ["subject"] },
+      "then": {
+        "properties": { "max_level": { "enum": ["L0", "L1", "L2", "L3", "L4"] } },
+        "$comment": "INV-SELF-3 as a schema property: an L5 grant to the runtime cannot be WRITTEN. DF-AUTHORIZE denies it at evaluation too -- two independent layers, because layer 4 (model disposition) is the layer prompt injection defeats."
+      }
+    }
+  ],
+  "$comment": "EXCLUDED BY DESIGN: any `inherit_all` or `scope: *` shorthand. Attenuation must be explicit at every spawn; a shorthand for 'everything my parent had' is the exact defect DF-ATTENUATE exists to prevent."
+}

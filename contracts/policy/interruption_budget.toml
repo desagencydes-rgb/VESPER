@@ -1,0 +1,134 @@
+##############################################################################
+# VESPER INTERRUPTION BUDGET
+#
+# REM-007 §4.6. Arbitrates RB-005 (initiative) against RB-006 (proportionality),
+# which point in opposite directions and previously had no arbitration metric.
+#
+# THE DISTINCTION THAT RESOLVES THE TENSION:
+#
+#     Preparation is UNBUDGETED and is the default.
+#     Interruption is STRICTLY BUDGETED.
+#     Alarm class is EXEMPT.
+#
+# RB-005's "prepared or executed safely" licenses unlimited preparation. What
+# costs the user is being spoken to, not being worked for.
+#
+# Enforced by: INV-TRIG-3 (A-047), INV-ALARM-3 (A-041, A-047), DF-PROACTIVE.
+# This file is a GOVERNED SURFACE (contracts/policy/governed_surfaces.toml).
+# The runtime may propose changes to it; it may never apply them.
+##############################################################################
+
+schema_version = 1
+authority = "REM-007 §4.6 · RB-005, RB-006, RB-034 · SR-030, SR-047, SR-048"
+
+# --------------------------------------------------------------------------
+# The priority lattice. Strict order, not weights -- weights get tuned until
+# the alarm loses. REM-011 / INV-ALARM-3.
+# --------------------------------------------------------------------------
+[lattice]
+order = ["alarm_safety", "active_user_task", "ambience", "proactive"]
+note = "Strict precedence. A lower class never preempts a higher one, and no configuration value can reorder this list -- it is not a tunable (see contracts/policy/tunables.toml)."
+
+# --------------------------------------------------------------------------
+# What preparation costs: nothing. Stated explicitly so an implementation
+# does not budget it "for symmetry" and thereby delete SR-042's overnight work.
+# --------------------------------------------------------------------------
+[preparation]
+budgeted = false
+note = """Research, indexing, drafting, benchmarking, code generation, testing and
+proposal filing are UNBUDGETED. They are bounded by resource budget and cost
+policy, never by the interruption budget. INV-IDEA-6: idle time expands
+available time, never authority."""
+
+# --------------------------------------------------------------------------
+# Modality cost. What it costs the user to be reached this way.
+# --------------------------------------------------------------------------
+[modality_cost]
+ambient_visual = 1        # a state indicator changes colour
+visual_notice  = 3        # a card appears on a surface already in view
+speech         = 8        # VESPER speaks
+alarm          = "EXEMPT" # not a number: an exempt class must not be comparable
+
+# --------------------------------------------------------------------------
+# Budget per (OperatingPeriod, user_attention_state).
+#
+# `max_cost_per_hour` is spent against modality_cost above.
+# A missing cell is NOT permissive: DF-PROACTIVE treats an undeclared
+# combination as max_cost_per_hour = 0. Absence never means "unlimited".
+# --------------------------------------------------------------------------
+[budget.ACTIVE_SESSION.focused]
+max_cost_per_hour = 8
+max_contacts_per_hour = 2
+permitted_modalities = ["ambient_visual", "visual_notice"]
+
+[budget.ACTIVE_SESSION.available]
+max_cost_per_hour = 24
+max_contacts_per_hour = 6
+permitted_modalities = ["ambient_visual", "visual_notice", "speech"]
+
+[budget.IDLE.present]
+max_cost_per_hour = 16
+max_contacts_per_hour = 4
+permitted_modalities = ["ambient_visual", "visual_notice", "speech"]
+
+[budget.IDLE.absent]
+max_cost_per_hour = 3
+max_contacts_per_hour = 1
+permitted_modalities = ["ambient_visual"]
+
+[budget.FREE_TIME.any]
+max_cost_per_hour = 0
+max_contacts_per_hour = 0
+permitted_modalities = []
+note = "SR-042: ordinary work must not wake the user. Zero is the whole point of FREE_TIME. Alarm class is exempt and is unaffected by this row."
+
+[budget.DO_NOT_DISTURB.any]
+max_cost_per_hour = 0
+max_contacts_per_hour = 0
+permitted_modalities = []
+
+# --------------------------------------------------------------------------
+# The proactive decision rule. Deterministic -- DF-PROACTIVE, model_access = false.
+# --------------------------------------------------------------------------
+[decision]
+rule = "act_now  <=>  expected_value > interruption_cost  AND  decays"
+queue_otherwise = "QUEUE_TO_BOUNDARY"
+drop_permitted = false
+
+[decision.decays]
+note = """`decays` is the load-bearing term. Information still useful in two hours
+does not justify an interruption now; information that expires does. A
+high-value NON-decaying item is QUEUED, never dropped -- dropping it would
+violate RB-005. There is no DROP disposition in DF-PROACTIVE's output domain
+for exactly this reason: the only outputs are ACT_NOW, QUEUE_TO_BOUNDARY and
+DROP_NEVER."""
+
+# --------------------------------------------------------------------------
+# Exemptions. Closed list. Adding a member is a governed-surface change.
+# --------------------------------------------------------------------------
+[exempt]
+classes = ["alarm_safety"]
+exempt_from = [
+  "interruption_budget",
+  "ambience_policy_RB-034",
+  "resource_yielding_RB-015",
+  "proportionality_RB-006",
+  "device_quiet_hours",
+]
+note = """INV-ALARM-3. Named exhaustively because the failure mode is a
+quiet-hours policy silently suppressing the wake-up the owner depends on.
+Class C record-loss incidents are NOT listed here: they bypass aggregation and
+the budget by INV-LOSS-2 directly, which is a separate mechanism with a
+separate test (A-050.4), so that widening one exemption cannot widen the other."""
+
+# --------------------------------------------------------------------------
+# Escalation ceiling. INV-ALARM-2.
+# --------------------------------------------------------------------------
+[alarm_escalation]
+hard_duration_cap_s = 900
+require_physical_ack_channel = true
+asr_independent_ack_required = true
+note = """Maximum-volume escalation at 03:00 with no guaranteed stop is a hazard,
+not a feature. At least one acknowledgment channel must be physical and
+ASR-independent: a person who has just woken up may not be able to speak
+clearly, and that is precisely the population SR-043 is written for."""

@@ -1,0 +1,43 @@
+# VESPER CODEOWNERS
+#
+# Replace @owner with the project owner's account when the repository is
+# hosted. Until branch protection is enabled these lines are documentation --
+# see SETUP.md.
+#
+# REM-004: the surfaces below are GOVERNED_PATHS. The running VESPER runtime
+# may PROPOSE changes to any of them and may MERGE none of them.
+
+*                               @owner
+
+# --- Owner-only. No delegated reviewer. -------------------------------------
+/docs/source/                   @owner
+/docs/COC/                      @owner
+/contracts/policy/              @owner
+/verification/traceability/     @owner
+/safety/                        @owner
+
+# --- Governed: owner or an explicitly delegated human reviewer --------------
+/security/                      @owner
+/core/                          @owner
+/policy/                        @owner
+/verification/                  @owner
+/tools/                         @owner
+/spec/                          @owner
+/.github/workflows/             @owner
+/autonomy/triggers/             @owner
+/contracts/                     @owner
+/docs/ADR/                      @owner
+/models/                        @owner
+/config/prompts/                @owner
+/config/personas/               @owner
+/routing/                       @owner
+/safety/interlock/              @owner
+/build/                         @owner
+/deploy/                        @owner
+/CODEOWNERS                     @owner
+
+# 2026-08-12: /spec/ and /CODEOWNERS were absent. Every invariant, state machine
+# and decision function in this system lives under spec/, and CODEOWNERS decides
+# who reviews a change to any other governed path. Both were outside the
+# enumerated set while verification/ and tools/ were inside. CI-016 now fails a
+# build in which any GOVERNED_PATHS entry has no CODEOWNERS line.

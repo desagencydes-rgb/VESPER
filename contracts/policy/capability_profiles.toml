@@ -1,0 +1,233 @@
+##############################################################################
+# VESPER CAPABILITY MINIMUM PROFILES
+#
+# REM-011 §3.6 / REM-014. The declared input to DF-SURVIVAL-PROFILE:
+#
+#   DF-SURVIVAL-PROFILE(node_profile, capability_minimum_profiles, pressure)
+#       -> capability_set
+#
+# Without this file that decision function has no second argument, and
+# "the maximum capability that device can measurably sustain" (SR-060) reduces
+# to a judgement call at runtime -- which is what INV-PLACE-3 exists to prevent.
+#
+# EVERY MEASURED FIELD IS "UNKNOWN" TODAY, AND THAT IS THE HONEST VALUE.
+#
+#   The hardware does not exist yet. SPIKE-001 measures it. Until then:
+#     * a capability whose minimum profile is UNKNOWN is treated as
+#       UNAVAILABLE, never as available (fail-closed);
+#     * no number in this file may be filled in from a datasheet, a vendor
+#       claim, or a benchmark run on different hardware. INV-HW-2:
+#       sustained_tokens_per_sec is MEASURED at enrollment, never declared.
+#
+# `survival_core = true` marks the capabilities INV-PLACE-3 requires on the
+# last device standing. Everything else is additive and is reported as a
+# degradation when it cannot be sustained.
+#
+# Enforced by: CI-034 (measured-not-declared), CI-007 (no product names),
+# DF-SURVIVAL-PROFILE, DF-PLACE, A-042, A-048.
+##############################################################################
+
+schema_version = 1
+authority = "REM-011 §3.6 · REM-014 · SR-005, SR-006, SR-057, SR-058, SR-060 · INV-HW-1/2, INV-PLACE-3, INV-TRUST-2"
+node_profile_schema = "contracts/entities/node_capability_profile.schema.json"
+measured = false
+measured_by = "SPIKE-001"
+unmeasured_disposition = "UNAVAILABLE"
+
+[policy]
+no_product_names = true
+note = """INV-HW-1: no routing, resource or policy path may name a product.
+This file describes profiles, never devices. 'The phone' is
+`availability_class = foreground_only`; 'the old handset' is
+`key_storage_class = file_based` and therefore Z2. Substituting hardware must
+be a profile change, never a migration."""
+
+##############################################################################
+# SURVIVAL CORE -- INV-PLACE-3
+#
+# What VESPER carries onto the last viable device. Deliberately small: a core
+# set that only fits on a good machine is not a survival core.
+##############################################################################
+
+[capability.identity_continuity]
+survival_core = true
+description = "Persistent identity, so the thing that wakes up is the same thing that went to sleep"
+min_memory_gb = 0.1
+min_storage_gb = 0.05
+requires_accelerator = false
+requires_always_on = false
+min_trust_zone = "Z1"
+sustained_tokens_per_sec_min = "UNKNOWN"
+note = "No inference required. This is why it is core: it survives where nothing else can."
+
+[capability.durable_task_state]
+survival_core = true
+description = "Task graph, checkpoints and outbox cursor (ADR-002 D2, D10)"
+min_memory_gb = 0.2
+min_storage_gb = 1.0
+requires_accelerator = false
+requires_always_on = false
+min_trust_zone = "Z1"
+sustained_tokens_per_sec_min = "UNKNOWN"
+
+[capability.memory_references]
+survival_core = true
+description = "Memory record REFERENCES, not memory content. The index survives; the corpus may not."
+min_memory_gb = 0.2
+min_storage_gb = 0.5
+requires_accelerator = false
+requires_always_on = false
+min_trust_zone = "Z1"
+sustained_tokens_per_sec_min = "UNKNOWN"
+
+[capability.tombstones_and_audit]
+survival_core = true
+description = "tombstones.db and the audit tail (ADR-002 D2). Class C stores."
+min_memory_gb = 0.1
+min_storage_gb = 0.5
+requires_accelerator = false
+requires_always_on = false
+min_trust_zone = "Z0"
+sustained_tokens_per_sec_min = "UNKNOWN"
+note = """Z0 minimum, not Z1: INV-TRUST-1 forbids a Z2 node holding state, and
+class C content on a weakly-trusted node would be exactly that. A node that
+cannot hold these cannot be a survival host at all -- it can only be an
+endpoint."""
+
+[capability.one_interaction_surface]
+survival_core = true
+description = "At least one endpoint through which VESPER can be reached and can report"
+min_memory_gb = 0.2
+min_storage_gb = 0.1
+requires_accelerator = false
+requires_always_on = false
+min_trust_zone = "Z2"
+sustained_tokens_per_sec_min = "UNKNOWN"
+note = "Z2 is sufficient: rendering and observing are exactly what Z2 permits. A survival host may render through a Z2 endpoint it does not trust with state."
+
+[capability.queued_work]
+survival_core = true
+description = "The autonomy queue, so work resumes rather than being lost"
+min_memory_gb = 0.1
+min_storage_gb = 0.2
+requires_accelerator = false
+requires_always_on = false
+min_trust_zone = "Z1"
+sustained_tokens_per_sec_min = "UNKNOWN"
+
+##############################################################################
+# ADDITIVE CAPABILITIES
+#
+# Sustained where the node measurably can; reported as a degradation where not.
+# DF-SURVIVAL-PROFILE adds them in descending value order until the node's
+# measured headroom is exhausted.
+##############################################################################
+
+[capability.local_inference_small]
+survival_core = false
+description = "SR-005 local fallback at capability_tier = small"
+min_memory_gb = "UNKNOWN"
+min_accelerator_memory_gb = "UNKNOWN"
+min_storage_gb = "UNKNOWN"
+requires_accelerator = false
+requires_always_on = false
+min_trust_zone = "Z1"
+sustained_tokens_per_sec_min = "UNKNOWN"
+spike = "SPIKE-001"
+note = """THE decisive unknown. If no candidate node sustains this, SR-005's
+local fallback does not close and the deliverable is a COC Part XIV.3
+limitation record -- not a relaxed requirement. SPIKE-001 measures it, and the
+result informs the hardware purchase rather than being written to match it."""
+
+[capability.local_inference_standard]
+survival_core = false
+description = "SR-009 routing target for ordinary work"
+min_memory_gb = "UNKNOWN"
+min_accelerator_memory_gb = "UNKNOWN"
+min_storage_gb = "UNKNOWN"
+requires_accelerator = true
+requires_always_on = false
+min_trust_zone = "Z1"
+sustained_tokens_per_sec_min = "UNKNOWN"
+spike = "SPIKE-001"
+
+[capability.voice_interaction]
+survival_core = false
+description = "ASR + TTS + wake word, within the latency_budgets.toml voice chain"
+min_memory_gb = "UNKNOWN"
+min_accelerator_memory_gb = "UNKNOWN"
+min_storage_gb = "UNKNOWN"
+requires_accelerator = false
+requires_always_on = false
+min_trust_zone = "Z2"
+sustained_tokens_per_sec_min = "UNKNOWN"
+spike = "SPIKE-002"
+note = "Gated on the wake_to_first_audio budget (800 ms), not on whether the components run at all. A voice stack that runs but misses the budget has not delivered this capability."
+
+[capability.perception_vision]
+survival_core = false
+description = "Camera perception, OCR, media evidence pipeline"
+min_memory_gb = "UNKNOWN"
+min_accelerator_memory_gb = "UNKNOWN"
+min_storage_gb = "UNKNOWN"
+requires_accelerator = true
+requires_always_on = false
+min_trust_zone = "Z1"
+sustained_tokens_per_sec_min = "UNKNOWN"
+spike = "SPIKE-001"
+
+[capability.control_plane_host]
+survival_core = false
+description = "Holding one or more state-domain leases (REM-002)"
+min_memory_gb = "UNKNOWN"
+min_storage_gb = "UNKNOWN"
+requires_accelerator = false
+requires_always_on = true
+min_trust_zone = "Z0"
+sustained_tokens_per_sec_min = "UNKNOWN"
+note = """`requires_always_on = true` combined with INV-TRUST-2: no
+continuity-critical capability may be DESIGNED to depend solely on a node whose
+availability_class is foreground_only or on_demand. This constrains PLANNED
+assignment. It does NOT forbid runtime survival on such a node when it is the
+only one reachable -- that case is INV-PLACE-3, and conflating the two is what
+previously excluded the phone from the fabric entirely."""
+
+[capability.autonomous_actuation]
+survival_core = false
+description = "Acting on the world under a trigger, with a fresh enable token"
+min_memory_gb = "UNKNOWN"
+min_storage_gb = "UNKNOWN"
+requires_accelerator = false
+requires_always_on = false
+min_trust_zone = "Z0"
+sustained_tokens_per_sec_min = "UNKNOWN"
+note = "Z0 only. INV-TRUST-1: a Z2 node may not issue commands. Survival never lowers this floor -- a degraded VESPER does less, it is not trusted more."
+
+[capability.background_continuous_operation]
+survival_core = false
+description = "Running when the owner is not looking at the device"
+min_memory_gb = "UNKNOWN"
+min_storage_gb = "UNKNOWN"
+requires_accelerator = false
+requires_always_on = false
+min_trust_zone = "Z1"
+max_suspension_tolerance_s = "UNKNOWN"
+spike = "SPIKE-007"
+note = """SPIKE-007 measures the foreground-only envelope: how long can such a
+node sustain the survival core, and what is the durable-state guarantee across
+OS suspension? Until measured, a foreground-only node is assumed to sustain
+NOTHING in the background, which is the fail-closed reading."""
+
+##############################################################################
+# DEGRADATION REPORTING -- INV-PLACE-3
+##############################################################################
+
+[degradation_reporting]
+required = true
+mechanism = "SemanticScene"
+note = """Every capability excluded from the sustained set is reported as a
+degradation, as a SemanticScene intelligible on a voice-only endpoint
+(INV-LOSS-5's principle applied to placement). 'I am running on less than
+usual, and here is what I cannot do' is a required behaviour. Silent capability
+loss violates RB-022 and is the failure mode that makes a degraded system
+indistinguishable from a broken one."""

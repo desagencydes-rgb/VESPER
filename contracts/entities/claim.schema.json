@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/claim.schema.json",
+  "title": "VESPER Claim",
+  "description": "REM-010 §4.1. Grounding is tracked PER CLAIM, not per response. This is the artifact that makes 'no guessing' -- the most-repeated behavioural requirement in the corpus -- a mechanism rather than a disposition. Retrofitting per-claim evidence into a finished generation pipeline is a rewrite, not an addition, which is why it is a contract before any code exists. Authority: SR-041, SR-052; RB-001, RB-002, P-001; INV-EVID-1/2/3.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["text", "support", "support_type", "policy_class", "trust_class"],
+  "properties": {
+    "text": { "type": "string", "minLength": 1 },
+    "support": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ref_type", "ref"],
+        "properties": {
+          "ref_type": { "enum": ["source_ref", "computation_ref", "observation_ref"] },
+          "ref": { "type": "string", "minLength": 1 },
+          "span": {
+            "type": ["object", "null"],
+            "additionalProperties": false,
+            "required": ["start", "end"],
+            "properties": { "start": { "type": "integer", "minimum": 0 }, "end": { "type": "integer", "minimum": 0 } },
+            "description": "INV-EVID-2: every source_ref resolves to a REPRODUCIBLE retrieved span. A similarity score is never sufficient grounding -- this field is the difference between BAG and RAG, and its absence on a source_ref is what CI-033 fails."
+          },
+          "retrieved_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "ref_type": { "const": "source_ref" } }, "required": ["ref_type"] },
+            "then": { "required": ["span"], "properties": { "span": { "type": "object" } } }
+          }
+        ]
+      }
+    },
+    "support_type": {
+      "enum": ["retrieved", "computed", "observed", "model_prior"],
+      "description": "`model_prior` means the model believes it without having retrieved, computed or observed it. It is a legitimate value -- the point is that it is SAYABLE, so the output gate can act on it."
+    },
+    "policy_class": {
+      "enum": ["research", "memory_write", "world_fact", "input_to_consequential_action", "conversational", "personality"],
+      "description": "DF-OUTPUT-GATE input. The first four are the classes in which an unsupported assertion causes durable harm: it gets written down, acted on, or believed later."
+    },
+    "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "trust_class": {
+      "enum": ["system", "owner", "verified_local", "retrieved_local", "retrieved_external", "model_generated"],
+      "description": "Inherited from the WEAKEST supporting fragment (REM-003 §4.4). A claim grounded in an external web page is retrieved_external no matter how confident the model is about it."
+    },
+    "gate_disposition": {
+      "enum": ["EMIT", "MARK_AND_EMIT", "CONVERT_TO_QUESTION", "DROP"],
+      "description": "DF-OUTPUT-GATE output, recorded on the claim so the decision is auditable after the fact rather than inferable from what was said."
+    },
+    "unknown": {
+      "type": "boolean",
+      "default": false,
+      "description": "INV-EVID-3. UNKNOWN is a first-class return value across BAG, world model and memory. An empty retrieval is never coerced into a plausible answer -- it produces a claim with unknown=true and no support, which the gate handles explicitly."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "support_type": { "const": "model_prior" },
+          "policy_class": { "enum": ["research", "memory_write", "world_fact", "input_to_consequential_action"] }
+        },
+        "required": ["support_type", "policy_class"]
+      },
+      "then": {
+        "required": ["gate_disposition"],
+        "properties": { "gate_disposition": { "enum": ["MARK_AND_EMIT", "CONVERT_TO_QUESTION", "DROP"] } },
+        "description": "INV-EVID-1 as a schema property: in these four policy classes a model_prior claim CANNOT carry gate_disposition EMIT. The plain assertion is unexpressible, so an implementation cannot arrive at it innocently."
+      }
+    },
+    {
+      "if": { "properties": { "support_type": { "enum": ["retrieved", "computed", "observed"] } }, "required": ["support_type"] },
+      "then": { "properties": { "support": { "minItems": 1 } }, "description": "A claim that says it was retrieved must name what it retrieved." }
+    },
+    {
+      "if": { "properties": { "unknown": { "const": true } }, "required": ["unknown"] },
+      "then": { "properties": { "support": { "maxItems": 0 }, "support_type": { "const": "model_prior" } } }
+    }
+  ],
+  "$comment": "EXCLUDED BY DESIGN: a response-level `grounded: true` flag. Response-level grounding is the natural implementation and it passes the 'mostly grounded with one unsupported specific' case that A-003 exists to fail."
+}

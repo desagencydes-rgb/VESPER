@@ -1,0 +1,50 @@
+##############################################################################
+# COST POLICY  --  REM-006
+#
+# RB-017 permits paid usage "only when an explicit cost policy authorizes it".
+# With no artifact loaded the gateway permits cost_class = free ONLY
+# (INV-COST-6), so the ABSENCE of this file is already safe.
+#
+# Owner-only change control. Explicitly NOT learnable (INV-LEARN-1).
+# Enforced at a SINGLE choke point inside the model gateway that no caller may
+# bypass (INV-COST-3, CI-020).
+##############################################################################
+
+schema_version = 1
+authority = "SR-045, RB-016, RB-017, DR-013; REM-006"
+
+# INV-COST-1: zero paid-provider requests may leave the gateway during
+# FREE_TIME, under ANY inference input. CI-021 rejects any diff that adds a
+# non-free class to this entry, regardless of reviewer.
+[permitted_cost_classes]
+FREE_TIME       = ["free"]
+DO_NOT_DISTURB  = ["free"]
+IDLE            = ["free"]
+ACTIVE_SESSION  = ["free", "paid"]
+
+# metered_free_tier is treated as `paid` unless a provable hard spend cap
+# exists (INV-COST-5). A free tier on an account with a payment method
+# attached can bill on overage; without a provable cap the absolute rule leaks.
+[metered_free_tier]
+treat_as = "paid"
+override_requires = "provable_hard_cap"
+
+# Owner sets the numbers. Engineering sets the rule that they exist, that they
+# are enforced at the choke point, and that crossing one queues and asks
+# rather than auto-approving.
+[ceilings]
+per_task = "OWNER_TO_SET"
+per_day = "OWNER_TO_SET"
+alert_threshold_fraction = 0.8
+mid_task_escalation = "queue_and_ask"   # never auto_approve
+
+# On exhaustion under a restrictive policy: emit
+# autonomy.blocked_on_cost_policy, checkpoint, queue for the next permitted
+# period. Do NOT wake the user for ordinary work (SR-042). Do NOT escalate to
+# a paid provider (RB-017). SR-003's "retry without stopping" is satisfied by
+# continuing within the free/local subset and queueing when it is exhausted --
+# both SRs stand unmodified.
+[exhaustion]
+behaviour = "checkpoint_and_queue"
+wake_user = false
+escalate_to_paid = false

@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/commands/command.schema.json",
+  "title": "VESPER Command",
+  "description": "A Command is a REQUEST that something happen. It is never proof that it happened (COC ARCH-04). Proof is a Result plus, for external effects, a reconciliation probe (REM-012 s2). Authority: IC-003, IC-009, ARCH-04; REM-003, REM-004, REM-005.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "command_id", "schema_version", "actor", "capability_id", "args",
+    "authorization", "idempotency_key", "issued_at_hlc"
+  ],
+  "properties": {
+    "command_id": { "type": "string", "pattern": "^cmd_[0-9a-z]{16,}$" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "correlation_id": { "type": ["string", "null"] },
+    "trigger_id": {
+      "type": ["string", "null"],
+      "description": "REQUIRED when actor.is_autonomous is true. INV-TRIG-1: every autonomous action traces to exactly one registered trigger."
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject_id", "subject_kind", "is_autonomous"],
+      "properties": {
+        "subject_id": { "type": "string" },
+        "subject_kind": {
+          "type": "string",
+          "enum": ["human", "runtime", "runtime_worker", "node"],
+          "description": "REM-004: 'runtime' can never reach L5. L5 is the level at which the subject must be a human (INV-SELF-3)."
+        },
+        "is_autonomous": {
+          "type": "boolean",
+          "description": "Determines whether DF-ACTUATION-GATE applies. User-invoked work is not gated by the emergency stop (INV-STOP-5)."
+        },
+        "parent_command_id": { "type": ["string", "null"] }
+      }
+    },
+    "capability_id": { "type": "string" },
+    "target": { "type": ["string", "null"], "description": "Must fall inside grant.target_scope." },
+    "args": {
+      "type": "object",
+      "description": "Validated against the capability's declared argument schema. declared_level(args) is a FUNCTION of these values, never a constant (INV-AUTH-5)."
+    },
+    "authorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["grant_id", "effective_level", "required_level", "context_ceiling", "lease_epoch"],
+      "description": "The resolved output of DF-AUTHORIZE, recorded on the command so authority-at-time-of-action is reconstructible (A-018).",
+      "properties": {
+        "grant_id": { "type": "string" },
+        "effective_level": { "$ref": "#/$defs/level" },
+        "required_level": { "$ref": "#/$defs/level" },
+        "context_ceiling": { "$ref": "#/$defs/level" },
+        "lease_epoch": { "type": "integer", "minimum": 0 },
+        "policy_version": { "type": ["string", "null"] },
+        "confirmation_ref": {
+          "type": ["string", "null"],
+          "description": "REQUIRED for L4/L5. Binds to exactly one command instance; a consumed L4 cannot authorize a second action (INV-AUTH-2)."
+        }
+      }
+    },
+    "enable_token_id": {
+      "type": ["string", "null"],
+      "description": "REQUIRED when actor.is_autonomous and effective_level >= L2. Verified fresh per action by DF-ACTUATION-GATE (INV-STOP-1). The runtime cannot mint or extend one (INV-STOP-4)."
+    },
+    "reversibility": {
+      "type": "string",
+      "enum": ["reversible", "compensable", "irreversible"],
+      "description": "REM-012: replaces IC-003's single rollback/compensation field. 'irreversible' implies L4+ and pre-commit confirmation binding."
+    },
+    "outbox_record_id": {
+      "type": ["string", "null"],
+      "description": "REQUIRED before any external side effect. INV-EXT-1: no external effect occurs without a prior durable outbox record."
+    },
+    "idempotency_key": {
+      "type": "string",
+      "description": "Stable across retries. Recovery reads the outbox by this key rather than replaying the task (INV-TASK-2)."
+    },
+    "deadline": { "type": ["string", "null"], "format": "date-time" },
+    "issued_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" },
+    "dry_run": {
+      "type": "boolean",
+      "default": false,
+      "description": "IC-003 preview. A capability that cannot dry-run declares so; it does not silently execute a preview request."
+    }
+  },
+  "$defs": {
+    "level": { "type": "string", "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] }
+  },
+  "allOf": [
+    {
+      "$comment": "INV-TRIG-1 -- an autonomous command with no trigger is malformed, not merely unaudited.",
+      "if": { "properties": { "actor": { "properties": { "is_autonomous": { "const": true } } } } },
+      "then": { "required": ["trigger_id", "enable_token_id"] }
+    },
+    {
+      "$comment": "INV-AUTH-2 -- L4/L5 bind to one confirmed instance.",
+      "if": { "properties": { "authorization": { "properties": { "effective_level": { "enum": ["L4", "L5"] } } } } },
+      "then": { "properties": { "authorization": { "required": ["confirmation_ref"] } } }
+    },
+    {
+      "$comment": "INV-EXT-1 -- irreversible effects require a prior outbox record.",
+      "if": { "properties": { "reversibility": { "const": "irreversible" } }, "required": ["reversibility"] },
+      "then": { "required": ["outbox_record_id"] }
+    }
+  ]
+}

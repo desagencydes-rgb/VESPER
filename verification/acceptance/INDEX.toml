@@ -1,0 +1,345 @@
+##############################################################################
+# VESPER ACCEPTANCE TEST REGISTRY
+#
+# A-001..A-020 are defined in the locked COC Part X and may not be removed or
+# renumbered. A-021+ are ADDITIVE engineering tests: COC Part XIV forbids
+# WEAKENING a requirement, and adding verification strengthens it.
+#
+# Every entry declares:
+#   spec      the file containing its executable specification.
+#             A declared ID with no specification is not a test -- CI-003
+#             (TR-061/TR-062) fails on it. This is what stops the registry
+#             from manufacturing coverage.
+#   gate      the release level at which it BLOCKS
+#             R0 Foundation | R1 Local Intelligence | R2 Device Presence
+#             R3 Perception/World | R4 Autonomy | R5 Integrated VESPER V0
+#   negative_control  the deliberately non-compliant build that must be shown
+#                     FAILING before the test is trusted as evidence.
+#                     A gate that has only ever been green is not evidence.
+##############################################################################
+
+schema_version = 1
+
+# ---------------------------------------------- continuity & coordination
+[tests.A-002]
+title = "Persistent identity across model restart and node migration"
+spec = "verification/acceptance/AT-01-continuity-and-coordination.md"
+gate = "R0"
+negative_control = "A build that re-initialises identity on restart, or resumes a task without restoring its checkpoint: continuity assertions must FAIL."
+
+[tests.A-017]
+title = "Recovery: primary node disconnect, task migration and continuity"
+spec = "verification/acceptance/AT-01-continuity-and-coordination.md"
+gate = "R0"
+negative_control = "A build with no checkpoint restore on the receiving node -- migration must FAIL rather than silently starting the task over."
+
+[tests.A-019]
+title = "System integrity: restore deliberately corrupted state from checkpoint"
+spec = "verification/acceptance/AT-01-continuity-and-coordination.md"
+gate = "R0"
+negative_control = "A build that reports SUCCEEDED after a failed restore. INV-LOSS-4: forgetting is permitted, pretending the work happened is not."
+
+[tests.A-033]
+title = "Coordination substrate: clock skew, replay, partition, conflict, rejection"
+spec = "verification/acceptance/AT-01-continuity-and-coordination.md"
+gate = "R0"
+negative_control = "Wall-clock last-write-wins build; cases 33.1/33.5/33.7 must FAIL."
+
+[tests.A-048]
+title = "Opportunistic placement, damped relocation, and last-resort survival"
+spec = "verification/acceptance/AT-01-continuity-and-coordination.md"
+gate = "R2"
+negative_control = "A build pinned to a single node: must FAIL 48.1 and 48.4. A build with no damping: must FAIL 48.3 by flapping."
+
+[tests.A-034]
+title = "Control-plane lease, failover, partition and fencing"
+spec = "verification/acceptance/AT-01-continuity-and-coordination.md"
+gate = "R0"
+negative_control = "Build with a RUNNING->SUCCEEDED edge and no fencing; 34.2/34.3/34.7 must FAIL."
+
+# ---------------------------------------------- security & authorization
+[tests.A-014]
+title = "Security: reject unauthorized tool/action requests; survive injection"
+spec = "verification/acceptance/AT-02-security-and-authorization.md"
+gate = "R1"
+negative_control = "A build with ambient authority -- a tool adapter callable without traversing DF-AUTHORIZE. The unauthorized-request cases must FAIL."
+
+[tests.A-018]
+title = "Auditability: reconstruct trigger, authority, model, device, tool, result, verification"
+spec = "verification/acceptance/AT-02-security-and-authorization.md"
+gate = "R1"
+negative_control = "A build that writes free-text log lines instead of typed events: reconstruction of trigger/authority/model/device/tool/result must FAIL."
+
+[tests.A-024]
+title = "Delegation attenuation, L4 single-use binding, PDP fail-closed"
+spec = "verification/acceptance/AT-02-security-and-authorization.md"
+gate = "R1"
+negative_control = "A build where a spawned worker inherits its parent's grants unattenuated, and one where a consumed L4 grant authorises a second action."
+
+[tests.A-025]
+title = "Prompt-injection corpus and taint propagation ceiling"
+spec = "verification/acceptance/AT-02-security-and-authorization.md"
+gate = "R1"
+negative_control = "Summariser that produces untainted output; cases 25.7/25.8 must FAIL."
+
+[tests.A-030]
+title = "Runtime self-modification boundary (NV-01)"
+spec = "verification/acceptance/AT-02-security-and-authorization.md"
+gate = "R1"
+negative_control = "Runtime executing from the working repository (30.1/30.5 must FAIL); and a PATCH-018-as-worded build (30.6 must FAIL)."
+
+[tests.A-031]
+title = "Independent human emergency stop (FV-01)"
+spec = "verification/acceptance/AT-02-security-and-authorization.md"
+gate = "R4"
+negative_control = "Kill-signal implementation; case 31.2 must FAIL."
+
+[tests.A-037]
+title = "Telemetry sensitivity enforcement and purge with surviving correlation chain"
+spec = "verification/acceptance/AT-02-security-and-authorization.md"
+gate = "R1"
+negative_control = "A build whose purge deletes the correlation chain along with the payload -- INV-OBS-2 assertions must FAIL."
+
+[tests.A-038]
+title = "owner_administrative capability class and RB-013 negative cases"
+spec = "verification/acceptance/AT-02-security-and-authorization.md"
+gate = "R2"
+negative_control = "A build where owner_administrative is delegable, and one where it is invocable during FREE_TIME."
+
+[tests.A-044]
+title = "Security monitoring: anomaly, intrusion indicator, isolation, evidence"
+spec = "verification/acceptance/AT-02-security-and-authorization.md"
+gate = "R5"
+negative_control = "A build that scans beyond owner-enrolled assets: the OWNER-DECISION-005 scope assertion must FAIL."
+
+# ---------------------------------------------- autonomy & cost
+[tests.A-011]
+title = "Autonomy: bounded free-time job, checkpointed, trigger-provenanced, user not woken"
+spec = "verification/acceptance/AT-03-autonomy-and-cost.md"
+gate = "R4"
+negative_control = "Autonomy loop that asks a model 'is there anything worth doing?'; 11.3/11.4 must FAIL."
+
+[tests.A-012]
+title = "Alarm: scheduled alarm with configured multimodal escalation"
+spec = "verification/acceptance/AT-03-autonomy-and-cost.md"
+gate = "R4"
+negative_control = "A build in which device quiet hours or the interruption budget suppress the alarm -- INV-ALARM-3 must FAIL."
+
+[tests.A-016]
+title = "Learning: validated improvement without one interaction redefining policy"
+spec = "verification/acceptance/AT-03-autonomy-and-cost.md"
+gate = "R5"
+negative_control = "A build in which a single interaction outcome alters the active learned set -- INV-LEARN-2 must FAIL."
+
+[tests.A-021]
+title = "OperatingPeriod fail-closed asymmetry and cost-class enforcement"
+spec = "verification/acceptance/AT-03-autonomy-and-cost.md"
+gate = "R1"
+negative_control = "Unfiltered ARCH-24 fallback ladder; 21.1 and extended A-004 must FAIL."
+
+[tests.A-029]
+title = "Zero-input autonomy three-part gate incl. the anti-cron discriminator (NV-03)"
+spec = "verification/acceptance/AT-03-autonomy-and-cost.md"
+gate = "R4"
+negative_control = "C1 pure-cron build MUST pass parts 1-2 and FAIL part 3. Also C2 model-decides, C3 prompt-driven, C4 silent death."
+
+[tests.A-040]
+title = "Learning promotion gate, non-learnable boundary, rollback and kill switch"
+spec = "verification/acceptance/AT-03-autonomy-and-cost.md"
+gate = "R5"
+negative_control = "A build in which a LearnedArtifact can target policy/ -- INV-LEARN-1 must FAIL. Also a build with no per-artifact rollback."
+
+[tests.A-041]
+title = "Alarm ownership, partition fire-direction, ASR-independent ack, escalation ceiling"
+spec = "verification/acceptance/AT-03-autonomy-and-cost.md"
+gate = "R4"
+negative_control = "A build that SKIPS on partition rather than firing. Fire-never is the failure direction INV-ALARM-1 exists to prevent."
+
+[tests.A-047]
+title = "InterruptionBudget: act-vs-queue arbitration and alarm exemption"
+spec = "verification/acceptance/AT-03-autonomy-and-cost.md"
+gate = "R4"
+negative_control = "A build that budgets PREPARATION (must fail: preparation is unbudgeted), and a build that budgets ALARM class (must fail: alarms are exempt)."
+
+# ---------------------------------------------- presence & perception
+[tests.A-008]
+title = "Perception: physical note and screen content with provenance and confidence"
+spec = "verification/acceptance/AT-04-presence-and-perception.md"
+gate = "R3"
+negative_control = "A build that resolves an unknown person to the owner -- INV-WORLD-1 must FAIL."
+
+[tests.A-009]
+title = "Presence: one semantic scene through three materially different endpoints, with degradation reports"
+spec = "verification/acceptance/AT-04-presence-and-perception.md"
+gate = "R2"
+negative_control = "{markdown, speech} scene implementation must FAIL the strengthened A-009."
+
+[tests.A-010]
+title = "Environment model: devices, capabilities, health, spatial relationships, privacy routing matrix"
+spec = "verification/acceptance/AT-04-presence-and-perception.md"
+gate = "R3"
+negative_control = "Route-to-largest-display build; unknown-person cells must FAIL."
+
+[tests.A-026]
+title = "No chat required: every core capability reachable with all text surfaces disabled"
+spec = "verification/acceptance/AT-04-presence-and-perception.md"
+gate = "R2"
+negative_control = "A build in which any core capability requires a text surface to be reachable. Boot with every text surface disabled and the capability must FAIL to be reachable."
+
+[tests.A-028]
+title = "Media evidence pipeline: video frames, motion, audio, captions, metadata with provenance"
+spec = "verification/acceptance/AT-04-presence-and-perception.md"
+gate = "R3"
+negative_control = "A build emitting captions or frame descriptions with no provenance reference back to the media evidence."
+
+[tests.A-039]
+title = "Sensor lifecycle, guaranteed-off, indicator obligation, retention and deletion"
+spec = "verification/acceptance/AT-04-presence-and-perception.md"
+gate = "R3"
+negative_control = "A build whose capture indicator is software-overridable, or which has no guaranteed-off path -- INV-PRIV-4 must FAIL."
+
+[tests.A-042]
+title = "Node enrollment admission, limited_trust (Z2) bounds, re-attestation"
+spec = "verification/acceptance/AT-04-presence-and-perception.md"
+gate = "R2"
+negative_control = "A build permitting DISCOVERED -> TRUSTED without the admission gate, and one issuing a secret-read grant to a Z2 node."
+
+[tests.A-045]
+title = "Network fabric: dedicated network, devices remain normally usable, desktop interface reachable"
+spec = "verification/acceptance/AT-04-presence-and-perception.md"
+gate = "R2"
+negative_control = "A build in which enrolling a device onto the dedicated network makes it unusable for the owner's ordinary use."
+
+[tests.A-046]
+title = "Ambience and environment control: authorized, reversible or fail-safe"
+spec = "verification/acceptance/AT-04-presence-and-perception.md"
+gate = "R5"
+negative_control = "A build with an irreversible ambience actuation that is neither reversible nor fail-safe on loss of control."
+
+# ---------------------------------------------- intelligence & evidence
+[tests.A-001]
+title = "Source completeness: every SR present with architecture and test traceability"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R0"
+negative_control_rationale = "No negative control is meaningful: this test IS a linter run over the locked COC and the registry, and tools/vesper_ids.py parses the COC rather than trusting the registry. A build cannot pass it by asserting coverage, only by having it."
+
+[tests.A-003]
+title = "No guessing: graded evidence corpus incl. the one-unsupported-specific case"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R1"
+negative_control = "Per-response grounding check must FAIL the partial-evidence case."
+
+[tests.A-004]
+title = "Provider fallback: error classification, retry timing, provider switch, local fallback, cost gate"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R1"
+negative_control = "The unfiltered ARCH-24 fallback ladder, which escalates free-tier exhaustion onto paid providers by design. Shares A-021's control."
+
+[tests.A-005]
+title = "Resource adaptation under saturation without corrupting user work"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R1"
+negative_control = "A build that yields resources by closing the owner's foreground applications WITHOUT asking -- SR-057 must FAIL."
+
+[tests.A-006]
+title = "BAG/map/context: exact source spans without loading the repository"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R1"
+negative_control = "A build returning nearest-neighbour summaries instead of exact reproducible spans. This is the RAG build, and it is what SR-052 names."
+
+[tests.A-007]
+title = "Multi-agent: concurrency constrained by real resources, not a hard-coded count"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R1"
+negative_control = "A build with a hard-coded concurrency count: vary the available resources and the bound must be observed NOT to move."
+
+[tests.A-013]
+title = "Computer control: bounded authorized task through a capability-controlled interface"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R1"
+negative_control = "A build registering a capability whose declared_level returns a constant regardless of arguments -- INV-AUTH-5 must FAIL."
+
+[tests.A-015]
+title = "Research: reproducible workflow with provenance and explicit insufficiency"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R5"
+negative_control = "A build that returns a confident answer where the evidence is insufficient, rather than reporting insufficiency."
+
+[tests.A-020]
+title = "Performance: measured latency against pre-declared budgets"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R2"
+negative_control_rationale = "Budgets are pre-declared in contracts/policy/latency_budgets.toml, a governed surface, and CI-031/CI-051 reject a commit that relaxes a budget alongside the code that failed it. A trivial build cannot pass by moving the target -- which is the only way a latency test is normally gamed."
+
+[tests.A-022]
+title = "Model router: difficulty-based routing to small vs strong models"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R1"
+negative_control = "A build routing every request to the strong model. Difficulty-based routing must be observed to select differently, not merely to exist."
+
+[tests.A-023]
+title = "Verifier disagreement produces BLOCKED, with no retry-until-agreement convergence"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R1"
+negative_control = "A build that re-runs until the verifier agrees. Convergence-by-retry is the natural implementation and it silently destroys the control."
+
+[tests.A-027]
+title = "Artifact generation (image, report, HTML plan) with provenance"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R2"
+negative_control = "A generated artifact carrying no provenance -- the assertion must FAIL."
+
+[tests.A-032]
+title = "Context budget manager: automatic and manual modes, UNKNOWN propagation"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R1"
+negative_control = "A build reporting overrun as a `truncated: true` flag instead of an itemised per-fragment degradation list."
+
+[tests.A-035]
+title = "External-action outbox, reconciliation probe, exactly-once effective delivery"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R2"
+negative_control = "A build calling the external adapter BEFORE writing the outbox record -- INV-EXT-1 must FAIL. Also a build retrying with no reconciliation probe."
+
+[tests.A-036]
+title = "Personality with discipline: humor, sarcasm, honesty, refusal to guess"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R2"
+negative_control = "A build that guesses charmingly: personality assertions pass while the refusal-to-guess assertion must FAIL. This is the control that proves charm is bounded."
+
+[tests.A-043]
+title = "Hardware telemetry present; kernel-access half reports its limitation record"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R1"
+negative_control_rationale = "SR-026's registry status is PARTIAL_R_AND_D and tools/traceability_lint.py forbids IMPLEMENTED while either half is open. A build cannot pass by claiming the kernel half; it can only pass by reporting the limitation record honestly."
+
+[tests.A-049]
+title = "Improvement backlog, idle-time research, and bounded self-tuning"
+spec = "verification/acceptance/AT-03-autonomy-and-cost.md"
+gate = "R4"
+negative_control = "A SCHEDULE-class backlog sweep must FAIL 49.2/49.3/49.4. A build permitting tunable-range self-modification must FAIL 49.9."
+
+[tests.A-050]
+title = "Record loss: honest forgetting, class boundaries, and integrity escalation"
+spec = "verification/acceptance/AT-04-presence-and-perception.md"
+gate = "R3"
+negative_control = "A build applying class-A affect to a class-C loss must FAIL 50.4 and 50.6. A text/log-only reporter must FAIL 50.9. A build fabricating 'I forgot' with no tombstone must FAIL 50.7."
+
+# ---------------------------------------------- computer and device agency
+# Added 2026-08-12. A-013 asserted argument-sensitive AUTHORIZATION -- permission
+# to act -- and was the only test SR-020's agency clause traced to. Nothing
+# tested the ACT: no perception of a machine, no independent observation, no
+# verification against a declared post-condition, no recovery from an unknown
+# outcome. These two tests close the loop.
+
+[tests.A-051]
+title = "Computer agency closed loop: perceive, decide, act, observe, verify, recover"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R3"
+negative_control = "The SELF-REPORT build: the actuator's own return value admitted as the observation, so the episode reaches VERIFIED directly from ACTUATED. This is the chatbot-with-tools build and it satisfies every other rule in the corpus; it must FAIL 51.5, 51.6 and 51.8. Also the COERCING build, which records an interrupted action as success or failure rather than UNKNOWN -- must FAIL 51.8 and 51.9."
+
+[tests.A-052]
+title = "Endpoint action under injection and under emergency stop"
+spec = "verification/acceptance/AT-05-intelligence-and-evidence.md"
+gate = "R3"
+negative_control = "A build admitting screen text and command output at the trust class of the surrounding context (the ordinary 'the tool said so' implementation) must FAIL 52.1-52.3. A build implementing stop by killing the process must FAIL 52.4 and 52.5, because a killed process leaves exactly the unanswerable question about an irreversible effect that 52.5 forbids."

@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/policy/authorization.schema.json",
+  "title": "VESPER Authorization — Grant, Capability, ContextFragment",
+  "description": "IC-009 / IC-003. COC Part VII is a taxonomy of six levels with no evaluator: under it, shell.run('ls') and shell.run('rm -rf ~') are the same tool at the same level. This contract supplies the missing subject, argument sensitivity, delegation rule and taint ceiling that DF-AUTHORIZE evaluates. Authority: Part VII, RB-010, RB-011, RB-025, RB-028, DR-014, DR-020, T-002; REM-003, REM-004.",
+  "type": "object",
+  "$defs": {
+
+    "level": { "type": "string", "enum": ["L0", "L1", "L2", "L3", "L4", "L5"] },
+
+    "grant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["grant_id", "subject", "capability_id", "target_scope", "max_level", "expiry", "delegable", "issued_by", "lease_epoch"],
+      "description": "THERE IS NO AMBIENT AUTHORITY. A subject holding no grant may act at L0 only (INV-AUTH-1). Default-deny is not a setting; it is the absence of any code path that produces a level without a grant.",
+      "properties": {
+        "grant_id": { "type": "string" },
+        "subject": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["subject_id", "subject_kind"],
+          "properties": {
+            "subject_id": { "type": "string" },
+            "subject_kind": {
+              "type": "string",
+              "enum": ["human", "runtime", "runtime_worker", "node", "user_session"],
+              "description": "REM-004 made the runtime a first-class subject of its own change control. INV-SELF-3: effective_level L5 with subject_kind 'runtime' is DENIED unconditionally -- including under a valid L5 grant and under break-glass."
+            }
+          }
+        },
+        "capability_id": { "type": "string" },
+        "target_scope": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+        "max_level": { "$ref": "#/$defs/level" },
+        "expiry": { "type": "string", "format": "date-time" },
+        "delegable": {
+          "type": "boolean",
+          "default": false,
+          "description": "INV-AUTH-2. Unattenuated INHERITANCE, not self-grant, is the real escalation path: SR-014 permits unbounded worker fan-out, so without attenuation a worker summarising a hostile web page holds its parent's L4."
+        },
+        "issued_by": { "type": "string" },
+        "issued_for_command_id": {
+          "type": ["string", "null"],
+          "description": "REQUIRED for L4/L5. One confirmation authorizes ONE action instance -- not a task, not a session, and never six workers' worth of external action."
+        },
+        "consumed": { "type": "boolean", "default": false },
+        "lease_epoch": { "type": "integer", "minimum": 0 },
+        "policy_version": { "type": ["string", "null"] }
+      },
+      "allOf": [
+        {
+          "$comment": "INV-AUTH-2 -- L4/L5 are never delegable and always bind to one command instance.",
+          "if": { "properties": { "max_level": { "enum": ["L4", "L5"] } }, "required": ["max_level"] },
+          "then": {
+            "properties": { "delegable": { "const": false } },
+            "required": ["issued_for_command_id"]
+          }
+        }
+      ]
+    },
+
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability_id", "args_schema", "declared_level_rules", "required_level_rules", "reversibility", "reconcilable"],
+      "description": "IC-003. declared_level MUST be a total FUNCTION over args (INV-AUTH-5). A capability registering a constant is refused at registration and fails CI-011 earlier.",
+      "properties": {
+        "capability_id": { "type": "string" },
+        "args_schema": { "type": "object", "description": "JSON Schema for this capability's arguments." },
+        "declared_level_rules": {
+          "type": "array",
+          "minItems": 2,
+          "description": "Ordered predicate -> level rules evaluated against args. minItems 2 makes a constant structurally unexpressible: at least one discriminating rule plus a default. Example for fs.write: path in GOVERNED_PATHS -> L5; path in workspace -> L2; default -> L4.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["when", "level"],
+            "properties": {
+              "when": { "type": "string", "description": "Predicate over args. 'default' permitted only as the final rule." },
+              "level": { "$ref": "#/$defs/level" }
+            }
+          }
+        },
+        "required_level_rules": { "type": "array", "minItems": 1, "items": { "type": "object" } },
+        "reversibility": { "type": "string", "enum": ["reversible", "compensable", "irreversible"] },
+        "reconcilable": {
+          "type": "boolean",
+          "description": "REM-012 s2. A tool with no read-only 'did this happen?' probe declares false and MUST escalate to the user rather than retry. This is the case that silently produces duplicates, so it is handled by declaration."
+        },
+        "reconciliation_probe": { "type": ["string", "null"] },
+        "supports_dry_run": { "type": "boolean", "default": false },
+        "state_changing": {
+          "type": "boolean",
+          "description": "Drives the taint ceiling: a context containing retrieved_external caps state-changing capabilities at L1 (INV-AUTH-3)."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "reconcilable": { "const": true } }, "required": ["reconcilable"] },
+          "then": { "required": ["reconciliation_probe"] }
+        },
+        {
+          "$comment": "INV-EXT-1 -- irreversible capabilities are at least L4 and must be reconcilable or escalate.",
+          "if": { "properties": { "reversibility": { "const": "irreversible" } }, "required": ["reversibility"] },
+          "then": { "properties": { "supports_dry_run": { "const": true } } }
+        }
+      ]
+    },
+
+    "contextFragment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fragment_id", "trust_class", "derived_from"],
+      "description": "The taint carrier. INV-AUTH-3: taint propagates through summarisation, embedding and cache reuse -- a summary of tainted content is tainted. This is the sentence an implementation omits, because summarisation naturally produces a clean-looking new string; CI-012 exists to catch its omission.",
+      "properties": {
+        "fragment_id": { "type": "string" },
+        "trust_class": {
+          "type": "string",
+          "enum": ["system", "owner", "verified_local", "retrieved_local", "retrieved_external", "model_generated"],
+          "description": "allowed_level: system L5, owner L5, verified_local L4, retrieved_local L3, model_generated L2, retrieved_external L1. Unknown or absent provenance is treated as retrieved_external -- the most restrictive class."
+        },
+        "derived_from": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Fragment ids this was summarised, embedded or cached from. trust_class MUST equal min(derived_from.trust_class) -- a cache entry with no trust_class is a CACHE MISS, not a trusted hit."
+        },
+        "context_role": {
+          "type": "string",
+          "enum": ["planner", "extraction", "verification", "presentation"],
+          "description": "INV-AUTH-6: a fragment with trust_class 'retrieved_external' may NEVER appear in a 'planner' context. The two-context research pattern is architectural: the high-authority planner never ingests raw external content; a low-authority extraction context does and returns only schema-validated structured data."
+        },
+        "source_ref": { "type": ["string", "null"] }
+      },
+      "allOf": [
+        {
+          "$comment": "INV-AUTH-6 stated structurally rather than as a runtime check alone.",
+          "if": {
+            "properties": { "trust_class": { "const": "retrieved_external" } },
+            "required": ["trust_class"]
+          },
+          "then": { "properties": { "context_role": { "not": { "const": "planner" } } } }
+        }
+      ]
+    }
+  }
+}

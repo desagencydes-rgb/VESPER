@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/results/result.schema.json",
+  "title": "VESPER Result",
+  "description": "A Result reports what a Command actually did. Authority: COC ARCH-04 ('A command is never proof that an action happened'), IC-003, RB-004; REM-010, REM-012.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["result_id", "schema_version", "command_id", "status", "completed_at_hlc", "evidence"],
+  "properties": {
+    "result_id": { "type": "string", "pattern": "^res_[0-9a-z]{16,}$" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "command_id": { "type": "string" },
+    "correlation_id": { "type": ["string", "null"] },
+    "status": {
+      "type": "string",
+      "enum": ["succeeded", "failed", "blocked", "denied", "proposed", "halted", "unknown"],
+      "description": "'unknown' is a FIRST-CLASS outcome: the command was issued and the system cannot determine whether the effect occurred. It is never coerced to 'failed' or 'succeeded' -- that coercion is the guess RB-002 forbids. 'proposed' is DF-AUTHORIZE returning PROPOSE. 'halted' is DF-ACTUATION-GATE."
+    },
+    "completed_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" },
+    "evidence": {
+      "type": "array",
+      "description": "Claim-level evidence for anything this result asserts (REM-010 s4.1). An empty array is valid ONLY when the result asserts nothing.",
+      "items": { "$ref": "#/$defs/claim" }
+    },
+    "verification": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["verified_by", "passed"],
+      "description": "Absent means NOT VERIFIED, which forbids SM-TASK reaching SUCCEEDED (INV-TASK-1).",
+      "properties": {
+        "verified_by": {
+          "type": "string",
+          "enum": ["deterministic", "retrieval_grounded", "model_critic", "self_model", "human", "deferred", "none_declared"],
+          "description": "INV-VERIF-3: 'self_model' is never silently reported as accepted. 'none_declared' is permitted only for explicitly non-consequential output and is recorded, never silently skipped."
+        },
+        "passed": { "type": "boolean" },
+        "disagreement_ref": {
+          "type": ["string", "null"],
+          "description": "On failure the disagreement is preserved as evidence. INV-VERIF-1: the task goes to BLOCKED; re-running until the verifier agrees is prohibited."
+        }
+      }
+    },
+    "side_effects": {
+      "type": "array",
+      "description": "Externally observable effects. Each must reference its outbox record and, where applicable, its reconciliation probe outcome (INV-EXT-1/2).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["outbox_record_id", "reconcilable"],
+        "properties": {
+          "outbox_record_id": { "type": "string" },
+          "reconcilable": { "type": "boolean" },
+          "probe_outcome": { "type": ["string", "null"], "enum": ["confirmed", "absent", "indeterminate", null] },
+          "attribution": {
+            "type": ["string", "null"],
+            "description": "Delegated identity for external communication (SR-031, DR-025, RB-012). Required for any outbound message or call."
+          }
+        }
+      }
+    },
+    "degradations": {
+      "type": "array",
+      "description": "RB-022 / INV-SCENE-2 -- silent degradation is prohibited. Present even when empty.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["element", "reason", "action"],
+        "properties": {
+          "element": { "type": "string" },
+          "reason": { "type": "string" },
+          "action": { "type": "string" }
+        }
+      }
+    },
+    "error": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["class"],
+      "properties": {
+        "class": {
+          "type": "string",
+          "enum": ["retry_worthy", "switch_worthy", "fatal", "content_policy", "quota", "authorization", "cost_policy", "halted_by_interlock"],
+          "description": "Versioned taxonomy (REM-012 s5). Each class has a declared handling policy; an unclassified error is itself a defect."
+        },
+        "detail": { "type": "string" },
+        "retry_after_ms": { "type": ["integer", "null"] },
+        "user_visible_message": {
+          "type": ["string", "null"],
+          "description": "SR-004 requires the error type and retry time to be shown, not just logged."
+        }
+      }
+    },
+    "cost": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "cost_class": { "type": "string", "enum": ["free", "metered_free_tier", "paid"] },
+        "tokens_in": { "type": "integer" },
+        "tokens_out": { "type": "integer" },
+        "estimated_spend": { "type": "number" }
+      }
+    }
+  },
+  "$defs": {
+    "claim": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text", "support_type", "support"],
+      "description": "REM-010 s4.1. Grounding is tracked PER CLAIM, not per response -- a response that is 95% grounded with one fabricated specific reads as grounded under per-response tracking.",
+      "properties": {
+        "text": { "type": "string" },
+        "support_type": {
+          "type": "string",
+          "enum": ["retrieved", "computed", "observed", "model_prior"],
+          "description": "INV-EVID-1: 'model_prior' is not emittable as an assertion in research, memory_write, world_fact, or input_to_consequential_action."
+        },
+        "support": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "INV-EVID-2: each ref resolves to a REPRODUCIBLE retrieved span. A similarity score is never sufficient grounding."
+        },
+        "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "trust_class": {
+          "type": "string",
+          "enum": ["system", "owner", "verified_local", "retrieved_local", "retrieved_external", "model_generated"]
+        }
+      },
+      "allOf": [
+        {
+          "$comment": "INV-EVID-2 -- a non-model_prior claim with no support is malformed.",
+          "if": { "properties": { "support_type": { "enum": ["retrieved", "computed", "observed"] } } },
+          "then": { "properties": { "support": { "minItems": 1 } } }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "$comment": "INV-TASK-1 -- a succeeded result must carry a passing verification record.",
+      "if": { "properties": { "status": { "const": "succeeded" } }, "required": ["status"] },
+      "then": {
+        "required": ["verification"],
+        "properties": { "verification": { "properties": { "passed": { "const": true } } } }
+      }
+    }
+  ]
+}

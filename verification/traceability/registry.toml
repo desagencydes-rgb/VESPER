@@ -1,0 +1,773 @@
+##############################################################################
+# VESPER TRACEABILITY REGISTRY
+#
+# Purpose: the single machine-checkable mapping that repairs the verification
+# axis. It replaces COC Part XI, which is a bundle-join whose Verification
+# column holds one identical placeholder string in 51/51 rows.
+#
+# This file does NOT define which identifiers exist. The locked COC does, and
+# tools/vesper_ids.py extracts them. This file defines only the MAPPINGS:
+#
+#   SOURCE -> SR -> ARCHITECTURE -> MECHANISM
+#          -> CONTRACT / SCHEMA / STATE MACHINE / DECISION FUNCTION
+#          -> ACCEPTANCE TEST -> CI ENFORCEMENT
+#
+# Enforced by tools/traceability_lint.py (CI check CI-003).
+#
+# Authority: this registry is a DERIVED engineering artifact. It may not add,
+# remove, weaken, or reinterpret any SR. Where it records a gap, the gap is
+# recorded -- never closed by assertion.
+#
+# Status vocabulary (extends Foundation "Traceability & Release Gate"):
+#   UNMAPPED        no architecture/contract/test mapping yet
+#   DESIGNED        architecture mapping exists; no contract yet
+#   CONTRACTED      contract/schema/state machine/decision function exists
+#   SPECIFIED       + named acceptance test specification exists
+#   IMPLEMENTED     code exists (not reachable before the readiness gate)
+#   VERIFIED        acceptance test executes and passes on target hardware
+#   ACCEPTED        owner-accepted for a release
+#   R_AND_D         COC Part XIV.3 limitation record + R&D path; never
+#                   reportable as IMPLEMENTED
+#   PARTIAL_R_AND_D part core+buildable, part Part XIV.3 limitation
+##############################################################################
+
+schema_version = 1
+authority = "docs/COC/VESPER_V0_DEFINITIVE_COC_AND_RULEBOOK_v1.1.md"
+supersedes = "COC Part XI (traceability matrix), COC Part XV (verification-axis PASS lines)"
+last_updated = "2026-08-11"
+
+# --------------------------------------------------------------------------
+# Architecture sections that are deliberately NOT requirement-bearing.
+# Every other ARCH-xx must be referenced by >= 1 SR or the linter fails.
+# --------------------------------------------------------------------------
+[non_requirement_bearing]
+ARCH-26 = "Development and Release Strategy -- process guidance, not system behaviour. Governed by docs/baseline/ and verification/ci/."
+ARCH-27 = "Definition of Done -- acceptance policy, not system behaviour. Discharged by this registry plus verification/acceptance/."
+
+##############################################################################
+# SOURCE REQUIREMENTS
+##############################################################################
+
+[requirements.SR-001]
+arch = ["ARCH-09", "ARCH-13"]
+ic = ["IC-002"]
+tests = ["A-004", "A-005"]
+contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json"]
+decision_functions = ["DF-PROVIDER-ADMIT"]
+invariants = ["INV-COST-3"]
+ci = ["CI-020"]
+status = "SPECIFIED"
+
+[requirements.SR-002]
+arch = ["ARCH-02", "ARCH-06", "ARCH-20"]
+ic = ["IC-004", "IC-005"]
+tests = ["A-009", "A-026"]
+contracts = ["contracts/entities/semantic_scene.schema.json"]
+state_machines = ["SM-SCENE"]
+decision_functions = ["DF-SELECT-ENDPOINT"]
+invariants = ["INV-SCENE-1", "INV-SCENE-3"]
+ci = ["CI-028", "CI-030"]
+status = "SPECIFIED"
+
+[requirements.SR-003]
+arch = ["ARCH-09", "ARCH-24"]
+ic = ["IC-002"]
+tests = ["A-004"]
+contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json"]
+decision_functions = ["DF-PROVIDER-ADMIT"]
+invariants = ["INV-COST-3"]
+ci = ["CI-020"]
+status = "SPECIFIED"
+
+[requirements.SR-004]
+arch = ["ARCH-09", "ARCH-25"]
+ic = ["IC-001", "IC-002"]
+tests = ["A-004"]
+contracts = ["contracts/events/event_envelope.schema.json", "contracts/results/result.schema.json"]
+decision_functions = ["DF-PROVIDER-ADMIT"]
+invariants = ["INV-OBS-1"]
+ci = ["CI-040"]
+status = "SPECIFIED"
+
+[requirements.SR-005]
+arch = ["ARCH-09", "ARCH-13", "ARCH-24"]
+ic = ["IC-002"]
+tests = ["A-004", "A-020"]
+contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json"]
+decision_functions = ["DF-PROVIDER-ADMIT"]
+invariants = ["INV-COST-6"]
+ci = ["CI-020"]
+status = "SPECIFIED"
+
+[requirements.SR-006]
+arch = ["ARCH-09", "ARCH-13"]
+ic = ["IC-002"]
+tests = ["A-005", "A-020", "A-022"]
+contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json", "contracts/entities/model_profile.schema.json", "contracts/policy/capability_profiles.toml"]
+decision_functions = ["DF-SURVIVAL-PROFILE", "DF-GOVERNOR-LEVEL"]
+invariants = ["INV-HW-1", "INV-HW-2"]
+ci = ["CI-007", "CI-034"]
+status = "SPECIFIED"
+raised = "2026-08-12: local model selection now resolves against MEASURED capability profiles rather than a name. The mechanism was already load-bearing (CI-007, CI-034, INV-HW-1/2) and had no artifact."
+
+[requirements.SR-007]
+arch = ["ARCH-10"]
+ic = ["IC-006"]
+tests = ["A-006"]
+contracts = ["contracts/entities/knowledge_map.schema.json"]
+decision_functions = ["DF-BAG-RETRIEVE"]
+invariants = ["INV-EVID-2", "INV-EVID-3"]
+status = "SPECIFIED"
+raised = "2026-08-12: A-006 already asserted exact spans retrieved without loading the repository, and INV-EVID-2 already forbade citing an unretrieved source. Neither had an artifact. The map schema forbids an embedded content field, so the token dump SR-007 replaces is unexpressible."
+
+[requirements.SR-008]
+arch = ["ARCH-10"]
+ic = ["IC-006"]
+tests = ["A-006", "A-032"]
+contracts = ["contracts/entities/context_budget.schema.json", "contracts/entities/context_fragment.schema.json"]
+decision_functions = ["DF-CONTEXT-ASSEMBLE"]
+invariants = ["INV-EVID-3", "INV-AUTH-3"]
+ci = ["CI-012"]
+status = "SPECIFIED"
+raised = "2026-08-12: A-032 already asserted BOTH modes with manual overriding automatic, and reported rather than silent degradation. The ContextBudget type makes an itemised degradation list mandatory, so a `truncated: true` flag cannot satisfy it."
+
+[requirements.SR-009]
+arch = ["ARCH-09"]
+ic = ["IC-002"]
+tests = ["A-022"]
+contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json"]
+decision_functions = ["DF-PROVIDER-ADMIT"]
+invariants = ["INV-HW-1"]
+ci = ["CI-007"]
+status = "SPECIFIED"
+
+[requirements.SR-010]
+arch = ["ARCH-10", "ARCH-13"]
+ic = ["IC-002"]
+tests = ["A-032"]
+contracts = ["contracts/entities/context_budget.schema.json"]
+decision_functions = ["DF-CONTEXT-ASSEMBLE"]
+invariants = ["INV-EVID-3"]
+status = "SPECIFIED"
+raised = "2026-08-12: the Context Budget Manager is DF-CONTEXT-ASSEMBLE plus its record. context_ceiling is COMPUTED from what was admitted, so dropping a tainted fragment for budget reasons cannot silently raise authority."
+
+[requirements.SR-011]
+arch = ["ARCH-13", "ARCH-25"]
+ic = ["IC-001"]
+tests = ["A-005", "A-020", "A-033", "A-043"]
+contracts = ["contracts/events/event_envelope.schema.json", "contracts/entities/telemetry_record.schema.json"]
+decision_functions = ["DF-GOVERNOR-LEVEL"]
+invariants = ["INV-COORD-4", "INV-OBS-1", "INV-PERF-1", "INV-GOV-1"]
+ci = ["CI-005", "CI-039", "CI-040"]
+status = "SPECIFIED"
+raised = "2026-08-12: SR-011 requires telemetry VISIBLE TO THE MODEL AND ACTIONABLE, which is a hazard as well as a requirement. CI-039 (governor-damping-present) already existed and named the mechanism; it had no artifact. `decided_by` is a one-member enum, so a governor level attributed to a model is unrecordable."
+
+[requirements.SR-012]
+arch = ["ARCH-09", "ARCH-24"]
+ic = ["IC-002"]
+tests = ["A-004"]
+contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json"]
+decision_functions = ["DF-PROVIDER-ADMIT"]
+invariants = ["INV-COST-3"]
+ci = ["CI-020"]
+status = "SPECIFIED"
+
+[requirements.SR-013]
+arch = ["ARCH-11", "ARCH-12"]
+ic = ["IC-007"]
+tests = ["A-003", "A-023"]
+contracts = ["contracts/results/result.schema.json"]
+state_machines = ["SM-TASK"]
+decision_functions = ["DF-VERIFY-SELECT"]
+invariants = ["INV-VERIF-1", "INV-TASK-1"]
+ci = ["CI-010", "CI-032"]
+status = "SPECIFIED"
+
+[requirements.SR-014]
+arch = ["ARCH-11", "ARCH-13"]
+ic = ["IC-007", "IC-009"]
+tests = ["A-007", "A-024"]
+contracts = ["contracts/policy/authorization.schema.json"]
+decision_functions = ["DF-ATTENUATE"]
+invariants = ["INV-AUTH-2"]
+ci = ["CI-013"]
+status = "SPECIFIED"
+
+[requirements.SR-015]
+arch = ["ARCH-02", "ARCH-03"]
+ic = ["IC-004"]
+tests = ["A-010", "A-017", "A-042"]
+contracts = ["contracts/events/event_envelope.schema.json"]
+state_machines = ["SM-DEVICE"]
+invariants = ["INV-TRUST-1", "INV-HW-2"]
+ci = ["CI-034", "CI-035"]
+status = "SPECIFIED"
+
+[requirements.SR-016]
+arch = ["ARCH-02"]
+ic = ["IC-004", "IC-009"]
+tests = ["A-045"]
+status = "DESIGNED"
+depth_disposition = "network fabric contract"
+depth_note = "A dedicated-network contract declaring segments, the trust zone per segment, and the NON-INTERFERENCE constraint that keeps the owner's devices normally usable. No CI check or invariant currently names this mechanism, so building one now would be ceremony written to move a linter. F6 work; A-045 already names the assertions."
+
+[requirements.SR-017]
+arch = ["ARCH-02", "ARCH-08"]
+ic = ["IC-004", "IC-005"]
+tests = ["A-013", "A-045"]
+status = "DESIGNED"
+depth_disposition = "remote desktop access contract"
+depth_note = "An interface-reachability contract binding desktop access to DF-AUTHORIZE and a trust zone. Depends on the SR-016 fabric contract; the same reasoning applies. F6 work; A-013 and A-045 hold the assertions."
+
+[requirements.SR-018]
+arch = ["ARCH-02", "ARCH-06", "ARCH-20"]
+ic = ["IC-004", "IC-005"]
+tests = ["A-009", "A-042"]
+contracts = ["contracts/entities/semantic_scene.schema.json"]
+state_machines = ["SM-DEVICE"]
+invariants = ["INV-TRUST-1"]
+ci = ["CI-035"]
+status = "SPECIFIED"
+
+[requirements.SR-019]
+arch = ["ARCH-02", "ARCH-03", "ARCH-24"]
+ic = ["IC-004", "IC-007"]
+tests = ["A-002", "A-017", "A-034"]
+contracts = ["contracts/events/event_envelope.schema.json"]
+state_machines = ["SM-LEASE"]
+decision_functions = ["DF-PROMOTE", "DF-DOMAIN-WRITE"]
+invariants = ["INV-OWN-1", "INV-OWN-2"]
+ci = ["CI-009"]
+status = "SPECIFIED"
+
+[requirements.SR-020]
+arch = ["ARCH-06", "ARCH-07", "ARCH-08"]
+ic = ["IC-003", "IC-004", "IC-005"]
+tests = ["A-008", "A-009", "A-013", "A-051", "A-052"]
+contracts = [
+  "contracts/entities/semantic_scene.schema.json",
+  "contracts/entities/endpoint_surface_state.schema.json",
+  "contracts/commands/endpoint_interaction.schema.json",
+]
+state_machines = ["SM-SENSOR", "SM-ENDPOINT-EPISODE"]
+decision_functions = ["DF-ENDPOINT-ACT", "DF-ENDPOINT-OBSERVE", "DF-ENDPOINT-RECOVER"]
+invariants = ["INV-PRIV-4", "INV-ACT-1", "INV-ACT-2", "INV-ACT-3", "INV-ACT-4", "INV-ACT-5", "INV-ACT-6"]
+ci = ["CI-052", "CI-053", "CI-054"]
+status = "SPECIFIED"
+agency_clause = "2026-08-12: SR-020's 'self-interact across available hardware' clause traced only to semantic_scene.schema.json, SM-SENSOR and INV-PRIV-4 -- capture, sensor indicators and output rendering. None of them concerns ACTING. The status was SPECIFIED on the perception clause while the agency clause had no subsystem, no decision function and no contract. Rather than downgrade the requirement to make the registry honest, SPEC-30, SM-ENDPOINT-EPISODE, DF-ENDPOINT-ACT/OBSERVE/RECOVER, two contracts, INV-ACT-1..6 and A-051/A-052 were written. SPECIFIED is now earned on both clauses."
+
+[requirements.SR-021]
+arch = ["ARCH-08"]
+ic = ["IC-003"]
+tests = ["A-013", "A-014", "A-051", "A-052"]
+contracts = [
+  "contracts/policy/authorization.schema.json",
+  "contracts/commands/command.schema.json",
+  "contracts/commands/endpoint_interaction.schema.json",
+]
+state_machines = ["SM-ENDPOINT-EPISODE"]
+decision_functions = ["DF-AUTHORIZE", "DF-ENDPOINT-ACT", "DF-ENDPOINT-RECOVER"]
+invariants = ["INV-AUTH-1", "INV-AUTH-5", "INV-ACT-1", "INV-ACT-4", "INV-ACT-5", "INV-ACT-6"]
+ci = ["CI-011", "CI-013", "CI-052", "CI-054"]
+status = "SPECIFIED"
+
+[requirements.SR-022]
+arch = ["ARCH-07", "ARCH-10"]
+ic = ["IC-003", "IC-006"]
+tests = ["A-006", "A-028"]
+contracts = ["contracts/policy/authorization.schema.json", "contracts/commands/command.schema.json"]
+decision_functions = ["DF-AUTHORIZE"]
+invariants = ["INV-AUTH-1"]
+ci = ["CI-013"]
+status = "SPECIFIED"
+
+[requirements.SR-023]
+arch = ["ARCH-07", "ARCH-09"]
+ic = ["IC-003"]
+tests = ["A-027"]
+contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json"]
+status = "CONTRACTED"
+depth_disposition = "artifact generation contract"
+depth_note = "An Artifact type with provenance, plus a local/remote generation routing rule. A-027 asserts provenance today. No invariant or CI check names a mechanism, so the missing artifact is a genuine gap rather than a missing ceremony. F5 work."
+
+[requirements.SR-024]
+arch = ["ARCH-07"]
+ic = ["IC-003"]
+tests = ["A-028"]
+contracts = ["contracts/results/result.schema.json"]
+decision_functions = ["DF-OUTPUT-GATE"]
+invariants = ["INV-EVID-2"]
+ci = ["CI-033"]
+status = "SPECIFIED"
+
+[requirements.SR-025]
+arch = ["ARCH-10"]
+ic = ["IC-003"]
+tests = ["A-006", "A-025"]
+contracts = ["contracts/policy/authorization.schema.json"]
+decision_functions = ["DF-CONTEXT-CEILING"]
+invariants = ["INV-AUTH-3", "INV-AUTH-6"]
+ci = ["CI-012", "CI-014"]
+status = "SPECIFIED"
+
+[requirements.SR-026]
+arch = ["ARCH-13", "ARCH-19"]
+ic = ["IC-001", "IC-004"]
+tests = ["A-005", "A-043"]
+contracts = ["contracts/events/event_envelope.schema.json"]
+invariants = ["INV-LIMIT-1"]
+ci = ["CI-038"]
+status = "PARTIAL_R_AND_D"
+note = "Telemetry half is core and buildable. Kernel-access half is a COC Part XIV.3 limitation pending SPIKE-003 per-platform feasibility matrix. Never reportable as IMPLEMENTED until both halves resolve. Ref AR-020."
+
+[requirements.SR-027]
+arch = ["ARCH-21"]
+ic = ["IC-010"]
+contracts = ["contracts/entities/improvement_idea.schema.json"]
+state_machines = ["SM-IDEA"]
+decision_functions = ["DF-IDEA-REVISIT", "DF-TUNABLE"]
+invariants = ["INV-IDEA-1", "INV-IDEA-3", "INV-TUNE-1"]
+tests = ["A-016", "A-040", "A-049"]
+ci = ["CI-046", "CI-047"]
+status = "SPECIFIED"
+
+[requirements.SR-028]
+arch = ["ARCH-05", "ARCH-06", "ARCH-20"]
+ic = ["IC-004", "IC-005"]
+tests = ["A-009", "A-010", "A-033"]
+contracts = ["contracts/entities/semantic_scene.schema.json", "contracts/entities/world_fact.schema.json"]
+decision_functions = ["DF-SELECT-ENDPOINT"]
+invariants = ["INV-WORLD-2", "INV-SCENE-4"]
+ci = ["CI-029"]
+state_machines = ["SM-WORLD-FACT"]
+status = "SPECIFIED"
+
+[requirements.SR-029]
+arch = ["ARCH-16", "ARCH-22"]
+ic = ["IC-006"]
+tests = ["A-008", "A-039", "A-037"]
+contracts = ["contracts/entities/world_fact.schema.json"]
+decision_functions = ["DF-IDENTITY-RESOLVE", "DF-CONFLICT-DETECT"]
+invariants = ["INV-PRIV-2", "INV-WORLD-1"]
+state_machines = ["SM-WORLD-FACT"]
+status = "SPECIFIED"
+
+[requirements.SR-030]
+arch = ["ARCH-06", "ARCH-08", "ARCH-16", "ARCH-17"]
+ic = ["IC-003", "IC-005"]
+tests = ["A-036", "A-046", "A-051"]
+contracts = [
+  "contracts/entities/semantic_scene.schema.json",
+  "contracts/commands/endpoint_interaction.schema.json",
+]
+decision_functions = ["DF-PROACTIVE", "DF-ENDPOINT-ACT"]
+invariants = ["INV-TRIG-3", "INV-ACT-1", "INV-ACT-2"]
+status = "SPECIFIED"
+
+[requirements.SR-031]
+arch = ["ARCH-18"]
+ic = ["IC-003"]
+tests = ["A-018", "A-035"]
+contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json"]
+invariants = ["INV-EXT-1"]
+ci = ["CI-037"]
+status = "R_AND_D"
+note = "Platform feasibility of programmatic call/FaceTime origination pending SPIKE-005. Semantics already resolved by RB-012 delegated attribution; this is a feasibility item, not a contradiction. Ref NV-05 (downgraded to P2)."
+
+[requirements.SR-032]
+arch = ["ARCH-18"]
+ic = ["IC-003"]
+tests = ["A-027", "A-035"]
+contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json"]
+decision_functions = ["DF-AUTHORIZE"]
+invariants = ["INV-EXT-1", "INV-EXT-2"]
+ci = ["CI-037"]
+status = "SPECIFIED"
+
+[requirements.SR-033]
+arch = ["ARCH-07", "ARCH-12"]
+ic = ["IC-003", "IC-010"]
+tests = ["A-015", "A-027"]
+contracts = ["contracts/results/result.schema.json"]
+status = "CONTRACTED"
+depth_disposition = "artifact generation contract + presentation binding"
+depth_note = "Shares SR-023's Artifact type, plus the rule that a generated presentation is a SemanticScene rather than an HTML blob -- which matters, because 'output results in HTML' is exactly the phrasing that reintroduces a chat UI. Recorded so the risk is visible before F5, not discovered during it."
+
+[requirements.SR-034]
+arch = ["ARCH-12"]
+ic = ["IC-010"]
+tests = ["A-027"]
+contracts = ["contracts/results/result.schema.json"]
+status = "CONTRACTED"
+depth_disposition = "report generation contract"
+depth_note = "Shares SR-023's Artifact type. Deliberately NOT given a decision function: 'clean hierarchy, formatting, design, vocabulary' has no decision content that two engineers would implement differently, and a DF here would be a document written to move a linter. This row is the worked example of the discriminator."
+
+[requirements.SR-035]
+arch = ["ARCH-06", "ARCH-17"]
+ic = ["IC-005"]
+tests = ["A-036"]
+contracts = ["contracts/entities/semantic_scene.schema.json"]
+status = "CONTRACTED"
+depth_disposition = "persona and disclosure policy contract"
+depth_note = "A persona contract bounding humor, sarcasm and impressions against RB-001 (truth) and RB-012 (never impersonate) -- the second is the load-bearing half and is why this is a real gap rather than a styling question. A-036 asserts the behaviour. No CI check names the mechanism yet."
+
+[requirements.SR-036]
+arch = ["ARCH-04", "ARCH-23"]
+ic = ["IC-008", "IC-009"]
+tests = ["A-018", "A-029"]
+contracts = ["contracts/commands/command.schema.json", "contracts/entities/trigger.schema.json"]
+decision_functions = ["DF-AUTHORIZE", "DF-TRIGGER-EVAL"]
+invariants = ["INV-TRIG-1", "INV-AUTH-1"]
+ci = ["CI-025"]
+status = "SPECIFIED"
+
+[requirements.SR-037]
+arch = ["ARCH-07", "ARCH-20"]
+ic = ["IC-004"]
+tests = ["A-010"]
+contracts = ["contracts/entities/world_fact.schema.json"]
+invariants = ["INV-LIMIT-1"]
+ci = ["CI-038"]
+status = "R_AND_D"
+note = "Governed by DR-031: isolated research adapter, disabled by default, never trusted world-model fact until experimentally validated. SPIKE-006."
+
+[requirements.SR-038]
+arch = ["ARCH-19"]
+ic = ["IC-009"]
+tests = ["A-044"]
+contracts = ["contracts/events/event_envelope.schema.json"]
+status = "CONTRACTED"
+depth_disposition = "security signal contract + triage decision function"
+depth_note = "A SecuritySignal type and a triage rule distinguishing anomaly from indicator from incident, bound to OWNER-DECISION-005's owner-enrolled-assets-only scope. A-044 (R5) holds the assertions. ADR-007 D6 supplies the compromise-response half; the detection half has no artifact. Highest-value of the seven remaining."
+
+[requirements.SR-039]
+arch = ["ARCH-08", "ARCH-19"]
+ic = ["IC-003", "IC-009"]
+tests = ["A-038"]
+contracts = ["contracts/policy/authorization.schema.json"]
+decision_functions = ["DF-AUTHORIZE"]
+invariants = ["INV-ADMIN-1"]
+status = "SPECIFIED"
+note = "Narrowing by RB-013 must be recorded as an owner-approved deviation; requires the L5 owner_administrative capability class to be implementable. Ref AR-021."
+
+[requirements.SR-040]
+arch = ["ARCH-07"]
+ic = ["IC-003"]
+tests = ["A-008"]
+contracts = ["contracts/entities/world_fact.schema.json"]
+state_machines = ["SM-SENSOR"]
+invariants = ["INV-PRIV-3"]
+status = "SPECIFIED"
+
+[requirements.SR-041]
+arch = ["ARCH-12", "ARCH-28"]
+ic = ["IC-005", "IC-006"]
+tests = ["A-003", "A-036", "A-050"]
+contracts = ["contracts/results/result.schema.json", "contracts/entities/record_loss.schema.json"]
+decision_functions = ["DF-OUTPUT-GATE", "DF-MEMORY-AUTHORITY", "DF-LOSS-SURFACE", "DF-CONFLICT-DETECT"]
+invariants = ["INV-EVID-1", "INV-EVID-3", "INV-MEM-1", "INV-LOSS-3"]
+ci = ["CI-033", "CI-049"]
+status = "SPECIFIED"
+
+[requirements.SR-042]
+arch = ["ARCH-04", "ARCH-14", "ARCH-28"]
+ic = ["IC-008"]
+tests = ["A-011", "A-029", "A-030", "A-047"]
+contracts = ["contracts/entities/trigger.schema.json", "contracts/policy/governed_surfaces.toml"]
+decision_functions = ["DF-TRIGGER-EVAL", "DF-GOVERNED-WRITE", "DF-AUTONOMY-ELIGIBLE"]
+invariants = ["INV-SELF-7", "INV-AUTO-1", "INV-AUTO-5"]
+ci = ["CI-015", "CI-026"]
+state_machines = ["SM-TRIGGER"]
+status = "SPECIFIED"
+
+[requirements.SR-043]
+arch = ["ARCH-15"]
+ic = ["IC-005", "IC-008"]
+tests = ["A-012", "A-041"]
+contracts = ["contracts/policy/autonomy_enable_token.schema.json", "contracts/entities/trigger.schema.json"]
+state_machines = ["SM-INTERLOCK"]
+decision_functions = ["DF-ACTUATION-GATE"]
+invariants = ["INV-ALARM-1", "INV-ALARM-2"]
+ci = ["CI-018"]
+status = "SPECIFIED"
+
+[requirements.SR-044]
+arch = ["ARCH-12"]
+ic = ["IC-010"]
+contracts = ["contracts/entities/improvement_idea.schema.json", "contracts/results/result.schema.json"]
+state_machines = ["SM-IDEA"]
+decision_functions = ["DF-IDEA-REVISIT", "DF-OUTPUT-GATE"]
+invariants = ["INV-IDEA-1", "INV-IDEA-6", "INV-EVID-1"]
+tests = ["A-015", "A-049"]
+ci = ["CI-033"]
+status = "SPECIFIED"
+
+[requirements.SR-045]
+arch = ["ARCH-09", "ARCH-14"]
+ic = ["IC-002", "IC-008"]
+tests = ["A-011", "A-021"]
+contracts = ["contracts/policy/cost_policy.toml"]
+state_machines = ["SM-OPERATING-PERIOD"]
+decision_functions = ["DF-OPERATING-PERIOD", "DF-PROVIDER-ADMIT", "DF-AUTONOMY-ELIGIBLE"]
+invariants = ["INV-COST-1", "INV-COST-2"]
+ci = ["CI-021", "CI-020"]
+status = "SPECIFIED"
+
+[requirements.SR-046]
+arch = ["ARCH-06", "ARCH-28"]
+ic = ["IC-005"]
+tests = ["A-009", "A-026", "A-050"]
+contracts = ["contracts/entities/semantic_scene.schema.json"]
+state_machines = ["SM-SCENE"]
+decision_functions = ["DF-SELECT-ENDPOINT"]
+invariants = ["INV-SCENE-1", "INV-SCENE-3", "INV-LOSS-5"]
+ci = ["CI-028", "CI-030"]
+status = "SPECIFIED"
+
+[requirements.SR-047]
+arch = ["ARCH-06", "ARCH-13"]
+ic = ["IC-002", "IC-005"]
+tests = ["A-020", "A-047", "A-009"]
+contracts = ["contracts/entities/semantic_scene.schema.json", "contracts/policy/latency_budgets.toml"]
+state_machines = ["SM-SCENE"]
+decision_functions = ["DF-DEGRADE"]
+invariants = ["INV-PERF-1", "INV-SCENE-2"]
+ci = ["CI-031", "CI-051"]
+status = "SPECIFIED"
+raised = "2026-08-12: latency budgets now exist as a contract, written BEFORE measurement per INV-PERF-1, and give SPIKE-002 a pass/fail criterion. Progressive presence (SM-SCENE update_mode = stream) is the mechanism that makes first-audio achievable at all; a scene deliverable only when complete makes the budget unmeetable by construction."
+
+[requirements.SR-048]
+arch = ["ARCH-04", "ARCH-12", "ARCH-21"]
+ic = ["IC-008", "IC-010"]
+tests = ["A-003", "A-016", "A-029"]
+contracts = ["contracts/entities/trigger.schema.json"]
+decision_functions = ["DF-PROACTIVE", "DF-TRIGGER-EVAL"]
+invariants = ["INV-TRIG-3", "INV-TRIG-6"]
+ci = ["CI-025"]
+state_machines = ["SM-TRIGGER"]
+status = "SPECIFIED"
+
+[requirements.SR-049]
+arch = ["ARCH-03", "ARCH-19", "ARCH-22", "ARCH-24"]
+ic = ["IC-009"]
+tests = ["A-002", "A-019", "A-030", "A-031", "A-037", "A-050"]
+contracts = ["contracts/policy/governed_surfaces.toml", "contracts/policy/autonomy_enable_token.schema.json", "contracts/entities/record_loss.schema.json"]
+state_machines = ["SM-PROPOSAL"]
+decision_functions = ["DF-GOVERNED-WRITE", "DF-ACTUATION-GATE", "DF-LOSS-CLASS"]
+invariants = ["INV-SELF-1", "INV-SELF-4", "INV-STOP-1", "INV-LOSS-2", "INV-LOSS-6", "INV-ADR-1"]
+ci = ["CI-008", "CI-015", "CI-018", "CI-048", "CI-016"]
+status = "SPECIFIED"
+
+[requirements.SR-050]
+arch = ["ARCH-02", "ARCH-20"]
+ic = ["IC-004"]
+tests = ["A-010", "A-042"]
+contracts = ["contracts/events/event_envelope.schema.json"]
+state_machines = ["SM-DEVICE"]
+invariants = ["INV-HW-1"]
+ci = ["CI-007"]
+status = "SPECIFIED"
+
+[requirements.SR-051]
+arch = ["ARCH-01"]
+ic = ["IC-009"]
+tests = ["A-001"]
+contracts = ["contracts/policy/governed_surfaces.toml"]
+decision_functions = ["DF-GOVERNED-WRITE"]
+invariants = ["INV-TRACE-1", "INV-SRC-1", "INV-PROC-1", "INV-SELF-1"]
+ci = ["CI-002", "CI-003", "CI-050", "CI-041", "CI-043"]
+status = "SPECIFIED"
+raised = "2026-08-12: `the COC becomes the project bible` is not a sentiment, it is surface 5 of GOVERNED_PATHS plus the traceability regime. CI-003 is implemented and runs; CI-050 was added because a document could previously name an artifact that did not exist and no gate noticed."
+
+##############################################################################
+# DERIVED REQUIREMENTS -- reverse index.
+# Every DR-xxx defined in COC Part III must appear here with >= 1 SR.
+# COC Part XI referenced exactly one DR (DR-013). This section closes AR-012.
+##############################################################################
+
+[derived_requirements]
+DR-001 = ["SR-051"]
+DR-002 = ["SR-015", "SR-019", "SR-049"]
+DR-003 = ["SR-020", "SR-028", "SR-036"]
+DR-004 = ["SR-002", "SR-028", "SR-046"]
+DR-005 = ["SR-036", "SR-042", "SR-048"]
+DR-006 = ["SR-011", "SR-020", "SR-026"]
+DR-007 = ["SR-019", "SR-042"]
+DR-008 = ["SR-015", "SR-017", "SR-050"]
+DR-009 = ["SR-020", "SR-021", "SR-039"]
+DR-010 = ["SR-002", "SR-018", "SR-028"]
+DR-011 = ["SR-029", "SR-041"]
+DR-012 = ["SR-027", "SR-048"]
+DR-013 = ["SR-045"]
+DR-014 = ["SR-031", "SR-036", "SR-039"]
+DR-015 = ["SR-038"]
+DR-016 = ["SR-044"]
+DR-017 = ["SR-042", "SR-049"]
+DR-018 = ["SR-001", "SR-011", "SR-047"]
+DR-019 = ["SR-004", "SR-036", "SR-042"]
+DR-020 = ["SR-041", "SR-048"]
+DR-021 = ["SR-003", "SR-012", "SR-049"]
+DR-022 = ["SR-019", "SR-048"]
+DR-023 = ["SR-017", "SR-046"]
+DR-024 = ["SR-028", "SR-050"]
+DR-025 = ["SR-031", "SR-032"]
+DR-026 = ["SR-022", "SR-024", "SR-040"]
+DR-027 = ["SR-038", "SR-049"]
+DR-028 = ["SR-035", "SR-041"]
+DR-029 = ["SR-002", "SR-018"]
+DR-030 = ["SR-049", "SR-051"]
+DR-031 = ["SR-037"]
+
+
+##############################################################################
+# RESTORED SOURCE REQUIREMENTS -- COC v1.2 ADDITIVE (owner-approved 2026-08-12)
+##############################################################################
+
+[requirements.SR-052]
+arch = ["ARCH-10", "ARCH-12"]
+ic = ["IC-006", "IC-010"]
+contracts = ["contracts/results/result.schema.json"]
+decision_functions = ["DF-OUTPUT-GATE"]
+invariants = ["INV-EVID-2", "INV-EVID-3"]
+tests = ["A-003", "A-006"]
+ci = ["CI-033"]
+status = "SPECIFIED"
+
+[requirements.SR-053]
+arch = ["ARCH-10"]
+ic = ["IC-006"]
+contracts = ["contracts/results/result.schema.json"]
+decision_functions = ["DF-MEMORY-AUTHORITY"]
+invariants = ["INV-MEM-1"]
+tests = ["A-003", "A-032"]
+status = "SPECIFIED"
+
+[requirements.SR-054]
+arch = ["ARCH-10"]
+ic = ["IC-006"]
+contracts = ["contracts/policy/authorization.schema.json", "contracts/entities/context_fragment.schema.json"]
+decision_functions = ["DF-CACHE-ADMIT"]
+invariants = ["INV-AUTH-3", "INV-AUTH-6"]
+tests = ["A-006", "A-025"]
+ci = ["CI-012"]
+status = "SPECIFIED"
+raised = "2026-08-12: INV-AUTH-3 already required cache entries to inherit taint and CI-012 already existed to catch the omission. The five tiers had no artifact, so the requirement they inherit taint had nowhere to attach. `derived_from` is mandatory on summary/embedding/cache fragments, so an untainted summariser output is malformed."
+
+[requirements.SR-055]
+arch = ["ARCH-12"]
+ic = ["IC-007"]
+contracts = ["contracts/results/result.schema.json"]
+decision_functions = ["DF-VERIFY-SELECT"]
+state_machines = ["SM-TASK"]
+invariants = ["INV-VERIF-1"]
+tests = ["A-003", "A-023"]
+ci = ["CI-010"]
+status = "SPECIFIED"
+
+[requirements.SR-056]
+arch = ["ARCH-09"]
+ic = ["IC-002"]
+tests = ["A-022"]
+status = "R_AND_D"
+note = "Source says 'if available'. Draft-model proposal plus verification where runtime support justifies it. No V0 obligation; revisit after SPIKE-001 measures local throughput. Never reportable as IMPLEMENTED without measured benefit."
+
+[requirements.SR-057]
+arch = ["ARCH-13"]
+ic = ["IC-004"]
+contracts = ["contracts/entities/node_capability_profile.schema.json"]
+decision_functions = ["DF-SURVIVAL-PROFILE"]
+invariants = ["INV-HW-1", "INV-HW-2"]
+tests = ["A-005", "A-042"]
+ci = ["CI-007", "CI-034"]
+status = "SPECIFIED"
+
+[requirements.SR-058]
+arch = ["ARCH-02", "ARCH-24"]
+ic = ["IC-001", "IC-004"]
+contracts = ["contracts/events/event_envelope.schema.json", "contracts/entities/world_fact.schema.json", "contracts/entities/node_capability_profile.schema.json"]
+state_machines = ["SM-LEASE", "SM-DEVICE"]
+decision_functions = ["DF-DOMAIN-WRITE", "DF-PROMOTE", "DF-SUPERSEDE"]
+invariants = ["INV-COORD-1", "INV-OWN-2", "INV-OWN-3"]
+tests = ["A-017", "A-033", "A-034"]
+ci = ["CI-009"]
+status = "SPECIFIED"
+
+[requirements.SR-059]
+status = "EXCLUDED_BY_SAFETY_POLICY"
+note = "Handwritten p6 request for sexualized interaction. Deliberately not implemented on external safety grounds; owner-acknowledged in COC v1.2 Part II-A. This is a safety boundary, not an engineering reinterpretation and not an oversight. Carries an ID solely so A-001 source completeness can pass honestly: every Part I clause now maps to exactly one ID and one disposition."
+
+[requirements.SR-060]
+arch = ["ARCH-02", "ARCH-03", "ARCH-24"]
+ic = ["IC-004", "IC-007"]
+contracts = ["contracts/entities/node_capability_profile.schema.json", "contracts/entities/checkpoint.schema.json"]
+state_machines = ["SM-DEVICE"]
+decision_functions = ["DF-PLACE", "DF-SURVIVAL-PROFILE"]
+invariants = ["INV-PLACE-1", "INV-PLACE-2", "INV-PLACE-3", "INV-TRUST-2"]
+tests = ["A-017", "A-048"]
+status = "SPECIFIED"
+
+##############################################################################
+# HANDWRITTEN SOURCE CLAUSES -- RESTORED
+#
+# These clauses existed in COC v1.1 Part I with no SR ID. Restored as
+# SR-052..SR-060 by COC v1.2 ADDITIVE, approved by the project owner on
+# 2026-08-12 (OWNER-DECISION-002). v1.1 is unmodified; v1.2 is additive, so
+# the diff between them is the permanent record of what was dropped and when
+# it was restored. Ref AR-011, AR-029.
+##############################################################################
+
+[source_gaps.SRC-GAP-001]
+page = 3
+clause = "BAG: instead of RAG ... NO GUESSING"
+proposed_sr = "SR-052"
+disposition = "RATIFIED_COC_v1.2"
+impact = "Makes 'BAG not RAG' enforceable rather than a class name. Binds INV-EVID-2 (no answer may cite a source it did not retrieve; a similarity score is never sufficient grounding)."
+
+[source_gaps.SRC-GAP-002]
+page = 3
+clause = "Prompt compression / memory summaries; items told to remember recorded immediately"
+proposed_sr = "SR-053"
+disposition = "RATIFIED_COC_v1.2"
+impact = "Currently only implied by ARCH-10. No SR, therefore no test obligation."
+
+[source_gaps.SRC-GAP-003]
+page = 3
+clause = "Cache tiers: file hash, chunk, embedding, summary, prompt prefix"
+proposed_sr = "SR-054"
+disposition = "RATIFIED_COC_v1.2"
+impact = "Cache tiers are named in ARCH-10 but carry no source authority, so they are droppable under schedule pressure."
+
+[source_gaps.SRC-GAP-004]
+page = 3
+clause = "Multi-step reasoning: classify -> retrieve -> plan -> generate -> self-check -> output"
+proposed_sr = "SR-055"
+disposition = "RATIFIED_COC_v1.2"
+impact = "Distinct from SR-013 planner/verifier. Named pipeline with its own stage obligations."
+
+[source_gaps.SRC-GAP-005]
+page = 3
+clause = "Speculative decoding (if available)"
+proposed_sr = "SR-056"
+disposition = "RATIFIED_COC_v1.2"
+impact = "R&D status acceptable. Needs an ID for traceability completeness only."
+
+[source_gaps.SRC-GAP-006]
+page = 3
+clause = "MacBook-specific: accelerated inference, fit in memory headroom, avoid swap, smaller background models, not many models loaded, forced app closure requires asking"
+proposed_sr = "SR-057"
+disposition = "RATIFIED_COC_v1.2"
+impact = "Constrains the resource governor. Must be expressed as a NodeCapabilityProfile constraint, not a product name (INV-HW-1)."
+
+[source_gaps.SRC-GAP-007]
+page = 4
+clause = "Node availability profiles: J3 always home may be offline; desktop usually connected may disconnect; iPhone last resort"
+proposed_sr = "SR-058"
+disposition = "RATIFIED_COC_v1.2"
+impact = "HIGHEST IMPACT. These are the partition-tolerance requirements. Their absence is why AR-003 (no clock/ordering/delivery model) was never confronted. REM-001 and REM-002 currently rest on engineering inference rather than source authority."
+
+[source_gaps.SRC-GAP-008]
+page = 6
+clause = "Safety-excluded handwritten item (sexualized interaction)"
+proposed_sr = "SR-059"
+disposition = "RATIFIED_COC_v1.2"
+impact = "Excluded on safety grounds by COC Part XV. The exclusion is correct; the missing ID is the defect. Requires status EXCLUDED_BY_SAFETY_POLICY so A-001 source-completeness can pass honestly. Ref AR-029."

@@ -1,0 +1,83 @@
+##############################################################################
+# VESPER STATE MACHINE REGISTRY
+# Every state machine is defined in spec/state-machines/STATE_MACHINES.md with
+# an explicit transition table. A state machine whose transitions are only
+# drawn and not tabulated is not specified: no two implementations agree on a
+# diagram. CI-010 compares implemented transition sets against these tables.
+##############################################################################
+
+schema_version = 1
+spec = "spec/state-machines/STATE_MACHINES.md"
+
+[state_machines.SM-WORLD-FACT]
+title = "World-model fact lifecycle"
+owner_rem = "REM-001"
+states = ["UNKNOWN", "CURRENT", "CONFLICTED"]
+enforces = ["INV-COORD-1", "INV-COORD-2", "INV-COORD-3"]
+
+[state_machines.SM-LEASE]
+title = "State-domain ownership lease"
+owner_rem = "REM-002"
+states = ["UNOWNED", "OWNED", "OWNED_MANUAL", "DEMOTING", "FENCED"]
+enforces = ["INV-OWN-1", "INV-OWN-2", "INV-OWN-3"]
+
+[state_machines.SM-TASK]
+title = "Task lifecycle"
+owner_rem = "REM-002"
+states = ["CREATED", "READY", "RUNNING", "WAITING", "VERIFYING", "RETRYING", "BLOCKED", "RESUMABLE", "SUCCEEDED", "FAILED", "CANCELLED"]
+enforces = ["INV-TASK-1", "INV-TASK-2", "INV-VERIF-1"]
+
+[state_machines.SM-PROPOSAL]
+title = "Change-proposal lifecycle (runtime-originated governed change)"
+owner_rem = "REM-004"
+states = ["DRAFT", "QUEUED", "UNDER_REVIEW", "MERGED", "PROMOTED", "REFUSED", "WITHDRAWN"]
+enforces = ["INV-SELF-1", "INV-SELF-5", "INV-SELF-6"]
+
+[state_machines.SM-INTERLOCK]
+title = "Safety interlock / emergency stop"
+owner_rem = "REM-005"
+states = ["ARMED", "STOP_AUTONOMY", "STOP_ALL", "INDETERMINATE"]
+enforces = ["INV-STOP-1", "INV-STOP-3", "INV-STOP-7"]
+
+[state_machines.SM-OPERATING-PERIOD]
+title = "Operating period"
+owner_rem = "REM-006"
+states = ["ACTIVE_SESSION", "IDLE", "FREE_TIME", "DO_NOT_DISTURB"]
+enforces = ["INV-COST-2", "INV-COST-7"]
+
+[state_machines.SM-TRIGGER]
+title = "Trigger lifecycle"
+owner_rem = "REM-007"
+states = ["PROPOSED", "REVIEWED", "ACTIVE", "COOLDOWN", "DISABLED", "RETIRED"]
+enforces = ["INV-TRIG-5", "INV-TRIG-7"]
+
+[state_machines.SM-SCENE]
+title = "Semantic scene lifecycle"
+owner_rem = "REM-009"
+states = ["CREATED", "RENDERED", "UPDATED", "MIGRATED", "WITHHELD", "ACKED", "EXPIRED"]
+enforces = ["INV-SCENE-1", "INV-SCENE-2", "INV-PRIV-1"]
+
+[state_machines.SM-SENSOR]
+title = "Sensor lifecycle"
+owner_rem = "REM-011"
+states = ["DISABLED", "ARMED", "ACTIVE", "PAUSED"]
+enforces = ["INV-PRIV-3", "INV-PRIV-4"]
+
+[state_machines.SM-DEVICE]
+title = "Device enrollment and trust lifecycle"
+owner_rem = "REM-011"
+states = ["DISCOVERED", "ENROLLED", "TRUSTED", "LIMITED_TRUST", "ONLINE", "DEGRADED", "OFFLINE", "REVOKED"]
+enforces = ["INV-TRUST-1", "INV-TRUST-2", "INV-HW-2"]
+
+[state_machines.SM-IDEA]
+title = "Improvement idea lifecycle (backlog -> investigation -> proposal)"
+owner_rem = "REM-015"
+states = ["LOGGED", "INVESTIGATING", "VALIDATED", "PROPOSED", "MERGED", "APPLIED", "RETIRED"]
+enforces = ["INV-IDEA-1", "INV-IDEA-3", "INV-IDEA-4"]
+
+[state_machines.SM-ENDPOINT-EPISODE]
+title = "Computer/device interaction episode: precondition, actuate, observe, verify, recover"
+owner_rem = "REM-012"
+states = ["PLANNED", "PRECONDITION_MET", "ACTUATING", "ACTUATED", "OBSERVED", "VERIFIED", "REFUTED", "OUTCOME_UNKNOWN", "RECOVERING", "ABANDONED", "CLOSED"]
+enforces = ["INV-ACT-1", "INV-ACT-2", "INV-ACT-4", "INV-ACT-5", "INV-ACT-6", "INV-VERIF-1"]
+raised = "2026-08-12, final pre-F0 pass. SR-020 requires VESPER to self-interact across available hardware and SR-021 to run code, scripts and commands, but no state machine described an act of operating a computer. Command/Result and the outbox carried the transport; nothing carried the EPISODE, so the prohibited edge that matters -- actuator report treated as outcome -- had nowhere to be prohibited."

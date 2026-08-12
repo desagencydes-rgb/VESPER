@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+dist/
+build/
+.DS_Store
+Thumbs.db
+
+# Runtime-owned, never governed (SPEC-26: no file is both).
+/state/
+/workspace/
+/artifacts/
+/backups/
+/telemetry-store/
+
+# Never commit secrets. SPEC-27 requires a dedicated mechanism.
+*.pem
+*.key
+.env
+.env.*

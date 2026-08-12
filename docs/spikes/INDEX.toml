@@ -1,0 +1,134 @@
+##############################################################################
+# VESPER SPIKE REGISTRY
+#
+# A spike is a TIME-BOXED MEASUREMENT with a stated pass condition, a stated
+# fail condition, and a stated disposition for each. It is not a research
+# period. A spike that can only conclude "we looked into it" has no deliverable
+# and cannot close anything.
+#
+# Every entry declares:
+#   protocol       the file containing the executable measurement procedure
+#   question       the single question the spike answers
+#   pass_criteria  the measurable condition under which the answer is YES
+#   on_fail        WHAT HAPPENS IF THE ANSWER IS NO -- stated in advance, so it
+#                  is not decided under schedule pressure by whoever is holding
+#                  the failing number
+#   blocks         what cannot proceed until this spike reports
+#   time_box       the point at which an inconclusive spike is itself a result
+#
+# THE RULE THAT GOVERNS EVERY SPIKE IN THIS REGISTRY:
+#
+#   Where a requirement is not met on the measured hardware, the deliverable is
+#   a COC Part XIV.3 limitation record with an R&D path. NEVER a relaxed
+#   requirement, and never a re-measurement on better hardware reported as the
+#   result.
+#
+# Enforced by tools/reference_lint.py (CI-050): every SPIKE id referenced by a
+# normative document must appear here with a protocol, pass_criteria and
+# on_fail. Namespace authority: docs/AUTHORITY_AND_PRECEDENCE.md §5.
+##############################################################################
+
+schema_version = 1
+authority = "Engineering Foundation 'RESEARCH SPIKE' category · docs/AUTHORITY_AND_PRECEDENCE.md §5"
+status_vocabulary = ["NOT_STARTED", "RUNNING", "REPORTED", "SUPERSEDED"]
+
+[spikes.SPIKE-001]
+title = "Node capability profiles, measured"
+protocol = "docs/spikes/SPIKE-001-node-capability-profiles.md"
+status = "NOT_STARTED"
+question = "What can each candidate node actually sustain, and what is the minimum viable profile for SR-005 local fallback?"
+pass_criteria = "Every field in contracts/policy/capability_profiles.toml currently marked UNKNOWN carries a MEASURED value for at least one candidate node, and at least one node meets the declared minimum for local_inference_small."
+on_fail = "If no candidate node sustains local_inference_small, SR-005's local fallback does not close on available hardware. Deliverable is a COC Part XIV.3 limitation record with an R&D path, plus a hardware recommendation. The requirement is NOT narrowed."
+blocks = ["ADR-015", "hardware purchase decision", "SR-005 depth", "SR-006 depth", "SPIKE-002 (needs the minimum profile)"]
+time_box = "5 working days per candidate node"
+owner_role = "Core Systems Engineer · Device/Network Engineer"
+requires_hardware = true
+
+[spikes.SPIKE-002]
+title = "Voice interaction latency chain on the minimum profile"
+protocol = "docs/spikes/SPIKE-002-latency-chain.md"
+status = "NOT_STARTED"
+question = "Does the SR-046 x SR-047 x RB-004 x SR-045 chain close on the MINIMUM profile, offline, in FREE_TIME, with local models only?"
+pass_criteria = "Every path in contracts/policy/latency_budgets.toml meets its budget_ms at p95, measured on the minimum profile under the declared conditions, with wake_to_first_audio and speech_end_to_response_onset asserted INDEPENDENTLY of total completion."
+on_fail = "COC Part XIV.3 limitation record with an R&D path, naming the specific stage that does not close and by how much. Budgets are NOT relaxed (INV-PERF-1); the path is not redefined so the slow part falls outside it; and a measurement on a stronger profile is not reported in its place."
+blocks = ["SR-047 verification", "A-020", "R2 gate"]
+depends_on = ["SPIKE-001"]
+time_box = "10 working days"
+owner_role = "Presence & Interaction Engineer · Intelligence Systems Engineer"
+requires_hardware = true
+
+[spikes.SPIKE-003]
+title = "Kernel and OS access envelope per platform"
+protocol = "docs/spikes/SPIKE-003-kernel-access.md"
+status = "NOT_STARTED"
+question = "What kernel/OS-level access is actually available per platform, at what privilege, under what entitlement, with what user consent?"
+pass_criteria = "A per-platform feasibility matrix covering macOS, Windows, Android and iOS, each cell recording: available yes/no, required privilege, required entitlement, consent surface, and whether a supported non-privileged path exists for the same telemetry."
+on_fail = "SR-026 remains PARTIAL_R_AND_D. The telemetry half ships; the kernel-access half keeps its existing COC Part XIV.3 limitation record. Never reportable as IMPLEMENTED while either half is open."
+blocks = ["SR-026 disposition", "A-043 kernel half"]
+time_box = "5 working days"
+owner_role = "Platform Engineer · Security Engineer"
+requires_hardware = false
+
+[spikes.SPIKE-004]
+title = "Optical feasibility envelope of the volumetric output"
+protocol = "docs/spikes/SPIKE-004-volumetric-optics.md"
+status = "NOT_STARTED"
+question = "What is the real optical feasibility envelope of the glass/holographic output, and which scene properties does it constrain?"
+pass_criteria = "A measured envelope: usable volume, viewing angle, ambient-light tolerance, refresh rate, and element density at legible size -- expressed as constraints on the `volumetric` rung of contracts/policy/degradation_ladder.toml."
+on_fail = "The `volumetric` rung is recorded as R&D. CONTRACTS ARE NOT BLOCKED and proceed now: the semantic-scene architecture is endpoint-independent by construction, so an unavailable rung is a degradation, not a redesign."
+blocks = ["the volumetric ladder rung only"]
+time_box = "10 working days"
+owner_role = "Presence & Interaction Engineer"
+requires_hardware = true
+
+[spikes.SPIKE-005]
+title = "Delegated presence: programmatic call origination without deceptive impersonation"
+protocol = "docs/spikes/SPIKE-005-delegated-presence.md"
+status = "NOT_STARTED"
+question = "Is programmatic call/FaceTime-style delegated presence achievable on the target platform without deceptive impersonation?"
+pass_criteria = "A working path on at least one target platform in which VESPER originates a call, identifies itself as acting on the owner's behalf at the outset, and the recipient is never led to believe they are speaking with the owner (RB-012 delegated attribution)."
+on_fail = "SR-031 stays R_AND_D with its existing limitation record. The semantics are already resolved by RB-012; this is a platform feasibility item, not a contradiction, and it must not be resolved by dropping the attribution requirement."
+blocks = ["SR-031 disposition"]
+time_box = "5 working days"
+owner_role = "Platform Engineer"
+requires_hardware = false
+
+[spikes.SPIKE-006]
+title = "RF through-wall sensing feasibility, accuracy and legality"
+protocol = "docs/spikes/SPIKE-006-rf-sensing.md"
+status = "NOT_STARTED"
+question = "Is Wi-Fi/RF presence sensing feasible and accurate enough to be useful, and is it lawful in the applicable jurisdiction?"
+pass_criteria = "Measured presence-detection accuracy against ground truth in the target dwelling, plus a jurisdictional finding. Per DR-031 and OWNER-DECISION-005: presence only, never appearance or identity."
+on_fail = "SR-037 stays R_AND_D as an isolated, DEFAULT-DISABLED research adapter. Its output never becomes a trusted world-model fact. This is the disposition DR-031 already specifies and the model the other spikes follow."
+blocks = ["SR-037 (R&D track only)"]
+time_box = "5 working days"
+owner_role = "World & Environment Engineer"
+requires_hardware = true
+
+[spikes.SPIKE-007]
+title = "Foreground-only survival envelope"
+protocol = "docs/spikes/SPIKE-007-foreground-survival.md"
+status = "NOT_STARTED"
+question = "How long can a foreground-only node sustain the INV-PLACE-3 survival core, and what is the durable-state guarantee across OS suspension?"
+pass_criteria = "A measured suspension envelope: maximum background execution before OS termination, whether a durable write completes across suspension, whether wake-on-push restores within the node_failover budget, and which survival_core capabilities remain sustainable throughout."
+on_fail = "If the survival core cannot be sustained on any foreground-only node, INV-PLACE-3's last-resort case does not close on that node class. Record which capabilities drop and report them as degradations by design -- SR-060 asks for the MAXIMUM the device can sustain, so a measured smaller set satisfies it; a silent smaller set does not."
+blocks = ["SR-060 depth on foreground-only nodes", "A-048 survival cases", "capability_profiles.background_continuous_operation"]
+depends_on = ["SPIKE-001"]
+time_box = "5 working days"
+owner_role = "Device/Network Engineer"
+requires_hardware = true
+raised_by = "REM-014 §Unresolved decisions item 3"
+
+[spikes.SPIKE-008]
+title = "Persistence engine validation against the ADR-002 constraint set"
+protocol = "docs/spikes/SPIKE-008-persistence-validation.md"
+status = "NOT_STARTED"
+question = "Does the ADR-002 storage design actually deliver atomic epoch fencing, crash-safe checkpoints within budget, and readable stores on every node class?"
+pass_criteria = "Under concurrent writers and injected power loss: zero stale-epoch writes accepted; zero torn checkpoints; checkpoint commit within the 200 ms budget at p95 on the minimum profile; all five stores openable on every candidate node class including the foreground-only one."
+on_fail = "ADR-002 is revised BEFORE F0 rather than discovered during it. A persistence design that fails this is cheaper to change on paper than after durable data exists -- migration retrofitted onto durable data is the classic unrecoverable cost (GAP-046)."
+blocks = ["ADR-002 acceptance confidence", "F0 increment 1"]
+depends_on = ["SPIKE-001"]
+time_box = "5 working days"
+owner_role = "Core Systems Engineer"
+requires_hardware = true
+raised_by = "ADR-002, filed 2026-08-12. The other seven spikes measure hardware and platforms; this one measures whether the persistence DECISION survives contact with them."

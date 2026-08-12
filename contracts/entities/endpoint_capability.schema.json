@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/endpoint_capability.schema.json",
+  "title": "VESPER Endpoint Capability Descriptor",
+  "description": "REM-009 §4.2. What a surface can actually do, declared by the surface -- so that a scene producer never names an endpoint (INV-SCENE-4) and a renderer never requires a field outside the scene schema (INV-SCENE-1). `spatial_class` is the field that makes the projector and glass-cube targets first-class rather than special cases. Authority: SR-002, SR-018, SR-020, SR-028, SR-046, SR-047; REM-009, REM-011; DF-SELECT-ENDPOINT, DF-DEGRADE.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["endpoint_id", "schema_version", "node_id", "modalities", "spatial_class", "interaction_classes", "latency_class", "privacy_class"],
+  "properties": {
+    "endpoint_id": { "type": "string" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "node_id": { "type": "string", "pattern": "^nd_[a-z2-7]{26}$" },
+    "modalities": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "enum": ["visual", "audio_out", "audio_in", "haptic", "ambient_light"] },
+      "description": "An endpoint with only audio_out is a legitimate, fully-supported target. A-026 boots the system with every text surface disabled and requires every core capability to remain reachable."
+    },
+    "spatial_class": {
+      "enum": ["none", "2d", "2d_projected", "pseudo_3d_glass", "volumetric"],
+      "description": "The rung this endpoint occupies on every element's degradation ladder. `none` is voice-only and is the row that forces the scene schema to carry what a diagram MEANS rather than an image of it -- a rendered PNG cannot be narrated; a typed graph can."
+    },
+    "resolution_class": { "enum": ["none", "low", "standard", "high"] },
+    "text_capacity": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Characters comfortably legible at the expected viewing distance. Null for audio-only. Zero is meaningful and distinct from null: a state-indicator LED has visual modality and zero text capacity."
+    },
+    "color": { "type": "boolean" },
+    "audio": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "tts_available": { "type": "boolean" },
+        "asr_available": { "type": "boolean" },
+        "barge_in_supported": {
+          "type": "boolean",
+          "description": "REM-010 latency budget: barge-in honoured within 200 ms. An endpoint that cannot be interrupted is a degradation to report, not a fact to hide."
+        },
+        "max_volume_class": { "enum": ["quiet", "normal", "loud", "alarm"] }
+      }
+    },
+    "interaction_classes": {
+      "type": "array",
+      "items": { "enum": ["none", "voice", "touch", "pointer", "keyboard", "gesture", "physical_button"] },
+      "description": "`physical_button` matters disproportionately: INV-ALARM-2 requires at least one acknowledgment channel that is physical and ASR-INDEPENDENT. A wake-up that can only be dismissed by speaking fails for a person who has just woken up."
+    },
+    "latency_class": { "enum": ["realtime", "interactive", "delayed"] },
+    "privacy_class": {
+      "enum": ["private", "semi_private", "public"],
+      "description": "DF-SELECT-ENDPOINT input. The fail-safe: unknown person present, or user_location_confidence below threshold, routes to the most private available surface or WITHHOLDS. Never defaults to the most public surface -- the natural implementation routes to the largest display, which is the projector, which is the one a guest can read (A-010 negative control)."
+    },
+    "space_ref": {
+      "type": ["string", "null"],
+      "description": "Topological space reference (INV-WORLD-2). No subsystem requires metric coordinates; `spatial_intent` on a scene is relational and resolves against this graph at render time."
+    },
+    "availability_class": {
+      "enum": ["always_on", "usually_on", "foreground_only", "on_demand"],
+      "description": "REM-011 / REM-014. Separates TRUST from AVAILABILITY -- the correction OWNER-DECISION-002 produced. A node can be fully trusted (Z0) and only intermittently awake; fusing the two is what previously excluded the phone entirely. INV-TRUST-2 constrains PLANNED assignment to foreground_only endpoints; it does not forbid runtime survival on one."
+    },
+    "measured_at_hlc": {
+      "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc",
+      "description": "Capabilities are DISCOVERED and re-measured, not configured once. An endpoint whose descriptor is older than its re-attestation interval is treated as UNKNOWN, and UNKNOWN endpoints are not selected."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "spatial_class": { "const": "none" } }, "required": ["spatial_class"] },
+      "then": {
+        "properties": { "modalities": { "contains": { "enum": ["audio_out", "ambient_light", "haptic"] } } },
+        "$comment": "An endpoint with no spatial class and no non-visual modality can render nothing, and would silently swallow every scene routed to it."
+      }
+    },
+    {
+      "if": { "properties": { "privacy_class": { "const": "public" } }, "required": ["privacy_class"] },
+      "then": {
+        "properties": { "space_ref": { "type": "string" } },
+        "required": ["space_ref"],
+        "$comment": "A public surface must be locatable in the space graph, or the privacy fail-safe cannot reason about who can see it."
+      }
+    }
+  ],
+  "$comment": "EXCLUDED BY DESIGN: fonts, colours, pixel dimensions, CSS, and any styling vocabulary. Those belong to the renderer. If a scene producer could read them it would begin producing layouts, and the endpoint-independence property -- the one that makes voice, projector and volumetric outputs the same architecture -- would be gone within a sprint."
+}

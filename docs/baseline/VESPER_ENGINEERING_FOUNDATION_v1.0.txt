@@ -1,0 +1,341 @@
+﻿VESPERENGINEERING FOUNDATION
+v1.0 • PRE-IMPLEMENTATION ENGINEERING BASELINE
+Derived from the locked VESPER V0 Definitive COC + Rulebook v1.1. The COC remains the immutable source-requirement authority.
+
+VESPER Engineering Foundation v1.0
+Status: PRE-IMPLEMENTATION ENGINEERING BASELINE
+Authority: VESPER V0 Definitive COC + Rulebook v1.1. SR-001..SR-051 remain immutable.
+Purpose
+Convert the locked COC into an executable engineering system without reopening the vision.
+The package separates immutable requirements, architecture, implementation decisions, research, and verification.
+Package
+Engineering Operating Model
+System Architecture
+Agent Organization & Governance
+Contracts & Data Model
+Verification, Validation & Release
+Security, Reliability & Observability
+Hardware & Distributed Node Architecture
+Model & Tool Evaluation
+Implementation Roadmap
+Traceability & Release Gate
+Initial ADR Register
+First-build principle
+Do not build a throwaway chatbot and retrofit the Jarvis architecture later. Start with a real vertical slice proving identity/lifecycle, eventing, policy, persistence, model abstraction, telemetry, checkpoint/recovery, and one observe→decide→act→verify loop.
+
+VESPER Engineering Operating Model v1.0
+Authority
+The COC is supreme for SR-001..SR-051. Engineering may implement, refactor, benchmark, test, research, and propose ADRs, but may not silently alter an SR.
+Engineering loop
+INTENT → CONTRACT → DESIGN → IMPLEMENT → VERIFY → EVIDENCE → INTEGRATE → RELEASE
+Work item types
+FEATURE, FOUNDATION, ADR, SPIKE, BUG, SECURITY, RESEARCH, HARDWARE.
+Definition of Ready
+Objective, source/derived requirements, dependencies, affected contracts, security impact, acceptance criteria, observability, rollback/recovery expectations, and closed architectural questions.
+Definition of Done
+Implementation complete; appropriate unit/contract/integration tests pass; failure paths exercised; telemetry present; docs/contracts updated; traceability updated; review evidence recorded; rollback/recovery demonstrated where applicable.
+Change control
+SR change = explicit project-owner approval + new COC baseline.
+DR/interface/schema/implementation change = normal engineering governance if SR semantics remain intact.
+Changes to identity, persistence, routing, memory, device protocol, autonomy, security, or recovery require an ADR.
+Repository
+main = releasable. feature/*, fix/*, security/*, spike/*, adr/* are working branches. No direct agent writes to main.
+Agent task envelope
+TASK_ID, OBJECTIVE, SOURCE_REQUIREMENTS, DERIVED_REQUIREMENTS, CONTRACTS, AUTHORIZED_SCOPE, FILES/SUBSYSTEMS, DEPENDENCIES, CONSTRAINTS, ACCEPTANCE_CRITERIA, TESTS, EXPECTED_ARTIFACTS, STOP_CONDITIONS.
+Agent output: RESULT, CHANGES, TESTS, EVIDENCE, UNRESOLVED_ISSUES, ARCHITECTURAL_IMPACTS, FOLLOW-UP.
+Ownership
+One accountable owner per subsystem. Multiple agents may contribute, but acceptance ownership is singular.
+Parallelism
+Parallel agents are allowed only when write scopes are isolated or integration is explicitly coordinated. Resource limits may constrain concurrency but are not an architectural agent-count limit.
+Evidence hierarchy
+Executed tests and telemetry
+Reproducible experiments
+Authoritative documentation
+Code inspection
+Model/agent assertions
+Review gates
+A Contract → B Implementation → C Integration → D System → E Release.
+Prohibited
+Hidden global state; vendor coupling in domain logic; direct device calls from cognition; unobservable background work; irreversible autonomous actions without authorization; using model output as proof of execution; self-escalating agent authority.
+
+VESPER System Architecture v1.0
+Architectural objective
+Implement the COC's distributed artificial operating presence without making any model, provider, device, UI, or network path the system identity.
+Planes
+Control: identity, lifecycle, policy, authorization, events, tasks, orchestration, resources, recovery.
+Intelligence: model runtimes, gateway/router, planner, verifier, agents, research.
+Knowledge: BAG, maps, indexes, source registry, durable memory, artifacts.
+Perception: audio, cameras, screen capture, OCR, media, telemetry observations.
+World: entities, spaces, devices, capabilities, relationships, temporal state, confidence/provenance.
+Action: tools, filesystem, code execution, browser, communications, OS/device control, displays.
+Presence: speech, listening, semantic scenes, 2D/spatial endpoints.
+Environment: device registry, network/spatial topology, capability discovery.
+Security: identity, authorization, secrets, isolation, audit, anomaly detection, recovery.
+Reliability: checkpoints, durable queues, idempotency, retries, backups, degraded modes.
+Dependency direction
+Interfaces/contracts → domain state/policy → orchestration → adapters/providers/devices.
+Core domain logic must not import vendor LLM SDKs, device SDKs, browser automation libraries, or concrete database implementations.
+Event backbone
+Typed, versioned events for observation, task, model, tool, device, presence, autonomy, security, and recovery. Every event has ID, timestamp, source, subject, correlation ID, schema version, and sensitivity classification.
+State ownership
+Task state belongs to tasks; device health to devices; authorization to policy/security; model health/quota to the model gateway; durable memory to memory; spatial topology to world/device. Consumers do not mutate another subsystem's state directly.
+Model gateway
+Normalizes request/stream/response/health/cancellation/quota/error/capability/usage. Router chooses based on task requirements, quality, latency, resources, policy and cost. Provider-specific details stay in adapters.
+BAG/context
+BAG combines project maps, structured facts, exact retrieval, semantic retrieval, summaries, task state, files/artifacts, memory and caches. Context management decides what must be retrieved, summarized, cached, or rotated. Manual control remains available.
+Memory
+Separate episodic events, durable user-approved facts, project memory, decisions, rules/policies, task memory, learned operational patterns and temporary working memory. Durable records carry provenance, confidence, timestamps, scope, retention and schema version. Model output does not become fact automatically.
+World model
+Time-aware representation of entities, spaces, devices, capabilities, network/spatial relationships, active tasks, observations, confidence and provenance.
+Agent runtime
+Agents are bounded execution workers. Each has identity, role, grants, task, resource budget, model profile, context scope, stop conditions and telemetry. Dynamic spawning is supported; actual concurrency is governed by resources/policy/safety.
+Action pipeline
+intent → plan → authorization → preview/dry-run where applicable → execute → observe → verify → commit/compensate → report.
+Presence pipeline
+semantic interaction state → modality requirements → endpoint selection → rendering/actuation → interaction observation → state update.
+Hardware abstraction
+Nodes expose capabilities, not raw hardware identity. VESPER identity survives node replacement.
+Failure domains
+Model/provider, agent, process, node, network, storage, device, external service, configuration, security incident. Each requires detection, containment, degraded mode, recovery and reporting.
+Architectural invariants
+VESPER identity is not model identity.
+VESPER identity is not device identity.
+Consequential actions require policy evaluation.
+Durable memory requires provenance.
+Completion claims require verification where possible.
+Critical capability loss is observable.
+Vendor dependencies stay behind adapters.
+Autonomous loops require stop conditions.
+Background work requires observability.
+Implementation convenience cannot weaken source requirements.
+Intentionally unresolved
+Database, event transport, model runtime, serialization, deployment topology and similar choices require evidence-backed ADRs rather than premature locking.
+
+VESPER Agent Organization & Governance v1.0
+Principle
+Tools are not roles. Models are not authorities. Roles define responsibility; model/tool assignments are evidence-based implementation choices.
+Human authority
+The project owner controls source changes, irreversible external actions, release acceptance, security exceptions and material architecture choices.
+Roles
+Architecture Steward: system invariants, cross-subsystem interfaces, ADRs.
+Runtime/Systems: lifecycle, events, scheduling, IPC, resource/process management.
+Intelligence: model gateway, routing, planner, verifier, agent orchestration.
+Knowledge/Memory: BAG, maps, retrieval, memory, provenance.
+World/Perception: observations, cameras/audio/screen, world model.
+Presence/Interaction: voice, visual output, semantic scenes, endpoints.
+Device/Network: node fabric, discovery, identity, capabilities.
+Autonomy: triggers, background work, budgets, checkpoints, stop/reporting.
+Security: identity, authorization, secrets, audit, containment.
+Verification: test strategy, acceptance, regression, adversarial testing.
+Research: experiments, evidence, prototypes, reproducibility.
+Authority levels
+L0 Observe; L1 Propose; L2 Implement; L3 Integrate; L4 Release. No agent grants itself authority.
+Tool/model selection
+Do not hard-code "Claude=backend" or similar. Benchmark candidates against VESPER tasks, then assign by role.
+Benchmark dimensions
+Correctness, regression rate, instruction adherence, security defects, test quality, latency, context efficiency, cost, tool-use reliability and recovery behavior.
+Parallelism
+Parallel work is preferred for isolated scopes. Sequential work is required when contracts, schemas, architecture, security authority or migrations are changing.
+Conflict resolution
+COC → contract → ADR → reproducible benchmark/experiment → Architecture Steward.
+Agent context
+Canonical project artifacts are authoritative. Private agent context is never project state.
+
+VESPER Contracts & Data Model v1.0
+The locked COC defines IC-001..IC-010. These are their implementation obligations.
+IC-001 Event Bus
+Typed/versioned/timestamped events with correlation. Event IDs unique; schemas versioned; past events immutable; sensitivity classified.
+IC-002 Model Provider
+Normalize request, streaming, response, health, cancellation, quota, error, capability and usage/cost. Core never imports provider SDKs.
+IC-003 Tool
+Tool ID, argument schema, authorization, preview, execution, result, compensation. Capability grant required.
+IC-004 Device
+Identity, capabilities, health, location/space, sensors, displays, compute profile, network identity. Node loss cannot destroy VESPER state.
+IC-005 Presence
+Semantic scene, modality constraints, endpoint selection, interaction events. Presentation is endpoint-independent.
+IC-006 Memory
+Envelope: memory_id, type, content, provenance, confidence, timestamps, scope, retention, schema_version, source_refs, supersedes. Corrections preserve provenance.
+IC-007 Task
+Goal, owner, priority, dependencies, deadline, state, checkpoint, required capabilities, authorization, verification criteria. State transitions are explicit.
+IC-008 Autonomy
+Trigger, goal, scope, authority, model policy, cost policy, resource budget, tool budget, stop conditions, reporting policy, checkpoint.
+IC-009 Security
+Principal, identity, trust state, capability grants, policy version, audit references, containment state.
+IC-010 Research
+Question, hypothesis, sources, evidence, experiment, measurements, provenance, limitations, reproducibility, conclusion. Insufficient evidence is valid.
+Cross-contract rules
+Correlation links observation→decision→action→verification. External actions are attributable. Durable artifacts have provenance. Capabilities have machine-readable authorization. Long tasks have checkpoints. Device capabilities have health. Recovery emits events.
+
+VESPER Verification, Validation & Release v1.0
+Objective
+Verification: did we build to contract/requirements? Validation: does it behave correctly in the real environment?
+Test layers
+Unit; contract; integration; system; acceptance; adversarial; performance; recovery; hardware-in-loop.
+Mandatory vertical slice
+observation → task → BAG/context retrieval → model routing → plan → policy check → tool action → result observation → verification → durable task state → telemetry → user-visible presence.
+At least one path must survive model/provider failure and resume from checkpoint.
+Evidence
+Record requirement IDs, build/version, environment, test command, result, logs/telemetry, limitations and reviewer.
+Performance
+Measure first on target hardware: wake-to-first-audio, speech-to-response, perception, routing, tool invocation, display update, checkpoint and recovery. Convert measured baselines into ADR-backed targets.
+Release levels
+R0 Foundation; R1 Local Intelligence; R2 Device Presence; R3 Perception/World; R4 Autonomy; R5 Integrated VESPER V0.
+Release blockers
+Broken required contract; failed security invariant; untested recovery claim; silent provider dependency; unobservable background work; persistent-state corruption risk; self-escalating agent authority; unreproducible acceptance evidence.
+Regression
+Every production defect becomes a regression test and root-cause record.
+
+VESPER Security, Reliability & Observability v1.0
+Threat classes
+Prompt injection, compromised model output, malicious tool, credential theft, compromised node, hostile network peer, accidental destructive action, corrupted state, supply-chain dependency, unauthorized autonomy.
+Trust zones
+Core trusted zone; controlled execution zone; device zone; external zone. Cross-zone operations require explicit adapters and policy.
+Capability security
+Explicit grants for read, write, execute, communicate, device-control, network, external-action, administrative. Minimum necessary scope.
+Secrets
+Never ordinary telemetry; minimized model exposure; dedicated secret mechanism; rotation/revocation; audited access.
+Autonomous safety
+Every autonomous task has authority, scope, budget, stop conditions, reporting and checkpoint.
+Reliability
+Idempotency, checkpoints, durable task state, retry/backoff, circuit breakers, degraded modes, rollback/compensation, tested backup/restore.
+Observability
+correlation_id → task → agent → model → tool → device → result → verification. Track latency, errors, retries, resource pressure, queue depth, capability availability and recovery time.
+Incident response
+DETECT → CLASSIFY → CONTAIN → PRESERVE EVIDENCE → RECOVER → VERIFY → REPORT → PREVENT RECURRENCE.
+Compromised nodes cannot silently redefine trusted state.
+
+VESPER Hardware & Distributed Node Architecture v1.0
+Principle
+Neo, desktop, J3, iPhone, cameras, projector, glass/spatial hardware and future nodes are VESPER participants, not separate assistants.
+Node classes
+Core compute; compute accelerator; mobile; perception; presence; experimental edge. One physical device can expose multiple classes.
+Capability advertisement
+Capability, version, health, location/space, compute profile, availability, permissions, network identity.
+Placement
+Capability, latency, resources, privacy, cost, power, network and persistence requirements.
+Neo
+Mobile/edge node for local fallback intelligence, voice/presence, context/BAG access, lightweight inference, orchestration, development and continuity. Not assumed to be the strongest compute node.
+Desktop
+Preferred heavy-compute node for GPU inference, training, large models, rendering, batch and high-resource agents.
+Network
+Logical VESPER network with node authentication, encrypted transport, discovery, health and revocation.
+Presence migration
+Neo → desktop → phone/J3 → projector/spatial endpoint without losing identity, task state, active goal and relevant context.
+Experimental sensing
+RF/through-wall sensing remains an isolated research adapter until validated; it cannot become trusted world-model fact without evidence.
+
+VESPER Model & Tool Evaluation Framework v1.0
+Purpose
+Choose models/tools by evidence, not popularity.
+Candidate dimensions
+Reasoning, instruction adherence, code correctness, repository comprehension, context efficiency, latency, resource use, tool reliability, structured output, recovery, security robustness, cost, local capability.
+Benchmark suite
+B01 Contract implementation
+B02 Safe refactor
+B03 Repository archaeology
+B04 Distributed failure diagnosis
+B05 Security boundary
+B06 Test engineering
+B07 Architecture review
+B08 Research/ADR
+Recording
+Pass/fail, defect severity, time, context/token use, tool calls, recovery attempts, reviewer score.
+Routing classes
+Light routing/classification; standard assistant; coding; deep reasoning; perception; summarization; extraction; research; verifier/critic.
+Local model evaluation
+Measure memory footprint, quantization, startup, tokens/sec, thermal/power behavior and useful quality on target hardware.
+Tool evaluation
+API stability, permissions, observability, failure semantics, rollback, sandboxing, latency and maintainability.
+Final assignments are outputs of the benchmark.
+
+VESPER Implementation Roadmap v1.0
+Strategy
+Build a real vertical slice first, then expand by capability domains. Do not build a disposable chatbot core.
+F0 Engineering substrate
+Repository, config, telemetry, tests, lifecycle, event abstraction, persistence abstraction, policy skeleton, model abstraction, task checkpoints.
+Exit: local service creates/persists/restarts/recover tasks and emits events.
+F1 Intelligence foundation
+Model gateway, router, context manager, BAG/mapping, memory, planner, verifier, resource monitor.
+Exit: bounded context → routed execution → verification → persistence.
+F2 Capability fabric
+Tool contract, capability registry, authorization, execution, compensation, device registry.
+Exit: safe tool invocation through policy with verifiable result.
+F3 Presence
+Voice, semantic presence, 2D renderer, second endpoint, migration.
+Exit: interaction moves between endpoints without state loss.
+F4 Perception/world
+Camera/audio/screen adapters, provenance, observation normalization, world model, confidence/expiry.
+Exit: real perception→world update→decision loop.
+F5 Autonomy
+Triggers, background worker, resource/cost policy, stop conditions, checkpoints, reporting, free-time enforcement.
+Exit: bounded autonomous task can start, pause, resume, stop and report.
+F6 Distributed VESPER
+Node discovery, authenticated communication, capability placement, migration, failure handling.
+Exit: node loss does not destroy identity/task state.
+F7 Environment
+Spatial topology, projector, cameras/sensors, ambience, richer scenes, interactive spatial research.
+Exit: semantic output routes by topology/capability.
+F8 Research/continuous improvement
+Research engine, experiment registry, benchmarks, reproducibility, controlled improvement.
+Exit: evidence-backed research and promotion process.
+First 10 increments
+1 Runtime/config/telemetry
+2 Event contract + durable task state
+3 Policy/capability skeleton
+4 One local model provider
+5 Minimal BAG/context
+6 Planner/verifier
+7 One safe tool
+8 Voice/presence endpoint
+9 One perception adapter
+10 Complete observe→decide→act→verify slice
+Only after this should broad feature development accelerate.
+
+VESPER Traceability & Release Gate v1.0
+Chain
+SR → architecture → contract → module/owner → test → acceptance evidence → release.
+Record
+SR_ID, DR_IDs, ARCH_IDs, CONTRACT_IDs, MODULES, OWNER, TEST_IDS, ACCEPTANCE_ID, RELEASE, STATUS, EVIDENCE.
+Status
+UNMAPPED, DESIGNED, CONTRACTED, IMPLEMENTED, VERIFIED, ACCEPTED, RELEASED, BLOCKED, R&D.
+Gate checklist
+Requirements: SR coverage, no weakening, DR review.
+Architecture: contracts stable, ADRs complete, dependency direction preserved.
+Implementation: review, migrations/versioning, no hidden vendor coupling.
+Verification: unit, contract, integration, system, acceptance, recovery, adversarial as relevant.
+Security: authorization, secrets, audit, isolation, incident path.
+Reliability: checkpoint, restart, provider/node failure, degraded mode.
+Observability: correlation IDs, metrics, structured logs, sensitive-data controls.
+Presence/autonomy: semantic presence, policy, stop conditions, reporting.
+Hard stops
+Contradicted SR; bypassed authorization; untested recovery claim; silent provider dependency; unobservable background action; unsafe retry corruption; self-escalating agent; unreproducible acceptance evidence.
+Final audit questions
+Can VESPER lose a model without losing identity?
+Can it lose a device without losing task state?
+Can it explain autonomous actions?
+Can it prove actions happened?
+Can it operate locally when required?
+Can it route by capability/resource constraints?
+Can it preserve provenance?
+Can it stop autonomous work?
+Can it recover after failure?
+Can future spatial/environment hardware be added without rewriting the core?
+
+VESPER Initial ADR Register v1.0
+ADR-001 Event transport: transport, persistence and delivery guarantees.
+ADR-002 Persistence engine: task state, memory, provenance, migration and recovery.
+ADR-003 Model runtime abstraction: local/remote normalization without vendor coupling.
+ADR-004 BAG/index architecture: maps + exact + semantic + summaries + caches.
+ADR-005 World model representation: entities, spaces, devices, observations, time, confidence.
+ADR-006 Tool sandbox: isolation for code/tool execution.
+ADR-007 Device identity/trust: enrollment, authentication, revocation, recovery.
+ADR-008 Presence transport: semantic scenes and interaction events.
+ADR-009 Autonomous scheduler: triggers, budgets, checkpoints, stop/reporting.
+ADR-010 Memory retention: automatic/user-approved/expiring/session memory.
+ADR-011 Learning boundary: what may change automatically versus reviewed.
+ADR-012 Deployment topology: centralized/edge/replicated/opportunistic services.
+ADR-013 Observability store: retention and sensitive-data minimization.
+ADR-014 Research promotion: evidence threshold for production.
+ADR-015 Model assignment: run B01-B08 on actual candidate tools.
+ADR-016 First production vertical slice: prove architecture without throwaway foundations.
+These are decision records to be resolved, not pre-decided technologies.

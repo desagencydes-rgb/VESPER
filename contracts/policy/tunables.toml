@@ -1,0 +1,178 @@
+##############################################################################
+# VESPER TUNABLES
+#
+# REM-015 §3.5. INV-TUNE-1:
+#
+#   VESPER may modify a declared tunable WITHIN its declared range.
+#   It may never modify the range, the predicate, the authority, the budget
+#   or the cost policy. Out-of-range values are CLAMPED AND REPORTED,
+#   never silently accepted.
+#
+# The distinction this file makes concrete: self-tuning is VESPER adjusting
+# HOW OFTEN it does something, never WHAT IT IS ALLOWED TO DO. Idle time
+# expands available time, never authority (INV-IDEA-6).
+#
+# THE RANGE IS NOT ITSELF A TUNABLE. `min` and `max` live in this file, this
+# file is GOVERNED SURFACE 7, and the runtime's filesystem capability set
+# excludes it (INV-SELF-4). A system that can widen its own range has no range.
+#
+# FIELD NAMES AND RANGES FOR THE BACKLOG TUNABLES ARE TAKEN VERBATIM FROM
+# REM-015 §3.5, which is their authority. DF-TUNABLE reads TUNABLE_FIELDS from
+# this file rather than hard-coding a list, because a list in a specification
+# and a list in a contract will drift, and the drift will be discovered by the
+# runtime refusing a field the owner believed was tunable.
+#
+# Enforced by: CI-046 (tunable-range-immutable), DF-TUNABLE, A-049.9.
+##############################################################################
+
+schema_version = 1
+authority = "REM-015 §3.5 · SR-027, SR-042, SR-044, SR-048 · INV-TUNE-1, INV-IDEA-6"
+governed_surface = true
+surface = "GOVERNED_PATHS surface 7 (autonomy/triggers/ and its policy)"
+
+##############################################################################
+# TUNABLE FIELDS
+#
+# Each declares min, max, default, unit, source, affects and owner_rationale.
+# `current` is RUNTIME STATE and is deliberately absent -- SPEC-26: no file is
+# both governed configuration and runtime state. Current values live in
+# state.db (ADR-002 D2). CI-046 fails this file if a `current` appears.
+##############################################################################
+
+# ---------------------------------------------------------------- REM-015 §3.5
+[tunable.revisit_after]
+min = 3600            # 1 hour
+max = 15552000        # 180 days
+default = 604800      # 7 days
+unit = "seconds"
+source = "REM-015 §3.5"
+affects = "ImprovementIdea.revisit_after · DF-IDEA-REVISIT"
+owner_rationale = "The 'time is relative' clause. Learning that a class of idea needs three weeks rather than three days is exactly the learning SR-048 authorizes."
+
+[tunable.idle_threshold]
+min = 300             # 5 minutes
+max = 14400           # 4 hours
+default = 1200        # 20 minutes
+unit = "seconds"
+source = "REM-015 §3.5"
+affects = "trg_improvement_backlog · DF-IDEA-REVISIT"
+owner_rationale = "How long the system must be quiet before it counts as idle. A floor on when backlog work may begin -- never a schedule, since the predicate still requires genuine idle."
+
+[tunable.staleness_floor]
+min = 86400           # 1 day
+max = 31536000        # 365 days
+default = 2592000     # 30 days
+unit = "seconds"
+source = "REM-015 §3.5"
+affects = "trg_improvement_backlog · DF-IDEA-REVISIT"
+owner_rationale = "How long an idea sits before VESPER considers it worth revisiting. Too short and the backlog churns; too long and it becomes a graveyard, which is indistinguishable from a system that has stopped thinking."
+
+[tunable.starvation_count]
+min = 2
+max = 50
+default = 5
+unit = "preemptions"
+source = "REM-015 §3.5"
+affects = "DF-IDEA-REVISIT priority"
+owner_rationale = "How many times an idea may be preempted before it is prioritised. This is the term that makes A-049.4 fire BECAUSE work kept preventing it."
+
+[tunable.max_attempts]
+min = 1
+max = 20
+default = 5
+unit = "attempts"
+source = "REM-015 §3.6"
+affects = "SM-IDEA transition to RETIRED"
+owner_rationale = "Attempts without progress before an idea is retired WITH A RECORDED REASON. Retirement is auditable and reversible; the count is pacing, the recorded reason is not tunable."
+
+# ---------------------------------------------------------------- REM-014
+[tunable.placement_min_dwell_s]
+min = 60
+max = 3600
+default = 600
+unit = "seconds"
+source = "REM-014 (DF-PLACE hysteresis)"
+affects = "DF-PLACE · INV-PLACE-2"
+owner_rationale = "Minimum time on a host before relocation is considered. Prevents flapping between comparable nodes. Degradation or loss of the current host bypasses it -- waiting politely while the host dies is the wrong failure direction."
+
+[tunable.relocation_gain_threshold]
+min = 0.05
+max = 0.75
+default = 0.25
+unit = "fraction"
+source = "REM-014 (DF-PLACE hysteresis)"
+affects = "DF-PLACE · INV-PLACE-2"
+owner_rationale = "How much better a candidate host must MEASURABLY be before relocating. A low value produces a system that never settles."
+
+# ---------------------------------------------------------------- REM-007
+[tunable.proactive_value_threshold]
+min = 0.1
+max = 0.9
+default = 0.5
+unit = "fraction"
+source = "REM-007 §4.6"
+affects = "DF-PROACTIVE"
+owner_rationale = "Where expected_value must sit relative to interruption_cost before ACT_NOW. The `decays` term is NOT tunable -- it is a property of the information, not a preference."
+
+# ---------------------------------------------------------------- REM-002
+[tunable.checkpoint_interval_s]
+min = 15
+max = 600
+default = 60
+unit = "seconds"
+source = "REM-002 §4.7"
+affects = "checkpoint granularity during a long plan step"
+owner_rationale = "Trade-off between write load and how much work a node loss can cost. The obligation to checkpoint at every COMPLETED plan step is not tunable; only the within-step interval is."
+
+# ---------------------------------------------------------------- REM-010
+[tunable.map_reindex_debounce_s]
+min = 30
+max = 3600
+default = 120
+unit = "seconds"
+source = "REM-007 §4.5 (standing goals) · SR-007"
+affects = "trg_map_stale"
+owner_rationale = "How long a corpus must be quiet before re-indexing starts, so an active editing session does not trigger continuous rebuilds."
+
+##############################################################################
+# EXPLICITLY NOT TUNABLE
+#
+# Named exhaustively. An implementer looking for somewhere to put a knob finds
+# this list first, and a request to add one of these is a governed-surface
+# change with a human merge -- not a configuration edit.
+##############################################################################
+
+[not_tunable]
+fields = [
+  "any `min` or `max` in this file",
+  "trigger predicates and predicate_class",
+  "required_authority on any trigger",
+  "actuation_scope on any trigger",
+  "cost_class ceilings and every value in cost_policy.toml",
+  "resource budgets (max_runtime_ms, max_tool_calls, max_spend)",
+  "the priority lattice order in interruption_budget.toml",
+  "alarm exemptions and the escalation hard cap",
+  "latency budgets in latency_budgets.toml",
+  "context ceilings and trust_class mappings",
+  "node re-attestation intervals (ADR-007 open item 3)",
+  "GOVERNED_PATHS membership",
+  "enable-token TTL",
+  "the `decays` term in DF-PROACTIVE",
+  "disposition_reason on a retired idea",
+]
+rationale = """Each of these is a BOUNDARY rather than a PACE. INV-TUNE-1's whole
+content is that VESPER may adjust how often it acts, never what it may do. An
+interval VESPER can extend is an interval it can extend to infinity; a budget it
+can raise is not a budget."""
+
+[on_out_of_range]
+behaviour = "CLAMP_AND_REPORT"
+silent_accept = false
+audit_required = true
+note = """DF-TUNABLE returns ACCEPT | CLAMP(value) | REFUSE_AND_PROPOSE. A clamped
+value is REPORTED, never silently applied: a silent clamp would leave VESPER
+holding a false model of itself and acting on it. Every tuning writes an audit
+record with its rationale, so "why does it now wait a month before revisiting
+this?" is answerable. A request to change a `not_tunable` field returns
+REFUSE_AND_PROPOSE and files a change proposal -- the work is never lost, only
+gated (SR-048, RB-014)."""

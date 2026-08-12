@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/semantic_scene.schema.json",
+  "title": "VESPER SemanticScene",
+  "description": "IC-005. The artifact on which the entire 'VESPER is not a chat UI' claim rests. COC ARCH-20 requires output represented as a semantic scene 'rather than a device-specific screen dump'. THERE IS NO FREE-FORM MARKDOWN OR HTML FIELD ANYWHERE IN THIS SCHEMA (INV-SCENE-3, enforced by CI-028) -- such a field is a hole through which the whole contract drains, because every producer would use it and no spatial or voice renderer could consume it. Authority: DR-004, DR-010, DR-021, RB-007, RB-022, ARCH-06, ARCH-20, ARCH-28, SR-046; REM-009.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scene_id", "schema_version", "created_at_hlc", "intent", "elements", "update_mode", "lifetime"],
+  "properties": {
+    "scene_id": { "type": "string", "pattern": "^scn_[0-9a-z]{8,}$" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "correlation_id": { "type": ["string", "null"] },
+    "created_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" },
+
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["purpose", "urgency", "privacy_class"],
+      "properties": {
+        "purpose": { "type": "string", "enum": ["inform", "confirm", "alert", "ambient", "converse", "present_result", "ask"] },
+        "urgency": { "type": "string", "enum": ["ambient", "normal", "prompt", "alarm"] },
+        "privacy_class": {
+          "type": "string",
+          "enum": ["public", "personal", "private"],
+          "description": "Input to DF-SELECT-ENDPOINT. INV-PRIV-1: an unknown person in the target space, or low location confidence, routes to the most private surface or WITHHOLDS -- never to the most public."
+        },
+        "expected_dwell_ms": { "type": ["integer", "null"] }
+      }
+    },
+
+    "elements": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/sceneElement" } },
+
+    "update_mode": {
+      "type": "string",
+      "enum": ["replace", "patch", "append", "stream"],
+      "description": "'stream' is ARCHITECTURAL, not an optimisation: REM-010's latency budget requires first audio to begin before generation completes, which a deliver-complete-only scene makes unmeetable by construction."
+    },
+    "lifetime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ttl_ms", "persist_until_acked"],
+      "properties": {
+        "ttl_ms": { "type": "integer", "minimum": 0 },
+        "persist_until_acked": { "type": "boolean" }
+      }
+    }
+  },
+
+  "$defs": {
+    "sceneElement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["element_id", "type", "content", "presentation_intent", "spatial_intent"],
+      "properties": {
+        "element_id": { "type": "string" },
+        "type": {
+          "type": "string",
+          "enum": ["text", "metric", "table", "code", "diagram", "image", "timeline", "entity_ref", "state_indicator", "live_binding"],
+          "description": "Every type declares a degradation ladder per endpoint capability class (CI-030). The 'diagram' voice-only rung is a STRUCTURAL NARRATION -- which is only derivable because content is typed rather than pre-rendered."
+        },
+        "content": {
+          "description": "Typed per element type. 'text' carries a plain string plus presentation_intent -- it does NOT carry markup. A rendered image cannot be narrated; a typed graph can.",
+          "oneOf": [
+            { "type": "string" },
+            { "type": "number" },
+            { "type": "object" },
+            { "type": "array" }
+          ]
+        },
+        "presentation_intent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["priority", "persistence", "privacy_class", "attention_cost"],
+          "description": "INTENT, NEVER STYLING. No fonts, colours, sizes or coordinates appear here or anywhere in this schema; a scene carrying them would be a screen layout in disguise.",
+          "properties": {
+            "priority": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "persistence": { "type": "string", "enum": ["transient", "session", "persistent"] },
+            "ephemerality_ms": { "type": ["integer", "null"] },
+            "privacy_class": { "type": "string", "enum": ["public", "personal", "private"] },
+            "attention_cost": { "type": "string", "enum": ["none", "low", "medium", "high"] }
+          }
+        },
+        "spatial_intent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["anchor"],
+          "description": "RELATIONAL, resolved at render time against the world-model space graph. INV-SCENE-4: no producer names an endpoint (CI-029).",
+          "properties": {
+            "anchor": { "type": "string", "enum": ["user_relative", "space_anchored", "surface_relative", "unanchored"] },
+            "space_ref": { "type": ["string", "null"], "description": "Required when anchor = space_anchored. A topological Space id, never metric coordinates (INV-WORLD-2)." }
+          },
+          "allOf": [
+            {
+              "if": { "properties": { "anchor": { "const": "space_anchored" } }, "required": ["anchor"] },
+              "then": { "required": ["space_ref"] }
+            }
+          ]
+        },
+        "affordances": {
+          "type": "array",
+          "description": "DECLARED CAPABILITIES, not event handlers. 'this entity can be opened', not 'onClick'. A scene carrying handlers would be a serialised DOM.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["capability_id"],
+            "properties": {
+              "capability_id": { "type": "string" },
+              "label_intent": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Links rendered claims back to REM-010 evidence, so a post-hoc correction can supersede a specific element rather than the whole scene."
+        }
+      }
+    },
+
+    "renderResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rendered", "degradations"],
+      "description": "The renderer contract's return value. 'degradations' is REQUIRED even when empty -- an absent array is indistinguishable from an unreported drop (INV-SCENE-2).",
+      "properties": {
+        "rendered": { "type": "boolean" },
+        "endpoint_id": { "type": ["string", "null"] },
+        "degradations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["element_id", "reason", "action"],
+            "properties": {
+              "element_id": { "type": "string" },
+              "reason": { "type": "string" },
+              "action": { "type": "string", "enum": ["depth_flattened", "visual_to_narrative", "truncated", "summarised", "omitted", "deferred"] }
+            }
+          }
+        },
+        "withheld_reason": {
+          "type": ["string", "null"],
+          "description": "Set when DF-SELECT-ENDPOINT returns WITHHOLD (privacy fail-safe). Withholding is reported, never silent."
+        }
+      }
+    }
+  }
+}

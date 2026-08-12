@@ -1,0 +1,777 @@
+##############################################################################
+# VESPER INVARIANT REGISTRY
+#
+# An invariant is a property that must hold at all times, is stated in a form
+# that can FAIL, and names the artifact that detects its violation.
+#
+# Every invariant declares:
+#   statement  what must hold
+#   owner_rem  the remediation spec that defines it (single source of truth)
+#   enforced_by  CI check id(s) and/or acceptance test id(s)
+#   kind       structural | runtime | process
+#
+# A statement with no `enforced_by` is not an invariant; it is a wish, and
+# `tools/ci/checks.py ci-registry` (CI-041) fails on it.
+#
+# NOTE 2026-08-12: this header previously named an `invariant_lint` tool that
+# was never written. CI-041 has always been implemented by the ci-registry
+# check above. Corrected after the reference-integrity lint (CI-050) found the
+# dangling citation -- a registry naming a non-existent enforcer is the same
+# defect class as an invariant with an empty enforced_by.
+##############################################################################
+
+schema_version = 1
+
+# ---------------------------------------------------------------- axis
+[invariants.INV-AUTH-0]
+statement = "An E-level never implies an L-level and vice versa. Authority on one axis is not convertible into authority on another by any automated process."
+owner_rem = "REM-003"
+enforced_by = ["CI-006", "A-030"]
+kind = "structural"
+
+# ------------------------------------------------- REM-001 coordination
+[invariants.INV-COORD-1]
+statement = "No world-model fact may be applied out of HLC order. A write with observed_at_hlc <= current is rejected and the rejection is emitted."
+owner_rem = "REM-001"
+enforced_by = ["A-033"]
+kind = "runtime"
+
+[invariants.INV-COORD-2]
+statement = "No expired fact may be read as current. Past valid_until the only readable value is UNKNOWN."
+owner_rem = "REM-001"
+enforced_by = ["A-033"]
+kind = "runtime"
+
+[invariants.INV-COORD-3]
+statement = "No conflict may be resolved without an emitted world.conflict event."
+owner_rem = "REM-001"
+enforced_by = ["A-033"]
+kind = "runtime"
+
+[invariants.INV-COORD-4]
+statement = "Wall-clock time never participates in ordering or supersession. Only HLC does."
+owner_rem = "REM-001"
+enforced_by = ["CI-005", "A-033"]
+kind = "structural"
+
+[invariants.INV-COORD-5]
+statement = "Every bus consumer declares an idempotency key. Registration without one is a build failure."
+owner_rem = "REM-001"
+enforced_by = ["CI-004", "A-033"]
+kind = "structural"
+
+# ------------------------------------------------- REM-002 ownership
+[invariants.INV-OWN-1]
+statement = "Every state domain has exactly one lease holder at any instant. A node without the lease may not write to that domain."
+owner_rem = "REM-002"
+enforced_by = ["A-034"]
+kind = "runtime"
+
+[invariants.INV-OWN-2]
+statement = "A partitioned node may not self-promote and may not issue L4+ external actions."
+owner_rem = "REM-002"
+enforced_by = ["A-034"]
+kind = "runtime"
+
+[invariants.INV-OWN-3]
+statement = "Every write to a leased domain carries a lease_epoch; stale-epoch writes are rejected at the storage layer (fencing)."
+owner_rem = "REM-002"
+enforced_by = ["CI-009", "A-034"]
+kind = "structural"
+
+[invariants.INV-OWN-4]
+statement = "policy, autonomy_queue and alarms refuse non-owner writes rather than queueing them."
+owner_rem = "REM-002"
+enforced_by = ["A-034"]
+kind = "runtime"
+
+[invariants.INV-TASK-1]
+statement = "There is no RUNNING -> SUCCEEDED transition. SUCCEEDED is reachable only through VERIFYING with a passing verification strategy."
+owner_rem = "REM-002"
+enforced_by = ["CI-010", "A-023", "A-034"]
+kind = "structural"
+
+[invariants.INV-TASK-2]
+statement = "Resume replays from the outbox cursor, never from plan start."
+owner_rem = "REM-002"
+enforced_by = ["A-034", "A-035"]
+kind = "runtime"
+
+[invariants.INV-ADR-1]
+statement = "No change under core/, tasks/ or memory/ may merge while ADR-001, ADR-002 or ADR-012 is not ACCEPTED."
+owner_rem = "REM-002"
+enforced_by = ["CI-008"]
+kind = "process"
+
+# ------------------------------------------------- REM-003 authorization
+[invariants.INV-AUTH-1]
+statement = "No ambient authority. Every action above L0 resolves to a grant through DF-AUTHORIZE."
+owner_rem = "REM-003"
+enforced_by = ["CI-013", "A-014", "A-024"]
+kind = "structural"
+
+[invariants.INV-AUTH-2]
+statement = "A child's grant set is a subset of its parent's. L4/L5 are never delegable and bind to one command instance; a consumed L4 cannot authorize a second action."
+owner_rem = "REM-003"
+enforced_by = ["A-024"]
+kind = "runtime"
+
+[invariants.INV-AUTH-3]
+statement = "Taint propagates through summarisation, embedding and cache reuse. retrieved_external present implies context_ceiling = L1 for state-changing capabilities."
+owner_rem = "REM-003"
+enforced_by = ["CI-012", "CI-014", "A-025"]
+kind = "structural"
+
+[invariants.INV-AUTH-4]
+statement = "PDP unavailable implies deny above L1, and audit the denial."
+owner_rem = "REM-003"
+enforced_by = ["A-024"]
+kind = "runtime"
+
+[invariants.INV-AUTH-5]
+statement = "Every capability's declared_level is a function of its arguments. A constant is a registration failure."
+owner_rem = "REM-003"
+enforced_by = ["CI-011", "A-024"]
+kind = "structural"
+
+[invariants.INV-AUTH-6]
+statement = "The planner context never contains a fragment whose trust_class is retrieved_external."
+owner_rem = "REM-003"
+enforced_by = ["CI-014", "A-025"]
+kind = "structural"
+
+[invariants.INV-AUTH-7]
+statement = "An above-ceiling action becomes a queued proposal with security.injection_suspected emitted; it is never silently dropped."
+owner_rem = "REM-003"
+enforced_by = ["CI-014", "A-025"]
+kind = "runtime"
+
+# ------------------------------------------------- REM-004 self-modification
+[invariants.INV-SELF-1]
+statement = "The VESPER runtime is a first-class subject of its own authorization and change control. It may open a proposal; it may never self-merge into a running configuration."
+owner_rem = "REM-004"
+enforced_by = ["CI-015", "A-030"]
+kind = "structural"
+
+[invariants.INV-SELF-2]
+statement = "The L5 classification of policy-governing surfaces is not narrowable by a narrower approved policy."
+owner_rem = "REM-004"
+enforced_by = ["CI-044", "A-030"]
+kind = "process"
+ratification = "RATIFIED"
+ratified_on = "2026-08-12"
+ratified_by = "project owner"
+authority = "COC v1.2 additive, Part VII-A"
+owner_decision = "OWNER-DECISION-001"
+enforcement_correction = "2026-08-12: was CI-016. CI-016 validates governed-surface CONTENT and the L2 workspace level; it contains no non-narrowability logic, so a ratified COC v1.2 Part VII-A security clause carried a false enforcement record pointing at an IMPLEMENTED, PASSING check. The real enforcer is CI-044 (owner review of governed_surfaces.toml under CODEOWNERS), which is PENDING because it needs branch protection. Corrected 2026-08-12; the defect CLASS is now closed by the bidirectional lint in CI-041."
+
+[invariants.INV-SELF-3]
+statement = "effective_level == L5 AND subject.kind == runtime implies DENY, always, including under a valid L5 grant and under break-glass."
+owner_rem = "REM-004"
+enforced_by = ["A-030"]
+kind = "runtime"
+
+[invariants.INV-SELF-4]
+statement = "The runtime's filesystem capability set never includes GOVERNED_PATHS. Enforced by capability, not by policy text."
+owner_rem = "REM-004"
+enforced_by = ["CI-015", "CI-016", "A-030"]
+kind = "structural"
+enforcement_scope = "CI-016 (implemented) covers the DEFINITION half: GOVERNED_PATHS must cover every required subtree, by path-component prefix. CI-015 (PENDING) covers the CAPABILITY half: no runtime write path reaches those paths. Neither alone discharges this invariant."
+
+[invariants.INV-SELF-5]
+statement = "The proposal queue is outside the runtime's write scope; refused attempts are preserved and auditable."
+owner_rem = "REM-004"
+enforced_by = ["A-030"]
+kind = "runtime"
+
+[invariants.INV-SELF-6]
+statement = "No path exists from a merged commit to a running process that does not traverse a human-gated promotion build."
+owner_rem = "REM-004"
+enforced_by = ["CI-017", "A-030"]
+kind = "structural"
+
+[invariants.INV-SELF-7]
+statement = "Work in the runtime workspace, including generating code targeting governed surfaces, is unrestricted and is never gated by the self-modification boundary. (SR-042 preservation.)"
+owner_rem = "REM-004"
+enforced_by = ["CI-016", "A-030"]
+kind = "runtime"
+
+# ------------------------------------------------- REM-005 emergency stop
+enforcement_scope = "CI-016 fails a build whose declared workspace level is above L2 -- the OVER-RESTRICTION direction, which is the one that would silently weaken SR-042. The runtime half is A-030.6."
+[invariants.INV-STOP-1]
+statement = "Autonomous actuation at L2+ requires a fresh, valid enable token. Absence of a token halts actuation; the safe state is 'not permitted'."
+owner_rem = "REM-005"
+enforced_by = ["CI-018", "A-031"]
+kind = "structural"
+
+[invariants.INV-STOP-2]
+statement = "The stop path does not traverse the VESPER control plane, the PDP, any lease, or any model inference."
+owner_rem = "REM-005"
+enforced_by = ["CI-019", "A-031"]
+kind = "structural"
+
+[invariants.INV-STOP-3]
+statement = "Severing, wedging, powering off or compromising the interlock halts autonomy within T_token_ttl. Fail-safe, not fail-open."
+owner_rem = "REM-005"
+enforced_by = ["A-031"]
+kind = "runtime"
+
+[invariants.INV-STOP-4]
+statement = "The runtime cannot mint, extend, replay or forge an enable token; the signing key is not reachable by any runtime capability."
+owner_rem = "REM-005"
+enforced_by = ["A-031"]
+kind = "runtime"
+
+[invariants.INV-STOP-5]
+statement = "Stop halts autonomous actuation only. Observation, telemetry, checkpointing and user-invoked interactive work continue."
+owner_rem = "REM-005"
+enforced_by = ["A-031"]
+kind = "runtime"
+
+[invariants.INV-STOP-6]
+statement = "In-flight actions checkpoint to RESUMABLE; they are never left partially applied or marked FAILED."
+owner_rem = "REM-005"
+enforced_by = ["A-031"]
+kind = "runtime"
+
+[invariants.INV-STOP-7]
+statement = "Re-arm requires a human act. There is no time-based, automatic, or self-service re-arm."
+owner_rem = "REM-005"
+enforced_by = ["A-031"]
+kind = "runtime"
+
+# ------------------------------------------------- REM-006 cost / period
+[invariants.INV-COST-1]
+statement = "Zero paid-provider requests may leave the gateway while OperatingPeriod = FREE_TIME, under any inference input."
+owner_rem = "REM-006"
+enforced_by = ["CI-021", "A-021", "A-004"]
+kind = "runtime"
+
+[invariants.INV-COST-2]
+statement = "Inference may enter FREE_TIME; it may never exit it. Only a schedule boundary or an authenticated interaction exits."
+owner_rem = "REM-006"
+enforced_by = ["A-021"]
+kind = "runtime"
+
+[invariants.INV-COST-3]
+statement = "No code path reaches a provider adapter without traversing the cost-class choke point."
+owner_rem = "REM-006"
+enforced_by = ["CI-020"]
+kind = "structural"
+
+[invariants.INV-COST-4]
+statement = "cost_class is non-nullable on every credential and model profile, resolved at registration."
+owner_rem = "REM-006"
+enforced_by = ["CI-022", "A-021"]
+kind = "structural"
+
+[invariants.INV-COST-5]
+statement = "metered_free_tier is treated as paid absent a provable hard spend cap."
+owner_rem = "REM-006"
+enforced_by = ["CI-021", "A-021"]
+kind = "runtime"
+
+[invariants.INV-COST-6]
+statement = "A gateway with no loaded cost policy permits cost_class free only."
+owner_rem = "REM-006"
+enforced_by = ["CI-020", "A-021"]
+kind = "runtime"
+enforcement_correction = "2026-08-12: CI-021 CLAIMED this clause. checks.py cost-policy only prints a note when cost_policy.toml is absent; it asserts nothing about gateway behaviour, so the claim was false in exactly the case that matters -- an unloaded policy is when a live gateway decides alone. Reassigned to CI-020 (gateway choke point), PENDING until the gateway exists."
+
+[invariants.INV-COST-7]
+statement = "Indeterminate operating period, or clock_suspect, implies FREE_TIME."
+owner_rem = "REM-006"
+enforced_by = ["A-021"]
+kind = "runtime"
+
+# ------------------------------------------------- REM-007 triggers
+[invariants.INV-TRIG-1]
+statement = "Every autonomous action traces to exactly one registered trigger_id whose predicate demonstrably evaluated true against a reconstructible world-model snapshot."
+owner_rem = "REM-007"
+enforced_by = ["CI-025", "A-011", "A-029"]
+kind = "runtime"
+
+[invariants.INV-TRIG-2]
+statement = "No autonomous action originates from a model call not preceded by a trigger. The evaluator holds no model capability and an attempt is emitted and raised."
+owner_rem = "REM-007"
+enforced_by = ["CI-023", "A-011", "A-029"]
+kind = "structural"
+
+[invariants.INV-TRIG-3]
+statement = "Preparation is unbudgeted; interruption is budgeted; alarm class is exempt."
+owner_rem = "REM-007"
+enforced_by = ["A-047"]
+kind = "runtime"
+
+[invariants.INV-TRIG-4]
+statement = "A predicate evaluating to UNKNOWN or CONFLICTED does not fire."
+owner_rem = "REM-007"
+enforced_by = ["A-011"]
+kind = "runtime"
+
+[invariants.INV-TRIG-5]
+statement = "Every predicate is total and provably terminating; non-terminating predicates are rejected at registration."
+owner_rem = "REM-007"
+enforced_by = ["CI-024"]
+kind = "structural"
+
+[invariants.INV-TRIG-6]
+statement = "A recorded no-op carries a trigger_id and is auditable. Silence is a decision with provenance."
+owner_rem = "REM-007"
+enforced_by = ["A-011", "A-029"]
+kind = "runtime"
+
+[invariants.INV-TRIG-7]
+statement = "A model may propose a trigger; a model may not be a trigger. Registry entry requires the promotion gate plus human merge."
+owner_rem = "REM-007"
+enforced_by = ["CI-015", "A-040"]
+kind = "process"
+
+# ------------------------------------------------- REM-008 zero-input autonomy
+[invariants.INV-AUTO-1]
+statement = "The autonomy loop emits a heartbeat every evaluation cycle. Absence beyond 3x tick_interval is an incident, not a quiet period."
+owner_rem = "REM-008"
+enforced_by = ["A-029"]
+kind = "runtime"
+
+[invariants.INV-AUTO-2]
+statement = "100% of autonomous actions and recorded no-ops resolve to exactly one registered trigger_id with a reconstructible snapshot."
+owner_rem = "REM-008"
+enforced_by = ["A-029"]
+kind = "runtime"
+
+[invariants.INV-AUTO-3]
+statement = "A release may not declare autonomy complete unless A-029 part 3 passed with a non-SCHEDULE trigger and the C1 cron negative control was recorded as failing part 3."
+owner_rem = "REM-008"
+enforced_by = ["CI-027"]
+kind = "process"
+
+[invariants.INV-AUTO-4]
+statement = "The world model is writable by observation sources external to the decision loop, through an authenticated, provenance-carrying ingress."
+owner_rem = "REM-008"
+enforced_by = ["A-029"]
+kind = "structural"
+
+[invariants.INV-AUTO-5]
+statement = "The trigger registry may not consist exclusively of SCHEDULE-class predicates."
+owner_rem = "REM-008"
+enforced_by = ["CI-026"]
+kind = "structural"
+
+# ------------------------------------------------- REM-009 presence
+[invariants.INV-SCENE-1]
+statement = "No output reaches a user except as a SemanticScene. No renderer may require a field outside the schema."
+owner_rem = "REM-009"
+enforced_by = ["A-009", "A-026"]
+kind = "structural"
+
+[invariants.INV-SCENE-2]
+statement = "Every dropped or degraded element is reported in degradations. Silent degradation is prohibited."
+owner_rem = "REM-009"
+enforced_by = ["CI-030", "A-009"]
+kind = "runtime"
+
+[invariants.INV-SCENE-3]
+statement = "The scene schema contains no free-form markdown or HTML escape hatch."
+owner_rem = "REM-009"
+enforced_by = ["CI-028", "A-009"]
+kind = "structural"
+
+[invariants.INV-SCENE-4]
+statement = "spatial_intent is relational and resolved at render time against the world-model space graph. No producer names an endpoint."
+owner_rem = "REM-009"
+enforced_by = ["CI-029", "A-009"]
+kind = "structural"
+
+# ------------------------------------------------- REM-010 evidence
+[invariants.INV-EVID-1]
+statement = "No model_prior claim is emitted as an assertion in research, memory writes, world facts, or inputs to consequential actions."
+owner_rem = "REM-010"
+enforced_by = ["CI-033", "A-003"]
+kind = "structural"
+
+[invariants.INV-EVID-2]
+statement = "No answer cites a source it did not retrieve; a similarity score is never sufficient grounding. Every source_ref resolves to a reproducible retrieved span."
+owner_rem = "REM-010"
+enforced_by = ["A-003", "A-006"]
+kind = "runtime"
+
+[invariants.INV-EVID-3]
+statement = "UNKNOWN is a first-class return value across BAG, world model and memory. An empty retrieval is never coerced into an answer."
+owner_rem = "REM-010"
+enforced_by = ["A-003"]
+kind = "runtime"
+
+[invariants.INV-VERIF-1]
+statement = "Verifier failure implies BLOCKED, never SUCCEEDED. Retry-until-agreement is prohibited."
+owner_rem = "REM-010"
+enforced_by = ["CI-010", "A-023"]
+kind = "runtime"
+
+[invariants.INV-VERIF-2]
+statement = "A free-time task whose acceptance condition is not machine-checkable is ineligible for autonomous completion; it queues."
+owner_rem = "REM-010"
+enforced_by = ["A-023", "A-011"]
+kind = "runtime"
+
+[invariants.INV-VERIF-3]
+statement = "verified_by: self_model is never silently reported as accepted."
+owner_rem = "REM-010"
+enforced_by = ["CI-032", "A-023"]
+kind = "runtime"
+
+[invariants.INV-MEM-1]
+statement = "Three-way disagreement across memory authority ranks 2-4 produces a user-facing question, never a silent pick."
+owner_rem = "REM-010"
+enforced_by = ["A-003"]
+kind = "runtime"
+
+[invariants.INV-PERF-1]
+statement = "Latency budgets are requirements set before measurement. A budget may not be modified in the same change as the code that failed it."
+owner_rem = "REM-010"
+enforced_by = ["CI-031", "CI-051", "A-020"]
+kind = "process"
+
+# ------------------------------------------------- REM-011 world / privacy / nodes
+enforcement_scope = "CI-051 (implemented) covers the DECLARATION half: budgets exist, are set before measurement, assert first-output latency independently of total completion, and forbid relaxing a failed budget. CI-031 (PENDING) covers the COMMIT half -- a budget relaxed in the same change as the code that failed it -- which needs git history."
+[invariants.INV-WORLD-1]
+statement = "An unknown person is never resolved to the owner."
+owner_rem = "REM-011"
+enforced_by = ["A-008", "A-010"]
+kind = "runtime"
+
+[invariants.INV-WORLD-2]
+statement = "Spatial placement is topological; no subsystem requires metric coordinates."
+owner_rem = "REM-011"
+enforced_by = ["A-010"]
+kind = "structural"
+
+[invariants.INV-PRIV-1]
+statement = "Unknown person in the target space, or location confidence below threshold, implies private content is withheld or routed to the most private surface. Never default to the most public surface."
+owner_rem = "REM-011"
+enforced_by = ["A-010", "A-009"]
+kind = "runtime"
+
+[invariants.INV-PRIV-2]
+statement = "Physiological/mood inference is owner-only, local-only and non-exportable."
+owner_rem = "REM-011"
+enforced_by = ["A-008", "A-039"]
+kind = "runtime"
+
+[invariants.INV-PRIV-3]
+statement = "Raw media is not persisted beyond the processing window."
+owner_rem = "REM-011"
+enforced_by = ["A-039"]
+kind = "runtime"
+
+[invariants.INV-PRIV-4]
+statement = "A physical or OS-level guaranteed-off path exists that software cannot override; the capture indicator is visible whenever a sensor is ACTIVE."
+owner_rem = "REM-011"
+enforced_by = ["A-008", "A-039"]
+kind = "structural"
+
+[invariants.INV-PRIV-5]
+statement = "Deletion removes derived artifacts, not only raw media; the event skeleton and correlation chain survive purge."
+owner_rem = "REM-011"
+enforced_by = ["A-037", "A-039"]
+kind = "runtime"
+
+[invariants.INV-HW-1]
+statement = "No routing, resource, or policy code path references a product name."
+owner_rem = "REM-011"
+enforced_by = ["CI-007"]
+kind = "structural"
+
+[invariants.INV-HW-2]
+statement = "sustained_tokens_per_sec is measured at enrollment, never declared."
+owner_rem = "REM-011"
+enforced_by = ["CI-034", "CI-034b", "A-042"]
+kind = "structural"
+
+[invariants.INV-TRUST-1]
+statement = "A node in trust zone Z2 (limited_trust) may not hold state, issue commands, or receive secrets."
+owner_rem = "REM-011"
+enforced_by = ["CI-035", "A-042"]
+kind = "structural"
+
+[invariants.INV-TRUST-2]
+statement = "No continuity-critical capability is DESIGNED to depend solely on a node whose availability_class is foreground_only or on_demand. This constrains PLANNED assignment; it does not forbid runtime survival on such a node when it is the only one reachable (INV-PLACE-3)."
+owner_rem = "REM-011"
+enforced_by = ["A-042", "A-017"]
+kind = "structural"
+
+# ------------------------------------------------- REM-012 operations
+[invariants.INV-GOV-1]
+statement = "The resource governor is a damped controller. Model-visible telemetry is ADVISORY INPUT to a deterministic governor, never a direct actuator: the model may request, the governor decides. Minimum dwell per level, asymmetric thresholds (degrade fast, recover slow), an explicit hysteresis band, and a max-transitions-per-hour cap that raises an alert rather than performing another transition."
+owner_rem = "REM-012"
+enforced_by = ["CI-039", "A-004"]
+kind = "structural"
+raised = "2026-08-12, final pre-F0 pass. CI-039 (governor-damping-present) declared enforces = [INV-PERF-1], which is the latency-budget immutability clause and has nothing to do with governor damping. REM-012 §5 specifies the property in full and A-004 tests it, but no invariant carried it, so the check pointed at the nearest available ID. A check enforcing an invariant it does not test is the CI-022 defect class; a specified property with no invariant ID is how that happens. Both are corrected here."
+
+[invariants.INV-LEARN-1]
+statement = "No learned artifact may modify policy, authorization, cost rules, or the Rulebook - enforced structurally on the store's write path, not by inspection."
+owner_rem = "REM-012"
+enforced_by = ["CI-036", "A-040"]
+kind = "structural"
+
+[invariants.INV-LEARN-2]
+statement = "A single outcome cannot alter the active set."
+owner_rem = "REM-012"
+enforced_by = ["A-016", "A-040"]
+kind = "runtime"
+
+[invariants.INV-LEARN-3]
+statement = "Every active learned artifact is individually rollback-able and the whole set is revertible."
+owner_rem = "REM-012"
+enforced_by = ["A-016", "A-040"]
+kind = "runtime"
+
+[invariants.INV-EXT-1]
+statement = "No external side effect occurs without a prior durable outbox record."
+owner_rem = "REM-012"
+enforced_by = ["CI-037", "A-035"]
+kind = "structural"
+
+[invariants.INV-EXT-2]
+statement = "No retry of an external action occurs without a successful reconciliation probe; reconcilable:false escalates instead."
+owner_rem = "REM-012"
+enforced_by = ["A-035"]
+kind = "runtime"
+
+[invariants.INV-ALARM-1]
+statement = "An alarm has exactly one firer per instant where connectivity permits; on partition the failure direction is fire, not skip."
+owner_rem = "REM-012"
+enforced_by = ["A-012", "A-041", "A-034"]
+kind = "runtime"
+
+[invariants.INV-ALARM-2]
+statement = "At least one acknowledgment channel is physical and ASR-independent; escalation has a hard duration cap."
+owner_rem = "REM-012"
+enforced_by = ["A-041"]
+kind = "runtime"
+
+[invariants.INV-ALARM-3]
+statement = "Alarm class is exempt from the interruption budget, ambience policy, resource yielding and device quiet hours."
+owner_rem = "REM-012"
+enforced_by = ["A-041", "A-047"]
+kind = "runtime"
+
+[invariants.INV-ADMIN-1]
+statement = "owner_administrative requires per-instance owner confirmation, is never delegable, and is never invocable during FREE_TIME."
+owner_rem = "REM-012"
+enforced_by = ["A-038"]
+kind = "runtime"
+
+[invariants.INV-LIMIT-1]
+statement = "Any SR judged infeasible carries a limitation record and an R&D path per COC Part XIV.3, and may never be marked IMPLEMENTED."
+owner_rem = "REM-012"
+enforced_by = ["CI-038", "CI-003"]
+kind = "process"
+
+[invariants.INV-OBS-1]
+statement = "Sensitivity is enforced at write time by the telemetry writer, never by caller discipline."
+owner_rem = "REM-012"
+enforced_by = ["CI-040", "A-037"]
+kind = "structural"
+
+[invariants.INV-OBS-2]
+statement = "Purge removes payloads; event skeletons and the correlation chain survive."
+owner_rem = "REM-012"
+enforced_by = ["A-037"]
+kind = "runtime"
+
+[invariants.INV-SCHEMA-1]
+statement = "Readers accept schema_version N and N-1; writers emit N. Breaking changes require an ADR and a dual-read window."
+owner_rem = "REM-012"
+enforced_by = ["CI-001"]
+kind = "process"
+
+[invariants.INV-SCHEMA-2]
+statement = "The event log is never rewritten. Migration is read-time upcasting."
+owner_rem = "REM-012"
+enforced_by = ["A-037"]
+kind = "structural"
+
+# ------------------------------------------------- process / traceability
+[invariants.INV-TRACE-1]
+statement = "Every SR names >=1 architecture section, >=1 contract and >=1 acceptance test, or carries a recorded R&D/EXCLUDED disposition. Every acceptance test names >=1 SR. Every architecture section and DR is referenced or declared non-requirement-bearing."
+owner_rem = "REM-013"
+enforced_by = ["CI-003", "CI-041", "CI-043", "CI-050", "A-001"]
+kind = "process"
+
+[invariants.INV-SRC-1]
+statement = "Every bulleted requirement clause in COC Part I maps to exactly one SR ID or one recorded exclusion/narrowing disposition."
+owner_rem = "REM-013"
+enforced_by = ["CI-003"]
+kind = "process"
+ratification = "RATIFIED"
+note = "Closed 2026-08-12 by COC v1.2 additive Part II-A: SR-052..SR-060 restore every previously unmapped Part I clause, including SR-059 EXCLUDED_BY_SAFETY_POLICY."
+ratified_on = "2026-08-12"
+ratified_by = "project owner"
+authority = "COC v1.2 additive, Part II-A"
+owner_decision = "OWNER-DECISION-002"
+
+[invariants.INV-PROC-1]
+statement = "The SR registry cannot change without an owner-approved baseline bump - enforced in CI, not by convention."
+owner_rem = "REM-013"
+enforced_by = ["CI-002"]
+kind = "process"
+
+[invariants.INV-PROC-2]
+statement = "A contract change without an ACCEPTED ADR cannot merge."
+owner_rem = "REM-013"
+enforced_by = ["CI-001"]
+kind = "process"
+
+[invariants.INV-PROC-3]
+statement = "No contributor's merged diff falls outside its declared write scope."
+owner_rem = "REM-013"
+enforced_by = ["CI-042"]
+kind = "process"
+
+# ------------------------------------------------- REM-014 placement (SR-060)
+[invariants.INV-PLACE-1]
+statement = "VESPER is not pinned to any node. Placement is re-evaluated continuously and relocation to a better available host is automatic and unprompted."
+owner_rem = "REM-014"
+enforced_by = ["CI-045", "A-048"]
+kind = "runtime"
+
+[invariants.INV-PLACE-2]
+statement = "Relocation is damped: a minimum dwell time and a relocation gain threshold prevent flapping between comparable nodes. Degradation or loss of the current host bypasses both."
+owner_rem = "REM-014"
+enforced_by = ["CI-045", "A-048"]
+kind = "runtime"
+
+[invariants.INV-PLACE-3]
+statement = "When no full host is reachable, VESPER enters SURVIVAL on the best survival_capable node rather than ceasing to exist, carrying identity, task state, memory references, queued work and one interaction surface, plus the maximum additional capability that node can measurably sustain. Every excluded capability is reported as a degradation."
+owner_rem = "REM-014"
+enforced_by = ["CI-034", "A-048"]
+kind = "runtime"
+
+# ------------------------------------------------- REM-015 improvement backlog
+enforcement_scope = "CI-034 (implemented) covers the survival-core DEFINITION clauses: a defined core set, no accelerator or always-on requirement inside it, and degradation_reporting.required = true. CI-045 covers placement pinning and damping (INV-PLACE-1/2) and is deliberately NOT listed here: it says nothing about the survival profile. The SURVIVAL half of this invariant -- entering SURVIVAL on the best survival_capable node rather than ceasing to exist -- is behavioural and rests on A-048 alone."
+[invariants.INV-IDEA-1]
+statement = "An improvement idea is logged at the moment it arises, with provenance. Ideas are never held only in a model context."
+owner_rem = "REM-015"
+enforced_by = ["A-049"]
+kind = "runtime"
+
+[invariants.INV-IDEA-2]
+statement = "The improvement backlog is runtime-owned and freely writable; it is not a governed surface. Logging an idea about a governed surface is unrestricted."
+owner_rem = "REM-015"
+enforced_by = ["A-049"]
+kind = "structural"
+
+[invariants.INV-IDEA-3]
+statement = "An idea that matures into a change to a governed surface traverses the same proposal path as any other change. The backlog is never a shortcut around INV-SELF-1."
+owner_rem = "REM-015"
+enforced_by = ["CI-015", "A-049"]
+kind = "structural"
+
+[invariants.INV-IDEA-4]
+statement = "Retirement of an idea requires a recorded disposition_reason. No idea leaves the backlog silently."
+owner_rem = "REM-015"
+enforced_by = ["CI-047", "A-049"]
+kind = "structural"
+
+[invariants.INV-IDEA-5]
+statement = "The improvement-backlog trigger's predicate_class is non-SCHEDULE. A clock alone may never cause backlog work to begin."
+owner_rem = "REM-015"
+enforced_by = ["CI-026", "A-049"]
+kind = "structural"
+
+[invariants.INV-IDEA-6]
+statement = "Idle time expands available time, never authority. Resource budget, cost policy, enable token and taint ceiling apply to backlog work unchanged."
+owner_rem = "REM-015"
+enforced_by = ["A-049"]
+kind = "runtime"
+
+[invariants.INV-TUNE-1]
+statement = "VESPER may modify a declared tunable within its declared range. It may never modify the range, the predicate, the authority, the budget or the cost policy. Out-of-range values are clamped AND reported, never silently accepted."
+owner_rem = "REM-015"
+enforced_by = ["CI-046", "CI-046b", "A-049"]
+kind = "structural"
+
+# ------------------------------------------------- REM-016 record loss
+[invariants.INV-LOSS-1]
+statement = "Every detected record loss is classified and audited, independent of whether or how it is surfaced. Suppressing the record is prohibited; suppressing the notification is a budget decision."
+owner_rem = "REM-016"
+enforced_by = ["A-050"]
+kind = "runtime"
+
+[invariants.INV-LOSS-2]
+statement = "Class C (integrity) losses surface as incidents with no affect template, immediately, bypassing aggregation and the interruption budget."
+owner_rem = "REM-016"
+enforced_by = ["CI-048", "A-050"]
+kind = "structural"
+
+[invariants.INV-LOSS-3]
+statement = "VESPER never presents a known cause as forgetting. With no tombstone it says nothing; with a deletion audit it names the removal."
+owner_rem = "REM-016"
+enforced_by = ["CI-049", "A-050"]
+kind = "runtime"
+
+[invariants.INV-LOSS-4]
+statement = "A class B record that could not be reconstructed leaves its task BLOCKED, never SUCCEEDED. Forgetting is permitted; pretending the work happened is not."
+owner_rem = "REM-016"
+enforced_by = ["A-050"]
+kind = "runtime"
+
+[invariants.INV-LOSS-5]
+statement = "Loss notifications are SemanticScenes, renderable and intelligible on a voice-only endpoint, carrying an affordance for inspection. No loss is reported only as text."
+owner_rem = "REM-016"
+enforced_by = ["A-050"]
+kind = "structural"
+
+[invariants.INV-LOSS-6]
+statement = "Loss-class assignment is a deterministic property of the record's store. No model call participates in classification."
+owner_rem = "REM-016"
+enforced_by = ["A-050"]
+kind = "structural"
+
+# ------------------------------------------- REM-012 / SR-020, SR-021 computer agency
+#
+# Added 2026-08-12, final pre-F0 pass. SR-020 requires VESPER to "self-interact
+# across available hardware" and SR-021 to "run/execute code, scripts,
+# commands". Both were marked SPECIFIED while tracing only to perception
+# (SM-SENSOR, INV-PRIV-4), presentation (semantic_scene) and authorization
+# (DF-AUTHORIZE, INV-AUTH-5) artifacts. None of those concerns ACTING. The
+# architecture left a correctly-shaped slot -- Command/Result, the outbox, the
+# trust zones -- and nothing occupied it, so computer agency was permitted and
+# unspecified. These six clauses occupy it.
+
+[invariants.INV-ACT-1]
+statement = "No endpoint action executes without a typed EndpointInteraction carrying target surface, capability, arguments, an expected post-condition, an observation plan and a verification strategy. A free-text instruction sent to an endpoint is a prompt, not an action: it has no post-condition, so it can never be verified and never be recovered."
+owner_rem = "REM-012"
+enforced_by = ["CI-052", "A-051"]
+kind = "structural"
+
+[invariants.INV-ACT-2]
+statement = "The actuator's report is never the observation. The post-state of an endpoint interaction is read back through a path independent of the actuating path. Where no independent path exists the outcome is UNKNOWN, never VERIFIED."
+owner_rem = "REM-012"
+enforced_by = ["CI-053", "A-051"]
+kind = "structural"
+
+[invariants.INV-ACT-3]
+statement = "Screen content, OCR output, UI element labels and command output entering the system are trust_class retrieved_external, carry provenance and confidence, and may never raise the authority of any action. An instruction read off a screen is an untrusted input, not a directive."
+owner_rem = "REM-012"
+enforced_by = ["CI-012", "CI-014", "A-052"]
+kind = "structural"
+
+[invariants.INV-ACT-4]
+statement = "Every endpoint action traverses DF-AUTHORIZE with declared_level(args) and, for a runtime subject, DF-ACTUATION-GATE. No direct path exists from a plan to a keystroke, a shell invocation or an API call."
+owner_rem = "REM-012"
+enforced_by = ["CI-013", "CI-018", "A-013"]
+kind = "structural"
+
+[invariants.INV-ACT-5]
+statement = "An interaction whose outcome is UNKNOWN is never closed as success or failure. It enters RECOVERING and terminates in a recorded disposition: retried where idempotent, compensated where a compensating action exists, or escalated to the owner as an open question."
+owner_rem = "REM-012"
+enforced_by = ["CI-054", "A-051"]
+kind = "runtime"
+
+[invariants.INV-ACT-6]
+statement = "An endpoint action with an irreversible external effect writes an outbox record with an idempotency key BEFORE the effect. Replay after a crash or an unknown outcome re-uses that key and does not repeat the effect. A non-idempotent action is never retried on an UNKNOWN outcome."
+owner_rem = "REM-012"
+enforced_by = ["CI-037", "CI-054", "A-051"]
+kind = "runtime"

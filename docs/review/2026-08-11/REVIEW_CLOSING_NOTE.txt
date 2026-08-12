@@ -1,0 +1,41 @@
+Review complete. Five artifacts in REVIEW_2026-08-11/.
+
+Answer to the primary question
+
+It has not degraded in intent. It has no mechanism that would prevent the degradation in practice.
+
+Three artifacts separate VESPER from "LLM + memory + tools + chat UI": the semantic scene (IC-005), the autonomy trigger model (Arch §12), and the persistent world model (Arch §5). All three are named. None is specified. So the anti-chatbot property is enforced by prose alone — and the first engineer who ships will implement scene = markdown + TTS string, trigger = cron + LLM prompt, world_model = a JSON file, while every stated rule still reads as satisfied.
+
+Hardest evidence found
+
+Machine analysis of COC Part XI (all 51 rows) falsifies Part XV's Source-to-architecture traceability present: PASS:
+- 9 of 28 architecture sections are referenced by zero SRs — including §3 Persistent Vesper Runtime, §4 the core control loop, §23 Authorization, §24 Recovery
+- 1 of 31 DRs appears anywhere — DR-013, bundled onto 15 unrelated SRs; DR-002/003/004 appear zero times
+- All 51 verification cells contain the identical placeholder string; there is no SR↔acceptance-test mapping anywhere, and 20 tests are claimed to cover 51 requirements
+
+Applying the mandate's own PASS rule (implementation path and verification path), 1 of 51 SRs qualifies (SR-004). 27 PARTIAL, 18 GAP, 4 CONTRADICTION, 1 UNVERIFIABLE.
+
+Also verified: at least 8 handwritten clauses have no SR ID — including "BAG instead of RAG", the cache tiers, and the node availability profiles that are the partition-tolerance requirements.
+
+Findings
+
+9 architecture P0 + 1 process P0, 19 P1, 6 P2, 1 P3. The sharpest:
+- AR-005 — Arch §24's fallback ladder has no cost-class filter, so free-tier exhaustion routes onto a paid provider by design, contradicting RB-017
+- AR-004 — an absolute prohibition (SR-045) gated on an inference the corpus separately declares untrustworthy (SR-029/DR-011)
+- AR-009 — ADR-001/002/012 are filed "Intentionally unresolved" while Foundation increment #2 is "Event contract + durable task state"
+- AR-007 — injection defense is a model disposition, not an architecture, in a system that browses unattended with shell access
+- AR-010 — every enforcement point in the operating model exists as prose with no artifact; nothing currently detects an edit to the SR registry
+
+Failure matrix: 96 of 182 cells UNDEF (53%), clustered in distributed coordination, security-under-autonomy, and irreversible effects.
+
+Verdict
+
+Build readiness: NOT READY as delivered — 13 RED, 17 YELLOW, 1 GREEN (model/tool governance).
+
+▎ If all P0 and P1 findings are corrected, is VESPER sufficiently architected to begin implementation? — YES, conditionally.
+
+No finding requires abandoning a structural decision. The plane decomposition, the dependency-direction rule, and Event/Command/Result separation are correct and load-bearing. The corpus is a taxonomy — it names every subsystem and never defines the boundary between any two precisely enough that two engineers build compatible halves. That gap is closed by adding schemas, state machines, and decision functions beneath boundaries already correctly drawn: ~2 weeks of decision work, 17 patches, 2 parallel spikes.
+
+The condition: corrections must land as CI checks and contract tests that can fail, not as more prose. And PATCH-011/012/013 touch the immutable layer — they need your approval as an additive COC v1.2, since I did not modify the COC.
+
+Two things I'd flag: I audited against the handwritten transcription embedded in v1.1 Part I, not the original pages. And per Baseline 03 §8, this is a single-model pass — AR-001 through AR-009 should be re-derived by a different model family before you treat them as settled.

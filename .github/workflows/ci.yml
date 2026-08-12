@@ -1,0 +1,131 @@
+# VESPER CI — the gate on all other gates (REM-013 / AR-010).
+#
+# Until these run and have been SHOWN TO FAIL against a deliberate violation,
+# the engineering operating model is documentation. Every check declares its
+# self-test in verification/ci/CHECKS.toml, and `tools/ci/self_test.py`
+# EXECUTES those self-tests rather than trusting the declaration — the
+# distinction that caught CI-016's coverage defect on 2026-08-12.
+#
+# Step names below name only the checks the step actually performs. A step
+# labelled with a check id it does not run is a false enforcement claim, which
+# is the CI-022 defect reproduced in the workflow file.
+name: vesper-ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # CI-003 / CI-038 — INV-TRACE-1, INV-SRC-1, INV-LIMIT-1.
+      # Fails on: an SR with no test, a test with no SR, an unreferenced
+      # architecture section or DR, a referenced artifact that does not exist,
+      # a terminal status with no Part XIV.3 note, an SR below SPECIFIED with
+      # no depth disposition, or a test naming neither a negative control nor
+      # a rationale for why a trivial build cannot pass it.
+      - name: CI-003/038 traceability-lint
+        run: python tools/traceability_lint.py --profile engineering
+
+      # CI-050 — reference integrity. A normative document may not name an
+      # artifact that does not exist. Added after a sweep found 11 dangling ADR
+      # citations and 13 contract paths named by REM specs that were never created.
+      - name: CI-050 reference-integrity
+        run: python tools/reference_lint.py
+
+      # CI-041 / CI-043 — every check declares a self-test; every invariant
+      # declares an enforcing artifact; the two registries agree IN BOTH
+      # DIRECTIONS; and every check marked implemented has an executed red run in
+      # tools/ci/self_test.py. An invariant with no enforcement is a wish; an
+      # enforcement claim only one side makes is a false record.
+      - name: CI-041/043 registry integrity
+        run: python tools/ci/checks.py ci-registry
+
+      # CI-028 — INV-SCENE-3. A markdown escape hatch in the scene schema is
+      # the hole through which the anti-chatbot property drains.
+      - name: CI-028 scene-no-escape-hatch
+        run: python tools/ci/checks.py scene-no-escape-hatch --self-test
+
+      # CI-021 — INV-COST-1/5/6. Rejects any diff adding a non-free class to
+      # permitted_cost_classes[FREE_TIME], regardless of reviewer.
+      # (CI-022 cost-class-nonnull is NOT run here: it needs model-profile and
+      #  credential fixtures that do not exist yet, and is PENDING.)
+      - name: CI-021 cost-policy
+        run: python tools/ci/checks.py cost-policy
+
+      # CI-008 — INV-ADR-1. The F0 merge gate. Fails any change that puts a file
+      # under core/, tasks/ or memory/ while ADR-001, ADR-002 or ADR-012 is not
+      # ACCEPTED, reading the status from the ADR RECORD and cross-checking it
+      # against the register. ADR-002 is PROPOSED today, so this gate is live.
+      - name: CI-008 adr-gate
+        run: python tools/ci/checks.py adr-gate
+
+      # CI-016 — REM-004 governed surfaces, including surface 6 (the tests
+      # themselves), spec/ (the invariants they check), the CODEOWNERS routing
+      # of every governed path, and the L2 workspace that preserves SR-042.
+      - name: CI-016 governed-surfaces-integrity
+        run: python tools/ci/checks.py governed-surfaces-integrity
+
+      # CI-007 — INV-HW-1. No product names in routing/resource/policy logic.
+      - name: CI-007 no-product-names
+        run: python tools/ci/checks.py no-product-names
+
+      # CI-026 — INV-AUTO-5 / INV-IDEA-5. The anti-cron gate, run against a
+      # SHIPPED PRODUCT ARTIFACT rather than a fixture. It parses each predicate
+      # BODY: every namespace root is classified against a closed vocabulary, and
+      # the predicate is evaluated with all clock terms TRUE and all world-state
+      # terms FALSE. If it still fires, the clock alone is sufficient and the row
+      # is cron whatever it is labelled.
+      - name: CI-026 non-schedule-trigger-present
+        run: python tools/ci/checks.py non-schedule-trigger-present
+
+      # CI-030 — INV-SCENE-2. Every element type has a rung for every spatial
+      # class, including the voice-only one, and every action is emittable.
+      - name: CI-030 degradation-ladder-complete
+        run: python tools/ci/checks.py degradation-ladder-complete
+
+      # CI-046 — INV-TUNE-1. A tunable's declared range is not itself tunable.
+      - name: CI-046 tunable-range-immutable
+        run: python tools/ci/checks.py tunable-range-immutable
+
+      # CI-034 — INV-HW-2 / INV-PLACE-3. Measured, not declared; and the
+      # survival core stays small enough to be a survival core.
+      - name: CI-034 measured-not-declared
+        run: python tools/ci/checks.py measured-not-declared
+
+      # CI-051 — INV-PERF-1. Budgets exist, were set before measurement, assert
+      # first-output independently of completion, and the AR-024 arithmetic
+      # closes on paper before anything is measured.
+      - name: CI-051 latency-budgets-declared
+        run: python tools/ci/checks.py latency-budgets-declared
+
+      # THE RED RUNS. Each check is mutated to its declared violation, run, and
+      # required to exit 1; then restored and required to exit 0. A check that
+      # has only ever been green is not evidence.
+      - name: CI self-tests (red runs)
+        run: |
+          python tools/ci/self_test.py
+          python tools/reference_lint.py --self-test
+
+      - name: Contract schemas parse
+        run: |
+          python - <<'PY'
+          import json, glob, tomllib
+          for f in glob.glob('contracts/**/*.json', recursive=True):
+              json.load(open(f, encoding='utf-8'))
+          for f in glob.glob('contracts/**/*.toml', recursive=True):
+              tomllib.load(open(f, 'rb'))
+          print('all contracts parse')
+          PY
+
+      # Visible, non-blocking: how much enforcement is specified vs implemented.
+      # Never treated as a pass; it is the honest denominator.
+      - name: CI enforcement coverage (informational)
+        run: python tools/ci/checks.py status

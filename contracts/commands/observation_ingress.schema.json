@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/commands/observation_ingress.schema.json",
+  "title": "VESPER External Observation Ingress",
+  "description": "REM-008. INV-AUTO-4 makes this a PRODUCTION architectural requirement, not test scaffolding: the world model must be writable by observation sources external to the decision loop, through an authenticated, provenance-carrying ingress. Without it, A-029 part 3 would be testing the harness rather than the product -- an external controller must be able to change the world at a time drawn outside the system, and VESPER must notice. Authority: SR-020, SR-028, SR-029, SR-036, SR-040, SR-058; REM-001, REM-008, REM-011; INV-AUTO-4.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ingress_id", "schema_version", "observer", "observation", "received_at_hlc"],
+  "properties": {
+    "ingress_id": { "type": "string" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "observer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "trust_zone", "roles", "session_ref"],
+      "properties": {
+        "node_id": {
+          "type": "string",
+          "pattern": "^nd_[a-z2-7]{26}$",
+          "description": "ADR-007 D1: a key fingerprint, enrolled through the owner-confirmed path. An unenrolled source cannot write an observation, so this ingress is not an open door onto the world model."
+        },
+        "trust_zone": {
+          "enum": ["Z0", "Z1", "Z2"],
+          "description": "A sensor_node is typically Z2: it MAY render and observe; it may NOT hold state, issue commands, or receive secrets (INV-TRUST-1). The A-029 synthetic observer is enrolled exactly this way, by the production path."
+        },
+        "roles": { "type": "array", "minItems": 1, "items": { "enum": ["sensor_node", "presence_endpoint", "compute_node"] } },
+        "session_ref": { "type": "string", "description": "ADR-007 D4: writes carry the session established by mutual challenge-response. A bearer token with a long life would make this ingress forgeable." }
+      }
+    },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject", "attribute", "value", "observed_at_hlc", "valid_until", "confidence", "provenance"],
+      "properties": {
+        "subject": { "type": "string" },
+        "attribute": { "type": "string" },
+        "value": { "description": "Any JSON value, or the literal string 'UNKNOWN'. UNKNOWN is a representable value, not an absence -- REM-001 §4.5." },
+        "observed_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" },
+        "valid_until": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Every observation declares a TTL. On expiry the fact becomes UNKNOWN -- never 'last known value' (INV-COORD-2). A stale fact presented as current is a guess, and RB-002 forbids guessing."
+        },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "provenance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sensor_kind"],
+          "properties": {
+            "sensor_kind": { "enum": ["camera", "microphone", "network", "explicit_config", "capability_discovery", "rf", "synthetic_observer", "external_service"] },
+            "evidence_refs": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "received_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" },
+    "admission": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["disposition"],
+      "properties": {
+        "disposition": { "enum": ["ACCEPT", "REJECT_STALE_HLC", "REJECT_UNENROLLED", "REJECT_ZONE", "REJECT_SCHEMA"] },
+        "reason": { "type": "string" }
+      },
+      "description": "DF-SUPERSEDE runs on every ingress write: a write with observed_at_hlc <= current is REJECTED and the rejection is EMITTED (INV-COORD-1). Rejections are recorded so a silently-dropped observation is distinguishable from one that never arrived."
+    }
+  },
+  "$comment": "STRUCTURALLY REQUIRED, NOT OPTIONAL. If an implementation ships without this ingress, A-029 part 3 cannot run at all: there is no way for an external controller to change the world at an unpredictable time, and the only remaining way to make a trigger fire is a clock -- which is the C1 cron build the whole gate exists to fail. EXCLUDED BY DESIGN: any test-only or debug-only variant of this endpoint. A production requirement satisfied by a test fixture is deleted during cleanup and then argued away."
+}

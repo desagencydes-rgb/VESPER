@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/policy/autonomy_enable_token.schema.json",
+  "title": "VESPER AutonomyEnableToken",
+  "description": "REM-005 / FV-01. The system is not STOPPED by an act; it is PERMITTED TO RUN by a continuously renewed act. Absence of permission is the safe state, so every failure of the control path -- severed, wedged, compromised, powered off -- halts autonomy rather than releasing it. A kill signal fails that requirement by construction, because it must be DELIVERED by a healthy path. Authority: RB-030, RB-031, RB-035, P-010, DR-023, DR-027, T-007.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["token_id", "schema_version", "scope", "issued_at_wall", "valid_until", "interlock_id", "signature"],
+  "properties": {
+    "token_id": { "type": "string", "description": "Single-use per actuation-gate epoch. Replay is rejected (INV-STOP-4)." },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "scope": {
+      "type": "string",
+      "enum": ["AUTONOMOUS_ACTUATION", "ALARM_ACTUATION"],
+      "description": "Independently revocable. STOP_AUTONOMY (single press) halts autonomous actuation while alarms continue -- an emergency stop must not silently defeat SR-043, whose source states the user is a heavy sleeper and the system 'must not stop'. STOP_ALL (press-and-hold >= 5 s) halts both."
+    },
+    "issued_at_wall": { "type": "string", "format": "date-time" },
+    "valid_until": { "type": "string", "format": "date-time", "description": "issued_at + TOKEN_TTL (default 30 s), renewed every 10 s so two consecutive renewal failures still leave margin. Verified per ACTION, not per session or per task." },
+    "interlock_id": { "type": "string" },
+    "signature": { "type": "string", "description": "Signed with the interlock's key, which is NOT in the runtime secret store and is not reachable by any runtime capability. The runtime therefore cannot mint, extend, replay or forge a token (INV-STOP-4)." }
+  }
+}

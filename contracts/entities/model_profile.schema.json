@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/model_profile.schema.json",
+  "title": "VESPER Model Profile",
+  "description": "REM-006 §4.3. Registration record for a model or credential. `cost_class` is mandatory and non-nullable, resolved AT REGISTRATION: a credential with no cost_class cannot be registered (INV-COST-4). This is the fixture type CI-022 was waiting on -- its absence is why CI-022 was moved back to PENDING during review. Authority: SR-001, SR-003, SR-005, SR-006, SR-009, SR-045, SR-056; REM-006, DF-PROVIDER-ADMIT.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["profile_id", "schema_version", "cost_class", "locality", "capability_tier", "min_node_profile"],
+  "properties": {
+    "profile_id": { "type": "string", "pattern": "^mdl_[0-9a-z_]{3,}$" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "cost_class": {
+      "enum": ["free", "metered_free_tier", "paid"],
+      "description": "NON-NULLABLE. There is no default and no null: a profile without this field is invalid, so 'we forgot to classify it' cannot become 'it was treated as free'. INV-COST-4."
+    },
+    "hard_cap": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["provable", "mechanism"],
+      "properties": {
+        "provable": { "type": "boolean" },
+        "mechanism": { "type": "string", "description": "How the cap is PROVEN, not asserted -- e.g. 'prepaid credit, no payment method on file'. A free tier on an account with a payment method attached can bill on overage." },
+        "limit": { "type": ["number", "null"] }
+      },
+      "description": "INV-COST-5: metered_free_tier is treated as PAID absent a provable hard spend cap. See the allOf block -- without a provable cap the profile must declare `effective_cost_class: paid`."
+    },
+    "effective_cost_class": {
+      "enum": ["free", "paid"],
+      "description": "What DF-PROVIDER-ADMIT actually gates on. Derived, not chosen: metered_free_tier collapses to `paid` unless hard_cap.provable is true. The two-field design exists so the collapse is visible in the record rather than buried in gateway code."
+    },
+    "locality": {
+      "enum": ["local", "remote"],
+      "description": "SR-005's local fallback needs a machine-readable notion of local. `local` profiles remain admissible during FREE_TIME regardless of operating period, because they spend nothing."
+    },
+    "capability_tier": {
+      "enum": ["draft", "small", "standard", "strong"],
+      "description": "SR-009 routing: difficulty-based selection between small and strong models. A tier, not a product name -- INV-HW-1 forbids product names in routing logic, and A-022 tests the routing behaviour rather than the model identity. `draft` exists for SR-056 speculative decoding, which remains R&D."
+    },
+    "min_node_profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["memory_gb", "accelerator_memory_gb"],
+      "properties": {
+        "memory_gb": { "type": "number", "minimum": 0 },
+        "accelerator_memory_gb": { "type": "number", "minimum": 0 },
+        "sustained_tokens_per_sec_min": {
+          "type": ["number", "null"],
+          "description": "MEASURED at enrollment, never declared (INV-HW-2). Null until SPIKE-001 supplies a measurement; a null here means 'not yet measured', and DF-SURVIVAL-PROFILE treats an unmeasured capability as unavailable rather than as available."
+        }
+      },
+      "description": "The minimum NodeCapabilityProfile that can host this model. SR-057's 'fit in memory headroom, avoid swap' expressed as a profile constraint rather than as a product name."
+    },
+    "context_window_tokens": { "type": ["integer", "null"], "minimum": 1 },
+    "modalities": { "type": "array", "items": { "enum": ["text", "audio_in", "audio_out", "vision", "embedding"] } },
+    "credential_ref": {
+      "type": ["string", "null"],
+      "description": "Reference only. A credential VALUE never appears in a profile, in telemetry, in a checkpoint or in a model context (INV-OBS-1). Provider credentials are the highest-value target on the network."
+    },
+    "error_taxonomy_version": {
+      "type": ["integer", "null"],
+      "description": "GAP-022: retry-worthy / switch-worthy / fatal / content-policy. Versioned so that a provider changing its error semantics is a schema event rather than a silent behaviour change in the fallback ladder."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "cost_class": { "const": "metered_free_tier" } },
+        "required": ["cost_class"]
+      },
+      "then": {
+        "required": ["hard_cap", "effective_cost_class"],
+        "oneOf": [
+          { "properties": { "hard_cap": { "properties": { "provable": { "const": true } }, "required": ["provable"] }, "effective_cost_class": { "const": "free" } } },
+          { "properties": { "hard_cap": { "properties": { "provable": { "const": false } }, "required": ["provable"] }, "effective_cost_class": { "const": "paid" } } }
+        ],
+        "$comment": "INV-COST-5 as a schema property. A metered_free_tier profile claiming effective_cost_class 'free' without a provable cap is INVALID -- the leak in the absolute FREE_TIME rule is closed at the type level, not at the call site."
+      }
+    },
+    {
+      "if": { "properties": { "cost_class": { "const": "free" } }, "required": ["cost_class"] },
+      "then": { "properties": { "effective_cost_class": { "const": "free" } } }
+    },
+    {
+      "if": { "properties": { "cost_class": { "const": "paid" } }, "required": ["cost_class"] },
+      "then": { "properties": { "effective_cost_class": { "const": "paid" } } }
+    },
+    {
+      "if": { "properties": { "locality": { "const": "local" } }, "required": ["locality"] },
+      "then": { "properties": { "credential_ref": { "type": "null" }, "cost_class": { "const": "free" } } }
+    }
+  ],
+  "$comment": "EXCLUDED BY DESIGN: a default for cost_class, and any field naming a vendor or a product. Registration-time resolution is what makes the FREE_TIME prohibition absolute: by the time DF-PROVIDER-ADMIT runs there is no unclassified profile for it to guess about."
+}

@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/lease.schema.json",
+  "title": "VESPER State-Domain Lease",
+  "description": "REM-002 §4.1-4.3. Exactly one holder per state domain per instant. The lease is what makes 'who may write this' a fact rather than a convention, and `epoch` is what makes it enforceable after a partition heals. Authority: DR-002, DR-017, DR-022, ARCH-24, SR-019, SR-058; ADR-012, ADR-002 D3.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["domain", "state", "epoch", "updated_at_hlc"],
+  "properties": {
+    "domain": {
+      "enum": ["tasks", "world", "memory", "devices", "policy", "autonomy_queue", "alarms"],
+      "description": "The seven domains of REM-002 §4.1. Closed enum: a new domain is a REM-002 change, not a configuration value, because each domain carries its own non-owner behaviour and rejoin rule."
+    },
+    "state": {
+      "enum": ["UNOWNED", "OWNED", "OWNED_MANUAL", "DEMOTING", "FENCED"],
+      "description": "SM-LEASE. OWNED_MANUAL is distinct from OWNED so that an operator promotion made without quorum is never mistaken for an automatic one."
+    },
+    "holder": {
+      "type": ["string", "null"],
+      "pattern": "^nd_[a-z2-7]{26}$",
+      "description": "node_id per ADR-007 D1: a fingerprint of a public key, never a self-asserted name. Null exactly when state is UNOWNED."
+    },
+    "epoch": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "INV-OWN-3 fencing token. Monotonically increasing, never reused, incremented on every acquisition. Every write to this domain carries it, and the storage layer rejects stale-epoch writes in a single conditional statement (ADR-002 D3). A read-then-write implementation of the same check is a race and is non-compliant."
+    },
+    "acquired_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" },
+    "updated_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" },
+    "ttl_ms": {
+      "type": "integer",
+      "minimum": 1000,
+      "description": "Holder self-demotes at TTL rather than continuing to write hopefully. Value is owner configuration (REM-002 §14.2); the obligation to have one is not."
+    },
+    "renewed_at_wall": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "WALL-CLOCK-OK: TTL expiry is a local-monotonic concern, not a cross-node ordering concern. This field never participates in ordering or supersession (INV-COORD-4)."
+    },
+    "promotion": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["mode", "quorum_size", "reachable_enrolled_nodes"],
+      "properties": {
+        "mode": {
+          "enum": ["AUTOMATIC", "OPERATOR_CONFIRMED"],
+          "description": "DF-PROMOTE. AUTOMATIC requires a quorum of reachable ENROLLED nodes. Lease expiry without quorum is OPERATOR_CONFIRMED only -- a node that cannot see its peers cannot distinguish 'they are down' from 'I am isolated', and must never resolve that ambiguity in its own favour."
+        },
+        "quorum_size": { "type": "integer", "minimum": 1 },
+        "reachable_enrolled_nodes": { "type": "integer", "minimum": 0 },
+        "operator_confirmed_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" }
+      }
+    },
+    "partition_suspected": {
+      "type": "boolean",
+      "default": false,
+      "description": "When true, DF-PROMOTE returns NO_PROMOTION on every side. Partition is not evidence of failure."
+    },
+    "fenced_reason": {
+      "type": ["string", "null"],
+      "description": "Set when a returning holder whose lease expired during partition is FENCED. Its uncommitted writes are queued as ordinary writes subject to supersession, never applied with owner authority."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "state": { "const": "UNOWNED" } }, "required": ["state"] },
+      "then": { "properties": { "holder": { "type": "null" } } }
+    },
+    {
+      "if": { "properties": { "state": { "enum": ["OWNED", "OWNED_MANUAL", "DEMOTING", "FENCED"] } }, "required": ["state"] },
+      "then": { "properties": { "holder": { "type": "string" } }, "required": ["holder", "acquired_at_hlc"] }
+    },
+    {
+      "if": { "properties": { "state": { "const": "OWNED_MANUAL" } }, "required": ["state"] },
+      "then": {
+        "required": ["promotion"],
+        "properties": { "promotion": { "properties": { "mode": { "const": "OPERATOR_CONFIRMED" } }, "required": ["operator_confirmed_at_hlc"] } }
+      }
+    },
+    {
+      "if": { "properties": { "state": { "const": "FENCED" } }, "required": ["state"] },
+      "then": { "required": ["fenced_reason"] }
+    }
+  ],
+  "$comment": "STRUCTURALLY UNEXPRESSIBLE BY DESIGN: (1) an OWNED lease with no holder; (2) an OWNED_MANUAL lease claiming AUTOMATIC promotion -- which is how a no-quorum self-promotion would have to be recorded, so it cannot be recorded at all; (3) a FENCED lease with no reason. INV-OWN-1 and INV-OWN-2 are therefore schema properties, not review obligations."
+}

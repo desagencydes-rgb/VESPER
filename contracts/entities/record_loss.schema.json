@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/record_loss.schema.json",
+  "title": "VESPER RecordLoss + Tombstone",
+  "description": "REM-016. Honest forgetting requires a trace: a person says 'I had a plan but I forgot' because something remains. With no trace at all there is nothing to report, and claiming to have forgotten would be a fabrication (RB-001, RB-002). The tombstone is that trace -- an index entry written to a SEPARATE store from the record body, so loss is detectable as tombstone-present AND body-absent.",
+  "type": "object",
+  "$defs": {
+    "tombstone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "record_id",
+        "kind",
+        "created_at_hlc",
+        "loss_class"
+      ],
+      "description": "Written at record creation, to a store separate from the body. CI-049 enforces that every durable write emits one.",
+      "properties": {
+        "record_id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "created_at_hlc": {
+          "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc"
+        },
+        "title_hint": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Enough to say WHAT was lost without the body. Never sensitive content -- a tombstone outlives the purge of its own record."
+        },
+        "loss_class": {
+          "type": "string",
+          "enum": [
+            "A",
+            "B",
+            "C"
+          ]
+        },
+        "store": {
+          "type": "string",
+          "description": "Which store held the body. loss_class is a deterministic property of THIS, never of how the loss feels (INV-LOSS-6)."
+        }
+      }
+    },
+    "recordLoss": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "loss_id",
+        "schema_version",
+        "record_id",
+        "loss_class",
+        "detected_at_hlc",
+        "cause_known"
+      ],
+      "properties": {
+        "loss_id": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "record_id": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "loss_class": {
+          "type": "string",
+          "enum": [
+            "A",
+            "B",
+            "C"
+          ],
+          "description": "A forgettable (ideas, caches, learned artifacts) | B noticed absence (checkpoints, proposals, alarms, memory) | C integrity event (governed surfaces, trigger registry, interlock config, audit log, traceability registry, tombstone store itself). Ambiguity escalates to the HIGHER class: over-reporting is recoverable, under-reporting is not."
+        },
+        "detected_at_hlc": {
+          "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc"
+        },
+        "cause_known": {
+          "type": "boolean",
+          "description": "INV-LOSS-3. True when a deletion audit exists. VESPER may NEVER present a known cause as forgetting -- that is a lie under RB-001. The honest version is still smooth ('something ate my notes from Tuesday'), but it is accurate."
+        },
+        "cause_ref": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reconstructed": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "affected_task_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "surfaced_as": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "ambient",
+            "boundary",
+            "incident",
+            null
+          ],
+          "description": "Class C is ALWAYS 'incident': no affect template, no aggregation, bypasses the interruption budget (INV-LOSS-2). This field is the audit evidence for A-050.6."
+        },
+        "affect_applied": {
+          "type": "boolean",
+          "default": false,
+          "description": "MUST be false for loss_class C. The charm has a hard edge, and the edge is where VESPER's own integrity begins."
+        }
+      },
+      "allOf": [
+        {
+          "$comment": "INV-LOSS-2 -- personality is absent from class C.",
+          "if": {
+            "properties": {
+              "loss_class": {
+                "const": "C"
+              }
+            },
+            "required": [
+              "loss_class"
+            ]
+          },
+          "then": {
+            "properties": {
+              "affect_applied": {
+                "const": false
+              },
+              "surfaced_as": {
+                "const": "incident"
+              }
+            }
+          }
+        },
+        {
+          "$comment": "INV-LOSS-3 -- a known cause is named, never dressed as forgetting.",
+          "if": {
+            "properties": {
+              "cause_known": {
+                "const": true
+              }
+            },
+            "required": [
+              "cause_known"
+            ]
+          },
+          "then": {
+            "required": [
+              "cause_ref"
+            ]
+          }
+        },
+        {
+          "$comment": "INV-LOSS-4 -- an unreconstructed class B names its affected tasks so none can be reported complete.",
+          "if": {
+            "properties": {
+              "loss_class": {
+                "const": "B"
+              },
+              "reconstructed": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "affected_task_ids"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

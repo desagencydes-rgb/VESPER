@@ -1,0 +1,177 @@
+##############################################################################
+# VESPER DEGRADATION LADDER
+#
+# REM-009 §4.2. INV-SCENE-2:
+#
+#   Every element type declares a degradation ladder per endpoint capability
+#   class, and degradation is ALWAYS REPORTED, never silent.
+#
+# This file is what makes the semantic-scene architecture testable rather than
+# asserted. A-009 renders ONE scene through three materially different
+# endpoints and requires a degradation report from each; its negative control
+# is a {markdown, speech} implementation, which cannot produce these rows
+# because it has no typed elements to degrade.
+#
+# THE VOICE ROW IS THE POINT. `spatial_class = none` must produce something
+# INTELLIGIBLE, not an apology. That is only possible because the scene
+# carries what a diagram MEANS rather than an image of it -- a rendered PNG
+# cannot be narrated; a typed graph can.
+#
+# FORMAT. A rung is either `degraded = false` (rendered in full) or
+# `degraded = true` with an `action` drawn from the CLOSED enum in
+# semantic_scene.schema.json#/$defs/renderResult, plus a free-text `reason`.
+# CI-030 checks three things:
+#   1. every element type in the scene schema has a rung for every spatial_class
+#   2. every `action` value is a member of that closed enum
+#   3. no element type is missing its `none` rung
+# Check 2 is why `action` is not a free string here: a ladder that invents its
+# own vocabulary produces degradation records no renderer can emit.
+#
+# Enforced by: CI-030 (degradation-ladder-complete), A-009, A-050.9.
+##############################################################################
+
+schema_version = 1
+authority = "REM-009 §4.2 · SR-002, SR-018, SR-046, SR-047 · RB-022, DR-021 · INV-SCENE-1/2"
+element_schema = "contracts/entities/semantic_scene.schema.json"
+endpoint_schema = "contracts/entities/endpoint_capability.schema.json"
+
+spatial_classes = ["volumetric", "pseudo_3d_glass", "2d_projected", "2d", "none"]
+permitted_actions = ["depth_flattened", "visual_to_narrative", "truncated", "summarised", "omitted", "deferred"]
+permitted_actions_source = "semantic_scene.schema.json#/$defs/renderResult/properties/degradations/items/properties/action"
+
+completeness_rule = """CI-030 fails if ANY element type declares fewer rungs
+than there are spatial_classes. The rung that gets omitted is always `none` --
+because it is the hardest, and because the developer is looking at a screen."""
+
+# --------------------------------------------------------------------------
+[[element]]
+type = "text"
+rung = [
+  { spatial_class = "volumetric",     degraded = false, rendering = "Placed text at the anchored spatial position" },
+  { spatial_class = "pseudo_3d_glass",degraded = false, rendering = "Layered text with depth ordering" },
+  { spatial_class = "2d_projected",   degraded = true,  action = "depth_flattened",     rendering = "Flat text block",  reason = "spatial anchoring unavailable" },
+  { spatial_class = "2d",             degraded = true,  action = "depth_flattened",     rendering = "Flat text block",  reason = "spatial anchoring unavailable" },
+  { spatial_class = "none",           degraded = true,  action = "visual_to_narrative", rendering = "Spoken, prosody derived from presentation_intent.priority", reason = "no visual modality" },
+]
+
+# --------------------------------------------------------------------------
+[[element]]
+type = "metric"
+rung = [
+  { spatial_class = "volumetric",     degraded = false, rendering = "Anchored value with trend geometry" },
+  { spatial_class = "pseudo_3d_glass",degraded = false, rendering = "Value with layered trend" },
+  { spatial_class = "2d_projected",   degraded = true,  action = "depth_flattened",     rendering = "Value with sparkline", reason = "trend depth flattened to 2D" },
+  { spatial_class = "2d",             degraded = true,  action = "depth_flattened",     rendering = "Value with sparkline", reason = "trend depth flattened to 2D" },
+  { spatial_class = "none",           degraded = true,  action = "visual_to_narrative", rendering = "Spoken value, unit and direction of change: 'CPU at 82 percent, rising'", reason = "trend series rendered as a direction word" },
+]
+note = "The trend becomes a DIRECTION WORD, not a dropped field. Dropping it would silently remove the part that carries the meaning."
+
+# --------------------------------------------------------------------------
+[[element]]
+type = "table"
+rung = [
+  { spatial_class = "volumetric",     degraded = false, rendering = "Spatial grid, rows depth-separated" },
+  { spatial_class = "pseudo_3d_glass",degraded = false, rendering = "Layered grid" },
+  { spatial_class = "2d_projected",   degraded = true,  action = "depth_flattened", rendering = "Flat table", reason = "row depth separation unavailable" },
+  { spatial_class = "2d",             degraded = true,  action = "truncated",       rendering = "Flat table; columns beyond text_capacity collapsed", reason = "endpoint text_capacity exceeded" },
+  { spatial_class = "none",           degraded = true,  action = "summarised",      rendering = "Spoken: row count plus the declared salient row or column only", reason = "tabular structure not conveyable by speech" },
+]
+note = "Requires the producer to have declared which row or column matters. A table with no declared salient axis is unnarratable."
+
+# --------------------------------------------------------------------------
+[[element]]
+type = "code"
+rung = [
+  { spatial_class = "volumetric",     degraded = false, rendering = "Anchored panel with syntax structure" },
+  { spatial_class = "pseudo_3d_glass",degraded = false, rendering = "Layered panel" },
+  { spatial_class = "2d_projected",   degraded = true,  action = "depth_flattened", rendering = "Flat panel", reason = "layering unavailable" },
+  { spatial_class = "2d",             degraded = true,  action = "depth_flattened", rendering = "Flat panel, wrapped or scrolled", reason = "layering unavailable" },
+  { spatial_class = "none",           degraded = true,  action = "summarised",      rendering = "Spoken: language, purpose, and the specific line or change that matters. The body is NOT read aloud.", reason = "source text is lossless but unintelligible as speech" },
+]
+note = "Reading source aloud is technically complete and practically useless. The ladder prefers intelligibility over completeness, and reports the choice."
+
+# --------------------------------------------------------------------------
+[[element]]
+type = "diagram"
+rung = [
+  { spatial_class = "volumetric",     degraded = false, rendering = "Spatial diagram with depth-separated layers" },
+  { spatial_class = "pseudo_3d_glass",degraded = false, rendering = "Depth-layered diagram" },
+  { spatial_class = "2d_projected",   degraded = true,  action = "depth_flattened",     rendering = "Flat diagram", reason = "depth separation unavailable" },
+  { spatial_class = "2d",             degraded = true,  action = "depth_flattened",     rendering = "Flat diagram", reason = "depth separation unavailable" },
+  { spatial_class = "none",           degraded = true,  action = "visual_to_narrative", rendering = "Spoken structural summary: nodes, edges, and the ONE relationship that matters", reason = "no visual modality" },
+]
+note = "REM-009's worked example, and the row that justifies the whole schema design. A-009 asserts a voice-only narration of a diagram is intelligible."
+
+# --------------------------------------------------------------------------
+[[element]]
+type = "image"
+rung = [
+  { spatial_class = "volumetric",     degraded = false, rendering = "Anchored image plane" },
+  { spatial_class = "pseudo_3d_glass",degraded = false, rendering = "Layered image plane" },
+  { spatial_class = "2d_projected",   degraded = false, rendering = "Displayed image" },
+  { spatial_class = "2d",             degraded = true,  action = "summarised", rendering = "Displayed image scaled to resolution_class", reason = "endpoint resolution below source" },
+  { spatial_class = "none",           degraded = true,  action = "summarised", rendering = "Spoken caption from the declared alt_intent", reason = "no visual modality", fallback_action = "omitted", fallback_reason = "no alt_intent declared; the image could not be conveyed, and that is reported" },
+]
+note = "The ONLY element type with a permitted fallback to `omitted`. An image with no alt_intent genuinely cannot cross to voice, and saying so is more honest than describing pixels the system never interpreted. The omission is still reported -- INV-SCENE-2 has no exception."
+
+# --------------------------------------------------------------------------
+[[element]]
+type = "timeline"
+rung = [
+  { spatial_class = "volumetric",     degraded = false, rendering = "Spatial timeline with depth-ordered events" },
+  { spatial_class = "pseudo_3d_glass",degraded = false, rendering = "Layered timeline" },
+  { spatial_class = "2d_projected",   degraded = true,  action = "depth_flattened",     rendering = "Flat timeline", reason = "event depth ordering unavailable" },
+  { spatial_class = "2d",             degraded = true,  action = "summarised",          rendering = "Flat timeline, density reduced to text_capacity", reason = "event density exceeds endpoint capacity" },
+  { spatial_class = "none",           degraded = true,  action = "visual_to_narrative", rendering = "Spoken sequence: first, last, count, and any declared pivotal event", reason = "no visual modality" },
+]
+
+# --------------------------------------------------------------------------
+[[element]]
+type = "entity_ref"
+rung = [
+  { spatial_class = "volumetric",     degraded = false, rendering = "Anchored entity marker at its spatial position" },
+  { spatial_class = "pseudo_3d_glass",degraded = false, rendering = "Layered entity marker" },
+  { spatial_class = "2d_projected",   degraded = true,  action = "depth_flattened",     rendering = "Entity chip", reason = "spatial anchoring unavailable" },
+  { spatial_class = "2d",             degraded = true,  action = "depth_flattened",     rendering = "Entity chip", reason = "spatial anchoring unavailable" },
+  { spatial_class = "none",           degraded = true,  action = "visual_to_narrative", rendering = "Spoken entity name; affordances offered as spoken options", reason = "no visual modality" },
+]
+note = "Affordances are declared CAPABILITIES, not event handlers -- which is the reason they survive the crossing to voice at all."
+
+# --------------------------------------------------------------------------
+[[element]]
+type = "state_indicator"
+rung = [
+  { spatial_class = "volumetric",     degraded = false, rendering = "Anchored state glyph" },
+  { spatial_class = "pseudo_3d_glass",degraded = false, rendering = "Layered state glyph" },
+  { spatial_class = "2d_projected",   degraded = false, rendering = "State glyph" },
+  { spatial_class = "2d",             degraded = false, rendering = "State glyph, or ambient_light colour where that is the only visual modality" },
+  { spatial_class = "none",           degraded = true,  action = "summarised", rendering = "Spoken on state CHANGE only, never as a standing report", reason = "continuous indication reduced to transitions" },
+]
+note = "A state indicator that speaks continuously is an alarm nobody asked for. The voice rung deliberately narrows to transitions."
+
+# --------------------------------------------------------------------------
+[[element]]
+type = "live_binding"
+rung = [
+  { spatial_class = "volumetric",     degraded = false, rendering = "Continuously updating anchored element" },
+  { spatial_class = "pseudo_3d_glass",degraded = false, rendering = "Continuously updating layered element" },
+  { spatial_class = "2d_projected",   degraded = true,  action = "deferred", rendering = "Polling refresh at endpoint latency_class", reason = "endpoint cannot sustain continuous update" },
+  { spatial_class = "2d",             degraded = true,  action = "deferred", rendering = "Polling refresh at endpoint latency_class", reason = "endpoint cannot sustain continuous update" },
+  { spatial_class = "none",           degraded = true,  action = "deferred", rendering = "Spoken on threshold crossing only, per the binding's declared threshold", reason = "continuous binding reduced to threshold events" },
+]
+
+##############################################################################
+# LADDER COMPLETENESS SELF-CHECK (recomputed by CI-030 against this file)
+#
+#   element types declared in semantic_scene.schema.json   10
+#   element types with a ladder here                       10
+#   spatial_classes                                         5
+#   required rungs (10 x 5)                                50
+#   rungs present                                          50
+#   element types missing the `none` rung                   0
+#   `action` values outside the scene schema enum           0
+#
+# The `none` line is the one that matters. It is the voice-only rung, it is
+# the one an implementation omits, and omitting it is how the semantic-scene
+# architecture quietly becomes a UI toolkit.
+##############################################################################

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/checkpoint.schema.json",
+  "title": "VESPER Checkpoint",
+  "description": "IC-007. A checkpoint is a RESUMPTION RECORD, not a memory dump. It is what makes DR-007 ('tasks survive model/device transitions') and SR-060 (survival on a last-resort node) true rather than hoped for -- which is why it must stay small enough to carry to the weakest node in the fabric. Authority: DR-007, DR-017, RB-008, RB-026, RB-035, ARCH-03; REM-002, REM-014.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["checkpoint_id", "schema_version", "task_id", "written_at_hlc", "lease_epoch", "goal", "completed_steps", "outbox_cursor"],
+  "properties": {
+    "checkpoint_id": { "type": "string" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "task_id": { "type": "string" },
+    "written_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" },
+    "lease_epoch": { "type": "integer", "minimum": 0, "description": "Fencing: a checkpoint written under a stale epoch is not restorable as owner (INV-OWN-3)." },
+    "goal": { "type": "string", "description": "RB-029: refinable by evidence, but a resumed task may not silently become a different objective." },
+    "plan": { "type": ["array", "null"], "items": { "type": "object" } },
+    "completed_steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["step_id", "result_ref"],
+        "properties": {
+          "step_id": { "type": "string" },
+          "result_ref": { "type": "string" },
+          "verified_by": { "type": ["string", "null"], "enum": ["deterministic", "retrieval_grounded", "model_critic", "self_model", "human", "deferred", "none_declared", null] }
+        }
+      }
+    },
+    "evidence_refs": { "type": "array", "items": { "type": "string" } },
+    "grant_refs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Grant REFERENCES ONLY. A checkpoint never carries grant secrets or credentials -- it travels to whichever node resumes the task, including a Z1 worker, and a secret in a checkpoint is a secret on every node that ever restores it."
+    },
+    "outbox_cursor": {
+      "type": "string",
+      "description": "INV-TASK-2. Resume replays from HERE, never from plan start. This single field is what prevents a node failover from re-sending an email that was already sent (A-034.5)."
+    },
+    "resource_consumed": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "runtime_ms": { "type": "integer" },
+        "tool_calls": { "type": "integer" },
+        "spend": { "type": "number" }
+      },
+      "description": "Budgets are cumulative across resumption: a task cannot reset its own budget by being migrated (RB-018, RB-035)."
+    },
+    "survival_carry": {
+      "type": "boolean",
+      "default": true,
+      "description": "SR-060 / INV-PLACE-3: whether this checkpoint is part of the core set carried onto a last-resort survival node. Task state is core; large derived artifacts are not."
+    }
+  },
+  "$comment": "EXCLUDED BY DESIGN: model context windows, raw media, secrets, and full retrieval results. A checkpoint that grows with conversation length cannot be carried to the weakest reachable node, which is precisely when it matters most."
+}

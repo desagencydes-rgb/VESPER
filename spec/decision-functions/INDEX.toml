@@ -1,0 +1,291 @@
+##############################################################################
+# VESPER DECISION FUNCTION REGISTRY
+#
+# A decision function is a DETERMINISTIC, side-effect-free function whose
+# output is fully determined by its declared inputs. It is the artifact that
+# prevents "the system decides" from meaning "a model decides".
+#
+# Every entry declares its inputs and its output domain, so that two engineers
+# implementing it independently produce the same behaviour. Specifications
+# live in spec/decision-functions/DECISION_FUNCTIONS.md.
+#
+# `model_access = false` on a function means an implementation that consults a
+# model at that point is non-compliant, and a CI check enforces it.
+##############################################################################
+
+schema_version = 1
+spec = "spec/decision-functions/DECISION_FUNCTIONS.md"
+
+[decision_functions.DF-SUPERSEDE]
+title = "World-fact write admission"
+owner_rem = "REM-001"
+inputs = ["incoming_fact", "current_fact"]
+output = "ACCEPT | REJECT"
+model_access = false
+enforces = ["INV-COORD-1", "INV-COORD-4"]
+
+[decision_functions.DF-CONFLICT-DETECT]
+title = "World-fact conflict detection"
+owner_rem = "REM-001"
+inputs = ["facts_for_subject_attribute", "now_hlc"]
+output = "NONE | CONFLICT(fact_a, fact_b)"
+model_access = false
+enforces = ["INV-COORD-3"]
+
+[decision_functions.DF-PROMOTE]
+title = "Control-plane lease promotion"
+owner_rem = "REM-002"
+inputs = ["domain", "lease_state", "reachable_enrolled_nodes", "quorum_size", "partition_suspected"]
+output = "PROMOTE_AUTOMATIC | REQUIRE_OPERATOR | NO_PROMOTION"
+model_access = false
+enforces = ["INV-OWN-1", "INV-OWN-2"]
+
+[decision_functions.DF-DOMAIN-WRITE]
+title = "Non-owner write disposition per state domain"
+owner_rem = "REM-002"
+inputs = ["domain", "holds_lease", "lease_epoch", "partitioned"]
+output = "WRITE | QUEUE_WRITES | READ_CACHED | REFUSE"
+model_access = false
+enforces = ["INV-OWN-3", "INV-OWN-4"]
+
+[decision_functions.DF-AUTHORIZE]
+title = "Action authorization (the single evaluator)"
+owner_rem = "REM-003"
+inputs = ["subject", "capability", "args", "grants", "context_fragments", "pdp_reachable", "lease_epoch"]
+output = "ALLOW(effective_level) | DENY(reason) | PROPOSE(reason)"
+model_access = false
+enforces = ["INV-AUTH-1", "INV-AUTH-2", "INV-AUTH-5", "INV-AUTH-4", "INV-SELF-3"]
+
+[decision_functions.DF-CONTEXT-CEILING]
+title = "Authority ceiling from context taint"
+owner_rem = "REM-003"
+inputs = ["context_fragments"]
+output = "L0..L5"
+model_access = false
+enforces = ["INV-AUTH-3", "INV-AUTH-6"]
+
+[decision_functions.DF-ATTENUATE]
+title = "Grant attenuation on agent spawn"
+owner_rem = "REM-003"
+inputs = ["parent_grants", "requested_grants"]
+output = "attenuated_grant_set"
+model_access = false
+enforces = ["INV-AUTH-2"]
+
+[decision_functions.DF-GOVERNED-WRITE]
+title = "Governed-surface write classification"
+owner_rem = "REM-004"
+inputs = ["resolved_path", "governed_paths", "subject_kind"]
+output = "L2_WORKSPACE | L5_GOVERNED_DENY_AND_PROPOSE"
+model_access = false
+enforces = ["INV-SELF-1", "INV-SELF-3", "INV-SELF-4", "INV-SELF-7"]
+
+[decision_functions.DF-ACTUATION-GATE]
+title = "Autonomous actuation admission (emergency stop)"
+owner_rem = "REM-005"
+inputs = ["action", "actuation_scope", "enable_token", "now"]
+output = "PERMIT | HALT(reason)"
+model_access = false
+enforces = ["INV-STOP-1", "INV-STOP-3", "INV-STOP-5"]
+
+[decision_functions.DF-OPERATING-PERIOD]
+title = "Operating-period evaluation with the fail-closed asymmetry"
+owner_rem = "REM-006"
+inputs = ["current_period", "schedule", "last_authenticated_interaction", "inference_signals", "clock_suspect"]
+output = "ACTIVE_SESSION | IDLE | FREE_TIME | DO_NOT_DISTURB"
+model_access = false
+enforces = ["INV-COST-2", "INV-COST-7"]
+
+[decision_functions.DF-PROVIDER-ADMIT]
+title = "Provider admission at the gateway choke point"
+owner_rem = "REM-006"
+inputs = ["candidate_provider", "cost_policy", "operating_period", "spend_to_date"]
+output = "ADMIT | SKIP | BLOCK_AND_QUEUE"
+model_access = false
+enforces = ["INV-COST-1", "INV-COST-3", "INV-COST-5", "INV-COST-6"]
+
+[decision_functions.DF-TRIGGER-EVAL]
+title = "Trigger predicate evaluation"
+owner_rem = "REM-007"
+inputs = ["trigger", "world_snapshot", "task_graph", "schedule", "event_window"]
+output = "FIRE | NO_FIRE(reason) | UNKNOWN"
+model_access = false
+enforces = ["INV-TRIG-1", "INV-TRIG-2", "INV-TRIG-4", "INV-TRIG-5"]
+
+[decision_functions.DF-AUTONOMY-ELIGIBLE]
+title = "Autonomous work eligibility"
+owner_rem = "REM-007"
+inputs = ["trigger", "operating_period", "resource_budget", "cost_policy", "enable_token", "verification_strategy"]
+output = "ELIGIBLE | QUEUE(reason) | BLOCKED(reason)"
+model_access = false
+enforces = ["INV-COST-1", "INV-STOP-1", "INV-VERIF-2"]
+
+[decision_functions.DF-PROACTIVE]
+title = "Act-now vs queue for proactive contact"
+owner_rem = "REM-007"
+inputs = ["expected_value", "decays", "interruption_cost", "reversibility", "budget_state", "priority_class"]
+output = "ACT_NOW | QUEUE_TO_BOUNDARY | DROP_NEVER"
+model_access = false
+enforces = ["INV-TRIG-3", "INV-ALARM-3"]
+
+[decision_functions.DF-SELECT-ENDPOINT]
+title = "Presence endpoint selection with the privacy fail-safe"
+owner_rem = "REM-009"
+inputs = ["scene_privacy_class", "space_privacy_class", "observed_persons", "user_location_confidence", "endpoint_capabilities"]
+output = "endpoint_id | WITHHOLD"
+model_access = false
+enforces = ["INV-PRIV-1", "INV-SCENE-4"]
+
+[decision_functions.DF-DEGRADE]
+title = "Scene element degradation resolution"
+owner_rem = "REM-009"
+inputs = ["element", "endpoint_capability", "declared_ladder"]
+output = "rendered_form + degradation_record"
+model_access = false
+enforces = ["INV-SCENE-2"]
+
+[decision_functions.DF-OUTPUT-GATE]
+title = "Claim emission gate by policy class"
+owner_rem = "REM-010"
+inputs = ["claim", "policy_class"]
+output = "EMIT | MARK_AND_EMIT | CONVERT_TO_QUESTION | DROP"
+model_access = false
+enforces = ["INV-EVID-1", "INV-EVID-2", "INV-EVID-3"]
+
+[decision_functions.DF-VERIFY-SELECT]
+title = "Verification strategy selection and completion admission"
+owner_rem = "REM-010"
+inputs = ["task_class", "acceptance_condition", "available_verifiers", "operating_period"]
+output = "strategy + ELIGIBLE_FOR_AUTONOMOUS_COMPLETION | DEFER"
+model_access = false
+enforces = ["INV-VERIF-1", "INV-VERIF-2", "INV-VERIF-3"]
+
+[decision_functions.DF-MEMORY-AUTHORITY]
+title = "Memory conflict resolution by authority rank"
+owner_rem = "REM-010"
+inputs = ["conflicting_records", "source_of_record_declaration", "now"]
+output = "winner | ASK_USER"
+model_access = false
+enforces = ["INV-MEM-1"]
+
+[decision_functions.DF-IDENTITY-RESOLVE]
+title = "Person identity resolution"
+owner_rem = "REM-011"
+inputs = ["evidence_refs", "known_persons", "threshold"]
+output = "owner | known(person_id) | unknown_person"
+model_access = true
+model_access_note = "A model MAY produce the similarity evidence. The RESOLUTION rule -- threshold comparison and the owner/unknown boundary -- is deterministic, and INV-WORLD-1 forbids the model's output from being taken as the resolution."
+enforces = ["INV-WORLD-1", "INV-PRIV-2"]
+
+[decision_functions.DF-PLACE]
+title = "Opportunistic placement -- where VESPER should be running right now"
+owner_rem = "REM-014"
+inputs = ["reachable_nodes", "capability_profiles", "current_placement", "active_capabilities", "hysteresis_state"]
+output = "KEEP | RELOCATE(target_node, capability_set) | ENTER_SURVIVAL(node)"
+model_access = false
+enforces = ["INV-PLACE-1", "INV-PLACE-2", "INV-PLACE-3", "INV-TRUST-2"]
+
+[decision_functions.DF-SURVIVAL-PROFILE]
+title = "Maximum sustainable capability set for a given node"
+owner_rem = "REM-014"
+inputs = ["node_profile", "capability_minimum_profiles", "current_pressure"]
+output = "capability_set"
+model_access = false
+enforces = ["INV-PLACE-3", "INV-HW-2"]
+
+[decision_functions.DF-IDEA-REVISIT]
+title = "Which backlog idea to investigate now"
+owner_rem = "REM-015"
+inputs = ["backlog", "idle_state", "now", "tunables"]
+output = "idea_id | NONE"
+model_access = false
+enforces = ["INV-IDEA-5", "INV-IDEA-6"]
+
+[decision_functions.DF-TUNABLE]
+title = "Bounded self-tuning admission"
+owner_rem = "REM-015"
+inputs = ["field", "proposed_value", "declared_range"]
+output = "ACCEPT | CLAMP(value) | REFUSE_AND_PROPOSE"
+model_access = false
+enforces = ["INV-TUNE-1"]
+
+[decision_functions.DF-LOSS-CLASS]
+title = "Classify a detected record loss"
+owner_rem = "REM-016"
+inputs = ["record_id", "store", "tombstone", "deletion_audit"]
+output = "A | B | C"
+model_access = false
+enforces = ["INV-LOSS-1", "INV-LOSS-6"]
+
+[decision_functions.DF-LOSS-SURFACE]
+title = "How a record loss reaches the owner"
+owner_rem = "REM-016"
+inputs = ["loss_class", "cause_known", "count", "operating_period"]
+output = "SemanticScene | INCIDENT | SILENCE"
+model_access = false
+enforces = ["INV-LOSS-2", "INV-LOSS-3", "INV-LOSS-5"]
+
+[decision_functions.DF-BAG-RETRIEVE]
+title = "Grounded retrieval admission -- BAG, not RAG"
+owner_rem = "REM-010"
+inputs = ["query", "map", "budget"]
+output = "spans[] | UNKNOWN"
+model_access = false
+model_access_note = "A model MAY produce the ranking signal. It may not produce the SPAN: the span is read from the locator and its hash re-checked at read time. INV-EVID-2 forbids the model's recollection standing in for a retrieval."
+enforces = ["INV-EVID-2", "INV-EVID-3"]
+
+[decision_functions.DF-CONTEXT-ASSEMBLE]
+title = "Context admission within budget, automatic and manual"
+owner_rem = "REM-010"
+inputs = ["fragments", "intent", "budget", "mode", "manual_override"]
+output = "ContextBudget"
+model_access = false
+enforces = ["INV-EVID-3", "INV-AUTH-3", "INV-AUTH-6"]
+
+[decision_functions.DF-CACHE-ADMIT]
+title = "Cache reuse under taint"
+owner_rem = "REM-003"
+inputs = ["cache_entry", "requesting_context"]
+output = "REUSE | REFETCH | REFUSE"
+model_access = false
+enforces = ["INV-AUTH-3", "INV-AUTH-6"]
+
+[decision_functions.DF-GOVERNOR-LEVEL]
+title = "Damped resource governor level"
+owner_rem = "REM-012"
+inputs = ["telemetry", "current_level", "dwell_elapsed", "tunables"]
+output = "NORMAL | REDUCED | MINIMAL | YIELD"
+model_access = false
+model_access_note = "Telemetry is VISIBLE to the model (SR-011) but a model-visible value may never directly actuate a level change -- CI-039. The model reads the same numbers the governor does; it does not drive the governor."
+enforces = ["INV-PERF-1", "INV-HW-2"]
+
+# --------------------------------------------------------------- REM-012 / SR-020
+# Computer and device agency. Added 2026-08-12: of 30 decision functions, NONE
+# governed acting on a computer. SR-020 ("self-interact across available
+# hardware") and SR-021 ("run/execute code, scripts, commands") traced only to
+# perception, presentation and authorization artifacts, so the requirement was
+# PERMITTED by the architecture and SPECIFIED by nothing.
+
+[decision_functions.DF-ENDPOINT-ACT]
+title = "Computer/device action admission"
+owner_rem = "REM-012"
+inputs = ["endpoint_interaction", "surface_state", "node", "subject", "context", "operating_period", "now"]
+output = "ALLOW | REFUSE(reason)"
+model_access = false
+enforces = ["INV-ACT-1", "INV-ACT-3", "INV-ACT-4", "INV-ACT-6"]
+
+[decision_functions.DF-ENDPOINT-OBSERVE]
+title = "Post-action evidence plan, independent of the actuator"
+owner_rem = "REM-012"
+inputs = ["endpoint_interaction", "actuator_result", "available_sensors"]
+output = "observation_plan | OBSERVE_IMPOSSIBLE"
+model_access = false
+enforces = ["INV-ACT-2"]
+
+[decision_functions.DF-ENDPOINT-RECOVER]
+title = "Disposition of a refuted or unknown interaction outcome"
+owner_rem = "REM-012"
+inputs = ["episode", "observation", "attempts", "operating_period"]
+output = "RETRY | COMPENSATE | ESCALATE | HALT"
+model_access = false
+enforces = ["INV-ACT-5", "INV-ACT-6"]

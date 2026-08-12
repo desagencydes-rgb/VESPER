@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/context_budget.schema.json",
+  "title": "VESPER Context Budget",
+  "description": "SR-008, SR-010, SR-054. The record that makes a context assembly auditable: what was admitted, what was dropped, and why. A-032 requires that budget overrun degrade by dropping the LOWEST-PRIORITY context with a REPORTED degradation, never silently, and that UNKNOWN propagate rather than being filled. Both are unenforceable without this type. Authority: SR-007, SR-008, SR-010, SR-053, SR-054; REM-003 (taint), REM-010 (evidence); INV-EVID-3, INV-AUTH-3, INV-SCENE-2.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["assembly_id", "schema_version", "mode", "budget_tokens", "admitted", "degradations", "context_ceiling"],
+  "properties": {
+    "assembly_id": { "type": "string" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "mode": {
+      "enum": ["automatic", "manual"],
+      "description": "SR-008 requires BOTH. A-032 asserts manual mode is invocable by command AND by interface and OVERRIDES automatic selection. A build with automatic mode only satisfies the prose and fails the test."
+    },
+    "manual_override": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["invoked_by", "pinned_fragment_ids"],
+      "properties": {
+        "invoked_by": { "enum": ["command", "interface"] },
+        "pinned_fragment_ids": { "type": "array", "items": { "type": "string" } },
+        "excluded_fragment_ids": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "intent": {
+      "type": ["string", "null"],
+      "description": "SR-008: context management optimised ACCORDING TO INTENT. Recorded so that 'selected by intent' is checkable against what was actually admitted, rather than asserted."
+    },
+    "budget_tokens": { "type": "integer", "minimum": 1 },
+    "consumed_tokens": { "type": "integer", "minimum": 0 },
+    "admitted": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fragment_id", "priority", "tokens", "trust_class"],
+        "properties": {
+          "fragment_id": { "type": "string" },
+          "priority": { "type": "integer", "minimum": 0 },
+          "tokens": { "type": "integer", "minimum": 0 },
+          "trust_class": { "enum": ["system", "owner", "verified_local", "retrieved_local", "retrieved_external", "model_generated"] },
+          "source_tier": { "enum": ["map", "exact_span", "semantic", "summary", "prompt_prefix"] }
+        }
+      },
+      "description": "`source_tier` records HOW the fragment was obtained. `map` and `exact_span` are the BAG path; `semantic` alone is never sufficient grounding (INV-EVID-2). SR-007's whole point is that a map is consulted INSTEAD of dumping files -- A-006 asserts retrieval from a large project without loading the repository."
+    },
+    "degradations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["fragment_id", "reason", "priority"],
+        "properties": {
+          "fragment_id": { "type": "string" },
+          "reason": { "enum": ["budget_exceeded", "trust_ceiling", "staleness", "deduplicated", "manually_excluded"] },
+          "priority": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "description": "EVERY dropped fragment appears here. Silent degradation is prohibited (INV-SCENE-2's principle applied at the context boundary). An empty array asserts that nothing was dropped -- it is a claim, not an absence."
+    },
+    "context_ceiling": {
+      "enum": ["L0", "L1", "L2", "L3", "L4", "L5"],
+      "description": "min over allowed_level(fragment.trust_class) across `admitted` (REM-003 §4.4). Computed, never declared: the value must be re-derivable from the admitted list, which is what CI-012 checks."
+    },
+    "unknown_fields": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "INV-EVID-3: UNKNOWN propagates rather than being filled. Fields the assembly could not resolve are NAMED here and travel into the model context as UNKNOWN, so an empty retrieval cannot be quietly coerced into a plausible answer downstream."
+    },
+    "cache_hits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tier", "fragment_id", "inherited_trust_class"],
+        "properties": {
+          "tier": { "enum": ["file_hash", "chunk", "embedding", "summary", "prompt_prefix"] },
+          "fragment_id": { "type": "string" },
+          "inherited_trust_class": { "enum": ["system", "owner", "verified_local", "retrieved_local", "retrieved_external", "model_generated"] }
+        }
+      },
+      "description": "SR-054's five tiers. `inherited_trust_class` is mandatory: a cache entry inherits the taint of what it caches. A prefix cache that returns clean-looking content is a laundering path directly into the planner context (GAP-027, CI-012)."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "mode": { "const": "manual" } }, "required": ["mode"] },
+      "then": { "required": ["manual_override"], "properties": { "manual_override": { "type": "object" } } }
+    },
+    {
+      "properties": { "consumed_tokens": { "type": "integer" } },
+      "$comment": "consumed_tokens <= budget_tokens is a runtime obligation asserted by A-032; JSON Schema cannot express cross-field arithmetic, so it is checked by the assembler and by the test rather than claimed here. Recorded explicitly so the gap is visible rather than assumed covered."
+    }
+  ],
+  "$comment": "EXCLUDED BY DESIGN: a `truncated: true` boolean with no itemisation. Truncation without a per-fragment record is exactly the silent degradation A-032 exists to fail, and it is the natural implementation because it costs one field instead of a list."
+}

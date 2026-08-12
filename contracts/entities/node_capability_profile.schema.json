@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/node_capability_profile.schema.json",
+  "title": "VESPER NodeCapabilityProfile",
+  "description": "IC-004. Hardware agnosticism is asserted in three documents and implemented by none unless this exists. Two axes are deliberately SEPARATE: trust_zone (may this node be relied on?) and availability_class (how reliably is it awake?). Conflating them is why the iPhone was previously excluded from continuity altogether -- it is trustworthy but not continuously available, which are different problems with different answers. Authority: SR-015, SR-019, SR-050, SR-057, SR-058, SR-060, DR-008, DR-024; REM-011, REM-014.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["node_id", "schema_version", "cpu_cores", "ram_gb", "accelerator", "memory_architecture", "sustained_tokens_per_sec", "trust_zone", "availability_class", "roles"],
+  "properties": {
+    "node_id": { "type": "string" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "cpu_cores": { "type": "integer", "minimum": 1 },
+    "ram_gb": { "type": "number", "minimum": 0 },
+    "accelerator": { "type": "string", "enum": ["metal", "cuda", "rocm", "vulkan", "npu", "none"] },
+    "accelerator_memory_gb": { "type": ["number", "null"] },
+    "memory_architecture": { "type": "string", "enum": ["unified", "discrete"], "description": "SR-057 binds to this, not to a product name (INV-HW-1)." },
+    "sustained_tokens_per_sec": {
+      "type": "object",
+      "description": "MEASURED at enrollment, per model class -- never declared (INV-HW-2). A node with no measured value is never routed to; CI-034 rejects any code path that sets this from configuration.",
+      "additionalProperties": { "type": "number" }
+    },
+    "measured_at": { "type": "string", "format": "date-time" },
+    "thermal_class": { "type": "string", "enum": ["passive", "active", "sustained", "unknown"] },
+    "power_source": { "type": "string", "enum": ["mains", "battery", "mixed"] },
+    "storage_gb": { "type": "number" },
+    "network_class": { "type": "string", "enum": ["wired", "wifi", "cellular", "intermittent"] },
+    "os_family": { "type": "string" },
+    "security_baseline": {
+      "type": "string",
+      "enum": ["meets", "partial", "fails"],
+      "description": "Determines trust_zone at admission. 'Visibility on a LAN does not imply trust'; this is what does."
+    },
+    "trust_zone": {
+      "type": "string",
+      "enum": ["Z0", "Z1", "Z2", "Z3"],
+      "description": "Z0 core trusted (may hold state, issue commands, receive secrets) | Z1 controlled worker | Z2 limited trust (may render and observe ONLY -- INV-TRUST-1) | Z3 external."
+    },
+    "availability_class": {
+      "type": "string",
+      "enum": ["always_on", "usually_on", "intermittent", "foreground_only", "on_demand"],
+      "description": "SR-058. Orthogonal to trust_zone. A foreground_only node may be fully trusted (Z0) and still unsuitable as the SOLE holder of a continuity-critical capability (INV-TRUST-2) -- but it is a valid LAST-RESORT survival host (SR-060, INV-PLACE-3)."
+    },
+    "expected_availability": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+    "survival_capable": {
+      "type": "boolean",
+      "description": "SR-060: may this node host the survival profile when it is the only node reachable? Requires Z0 or Z1 trust and durable local storage. A node with survival_capable=false cannot keep VESPER alive alone."
+    },
+    "roles": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "enum": ["presence_endpoint", "compute_node", "sensor_node", "control_candidate"] },
+      "description": "control_candidate requires trust_zone Z0 AND availability_class in {always_on, usually_on}."
+    }
+  },
+  "allOf": [
+    { "$comment": "INV-TRUST-1 -- Z2 may render and observe only.",
+      "if": { "properties": { "trust_zone": { "const": "Z2" } }, "required": ["trust_zone"] },
+      "then": { "properties": { "survival_capable": { "const": false },
+                                "roles": { "items": { "enum": ["presence_endpoint", "sensor_node"] } } } } },
+    { "$comment": "A control plane cannot live on a node that is not reliably awake.",
+      "if": { "properties": { "roles": { "contains": { "const": "control_candidate" } } } },
+      "then": { "properties": { "trust_zone": { "const": "Z0" },
+                                "availability_class": { "enum": ["always_on", "usually_on"] } } } },
+    { "$comment": "INV-HW-2 -- a measured profile carries its measurement time.",
+      "if": { "required": ["sustained_tokens_per_sec"] }, "then": { "required": ["measured_at"] } }
+  ]
+}

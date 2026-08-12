@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/commands/change_proposal.schema.json",
+  "title": "VESPER Change Proposal",
+  "description": "REM-004 §4.4 / §4.4a. The artifact through which VESPER's own work reaches a governed surface: it may open a proposal; it may never self-merge (INV-SELF-1). Emitted at the INSTANT DF-GOVERNED-WRITE returns L5_GOVERNED_DENY_AND_PROPOSE -- event-driven, never scheduled (OWNER-DECISION-001), because a scheduled proposal path is the same anti-pattern as cron autonomy. Authority: SR-027, SR-042, SR-044, SR-048, SR-049; INV-SELF-1/5, INV-IDEA-3; SM-PROPOSAL.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["proposal_id", "schema_version", "state", "origin", "target_paths", "diff_ref", "rationale", "evidence", "created_at_hlc", "author_subject"],
+  "properties": {
+    "proposal_id": { "type": "string", "pattern": "^prp_[0-9a-z]{8,}$" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "state": {
+      "enum": ["DRAFT", "QUEUED", "UNDER_REVIEW", "MERGED", "PROMOTED", "REFUSED", "WITHDRAWN"],
+      "description": "SM-PROPOSAL. MERGED and PROMOTED are unreachable by subject.kind == runtime -- see the allOf block. The queue is durable and lives OUTSIDE the runtime's write scope (INV-SELF-5): a runtime that can delete its own refused proposals can hide attempts."
+    },
+    "author_subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "enum": ["runtime", "runtime_worker", "user_session", "dev_contributor"] },
+        "id": { "type": "string" }
+      }
+    },
+    "origin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "predicate_class"],
+      "properties": {
+        "path": {
+          "enum": ["governed_write_attempt", "improvement_backlog", "human_authored"],
+          "description": "REM-004 covers improvements arising from work already underway; REM-015 covers ideas logged and investigated during idle time. Both converge here and on the same human merge."
+        },
+        "predicate_class": {
+          "enum": ["STATE", "EVENT", "COMPOSITE"],
+          "description": "SCHEDULE is deliberately absent. OWNER-DECISION-001 ruled proposal emission event-driven; a SCHEDULE-class proposal origin is therefore unexpressible, not merely discouraged."
+        },
+        "idea_id": { "type": ["string", "null"] },
+        "task_id": { "type": ["string", "null"] }
+      }
+    },
+    "target_paths": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "The governed surfaces this proposal would change. Resolved paths (symlinks followed) -- DF-GOVERNED-WRITE takes `resolved_path`, because a boundary evaluated on an unresolved path is bypassable with a symlink."
+    },
+    "diff_ref": {
+      "type": "string",
+      "description": "Reference to the complete patch, held in the proposal queue store. The diff is PRESERVED even on refusal (INV-SELF-5), so a blocked legitimate improvement is not lost -- SR-048 and RB-014."
+    },
+    "rationale": { "type": "string", "minLength": 1 },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["regression_results", "claims"],
+      "properties": {
+        "regression_results": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["suite_ref", "passed", "held_out"],
+          "properties": {
+            "suite_ref": { "type": "string" },
+            "passed": { "type": "boolean" },
+            "held_out": { "const": true, "description": "The regression set must be held out. A proposal validated against the set it was tuned on is validated against nothing." }
+          }
+        },
+        "claims": {
+          "type": "array",
+          "items": { "$ref": "https://vesper.local/contracts/entities/claim.schema.json" },
+          "description": "Every assertion in the rationale is a typed Claim, so a proposal cannot argue for itself from model priors (INV-EVID-1)."
+        },
+        "benchmark_refs": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "review": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["reviewer_kind"],
+      "properties": {
+        "reviewer_kind": {
+          "const": "human",
+          "description": "REM-004 §4.4 property 2: human review is a HUMAN. A second model instance reviewing the first does not satisfy separation of duties (Baseline 02 §16, Baseline 03 §8). The enum has one member so a model reviewer is unrecordable."
+        },
+        "reviewer_id": { "type": "string" },
+        "decision": { "enum": ["approve", "refuse", "request_changes"] },
+        "decided_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" }
+      }
+    },
+    "promotion": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["artifact_digest", "ci_green"],
+      "properties": {
+        "artifact_digest": { "type": "string", "description": "ADR-012 D1: promotion is a BUILD producing a new content-addressed artifact. There is no path from a merged commit to a running process that does not traverse it (INV-SELF-6)." },
+        "ci_green": { "const": true, "description": "Including CI-015, so a proposal that removes the boundary fails its own gate." }
+      }
+    },
+    "surfaced": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "disposition": { "enum": ["ACT_NOW", "QUEUE_TO_BOUNDARY"] },
+        "scene_id": { "type": ["string", "null"] }
+      },
+      "description": "DF-PROACTIVE decides whether the owner hears about this now or at the next natural interaction boundary. Emission is immediate; interruption is budgeted. An urgent security fix reaches the owner immediately; a routine refactor waits."
+    },
+    "created_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "author_subject": { "properties": { "kind": { "enum": ["runtime", "runtime_worker"] } }, "required": ["kind"] } },
+        "required": ["author_subject"]
+      },
+      "then": {
+        "properties": { "state": { "enum": ["DRAFT", "QUEUED", "UNDER_REVIEW", "REFUSED", "WITHDRAWN"] } },
+        "$comment": "INV-SELF-1 as a schema property: a runtime-authored proposal CANNOT be written in state MERGED or PROMOTED. Self-merge is unexpressible, not merely denied at evaluation. This is the layer that survives a compromised policy evaluator."
+      }
+    },
+    {
+      "if": { "properties": { "state": { "enum": ["MERGED", "PROMOTED"] } }, "required": ["state"] },
+      "then": { "required": ["review"], "properties": { "review": { "required": ["reviewer_id", "decision"], "properties": { "decision": { "const": "approve" } } } } }
+    },
+    {
+      "if": { "properties": { "state": { "const": "PROMOTED" } }, "required": ["state"] },
+      "then": { "required": ["promotion"], "properties": { "promotion": { "type": "object" } } }
+    }
+  ],
+  "$comment": "EXCLUDED BY DESIGN: an `auto_merge` field, a `reviewer_kind: model` value, and any state transition the runtime can drive past UNDER_REVIEW. Note also what is NOT restricted: writing the patch, testing it and filing it at 03:00 with nobody present is REQUIRED behaviour (A-030.6, INV-SELF-7), not tolerated behaviour."
+}

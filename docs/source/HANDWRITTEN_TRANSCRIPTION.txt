@@ -1,0 +1,100 @@
+ORIGINAL HANDWRITTEN REQUIREMENTS
+The following is a close transcription of the eight photographed notebook pages, preserved before any engineering expansion. Page numbering follows the handwritten page numbers.
+Handwritten Page 1
+Vesper V0 – COC
+
+- We need an AI assistant, mostly working on weak hardware, so we might need an API switch system.
+- It will be shown on a projector, our glass screen, a 3D hologram, and our future laptop (Macbook Neo).
+
+→ API switch system: a system with multiple working free APIs, switches API when quota or error shows up automatically.
+Workflow: API req. working → quota hit/error → switches key automatically → retry without stopping.
+
+⚠ It must show the error type + time of retry (just like Claude Code CLI).
+
+We will have a backup (offline / no API case).
+→ the best performant local model on our macbook neo.
+⚠ the model must have a special architecture that optimizes computing power + enhances productivity/thinking.
+
+⚠ Alternatively we will have a:
+- Mapping system: instead of tons of tokens/md/txt files/codebase ... we will have a map where the model navigates
+→ reduces computing power / time; enhances productivity/thinking
+- Context management system: a system that optimizes context usage context according to intent, has 2 modes:
+automatic: defined in internal rules/prompt system, analyzes intent on state of chat/project and when the LLM feels like context should be changed
+manual: I can switch it with a command or via interactive interface.
+Handwritten Page 2
+- Model Router: sends easy tasks to smaller models and hard tasks to stronger models.
+- Context Budget manager (already mentioned)
+- Performance monitor: Logs model, context size, response time, tokens, RAM pressure, GPU usage (when available and if used), CPU pressure, quality notes, (Visible to the model, accessible any time, model can take action from it’s data).
+- Fallback policy: if local model fails, retry with better prompt/model or escalate manually.
+- Task planner + verifier: One step plans, another checks output against files/rules. Better “thinking”.
+
+→ Multiple Agents at once (on demand)
+On demand from user or LLM, at any time, can run multiple agents at once (same model or multiple ones, depending on need + hardware availability).
+It can set multiple models, multiple agents, or multiple agents will unified models on some or all, no number limit, the only limit will be hardware availability. The initial model will be deciding depending on need and hardware + time availability.
+
+⚠ we will have multiple hardwares set up for the assistant’s usage, a normal desktop, possibly a weak laptop, a J3 android phone, possibly my iphone, and the main one (“Macbook neo”).
+→ the desktop + J3: full access, like his own on our network, ...
+Handwritten Page 3
+- BAG: instead of RAG (context / internet / patterns / prompt system (when needed) / files and whatever needed to get answers and details), NO GUESSING
+- Prompt Compression / Memory Summaries: summary memory, facts, decisions, rules, and stuff told to remember (auto, right when told), open tasks, next actions, plans...
+- Cache repeated context: he should avoid reprocessing everything everytime.
+→ file hash cache - chunk cache - embedding cache - summary cache - prompt prefix cache (if runtime supports it).
+- Tools, not brute force: search files, search internet (when internet available), calculate, make designs (tables, files, diagrams, photos, logos, web pages, ...), read exact documents, run code, read image, interpret voices, check calendar/tasks, compare project registry, create/update .md files, ...
+- Multi-step Reasoning System:
+1- Classify request, retrieve relevant context, make plan, generate answer, self-check against files, output final result.
+⚠ may be enhanced for better performance.
+- Speculative Decoding: (if available)
+→ small draft model proposes tokens.
+→ Larger model verifies → accepted tokens output faster.
+- Parameters.
+- Macbook specific → Metal acceleration
+→ prefer models that fit comfortably in unified memory
+→ avoid swapping - close heavy apps/processes during inference (must ask)
+→ use smaller models for background tasks, not keeping many models loaded at once.
+Handwritten Page 4
+- A small network hosted on a small portable “modem”, other devices will be accessible but functioning normally for me.
+→ the desktop should be accessible via an interface for me when needed.
+→ the J3 (Samsung) should have it’s own OS/space for the assistant alone, mainly it will be displaying face, functionalities, codes, samples, data, info, images, numbers in 2D/3D hologram (with a glass square on top of the screen so it appears in the air) and it’s backend is for the assistant, all of it.
+
+Environments:
+→ a dedicated network for me and Vesper.
+→ components: small portable “modem”, my iphone (either script or web app), a Samsung galaxy J3 6 for help on small tasks + Visual hologram output, Macbook Neo (the main one), HP normal desktop (could work as a server/backend when I’m outside, or my assistant’s additional space (when Macbook and desktop both online), or main assistant’s space if Macbook not available).
+- J3: always at home (may be offline - just from time to time), always connected.
+- Desktop: always connected (either main or additive space) → may be disconnected (from time to time, not always).
+- Macbook: main space.
+- Iphone: additive, from web app or script (when no other hardware is available).
+Handwritten Page 5
+Features:
+- Ability to speak - listen - see space (via cameras) - see screen (screenshot or better method) - self interact everywhere in all available hardwares - run & execute code/scripts/commands - Extract / Read from all files - Generate images (local or via API) - read videos (from extracting frames (mainly comparison between frames (movement) or length of video, and extracting audio + captions + metadata/title/description) - Search the web - Search files / inside files / patterns - Ability to monitor hardware and interact to not choke it - Ability to read Kernel - Ability to learn (Agentic + LLM) - Ability to change display (visual interaction) on all displays it has (separately if screens are attached) (unified or separate if screens not attached) → should define their place from network and cameras, Ability to define me / my physiology / my mentality / my mood / my model / my vibe and take action whenever necessary → by words / funny commenting / ambience changing (lights, visual interactions, hologram, music / sounds) / by researching & taking action on computer..., Ability to call / facetime on my behalf (he should show up on my behalf) in macbook, ability to send messages, take notes in note app, set up calendar in calendar app, set up plans designed in html, ability to self act when he feels it’s right → prepare plans and showcase them on web via html or any easy way.
+Handwritten Page 6
+Generate funny, useful photos, run web search and output results in html output or any easier stack, prepare md/txt/pdf reports (clean hierarchy, format, design, vocabulary), explain stuff, play music, show weather, news, make funny jokes, talk dirty (for fun), make impressions, take actions when elected → identify → talk or take action.
+
+→ Ability to see through walls using wifi (might get same hardware and a raspberry pi to build the tool for him - not sure), Ability to identify breaches/vulnerabilities/intruders in the network/connected hardware, Ability to bypass/whatever workarounds to reach goals in all hardwares (should always explain and ask first), Ability to read physical notes/stickers/numbers/books/images shown on camera/handwriting...
+
+- have strong sense of humour, have strong sarcasm, Absolute honesty / no lies, No Guessing, Must be paranoid/skeptic enough to always be efficient and not guess,
+- Ability to work at night all by it’s own when it’s connected and I’m sleeping, whatever he wants, even make stuff, read stuff, code stuff, generate images for fun, but should not wake me up, Ability to wake me up on time (works as an alarm) (takes action either from his plans/schedule that he has / or if I asked him), I’m a sleeper so he must not stop, even if he should play loud noises and music and speak at the same time from all ...
+Handwritten Page 7
+devices, Ability to conduct real “professor/scientific” research on subjects or questions he has (either on free time or when I ask), and do anything possible (search internet, visual experiment, imagination, run experiments, build projects, take action...) WHATEVER.
+
+Important Notes on these abilities:
+→ All free-time (when I’m sleeping, when I’m not home, when he’s on a break, when we’re not working on something) activities should be run on free models only, no API-calls.
+→ All interactions of the above mainly use: hearing, talking, & showing text at the bottom, acting, interacting visually on or visual outputs, No text only or keyboard only (those are active only when I activate them by request or manually, or as a fallback)
+→ All interactions should be fast, realtime, realistic, fun, impressive.
+→ Main rules for the assistant:
+  → work as the best helpful assistant
+  → Always find workarounds or fixes when hitting walls or problems (by himself do it, when risky explain and ask)
+  → No lies, No guessing
+  → Be active, don’t wait for me, don’t be lazy, always do more than best to help / learn.
+  → the assistant should learn from all interactions/abilities/actions/results (either to improve his actions/thinking/LLMs/models/systems/abilities...).
+Handwritten Page 8
+- His system/rules/code/network/hardware/rules/are sacred to him, so he should always do his best to help/fix/protect/original/secure all of these. Every single moment, he should not break anything. When anything broken there means either him getting hurt, losing an ability, or die!
+
+Hardware:
+J3 - Iphone - Cameras - Phone + holographic output
+with glass cube - Macbook - Desktop - Possibly another laptop - Projector on wall - possibly interactive desk space where I can interact with him on designs/diagrams (architectures/projects/research/study...)
+
+Next:
+→ Complete the COC
++ Set up rules
+
+→ This will be our bible.

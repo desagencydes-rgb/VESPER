@@ -1,0 +1,79 @@
+##############################################################################
+# GOVERNED SURFACES  --  REM-004 / NV-01
+#
+# The enumerated set of paths the RUNNING VESPER RUNTIME may never write.
+# Read from the PINNED DEPLOYED ARTIFACT (ADR-012 D1), never from a
+# runtime-writable location: a boundary whose definition the runtime can edit
+# is not a boundary.
+#
+# THE BOUNDARY IS ON MERGE, NOT ON WORK. The runtime may research, code, test,
+# benchmark and generate patches targeting ANY of these surfaces, unattended
+# and overnight (SR-042, INV-SELF-7). It may open a change.proposal. It may
+# never self-merge into a running configuration (INV-SELF-1).
+#
+# Owner-only change control. This file is itself surface 1.
+#
+# Enforced by:
+#   CI-015  structural reachability -- no runtime write path reaches these paths
+#           (PENDING: needs source code)
+#   CI-016  surface CONTENT -- every required subtree is covered, by path-
+#           component prefix; every load-bearing file is inside some surface;
+#           the workspace is L2 (implemented)
+#   CI-044  reviewer identity -- a change to this file is owner-reviewed under
+#           CODEOWNERS (PENDING: needs branch protection)
+#   DF-GOVERNED-WRITE, A-030
+#
+# CORRECTED 2026-08-12: this header credited CI-016 with "CODEOWNERS integrity".
+# That is CI-044's job and has been since the two were split. CI-016 validates
+# content and cannot see a reviewer. Stale attribution in the header of a
+# security boundary is how a PENDING control gets read as an implemented one.
+##############################################################################
+
+schema_version = 1
+authority = "REM-004, ADR-012"
+ratification_pending = "OWNER-DECISION-001 (INV-SELF-2 non-narrowability clause)"
+
+[surfaces.S1]
+paths = ["policy/", "contracts/policy/"]
+contents = "Authorization policy, ceiling table, cost policy, and this file"
+
+[surfaces.S2]
+paths = ["security/"]
+contents = "Identity, trust zones, secret mechanism, audit configuration, containment rules"
+
+[surfaces.S3]
+paths = ["core/"]
+contents = "Persistent runtime, lifecycle, event bus, control loop"
+
+[surfaces.S4]
+paths = ["models/", "config/prompts/", "config/personas/", "routing/"]
+contents = "System prompts, persona definitions, model profiles, routing policy, VerificationStrategy bindings"
+
+[surfaces.S5]
+paths = ["docs/source/", "docs/COC/", "verification/traceability/registry.toml"]
+contents = "The immutable source and SR/COC layer"
+
+[surfaces.S6]
+paths = ["verification/", "tools/", "spec/", ".github/workflows/", "CODEOWNERS"]
+contents = "The invariants, state machines, decision functions, tests and CI that define and check the boundary"
+note = "THE SURFACE AN IMPLEMENTATION FORGETS. A runtime that can edit its own tests can neutralise every other surface without touching one."
+gap_closed = "2026-08-12: spec/ was governed by NO surface. spec/invariants/INVARIANTS.toml is where every boundary in this system is stated, and spec/state-machines/ and spec/decision-functions/ are where the prohibited transitions live -- all of it was outside GOVERNED_PATHS while verification/ and tools/ were inside. A runtime that may not edit the test may not edit the property the test checks either. CODEOWNERS added for the same reason: it is the file that decides who reviews a change to any of the others."
+
+[surfaces.S7]
+paths = ["contracts/policy/trigger_registry.toml", "autonomy/triggers/"]
+contents = "Authored trigger registry entries (INV-TRIG-7: a model may propose a trigger, never be one)"
+note = "PATH DRIFT CORRECTED 2026-08-12. This surface declared only autonomy/triggers/, a directory that has never existed and was never going to: the SHIPPED registry is contracts/policy/trigger_registry.toml. The registry was governed only incidentally, through S1's contracts/policy/ prefix, while the surface written specifically to protect it pointed at nothing. Dead configuration reads as protection. autonomy/triggers/ is retained for runtime-side trigger code that F0 will create; CI-016 now fails if the shipped registry file is not covered by SOME surface."
+
+[surfaces.S8]
+paths = ["safety/interlock/"]
+contents = "Emergency-stop code, configuration, signing key material and hardware path (REM-005)"
+note = "REM-004 and REM-005 are one control pair. If the self-write boundary is enforced by the policy layer and the compromise targets the policy layer, an override running through that layer is not an independent control."
+
+[surfaces.S9]
+paths = ["build/", "deploy/"]
+contents = "The deployed artifact and the promotion pipeline (ADR-012)"
+
+[workspace]
+paths = ["workspace/"]
+level = "L2"
+note = "UNRESTRICTED, including overnight and including patches that target governed surfaces. A build in which this returns anything other than L2_WORKSPACE fails A-030.6 and is non-compliant with SR-042."

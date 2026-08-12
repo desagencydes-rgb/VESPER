@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/knowledge_map.schema.json",
+  "title": "VESPER Knowledge / Project Map",
+  "description": "SR-007: 'a mapping system INSTEAD of dumping huge volumes of tokens/files/code into context'. The map is the navigation structure consulted before retrieval, so that A-006 -- exact source spans from a large project WITHOUT loading the repository -- is achievable rather than aspirational. Authority: SR-007, SR-052, SR-053, SR-054; REM-010 §4.1; INV-EVID-2, INV-EVID-3.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["map_id", "schema_version", "root_ref", "nodes", "built_at_hlc", "freshness"],
+  "properties": {
+    "map_id": { "type": "string" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "root_ref": { "type": "string", "description": "The corpus this map covers: a repository, a document set, a knowledge domain." },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["node_id", "kind", "locator", "summary", "content_hash"],
+        "properties": {
+          "node_id": { "type": "string" },
+          "kind": { "enum": ["directory", "file", "symbol", "section", "entity", "document"] },
+          "locator": {
+            "type": "string",
+            "description": "A resolvable address -- a path, an anchor, a symbol qualified name. This is what makes a map entry ACTIONABLE: retrieval follows the locator to fetch the exact span, so the map itself never has to carry the content."
+          },
+          "summary": {
+            "type": "string",
+            "description": "What this node is FOR, in one line. A summary is navigation metadata; it is never citable evidence. INV-EVID-2: no answer cites a source it did not retrieve, and a summary-of-a-summary is not a retrieved span."
+          },
+          "content_hash": {
+            "type": "string",
+            "description": "SR-054 tier 1 (file hash). Also the staleness detector: a node whose hash no longer matches its locator is STALE and must not be served as current."
+          },
+          "parent_id": { "type": ["string", "null"] },
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["to", "relation"],
+              "properties": {
+                "to": { "type": "string" },
+                "relation": { "enum": ["contains", "imports", "references", "defines", "supersedes", "tests"] }
+              }
+            }
+          },
+          "stale": { "type": "boolean", "default": false }
+        }
+      }
+    },
+    "built_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy", "valid_until"],
+      "properties": {
+        "strategy": {
+          "enum": ["incremental_on_change", "periodic_rebuild", "on_demand"],
+          "description": "`incremental_on_change` is the STATE-class path: the map updates because the corpus changed, which is what makes 'keep the research library indexed' a standing goal rather than a nightly prompt (REM-007 §4.5)."
+        },
+        "valid_until": { "type": "string", "format": "date-time" },
+        "coverage_ratio": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Fraction of the corpus this map actually covers. Null means UNMEASURED, and an unmeasured map is treated as incomplete -- a retrieval that finds nothing in a partial map returns UNKNOWN, never 'no such thing exists'."
+        }
+      }
+    },
+    "retrieval_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["returns_spans", "span_reproducible"],
+      "properties": {
+        "returns_spans": {
+          "const": true,
+          "description": "A-006: retrieval returns SPANS, not summaries-of-summaries. Fixed at true because a map whose retrieval returns prose is a RAG pipeline with a different name -- which is precisely what SR-052 ('BAG instead of RAG ... NO GUESSING') forbids."
+        },
+        "span_reproducible": {
+          "const": true,
+          "description": "INV-EVID-2: every cited span is byte-reproducible from the source. This is what a similarity score cannot supply and is the enforceable content of 'BAG not RAG'."
+        }
+      }
+    }
+  },
+  "$comment": "EXCLUDED BY DESIGN: an embedded content field on a map node. If the map could carry content, the first implementation under memory pressure would populate it, and the map would become the token dump SR-007 exists to replace. The map holds locators and hashes; content is fetched on demand and cited as a span."
+}

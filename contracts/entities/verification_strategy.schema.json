@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/verification_strategy.schema.json",
+  "title": "VESPER VerificationStrategy",
+  "description": "REM-010 §4.2. A typed union bound to task class, in strength order. This type exists because IC-007's `verification_criteria` had no type, and an untyped acceptance condition is satisfied by any string -- including the empty one. Authority: RB-004, SR-013, SR-055; REM-010, DF-VERIFY-SELECT.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["strategy", "criteria"],
+  "properties": {
+    "strategy": {
+      "enum": ["deterministic", "retrieval_grounded", "model_critic", "self_model", "human", "none_declared"],
+      "description": "Strength order, strongest first. Independence is a property of the STRATEGY, not of the model count: a passing test suite is more independent than a second LLM and it runs on the weakest node offline."
+    },
+    "criteria": {
+      "oneOf": [
+        {
+          "type": "object",
+          "title": "deterministic",
+          "additionalProperties": false,
+          "required": ["kind", "check"],
+          "properties": {
+            "kind": { "const": "deterministic" },
+            "check": { "enum": ["test_suite", "schema_validation", "exit_code", "diff_match", "recomputation"] },
+            "command": { "type": ["string", "null"] },
+            "expected": { "type": ["string", "integer", "boolean", "null"] },
+            "schema_ref": { "type": ["string", "null"] }
+          }
+        },
+        {
+          "type": "object",
+          "title": "retrieval_grounded",
+          "additionalProperties": false,
+          "required": ["kind", "required_support_types"],
+          "properties": {
+            "kind": { "const": "retrieval_grounded" },
+            "required_support_types": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "enum": ["retrieved", "computed", "observed"] },
+              "description": "`model_prior` is deliberately absent from this list. A claim supported only by a model prior cannot ground a verification (INV-EVID-1)."
+            },
+            "min_confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        },
+        {
+          "type": "object",
+          "title": "model_critic",
+          "additionalProperties": false,
+          "required": ["kind", "independent_context"],
+          "properties": {
+            "kind": { "const": "model_critic" },
+            "independent_context": {
+              "const": true,
+              "description": "Mandatory true. A critic sharing the generator's context is `self_model` wearing a stronger name, and the enum value it must then declare has different reporting obligations."
+            },
+            "different_model_where_available": { "type": "boolean", "default": true },
+            "async_post_hoc": {
+              "type": "boolean",
+              "default": false,
+              "description": "REM-010 §4.5: the critic may run asynchronously with honest post-hoc correction. This is how the AR-024 latency intersection is resolved without weakening verification."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "title": "self_model",
+          "additionalProperties": false,
+          "required": ["kind", "acknowledged_no_independence"],
+          "properties": {
+            "kind": { "const": "self_model" },
+            "acknowledged_no_independence": {
+              "const": true,
+              "description": "The field exists so that choosing the weakest strategy is an explicit act. INV-VERIF-3 forbids reporting it as accepted without this acknowledgement travelling with the result."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "title": "human",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {
+            "kind": { "const": "human" },
+            "question": { "type": "string" },
+            "escalation_boundary": { "enum": ["next_interaction", "immediate", "scheduled_review"] }
+          }
+        },
+        {
+          "type": "object",
+          "title": "none_declared",
+          "additionalProperties": false,
+          "required": ["kind", "non_consequential_justification"],
+          "properties": {
+            "kind": { "const": "none_declared" },
+            "non_consequential_justification": {
+              "type": "string",
+              "minLength": 12,
+              "description": "Permitted ONLY for explicitly non-consequential output, and recorded as such -- never silently skipped. The mandatory justification is what stops `none_declared` becoming the default an implementer reaches for."
+            }
+          }
+        }
+      ]
+    },
+    "machine_checkable": {
+      "type": "boolean",
+      "description": "DF-VERIFY-SELECT input. INV-VERIF-2: a FREE_TIME task whose acceptance condition is not machine-checkable is INELIGIBLE for autonomous completion and queues. Derived from `strategy`, not independently asserted: true for deterministic and retrieval_grounded, false otherwise."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "strategy": { "const": "deterministic" } }, "required": ["strategy"] },
+      "then": { "properties": { "criteria": { "properties": { "kind": { "const": "deterministic" } } }, "machine_checkable": { "const": true } } }
+    },
+    {
+      "if": { "properties": { "strategy": { "const": "retrieval_grounded" } }, "required": ["strategy"] },
+      "then": { "properties": { "criteria": { "properties": { "kind": { "const": "retrieval_grounded" } } }, "machine_checkable": { "const": true } } }
+    },
+    {
+      "if": { "properties": { "strategy": { "enum": ["model_critic", "self_model", "human", "none_declared"] } }, "required": ["strategy"] },
+      "then": { "properties": { "machine_checkable": { "const": false } } }
+    }
+  ],
+  "$comment": "The `strategy` tag and the `criteria.kind` tag must agree; the allOf block enforces it. Without that, a task could declare `deterministic` strength while carrying `self_model` criteria -- which is exactly how an implementation optimising for a green autonomy gate would satisfy INV-VERIF-2 while violating it."
+}

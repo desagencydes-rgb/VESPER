@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/trigger.schema.json",
+  "title": "VESPER Trigger",
+  "description": "IC-008. The data structure that makes autonomy an engineered control system rather than a prompt. COC ARCH-28 forbids cron; ARCH-04 forbids asking an LLM to invent tasks. A Trigger is the third option: a DETERMINISTIC predicate over world-model state decides WHETHER a goal exists; a model decides only HOW to satisfy one already justified. Authority: DR-005, RB-005, RB-006, RB-018, RB-019, ARCH-04, ARCH-12, ARCH-28; REM-007, REM-008.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "trigger_id", "schema_version", "name", "owner", "enabled",
+    "predicate", "predicate_class", "required_authority", "actuation_scope",
+    "resource_budget", "stop_conditions", "provenance", "status"
+  ],
+  "properties": {
+    "trigger_id": { "type": "string", "pattern": "^trg_[0-9a-z]{8,}$" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "name": { "type": "string" },
+    "owner": { "type": "string", "description": "Accountable role or human principal." },
+    "enabled": { "type": "boolean" },
+
+    "predicate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["expression", "referenced_subjects"],
+      "description": "A total, side-effect-free, provably terminating expression over four typed domains: world facts, task graph, schedule, event patterns. Evaluated by DF-TRIGGER-EVAL inside a sandbox holding NO model capability (INV-TRIG-2). UNKNOWN and CONFLICTED are NOT falsy: a predicate evaluating to either does NOT fire (INV-TRIG-4) -- a trigger can never fire on a fact the system does not have.",
+      "properties": {
+        "expression": { "type": "string" },
+        "referenced_subjects": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" },
+          "description": "Drives change-based re-evaluation. The evaluator re-runs this predicate when any referenced subject changes, which is what makes STATE triggers responsive rather than polled."
+        },
+        "termination_proof": {
+          "type": ["string", "null"],
+          "description": "Output of the static termination checker. INV-TRIG-5: a predicate that cannot be proven terminating is rejected at registration (CI-024)."
+        }
+      }
+    },
+
+    "predicate_class": {
+      "type": "string",
+      "enum": ["SCHEDULE", "STATE", "EVENT", "COMPOSITE"],
+      "description": "THE ANTI-CRON DISCRIMINATOR. A-029 part 3 requires at least one action in the endurance window to fire from a non-SCHEDULE class, and CI-026 rejects a registry containing only SCHEDULE triggers (INV-AUTO-5). A build whose entire trigger set is SCHEDULE-class is cron wearing autonomy's vocabulary."
+    },
+
+    "debounce_ms": { "type": "integer", "minimum": 0, "default": 0 },
+    "cooldown_ms": { "type": "integer", "minimum": 0, "default": 0 },
+    "priority": {
+      "type": "string",
+      "enum": ["alarm_safety", "active_user_task", "ambience", "proactive"],
+      "description": "The priority lattice, stated as a rule rather than left to implementers: alarm_safety > active_user_task > ambience > proactive (REM-012 s3). alarm_safety is exempt from the interruption budget, ambience policy, resource yielding and quiet hours (INV-ALARM-3)."
+    },
+
+    "required_authority": {
+      "type": "string",
+      "enum": ["L0", "L1", "L2", "L3", "L4"],
+      "description": "Ceiling on the effective level actions under this trigger may reach. L5 is absent by construction: L5 is the level at which the subject must be a human (INV-SELF-3), so no trigger may reach it."
+    },
+    "actuation_scope": {
+      "type": "string",
+      "enum": ["AUTONOMOUS_ACTUATION", "ALARM_ACTUATION"],
+      "description": "REM-005. The two scopes are independently revocable by the safety interlock, so STOP_AUTONOMY preserves alarms (SR-043) while halting everything else."
+    },
+
+    "resource_budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_runtime_ms", "max_concurrent_workers"],
+      "properties": {
+        "max_runtime_ms": { "type": "integer", "minimum": 1 },
+        "max_concurrent_workers": { "type": "integer", "minimum": 1 },
+        "max_tool_calls": { "type": ["integer", "null"] },
+        "max_storage_bytes": { "type": ["integer", "null"] }
+      }
+    },
+    "cost_policy_ref": {
+      "type": ["string", "null"],
+      "description": "Resolved against contracts/policy/cost_policy.toml. Null means the default: free class only (INV-COST-6)."
+    },
+    "stop_conditions": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "description": "RB-035 requires every autonomous unit of work to have one. An empty list is malformed."
+    },
+    "reporting_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "report_noop": { "type": "boolean", "default": true, "description": "INV-TRIG-6: silence is a decision with provenance." },
+        "surface_on": { "type": "string", "enum": ["never", "next_boundary", "immediate"], "default": "next_boundary" }
+      }
+    },
+
+    "proactive_economics": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["expected_value", "decays", "interruption_cost", "reversibility"],
+      "description": "Inputs to DF-PROACTIVE. 'decays' is load-bearing: information still useful in two hours does not justify interrupting now. High-value non-decaying items are QUEUED, never dropped.",
+      "properties": {
+        "expected_value": { "type": "number" },
+        "decays": { "type": "boolean" },
+        "interruption_cost": { "type": "number" },
+        "reversibility": { "type": "string", "enum": ["reversible", "compensable", "irreversible"] }
+      }
+    },
+
+    "provenance": {
+      "type": "string",
+      "enum": ["authored", "promoted_from_proposal"],
+      "description": "INV-TRIG-7: a model may PROPOSE a trigger; it may not BE one. 'promoted_from_proposal' requires the REM-012 promotion gate AND a human merge, because autonomy/triggers/ is GOVERNED_PATHS surface 7 (REM-004)."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["PROPOSED", "REVIEWED", "ACTIVE", "COOLDOWN", "DISABLED", "RETIRED"],
+      "description": "SM-TRIGGER. PROPOSED -> ACTIVE is a prohibited transition."
+    }
+  },
+  "allOf": [
+    {
+      "$comment": "INV-ALARM-3 -- only alarm-scoped triggers may carry alarm_safety priority.",
+      "if": { "properties": { "priority": { "const": "alarm_safety" } }, "required": ["priority"] },
+      "then": { "properties": { "actuation_scope": { "const": "ALARM_ACTUATION" } } }
+    },
+    {
+      "$comment": "DF-PROACTIVE requires economics for proactive contact.",
+      "if": { "properties": { "priority": { "const": "proactive" } }, "required": ["priority"] },
+      "then": { "required": ["proactive_economics"] }
+    },
+    {
+      "$comment": "A SCHEDULE-class predicate must still declare referenced subjects; a pure clock read is expressed through the schedule domain, not by omitting the field.",
+      "if": { "properties": { "predicate_class": { "const": "STATE" } }, "required": ["predicate_class"] },
+      "then": { "properties": { "predicate": { "properties": { "referenced_subjects": { "minItems": 1 } } } } }
+    }
+  ]
+}

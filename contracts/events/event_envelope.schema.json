@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/events/event_envelope.schema.json",
+  "title": "VESPER Event Envelope",
+  "description": "IC-001. An Event is an immutable statement that something HAPPENED. Events are never commands and never results. Authority: COC IC-001, ARCH-04, ARCH-25; REM-001; ADR-001.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id", "schema_version", "type", "source", "subject",
+    "observed_at_hlc", "observed_at_wall", "sensitivity", "trust_class", "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "description": "Globally unique. The default idempotency key for consumers (INV-COORD-5).",
+      "pattern": "^ev_[0-9a-z]{16,}$"
+    },
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "INV-SCHEMA-1: readers accept N and N-1; writers emit N. Never reused for different semantics."
+    },
+    "type": {
+      "type": "string",
+      "description": "Dotted typed event name, e.g. world.fact_updated, autonomy.trigger_fired, safety.stop_engaged.",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "component"],
+      "description": "Who observed or produced this. node_id is the cryptographic node identity from ADR-007, not a self-asserted name.",
+      "properties": {
+        "node_id": { "type": "string" },
+        "component": { "type": "string" },
+        "subject_kind": {
+          "type": "string",
+          "enum": ["human", "runtime", "runtime_worker", "node", "external_observer"],
+          "description": "REM-004: the runtime is a first-class subject and is distinguishable from a human in every audit record."
+        }
+      }
+    },
+    "subject": {
+      "type": "string",
+      "description": "The entity this event is about. Ordering is total per (source, subject) and is NOT guaranteed across subjects (REM-001 s4.3)."
+    },
+    "observed_at_hlc": { "$ref": "#/$defs/hlc" },
+    "observed_at_wall": {
+      "type": "string",
+      "format": "date-time",
+      "description": "DISPLAY AND POLICY WINDOWS ONLY. INV-COORD-4 forbids its use in ordering or supersession. CI-005 enforces this statically."
+    },
+    "correlation_id": {
+      "type": ["string", "null"],
+      "description": "Links observation -> decision -> action -> verification. Survives purge (INV-OBS-2)."
+    },
+    "caused_by": {
+      "type": ["string", "null"],
+      "description": "Explicit causal reference to another event_id. The ONLY sanctioned way to express cross-subject happens-before, since cross-subject ordering is not guaranteed."
+    },
+    "trigger_id": {
+      "type": ["string", "null"],
+      "description": "Mandatory on every autonomous action event and every recorded no-op (INV-TRIG-1, INV-TRIG-6)."
+    },
+    "sensitivity": {
+      "type": "string",
+      "enum": ["public", "internal", "personal", "sensitive", "secret"],
+      "description": "Enforced by the telemetry writer at write time, never by caller discipline (INV-OBS-1). 'secret' payloads are never persisted.",
+      "default": "internal"
+    },
+    "trust_class": {
+      "type": "string",
+      "enum": ["system", "owner", "verified_local", "retrieved_local", "retrieved_external", "model_generated"],
+      "description": "Taint. Propagates through summarisation, embedding and cache reuse (INV-AUTH-3). Absent or unrecognised is treated as retrieved_external."
+    },
+    "confidence": {
+      "type": ["number", "null"],
+      "minimum": 0, "maximum": 1,
+      "description": "Required on observations and inferences (DR-011)."
+    },
+    "provenance": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Evidence references. A perception event with no provenance is malformed (ARCH-07)."
+    },
+    "payload_ref": {
+      "type": ["string", "null"],
+      "description": "Reference to a payload held in the separately-retained store. Content/reference separation is what lets purge remove data while the event skeleton and correlation chain survive (INV-PRIV-5, INV-SCHEMA-2)."
+    },
+    "payload": {
+      "type": "object",
+      "description": "Typed per event type. MUST be empty when sensitivity is 'sensitive' or 'secret' -- use payload_ref instead."
+    }
+  },
+  "$defs": {
+    "hlc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["physical_ms", "logical", "node_id"],
+      "description": "Hybrid logical clock. Ordering is lexicographic on (physical_ms, logical, node_id); node_id is the tie-breaker so the order is TOTAL, not partial. This is the ONLY ordering input (INV-COORD-4).",
+      "properties": {
+        "physical_ms": { "type": "integer", "minimum": 0 },
+        "logical": { "type": "integer", "minimum": 0 },
+        "node_id": { "type": "string" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "$comment": "Sensitive payloads must not be inline. Enforced structurally rather than by convention.",
+      "if": { "properties": { "sensitivity": { "enum": ["sensitive", "secret"] } }, "required": ["sensitivity"] },
+      "then": { "properties": { "payload": { "maxProperties": 0 } }, "required": ["payload_ref"] }
+    }
+  ]
+}

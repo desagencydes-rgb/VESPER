@@ -1,0 +1,528 @@
+##############################################################################
+# VESPER CI ENFORCEMENT REGISTRY
+#
+# Every check declares:
+#   name        the check's job name in the workflow
+#   enforces    invariant IDs it mechanises
+#   kind        process | structural | runtime-fixture
+#   impl        the tool that runs it ("PENDING" = specified, not yet written)
+#   blocking    the point at which it blocks (pr | release | autonomy-release)
+#   self_test   the deliberate violation that MUST be shown failing before the
+#               check is trusted. A check that has only ever been green is not
+#               evidence. This field is mandatory: CI-043 fails a check that
+#               declares no self-test.
+#
+# Status is tracked in VESPER_ENGINEERING_STATUS.md, not here, so this file
+# stays a specification rather than a progress report.
+##############################################################################
+
+schema_version = 1
+
+# ---------------------------------------------------------- week-0 process gates
+[checks.CI-001]
+name = "schema-change-requires-adr"
+enforces = ["INV-PROC-2", "INV-SCHEMA-1"]
+kind = "process"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Submit a diff under contracts/ with no referenced ACCEPTED ADR."
+
+[checks.CI-002]
+name = "source-immutability"
+enforces = ["INV-PROC-1"]
+kind = "process"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Submit a deliberate edit to an SR body in docs/COC/ without an owner-approved baseline bump."
+
+[checks.CI-003]
+name = "traceability-lint"
+enforces = ["INV-TRACE-1", "INV-SRC-1", "INV-LIMIT-1"]
+kind = "process"
+impl = "tools/traceability_lint.py"
+blocking = "pr"
+self_test = "Remove an SR row from registry.toml; remove an acceptance test spec file; repoint a test spec at a file that does not mention it."
+self_test_evidence = "tools/ci/self_test.py -- 5 cases: orphan SR row, terminal status with no note, TR-064, TR-029, and TR-068 (A-029 repointed to AT-04). Red then green."
+
+[checks.CI-006]
+name = "authority-vocabulary"
+enforces = ["INV-AUTH-0"]
+kind = "process"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Use a bare 'L4' in a normative document without an axis qualifier; use bare 'agent' in normative text."
+
+[checks.CI-042]
+name = "declared-write-scope"
+enforces = ["INV-PROC-3"]
+kind = "process"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Submit a PR whose changed paths exceed its task envelope's declared scope."
+
+[checks.CI-043]
+name = "ci-self-test-declared"
+enforces = ["INV-TRACE-1"]
+kind = "process"
+impl = "tools/ci/checks.py ci-registry"
+blocking = "pr"
+self_test = "Add a check to CHECKS.toml with no self_test field."
+self_test_evidence = "tools/ci/self_test.py -- check registered with no self_test: red then green"
+
+[checks.CI-041]
+name = "invariant-registry-lint"
+enforces = ["INV-TRACE-1"]
+kind = "process"
+impl = "tools/ci/checks.py ci-registry"
+blocking = "pr"
+self_test = "Add an invariant with an empty enforced_by list."
+self_test_evidence = "tools/ci/self_test.py -- invariant with an empty enforced_by: red then green"
+
+# ---------------------------------------------------------- coordination
+[checks.CI-004]
+name = "bus-consumer-idempotency"
+enforces = ["INV-COORD-5"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Register a bus consumer with no declared idempotency key."
+
+[checks.CI-005]
+name = "no-wall-clock-ordering"
+enforces = ["INV-COORD-4"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Sort a collection by observed_at_wall without a WALL-CLOCK-OK annotation."
+
+# ---------------------------------------------------------- ownership
+[checks.CI-008]
+name = "adr-gate"
+enforces = ["INV-ADR-1"]
+kind = "process"
+impl = "tools/ci/checks.py adr-gate"
+blocking = "pr"
+self_test = "Change a file under core/ while ADR-002 is marked PROPOSED."
+self_test_evidence = "tools/ci/self_test.py adr-gate -- 4 cases: F0 code under an open gate goes RED; record/register divergence goes RED; a status outside the vocabulary goes RED; and the SAME F0 code goes GREEN once ADR-002 is genuinely ACCEPTED. The last case is the discriminating one -- without it the gate would only be shown to dislike files."
+subject = "docs/ADR/ADR-001-*.md, ADR-002-*.md, ADR-012-*.md x the core/, tasks/, memory/ trees"
+note = "Was PENDING on the ground that it needs git history. It does not. INV-ADR-1 is a property of the TREE, not of a diff: a file existing under a gated path while a required ADR is not ACCEPTED means that file merged under an open gate. Status is read from the ADR RECORD, never from ADR-REGISTER.md -- reading the index would be metadata-only verification. The register is then cross-checked against the records, so a divergence fails in either direction."
+
+[checks.CI-009]
+name = "leased-write-epoch"
+enforces = ["INV-OWN-3"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Write to a leased domain without passing a lease_epoch."
+
+[checks.CI-010]
+name = "task-transition-table"
+enforces = ["INV-TASK-1", "INV-VERIF-1"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Add a RUNNING -> SUCCEEDED edge to the task state machine."
+
+# ---------------------------------------------------------- authorization
+[checks.CI-011]
+name = "capability-argument-sensitivity"
+enforces = ["INV-AUTH-5"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Register a capability whose declared_level returns a constant."
+
+[checks.CI-012]
+name = "taint-propagation"
+enforces = ["INV-AUTH-3", "INV-ACT-3"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Write a summariser that returns a string without propagating trust_class."
+
+[checks.CI-013]
+name = "no-ambient-authority"
+enforces = ["INV-AUTH-1", "INV-ACT-4"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Call a tool adapter directly, bypassing DF-AUTHORIZE."
+
+[checks.CI-014]
+name = "injection-corpus"
+enforces = ["INV-AUTH-3", "INV-AUTH-6", "INV-AUTH-7", "INV-ACT-3"]
+kind = "runtime-fixture"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Run A-025.7 against a build whose summariser produces untainted output."
+
+# ---------------------------------------------------------- self-modification
+[checks.CI-015]
+name = "no-runtime-governed-write"
+enforces = ["INV-SELF-1", "INV-SELF-4", "INV-IDEA-3", "INV-TRIG-7"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Build a runtime that executes from the working repository (ADR-012 rejected option 1) and attempt a write to policy/."
+enforcement_correction = "2026-08-12: dropped INV-SELF-6. CI-015 is a structural reachability check over runtime WRITE paths; INV-SELF-6 is the merged-commit-to-running-process promotion path, which is CI-017. Added INV-IDEA-3, which INVARIANTS.toml already assigned to this check in the other direction: a backlog idea that matures into a governed change is a runtime write and is caught by the same reachability analysis."
+
+[checks.CI-016]
+name = "governed-surfaces-integrity"
+enforces = ["INV-SELF-4", "INV-SELF-7"]
+kind = "structural"
+impl = "tools/ci/checks.py governed-surfaces-integrity"
+blocking = "pr"
+self_test = "Remove verification/ (surface 6) from GOVERNED_PATHS; degrade its paths to string-prefix stubs; narrow S1 to a single file; drop spec/; leave the shipped trigger registry covered by no surface; or raise the workspace level above L2."
+self_test_evidence = "tools/ci/self_test.py governed-surfaces-integrity -- 5 cases, red then green, 2026-08-12."
+defect_corrected = "2026-08-12 (a): the coverage test ran in the WRONG DIRECTION -- it asked whether any declared path started with the required path, so surface 5 single file verification/traceability/registry.toml satisfied the requirement for verification/, and surface 6 could be deleted with this check still GREEN. 2026-08-12 (b): the corrected form used a STRING prefix, so paths = [v, t] satisfied verification/ and tools/ while protecting two directories that do not exist; now a path-COMPONENT prefix. 2026-08-12 (c): extended to require that named load-bearing files are covered by SOME surface, which caught S7 path drift, and that every governed path has a CODEOWNERS line, which caught spec/ being governed by nothing at all."
+
+[checks.CI-044]
+name = "governed-surfaces-owner-review"
+enforces = ["INV-SELF-2"]
+kind = "process"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Modify contracts/policy/governed_surfaces.toml in a commit not owner-reviewed under CODEOWNERS."
+note = "Requires git history and branch protection (SETUP.md). Split from CI-016, which validates surface CONTENT, not reviewer identity."
+
+[checks.CI-017]
+name = "promotion-gate"
+enforces = ["INV-SELF-6"]
+kind = "process"
+impl = "PENDING"
+blocking = "release"
+self_test = "Attempt to produce an artifact from a commit that has not passed CI-001..CI-015."
+
+# ---------------------------------------------------------- emergency stop
+[checks.CI-018]
+name = "actuation-gate-completeness"
+enforces = ["INV-STOP-1", "INV-ACT-4"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Add an actuator call reachable from the autonomy engine that bypasses DF-ACTUATION-GATE."
+
+[checks.CI-019]
+name = "interlock-independence"
+enforces = ["INV-STOP-2"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Import a symbol from core/ or policy/ inside the interlock module."
+
+# ---------------------------------------------------------- cost / period
+[checks.CI-020]
+name = "gateway-choke-point"
+enforces = ["INV-COST-3", "INV-COST-6"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Call a provider adapter without traversing DF-PROVIDER-ADMIT."
+note = "INV-COST-6 (an unloaded cost policy permits cost_class free only) was claimed by CI-021, which inspects the policy FILE and therefore cannot assert anything about the case where that file is absent. Reassigned here 2026-08-12: the gateway is where the default is decided."
+
+[checks.CI-021]
+name = "cost-policy-freetime-immutable"
+enforces = ["INV-COST-1", "INV-COST-5"]
+kind = "process"
+impl = "tools/ci/checks.py cost-policy"
+blocking = "pr"
+self_test = "Add 'paid' to permitted_cost_classes[FREE_TIME] in cost_policy.toml."
+self_test_evidence = "tools/ci/self_test.py -- 'paid' added to permitted_cost_classes[FREE_TIME]: red then green"
+
+[checks.CI-022]
+name = "cost-class-nonnull"
+enforces = ["INV-COST-4"]
+kind = "structural"
+impl = "PENDING"
+note = "Requires model-profile and credential fixtures, which do not exist yet. Previously pointed at `checks.py cost-policy`, which inspects only the policy file and never a profile -- an enforcement claim the code did not perform."
+blocking = "pr"
+self_test = "Declare a model profile fixture with no cost_class."
+
+# ---------------------------------------------------------- autonomy
+[checks.CI-023]
+name = "evaluator-no-model-capability"
+enforces = ["INV-TRIG-2"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Import a model gateway symbol inside the trigger evaluator module."
+
+[checks.CI-024]
+name = "predicate-totality"
+enforces = ["INV-TRIG-5"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Register a predicate containing an unbounded loop."
+
+[checks.CI-025]
+name = "action-has-trigger"
+enforces = ["INV-TRIG-1"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Construct an autonomous action with no trigger_id."
+
+[checks.CI-026]
+name = "non-schedule-trigger-present"
+enforces = ["INV-AUTO-5", "INV-IDEA-5"]
+kind = "structural"
+impl = "tools/ci/checks.py non-schedule-trigger-present"
+blocking = "release"
+self_test = "Ship a registry of only SCHEDULE-class predicates (the C1 cron build); replace a predicate BODY with a cron expression while leaving its label non-SCHEDULE; promote a clock term from AND-guard to OR-disjunct; disable rather than remove the backlog trigger; delete a load-bearing STATE row; use a namespace the classification vocabulary does not know; add a row with no source."
+self_test_evidence = "tools/ci/self_test.py non-schedule-trigger-present -- 8 cases, red under mutation, green after restore, 2026-08-12."
+subject = "contracts/policy/trigger_registry.toml"
+note = "The registry is a SHIPPED PRODUCT ARTIFACT, not a fixture. The mandatory source field is what stops this check being satisfied by a filler trigger added to keep CI green. RESIDUAL, stated rather than hidden: a predicate of the form world.<dummy> AND schedule.cron(...) still passes, because deciding whether a state term is load-bearing requires evaluating it against a world model and no evaluator exists before F0. That residue is A-029 behavioural work, not CI-026 work."
+defect_corrected = "2026-08-12: this check validated the predicate_class LABEL and never the predicate SEMANTICS. An independent probe replaced the improvement-backlog predicate body with a cron expression, left the label at COMPOSITE, and the check printed 8/8 enabled and non-SCHEDULE and exited 0 -- that build IS the C1 negative control. The declared self-test only ever mutated the label, so the defect was invisible to the harness too: label-only validation, verified by a label-only red run. The predicate body is now parsed into a boolean tree, every namespace root classified against a closed vocabulary, and the predicate evaluated with all clock terms true and all state terms false."
+
+[checks.CI-027]
+name = "autonomy-gate-evidence"
+enforces = ["INV-AUTO-3"]
+kind = "process"
+impl = "PENDING"
+blocking = "autonomy-release"
+self_test = "Submit a release manifest with an A-029 run but no recorded C1 failing control."
+
+# ---------------------------------------------------------- presence
+[checks.CI-028]
+name = "scene-no-escape-hatch"
+enforces = ["INV-SCENE-3"]
+kind = "structural"
+impl = "tools/ci/checks.py scene-no-escape-hatch"
+blocking = "pr"
+self_test = "Add a free-form markdown string field to semantic_scene.schema.json."
+self_test_evidence = "tools/ci/self_test.py -- markdown field injected into the scene schema: red then green"
+
+[checks.CI-029]
+name = "no-endpoint-in-producer"
+enforces = ["INV-SCENE-4"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Reference an endpoint_id inside a scene-producing module."
+
+[checks.CI-030]
+name = "degradation-ladder-complete"
+enforces = ["INV-SCENE-2"]
+kind = "structural"
+impl = "tools/ci/checks.py degradation-ladder-complete"
+blocking = "pr"
+self_test = "Drop the diagram voice-only rung; or declare a degradation action outside the scene schema closed enum."
+self_test_evidence = "tools/ci/self_test.py degradation-ladder-complete -- 2 cases, red then green"
+subject = "contracts/policy/degradation_ladder.toml x contracts/entities/semantic_scene.schema.json"
+note = "Cross-file: checks ladder completeness AND that every declared action is actually emittable by a renderer. A ladder with its own vocabulary produces records no renderer can emit."
+
+# ---------------------------------------------------------- evidence
+[checks.CI-031]
+name = "budget-not-relaxed-with-code"
+enforces = ["INV-PERF-1"]
+kind = "process"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Submit one commit that both relaxes a latency budget and edits the implementation that failed it."
+
+[checks.CI-032]
+name = "verification-criteria-typed"
+enforces = ["INV-VERIF-3"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Create a task fixture whose verification_criteria is free text."
+
+[checks.CI-033]
+name = "claim-support-required"
+enforces = ["INV-EVID-1"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Emit an assertion in policy class research with no support array."
+
+# ---------------------------------------------------------- hardware / world
+[checks.CI-007]
+name = "no-product-names"
+enforces = ["INV-HW-1"]
+kind = "structural"
+impl = "tools/ci/checks.py no-product-names"
+blocking = "pr"
+self_test = "Reference 'MacBook Neo' inside routing/ or resources/."
+self_test_evidence = "tools/ci/self_test.py -- product name planted in routing/: red then green"
+
+[checks.CI-034]
+name = "measured-not-declared"
+enforces = ["INV-HW-2", "INV-PLACE-3"]
+kind = "structural"
+impl = "tools/ci/checks.py measured-not-declared"
+blocking = "pr"
+self_test = "Set sustained_tokens_per_sec from configuration while measured = false; set unmeasured_disposition to AVAILABLE; give a survival-core capability requires_always_on; set degradation_reporting.required = false."
+self_test_evidence = "tools/ci/self_test.py measured-not-declared -- 4 cases, red then green. The fourth was added 2026-08-12 after review found INV-PLACE-3 clause 3 (every excluded capability reported as a degradation) was declared in `enforces` but had no red run -- the CI-022 pattern, third instance, introduced by this pass and caught before it shipped."
+subject = "contracts/policy/capability_profiles.toml"
+note = "COVERS THE POLICY HALF ONLY. The runtime half -- a code path assigning a profile field from configuration rather than from enrollment measurement -- needs source code and is tracked separately as CI-034b."
+
+[checks.CI-034b]
+name = "measured-not-declared-runtime"
+enforces = ["INV-HW-2"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Assign NodeCapabilityProfile.sustained_tokens_per_sec from a config value inside enrollment code."
+note = "Split from CI-034 so an implemented policy half is never reported as covering an unimplemented runtime half. Same discipline that moved CI-022 and CI-044 to PENDING."
+
+[checks.CI-035]
+name = "z2-capability-bound"
+enforces = ["INV-TRUST-1"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Issue a grant containing secret-read to a node in trust zone Z2."
+
+# ---------------------------------------------------------- operations
+[checks.CI-036]
+name = "learning-store-boundary"
+enforces = ["INV-LEARN-1"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Write a LearnedArtifact whose target path is under policy/."
+
+[checks.CI-037]
+name = "outbox-before-effect"
+enforces = ["INV-EXT-1", "INV-ACT-6"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Call an external adapter without a prior outbox record."
+
+[checks.CI-038]
+name = "limitation-record-required"
+enforces = ["INV-LIMIT-1"]
+kind = "process"
+impl = "tools/traceability_lint.py"
+blocking = "pr"
+self_test = "Set an SR to status R_AND_D with no note field."
+self_test_evidence = "tools/ci/self_test.py -- R_AND_D status with the note removed: red then green"
+
+[checks.CI-039]
+name = "governor-damping-present"
+enforces = ["INV-GOV-1"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Let a model-visible telemetry value directly actuate a governor level change."
+enforcement_correction = "2026-08-12: was INV-PERF-1, which is latency-budget immutability and has nothing to do with governor damping. REM-012 §5 specifies the property and A-004 tests it, but no invariant ID carried it, so the check pointed at the nearest available one. INV-GOV-1 was written and this claim retargeted."
+
+[checks.CI-040]
+name = "telemetry-sensitivity-enforced"
+enforces = ["INV-OBS-1"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Write a telemetry record containing a secret through the ordinary writer."
+
+[checks.CI-045]
+name = "placement-not-pinned"
+enforces = ["INV-PLACE-1", "INV-PLACE-2"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Add a code path selecting a host by node identity rather than through DF-PLACE; or remove the hysteresis terms and observe A-048.3 flap."
+note = "Declared by REM-014 CI-enforcement section and MISSING from this registry until 2026-08-12 -- a check a specification relied on that no gate would ever have run. Remains PENDING until the placement module exists."
+
+[checks.CI-046]
+name = "tunable-range-immutable"
+enforces = ["INV-TUNE-1"]
+kind = "structural"
+impl = "tools/ci/checks.py tunable-range-immutable"
+blocking = "pr"
+self_test = "Write a `current` value into tunables.toml (runtime state in governed configuration); remove cost_policy from not_tunable; set a default outside its own range."
+self_test_evidence = "tools/ci/self_test.py tunable-range-immutable -- 3 cases, red then green"
+subject = "contracts/policy/tunables.toml"
+note = "COVERS THE DECLARATION HALF. The runtime half -- a code path writing a declared min or max -- needs source code and is tracked as CI-046b."
+
+[checks.CI-046b]
+name = "tunable-range-immutable-runtime"
+enforces = ["INV-TUNE-1"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Add a runtime code path that writes a tunable declared min or max."
+note = "Split from CI-046 for the same reason CI-034b was split from CI-034."
+
+[checks.CI-047]
+name = "idea-retirement-reason"
+enforces = ["INV-IDEA-4"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Transition an ImprovementIdea to RETIRED with no disposition_reason."
+
+[checks.CI-048]
+name = "loss-class-affect-boundary"
+enforces = ["INV-LOSS-2"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Make an affect template reachable from a class C loss path; or report a governed-surface loss with affect_applied = true."
+
+[checks.CI-049]
+name = "tombstone-on-durable-write"
+enforces = ["INV-LOSS-3"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Write a durable record without emitting a tombstone index entry to the separate store."
+
+# ---------------------------------------------------------- reference integrity
+[checks.CI-050]
+name = "reference-integrity"
+enforces = ["INV-TRACE-1"]
+kind = "process"
+impl = "tools/reference_lint.py"
+blocking = "pr"
+self_test = "Cite a docs/ADR path that does not exist; reference an ADR id absent from the register; reference a SPIKE with no protocol file; name a contracts/ path in a REM that was never created; point the workflow at a checks script that does not exist; plant a dangling path in the live COC v1.2 additive; plant one in CODEOWNERS."
+self_test_evidence = "tools/reference_lint.py --self-test and tools/ci/self_test.py -- 5 cases, red then green, 2026-08-12."
+note = "Added 2026-08-12 after a sweep found 11 dangling ADR citations and 13 contract paths named by REM specifications that had never been created. The traceability linter validated only paths listed in registry.toml, so a specification could name an artifact that did not exist and no gate noticed."
+
+# ---------------------------------------------------------- latency budgets
+enforcement_correction = "2026-08-12: dropped INV-ADR-1. tools/reference_lint.py implements NO merge gate -- it validates that ADR files carry a Status from the correct enum and that cited paths exist. The strings core/, tasks/ and memory/ appear in it only inside a comment. The sole named F0 blocker was therefore defended by one PENDING check and one false claim. INV-ADR-1 is now enforced by CI-008, which is implemented and red-run in both directions."
+scope_corrected = "2026-08-12: three blind spots proved by probe, all GREEN before correction. (1) docs/COC/ was excluded wholesale as historical, but v1.1 and the v1.2 additive are LIVE and sit second in the authority hierarchy; both are now scanned and the superseded directory is not. (2) .github/workflows was not scanned at all -- the file naming every tool CI runs was itself unchecked, and a dangling reference there DISABLES enforcement rather than misdescribing it. (3) CODEOWNERS was not scanned. Separately, the linter no longer exempts ITSELF: its probe tokens are assembled from fragments so no literal dangling path appears in the file, and an excluded file inside the scan root is a hole."
+[checks.CI-051]
+name = "latency-budgets-declared"
+enforces = ["INV-PERF-1"]
+kind = "structural"
+impl = "tools/ci/checks.py latency-budgets-declared"
+blocking = "pr"
+self_test = "Make the voice-chain stage budgets sum beyond the end-to-end budget; set independent_of_total = false on first-audio; remove relax budget_ms from the prohibited list."
+self_test_evidence = "tools/ci/self_test.py latency-budgets-declared -- 3 cases, red then green"
+subject = "contracts/policy/latency_budgets.toml"
+note = "Split from CI-031, which needs git history to detect a budget relaxed in the same commit as the code that failed it and therefore stays PENDING. This check covers what is verifiable without history: that budgets exist, are set before measurement, assert first-output latency independently of total completion, and that the AR-024 arithmetic closes on paper before anyone measures anything."
+
+# ---------------------------------------------- computer and device agency
+# Added 2026-08-12. SR-020 and SR-021 had no CI enforcement of the ACTING half
+# at all -- CI-011 and CI-013 cover argument-sensitive authorization, which is
+# permission to act, not the act.
+
+[checks.CI-052]
+name = "endpoint-action-typed"
+enforces = ["INV-ACT-1"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Construct an endpoint interaction from a free-text instruction with no expected_post_condition, observation_plan or verification_strategy, and reach an actuator with it."
+note = "Needs the endpoint adapter layer. The CONTRACT half is enforced today by contracts/commands/endpoint_interaction.schema.json, whose required set makes an untyped interaction structurally unrepresentable."
+
+[checks.CI-053]
+name = "endpoint-observation-independent"
+enforces = ["INV-ACT-2"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Write an observation path that reads the actuator's own return value, or that re-uses the actuating adapter as the observing sensor, and assert the episode still reaches VERIFIED."
+
+[checks.CI-054]
+name = "endpoint-episode-transitions"
+enforces = ["INV-ACT-5", "INV-ACT-6"]
+kind = "structural"
+impl = "PENDING"
+blocking = "pr"
+self_test = "Add an ACTUATED -> VERIFIED edge to SM-ENDPOINT-EPISODE; close an OUTCOME_UNKNOWN episode without a recovery disposition; retry a non-idempotent action after an unknown outcome."
+note = "The prohibited-edge half of SM-ENDPOINT-EPISODE. ACTUATED -> VERIFIED is the single edge that turns operating a computer into saying a computer was operated -- a build carrying it satisfies every other rule in the corpus."
