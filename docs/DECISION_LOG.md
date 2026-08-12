@@ -239,7 +239,9 @@ Eight defects found, none of which any gate could see. Recorded here because the
 
 ## Final pre-F0 correction and verification pass — 2026-08-12
 
-The second pass audited the corpus. **This pass audited the verification system**, on the premise that a check is an artifact like any other and can be wrong in the same ways. Nine of the eleven defects below were found by deliberately violating a green check and observing that it stayed green. The recurring class is narrower than the second pass's and worse: **a check that reads a label, a name, or a declaration instead of the property it claims to enforce.** Every correction is accompanied by a permanent red run, so the class cannot silently return.
+The second pass audited the corpus. **This pass audited the verification system**, on the premise that a check is an artifact like any other and can be wrong in the same ways. Eleven defects were found; nine independent probes — each a deliberate violation of a check that was green — account for most of them, and the remainder surfaced from a harness restore failure and from tracing a requirement to its mechanism. The recurring class is narrower than the second pass's and worse: **a check that reads a label, a name, or a declaration instead of the property it claims to enforce.**
+
+The thirteen rows below are the **decisions** taken in response, not a defect list. Seven of the eleven defects are closed by a corrected or newly written check with a **permanent red run**; the other four are closed by a written invariant, a specified requirement, a byte-exact harness and `git init` respectively, and carry no red run of their own. `docs/FINAL_PRE_F0_VERIFICATION_REPORT.md` §15 tabulates which is which.
 
 | # | Decision | Rationale |
 |---|---|---|

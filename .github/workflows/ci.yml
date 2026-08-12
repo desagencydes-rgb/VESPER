@@ -21,9 +21,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # PIN CORRECTED 2026-08-12. This said '3.12'. Every result in
+      # docs/FINAL_PRE_F0_VERIFICATION_REPORT.md was gathered on 3.14, and no
+      # one had ever executed the suite on the interpreter this file selects.
+      # A gate verified on one runtime and pinned to another is the
+      # verified-here-claimed-there defect, in the file that gates the rest.
+      # The tooling needs 3.11+ for tomllib; the pin now names the version the
+      # evidence was actually produced on.
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.14'
 
       # CI-003 / CI-038 — INV-TRACE-1, INV-SRC-1, INV-LIMIT-1.
       # Fails on: an SR with no test, a test with no SR, an unreferenced

@@ -13,7 +13,7 @@ The corpus is **structurally ready** to be built against and is **not cleared to
 
 Three things separate this verdict from the one this repository could have been given a day ago.
 
-1. **The verification system was audited as an artifact, not trusted as a control.** Eleven defects were found. Nine of them were found by violating a check that was green and observing that it stayed green. The recurring class is *a check that reads a label, a name, or a declaration instead of the property it claims to enforce* — including the anti-cron gate, which is the check that holds the anti-chatbot property.
+1. **The verification system was audited as an artifact, not trusted as a control.** Eleven defects were found. Nine independent probes — each a deliberate violation of a check that was green — account for most of them; the remainder surfaced from a harness restore failure and from tracing a requirement to its mechanism. The recurring class is *a check that reads a label, a name, or a declaration instead of the property it claims to enforce* — including the anti-cron gate, which is the check that holds the anti-chatbot property.
 2. **The published coverage figure went down.** The tree previously counted checks that exist. It now counts only invariants named by a check that is implemented, bidirectionally consistent, red-run **and** non-vacuous: **`ENFORCED TODAY: 15/118`**. Each of those four conditions was individually false somewhere in this tree before this pass.
 3. **No requirement was narrowed to make a gate pass.** Where the honest reading was that `SR-020` had no acting mechanism, the mechanism was specified (§8). Where an invariant was missing, it was written rather than substituted (`INV-GOV-1`). Where a decision was owner-reserved, it was left open and recorded as `BLOCKED` (§12).
 
@@ -104,16 +104,20 @@ consistent, red-run, non-vacuous check; vacuous on this tree: CI-007, CI-008
 
 A check that has only ever been green is not evidence. Every implemented check is mutated to its declared violation, run, required to exit 1, restored **byte-exactly**, and required to exit 0.
 
-**`tools/ci/self_test.py` — 47/47.** Composition:
+**`tools/ci/self_test.py` — 47/47.** Composition, counted from the harness output:
 
 | Family | Cases | What is proven |
 |---|---|---|
-| `CI-026` anti-cron | 5 | A cron body labelled `COMPOSITE` **fails**; disabling the state triggers **fails**; a predicate that fires with all world-state terms false **fails** |
-| `CI-016` governed surfaces | 4 | Deleting a required subtree from a surface **fails**; a governed path with no `CODEOWNERS` line **fails**; a string-prefix near-miss does **not** count as coverage |
-| `CI-008` ADR gate (scenario cases) | both directions | A planted file under `core/` **fails** while `ADR-002` is `PROPOSED`; the **same file passes** once `ADR-002` is `ACCEPTED`. This is the case that proves the gate keys on the decision, not on the presence of code |
-| `CI-041/043` registry | lint cases | An asymmetric enforcement claim **fails**; an implemented check with no red run **fails** |
-| `CI-003`/`TR-068` traceability | lint cases | An acceptance test pointing at a specification that never names it **fails** |
-| remaining implemented checks | — | one declared-violation case each |
+| `CI-026` anti-cron | **8** | A predicate **body** replaced with pure cron while the label stays `COMPOSITE` **fails**; a clock term promoted from AND-guard to OR-disjunct **fails**; the backlog trigger **disabled rather than deleted** — the quieter attack — **fails**; an invented clock namespace the vocabulary does not know **fails** |
+| `CI-016` governed surfaces | **5** | Surface 6 removed **fails**; surface 6 degraded to string-prefix stubs **fails**; `spec/` dropped — the invariants left editable by the runtime — **fails**; the shipped trigger registry left governed by nothing (S7 path drift plus S1 narrowed) **fails** |
+| `CI-008` ADR gate | **4** | F0 code under `core/` while `ADR-002` is `PROPOSED` **fails**; the ADR record flipped while the register disagrees **fails**; a status outside the vocabulary **fails**; and the **discrimination case** — the same F0 code **passes** once `ADR-002` is genuinely `ACCEPTED`, which is what proves the gate keys on the decision rather than on the presence of code |
+| `CI-041/043` registry (`checks`) | **5** | An invariant with an empty `enforced_by` **fails**; a check claiming an invariant that does not name it back **fails**; an invariant claiming a check that does not perform it **fails**; an implemented check with no executed red run **fails** |
+| `CI-003`/`CI-038`/`TR-*` traceability | **5** | Includes `TR-068`: `A-029`'s spec pointer repointed at an unrelated acceptance file **fails** |
+| `CI-050` reference integrity | **5** | Run from both harnesses; see below |
+| `CI-034` measured-not-declared | **4** | |
+| `CI-046` tunable ranges / `CI-051` latency budgets | **3** each | |
+| `CI-030` degradation ladder | **2** | |
+| `CI-028` / `CI-007` / `CI-021` | **1** each | one declared-violation case |
 
 **`tools/reference_lint.py --self-test` — 5/5**, including a dangling tool path planted in the **live COC v1.2 additive baseline** and a dangling contract path planted in **`CODEOWNERS`** — the two files most recently added to scope, and both previously unscanned.
 
@@ -295,7 +299,9 @@ Answered by category, against the tree rather than against its documentation.
 1. **The branch-protection gap is the largest one and it is not a code problem.** `CODEOWNERS` is complete; it has no force until a human enables protection. Anyone reading the corpus can mistake a correct `CODEOWNERS` for an enforced one.
 2. **`CI-008` and `CI-007` have never run against a populated tree.** They are proven against planted-file scenarios in both directions, which is the strongest evidence available before code exists — and it is not the same as having run.
 3. **The anti-chatbot property is enforced structurally and unproven behaviourally.** No triggered episode has ever executed.
-4. **`SPIKE-008` is the one place where an F0 engineer could still be genuinely surprised** — not by a missing artifact, but by the ADR-002 design failing its own validation. That is a design risk with a named, sized, owned experiment in front of it. Which is what a spike is for.
+
+4. **`.github/workflows/ci.yml` has never run.** There is no remote and no CI host, so every result in this report was produced by invoking the tools directly. The workflow's interpreter pin was `3.12` while all evidence was gathered on **3.14**; the pin has been corrected to name the version the evidence was actually produced on, but that is a correction, not a verification. The first push to a host will be the first execution of this file, and it should be treated as such.
+5. **`SPIKE-008` is the one place where an F0 engineer could still be genuinely surprised** — not by a missing artifact, but by the ADR-002 design failing its own validation. That is a design risk with a named, sized, owned experiment in front of it. Which is what a spike is for.
 
 None of these is a claim this repository makes and cannot support. Each is recorded, in the tree, in the artifact that owns it.
 
@@ -307,7 +313,17 @@ None of these is a claim this repository makes and cannot support. Each is recor
 
 **Why not `BUILD`.** `ADR-002` is `PROPOSED` and `CI-008` — a check this pass implemented and proved in both directions — blocks F0's first commit. `OWNER-DECISION-006` is OPEN. Branch protection is not enabled, so `CI-002` and `CI-044` are `PENDING` and every governed surface is advisory. `SPIKE-001` and `SPIKE-008` are `NOT_STARTED`, and `SPIKE-008` is recorded as blocking F0 increment 1. Each of these is an act reserved to someone other than this auditor, and discharging any of them here would be the exact defect this pass spent its time finding: **a gate satisfied by the party it constrains.**
 
-**Why not `DO_NOT_BUILD`.** Nothing found requires redesign. The eleven defects were verification defects, all closed, all with permanent red runs. The requirement gap was closed by specifying the requirement, not by narrowing it. The blockers are six enumerable acts, ordered, each with a named owner. The architecture survives model replacement, is not pinned to one machine, keeps availability and trust separate, and keeps autonomy state-driven and self-improvement human-gated at merge.
+**Why not `DO_NOT_BUILD`.** Nothing found requires redesign, and all eleven defects are closed. They close in four different ways, and the difference matters:
+
+| Defect | Count | How it is closed | Red run today? |
+|---|---|---|---|
+| Verification defects — `CI-026` semantics, `CI-016` bypass, `CI-008` unimplemented, one-directional registry, no red-run coverage, `TR-068` aboutness, `CI-050` scope | **7** | Check corrected or written | **Yes**, permanent, in `self_test.py` |
+| Registry-correctness defect — `CI-039` naming an invariant that did not describe damping | **1** | `INV-GOV-1` written | **No** — `CI-039` is `PENDING`. Held by the bidirectional lint, which does have one |
+| Requirement gap — `SR-020` computer agency | **1** | **Specified**, not narrowed | **No** — `CI-052/053/054` are `PENDING` on the runtime |
+| Harness-integrity defect — both harnesses rewriting line endings | **1** | Byte-exact read/restore, SHA-256 asserted around all 47 cases | n/a — it is what makes the other red runs trustworthy |
+| Repository-executability gap — the suite had never been proven to run anywhere | **1** | `git init`; full suite executed from a clean tree | n/a |
+
+Two of the eleven therefore have **no red run of their own and are not claimed to**. The blockers are six enumerable acts, ordered, each with a named owner. The architecture survives model replacement, is not pinned to one machine, keeps availability and trust separate, and keeps autonomy state-driven and self-improvement human-gated at merge.
 
 **What this verdict means operationally.** Do the six prerequisites in §13, in order. Then re-run the full suite on the post-acceptance tree and read `ENFORCED TODAY` again. If it has not moved, F0 has added code without adding enforcement, and that is the next thing to fix.
 
