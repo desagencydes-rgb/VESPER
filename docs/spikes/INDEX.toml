@@ -132,3 +132,30 @@ time_box = "5 working days"
 owner_role = "Core Systems Engineer"
 requires_hardware = true
 raised_by = "ADR-002, filed 2026-08-12. The other seven spikes measure hardware and platforms; this one measures whether the persistence DECISION survives contact with them."
+
+[spikes.SPIKE-009]
+title = "Cross-site connectivity fabric"
+protocol = "docs/spikes/SPIKE-009-cross-site-connectivity.md"
+status = "NOT_STARTED"
+question = "Can nodes on DIFFERENT physical networks reach each other securely, at zero recurring cost, low-maintenance, through home-grade NAT on both ends -- and does the whole existing design silently assume they share a LAN?"
+pass_criteria = "A node on network A establishes an authenticated, encrypted channel to a node on network B that: survives NAT on both ends; reconnects automatically after either side's address changes; binds to node cryptographic identity (ADR-007), not to an IP; and costs nothing recurring. Self-run WireGuard is the primary; a mesh provider is an OPTIONAL fallback selected by a live endpoint resolver."
+on_fail = "If self-run WireGuard cannot traverse both home NATs without a public relay, the deliverable is a limitation record naming the MINIMUM infrastructure the fabric needs (a relay endpoint) and its real cost, plus the fallback-mesh option evaluated on the same criteria. Cross-site operation stays R&D and the LAN-only assumption is made EXPLICIT in the affected specs rather than left implicit. NOT permitted: hardcoding a node IP; assuming a static public address; treating the transport as trusted (it is untrusted plumbing -- ADR-007 identity and trust zones still gate authority, a reachable node is not a trusted node); or depending on a third party while claiming zero maintenance."
+blocks = ["the site-A desktop's use as a remote node", "any cross-site placement", "SPIKE-010 WAN wake path"]
+time_box = "5 working days"
+owner_role = "Device/Network Engineer · Security Engineer"
+requires_hardware = true
+raised_by = "Owner, 2026-08-12: a roaming laptop/phone in one city and a compute desktop in another. The corpus so far measures LAN round-trip (SPIKE-001 3.4) and speaks of 'reachable enrolled nodes' without defining reach across the internet. This may also require a new owner-authored SR for cross-site operation -- flagged for OWNER attention, not invented here."
+
+[spikes.SPIKE-010]
+title = "Remote wake feasibility"
+protocol = "docs/spikes/SPIKE-010-remote-wake-feasibility.md"
+status = "NOT_STARTED"
+question = "Can VESPER bring an off or sleeping compute node to a usable state on demand -- over LAN, then over WAN -- and return it to sleep, with no person present?"
+pass_criteria = "LAN: from a second node on the same network, a magic packet wakes the target from S3 (and ideally full shutdown S5); the target reaches a reachable, usable state within a stated budget; VESPER can then return it to sleep. WAN: the same, initiated cross-site through the SPIKE-009 fabric, via router WoL forwarding OR an always-on site-A-side agent."
+on_fail = "If there is no always-on presence on the site-A network AND the router cannot forward a wake packet, remote wake over WAN is INFEASIBLE and is recorded as such. The node's availability_class stays on_demand with wake dependent on a HUMAN (a family member powers it on); nothing continuity-critical is designed onto it (INV-TRUST-2 already forbids that). NOT permitted: claiming remote wake works from a LAN-only test; marking the node always_on; or assuming a person will be present to press the button."
+blocks = ["the 'VESPER turns it on' capability", "the wakeable attribute on the site-A desktop profile"]
+depends_on = ["SPIKE-009"]
+time_box = "3 working days"
+owner_role = "Device/Network Engineer"
+requires_hardware = true
+raised_by = "Owner, 2026-08-12. Partial evidence already gathered on the strong desktop (site A): onboard Realtek GbE supports WoL and is armed; blockers are that Ethernet is unplugged (currently on a USB Wi-Fi dongle that cannot WoL), that WoL-from-S5 is a BIOS setting not yet verified, and that after the owner relocates the site-A LAN has no always-on device to deliver a cross-site wake. The SEPARATE broken desktop (pre-POST power fault) is out of scope: a machine that cannot POST cannot be woken -- it is a repair task, not a node."
