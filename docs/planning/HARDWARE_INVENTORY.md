@@ -41,9 +41,10 @@ Last updated: 2026-08-12.
 
 **Expected role:** the muscle VESPER borrows. Strongest node by a wide margin; the 8 GB GPU runs small quantized models locally, the 12 threads carry background work. Borrowed when awake, never leaned on.
 
-**Two physical actions unlock it as a proper node:**
-1. **Plug it into the router by Ethernet.** Fixes Wake-on-LAN delivery *and* the network bottleneck at once.
-2. **Check the BIOS wake-from-S5 setting** when next at the machine, if wake-from-full-shutdown is wanted (S3-sleep wake already looks feasible).
+**Remote wake is BLOCKED on a wired path (2026-08-12).** Wake-on-LAN cannot ride the current USB Wi-Fi dongle — cheap dongles do not support wake-on-wireless, and no OS setting adds a capability the hardware lacks. The NIC that *is* WoL-capable (onboard Realtek GbE) is unplugged. Until a wired path exists, `wakeable = BLOCKED` and **the desktop is usable as a node only while it is already powered on** (owner present, or a family member turned it on). The two physical options, cheapest first:
+1. **An Ethernet cable** if the desktop is near the router — the single cheapest fix in the project.
+2. **Powerline adapters** if a cable cannot reach — a wired-equivalent link over house wiring, one-time cost.
+Then, if wake-from-full-shutdown is wanted, **check the BIOS wake-from-S5 setting** (S3-sleep wake already looks feasible). None of this blocks using the desktop while it is on.
 
 **Measured performance (sustained tokens/sec under concurrent load, memory headroom against the real working set, etc.) is NOT here** — that is `SPIKE-001`, and it needs a model runner installed. The table above is what the machine *is*, not what it *sustains*.
 
