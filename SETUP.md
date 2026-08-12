@@ -54,3 +54,19 @@ python tools/vesper_ids.py                        # authoritative identifiers fr
 ```
 
 Requires Python ≥ 3.11 (`tomllib`). No third-party dependencies, by design — CI must run on any node without an install step.
+
+---
+
+## Status of this checklist (2026-08-12)
+
+**`git init` is DONE.** The repository was initialised on 2026-08-12 with `core.autocrlf=false` and **no `.gitattributes` normalisation** — deliberately. The corpus is genuinely mixed CRLF/LF, byte-exactness is load-bearing for the mutation harnesses in `tools/ci/self_test.py`, and `* text=auto` would have rewritten roughly a third of the files on checkout. The full verification suite has been re-executed from a fresh clone: `47/47` red runs, zero working-tree residue.
+
+**Still outstanding, and all of it is host-side or owner-side:**
+
+| # | Action | Who | What stays PENDING until then |
+|---|---|---|---|
+| 1 | Create the remote and push | Owner | Nothing mechanical; CI cannot run without a host |
+| 2 | Enable branch protection with required status checks | Owner | `CI-002` (source immutability), `CI-044` (governed-surface owner review) |
+| 3 | Replace `@owner` in `CODEOWNERS` with the real account | Owner | `CI-044` routing. Engineering cannot know the handle and must not guess one |
+
+**Do not flip `CI-002` or `CI-044` to implemented merely because git now exists.** One commit is not review history, and branch protection is a setting on the host, not a file in the tree. `CI-016` enforces the half that *is* checkable without a host: every governed path has a `CODEOWNERS` line, so no governed path is left unrouted when protection is switched on.

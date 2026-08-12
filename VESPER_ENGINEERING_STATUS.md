@@ -1,6 +1,6 @@
 # VESPER — Engineering Status
 
-**Updated:** 2026-08-12, after the second engineering pass · **Maintained continuously.** If another engineer or agent takes over tomorrow, this file plus `docs/DECISION_LOG.md` is the handoff.
+**Updated:** 2026-08-12, after the **final pre-F0 correction and verification pass** · **Maintained continuously.** If another engineer or agent takes over tomorrow, this file plus `docs/DECISION_LOG.md` is the handoff.
 
 ---
 
@@ -8,29 +8,33 @@
 
 | | |
 |---|---|
-| **Phase** | Second engineering pass closed. Implementation **not** authorised. |
+| **Phase** | Final pre-F0 correction and verification pass closed. Implementation **not** authorised. |
 | **Position** | Seven SRs carry recorded depth dispositions naming artifacts not yet written; `--profile release` fails on depth. **No completeness judgement is recorded here** — that is part of the gate. |
-| **Verdict** | **None recorded.** The readiness gate is the project owner's act. `docs/architecture/IMPLEMENTATION_READINESS_REPORT.md` is *evidence for* that gate and reaches no verdict. |
+| **Verdict** | **None recorded here.** The readiness gate is the project owner's act. `docs/architecture/IMPLEMENTATION_READINESS_REPORT.md` and `docs/FINAL_PRE_F0_VERIFICATION_REPORT.md` are *evidence for* that gate. |
 | **Next action** | Owner performs the readiness gate and answers `OWNER-DECISION-006`. |
-| **Known blocker on F0** | `INV-ADR-1` — no merge under `core/`, `tasks/`, `memory/` while `ADR-002` is not ACCEPTED. It is filed `PROPOSED`. |
+| **Known blocker on F0** | `INV-ADR-1` — no merge under `core/`, `tasks/`, `memory/` while `ADR-002` is not ACCEPTED. It is filed `PROPOSED`. **As of 2026-08-12 this blocker is MECHANICALLY ENFORCED**: `CI-008` is implemented, runs in CI, reads the status from the ADR record, and has been shown red against a file planted under `core/` and green once `ADR-002` is genuinely ACCEPTED. |
+| **Repository** | `git init` **done** 2026-08-12, `core.autocrlf=false`, corpus committed as authored. Branch protection and the `@owner` handle remain host-side owner actions, so `CI-002` and `CI-044` stay `PENDING`. |
 
 **Live verification state** — every number below is produced by a command, and the command is the source of truth:
 
 ```
 tools/traceability_lint.py                    PASS   0 errors, 0 warnings, 0 info
 tools/traceability_lint.py --profile release  FAIL   7 errors, DEPTH only (7 SRs below SPECIFIED)
-tools/reference_lint.py                       PASS   0 errors — 99 normative files scanned
-tools/reference_lint.py --self-test           PASS   2/2 red-then-green
-tools/ci/checks.py all                        PASS   10/10 runnable checks
-tools/ci/self_test.py                         PASS   25/25 red under violation, green after restore
-tools/ci/checks.py status                            14/53 check IDs implemented, 39 PENDING
+tools/reference_lint.py                       PASS   0 errors — 107 normative files scanned
+tools/reference_lint.py --self-test           PASS   5/5 red-then-green
+tools/ci/checks.py all                        PASS   11/11 runnable checks
+tools/ci/self_test.py                         PASS   47/47 red under violation, green after restore
+tools/ci/checks.py status                            15/56 check IDs implemented, 41 PENDING
+tools/ci/checks.py ci-registry                       ENFORCED TODAY: 15/118 invariants
 ```
+
+**The two figures that matter, and the difference between them.** *"15 of 56 checks implemented"* is true and flattering. *"15 of 118 invariants are enforced today"* is the number a reader actually wants, and until this pass it appeared nowhere. An invariant counts as enforced today only if a check names it that is **implemented**, **symmetric in both registries**, **red-run by the harness**, and **not vacuous on this tree**. `ci-registry` computes it on every run, so it cannot go stale. Two implemented checks are currently **vacuous** and excluded by name: `CI-007` (no `routing/` or `models/` directory exists to scan) and `CI-008` (no file exists under `core/`, `tasks/` or `memory/` to gate). Both are armed and both have been shown red against a planted violation.
 
 > **`--profile release` failing is the correct state**, not a defect. It fails on depth: seven SRs are not yet `SPECIFIED`. Each records the artifact that would raise it. The dispositions do **not** excuse the depth — that was checked deliberately, because a disposition mechanism that turns a FAIL into a PASS is a mechanism for optimising the verdict.
 
 ---
 
-## What the second pass found
+## What the second pass found *(historical — retained)*
 
 The first pass declared **READY TO BUILD**. That declaration was **withdrawn**, because it was falsified by the corpus's own registry — not merely because the verdict was the owner's to make.
 
@@ -49,6 +53,35 @@ The common shape: **eight defects, none visible to any gate.** Every one is now 
 
 ---
 
+## What the final pre-F0 pass found (2026-08-12)
+
+The third pass audited **the verification system itself**: for each load-bearing check it established a positive control, injected a violation the repository's own self-tests do *not* enumerate, and required the check to go red. Nine went green. All nine are now closed and each closure carries its own red run.
+
+| # | Defect | Class | Closure |
+|---|---|---|---|
+| 1 | **`CI-026` validated the trigger `predicate_class` LABEL, never the predicate SEMANTICS** | label-only validation | Predicate bodies are now parsed. Every namespace root is classified against a closed vocabulary; the predicate is evaluated with all clock terms TRUE and all world-state terms FALSE, and firing under that substitution fails. 8 red runs. |
+| 2 | **`CI-026` did not require `trg_improvement_backlog` to be ENABLED** | disablement bypass | Eight load-bearing rows are named in the check; absent, disabled or schedule-only fails. Retiring one is an edit to a governed surface. |
+| 3 | **`CI-008`, the enforcer of the sole F0 blocker, was `PENDING`** | rule with no enforcer | Implemented. `INV-ADR-1` is a property of the TREE, not of a diff, so no git history is needed. Red against a file under `core/`; **green against the same file once `ADR-002` is ACCEPTED** — the discriminating direction. |
+| 4 | **`CI-050` declared `enforces = ["INV-TRACE-1", "INV-ADR-1"]` and implemented no merge gate** | false enforcement record | Claim dropped. `INV-ADR-1` is now enforced by `CI-008`. |
+| 5 | **`INV-SELF-2` — a RATIFIED COC v1.2 security clause — recorded enforcement by `CI-016`**, an implemented, passing check containing no non-narrowability logic | false enforcement record on a green check | Retargeted to `CI-044` (`PENDING`). **The class is closed**: `ci-registry` now lints the registries in BOTH directions and 22 asymmetries were resolved by deciding which side was wrong, not by adding the missing side. |
+| 6 | **`CI-016` used a STRING prefix**, so `paths = ["v", "t"]` satisfied `verification/` and `tools/` | metadata-only verification | Path-component prefix. Extended to require named load-bearing files to be covered by some surface, which caught S7 pointing at `autonomy/triggers/` — a directory that has never existed — and **`spec/` being governed by no surface at all**, while every invariant in the system lives there. |
+| 7 | **`TR-062` verified a test's `spec` file EXISTS, not that it mentions the test** | unrelated-artifact substitution | `TR-068` added. Red run: `A-029` — the anti-cron discriminator — repointed to `AT-04`. |
+| 8 | **`CI-050` scanned neither the LIVE COC, nor `.github/workflows/`, nor `CODEOWNERS`, and exempted ITSELF** | wrong-file scanning / excluded-file hole | All three added; the self-exemption removed by assembling its probe tokens from fragments. A workflow pointing at a non-existent checks script now fails. |
+| 9 | **Nothing verified that an implemented check had ever been RED** | checks that verify only their own existence | `ci-registry` now requires every implemented check's `impl` command to appear in the red-run harness and to record `self_test_evidence`. It found `CI-050` uncovered on its first run. |
+
+Two further findings, neither previously recorded anywhere:
+
+- **`CI-039` declared `enforces = ["INV-PERF-1"]`** — latency-budget immutability — while its self-test is about **governor damping**, an unrelated property that REM-012 §5 specifies in full and that no invariant ID carried. `INV-GOV-1` was written and the claim retargeted. A check pointing at the nearest available ID is how a false record is born innocently.
+- **The mutation harnesses restored files with `write_text`**, which on Windows rewrites every `
+` as `
+`. The corpus is genuinely mixed CRLF/LF — `docs/COC/` and the ADR records are LF — so a text-mode restore silently rewrote governed-surface bytes. Found when a probe converted the live COC v1.2 additive from LF to CRLF; the restore compared equal as text and unequal as bytes. Both harnesses now read and restore bytes, and assert byte-exactness after every restore. **The file was restored to its exact original 11 638 bytes and is byte-identical in the committed tree.**
+
+And one requirement gap:
+
+- **`SR-020`'s computer-agency clause was `SPECIFIED` while tracing only to perception and presentation artifacts.** Of 29 subsystems none covered acting on a computer; of 30 decision functions none governed endpoint interaction. The requirement was **not downgraded**. `SPEC-30`, `SM-ENDPOINT-EPISODE`, `DF-ENDPOINT-ACT/OBSERVE/RECOVER`, two contracts, `INV-ACT-1…6` and `A-051`/`A-052` were written, and `SR-020`, `SR-021` and `SR-030` now trace to them.
+
+---
+
 ## Completed
 
 | Work | Artifacts |
@@ -56,10 +89,12 @@ The common shape: **eight defects, none visible to any gate.** Every one is now 
 | **Repository structure + migration** | Part XIII layout honoured; every old→new path in the decision log |
 | **Authority axes separated** (NV-04, AR-030) | `docs/AUTHORITY_AND_PRECEDENCE.md` — `L0–L5` / `E0–E4` / `Z0–Z3` |
 | **Phase 1 — remediation** | REM-001…REM-016, each with the full 15-field treatment |
-| **Phase 2 — system specification** | 29 subsystems, `SPEC-00`…`SPEC-D`, each with a Jarvis-divergence field |
-| **Phase 3 — contracts & verification** | **26 JSON Schemas + 8 policy contracts** · 11 state machines with normative transition tables · **30 decision functions** · 111 invariants · 50 acceptance tests · 53 CI checks |
+| **Phase 2 — system specification** | **30 subsystems**, `SPEC-00`…`SPEC-D`, each with a Jarvis-divergence field |
+| **Phase 3 — contracts & verification** | **28 JSON Schemas + 8 policy contracts** · **12 state machines** with normative transition tables · **33 decision functions** · **118 invariants** · **52 acceptance tests** · **56 CI checks** |
 | **Phase 3b — reference integrity** | `ADR-002`, `ADR-007`, `ADR-REGISTER.md`; `tools/reference_lint.py` (`CI-050`) |
-| **Phase 3c — enforcement made real** | 6 new checks implemented; `tools/ci/self_test.py` executes **25 red runs**, covering every implemented check |
+| **Phase 3c — enforcement made real** | `tools/ci/self_test.py` executes **47 red runs**; `ci-registry` fails any implemented check with no red run |
+| **Phase 3d — computer agency specified** | `SPEC-30`, `SM-ENDPOINT-EPISODE`, `DF-ENDPOINT-ACT/OBSERVE/RECOVER`, `endpoint_interaction.schema.json`, `endpoint_surface_state.schema.json`, `INV-ACT-1…6`, `A-051`, `A-052`, `CI-052…054` |
+| **Phase 3e — repository** | `git init` with `core.autocrlf=false`; corpus committed as authored; full suite re-run from a fresh clone |
 | **Phase 4 — spikes** | 8 protocols with measurable pass criteria and pre-declared failure dispositions |
 | **Runbooks** | Emergency stop · Alarm · **Integrity loss** (new) · **Proposal review** (new) |
 
@@ -70,7 +105,8 @@ The common shape: **eight defects, none visible to any gate.** Every one is now 
 | **NV-01** self-modification | Specified; `INV-SELF-2` RATIFIED | Runtime executes from a **pinned artifact ≠ the working repository**; it may open a proposal, never self-merge. **Overnight coding stays unrestricted** — `A-030.6` must *pass*. `change_proposal.schema.json` makes `MERGED` unwritable by a runtime author. |
 | **NV-03** zero-input autonomy | Specified; blocking at F5 | A deterministic predicate decides *whether*; a model decides only *how*. Now backed by a **shipped registry of 8 non-`SCHEDULE` triggers** rather than a described one. |
 | **FV-01** emergency stop | Specified | **Dead-man's switch**: actuation requires a fresh externally-signed token. Severing the stop path *halts* autonomy. |
-| **Traceability** | Rebuilt, enforced, and extended | `registry.toml` + two linters. `CI-050` closes the class of defect the first pass could not see. |
+| **Traceability** | Rebuilt, enforced, extended, and made **bidirectional** | `registry.toml` + two linters. `CI-050` closes the dangling-artifact class; `TR-068` closes unrelated-artifact substitution; `ci-registry`'s two-direction lint closes the false-enforcement-record class. |
+| **Computer agency** (`SR-020`, `SR-021`, `SR-030`) | Specified this pass | The unit is an **episode**, not a call. `SM-ENDPOINT-EPISODE` has **no edge from `ACTUATED` to `VERIFIED`** — the actuator's report is never the observation. `A-051`'s negative control is the self-report build, which is what a chatbot-with-tools is. |
 
 ---
 
@@ -89,14 +125,14 @@ The common shape: **eight defects, none visible to any gate.** Every one is now 
 
 | Gap | Detail | Why it is acceptable now |
 |---|---|---|
-| **39 of 53 CI checks unimplemented** | `tools/ci/checks.py status` for the live figure | Most are structural checks over source code that does not exist. Each declares its self-test and lands **with** its subsystem. `CI-022`, `CI-034b`, `CI-046b` were deliberately split or held at `PENDING` rather than let a partial implementation be reported as full coverage. |
+| **41 of 56 CI checks unimplemented** | `tools/ci/checks.py status` for the live figure | Most are structural checks over source code that does not exist. Each declares its self-test and lands **with** its subsystem. `CI-022`, `CI-034b`, `CI-046b` were deliberately split or held at `PENDING` rather than let a partial implementation be reported as full coverage. |
 | **7 SRs below `SPECIFIED`** | SR-016, 017 (`DESIGNED`); SR-023, 033, 034, 035, 038 (`CONTRACTED`) | Each names the artifact required and why it is absent. **SR-034 is the worked example of the discriminator**: a decision function for *"clean hierarchy, formatting, vocabulary"* would be a document written to move a linter. |
-| **18 invariants enforced only by acceptance tests** | No CI or mechanism binding | Visible in every `ci-registry` run as a note. Most require runtime state to check at all. |
-| **Acceptance tests are specifications** | 50 tests with procedures and assertions | Executable fixtures require the runtime. 47 now name the wrong build that must fail. |
+| **18 of 118 invariants enforced only by acceptance tests; 15 enforced today** | No CI or mechanism binding for the 18. The 15 figure is computed by `ci-registry` on every run. | Visible in every `ci-registry` run as a note. Most require runtime state to check at all. |
+| **Acceptance tests are specifications** | 52 tests with procedures and assertions | Executable fixtures require the runtime. **None is executable today.** 49 name the wrong build that must fail; 3 record why a negative control cannot exist. |
 | **`A-029` and `A-031` never run** | The two decisive gates | Cannot run before the autonomy engine and interlock exist. `CI-027` blocks the autonomy release without their evidence. |
 | **8 spikes unrun; every hardware figure `UNKNOWN`** | `capability_profiles.toml` carries 31 unmeasured fields | Deliberate and enforced: `CI-034` fails the file if any figure is filled in from a datasheet while `measured = false`. Unmeasured is treated as **unavailable**, not as available. |
 | **Runbooks written, none validated** | Four runbooks exist | None executed on real hardware. The alarm one must be validated **at night, with the owner genuinely asleep beforehand** — a wake-up procedure validated while awake has not been validated. Phase 8. |
-| **`git init` not run** | Deliberate | Branch protection needs a host (`SETUP.md`). `CI-002` and `CI-044` are `PENDING` because they cannot be trusted without history. Both linters run standalone. |
+| **Branch protection and the `@owner` handle** | `git init` is **done**; hosting is not | The repository exists and the full suite has been re-run from a fresh clone, so verification now executes against version control rather than a directory. `CI-002` and `CI-044` stay `PENDING`: one commit is not review history, and branch protection is a host-side setting. Replacing `@owner` in `CODEOWNERS` is an owner action (`SETUP.md`). |
 
 ---
 
@@ -110,7 +146,9 @@ One naming drift was found and corrected this pass: `tunables.toml` initially in
 
 ## Next actions, in order
 
-1. **Owner:** perform the readiness gate. Answer `OWNER-DECISION-006` (a), (b), (c).
-2. **Human:** `git init`, push, branch protection, replace `@owner` in `CODEOWNERS` (`SETUP.md`). Then self-test `CI-002` and `CI-044` red.
+1. **Owner:** perform the readiness gate. Answer `OWNER-DECISION-006` (a), (b), (c). **(b) is the only thing standing between this corpus and F0**, and `CI-008` now enforces that mechanically rather than by discipline.
+2. **Human:** push, enable branch protection, replace `@owner` in `CODEOWNERS` (`SETUP.md`). Then self-test `CI-002` and `CI-044` red.
 3. **Engineering, no dependency on any owner decision:** `SPIKE-001` → `SPIKE-002`, `SPIKE-007`, `SPIKE-008`.
 4. **Then, and only then:** F0 — but not before `INV-ADR-1` is discharged by `ADR-002` acceptance. First increment is the persistent runtime, event bus, durable task state and checkpoints, gated by `A-033` and `A-034` **with their negative-control runs recorded**.
+
+See `docs/FINAL_PRE_F0_VERIFICATION_REPORT.md` for the full evidence, the negative-control table and the exact F0 prerequisite list.

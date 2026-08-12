@@ -1,6 +1,6 @@
 # VESPER — Decisions requiring the project owner
 
-**Status: FIVE RESOLVED 2026-08-12 · `OWNER-DECISION-006` OPEN (raised 2026-08-12, second engineering pass)** · **Raised:** 2026-08-11 · **Ruling:** project owner
+**Status: FIVE RESOLVED 2026-08-12 · `OWNER-DECISION-006` OPEN and BLOCKING F0 (raised 2026-08-12, second engineering pass; re-confirmed OPEN by the final pre-F0 pass the same day)** · **Raised:** 2026-08-11 · **Ruling:** project owner
 
 | ID | Ruling | Propagated to |
 |---|---|---|
@@ -232,3 +232,22 @@ There is an asymmetry worth resolving here. `ADR-001` and `ADR-012` carry `Statu
 ### DECISION REQUIRED
 
 Answer (a), (b) and (c). **No other open item waits on this decision** — the engineering-profile linters pass and no work is stalled pending your answer. That is not a claim that pre-implementation engineering is complete: seven SRs remain below `SPECIFIED` with recorded depth dispositions, and `--profile release` fails on all seven. `INV-ADR-1` blocks F0 specifically, which is the correct behaviour and not a defect to work around.
+
+### STATUS AFTER THE FINAL PRE-F0 PASS — 2026-08-12
+
+**`BLOCKED`. Still OPEN. Nothing in that pass discharged any part of this decision, and nothing in it may.**
+
+What changed is only the enforcement, not the authority:
+
+| | Before | Now |
+|---|---|---|
+| `INV-ADR-1` | `enforced_by = ["CI-008"]`, and `CI-008` was `PENDING`. `CI-050` separately *claimed* to enforce it and implements no merge gate. Nothing mechanical stopped F0 code landing under `core/` today. | `CI-008` is **implemented**, runs in CI, reads each status from the ADR **record**, cross-checks the register, and has been shown red against a file planted under `core/` and **green against the same file once `ADR-002` is `ACCEPTED`**. `CI-050`'s false claim is removed. |
+| Consequence of not deciding | F0 blocked by discipline | F0 blocked by a gate |
+
+**Decision packet for (b), restated in one paragraph.** `ADR-002` is written, complete and decision-ready. It is filed `PROPOSED` because the pass that wrote it would otherwise have discharged the F0 gate by its own hand. `INV-ADR-1` forbids any merge under `core/`, `tasks/` or `memory/` until it is `ACCEPTED` — and that is precisely F0's first increment. **Three options, all legitimate:** (A) accept it now and F0 unblocks; (B) delegate acceptance to the Chief Architect role, which resolves the same asymmetry that `ADR-001` and `ADR-012` already carry; (C) require `SPIKE-008` to report first, which costs about five days and buys real evidence that the fencing primitive holds atomically under concurrency **before** durable data exists — migration retrofitted onto durable data being the classic unrecoverable cost. Engineering's recommendation remains **B or C**, and engineering has no authority to choose among them.
+
+**On (a).** `ADR-007` is a security boundary. `AUTHORITY_AND_PRECEDENCE §5` reserves it to you and Baseline 02 §16 forbids an agent approving its own security boundary. It does **not** block F0 by `INV-ADR-1`; the consequence of leaving it open is that `hlc.node_id` has no defined provenance, so supersession is sound against a *buggy* node and forgeable by a *hostile* one.
+
+**On (c).** Bookkeeping, blocks nothing, entirely your preference.
+
+**No approval has been inferred, recorded or implied anywhere in the corpus.** The verification pass checked this specifically: `docs/FINAL_PRE_F0_VERIFICATION_REPORT.md` records the search for invented owner authority and its result.

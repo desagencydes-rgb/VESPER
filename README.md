@@ -38,7 +38,7 @@ VESPER/
 │   ├── decisions/                 owner decision packets
 │   ├── ADR/                       ADR-REGISTER (authority) · 001 coordination · 002 persistence · 007 identity · 012 topology
 │   ├── remediation/               PHASE 1 — REM-001..REM-016
-│   ├── architecture/              PHASE 2 — 29 subsystems · sequence · readiness report
+│   ├── architecture/              PHASE 2 — 30 subsystems · sequence · readiness report
 │   └── runbooks/
 │
 ├── contracts/                     PHASE 3 — events · commands · results · entities · policy

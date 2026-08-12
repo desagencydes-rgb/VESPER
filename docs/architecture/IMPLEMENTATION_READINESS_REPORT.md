@@ -46,9 +46,9 @@ They **strengthen** Q9 and Q12 rather than qualifying them; see those answers.
 
 ### Q1 — Can independent engineers implement compatible subsystems? **YES**
 
-29 subsystems, each with the same twenty declared fields, in `SPEC-A`…`SPEC-D`, against 16 remediation specifications. Every cross-subsystem boundary resolves to a contract, a state machine or a decision function rather than to prose.
+**30 subsystems** (`SPEC-30`, computer and device agency, added 2026-08-12), each with the same declared field set, in `SPEC-A`…`SPEC-D`, against 16 remediation specifications. Every cross-subsystem boundary resolves to a contract, a state machine or a decision function rather than to prose.
 
-The specific failure this addresses — *"the corpus names every subsystem and never defines the boundary between any two precisely enough that two engineers build compatible halves"* — is closed by three artifact classes: **26 JSON Schemas** plus 8 policy contracts, **11 state machines with normative transition tables** (`CI-010` fails on an *extra* edge, not only a missing one), and **30 decision functions with deterministic pseudocode**.
+The specific failure this addresses — *"the corpus names every subsystem and never defines the boundary between any two precisely enough that two engineers build compatible halves"* — is closed by three artifact classes: **28 JSON Schemas** plus 8 policy contracts, **12 state machines with normative transition tables** (`CI-010` fails on an *extra* edge, not only a missing one), and **33 decision functions with deterministic pseudocode**.
 
 *Corrected 2026-08-12:* the previous figure of 12 schemas was accurate at the time and was **also the symptom**. Fourteen further schemas were named by REM specifications — `lease`, `task`, `capability`, `grant`, `context_fragment`, `change_proposal`, `claim`, `verification_strategy`, `model_profile`, `endpoint_capability`, `observation_ingress`, `context_budget`, `knowledge_map`, `telemetry_record` — and none had been created. `lease` and `task` are F0 dependencies. `CI-050` now fails any specification naming an artifact that does not exist.
 
@@ -101,7 +101,7 @@ Schemas encode invariants structurally, not by comment: sensitive payloads canno
 
 ### Q7 — Are critical behaviours mechanically testable? **YES**
 
-50 acceptance tests with procedures, assertions on **state and events rather than log text**, and negative controls. **47 now name the specific wrong build that must FAIL**; the other 3 record why a trivial build cannot pass. `TR-064` fails a test that names neither — silence was previously permitted, and 36 tests were exercising it. The 14 with a mandatory red run at release:
+**52** acceptance tests with procedures, assertions on **state and events rather than log text**, and negative controls. **49 name the specific wrong build that must FAIL**; the other 3 record why a trivial build cannot pass. `TR-064` fails a test that names neither — silence was previously permitted, and 36 tests were exercising it. `TR-068` (added 2026-08-12) additionally fails a test whose `spec` file never mentions it, after a probe repointed `A-029` at an unrelated file and traceability stayed green. **None of the 52 is executable today**; they are specifications. The 14 with a mandatory red run at release:
 
 | Test | Must be shown failing against |
 |---|---|
@@ -122,7 +122,7 @@ Schemas encode invariants structurally, not by comment: sensitive payloads canno
 
 ### Q8 — Can CI enforce critical requirements? **PARTIALLY — and the gap is stated, not hidden**
 
-A minority of checks are implemented and run today — `tools/ci/checks.py status` gives the live figure and is the single source of truth for it (**14 of 53** at the time of writing, up from 8 of 48). `CI-003` went 45 errors → 0 as artifacts landed. `CI-021` was **demonstrated red** against a deliberately non-compliant cost policy (exit 1) and green after restoration.
+A minority of checks are implemented and run today — `tools/ci/checks.py status` gives the live figure and is the single source of truth for it (**15 of 56** at the time of writing). The figure that matters more is printed by `tools/ci/checks.py ci-registry`: **15 of 118 invariants are enforced today** by a check that is implemented, symmetric in both registries, red-run, and not vacuous on this tree. `CI-003` went 45 errors → 0 as artifacts landed. `CI-021` was **demonstrated red** against a deliberately non-compliant cost policy (exit 1) and green after restoration.
 
 The remainder are `impl = "PENDING"` — visible via the same command, and *not counted as enforcement anywhere in this report*. Two entries (`CI-022`, `CI-044`) were moved **to** `PENDING` during final review because their declared implementations did not inspect the subject of the invariant they claimed to enforce. Most are structural checks over source code that does not exist yet. Every one declares the self-test that must be shown failing before it is trusted; `CI-043` fails any check that declares none.
 
@@ -145,7 +145,7 @@ decision path. Three independent draws. All three must fire.
 
 Two things make this a test of the product rather than of scaffolding: `INV-AUTO-4` makes the external observation ingress a **production architectural requirement**, and `INV-TRIG-2` makes model-denial **observable** (the evaluator sandbox holds no model capability; an attempt emits an event and raises).
 
-**Strengthened by REM-015, and now actually enforceable.** `CI-026` requires the shipped trigger registry to contain a non-`SCHEDULE` trigger. *Corrected 2026-08-12:* until this pass **no such registry existed as an artifact** — `trg_improvement_backlog` lived only as a YAML block inside a markdown file, so `CI-026` had nothing to scan and this paragraph described a check that could not run. `contracts/policy/trigger_registry.toml` now ships **8 triggers, 0 of them `SCHEDULE`-class**, each carrying a mandatory `source` naming the requirement that wanted the behaviour, and `CI-026` is implemented and red-verified against the C1 cron build. Before REM-015 the only concrete one was the `A-029` fixture — so the check was satisfiable by a token artifact that existed *only* to keep CI green, and such artifacts are deleted during cleanup and then argued away. `trg_improvement_backlog` is `COMPOSITE`-class and exists because the owner wanted the behaviour. The anti-cron property is now defended by a failing check **and** by someone wanting the thing the check measures — two guards that fail for unrelated reasons.
+**Strengthened by REM-015, and now actually enforceable.** `CI-026` requires the shipped trigger registry to contain a non-`SCHEDULE` trigger. *Corrected 2026-08-12:* until this pass **no such registry existed as an artifact** — `trg_improvement_backlog` lived only as a YAML block inside a markdown file, so `CI-026` had nothing to scan and this paragraph described a check that could not run. `contracts/policy/trigger_registry.toml` now ships **8 triggers, 0 of them `SCHEDULE`-class**, each carrying a mandatory `source` naming the requirement that wanted the behaviour, and `CI-026` is implemented. **Correction, 2026-08-12:** this sentence previously read *"red-verified against the C1 cron build"*. It was red-verified against **class relabelling only** — the declared self-test mutated the `predicate_class` label, and an independent probe showed that replacing a predicate BODY with a cron expression while leaving the label at `COMPOSITE` passed, printing *"8/8 enabled and non-SCHEDULE"*. That build **is** C1. `CI-026` now parses predicate bodies, classifies every namespace root against a closed vocabulary, and evaluates the predicate with all clock terms true and all state terms false; 8 red runs cover it. The residue — whether a state term is load-bearing — is not decidable without an evaluator and remains `A-029`'s behavioural job. Before REM-015 the only concrete one was the `A-029` fixture — so the check was satisfiable by a token artifact that existed *only* to keep CI green, and such artifacts are deleted during cleanup and then argued away. `trg_improvement_backlog` is `COMPOSITE`-class and exists because the owner wanted the behaviour. The anti-cron property is now defended by a failing check **and** by someone wanting the thing the check measures — two guards that fail for unrelated reasons.
 
 **`C1` is the most important run in the programme** — a pure cron build must pass parts 1–2 and **fail part 3**. Without that recorded red run, `A-029` is unproven.
 
@@ -167,13 +167,14 @@ Autonomous actuation at `L2`+ requires a fresh externally-signed token, verified
 
 ### Q12 — Does the specification preserve the original VESPER vision? **YES**
 
-Every one of the 29 subsystems carries a **Jarvis-divergence** field answering *"could an implementation agent satisfy this while building an ordinary chatbot?"* with the specific preventing clause. The three artifacts that carry the property:
+Every one of the **30** subsystems carries a **Jarvis-divergence** field answering *"could an implementation agent satisfy this while building an ordinary chatbot?"* with the specific preventing clause. The **four** artifacts that carry the property:
 
 | Artifact | The clause | The test |
 |---|---|---|
 | **Semantic scene** | No markdown escape hatch (`INV-SCENE-3`) — a chat UI's output *is* markdown and carries no structure from which a voice narration could be derived | `A-009` voice-only diagram narration; `A-026` boot with no text surface |
 | **Trigger model** | Evaluator sandbox holds no model capability; violation is observable (`INV-TRIG-2`) | `A-029` part 3 + C1/C2 controls |
 | **World model** | `UNKNOWN` is a state a fact transitions **into** at a declared TTL (`INV-COORD-2`) | `A-033.3` |
+| **Endpoint episode** *(added 2026-08-12)* | The actuator's report is never the observation: `SM-ENDPOINT-EPISODE` has **no edge from `ACTUATED` to `VERIFIED`** (`INV-ACT-2`) | `A-051`, whose negative control is the self-report build — which is exactly what a chatbot-with-tools is |
 
 **Resolved 2026-08-12, and strengthened.** All nine previously-unmapped clauses are now source requirements. **`SR-058`** in particular — the node availability profiles — means REM-001 and REM-002 now rest on source authority rather than engineering inference.
 

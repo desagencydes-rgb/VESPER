@@ -185,3 +185,32 @@ Decisions 001–005 remain resolved and propagated.
 5. **Then, and only then, F0 increment 1:** persistent runtime supervisor, event bus with HLC envelopes, durable task state, checkpoints, `SM-TASK`, `SM-LEASE` — gated by **`A-033` and `A-034` passing with their negative-control runs recorded**, not by the code compiling.
 
 > **The single most valuable habit this pass would carry forward:** run the self-tests rather than trusting them. Executing `CI-016`'s declared self-test — a check that had been green since it was written — is what revealed that governed surface 6 could be deleted with the check still passing. Every other defect in §1 was found the same way: by comparing a claim against the artifact it named.
+
+---
+
+## Addendum — final pre-F0 correction and verification pass (2026-08-12, later the same day)
+
+**This section is an addendum. Nothing above it has been altered**, including the figures, which were true when written and are now superseded. A work report rewritten to match a later state stops being a record.
+
+Superseded figures, and their current values:
+
+| Stated above | Current | Why it changed |
+|---|---|---|
+| `tools/ci/checks.py all` — 10/10 | **11/11** | `CI-008` (`adr-gate`) implemented |
+| `tools/ci/self_test.py` — 25/25 | **47/47** | 22 red runs added: 5 semantic anti-cron, 4 ADR-gate scenarios, 4 governed-surface, 1 traceability content-coupling, 3 registry-consistency, 5 reference-scope |
+| `checks.py status` — 14/53 | **15/56** | `CI-008` implemented; `CI-052…054` registered `PENDING` for computer agency |
+| `reference_lint` — 99 files | **107** | Scope extended to the live COC v1.1 and v1.2-additive, `.github/workflows/`, `CODEOWNERS`, and the linter itself |
+| 26 schemas · 11 SM · 30 DF · 111 INV · 50 A · 53 CI | **28 · 12 · 33 · 118 · 52 · 56** | Computer agency (`SR-020`) specified; `INV-GOV-1` written |
+| 47 tests name a negative control | **49** | `A-051`, `A-052` |
+
+**What the pass actually did.** It audited the verification system rather than the corpus: for each load-bearing check it established a positive control, injected a violation the repository's own self-tests do not enumerate, and required a red run. **Nine went green.** The full list, with each closure and its red run, is in `docs/FINAL_PRE_F0_VERIFICATION_REPORT.md`.
+
+The three that matter most:
+
+1. **`CI-026` was label-only.** Replacing a predicate body with `schedule.cron(...)` while leaving the label `COMPOSITE` passed, and the check printed *"8/8 enabled and non-SCHEDULE"*. That build is the C1 negative control. The anti-cron property had **no mechanical defence** — only a naming convention.
+2. **`INV-SELF-2`, a ratified COC v1.2 security clause, recorded enforcement by an implemented and passing check that does not test it.** The registry read as though the clause was defended. It was not. The class is now closed by a bidirectional lint; 22 asymmetries were resolved by deciding which side was wrong.
+3. **`CI-008`, the enforcer of the only named F0 blocker, was `PENDING`** and `CI-050` falsely claimed to enforce `INV-ADR-1` in its place. Nothing mechanical prevented F0 code landing under `core/`. `CI-008` is now implemented and proven in **both** directions.
+
+**Also:** `git init` was run (`core.autocrlf=false`, corpus committed as authored), and the full suite was re-executed from a fresh clone with zero residue.
+
+**F0 remains blocked.** `ADR-002` is still `PROPOSED`; its acceptance is owner-reserved under `OWNER-DECISION-006(b)` and was not, and may not be, discharged by this pass.

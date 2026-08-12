@@ -6,6 +6,10 @@
 
 **Enforced by** `tools/reference_lint.py` (`CI-050`): every `ADR-xxx` referenced anywhere in the corpus must appear here; every ADR file path cited by any document must exist.
 
+**Also enforced by** `tools/ci/checks.py adr-gate` (`CI-008`, implemented 2026-08-12): the `INV-ADR-1` merge gate. It reads each status from **the ADR record itself**, never from this table — an index can be edited to say `ACCEPTED` without anyone accepting anything — and then cross-checks this table against the records. **A divergence between the two fails in either direction.** If you change a status here, change it in the record, and vice versa.
+
+> **Correction, 2026-08-12.** `CI-050` previously declared `enforces = ["INV-TRACE-1", "INV-ADR-1"]`. It implements **no merge gate**: it validates that an ADR file carries a Status from the correct enum and that cited paths exist. The strings `core/`, `tasks/` and `memory/` appeared in that tool only inside a comment. The sole named blocker on F0 was therefore defended by one `PENDING` check and one false claim. The claim has been dropped and `CI-008` now performs the enforcement.
+
 ---
 
 ## 1. Register
@@ -13,7 +17,7 @@
 | ID | Subject (Foundation wording) | Status | Where the decision lives |
 |---|---|---|---|
 | **ADR-001** | Event transport: transport, persistence and delivery guarantees | **ACCEPTED** *(see §3)* | `docs/ADR/ADR-001-coordination-substrate.md` |
-| **ADR-002** | Persistence engine: task state, memory, provenance, migration and recovery | **PROPOSED** | `docs/ADR/ADR-002-persistence.md` — **blocks F0** via `INV-ADR-1` |
+| **ADR-002** | Persistence engine: task state, memory, provenance, migration and recovery | **PROPOSED** | `docs/ADR/ADR-002-persistence.md` — **blocks F0** via `INV-ADR-1`, now mechanically enforced by `CI-008` |
 | **ADR-003** | Model runtime abstraction: local/remote normalization without vendor coupling | **DEFERRED — correctly** | Not required before F1. The dependency-direction rule protects it; confirmed by all three adversarial reviews. |
 | **ADR-004** | BAG/index architecture: maps + exact + semantic + summaries + caches | **CARRIED BY REM-010 + contracts** | `REM-010 §4`, `contracts/entities/knowledge_map.schema.json`, `contracts/entities/context_budget.schema.json`. Engine selection deferred to F1. |
 | **ADR-005** | World model representation: entities, spaces, devices, observations, time, confidence | **CARRIED BY REM-011** | `REM-011 §3.1–3.2`, `contracts/entities/world_fact.schema.json`, `SM-WORLD-FACT`. Superseded as a separate filing. |
@@ -73,6 +77,8 @@ retired_reason = "NEVER_EXISTED — cited by REM-003..006 as decision records; o
 - **ADR-007** is filed `PROPOSED` because it is a security boundary and therefore owner-reserved.
 
 This asymmetry is **recorded, not resolved**. Either the three coordination/persistence/topology ADRs are confirmed together at the readiness gate, or ADR-001 and ADR-012's acceptance should be re-confirmed on the same basis. See `OWNER-DECISION-006`.
+
+**Status after the final pre-F0 pass (2026-08-12).** The asymmetry is unchanged and remains owner-reserved. What changed is that it is no longer held by discipline: `CI-008` runs in CI, reads all three statuses from their records, and fails any tree with a file under `core/`, `tasks/` or `memory/` while any of them is not `ACCEPTED`. It has been shown red against a planted file and **green against the same file once `ADR-002` is genuinely `ACCEPTED`** — the second direction being what proves the gate keys on the decision rather than on the presence of code. This pass did **not** accept `ADR-002`, and could not: a gate discharged by its own auditor is not a gate, and `AUTHORITY_AND_PRECEDENCE §5` reserves the decision.
 
 ---
 
