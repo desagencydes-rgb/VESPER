@@ -183,7 +183,24 @@ kind = "process"
 impl = "PENDING"
 blocking = "pr"
 self_test = "Modify contracts/policy/governed_surfaces.toml in a commit not owner-reviewed under CODEOWNERS."
-note = "Requires git history and branch protection (SETUP.md). Split from CI-016, which validates surface CONTENT, not reviewer identity."
+note = "Split from CI-016, which validates surface CONTENT, not reviewer identity."
+precondition_met = """2026-08-12: the HOST-SIDE precondition is now satisfied. github.com/desagencydes-rgb/VESPER
+carries an ACTIVE branch ruleset on the default branch: pull_request required with
+required_approving_review_count = 1 AND require_code_owner_review = true; required_status_checks
+includes the `gates` context; deletion and non_fast_forward blocked; bypass_actors is EMPTY, so the
+rule binds the repository owner too. CODEOWNERS routes all 25 governed paths to the owner account.
+Verified by reading the ruleset from the API, not from the setup document.
+
+IMPL REMAINS PENDING, DELIBERATELY. The mechanism now exists; the CHECK does not. Nothing in this
+repository yet READS the merge record to assert that a governed-surface change carried an owner
+review -- GitHub enforces it at merge time, and CI-044 is the artifact that would VERIFY it was
+enforced. Marking this implemented because the platform setting is on would be the CI-022 defect
+this corpus was built to catch: a control credited to a check that does not perform it.
+
+What this changes: INV-SELF-2's merge boundary moves from DOCUMENTATION to PLATFORM-ENFORCED. What
+it does not change: enforcement is attested by GitHub's configuration rather than by an artifact in
+the tree, so a silent change to that configuration is currently invisible here. CI-044 implemented
+would close that gap."""
 
 [checks.CI-017]
 name = "promotion-gate"

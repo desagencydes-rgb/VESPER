@@ -164,6 +164,7 @@ ratified_by = "project owner"
 authority = "COC v1.2 additive, Part VII-A"
 owner_decision = "OWNER-DECISION-001"
 enforcement_correction = "2026-08-12: was CI-016. CI-016 validates governed-surface CONTENT and the L2 workspace level; it contains no non-narrowability logic, so a ratified COC v1.2 Part VII-A security clause carried a false enforcement record pointing at an IMPLEMENTED, PASSING check. The real enforcer is CI-044 (owner review of governed_surfaces.toml under CODEOWNERS), which is PENDING because it needs branch protection. Corrected 2026-08-12; the defect CLASS is now closed by the bidirectional lint in CI-041."
+enforcement_status = "2026-08-12, later the same day: branch protection is now ACTIVE on the host with code-owner review required and an empty bypass list, so the MERGE BOUNDARY this invariant depends on is platform-enforced rather than documented. CI-044 stays PENDING: the platform enforces the rule, and no artifact in this tree yet verifies that it did. See CHECKS.toml CI-044.precondition_met."
 
 [invariants.INV-SELF-3]
 statement = "effective_level == L5 AND subject.kind == runtime implies DENY, always, including under a valid L5 grant and under break-glass."

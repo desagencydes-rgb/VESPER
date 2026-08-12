@@ -61,12 +61,19 @@ Requires Python ≥ 3.11 (`tomllib`). No third-party dependencies, by design —
 
 **`git init` is DONE.** The repository was initialised on 2026-08-12 with `core.autocrlf=false` and **no `.gitattributes` normalisation** — deliberately. The corpus is genuinely mixed CRLF/LF, byte-exactness is load-bearing for the mutation harnesses in `tools/ci/self_test.py`, and `* text=auto` would have rewritten roughly a third of the files on checkout. The full verification suite has been re-executed from a fresh clone: `47/47` red runs, zero working-tree residue.
 
-**Still outstanding, and all of it is host-side or owner-side:**
+**All three host-side actions are now DONE (2026-08-12, same day):**
 
-| # | Action | Who | What stays PENDING until then |
+| # | Action | Status | Evidence |
 |---|---|---|---|
-| 1 | Create the remote and push | Owner | Nothing mechanical; CI cannot run without a host |
-| 2 | Enable branch protection with required status checks | Owner | `CI-002` (source immutability), `CI-044` (governed-surface owner review) |
-| 3 | Replace `@owner` in `CODEOWNERS` with the real account | Owner | `CI-044` routing. Engineering cannot know the handle and must not guess one |
+| 1 | Create the remote and push | **DONE** | `github.com/desagencydes-rgb/VESPER`, private. `vesper-ci` executed on the host and passed — the first execution of `.github/workflows/ci.yml` anywhere, on Linux/Python 3.14 rather than the Windows tree it was written on |
+| 2 | Enable branch protection with required status checks | **DONE** | Active branch ruleset on the default branch: PR required, 1 approval, **code-owner review required**, `gates` status check required, deletion and force-push blocked, **`bypass_actors` empty — the rule binds the owner too**. Read back from the API, not from this document |
+| 3 | Replace `@owner` in `CODEOWNERS` with the real account | **DONE** | `@desagencydes-rgb` across all 25 lines |
 
-**Do not flip `CI-002` or `CI-044` to implemented merely because git now exists.** One commit is not review history, and branch protection is a setting on the host, not a file in the tree. `CI-016` enforces the half that *is* checkable without a host: every governed path has a `CODEOWNERS` line, so no governed path is left unrouted when protection is switched on.
+**`CI-002` and `CI-044` REMAIN `PENDING`, and that is not an oversight.** The distinction is worth stating precisely, because it is the one this corpus exists to keep:
+
+- **The merge boundary is now enforced.** GitHub will refuse a merge to `main` without an owner review and a green `gates` run. That is real, and it is a genuine upgrade over documentation.
+- **No artifact in this tree verifies that it was enforced.** `CI-044` is the check that would read the merge record and assert an owner review happened. It does not exist yet. Crediting it as implemented because the platform setting is on would be exactly the `CI-022` defect this corpus was built to catch: **a control credited to a check that does not perform it.**
+
+The practical consequence: a silent change to the host configuration is currently invisible from inside the repository. `CI-016` still enforces the half that is checkable without a host — every governed path has a `CODEOWNERS` line, so nothing is left unrouted.
+
+**Side effect worth knowing:** with `bypass_actors` empty, direct pushes to `main` now fail for everyone including the owner. All changes go through a pull request. This is the intended shape — it is the same boundary that will later stop the VESPER runtime from merging its own proposals.
