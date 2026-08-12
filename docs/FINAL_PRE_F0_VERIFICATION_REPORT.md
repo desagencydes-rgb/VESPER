@@ -254,7 +254,7 @@ trg_reattestation_due=COMPOSITE/COMPOSITE, trg_record_loss_detected=EVENT/EVENT
 | **(a)** | Ratify `ADR-007` (device identity and trust)? | Security boundary, owner-reserved. Until settled, `hlc.node_id` provenance is undefined and event-envelope work rests on an open decision |
 | **(b)** | Accept `ADR-002` (persistence)? | **This is the F0 gate.** `CI-008` blocks every file under `core/`, `tasks/`, `memory/` until it is `ACCEPTED`. `docs/spikes/SPIKE-008-persistence-validation.md` is the recorded confidence basis and is `NOT_STARTED` |
 | **(c)** | Extend the ADR namespace beyond `ADR-001…016`, or keep the corrected citations? | Bookkeeping only; recorded because extending a baseline namespace to satisfy a citation would be reinterpretation dressed as bookkeeping |
-| **(d)** | Re-confirm `ADR-001` and `ADR-012`, which were stamped `ACCEPTED` in an earlier pass under the same authority question? | `ADR-002` §Acceptance authority raises this. Either all three are confirmed together, or the earlier two are re-confirmed on the same basis. It is one question and should be answered once |
+| *(within (b))* | Re-confirm `ADR-001` and `ADR-012`, stamped `ACCEPTED` in an earlier pass under the same authority question? | Raised inside (b) by both `OWNER_DECISIONS.md` and `ADR-002` §Acceptance authority — **not a separate sub-part id.** Either all three are confirmed together, or the earlier two are re-confirmed on the same basis. One question, answered once |
 
 `OWNER-DECISION-001` remains the ratification of the `INV-SELF-2` non-narrowability clause; `governed_surfaces.toml` carries `ratification_pending` accordingly.
 
