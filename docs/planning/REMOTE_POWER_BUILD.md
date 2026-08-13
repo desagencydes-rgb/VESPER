@@ -10,7 +10,75 @@
 
 ---
 
-## 1. The idea
+## 0. Read this first — there is a free path, and it is already switched on
+
+The owner asked for zero cost, DIY from what is already in the house. Measured on this machine 2026-08-13, before designing anything:
+
+```
+powercfg /devicequery wake_programmable
+    HID-compliant mouse (001)
+    HID Keyboard Device
+    Realtek PCIe GbE Family Controller          <- armed, but no cable
+    HID-compliant system controller
+    HID-compliant consumer control device
+
+powercfg /query SCHEME_CURRENT SUB_SLEEP RTCWAKE
+    (Allow wake timers)  Current AC Power Setting Index: 0x00000001   <- ENABLED
+```
+
+Three facts fall out:
+
+1. **The USB Wi-Fi dongle is absent from the wake-programmable list.** It cannot wake this machine under any configuration. That closes Wake-on-Wireless-LAN as a measured fact rather than an assumption.
+2. **The Realtek NIC is already armed to wake.** The wake capability was never missing — only the cable.
+3. **`Allow wake timers` is ENABLED right now.** Windows can bring this machine out of **S3** on a schedule, with **no hardware, no BIOS visit, and no purchase.**
+
+### The zero-cost design
+
+```
+VESPER idle  ->  machine sleeps to S3 (EXPECTED ~3-5 W)
+                      |
+      Task Scheduler wake timer fires every N minutes
+                      |
+              machine wakes (~3 s)
+                      |
+         is there work?  --- no ---> back to S3
+                      |
+                     yes
+                      |
+              stay up and run
+```
+
+A scheduled task with **"Wake the computer to run this task"** arms an RTC timer. This is ordinary Windows, available today, and it needs nothing the owner does not already have.
+
+**Latency is the honest trade.** This is *polled*, not on-demand: worst case is one poll interval. But the interval is a dial, not a fixed cost.
+
+| Poll interval | Worst-case wait | EXPECTED average draw |
+|---|---|---|
+| 5 min | 5 min | ~8 W |
+| 15 min | 15 min | ~5 W |
+| 30 min | 30 min | ~4 W |
+
+(Assuming ~30 s awake per empty poll at ~65 W, plus S3 baseline. EXPECTED — SPIKE-011's wall meter replaces these.)
+
+Even the aggressive 5-minute setting is roughly **8× cheaper than leaving the machine running**, and costs nothing to build.
+
+**What "is there work?" can be**, all free: a file dropped in a synced folder, an unread message in a queue the node polls, a flag on any endpoint VESPER already talks to. The node reaches *out* on wake, so nothing needs to reach *in* — which also means no inbound port, no exposure, and no new attack surface. That is a real security advantage over every paid option below.
+
+### What this does not do
+
+- **It cannot wake from S5 (full off).** Windows wake timers work from S3 only. Waking from a true power-off needs the BIOS `Resume by Alarm` setting — also free, but a BIOS visit.
+- **It cannot recover a hung machine.** If Windows locks up, nothing here helps.
+- **It is not true on-demand.** If the owner needs sub-minute response from site B, only §1 delivers that.
+
+**Recommendation: build §0 first, because it is free and available today.** Treat §1 as an upgrade to buy only if polling latency turns out to be a real problem in practice — which it may well not.
+
+### Before anything is built, one test
+
+Sleep the machine, let a wake timer fire, confirm it comes back. Free, ten minutes, and it either validates the whole design or kills it early. **Not run yet** — a SPIKE-001 measurement is in progress and sleeping the machine would destroy it.
+
+---
+
+## 1. The paid option — a network power button
 
 Every ATX motherboard exposes a **front-panel `PWRBTN` header**: two pins that the case's power button momentarily shorts together. The board does not care *what* shorts them. A microcontroller wired in parallel with the physical button is, to the motherboard, indistinguishable from a finger.
 
