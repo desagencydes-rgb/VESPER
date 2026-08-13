@@ -37,7 +37,7 @@ Each measurement runs **three times**; the recorded value is the **median**, and
 ### 3.1 Sustained inference throughput
 
 ```
-FOR each candidate node N, FOR each capability_tier T in {draft, small, standard}:
+FOR each candidate node N, FOR each capability_tier T in {draft, small, standard, strong}:
     1. Load the tier-representative model.
     2. Warm up: 200 tokens, discarded.
     3. Run a 10-minute continuous generation at the tier's expected context length.
@@ -47,6 +47,10 @@ FOR each candidate node N, FOR each capability_tier T in {draft, small, standard
 ```
 
 > **Minute 10, not minute 1.** A thermally-throttled laptop delivers a different number after ten minutes than after ten seconds, and VESPER's overnight work runs for hours. Recording the peak would be measuring a machine that does not exist during the workload that matters.
+
+**`strong` was missing, and is now in the loop.** `contracts/entities/model_profile.schema.json` defines `capability_tier` as `{draft, small, standard, strong}`, and `strong` is the tier SR-009 routes to for difficulty-based selection. This protocol iterated only the first three, so `strong` could never leave `UNKNOWN` and pass criterion 1 could not be met on any node. Corrected 2026-08-13.
+
+> **`strong` is expected to exceed accelerator memory and spill to CPU.** That is the tier's purpose, not a failed measurement. It answers *what is the most capable thing this node can run at all*, accepting that it may be slow enough to be useful only for long-running work. Record the tokens/sec it actually achieves, however low, together with the layer split — a measured single-digit figure is a finding, and refusing to record it because it is unflattering is the failure mode §5 already forbids.
 
 **Concurrent-load variant, mandatory.** Repeat step 3 with a synthetic background load representing the resource governor, world model and persistence layer. Record both figures. **The router uses the concurrent figure.**
 

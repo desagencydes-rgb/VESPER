@@ -24,25 +24,52 @@ is a worse habit than naming it.
 3.1 iterates **three** capability tiers, each in **two** load conditions, each three
 times for ten minutes. That is 6 runs per tier, ~1 hour per tier, ~3 hours total.
 
-| Tier | Model needed | Generation length | Status |
-|---|---|---|---|
-| `draft` | ~1B | 256 tok/request | model not downloaded |
-| `small` | ~3B (`Llama-3.2-3B-Instruct-Q4_K_M`) | 1024 tok/request | idle DONE, concurrent RUNNING |
-| `standard` | ~7-8B | 4096 tok/request | model not downloaded |
+There are **four** tiers, not three. `contracts/entities/model_profile.schema.json`
+defines `capability_tier` as `["draft", "small", "standard", "strong"]`, and `strong`
+is the tier **SR-009 routes to for hard work**. SPIKE-001 3.1 iterated only the first
+three, so `strong` could never leave `UNKNOWN` and pass criterion 1 could never be met.
+The owner asked for a maximum-capability tier on 2026-08-13; that tier already existed
+in the corpus and the spike was simply omitting it. Added under its existing name
+rather than a new one.
 
-The tier selects the **generation length per request** in the harness
-(`TIER_CONTEXT_TOKENS`); the tier-representative **model** is the operator's choice
-and is recorded through `--launch-command`. Both halves matter — a figure is only
-comparable against another run with the same model *and* the same tier.
+| Tier | Model needed | Generation length | Min `-c` | Status |
+|---|---|---|---|---|
+| `draft` | ~1B | 256 | 384 | model not downloaded |
+| `small` | ~3B (`Llama-3.2-3B-Instruct-Q4_K_M`) | 1024 | 1152 | idle DONE, concurrent RUNNING |
+| `standard` | ~7-8B | 4096 | 4224 | model not downloaded |
+| `strong` | biggest that runs at all, CPU offload expected | 8192 | 8320 | model not chosen |
 
-### A trap in the `standard` tier, recorded before it is hit
+The tier selects the **generation length per request**; the tier-representative
+**model** is the operator's choice, recorded through `--launch-command`. Both halves
+matter — a figure is only comparable against another run with the same model *and*
+the same tier.
 
-`standard` asks for **4096 generated tokens per request**, and the server has so far
-been launched with `-c 4096`. Prompt plus generation would exceed the context window,
-so the run would truncate or error rather than measure. **The `standard` tier must be
-launched with a larger `-c` (8192).** That changes KV cache size, so its figure is not
-directly comparable to the `small` runs — which is expected and fine, since they are
-different tiers, but it must be recorded rather than discovered.
+### Correction: the harness capped every request at 512 tokens
+
+An earlier note here claimed the `standard` tier would overflow a `-c 4096` server.
+**That was wrong**, and the reason it was wrong is the actual defect:
+`_single_throughput_run` called `_llama_generate(..., n_predict=min(ctx_tokens, 512))`.
+The cap meant nothing could ever overflow — and also that **the tier argument was inert
+above 256 tokens**. `small` (1024) and `standard` (4096) both collapsed to 512, so they
+produced byte-identical request shapes and differed only by which model was loaded.
+Three tiers, two distinct measurements.
+
+Fixed: the cap is removed, requests now generate the tier's full length, and the run
+**refuses to start** — with the required `-c` in the error — rather than silently
+measuring a truncated request and reporting it as a sustained figure.
+
+**Consequence for the figures already taken.** Both `small` runs (idle and concurrent)
+were measured at **512 generated tokens per request, not 1024**, under the old cap.
+They are internally consistent with each other, so the idle-vs-concurrent comparison
+holds, and the effect of request length on tokens/sec is small. But they are *not*
+the `small` tier as 3.1 defines it, and they are not comparable to `standard` or
+`strong` runs taken after this fix. Recorded here rather than quietly re-labelled;
+re-running `small` at 1024 is cheap and should happen before anything is promoted.
+
+`strong` is expected to exceed 7.2 GB of VRAM and spill to CPU. That is the point of
+the tier, not a failure of it — `INFERENCE_ARCHITECTURE.md` 0 already treats partial
+CPU offload as a real option that trades tokens/sec for capability. Expect single-digit
+tokens/sec and record it as the honest ceiling of this node.
 
 ### Priority, given the one-month deadline
 

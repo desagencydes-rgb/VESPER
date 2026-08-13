@@ -54,13 +54,21 @@ SCHEMA_VERSION = 2
 LLAMA_SERVER_URL = os.environ.get("VESPER_LLAMA_SERVER", "http://127.0.0.1:8080")
 REPORT_DIR = Path(__file__).resolve().parents[2] / "docs" / "planning" / "spike-results"
 
-TIER_CONTEXT_TOKENS = {"draft": 256, "small": 1024, "standard": 4096}
+# The four tiers of contracts/entities/model_profile.schema.json capability_tier.
+# `strong` is the one SR-009 routes to for hard work; SPIKE-001 3.1 omitted it, so
+# it could never leave UNKNOWN. Values are the tier's expected generation length
+# per request, NOT the model -- the tier-representative model is the operator's
+# choice and is recorded through --launch-command.
+TIER_CONTEXT_TOKENS = {"draft": 256, "small": 1024, "standard": 4096, "strong": 8192}
 BENCH_PROMPT = (
     "Write a detailed, technical explanation of how a persistent event bus "
     "with hybrid logical clocks orders writes across multiple unreliable "
     "network nodes, covering supersession, epoch fencing, and partition "
     "recovery. Be thorough and specific."
 )
+# Deliberately generous. Used only to reserve prompt room when checking a tier's
+# generation length against the server's -c, so erring high fails safe.
+_BENCH_PROMPT_TOKENS_EST = 128
 
 
 # --------------------------------------------------------------------------- system facts
@@ -337,8 +345,27 @@ class _BackgroundLoad:
 # --------------------------------------------------------------------------- throughput
 
 
-def _single_throughput_run(tier: str, minutes: float, checkpoints_min: list[float]) -> dict:
+def _single_throughput_run(tier: str, minutes: float, checkpoints_min: list[float],
+                           server_n_ctx: int | None = None) -> dict:
     ctx_tokens = TIER_CONTEXT_TOKENS.get(tier, 1024)
+
+    # SPIKE-001 3.1 step 3: generate "at the tier's expected context length". An
+    # earlier version capped every request at min(ctx_tokens, 512), which made the
+    # tier argument inert above 256 -- `small` and `standard` produced byte-identical
+    # request shapes and differed only by which model the operator had loaded. The
+    # cap is gone; the constraint it was hiding is now checked and reported instead.
+    if server_n_ctx is not None:
+        headroom = server_n_ctx - _BENCH_PROMPT_TOKENS_EST
+        if ctx_tokens > headroom:
+            return {
+                "error": (
+                    f"tier '{tier}' asks for {ctx_tokens} generated tokens but the server "
+                    f"was launched with -c {server_n_ctx}, leaving ~{headroom} after the "
+                    f"benchmark prompt. Relaunch llama-server with a larger -c. Refusing to "
+                    f"measure a truncated run and report it as a sustained figure."
+                ),
+                "required_min_n_ctx": ctx_tokens + _BENCH_PROMPT_TOKENS_EST,
+            }
 
     try:
         _llama_generate(BENCH_PROMPT, n_predict=200)  # warm-up, discarded
@@ -358,7 +385,7 @@ def _single_throughput_run(tier: str, minutes: float, checkpoints_min: list[floa
 
     while time.monotonic() < deadline:
         try:
-            resp = _llama_generate(BENCH_PROMPT, n_predict=min(ctx_tokens, 512))
+            resp = _llama_generate(BENCH_PROMPT, n_predict=ctx_tokens)
         except (urllib.error.URLError, OSError) as e:
             return {"error": f"generation request failed: {e}", "partial_samples": samples}
         timings = resp.get("timings") or {}
@@ -409,9 +436,9 @@ def measure_throughput(runner: dict, tier: str, minutes: float, runs: int, concu
     for _ in range(runs):
         if concurrent:
             with _BackgroundLoad():
-                r = _single_throughput_run(tier, minutes, checkpoints)
+                r = _single_throughput_run(tier, minutes, checkpoints, runner.get("n_ctx"))
         else:
-            r = _single_throughput_run(tier, minutes, checkpoints)
+            r = _single_throughput_run(tier, minutes, checkpoints, runner.get("n_ctx"))
         run_results.append(r)
 
     sustained_values = [
