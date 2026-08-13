@@ -102,7 +102,11 @@ It requires opening the case and one soldered or dupont connection, and it is a 
 
 ---
 
-## 3. Recommendation
+## 3. Recommendation — SUPERSEDED 2026-08-13
+
+> **Option A is closed.** The owner reports the router is too far and there is no network outlet in the room. The measured 90% signal at 1.3 ms said *close*, but signal passes through walls a cable cannot, so the reading was consistent with a distance that still defeats cabling. **Option E is now the recommendation** — see `REMOTE_POWER_BUILD.md` for the full design, parts list, wiring, and safety rules. Option C stays as the free backstop and should be enabled regardless.
+>
+> The original recommendation is kept below rather than deleted, because the reasoning for it was sound and only the premise changed.
 
 **Option A, with Option C as a backstop.** The cable is the cheapest fix available, uses hardware already in the machine, and turns the SPIKE-010 blocker into a solved problem. Add the RTC alarm because it costs nothing and covers the case where the network itself is down.
 
