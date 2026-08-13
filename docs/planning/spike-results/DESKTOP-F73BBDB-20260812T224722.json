@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-08-12T22:47:21Z",
+  "spike": "SPIKE-001",
+  "quick_mode": false,
+  "system": {
+    "os_family": "Windows",
+    "os_version": "10.0.26200",
+    "hostname_hint": "DESKTOP-F73BBDB",
+    "cpu_cores_logical": 12,
+    "ram_gb": 15.9,
+    "ram_gb_error": null,
+    "disk_total_gb": 475.9,
+    "disk_free_gb": 22.3,
+    "gpu_name_hint": "AMD Radeon RX 6650 XT",
+    "gpu_name_error": null,
+    "python_version": "3.14.2"
+  }
+}
