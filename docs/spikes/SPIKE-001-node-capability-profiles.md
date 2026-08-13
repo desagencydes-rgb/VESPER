@@ -54,6 +54,23 @@ FOR each candidate node N, FOR each capability_tier T in {draft, small, standard
 
 **Concurrent-load variant, mandatory.** Repeat step 3 with a synthetic background load representing the resource governor, world model and persistence layer. Record both figures. **The router uses the concurrent figure.**
 
+**Two rates, and the difference between them is the measurement.** Added 2026-08-13 after the first real run exposed the gap:
+
+- `sustained_tokens_per_sec` — tokens per second of **generation time**, as the inference server reports it.
+- `effective_tokens_per_sec` — tokens per second of **wall clock**, which additionally carries scheduling, request handling, tokenisation and client overhead.
+
+MEASURED on the first candidate node, `small` tier, idle vs. concurrent:
+
+| | generation rate | wall-clock rate |
+|---|---|---|
+| idle | 102.63 | 100.57 |
+| concurrent | 102.33 | 89.45 |
+| delta | **−0.29%** | **−11.05%** |
+
+The generation rate says the concurrent load costs essentially nothing. That is not a measurement of the machine, it is an artefact of where the boundary is drawn: the synthetic load is CPU-bound and the accelerator was never contended, so a generation-time metric cannot see it. Eleven percent of real throughput disappeared anyway.
+
+> **The router must use `effective_tokens_per_sec` from the concurrent condition.** Reporting the generation rate here would satisfy §5's letter — the concurrent figure *was* reported — while committing exactly the error §5 exists to prevent. Both rates are recorded for both conditions.
+
 ### 3.2 Memory headroom (SR-057)
 
 ```

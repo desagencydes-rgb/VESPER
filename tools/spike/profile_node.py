@@ -418,12 +418,21 @@ def _single_throughput_run(tier: str, minutes: float, checkpoints_min: list[floa
         (s["interval_tokens_per_sec"] for s in reversed(samples)
          if s.get("interval_tokens_per_sec") is not None), None,
     )
+    wall = time.monotonic() - start
     return {
         "samples": samples,
         "sustained_tokens_per_sec": final_interval,
         "cumulative_tokens_per_sec": round(cumulative_tokens / (cumulative_predict_ms / 1000.0), 2),
+        # Tokens delivered per second of WALL CLOCK, not per second of server-side
+        # generation time. The difference is everything the machine spends outside
+        # the accelerator -- scheduling, HTTP, tokenisation, client overhead -- and
+        # that is precisely what the concurrent-load variant exists to detect.
+        # Measured 2026-08-13: under concurrent load, sustained_tokens_per_sec moved
+        # -0.29% while this figure moved -11.05%. Reporting only the first would
+        # have said contention costs nothing, which is false.
+        "effective_tokens_per_sec": round(cumulative_tokens / wall, 2) if wall > 0 else None,
         "total_tokens": cumulative_tokens,
-        "wall_seconds": round(time.monotonic() - start, 1),
+        "wall_seconds": round(wall, 1),
     }
 
 
@@ -445,6 +454,10 @@ def measure_throughput(runner: dict, tier: str, minutes: float, runs: int, concu
         r["sustained_tokens_per_sec"] for r in run_results
         if r.get("sustained_tokens_per_sec") is not None
     ]
+    effective_values = [
+        r["effective_tokens_per_sec"] for r in run_results
+        if r.get("effective_tokens_per_sec") is not None
+    ]
     result = {
         "tier": tier,
         "model_path": runner.get("model_path"),
@@ -465,6 +478,18 @@ def measure_throughput(runner: dict, tier: str, minutes: float, runs: int, concu
             "max": round(max(sustained_values), 2),
             "values": sustained_values,
         }
+    if effective_values:
+        result["median_effective_tokens_per_sec"] = round(statistics.median(effective_values), 2)
+        result["spread_effective_tokens_per_sec"] = {
+            "min": round(min(effective_values), 2),
+            "max": round(max(effective_values), 2),
+            "values": effective_values,
+        }
+        result["router_should_use"] = (
+            "median_effective_tokens_per_sec — it is wall-clock and therefore sees "
+            "contention that median_sustained_tokens_per_sec, being generation-time "
+            "only, is blind to."
+        )
     else:
         result["median_sustained_tokens_per_sec"] = None
         result["reason"] = "no run produced a sustained figure -- see run_results errors"

@@ -6,9 +6,36 @@ Raw harness output from `tools/spike/profile_node.py`. This directory is under
 
 | File | Condition | Transcribable? |
 |---|---|---|
-| `SPIKE-001-3.1-small-unattended.json` | tier `small`, 3 x 10 min, idle/unattended | **yes** — full protocol, `--launch-command` recorded |
+| `SPIKE-001-3.1-small-unattended.json` | tier `small`, 3 x 10 min, idle | **yes** — full protocol, `--launch-command` recorded |
+| `SPIKE-001-3.1-small-concurrent.json` | tier `small`, 3 x 10 min, concurrent load | **yes** — full protocol, `--launch-command` recorded |
 | `DESKTOP-F73BBDB-20260812T224722.json` | early harness shakedown | **NO** — `--quick` |
 | `DESKTOP-F73BBDB-20260813T010244.json` | early harness shakedown | **NO** — `--quick` |
+
+## Results so far — `small` tier, both conditions
+
+|  | generation rate | **wall-clock rate** | tokens in 30 min |
+|---|---|---|---|
+| idle | 102.63 tok/s | **100.57 tok/s** | 181,760 |
+| concurrent | 102.33 tok/s | **89.45 tok/s** | 161,792 |
+| delta | −0.29% | **−11.05%** | −11.0% |
+
+Spread was tight in both: idle 102.40–102.88, concurrent 102.03–102.34.
+
+**Read the right column.** `sustained_tokens_per_sec` — the figure 3.1 names — counts only
+server-side *generation* time, so it says the concurrent load cost 0.29%. That is not a
+fact about the machine; it is an artefact of where the metric draws its boundary. The
+synthetic load is CPU-bound and never contended the GPU, so a generation-time metric is
+structurally blind to it. Eleven percent of real throughput vanished regardless.
+
+The harness now emits `effective_tokens_per_sec` (tokens ÷ wall clock) alongside, and
+labels which one the router should consume. The two existing reports predate the field
+but carry `total_tokens` and `wall_seconds`, so the figure is exactly recoverable from
+them — no re-run needed for this.
+
+**Second finding, free:** the node does not throttle. Minute 10 matched minute 1 in all
+six runs, in both conditions. 3.1's "minute 10, not minute 1" rule was written for
+thermally-throttled laptops; on this mains-powered desktop it is a no-op. Worth knowing,
+and only known because it was measured.
 
 **The two `--quick` files are kept as a record of what was run, not as data.** Each
 carries `QUICK_MODE_WARNING` in its own body. Their figures must never be copied
