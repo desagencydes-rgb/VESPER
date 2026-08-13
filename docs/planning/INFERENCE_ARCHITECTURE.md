@@ -154,9 +154,28 @@ Its sections split four ways. Measuring a presence-dependent figure now would de
 | Bucket | Sections | Disposition |
 |---|---|---|
 | Presence-independent | 3.1 throughput · 3.3 storage | Measure now; stable across the move |
-| Two figures required | 3.2 headroom · 3.6 thermal/power | Record **both** `owner_present` and `unattended`, the way 3.1 already records idle and concurrent |
-| Deferred | 3.4 availability / reachability | Stays `UNKNOWN` until post-move observation. `capability_profiles.toml` already carries `unmeasured_disposition = "UNAVAILABLE"`; no new mechanism, no new spike |
-| Likely N/A | 3.5 camera/audio | "Microphone at conversational distance" has no meaning on an unattended node. A finding, not a gap |
+| Two figures required | 3.2 headroom · 3.6 thermal/power | Record **both** `owner_present` and `unattended`. `unattended` is the **binding** figure — see the §3.4 lock below — and `owner_present` is observed context |
+| Locked by policy, still unmeasured | 3.4 availability / reachability | See below |
+| Skipped by owner direction | 3.5 camera/audio | See below |
+
+#### 3.4 — locked as policy, NOT as a measurement (owner, 2026-08-13)
+
+The owner's decision: **this node is treated as always-unused.** When a household member does use it, a protocol confines VESPER to light work and monitoring; when the machine goes unused or off again, VESPER resumes full operation.
+
+That decision settles the *design*. It does **not** produce a measured `availability_class`, and it must not be transcribed as one:
+
+- The statement is an **intent** about the future, not an observation of the past. `INV-HW-2` and `CI-034` exist for exactly this shape of claim.
+- `capability_profiles.toml` keeps `availability_class` unmeasured with `unmeasured_disposition = "UNAVAILABLE"`. No field changes.
+- **It does not retire the pass-criterion-3 failure.** Criterion 3 needs an `always_on` `control_plane_host`; this node is `on_demand` with wake BLOCKED (SPIKE-010). The fabric still needs an always-on member. Stated here so it is not later discovered as a regression.
+
+The protocol the lock implies has two halves, and both are new build work, not measurement:
+
+1. **Degradation on human presence** — detect an interactive session, drop VESPER to light work, restore on logoff/idle/shutdown. Shares its trigger machinery with SPIKE-012 §4's foreign-GPU-contention yield.
+2. **Activity monitoring, scoped.** The owner's stated reason is sound — it is their machine and their data. The boundary belongs in writing rather than in the implementer's head: **VESPER-relevant events only** — session start/stop, GPU/VRAM contention, disk pressure, and access attempts against VESPER's directories. Not general-purpose activity capture.
+
+#### 3.5 — skipped for this node (owner, 2026-08-13)
+
+Owner-**declared**, not measured: audio capture is available; camera is available via phone; neither is needed, because the owner will not be at this machine. Recorded as *declared and unmeasured* — **not** as measured-absent. A different node re-opens the question.
 
 **Stated in advance, not discovered late:** scoping SPIKE-001 to this node alone *guarantees* its pass criterion 3 fails — that criterion needs an `always_on` `control_plane_host`, and this node is `on_demand` with wake BLOCKED (SPIKE-010). Its §5 on-fail already covers the outcome: a finding about the fabric, not about the requirement. The fabric needs an always-on member.
 
@@ -164,12 +183,21 @@ Its sections split four ways. Measuring a presence-dependent figure now would de
 
 Windows 11 **Pro** already provides this. It is ordinary administration and is deliberately not spiked:
 
-- A **standard, non-admin** account for household use (a second local account already exists).
+- A **standard, non-admin** account for household use.
 - **ACLs** denying that account VESPER's directories and model store.
 - **`fsutil` disk quota** on it, so the shared disk cannot be filled out from under VESPER.
 
+**Correction (2026-08-13).** An earlier revision said "a second local account already exists." It does not, in the sense meant. `Get-LocalUser` shows the enabled accounts are `ULTRA PC` (owner) and `CodexSandboxOnline` / `CodexSandboxOffline` — tooling accounts, not a household account. The household account has to be **created**, and the two sandbox accounts are themselves extra logon surface on a machine about to be left unattended. Flagged to the owner; not removed.
+
+`fsutil quota` is **verified, not assumed** — it requires quotas enabled on the volume and fails quietly when they are not. The hardening script queries the state and reports it rather than setting a cap blind.
+
 The one genuinely measurable part — whether VESPER **yields** to a foreign GPU workload instead of thrashing, and how fast it recovers — is folded into SPIKE-012 §4 rather than opened as a new spike.
 
-### Disk is now on the critical path
+### Disk was on the critical path — it is not any more
 
-C: has **35.1 GB** free. A `COUNCIL` or `ELASTIC` mode implies roughly 15–20 GB of model files, before anything a household member installs. The `Downloads` cleanup (58.73 GB, `DESKTOP_PREP_PLAN.md` §7 step 6) is therefore a **prerequisite to the inference build**, not housekeeping.
+**Superseded 2026-08-13.** An earlier revision of this section read: *"C: has 35.1 GB free … the `Downloads` cleanup is therefore a prerequisite to the inference build."* The owner has since cleaned up, and C: now has **167.73 GB free** (MEASURED). A `COUNCIL` or `ELASTIC` mode implies roughly 15–20 GB of model files; that fits several times over. **Storage no longer gates the inference build.**
+
+Left as a finding rather than an action, because neither was in scope of what the owner asked for:
+
+- `%LOCALAPPDATA%\Docker\wsl\disk\docker_data.vhdx` — **63.03 GB**, and genuinely allocated, not sparse (`fsutil file queryvaliddata` reports a valid-data length matching the logical size). It holds Docker images and volumes; reclaiming it destroys them. The owner's Docker instruction was about *runtime behaviour* — "doesn't use the computer until called" — and that was already true and is now verified: service `Manual`/`Stopped`, autostart removed.
+- `Ubuntu-22.04` WSL distro — 5.2 GB. Untouched.
