@@ -17,15 +17,35 @@ $BUILD   = 'b10405-e79e4bf66'
 # -c must exceed the tier's generation length plus prompt room; the harness refuses
 # to run otherwise rather than silently measuring a truncated request.
 #
-# ngl 99 = all layers on GPU. `strong` cannot fit 14.3 GB into 7.2 GB of VRAM, so it
-# gets a partial offload -- that is the tier's purpose, not a failure. Its ngl is a
-# STARTING ESTIMATE and is corrected by the fit probe below.
+# ngl 99 = all layers on GPU. Neither `strong` candidate fits 7.2 GB of measured VRAM,
+# so both get a partial offload -- that is the tier's purpose, not a failure. Their ngl
+# values are STARTING ESTIMATES corrected by the fit probe below.
+#
+# MODEL SELECTION, revised 2026-08-13 after the owner asked whether the first picks
+# were chosen wisely. They were not. Two defects in the original set:
+#
+#   1. MIXED TOKENIZER FAMILIES. Llama-3.2-1B/3B and Llama-3.1-8B share a tokenizer,
+#      but Mistral-24B does not. Speculative decoding (SR-056, the stated reason the
+#      `draft` tier exists at all) requires draft and target to share a tokenizer, so
+#      the original set could never speculate into its own top tier. A single-family
+#      ladder keeps that option open instead of foreclosing it before it is tried.
+#
+#   2. DENSE-ONLY `strong`. On a VRAM-starved node this is the wrong default. A dense
+#      24B touches every parameter per token, so the half that lives in system RAM is
+#      paid for on every token. A Mixture-of-Experts model activates a fraction of its
+#      parameters per token -- 30B total, ~3B active -- so offloaded weight costs far
+#      less compute per token. EXPECTED to matter a great deal here; measured rather
+#      than assumed, which is why BOTH candidates are in the matrix.
+#
+# Llama-3.2-3B is kept at `small` and `draft` because it is already on disk, costs no
+# download, and gives a cross-family reference point.
 $MATRIX = @(
-  @{ tier='small';    model='Llama-3.2-3B-Instruct-Q4_K_M.gguf';           ctx=2048;  ngl=99; label='small-3B'    },
-  @{ tier='draft';    model='Llama-3.2-1B-Instruct-Q4_K_M.gguf';           ctx=1024;  ngl=99; label='draft-1B'    },
-  @{ tier='draft';    model='Llama-3.2-3B-Instruct-Q4_K_M.gguf';           ctx=1024;  ngl=99; label='draft-3B'    },
-  @{ tier='standard'; model='Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf';      ctx=8448;  ngl=99; label='standard-8B' },
-  @{ tier='strong';   model='Mistral-Small-24B-Instruct-2501-Q4_K_M.gguf'; ctx=8448;  ngl=16; label='strong-24B'  }
+  @{ tier='small';    model='Llama-3.2-3B-Instruct-Q4_K_M.gguf';              ctx=2048; ngl=99; label='small-llama3B'  },
+  @{ tier='draft';    model='Qwen3-1.7B-Q4_K_M.gguf';                         ctx=1024; ngl=99; label='draft-qwen1.7B' },
+  @{ tier='draft';    model='Llama-3.2-3B-Instruct-Q4_K_M.gguf';              ctx=1024; ngl=99; label='draft-llama3B'  },
+  @{ tier='standard'; model='Qwen3-8B-Q4_K_M.gguf';                           ctx=8448; ngl=99; label='standard-qwen8B'},
+  @{ tier='strong';   model='Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf';        ctx=8448; ngl=12; label='strong-moe30B'  },
+  @{ tier='strong';   model='Mistral-Small-24B-Instruct-2501-Q4_K_M.gguf';    ctx=8448; ngl=16; label='strong-dense24B'}
 )
 
 function Stop-Server {
