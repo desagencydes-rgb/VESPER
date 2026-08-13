@@ -55,6 +55,8 @@ Add KV cache and runtime overhead on top of weights. Quantized KV (q8_0 symmetri
 - **Flash Attention on, symmetric quantized KV cache** (q8_0/q8_0; q4_0/q4_0 when stretching). Asymmetric pairs fall back to a slower unfused path.
 - **OS choice stays open.** Linux idles lighter, but this machine is not VESPER-dedicated. Deliberately not decided here.
 
+**Security note, observed at first launch (2026-08-13).** `llama-server` warns at startup that it defaults to **CORS allowing all origins with no API key set**. Bound to `127.0.0.1` on a single machine that is a local-only concern. It stops being local-only the moment this node is reachable through the SPIKE-009 cross-site fabric: an unauthenticated inference endpoint on the fabric is exactly the shape of thing SPIKE-010 §5 already forbids for the wake path. **Do not expose this port beyond loopback without an API key and an origin policy.** Recorded here so the default is a decision rather than an accident.
+
 ---
 
 ## 2. Residency states
