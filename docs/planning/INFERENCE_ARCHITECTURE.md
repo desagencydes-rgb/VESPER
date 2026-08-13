@@ -127,3 +127,39 @@ The big lever is **dormancy**, not tuning: unloaded-and-idle beats any power-lim
 **SPIKE-012 decides:** whether the residency manager holds up — mode switching, anti-thrash, priority, headroom, and which modes are viable at all on 8 GB.
 
 **Deliberately left open:** base OS · exact model picks per mode · final power-cap and undervolt values.
+
+---
+
+## 8. The node is a household machine, and it is about to change
+
+Two facts that reshape what SPIKE-001 can honestly measure **today** (owner, 2026-08-13):
+
+1. **The owner is present now and will not be later.** The desktop stays in site A; the owner moves to site B. Today it is a daily-driver with Opera and a full working set. Afterwards it is unattended, used occasionally by a household member at most.
+2. **The household includes a child.** Another person may start a game or other GPU-heavy application at any time, without warning or coordination.
+
+### What this does to SPIKE-001
+
+Its sections split four ways. Measuring a presence-dependent figure now would describe a machine that stops existing after the move — the exact error §3.1 of that spike warns about.
+
+| Bucket | Sections | Disposition |
+|---|---|---|
+| Presence-independent | 3.1 throughput · 3.3 storage | Measure now; stable across the move |
+| Two figures required | 3.2 headroom · 3.6 thermal/power | Record **both** `owner_present` and `unattended`, the way 3.1 already records idle and concurrent |
+| Deferred | 3.4 availability / reachability | Stays `UNKNOWN` until post-move observation. `capability_profiles.toml` already carries `unmeasured_disposition = "UNAVAILABLE"`; no new mechanism, no new spike |
+| Likely N/A | 3.5 camera/audio | "Microphone at conversational distance" has no meaning on an unattended node. A finding, not a gap |
+
+**Stated in advance, not discovered late:** scoping SPIKE-001 to this node alone *guarantees* its pass criterion 3 fails — that criterion needs an `always_on` `control_plane_host`, and this node is `on_demand` with wake BLOCKED (SPIKE-010). Its §5 on-fail already covers the outcome: a finding about the fabric, not about the requirement. The fabric needs an always-on member.
+
+### Household protection — configuration, not a spike
+
+Windows 11 **Pro** already provides this. It is ordinary administration and is deliberately not spiked:
+
+- A **standard, non-admin** account for household use (a second local account already exists).
+- **ACLs** denying that account VESPER's directories and model store.
+- **`fsutil` disk quota** on it, so the shared disk cannot be filled out from under VESPER.
+
+The one genuinely measurable part — whether VESPER **yields** to a foreign GPU workload instead of thrashing, and how fast it recovers — is folded into SPIKE-012 §4 rather than opened as a new spike.
+
+### Disk is now on the critical path
+
+C: has **35.1 GB** free. A `COUNCIL` or `ELASTIC` mode implies roughly 15–20 GB of model files, before anything a household member installs. The `Downloads` cleanup (58.73 GB, `DESKTOP_PREP_PLAN.md` §7 step 6) is therefore a **prerequisite to the inference build**, not housekeeping.

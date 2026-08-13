@@ -58,7 +58,7 @@ This is the claim the whole swarm design rests on. If added agents duplicate mod
    allocated to the last byte.
 ```
 
-## 4. Priority and idle descent
+## 4. Priority, foreign contention, and idle descent
 
 ```
 Interactive request vs. running background batch: assert the interactive one wins a slot
@@ -66,6 +66,25 @@ Interactive request vs. running background batch: assert the interactive one win
 Idle ladder: ACTIVE -> WARM -> DORMANT -> DORMANT_ALL fires on its timers,
   and each step's power/VRAM drop is MEASURED, not assumed.
 ```
+
+**Foreign GPU contention, mandatory.** The site-A desktop is a household machine, not a
+dedicated server -- another person (per owner, 2026-08-13: a child in the house) may launch
+a game or another GPU-heavy application at any time, with no warning and no coordination.
+
+```
+While VESPER holds a resident model, start a foreign GPU workload that demands
+substantial VRAM.
+  Assert: VESPER YIELDS -- degrades to a smaller mode or descends the idle ladder --
+          rather than thrashing, hard-failing, or fighting the foreign process for VRAM.
+  Assert: the foreign application remains usable. The machine belongs to the household
+          first; a node that must monopolise the GPU to function is not viable here.
+  Record: what VESPER loses in that state, and its recovery time once the foreign
+          workload exits.
+```
+
+This is the resource half of the problem. The access half -- a household user filling the
+disk or reaching VESPER's files -- is ordinary Windows administration (standard non-admin
+account, ACLs on VESPER's directories, `fsutil` disk quota) and is deliberately NOT a spike.
 
 ## 5. Pass criteria
 
@@ -78,6 +97,7 @@ Idle ladder: ACTIVE -> WARM -> DORMANT -> DORMANT_ALL fires on its timers,
 | 5 | No model is evicted with a request in flight |
 | 6 | Headroom reservation keeps the machine responsive under full load |
 | 7 | Priority policy resolves interactive-vs-batch contention within budget |
+| 8 | Under foreign GPU contention VESPER yields, the foreign application stays usable, and what VESPER loses plus its recovery time are recorded |
 
 ## 6. On fail
 
@@ -85,7 +105,9 @@ A mode that cannot hold its budget is **recorded NOT VIABLE on 8 GB**, with the 
 
 If anti-thrash cannot bound the swap rate under adversarial demand, `ELASTIC` is restricted to a **fixed resident set** and the restriction is recorded as a limitation. The other modes stand or fall on their own numbers.
 
-**Not permitted:** reporting single-agent throughput as concurrent throughput; reporting warm-model latency as a mode-switch cost; claiming a mode works without sustained-load measurement; allocating VRAM to the last byte and calling the machine responsive; or fixing a failing mode by changing the model and reporting the new number as the old mode's result.
+If VESPER cannot yield to a foreign GPU workload without thrashing, the resident set is capped low enough that a household application can always start, and the cap is recorded as a limitation. The machine belongs to the household first.
+
+**Not permitted:** reporting single-agent throughput as concurrent throughput; reporting warm-model latency as a mode-switch cost; claiming a mode works without sustained-load measurement; allocating VRAM to the last byte and calling the machine responsive; fixing a failing mode by changing the model and reporting the new number as the old mode's result; or measuring contention only against VESPER's own workloads when the real machine is shared.
 
 ## 7. Deliverables
 
@@ -94,4 +116,5 @@ If anti-thrash cannot bound the swap rate under adversarial demand, `ELASTIC` is
 3. Mode-switch cost matrix.
 4. The anti-thrash result under adversarial demand, and whether `ELASTIC` survives unrestricted.
 5. Measured power/VRAM at each rung of the idle ladder.
-6. A recommendation on the **default** mode, and the rules for leaving it.
+6. The foreign-contention result: what VESPER yields, what it loses, its recovery time, and whether the household application stayed usable.
+7. A recommendation on the **default** mode, and the rules for leaving it.
