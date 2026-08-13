@@ -8,7 +8,13 @@
 
 ## 0. The one constraint everything bends around
 
-**8 GB of VRAM.** Every design choice below is downstream of it.
+**Not 8 GB — 7.2 GB.** MEASURED 2026-08-13 via `llama-server --list-devices` on the real card:
+
+```
+Vulkan0: AMD Radeon RX 6650 XT (8176 MiB, 7378 MiB free)
+```
+
+The card reports 8176 MiB total but only **7378 MiB free** — the desktop compositor and display take the rest, and they do not give it back while Windows is running a desktop. Every budget below is against **~7.2 GB usable**, not the 8 GB on the box. Planning against the nameplate figure would have overcommitted every mode by roughly 800 MiB.
 
 | Model class | Quant | EXPECTED weights | Fits alongside? |
 |---|---|---|---|
@@ -16,6 +22,8 @@
 | ~3B | Q4 | ~2.0 GB | a few |
 | ~7-8B | Q4_K_M | ~4.5 GB | one, plus a tiny |
 | ~13-14B | Q4 | ~8.5 GB | **does not fit** — needs partial CPU offload |
+
+Against 7.2 GB rather than 8, the modes that were already tight get tighter: `COUNCIL` (3 × ~3B) and `SWARM` were sized with roughly 800 MiB that does not exist. Treat their viability as genuinely open until SPIKE-012 measures them.
 
 Add KV cache and runtime overhead on top of weights. Quantized KV (q8_0 symmetric) roughly halves the cache cost — that is what buys the headroom to run two models at once.
 
@@ -42,7 +50,7 @@ Add KV cache and runtime overhead on top of weights. Quantized KV (q8_0 symmetri
 ### Baseline (layer 0) — settled
 
 - **Native Windows processes.** No Docker, no WSL2. Container/VM layers cost a measured 15–40% on GPU work and buy nothing on a single-tenant node.
-- **Vulkan backend.** On Windows + RDNA2 this outperforms ROCm/HIP; ROCm is Linux-first and lightly tuned for RDNA.
+- **Vulkan backend.** On RDNA2 this outperforms ROCm/HIP in published 2026 benchmarks, because llama.cpp's ROCm path is a lightly-ported CUDA backend while its Vulkan backend was originally written on an RDNA2 card. **Correction (2026-08-13):** an earlier draft said ROCm was Linux-only. It is not — release `b10405` ships `llama-b10405-bin-win-rocm-7.14-x64.zip`. The performance argument stands; the availability argument was wrong, and a head-to-head bench on this card is worth doing rather than assuming.
 - **VESPER owns its own build.** No borrowing from AEGIS / NUMEN / ARCHONEC — those stay untouched.
 - **Flash Attention on, symmetric quantized KV cache** (q8_0/q8_0; q4_0/q4_0 when stretching). Asymmetric pairs fall back to a slower unfused path.
 - **OS choice stays open.** Linux idles lighter, but this machine is not VESPER-dedicated. Deliberately not decided here.
