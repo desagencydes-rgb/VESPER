@@ -269,7 +269,7 @@ def detect_runner() -> dict:
     return info
 
 
-def _llama_generate(prompt: str, n_predict: int) -> dict:
+def _llama_generate(prompt: str, n_predict: int, timeout: float = 600) -> dict:
     """POST /completion. llama-server returns a `timings` block carrying
     predicted_n and predicted_ms -- the generation-only figures. Prompt-eval
     time is reported separately and is deliberately NOT folded in: SPIKE-001
@@ -284,7 +284,7 @@ def _llama_generate(prompt: str, n_predict: int) -> dict:
         f"{LLAMA_SERVER_URL}/completion", data=body,
         headers={"Content-Type": "application/json"}, method="POST",
     )
-    with urllib.request.urlopen(req, timeout=600) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read())
 
 
@@ -383,9 +383,17 @@ def _single_throughput_run(tier: str, minutes: float, checkpoints_min: list[floa
     last_tokens = 0
     last_predict_ms = 0.0
 
+    # Per-request timeout must scale with ctx_tokens, not sit at a fixed 600s:
+    # `strong`'s 8192-token requests take ~775s at this node's measured ~10.5
+    # tok/s, already past a flat 600s cap -- which is exactly what silently
+    # dropped 2 of 3 runs on the first strong-tier pass. Floor of 2 tok/s is a
+    # generous safety margin below any speed observed so far (idle or
+    # contended), plus fixed overhead for prompt eval and connection setup.
+    req_timeout = max(600.0, ctx_tokens / 2.0 + 60.0)
+
     while time.monotonic() < deadline:
         try:
-            resp = _llama_generate(BENCH_PROMPT, n_predict=ctx_tokens)
+            resp = _llama_generate(BENCH_PROMPT, n_predict=ctx_tokens, timeout=req_timeout)
         except (urllib.error.URLError, OSError) as e:
             return {"error": f"generation request failed: {e}", "partial_samples": samples}
         timings = resp.get("timings") or {}
