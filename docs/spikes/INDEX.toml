@@ -123,7 +123,24 @@ requires_hardware = false
 [spikes.SPIKE-004]
 title = "Pepper's-ghost volumetric output on an ordinary phone screen"
 protocol = "docs/spikes/SPIKE-004-volumetric-optics.md"
-status = "NOT_STARTED"
+status = "RUNNING"
+status_note = """INSTRUMENT BUILT, NO READING TAKEN YET -- BLOCKED ON HARDWARE THE OWNER DOES NOT HAVE YET, and
+the hardware is a flat clear sheet, not a purchase. Everything else is built:
+tools/spike/spike004_ghost.html served by tools/spike/serve_ghost.py, six tests, three
+layouts (single pane / four-face pyramid / bare-panel baseline), results POST back into
+spike-results/ so nothing is transcribed by hand.
+
+GEOMETRY SETTLED 2026-08-14, see the protocol section 6. A partial reflector must be FLAT
+and tilted ~45 deg. A vertical surface -- jar, bottle, straight-sided glass box -- images the
+screen back into its own plane and cannot produce a floating image at all. A straight-sided
+jar was proposed and ruled out on that basis; recorded so it is not proposed again. A single
+45 deg pane is RECOMMENDED over the four-face pyramid on this panel: at 720x1280 the pyramid
+gives each face a 360 px square and spends three quarters of the light on images nobody is
+standing in front of.
+
+Every datum here is perceptual by construction -- legible or not, the angle it breaks at, the
+light level it washes out at -- so it needs the owner's eyes and adb is NOT on the critical
+path. Roughly 5 minutes of their time; the bare-panel baseline half needs no glass at all."""
 question = "On a phone screen under a reflective pyramid, what content is actually legible -- at what size, brightness, viewing angle and ambient light -- and which scene properties does that constrain?"
 pass_criteria = "A measured envelope on the real setup: minimum legible glyph height, usable viewing arc, ambient-light ceiling at which the image washes out, refresh behaviour, and the maximum number of simultaneous scene elements that stay readable -- expressed as constraints on the `volumetric` rung of contracts/policy/degradation_ladder.toml."
 on_fail = "The `volumetric` rung is recorded as R&D. CONTRACTS ARE NOT BLOCKED and proceed now: the semantic-scene architecture is endpoint-independent by construction, so an unavailable rung is a degradation, not a redesign."
@@ -193,7 +210,32 @@ raised_by = "REM-014 §Unresolved decisions item 3"
 [spikes.SPIKE-008]
 title = "Persistence engine validation against the ADR-002 constraint set"
 protocol = "docs/spikes/SPIKE-008-persistence-validation.md"
-status = "NOT_STARTED"
+status = "RUNNING"
+status_note = """Built and run 2026-08-14 on the site-A desktop. Harness:
+tools/spike/validate_persistence.py. Report:
+docs/planning/spike-results/SPIKE-008-adr002-validation.json.
+
+SEVEN of nine criteria CLOSED, including all four blocking ones:
+  1.1 fencing      -- 0 stale writes accepted at 2, 4 and 8 concurrent writers, 10k writes.
+                      The mandatory NON-COMPLIANT control failed as required (119/167/186
+                      stale writes accepted), so the test is proven able to detect the fault
+                      it is looking for. An earlier version of this control PASSED, which
+                      meant it was measuring nothing; that is fixed.
+  1.2 crash safety -- 500 injected-kill trials, 0 torn checkpoints. Trials are armed only
+                      after >=5 committed rows, because a kill landing before CREATE TABLE
+                      was being scored as a failure; unarmed trials are skipped and counted.
+  1.3 checkpoint   -- p50 0.93 ms, p95 1.08 ms, max 9.25 ms at synchronous=FULL, WAL, under
+                      concurrent read load, against a 200 ms p95 budget. 185x headroom.
+                      0 ordering violations (D6).
+  1.4 append-only  -- enforced.
+
+TWO OPEN, both needing a second machine and neither blocking F0:
+  1.5 / 1.6 -- recorded NOT_RUN. Criterion 9 (all five stores openable on every candidate
+               node class, including the foreground-only one) needs the Kali laptop and is
+               that node's first task -- see docs/planning/NODE_ONBOARDING_KALI_LAPTOP.md.
+
+ADR-002 was ACCEPTED on 2026-08-14 on the strength of the seven closed criteria, which
+discharged INV-ADR-1 and unblocked F0."""
 question = "Does the ADR-002 storage design actually deliver atomic epoch fencing, crash-safe checkpoints within budget, and readable stores on every node class?"
 pass_criteria = "Under concurrent writers and injected power loss: zero stale-epoch writes accepted; zero torn checkpoints; checkpoint commit within the 200 ms budget at p95 on the minimum profile; all five stores openable on every candidate node class including the foreground-only one."
 on_fail = "ADR-002 is revised BEFORE F0 rather than discovered during it. A persistence design that fails this is cheaper to change on paper than after durable data exists -- migration retrofitted onto durable data is the classic unrecoverable cost (GAP-046)."
