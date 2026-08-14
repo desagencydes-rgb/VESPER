@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | **PROPOSED** — complete and decision-ready. Acceptance is the Chief Architect's act at the readiness gate, not this document's. See §Acceptance authority. |
+| **Status** | **ACCEPTED** — by the project owner, 2026-08-14, under `OWNER-DECISION-006(b)`, on the seven `SPIKE-008` criteria tested. Previously `PROPOSED`. **`INV-ADR-1` is discharged and F0 is unblocked.** See §Acceptance authority for the condition it was given under and the two criteria still open. |
 | **Date** | 2026-08-12 |
 | **Owner** | Core Systems Engineer |
 | **Supersedes** | Foundation ADR-002 *"Persistence engine: task state, memory, provenance, migration and recovery"* — previously *Intentionally unresolved* |
@@ -158,9 +158,39 @@ Every store is a single file; rollback is a file swap plus a forward log replay.
 
 ## Acceptance authority
 
-`AUTHORITY_AND_PRECEDENCE §5` assigns ADRs to *"Engineering; owner for security boundaries"*, and Baseline 02 §3 assigns ADR approval to the Chief Architect. This record is filed **PROPOSED**, not ACCEPTED, for one reason: the same pass that wrote it would otherwise be the pass that discharged `INV-ADR-1`, which is the F0 gate. A gate discharged by its own author is not a gate.
+`AUTHORITY_AND_PRECEDENCE §5` assigns ADRs to *"Engineering; owner for security boundaries"*, and Baseline 02 §3 assigns ADR approval to the Chief Architect. This record was filed **PROPOSED**, not ACCEPTED, for one reason: the same pass that wrote it would otherwise be the pass that discharged `INV-ADR-1`, which is the F0 gate. A gate discharged by its own author is not a gate.
 
-**Consequence, stated plainly:** `INV-ADR-1` continues to block F0 until this is accepted. That is the correct state, not a defect to be worked around.
+**ACCEPTED 2026-08-14 by the project owner** under `OWNER-DECISION-006(b)`, on evidence rather than on the record's own argument. `INV-ADR-1` is discharged and F0 is unblocked.
+
+### The condition the acceptance was given under, and whether this record meets it
+
+The owner's stated condition: *"as long as it ensures data isn't lost, even if one device got cut off from the network, and the other one came afterwards."* That is the partition-rejoin case, and it is the exact case `INV-OWN-3` and D3 exist for. Recorded here in full, because an acceptance is only as good as the shared understanding of what was accepted.
+
+**What this design guarantees, precisely:**
+
+- The cut-off device's queued work is **not discarded**. D7 replays it as ordinary writes subject to ADR-001 D4 supersession, and the writes enter `log.db`, which is append-only and never rewritten (`INV-SCHEMA-2`).
+- Its writes are **not applied with owner authority** — that is the fencing (D3), and it is deliberate. A returning ex-owner must not be able to overwrite decisions taken in its absence.
+- Where both devices changed the same key, the supersession rule decides and the older change is **superseded, not deleted**. `tombstones.db` (D2) carries an index entry for every durable record ever written, held in a *separate* store so that whatever destroys a record cannot also destroy the evidence it existed. `INV-LOSS-3` forbids presenting a known cause as forgetting.
+
+**So the condition is met in the sense that matters — nothing vanishes, and nothing vanishes silently — with one refinement the owner should hold onto: a conflicting change made during the partition can be overruled. It is overruled visibly and on the record, never quietly.**
+
+### Evidence the acceptance rests on
+
+`SPIKE-008`, run 2026-08-14 on the first candidate node against this design. Seven of nine criteria closed:
+
+| Criterion | Result |
+|---|---|
+| 1 — zero stale-epoch writes accepted, at 2, 4 and 8 concurrent writers | **PASS** |
+| 2 — the mandatory non-compliant read-then-write control **fails** | **PASS** (it accepted 119 / 167 / 186 stale writes; the compliant build accepted 0) |
+| 3 — zero torn transactions, 500 crash trials, all five stores | **PASS** |
+| 4 — audit hash chain unbroken in every trial | **PASS** |
+| 5 — checkpoint at `synchronous = FULL` under read load ≤ 200 ms p95 | **PASS** — 1.17 ms |
+| 6 — checkpoint acknowledged before step completion (D6 ordering) | **PASS** |
+| 7 — `UPDATE`/`DELETE` on append-only stores refused at the storage layer | **PASS** |
+| 8 — read-time upcasting behaviour | **NOT RUN** — needs the F0 event codec |
+| 9 — all five stores open on every candidate node class | **NOT RUN** — one node enrolled |
+
+**The acceptance is explicitly on the seven criteria tested.** Criteria 8 and 9 are verified during F0 and on the second enrolled node respectively; if either fails, this record is revised then, which is the same disposition §3 already carries. Report: `docs/planning/spike-results/SPIKE-008-adr002-validation.json`.
 
 > **Note for the readiness gate.** ADR-001 and ADR-012 carry `Status: ACCEPTED` stamped in an earlier engineering pass under the same authority question. Either all three are confirmed together at the gate, or the acceptance of ADR-001/ADR-012 should be re-confirmed on the same basis. Recorded here rather than resolved, because it is the same authority question and should be answered once. See `OWNER-DECISION-006`.
 

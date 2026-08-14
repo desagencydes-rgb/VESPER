@@ -93,16 +93,36 @@ owner_role = "Platform Engineer · Security Engineer"
 requires_hardware = false
 
 [spikes.SPIKE-004]
-title = "Optical feasibility envelope of the volumetric output"
+title = "Pepper's-ghost volumetric output on an ordinary phone screen"
 protocol = "docs/spikes/SPIKE-004-volumetric-optics.md"
 status = "NOT_STARTED"
-question = "What is the real optical feasibility envelope of the glass/holographic output, and which scene properties does it constrain?"
-pass_criteria = "A measured envelope: usable volume, viewing angle, ambient-light tolerance, refresh rate, and element density at legible size -- expressed as constraints on the `volumetric` rung of contracts/policy/degradation_ladder.toml."
+question = "On a phone screen under a reflective pyramid, what content is actually legible -- at what size, brightness, viewing angle and ambient light -- and which scene properties does that constrain?"
+pass_criteria = "A measured envelope on the real setup: minimum legible glyph height, usable viewing arc, ambient-light ceiling at which the image washes out, refresh behaviour, and the maximum number of simultaneous scene elements that stay readable -- expressed as constraints on the `volumetric` rung of contracts/policy/degradation_ladder.toml."
 on_fail = "The `volumetric` rung is recorded as R&D. CONTRACTS ARE NOT BLOCKED and proceed now: the semantic-scene architecture is endpoint-independent by construction, so an unavailable rung is a degradation, not a redesign."
 blocks = ["the volumetric ladder rung only"]
-time_box = "10 working days"
+time_box = "3 working days"
 owner_role = "Presence & Interaction Engineer"
 requires_hardware = true
+rescoped = """2026-08-14, by owner correction, and the correction is large enough that the
+old scoping was wrong rather than merely imprecise. This spike was written as if the
+volumetric rung meant exotic optics -- a light-field or holographic display to be sourced
+and characterised -- which put it in the 'blocked on hardware we do not own' pile with a
+10-day box.
+
+It is not that. The intended output is PEPPER'S GHOST: an ordinary flat screen, mostly the
+J3, showing content laid out so that a transparent pyramid or glass box placed on the
+screen reflects it into an apparent floating image. Nineteenth-century stagecraft, a
+century-old technique, and the only hardware beyond the phone is a piece of shaped
+transparent plastic.
+
+Consequences of the correction: the spike is RUNNABLE NOW on hardware already in the house,
+the time box drops from 10 days to 3, and the questions change entirely. Usable volume,
+element density and refresh rate as originally written are display-panel properties already
+known from the phone's spec sheet. What actually needs measuring is what the OPTICS cost:
+the reflection is dim (a partial reflector passes most light through), so the real limits
+are legibility at small size, how much ambient light washes the image out, and how narrow
+the viewing arc is before the illusion collapses. Those are the constraints the semantic
+scene must respect, and none of them was in the old pass criteria."""
 
 [spikes.SPIKE-005]
 title = "Delegated presence: programmatic call origination without deceptive impersonation"
