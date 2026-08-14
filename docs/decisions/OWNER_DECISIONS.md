@@ -1,6 +1,6 @@
 # VESPER — Decisions requiring the project owner
 
-**Status: FIVE RESOLVED 2026-08-12 · `OWNER-DECISION-006` OPEN and BLOCKING F0 (raised 2026-08-12, second engineering pass; re-confirmed OPEN by the final pre-F0 pass the same day)** · **Raised:** 2026-08-11 · **Ruling:** project owner
+**Status: FIVE RESOLVED 2026-08-12 · `OWNER-DECISION-006`(a) RESOLVED 2026-08-14 (ADR-007 RATIFIED) · (b) and (c) OPEN; (b) still BLOCKS F0** · **Raised:** 2026-08-11 · **Ruling:** project owner
 
 | ID | Ruling | Propagated to |
 |---|---|---|
@@ -185,7 +185,26 @@ Confirm A / B / C.
 
 ## OWNER-DECISION-006
 
-**Raised:** 2026-08-12 (second engineering pass) · **Status: OPEN**
+**Raised:** 2026-08-12 (second engineering pass) · **Status: (a) RESOLVED 2026-08-14 · (b) and (c) OPEN**
+
+> **(a) RULED 2026-08-14 — `ADR-007` RATIFIED as written (option A).** The owner's condition was
+> that each device hold its own keys, with separate keys for verification; that is D1 and D7 as
+> written. The four practical consequences were put to the owner and accepted: no
+> trust-on-first-use, non-overridable automatic demotion, the file-based-key handset admitted at
+> `Z2` rather than excluded, and enrollment-key loss halting new enrollments. One clarification
+> recorded so the ratification does not rest on a conflation: **ADR-007 is identity, not transport
+> encryption** — the encrypted cross-site channel is `SPIKE-009`'s fabric, and D4's session binding
+> runs over it rather than replacing it. Propagated to `docs/ADR/ADR-007-device-identity-and-trust.md`.
+>
+> **(b) remains OPEN and is what still blocks F0.** As of 2026-08-14 it is no longer a decision on
+> a promise: `SPIKE-008` has run against the real ADR-002 design on the first candidate node and
+> reports **all four blocking criteria passing** — zero stale-epoch writes at 2, 4 and 8 concurrent
+> writers, its mandatory non-compliant control failing as required, zero torn transactions and an
+> unbroken hash chain across 500 crash trials, and checkpoint commit at `synchronous = FULL` under
+> read load at **1.17 ms p95 against a 200 ms budget**. Criteria 8 and 9 remain OPEN (read-time
+> upcasting needs the F0 runtime; portability needs a second enrolled node), so an acceptance
+> resting on this evidence should say which parts it rests on. Report:
+> `docs/planning/spike-results/SPIKE-008-adr002-validation.json`.
 
 ### QUESTION
 

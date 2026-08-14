@@ -1,0 +1,3772 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-08-14T16:30:24+00:00",
+  "spike": "SPIKE-008",
+  "adr": "ADR-002",
+  "node": {
+    "os": "Windows 10.0.26200",
+    "python": "3.14.2",
+    "sqlite": "3.50.4",
+    "cpu_count": 12,
+    "workdir_free_gb": 123.9
+  },
+  "sections": {
+    "1.1_fencing": {
+      "section": "1.1",
+      "writes_per_level": 10000,
+      "results": {
+        "compliant": {
+          "levels": [
+            {
+              "concurrent_writers": 2,
+              "committed_writes": 10000,
+              "writer_reported_accepted": 10000,
+              "writer_reported_rejected": 0,
+              "stale_writes_observed_in_committed_state": 0,
+              "first_regressions": [],
+              "final_current_epoch": 10001,
+              "final_written_by_epoch": 10001,
+              "passes": true
+            },
+            {
+              "concurrent_writers": 4,
+              "committed_writes": 10000,
+              "writer_reported_accepted": 10000,
+              "writer_reported_rejected": 0,
+              "stale_writes_observed_in_committed_state": 0,
+              "first_regressions": [],
+              "final_current_epoch": 10001,
+              "final_written_by_epoch": 10001,
+              "passes": true
+            },
+            {
+              "concurrent_writers": 8,
+              "committed_writes": 10000,
+              "writer_reported_accepted": 10000,
+              "writer_reported_rejected": 0,
+              "stale_writes_observed_in_committed_state": 0,
+              "first_regressions": [],
+              "final_current_epoch": 10001,
+              "final_written_by_epoch": 10001,
+              "passes": true
+            }
+          ],
+          "all_levels_pass": true
+        },
+        "non_compliant_control": {
+          "levels": [
+            {
+              "concurrent_writers": 2,
+              "committed_writes": 10000,
+              "writer_reported_accepted": 10000,
+              "writer_reported_rejected": 0,
+              "stale_writes_observed_in_committed_state": 769,
+              "first_regressions": [
+                {
+                  "at_index": 10,
+                  "from_epoch": 12,
+                  "to_epoch": 8
+                },
+                {
+                  "at_index": 21,
+                  "from_epoch": 23,
+                  "to_epoch": 13
+                },
+                {
+                  "at_index": 26,
+                  "from_epoch": 28,
+                  "to_epoch": 24
+                },
+                {
+                  "at_index": 35,
+                  "from_epoch": 37,
+                  "to_epoch": 29
+                },
+                {
+                  "at_index": 40,
+                  "from_epoch": 42,
+                  "to_epoch": 38
+                }
+              ],
+              "final_current_epoch": 10001,
+              "final_written_by_epoch": 10001,
+              "passes": false
+            },
+            {
+              "concurrent_writers": 4,
+              "committed_writes": 10000,
+              "writer_reported_accepted": 10000,
+              "writer_reported_rejected": 0,
+              "stale_writes_observed_in_committed_state": 922,
+              "first_regressions": [
+                {
+                  "at_index": 11,
+                  "from_epoch": 15,
+                  "to_epoch": 5
+                },
+                {
+                  "at_index": 24,
+                  "from_epoch": 28,
+                  "to_epoch": 7
+                },
+                {
+                  "at_index": 29,
+                  "from_epoch": 33,
+                  "to_epoch": 29
+                },
+                {
+                  "at_index": 33,
+                  "from_epoch": 37,
+                  "to_epoch": 34
+                },
+                {
+                  "at_index": 50,
+                  "from_epoch": 54,
+                  "to_epoch": 16
+                }
+              ],
+              "final_current_epoch": 10001,
+              "final_written_by_epoch": 10001,
+              "passes": false
+            },
+            {
+              "concurrent_writers": 8,
+              "committed_writes": 10000,
+              "writer_reported_accepted": 10000,
+              "writer_reported_rejected": 0,
+              "stale_writes_observed_in_committed_state": 980,
+              "first_regressions": [
+                {
+                  "at_index": 12,
+                  "from_epoch": 14,
+                  "to_epoch": 12
+                },
+                {
+                  "at_index": 20,
+                  "from_epoch": 26,
+                  "to_epoch": 25
+                },
+                {
+                  "at_index": 33,
+                  "from_epoch": 39,
+                  "to_epoch": 17
+                },
+                {
+                  "at_index": 50,
+                  "from_epoch": 56,
+                  "to_epoch": 40
+                },
+                {
+                  "at_index": 60,
+                  "from_epoch": 66,
+                  "to_epoch": 57
+                }
+              ],
+              "final_current_epoch": 10001,
+              "final_written_by_epoch": 10001,
+              "passes": false
+            }
+          ],
+          "all_levels_pass": false
+        }
+      },
+      "criterion_1_zero_stale_accepted": true,
+      "criterion_2_control_build_fails": true,
+      "verdict": "PASS"
+    },
+    "1.2_crash_safety": {
+      "section": "1.2",
+      "trials_requested": 500,
+      "trials_scored": 500,
+      "trials_skipped_unarmed": [],
+      "kill_mode": "SIGKILL (Popen.kill), after the child has committed >= 5 rows",
+      "stores_exercised": [
+        "log",
+        "state",
+        "audit",
+        "tombstones",
+        "workspace"
+      ],
+      "failed_to_open": [],
+      "torn_transactions": [],
+      "broken_hash_chains": [],
+      "criterion_3_zero_torn": true,
+      "criterion_4_chain_unbroken": true,
+      "power_cut_trials_run": false,
+      "limitation": "SIGKILL only. \u00a71.2 requires power-cut trials on at least one candidate node because a process kill does not exercise the disk write cache the way a power loss does. Criterion 3 is PARTLY closed: the SQLite/WAL layer is validated, the drive's flush behaviour is not.",
+      "per_trial": [
+        {
+          "trial": 0,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 220,
+          "chain_intact": true
+        },
+        {
+          "trial": 1,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 229,
+          "chain_intact": true
+        },
+        {
+          "trial": 2,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 173,
+          "chain_intact": true
+        },
+        {
+          "trial": 3,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 39,
+          "chain_intact": true
+        },
+        {
+          "trial": 4,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 248,
+          "chain_intact": true
+        },
+        {
+          "trial": 5,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 237,
+          "chain_intact": true
+        },
+        {
+          "trial": 6,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 204,
+          "chain_intact": true
+        },
+        {
+          "trial": 7,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 46,
+          "chain_intact": true
+        },
+        {
+          "trial": 8,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 191,
+          "chain_intact": true
+        },
+        {
+          "trial": 9,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 197,
+          "chain_intact": true
+        },
+        {
+          "trial": 10,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 65,
+          "chain_intact": true
+        },
+        {
+          "trial": 11,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 75,
+          "chain_intact": true
+        },
+        {
+          "trial": 12,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 91,
+          "chain_intact": true
+        },
+        {
+          "trial": 13,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 40,
+          "chain_intact": true
+        },
+        {
+          "trial": 14,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 67,
+          "chain_intact": true
+        },
+        {
+          "trial": 15,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 250,
+          "chain_intact": true
+        },
+        {
+          "trial": 16,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 82,
+          "chain_intact": true
+        },
+        {
+          "trial": 17,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 192,
+          "chain_intact": true
+        },
+        {
+          "trial": 18,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 192,
+          "chain_intact": true
+        },
+        {
+          "trial": 19,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 167,
+          "chain_intact": true
+        },
+        {
+          "trial": 20,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 142,
+          "chain_intact": true
+        },
+        {
+          "trial": 21,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 133,
+          "chain_intact": true
+        },
+        {
+          "trial": 22,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 170,
+          "chain_intact": true
+        },
+        {
+          "trial": 23,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 270,
+          "chain_intact": true
+        },
+        {
+          "trial": 24,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 281,
+          "chain_intact": true
+        },
+        {
+          "trial": 25,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 238,
+          "chain_intact": true
+        },
+        {
+          "trial": 26,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 122,
+          "chain_intact": true
+        },
+        {
+          "trial": 27,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 184,
+          "chain_intact": true
+        },
+        {
+          "trial": 28,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 50,
+          "chain_intact": true
+        },
+        {
+          "trial": 29,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 136,
+          "chain_intact": true
+        },
+        {
+          "trial": 30,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 257,
+          "chain_intact": true
+        },
+        {
+          "trial": 31,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 129,
+          "chain_intact": true
+        },
+        {
+          "trial": 32,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 36,
+          "chain_intact": true
+        },
+        {
+          "trial": 33,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 54,
+          "chain_intact": true
+        },
+        {
+          "trial": 34,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 263,
+          "chain_intact": true
+        },
+        {
+          "trial": 35,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 56,
+          "chain_intact": true
+        },
+        {
+          "trial": 36,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 36,
+          "chain_intact": true
+        },
+        {
+          "trial": 37,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 262,
+          "chain_intact": true
+        },
+        {
+          "trial": 38,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 120,
+          "chain_intact": true
+        },
+        {
+          "trial": 39,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 123,
+          "chain_intact": true
+        },
+        {
+          "trial": 40,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 104,
+          "chain_intact": true
+        },
+        {
+          "trial": 41,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 54,
+          "chain_intact": true
+        },
+        {
+          "trial": 42,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 192,
+          "chain_intact": true
+        },
+        {
+          "trial": 43,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 155,
+          "chain_intact": true
+        },
+        {
+          "trial": 44,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 246,
+          "chain_intact": true
+        },
+        {
+          "trial": 45,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 279,
+          "chain_intact": true
+        },
+        {
+          "trial": 46,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 42,
+          "chain_intact": true
+        },
+        {
+          "trial": 47,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 251,
+          "chain_intact": true
+        },
+        {
+          "trial": 48,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 47,
+          "chain_intact": true
+        },
+        {
+          "trial": 49,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 266,
+          "chain_intact": true
+        },
+        {
+          "trial": 50,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 145,
+          "chain_intact": true
+        },
+        {
+          "trial": 51,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 265,
+          "chain_intact": true
+        },
+        {
+          "trial": 52,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 139,
+          "chain_intact": true
+        },
+        {
+          "trial": 53,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 240,
+          "chain_intact": true
+        },
+        {
+          "trial": 54,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 170,
+          "chain_intact": true
+        },
+        {
+          "trial": 55,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 64,
+          "chain_intact": true
+        },
+        {
+          "trial": 56,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 259,
+          "chain_intact": true
+        },
+        {
+          "trial": 57,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 84,
+          "chain_intact": true
+        },
+        {
+          "trial": 58,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 104,
+          "chain_intact": true
+        },
+        {
+          "trial": 59,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 37,
+          "chain_intact": true
+        },
+        {
+          "trial": 60,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 256,
+          "chain_intact": true
+        },
+        {
+          "trial": 61,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 261,
+          "chain_intact": true
+        },
+        {
+          "trial": 62,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 275,
+          "chain_intact": true
+        },
+        {
+          "trial": 63,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 115,
+          "chain_intact": true
+        },
+        {
+          "trial": 64,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 217,
+          "chain_intact": true
+        },
+        {
+          "trial": 65,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 273,
+          "chain_intact": true
+        },
+        {
+          "trial": 66,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 213,
+          "chain_intact": true
+        },
+        {
+          "trial": 67,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 216,
+          "chain_intact": true
+        },
+        {
+          "trial": 68,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 87,
+          "chain_intact": true
+        },
+        {
+          "trial": 69,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 52,
+          "chain_intact": true
+        },
+        {
+          "trial": 70,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 159,
+          "chain_intact": true
+        },
+        {
+          "trial": 71,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 123,
+          "chain_intact": true
+        },
+        {
+          "trial": 72,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 239,
+          "chain_intact": true
+        },
+        {
+          "trial": 73,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 42,
+          "chain_intact": true
+        },
+        {
+          "trial": 74,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 181,
+          "chain_intact": true
+        },
+        {
+          "trial": 75,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 116,
+          "chain_intact": true
+        },
+        {
+          "trial": 76,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 139,
+          "chain_intact": true
+        },
+        {
+          "trial": 77,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 91,
+          "chain_intact": true
+        },
+        {
+          "trial": 78,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 188,
+          "chain_intact": true
+        },
+        {
+          "trial": 79,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 177,
+          "chain_intact": true
+        },
+        {
+          "trial": 80,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 42,
+          "chain_intact": true
+        },
+        {
+          "trial": 81,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 131,
+          "chain_intact": true
+        },
+        {
+          "trial": 82,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 208,
+          "chain_intact": true
+        },
+        {
+          "trial": 83,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 65,
+          "chain_intact": true
+        },
+        {
+          "trial": 84,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 254,
+          "chain_intact": true
+        },
+        {
+          "trial": 85,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 183,
+          "chain_intact": true
+        },
+        {
+          "trial": 86,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 46,
+          "chain_intact": true
+        },
+        {
+          "trial": 87,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 64,
+          "chain_intact": true
+        },
+        {
+          "trial": 88,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 246,
+          "chain_intact": true
+        },
+        {
+          "trial": 89,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 275,
+          "chain_intact": true
+        },
+        {
+          "trial": 90,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 212,
+          "chain_intact": true
+        },
+        {
+          "trial": 91,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 189,
+          "chain_intact": true
+        },
+        {
+          "trial": 92,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 37,
+          "chain_intact": true
+        },
+        {
+          "trial": 93,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 55,
+          "chain_intact": true
+        },
+        {
+          "trial": 94,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 147,
+          "chain_intact": true
+        },
+        {
+          "trial": 95,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 119,
+          "chain_intact": true
+        },
+        {
+          "trial": 96,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 58,
+          "chain_intact": true
+        },
+        {
+          "trial": 97,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 54,
+          "chain_intact": true
+        },
+        {
+          "trial": 98,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 188,
+          "chain_intact": true
+        },
+        {
+          "trial": 99,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 66,
+          "chain_intact": true
+        },
+        {
+          "trial": 100,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 43,
+          "chain_intact": true
+        },
+        {
+          "trial": 101,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 270,
+          "chain_intact": true
+        },
+        {
+          "trial": 102,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 171,
+          "chain_intact": true
+        },
+        {
+          "trial": 103,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 143,
+          "chain_intact": true
+        },
+        {
+          "trial": 104,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 59,
+          "chain_intact": true
+        },
+        {
+          "trial": 105,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 34,
+          "chain_intact": true
+        },
+        {
+          "trial": 106,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 172,
+          "chain_intact": true
+        },
+        {
+          "trial": 107,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 98,
+          "chain_intact": true
+        },
+        {
+          "trial": 108,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 263,
+          "chain_intact": true
+        },
+        {
+          "trial": 109,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 99,
+          "chain_intact": true
+        },
+        {
+          "trial": 110,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 163,
+          "chain_intact": true
+        },
+        {
+          "trial": 111,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 174,
+          "chain_intact": true
+        },
+        {
+          "trial": 112,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 198,
+          "chain_intact": true
+        },
+        {
+          "trial": 113,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 38,
+          "chain_intact": true
+        },
+        {
+          "trial": 114,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 144,
+          "chain_intact": true
+        },
+        {
+          "trial": 115,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 209,
+          "chain_intact": true
+        },
+        {
+          "trial": 116,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 214,
+          "chain_intact": true
+        },
+        {
+          "trial": 117,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 77,
+          "chain_intact": true
+        },
+        {
+          "trial": 118,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 239,
+          "chain_intact": true
+        },
+        {
+          "trial": 119,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 107,
+          "chain_intact": true
+        },
+        {
+          "trial": 120,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 87,
+          "chain_intact": true
+        },
+        {
+          "trial": 121,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 85,
+          "chain_intact": true
+        },
+        {
+          "trial": 122,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 77,
+          "chain_intact": true
+        },
+        {
+          "trial": 123,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 230,
+          "chain_intact": true
+        },
+        {
+          "trial": 124,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 115,
+          "chain_intact": true
+        },
+        {
+          "trial": 125,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 102,
+          "chain_intact": true
+        },
+        {
+          "trial": 126,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 28,
+          "chain_intact": true
+        },
+        {
+          "trial": 127,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 204,
+          "chain_intact": true
+        },
+        {
+          "trial": 128,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 185,
+          "chain_intact": true
+        },
+        {
+          "trial": 129,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 262,
+          "chain_intact": true
+        },
+        {
+          "trial": 130,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 36,
+          "chain_intact": true
+        },
+        {
+          "trial": 131,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 232,
+          "chain_intact": true
+        },
+        {
+          "trial": 132,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 232,
+          "chain_intact": true
+        },
+        {
+          "trial": 133,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 192,
+          "chain_intact": true
+        },
+        {
+          "trial": 134,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 178,
+          "chain_intact": true
+        },
+        {
+          "trial": 135,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 96,
+          "chain_intact": true
+        },
+        {
+          "trial": 136,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 77,
+          "chain_intact": true
+        },
+        {
+          "trial": 137,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 227,
+          "chain_intact": true
+        },
+        {
+          "trial": 138,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 109,
+          "chain_intact": true
+        },
+        {
+          "trial": 139,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 167,
+          "chain_intact": true
+        },
+        {
+          "trial": 140,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 246,
+          "chain_intact": true
+        },
+        {
+          "trial": 141,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 64,
+          "chain_intact": true
+        },
+        {
+          "trial": 142,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 185,
+          "chain_intact": true
+        },
+        {
+          "trial": 143,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 29,
+          "chain_intact": true
+        },
+        {
+          "trial": 144,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 201,
+          "chain_intact": true
+        },
+        {
+          "trial": 145,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 187,
+          "chain_intact": true
+        },
+        {
+          "trial": 146,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 231,
+          "chain_intact": true
+        },
+        {
+          "trial": 147,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 248,
+          "chain_intact": true
+        },
+        {
+          "trial": 148,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 134,
+          "chain_intact": true
+        },
+        {
+          "trial": 149,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 170,
+          "chain_intact": true
+        },
+        {
+          "trial": 150,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 123,
+          "chain_intact": true
+        },
+        {
+          "trial": 151,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 108,
+          "chain_intact": true
+        },
+        {
+          "trial": 152,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 169,
+          "chain_intact": true
+        },
+        {
+          "trial": 153,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 81,
+          "chain_intact": true
+        },
+        {
+          "trial": 154,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 193,
+          "chain_intact": true
+        },
+        {
+          "trial": 155,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 154,
+          "chain_intact": true
+        },
+        {
+          "trial": 156,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 165,
+          "chain_intact": true
+        },
+        {
+          "trial": 157,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 83,
+          "chain_intact": true
+        },
+        {
+          "trial": 158,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 54,
+          "chain_intact": true
+        },
+        {
+          "trial": 159,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 201,
+          "chain_intact": true
+        },
+        {
+          "trial": 160,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 264,
+          "chain_intact": true
+        },
+        {
+          "trial": 161,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 121,
+          "chain_intact": true
+        },
+        {
+          "trial": 162,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 276,
+          "chain_intact": true
+        },
+        {
+          "trial": 163,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 218,
+          "chain_intact": true
+        },
+        {
+          "trial": 164,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 264,
+          "chain_intact": true
+        },
+        {
+          "trial": 165,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 223,
+          "chain_intact": true
+        },
+        {
+          "trial": 166,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 169,
+          "chain_intact": true
+        },
+        {
+          "trial": 167,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 208,
+          "chain_intact": true
+        },
+        {
+          "trial": 168,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 268,
+          "chain_intact": true
+        },
+        {
+          "trial": 169,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 263,
+          "chain_intact": true
+        },
+        {
+          "trial": 170,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 158,
+          "chain_intact": true
+        },
+        {
+          "trial": 171,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 50,
+          "chain_intact": true
+        },
+        {
+          "trial": 172,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 183,
+          "chain_intact": true
+        },
+        {
+          "trial": 173,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 181,
+          "chain_intact": true
+        },
+        {
+          "trial": 174,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 70,
+          "chain_intact": true
+        },
+        {
+          "trial": 175,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 117,
+          "chain_intact": true
+        },
+        {
+          "trial": 176,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 63,
+          "chain_intact": true
+        },
+        {
+          "trial": 177,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 161,
+          "chain_intact": true
+        },
+        {
+          "trial": 178,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 230,
+          "chain_intact": true
+        },
+        {
+          "trial": 179,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 104,
+          "chain_intact": true
+        },
+        {
+          "trial": 180,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 255,
+          "chain_intact": true
+        },
+        {
+          "trial": 181,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 198,
+          "chain_intact": true
+        },
+        {
+          "trial": 182,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 45,
+          "chain_intact": true
+        },
+        {
+          "trial": 183,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 215,
+          "chain_intact": true
+        },
+        {
+          "trial": 184,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 226,
+          "chain_intact": true
+        },
+        {
+          "trial": 185,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 275,
+          "chain_intact": true
+        },
+        {
+          "trial": 186,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 71,
+          "chain_intact": true
+        },
+        {
+          "trial": 187,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 172,
+          "chain_intact": true
+        },
+        {
+          "trial": 188,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 221,
+          "chain_intact": true
+        },
+        {
+          "trial": 189,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 39,
+          "chain_intact": true
+        },
+        {
+          "trial": 190,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 74,
+          "chain_intact": true
+        },
+        {
+          "trial": 191,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 255,
+          "chain_intact": true
+        },
+        {
+          "trial": 192,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 147,
+          "chain_intact": true
+        },
+        {
+          "trial": 193,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 168,
+          "chain_intact": true
+        },
+        {
+          "trial": 194,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 217,
+          "chain_intact": true
+        },
+        {
+          "trial": 195,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 190,
+          "chain_intact": true
+        },
+        {
+          "trial": 196,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 181,
+          "chain_intact": true
+        },
+        {
+          "trial": 197,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 57,
+          "chain_intact": true
+        },
+        {
+          "trial": 198,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 119,
+          "chain_intact": true
+        },
+        {
+          "trial": 199,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 271,
+          "chain_intact": true
+        },
+        {
+          "trial": 200,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 63,
+          "chain_intact": true
+        },
+        {
+          "trial": 201,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 280,
+          "chain_intact": true
+        },
+        {
+          "trial": 202,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 184,
+          "chain_intact": true
+        },
+        {
+          "trial": 203,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 147,
+          "chain_intact": true
+        },
+        {
+          "trial": 204,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 242,
+          "chain_intact": true
+        },
+        {
+          "trial": 205,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 239,
+          "chain_intact": true
+        },
+        {
+          "trial": 206,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 146,
+          "chain_intact": true
+        },
+        {
+          "trial": 207,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 99,
+          "chain_intact": true
+        },
+        {
+          "trial": 208,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 182,
+          "chain_intact": true
+        },
+        {
+          "trial": 209,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 231,
+          "chain_intact": true
+        },
+        {
+          "trial": 210,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 192,
+          "chain_intact": true
+        },
+        {
+          "trial": 211,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 162,
+          "chain_intact": true
+        },
+        {
+          "trial": 212,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 48,
+          "chain_intact": true
+        },
+        {
+          "trial": 213,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 63,
+          "chain_intact": true
+        },
+        {
+          "trial": 214,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 125,
+          "chain_intact": true
+        },
+        {
+          "trial": 215,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 177,
+          "chain_intact": true
+        },
+        {
+          "trial": 216,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 137,
+          "chain_intact": true
+        },
+        {
+          "trial": 217,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 274,
+          "chain_intact": true
+        },
+        {
+          "trial": 218,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 67,
+          "chain_intact": true
+        },
+        {
+          "trial": 219,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 271,
+          "chain_intact": true
+        },
+        {
+          "trial": 220,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 140,
+          "chain_intact": true
+        },
+        {
+          "trial": 221,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 110,
+          "chain_intact": true
+        },
+        {
+          "trial": 222,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 120,
+          "chain_intact": true
+        },
+        {
+          "trial": 223,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 291,
+          "chain_intact": true
+        },
+        {
+          "trial": 224,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 151,
+          "chain_intact": true
+        },
+        {
+          "trial": 225,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 147,
+          "chain_intact": true
+        },
+        {
+          "trial": 226,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 156,
+          "chain_intact": true
+        },
+        {
+          "trial": 227,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 33,
+          "chain_intact": true
+        },
+        {
+          "trial": 228,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 220,
+          "chain_intact": true
+        },
+        {
+          "trial": 229,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 58,
+          "chain_intact": true
+        },
+        {
+          "trial": 230,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 71,
+          "chain_intact": true
+        },
+        {
+          "trial": 231,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 237,
+          "chain_intact": true
+        },
+        {
+          "trial": 232,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 131,
+          "chain_intact": true
+        },
+        {
+          "trial": 233,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 157,
+          "chain_intact": true
+        },
+        {
+          "trial": 234,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 98,
+          "chain_intact": true
+        },
+        {
+          "trial": 235,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 225,
+          "chain_intact": true
+        },
+        {
+          "trial": 236,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 166,
+          "chain_intact": true
+        },
+        {
+          "trial": 237,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 165,
+          "chain_intact": true
+        },
+        {
+          "trial": 238,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 229,
+          "chain_intact": true
+        },
+        {
+          "trial": 239,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 163,
+          "chain_intact": true
+        },
+        {
+          "trial": 240,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 217,
+          "chain_intact": true
+        },
+        {
+          "trial": 241,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 64,
+          "chain_intact": true
+        },
+        {
+          "trial": 242,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 257,
+          "chain_intact": true
+        },
+        {
+          "trial": 243,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 62,
+          "chain_intact": true
+        },
+        {
+          "trial": 244,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 226,
+          "chain_intact": true
+        },
+        {
+          "trial": 245,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 67,
+          "chain_intact": true
+        },
+        {
+          "trial": 246,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 162,
+          "chain_intact": true
+        },
+        {
+          "trial": 247,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 207,
+          "chain_intact": true
+        },
+        {
+          "trial": 248,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 143,
+          "chain_intact": true
+        },
+        {
+          "trial": 249,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 129,
+          "chain_intact": true
+        },
+        {
+          "trial": 250,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 164,
+          "chain_intact": true
+        },
+        {
+          "trial": 251,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 60,
+          "chain_intact": true
+        },
+        {
+          "trial": 252,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 276,
+          "chain_intact": true
+        },
+        {
+          "trial": 253,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 212,
+          "chain_intact": true
+        },
+        {
+          "trial": 254,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 160,
+          "chain_intact": true
+        },
+        {
+          "trial": 255,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 228,
+          "chain_intact": true
+        },
+        {
+          "trial": 256,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 136,
+          "chain_intact": true
+        },
+        {
+          "trial": 257,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 228,
+          "chain_intact": true
+        },
+        {
+          "trial": 258,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 219,
+          "chain_intact": true
+        },
+        {
+          "trial": 259,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 226,
+          "chain_intact": true
+        },
+        {
+          "trial": 260,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 197,
+          "chain_intact": true
+        },
+        {
+          "trial": 261,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 36,
+          "chain_intact": true
+        },
+        {
+          "trial": 262,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 132,
+          "chain_intact": true
+        },
+        {
+          "trial": 263,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 156,
+          "chain_intact": true
+        },
+        {
+          "trial": 264,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 275,
+          "chain_intact": true
+        },
+        {
+          "trial": 265,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 270,
+          "chain_intact": true
+        },
+        {
+          "trial": 266,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 207,
+          "chain_intact": true
+        },
+        {
+          "trial": 267,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 162,
+          "chain_intact": true
+        },
+        {
+          "trial": 268,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 62,
+          "chain_intact": true
+        },
+        {
+          "trial": 269,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 65,
+          "chain_intact": true
+        },
+        {
+          "trial": 270,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 110,
+          "chain_intact": true
+        },
+        {
+          "trial": 271,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 102,
+          "chain_intact": true
+        },
+        {
+          "trial": 272,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 105,
+          "chain_intact": true
+        },
+        {
+          "trial": 273,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 95,
+          "chain_intact": true
+        },
+        {
+          "trial": 274,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 169,
+          "chain_intact": true
+        },
+        {
+          "trial": 275,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 221,
+          "chain_intact": true
+        },
+        {
+          "trial": 276,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 236,
+          "chain_intact": true
+        },
+        {
+          "trial": 277,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 196,
+          "chain_intact": true
+        },
+        {
+          "trial": 278,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 190,
+          "chain_intact": true
+        },
+        {
+          "trial": 279,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 136,
+          "chain_intact": true
+        },
+        {
+          "trial": 280,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 114,
+          "chain_intact": true
+        },
+        {
+          "trial": 281,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 41,
+          "chain_intact": true
+        },
+        {
+          "trial": 282,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 36,
+          "chain_intact": true
+        },
+        {
+          "trial": 283,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 134,
+          "chain_intact": true
+        },
+        {
+          "trial": 284,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 69,
+          "chain_intact": true
+        },
+        {
+          "trial": 285,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 111,
+          "chain_intact": true
+        },
+        {
+          "trial": 286,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 66,
+          "chain_intact": true
+        },
+        {
+          "trial": 287,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 142,
+          "chain_intact": true
+        },
+        {
+          "trial": 288,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 54,
+          "chain_intact": true
+        },
+        {
+          "trial": 289,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 246,
+          "chain_intact": true
+        },
+        {
+          "trial": 290,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 201,
+          "chain_intact": true
+        },
+        {
+          "trial": 291,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 280,
+          "chain_intact": true
+        },
+        {
+          "trial": 292,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 162,
+          "chain_intact": true
+        },
+        {
+          "trial": 293,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 287,
+          "chain_intact": true
+        },
+        {
+          "trial": 294,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 208,
+          "chain_intact": true
+        },
+        {
+          "trial": 295,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 163,
+          "chain_intact": true
+        },
+        {
+          "trial": 296,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 120,
+          "chain_intact": true
+        },
+        {
+          "trial": 297,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 77,
+          "chain_intact": true
+        },
+        {
+          "trial": 298,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 257,
+          "chain_intact": true
+        },
+        {
+          "trial": 299,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 101,
+          "chain_intact": true
+        },
+        {
+          "trial": 300,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 41,
+          "chain_intact": true
+        },
+        {
+          "trial": 301,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 91,
+          "chain_intact": true
+        },
+        {
+          "trial": 302,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 230,
+          "chain_intact": true
+        },
+        {
+          "trial": 303,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 98,
+          "chain_intact": true
+        },
+        {
+          "trial": 304,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 46,
+          "chain_intact": true
+        },
+        {
+          "trial": 305,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 201,
+          "chain_intact": true
+        },
+        {
+          "trial": 306,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 60,
+          "chain_intact": true
+        },
+        {
+          "trial": 307,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 228,
+          "chain_intact": true
+        },
+        {
+          "trial": 308,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 43,
+          "chain_intact": true
+        },
+        {
+          "trial": 309,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 267,
+          "chain_intact": true
+        },
+        {
+          "trial": 310,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 263,
+          "chain_intact": true
+        },
+        {
+          "trial": 311,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 85,
+          "chain_intact": true
+        },
+        {
+          "trial": 312,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 283,
+          "chain_intact": true
+        },
+        {
+          "trial": 313,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 108,
+          "chain_intact": true
+        },
+        {
+          "trial": 314,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 194,
+          "chain_intact": true
+        },
+        {
+          "trial": 315,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 264,
+          "chain_intact": true
+        },
+        {
+          "trial": 316,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 199,
+          "chain_intact": true
+        },
+        {
+          "trial": 317,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 89,
+          "chain_intact": true
+        },
+        {
+          "trial": 318,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 69,
+          "chain_intact": true
+        },
+        {
+          "trial": 319,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 277,
+          "chain_intact": true
+        },
+        {
+          "trial": 320,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 103,
+          "chain_intact": true
+        },
+        {
+          "trial": 321,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 60,
+          "chain_intact": true
+        },
+        {
+          "trial": 322,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 206,
+          "chain_intact": true
+        },
+        {
+          "trial": 323,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 251,
+          "chain_intact": true
+        },
+        {
+          "trial": 324,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 52,
+          "chain_intact": true
+        },
+        {
+          "trial": 325,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 124,
+          "chain_intact": true
+        },
+        {
+          "trial": 326,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 214,
+          "chain_intact": true
+        },
+        {
+          "trial": 327,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 87,
+          "chain_intact": true
+        },
+        {
+          "trial": 328,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 130,
+          "chain_intact": true
+        },
+        {
+          "trial": 329,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 212,
+          "chain_intact": true
+        },
+        {
+          "trial": 330,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 107,
+          "chain_intact": true
+        },
+        {
+          "trial": 331,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 289,
+          "chain_intact": true
+        },
+        {
+          "trial": 332,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 38,
+          "chain_intact": true
+        },
+        {
+          "trial": 333,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 134,
+          "chain_intact": true
+        },
+        {
+          "trial": 334,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 99,
+          "chain_intact": true
+        },
+        {
+          "trial": 335,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 127,
+          "chain_intact": true
+        },
+        {
+          "trial": 336,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 225,
+          "chain_intact": true
+        },
+        {
+          "trial": 337,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 53,
+          "chain_intact": true
+        },
+        {
+          "trial": 338,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 90,
+          "chain_intact": true
+        },
+        {
+          "trial": 339,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 101,
+          "chain_intact": true
+        },
+        {
+          "trial": 340,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 159,
+          "chain_intact": true
+        },
+        {
+          "trial": 341,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 283,
+          "chain_intact": true
+        },
+        {
+          "trial": 342,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 168,
+          "chain_intact": true
+        },
+        {
+          "trial": 343,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 96,
+          "chain_intact": true
+        },
+        {
+          "trial": 344,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 214,
+          "chain_intact": true
+        },
+        {
+          "trial": 345,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 233,
+          "chain_intact": true
+        },
+        {
+          "trial": 346,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 148,
+          "chain_intact": true
+        },
+        {
+          "trial": 347,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 217,
+          "chain_intact": true
+        },
+        {
+          "trial": 348,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 159,
+          "chain_intact": true
+        },
+        {
+          "trial": 349,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 171,
+          "chain_intact": true
+        },
+        {
+          "trial": 350,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 170,
+          "chain_intact": true
+        },
+        {
+          "trial": 351,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 75,
+          "chain_intact": true
+        },
+        {
+          "trial": 352,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 128,
+          "chain_intact": true
+        },
+        {
+          "trial": 353,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 266,
+          "chain_intact": true
+        },
+        {
+          "trial": 354,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 89,
+          "chain_intact": true
+        },
+        {
+          "trial": 355,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 270,
+          "chain_intact": true
+        },
+        {
+          "trial": 356,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 257,
+          "chain_intact": true
+        },
+        {
+          "trial": 357,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 185,
+          "chain_intact": true
+        },
+        {
+          "trial": 358,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 188,
+          "chain_intact": true
+        },
+        {
+          "trial": 359,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 44,
+          "chain_intact": true
+        },
+        {
+          "trial": 360,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 163,
+          "chain_intact": true
+        },
+        {
+          "trial": 361,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 245,
+          "chain_intact": true
+        },
+        {
+          "trial": 362,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 107,
+          "chain_intact": true
+        },
+        {
+          "trial": 363,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 210,
+          "chain_intact": true
+        },
+        {
+          "trial": 364,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 153,
+          "chain_intact": true
+        },
+        {
+          "trial": 365,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 174,
+          "chain_intact": true
+        },
+        {
+          "trial": 366,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 158,
+          "chain_intact": true
+        },
+        {
+          "trial": 367,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 232,
+          "chain_intact": true
+        },
+        {
+          "trial": 368,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 223,
+          "chain_intact": true
+        },
+        {
+          "trial": 369,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 104,
+          "chain_intact": true
+        },
+        {
+          "trial": 370,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 158,
+          "chain_intact": true
+        },
+        {
+          "trial": 371,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 208,
+          "chain_intact": true
+        },
+        {
+          "trial": 372,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 32,
+          "chain_intact": true
+        },
+        {
+          "trial": 373,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 117,
+          "chain_intact": true
+        },
+        {
+          "trial": 374,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 50,
+          "chain_intact": true
+        },
+        {
+          "trial": 375,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 236,
+          "chain_intact": true
+        },
+        {
+          "trial": 376,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 283,
+          "chain_intact": true
+        },
+        {
+          "trial": 377,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 253,
+          "chain_intact": true
+        },
+        {
+          "trial": 378,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 213,
+          "chain_intact": true
+        },
+        {
+          "trial": 379,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 126,
+          "chain_intact": true
+        },
+        {
+          "trial": 380,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 160,
+          "chain_intact": true
+        },
+        {
+          "trial": 381,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 195,
+          "chain_intact": true
+        },
+        {
+          "trial": 382,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 65,
+          "chain_intact": true
+        },
+        {
+          "trial": 383,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 286,
+          "chain_intact": true
+        },
+        {
+          "trial": 384,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 181,
+          "chain_intact": true
+        },
+        {
+          "trial": 385,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 253,
+          "chain_intact": true
+        },
+        {
+          "trial": 386,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 66,
+          "chain_intact": true
+        },
+        {
+          "trial": 387,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 122,
+          "chain_intact": true
+        },
+        {
+          "trial": 388,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 40,
+          "chain_intact": true
+        },
+        {
+          "trial": 389,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 291,
+          "chain_intact": true
+        },
+        {
+          "trial": 390,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 227,
+          "chain_intact": true
+        },
+        {
+          "trial": 391,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 44,
+          "chain_intact": true
+        },
+        {
+          "trial": 392,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 185,
+          "chain_intact": true
+        },
+        {
+          "trial": 393,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 79,
+          "chain_intact": true
+        },
+        {
+          "trial": 394,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 175,
+          "chain_intact": true
+        },
+        {
+          "trial": 395,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 78,
+          "chain_intact": true
+        },
+        {
+          "trial": 396,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 218,
+          "chain_intact": true
+        },
+        {
+          "trial": 397,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 274,
+          "chain_intact": true
+        },
+        {
+          "trial": 398,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 253,
+          "chain_intact": true
+        },
+        {
+          "trial": 399,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 215,
+          "chain_intact": true
+        },
+        {
+          "trial": 400,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 108,
+          "chain_intact": true
+        },
+        {
+          "trial": 401,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 225,
+          "chain_intact": true
+        },
+        {
+          "trial": 402,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 162,
+          "chain_intact": true
+        },
+        {
+          "trial": 403,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 102,
+          "chain_intact": true
+        },
+        {
+          "trial": 404,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 129,
+          "chain_intact": true
+        },
+        {
+          "trial": 405,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 41,
+          "chain_intact": true
+        },
+        {
+          "trial": 406,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 205,
+          "chain_intact": true
+        },
+        {
+          "trial": 407,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 281,
+          "chain_intact": true
+        },
+        {
+          "trial": 408,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 43,
+          "chain_intact": true
+        },
+        {
+          "trial": 409,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 248,
+          "chain_intact": true
+        },
+        {
+          "trial": 410,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 45,
+          "chain_intact": true
+        },
+        {
+          "trial": 411,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 185,
+          "chain_intact": true
+        },
+        {
+          "trial": 412,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 59,
+          "chain_intact": true
+        },
+        {
+          "trial": 413,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 235,
+          "chain_intact": true
+        },
+        {
+          "trial": 414,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 179,
+          "chain_intact": true
+        },
+        {
+          "trial": 415,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 200,
+          "chain_intact": true
+        },
+        {
+          "trial": 416,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 176,
+          "chain_intact": true
+        },
+        {
+          "trial": 417,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 47,
+          "chain_intact": true
+        },
+        {
+          "trial": 418,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 40,
+          "chain_intact": true
+        },
+        {
+          "trial": 419,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 164,
+          "chain_intact": true
+        },
+        {
+          "trial": 420,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 131,
+          "chain_intact": true
+        },
+        {
+          "trial": 421,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 54,
+          "chain_intact": true
+        },
+        {
+          "trial": 422,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 288,
+          "chain_intact": true
+        },
+        {
+          "trial": 423,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 166,
+          "chain_intact": true
+        },
+        {
+          "trial": 424,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 118,
+          "chain_intact": true
+        },
+        {
+          "trial": 425,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 29,
+          "chain_intact": true
+        },
+        {
+          "trial": 426,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 115,
+          "chain_intact": true
+        },
+        {
+          "trial": 427,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 79,
+          "chain_intact": true
+        },
+        {
+          "trial": 428,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 64,
+          "chain_intact": true
+        },
+        {
+          "trial": 429,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 49,
+          "chain_intact": true
+        },
+        {
+          "trial": 430,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 134,
+          "chain_intact": true
+        },
+        {
+          "trial": 431,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 148,
+          "chain_intact": true
+        },
+        {
+          "trial": 432,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 69,
+          "chain_intact": true
+        },
+        {
+          "trial": 433,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 120,
+          "chain_intact": true
+        },
+        {
+          "trial": 434,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 180,
+          "chain_intact": true
+        },
+        {
+          "trial": 435,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 68,
+          "chain_intact": true
+        },
+        {
+          "trial": 436,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 101,
+          "chain_intact": true
+        },
+        {
+          "trial": 437,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 113,
+          "chain_intact": true
+        },
+        {
+          "trial": 438,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 152,
+          "chain_intact": true
+        },
+        {
+          "trial": 439,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 266,
+          "chain_intact": true
+        },
+        {
+          "trial": 440,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 28,
+          "chain_intact": true
+        },
+        {
+          "trial": 441,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 220,
+          "chain_intact": true
+        },
+        {
+          "trial": 442,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 267,
+          "chain_intact": true
+        },
+        {
+          "trial": 443,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 193,
+          "chain_intact": true
+        },
+        {
+          "trial": 444,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 151,
+          "chain_intact": true
+        },
+        {
+          "trial": 445,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 82,
+          "chain_intact": true
+        },
+        {
+          "trial": 446,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 268,
+          "chain_intact": true
+        },
+        {
+          "trial": 447,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 67,
+          "chain_intact": true
+        },
+        {
+          "trial": 448,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 190,
+          "chain_intact": true
+        },
+        {
+          "trial": 449,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 86,
+          "chain_intact": true
+        },
+        {
+          "trial": 450,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 136,
+          "chain_intact": true
+        },
+        {
+          "trial": 451,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 143,
+          "chain_intact": true
+        },
+        {
+          "trial": 452,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 58,
+          "chain_intact": true
+        },
+        {
+          "trial": 453,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 155,
+          "chain_intact": true
+        },
+        {
+          "trial": 454,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 90,
+          "chain_intact": true
+        },
+        {
+          "trial": 455,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 197,
+          "chain_intact": true
+        },
+        {
+          "trial": 456,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 90,
+          "chain_intact": true
+        },
+        {
+          "trial": 457,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 89,
+          "chain_intact": true
+        },
+        {
+          "trial": 458,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 142,
+          "chain_intact": true
+        },
+        {
+          "trial": 459,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 261,
+          "chain_intact": true
+        },
+        {
+          "trial": 460,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 135,
+          "chain_intact": true
+        },
+        {
+          "trial": 461,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 99,
+          "chain_intact": true
+        },
+        {
+          "trial": 462,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 49,
+          "chain_intact": true
+        },
+        {
+          "trial": 463,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 177,
+          "chain_intact": true
+        },
+        {
+          "trial": 464,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 72,
+          "chain_intact": true
+        },
+        {
+          "trial": 465,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 207,
+          "chain_intact": true
+        },
+        {
+          "trial": 466,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 232,
+          "chain_intact": true
+        },
+        {
+          "trial": 467,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 253,
+          "chain_intact": true
+        },
+        {
+          "trial": 468,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 280,
+          "chain_intact": true
+        },
+        {
+          "trial": 469,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 47,
+          "chain_intact": true
+        },
+        {
+          "trial": 470,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 46,
+          "chain_intact": true
+        },
+        {
+          "trial": 471,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 188,
+          "chain_intact": true
+        },
+        {
+          "trial": 472,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 150,
+          "chain_intact": true
+        },
+        {
+          "trial": 473,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 74,
+          "chain_intact": true
+        },
+        {
+          "trial": 474,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 166,
+          "chain_intact": true
+        },
+        {
+          "trial": 475,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 150,
+          "chain_intact": true
+        },
+        {
+          "trial": 476,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 118,
+          "chain_intact": true
+        },
+        {
+          "trial": 477,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 152,
+          "chain_intact": true
+        },
+        {
+          "trial": 478,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 139,
+          "chain_intact": true
+        },
+        {
+          "trial": 479,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 127,
+          "chain_intact": true
+        },
+        {
+          "trial": 480,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 294,
+          "chain_intact": true
+        },
+        {
+          "trial": 481,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 237,
+          "chain_intact": true
+        },
+        {
+          "trial": 482,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 85,
+          "chain_intact": true
+        },
+        {
+          "trial": 483,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 173,
+          "chain_intact": true
+        },
+        {
+          "trial": 484,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 227,
+          "chain_intact": true
+        },
+        {
+          "trial": 485,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 262,
+          "chain_intact": true
+        },
+        {
+          "trial": 486,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 167,
+          "chain_intact": true
+        },
+        {
+          "trial": 487,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 237,
+          "chain_intact": true
+        },
+        {
+          "trial": 488,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 204,
+          "chain_intact": true
+        },
+        {
+          "trial": 489,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 148,
+          "chain_intact": true
+        },
+        {
+          "trial": 490,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 133,
+          "chain_intact": true
+        },
+        {
+          "trial": 491,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 133,
+          "chain_intact": true
+        },
+        {
+          "trial": 492,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 134,
+          "chain_intact": true
+        },
+        {
+          "trial": 493,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 263,
+          "chain_intact": true
+        },
+        {
+          "trial": 494,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 102,
+          "chain_intact": true
+        },
+        {
+          "trial": 495,
+          "store": "log",
+          "opened": true,
+          "rows_recovered": 40,
+          "chain_intact": true
+        },
+        {
+          "trial": 496,
+          "store": "state",
+          "opened": true,
+          "rows_recovered": 35,
+          "chain_intact": true
+        },
+        {
+          "trial": 497,
+          "store": "audit",
+          "opened": true,
+          "rows_recovered": 281,
+          "chain_intact": true
+        },
+        {
+          "trial": 498,
+          "store": "tombstones",
+          "opened": true,
+          "rows_recovered": 215,
+          "chain_intact": true
+        },
+        {
+          "trial": 499,
+          "store": "workspace",
+          "opened": true,
+          "rows_recovered": 261,
+          "chain_intact": true
+        }
+      ]
+    },
+    "1.3_checkpoint_budget": {
+      "section": "1.3",
+      "commits": 500,
+      "synchronous": "FULL",
+      "journal_mode": "WAL",
+      "under_concurrent_read_load": true,
+      "p50_ms": 0.92,
+      "p95_ms": 1.17,
+      "max_ms": 8.41,
+      "budget_ms_p95": 200.0,
+      "criterion_5_within_budget": true,
+      "criterion_6_checkpoint_acked_before_step_complete": true,
+      "ordering_violations": 0,
+      "budget_note": "INV-PERF-1: on a miss the budget is NOT relaxed. Options are optimise, raise the minimum profile, or record a limitation."
+    },
+    "1.4_append_only": {
+      "section": "1.4",
+      "stores": [
+        {
+          "store": "log",
+          "update_blocked": true,
+          "update_error": "append-only store: UPDATE forbidden (ADR-002 D9)",
+          "delete_blocked": true,
+          "delete_error": "append-only store: DELETE forbidden (ADR-002 D9)",
+          "row_unchanged_after_attempts": true,
+          "enforcement_layer": "storage (SQLite BEFORE trigger, RAISE(ABORT))"
+        },
+        {
+          "store": "audit",
+          "update_blocked": true,
+          "update_error": "append-only store: UPDATE forbidden (ADR-002 D9)",
+          "delete_blocked": true,
+          "delete_error": "append-only store: DELETE forbidden (ADR-002 D9)",
+          "row_unchanged_after_attempts": true,
+          "enforcement_layer": "storage (SQLite BEFORE trigger, RAISE(ABORT))"
+        },
+        {
+          "store": "tombstones",
+          "update_blocked": true,
+          "update_error": "append-only store: UPDATE forbidden (ADR-002 D9)",
+          "delete_blocked": true,
+          "delete_error": "append-only store: DELETE forbidden (ADR-002 D9)",
+          "row_unchanged_after_attempts": true,
+          "enforcement_layer": "storage (SQLite BEFORE trigger, RAISE(ABORT))"
+        }
+      ],
+      "criterion_7_all_blocked": true
+    },
+    "1.5_read_time_upcasting": {
+      "status": "NOT_RUN",
+      "reason": "Needs the runtime's event codec and upcaster registry, which do not exist until F0. Criterion 8 stays OPEN."
+    },
+    "1.6_portability": {
+      "status": "NOT_RUN",
+      "reason": "Needs the other candidate node classes enrolled, including the foreground_only one. Only one node is enrolled today. Criterion 9 stays OPEN."
+    }
+  },
+  "criteria": {
+    "1_zero_stale_epoch_writes": true,
+    "2_non_compliant_control_fails": true,
+    "3_zero_torn_transactions": true,
+    "4_audit_chain_unbroken": true,
+    "5_checkpoint_p95_within_budget": true,
+    "6_checkpoint_acked_before_step": true,
+    "7_append_only_enforced_at_storage": true,
+    "8_upcaster_behaviour": null,
+    "9_all_stores_open_every_node_class": null
+  },
+  "criteria_closed": 7,
+  "criteria_total": 9,
+  "blocking_criteria_pass": true,
+  "promotion_note": "This report is EVIDENCE FOR OWNER-DECISION-006(b), not the decision. SPIKE-008's on_fail is explicit: ADR-002 is revised BEFORE F0 rather than discovered during it. Criteria 8 and 9 are OPEN, so this is a partial result and an acceptance resting on it must say which parts it rests on."
+}
