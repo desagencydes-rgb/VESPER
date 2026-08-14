@@ -35,7 +35,16 @@ status_vocabulary = ["NOT_STARTED", "RUNNING", "REPORTED", "SUPERSEDED"]
 [spikes.SPIKE-001]
 title = "Node capability profiles, measured"
 protocol = "docs/spikes/SPIKE-001-node-capability-profiles.md"
-status = "NOT_STARTED"
+status = "RUNNING"
+status_note = """RUNNING since 2026-08-13 on the first candidate node. 3.1 is measured for
+draft, standard and strong (both strong candidates) in both load conditions, 3 x 10 min
+each; ten reports in docs/planning/spike-results/. 3.4 is locked as POLICY, not as a
+measurement. Open: 3.1 `small` re-run (the tier that closes pass criterion 2, held figures
+predate the 512-token cap removal); the strong-tier sampling fix; 3.2, 3.3, 3.5, 3.6; and
+criterion 4's 7-day passive availability window, which is the only item here that wall
+clock alone can close. Criterion 3 is ALREADY KNOWN TO FAIL on this node -- it is
+`on_demand` with wake blocked per SPIKE-010, so the fabric still needs an always-on member.
+Nothing has been promoted to capability_profiles.toml; it keeps measured = false."""
 question = "What can each candidate node actually sustain, and what is the minimum viable profile for SR-005 local fallback?"
 pass_criteria = "Every field in contracts/policy/capability_profiles.toml currently marked UNKNOWN carries a MEASURED value for at least one candidate node, and at least one node meets the declared minimum for local_inference_small."
 on_fail = "If no candidate node sustains local_inference_small, SR-005's local fallback does not close on available hardware. Deliverable is a COC Part XIV.3 limitation record with an R&D path, plus a hardware recommendation. The requirement is NOT narrowed."

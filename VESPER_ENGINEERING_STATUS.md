@@ -130,7 +130,7 @@ And one requirement gap:
 | **18 of 118 invariants enforced only by acceptance tests; 15 enforced today** | No CI or mechanism binding for the 18. The 15 figure is computed by `ci-registry` on every run. | Visible in every `ci-registry` run as a note. Most require runtime state to check at all. |
 | **Acceptance tests are specifications** | 52 tests with procedures and assertions | Executable fixtures require the runtime. **None is executable today.** 49 name the wrong build that must fail; 3 record why a negative control cannot exist. |
 | **`A-029` and `A-031` never run** | The two decisive gates | Cannot run before the autonomy engine and interlock exist. `CI-027` blocks the autonomy release without their evidence. |
-| **8 spikes unrun; every hardware figure `UNKNOWN`** | `capability_profiles.toml` carries 31 unmeasured fields | Deliberate and enforced: `CI-034` fails the file if any figure is filled in from a datasheet while `measured = false`. Unmeasured is treated as **unavailable**, not as available. |
+| **11 of 12 spikes unrun; `capability_profiles.toml` still entirely `UNKNOWN`** | `SPIKE-001` is `RUNNING` — see below. The other 11 are `NOT_STARTED`. The profile file carries 31 unmeasured fields and `measured = false`. | Deliberate and enforced: `CI-034` fails the file if any figure is filled in from a datasheet while `measured = false`. Unmeasured is treated as **unavailable**, not as available. **Measured-but-unpromoted is the correct state**: SPIKE-001 has real numbers on disk and none of them has been written into the contract, because promotion is a separate deliberate act and the spike's own pass criteria are not all met. |
 | **Runbooks written, none validated** | Four runbooks exist | None executed on real hardware. The alarm one must be validated **at night, with the owner genuinely asleep beforehand** — a wake-up procedure validated while awake has not been validated. Phase 8. |
 | **Branch protection and the `@owner` handle** | `git init` is **done**; hosting is not | The repository exists and the full suite has been re-run from a fresh clone, so verification now executes against version control rather than a directory. `CI-002` and `CI-044` stay `PENDING`: one commit is not review history, and branch protection is a host-side setting. Replacing `@owner` in `CODEOWNERS` is an owner action (`SETUP.md`). |
 
@@ -144,11 +144,62 @@ One naming drift was found and corrected this pass: `tunables.toml` initially in
 
 ---
 
+---
+
+## SPIKE-001 — RUNNING since 2026-08-13 *(added 2026-08-14)*
+
+The first candidate node is a mains-powered desktop in site A: Ryzen 5 5500 · 15.9 GB RAM ·
+RX 6650 XT with **7.2 GB usable VRAM, measured** · llama.cpp `b10405-e79e4bf66`, Vulkan.
+Ten full-protocol reports are committed under `docs/planning/spike-results/`; that
+directory's `README.md` is the measurement record and carries every caveat.
+
+**§3.1 measured** — median of 3 × 10-min runs, wall-clock rate, idle → concurrent:
+
+| Tier | Model | idle | concurrent |
+|---|---|---|---|
+| `draft` | Qwen3-1.7B | 151.42 | 94.88 |
+| `draft` | Llama-3.2-3B | 99.50 | 72.03 |
+| `standard` | Qwen3-8B | 47.38 | 46.79 |
+| `strong` | Qwen3-30B-A3B (MoE) | ~9.7 | ~8.5 |
+| `strong` | Mistral-Small-24B (dense) | 3.29 | 3.25 |
+
+Three findings worth carrying into design: **MoE beats a smaller dense model ~3× at `strong`**
+on a VRAM-starved node (9.7 vs 3.3 tok/s, while being the larger model on fewer GPU layers);
+**contention cost is inversely proportional to model speed** (−37% at 1.7B, −1.2% at 8B), so
+a router tuned on idle figures over-selects `draft` precisely when the machine is busy; and
+this node **does not thermally throttle**, making §3.1's minute-10 rule a no-op on this node
+class.
+
+**Open, and why the spike is `RUNNING` rather than `REPORTED`:**
+
+| Item | Cost | Note |
+|---|---|---|
+| §3.1 `small` re-run | ~1 h | **Critical path.** The tier that closes pass criterion 2 (`local_inference_small`, SR-005 fallback). Held figures predate the 512-token-cap removal, so they are not the tier as §3.1 defines it. |
+| `strong` sampling fix | small | Checkpoints fire only when a request returns; at `strong` one request outlasts the window, so intervals alias and one published figure came from **minute 1** — the value §3.1 names and forbids. Needs `ignore_eos` **and** wall-clock sampling. Do not re-run `strong` before both land. |
+| §3.2, §3.3, §3.6 | hours each | Memory headroom, the five stores, thermal/power. §3.3's `synchronous = FULL` figure is SPIKE-008's input. |
+| §3.5 | — | Skipped for this node by owner direction; recorded DECLARED-and-unmeasured, not measured-absent. Another node re-opens it. |
+| **Criterion 4 — 7-day passive availability window** | **7 days wall clock** | **The only item here that working harder cannot compress**, and SPIKE-002/007/008 all sit behind SPIKE-001. §3.4 is locked as *policy*; a policy is an intent about the future, not an observation of the past, so it does not produce an observed `availability_class`. |
+
+**Criterion 3 is already known to FAIL on this node** and is not pending measurement: the
+node is `on_demand` with wake blocked per SPIKE-010, so no candidate meets
+`control_plane_host` with `always_on`. Per §5 that is a finding about the fabric, not about
+the requirement — `INV-TRUST-2` already forbids designing continuity-critical capability onto
+a node that cannot stay up. **The fabric needs an always-on member.**
+
+---
+
 ## Next actions, in order
 
 1. **Owner:** perform the readiness gate. Answer `OWNER-DECISION-006` (a), (b), (c). **(b) is the only thing standing between this corpus and F0**, and `CI-008` now enforces that mechanically rather than by discipline.
-2. **Human:** push, enable branch protection, replace `@owner` in `CODEOWNERS` (`SETUP.md`). Then self-test `CI-002` and `CI-044` red.
-3. **Engineering, no dependency on any owner decision:** `SPIKE-001` → `SPIKE-002`, `SPIKE-007`, `SPIKE-008`.
-4. **Then, and only then:** F0 — but not before `INV-ADR-1` is discharged by `ADR-002` acceptance. First increment is the persistent runtime, event bus, durable task state and checkpoints, gated by `A-033` and `A-034` **with their negative-control runs recorded**.
+2. **Engineering, day 1, because it is the only 7-day-wide item on the board:** start SPIKE-001 criterion 4's passive availability window. Every day it is not started is a day added to the end of the plan.
+3. **Human:** push, enable branch protection, replace `@owner` in `CODEOWNERS` (`SETUP.md`). Then self-test `CI-002` and `CI-044` red.
+4. **Engineering, no dependency on any owner decision:** finish `SPIKE-001` (`small` re-run first) → then `SPIKE-008`, which is the one that makes decision 1(b) *safe* rather than merely unblocking → `SPIKE-002`, `SPIKE-007`.
+5. **Then, and only then:** F0 — but not before `INV-ADR-1` is discharged by `ADR-002` acceptance. First increment is the persistent runtime, event bus, durable task state and checkpoints, gated by `A-033` and `A-034` **with their negative-control runs recorded**.
+
+**Scale, stated plainly so no plan is built on a wrong premise.** The corpus is ~37,800 lines
+across 161 files. The runtime is **0 lines** — all 3,362 lines under `tools/` are verification
+tooling and the spike harness. `IMPLEMENTATION_SEQUENCE.md` runs F0…F8 and names **F5** as the
+decisive gate, six stages past here. Any schedule that puts a finished VESPER inside a month
+is a schedule that has not read this file.
 
 See `docs/FINAL_PRE_F0_VERIFICATION_REPORT.md` for the full evidence, the negative-control table and the exact F0 prerequisite list.
