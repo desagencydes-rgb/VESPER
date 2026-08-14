@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
+<title>SPIKE-004 · Pepper's ghost instrument</title>
+<style>
+/* SPIKE-004 measurement instrument.
+   Runs in the J3's browser. No install, no cable.
+
+   PEPPER'S GHOST GEOMETRY. A transparent pyramid placed on the screen reflects
+   whatever is lit beneath each of its four faces into a single apparent image
+   floating inside it. So the screen shows FOUR copies, one per face, each
+   rotated so its foot points at the centre.
+
+   Everything not lit is invisible in the reflection -- a partial reflector
+   passes most light through and reflects only what is bright. That is why the
+   ground is pure black and nothing here uses a panel, a border, or a card.
+   Those would be visible as ghost geometry in the pyramid.
+
+   WHAT IS ACTUALLY BEING MEASURED, and it is not what the spike originally said.
+   Usable volume, refresh rate and element density are properties of the phone's
+   panel and are already on its spec sheet. What the OPTICS cost is not:
+     - minimum legible glyph height, after the reflection halves the light
+     - the ambient light level at which the image washes out
+     - the viewing arc before the illusion collapses
+     - how many simultaneous elements stay readable
+   Those are the constraints the semantic scene must respect. */
+
+:root {
+  --unit: min(50vw, 50vh);
+  --fg: #FFFFFF;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  height: 100%; width: 100%; background: #000; color: var(--fg);
+  overflow: hidden; touch-action: manipulation;
+  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Four faces. Each pane is a square in one quadrant, rotated so its BOTTOM
+   edge faces the centre of the screen, which is where the pyramid apex sits. */
+#stage { position: fixed; inset: 0; }
+.face {
+  position: absolute; width: var(--unit); height: var(--unit);
+  left: 50%; top: 50%; display: grid; place-items: center;
+  transform-origin: center center;
+}
+.face.n { transform: translate(-50%, -150%) rotate(180deg); }
+.face.s { transform: translate(-50%,  -50%) rotate(0deg); }
+.face.w { transform: translate(-150%, -100%) rotate(90deg); }
+.face.e { transform: translate(  50%, -100%) rotate(-90deg); }
+
+.inner { width: 100%; height: 100%; display: grid; place-items: center; padding: 2%; }
+
+/* --- test content --- */
+.ladder { display: flex; flex-direction: column; align-items: center; gap: 0.25em; }
+.ladder div { white-space: nowrap; line-height: 1.05; font-weight: 600; }
+.tag { font-variant-numeric: tabular-nums; opacity: 0.85; font-weight: 400; }
+
+.swatches { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4%; width: 92%; }
+.sw { aspect-ratio: 1; display: grid; place-items: end center; font-size: 9px; font-weight: 700; padding-bottom: 3%; color: #000; }
+
+.arc { position: relative; width: 92%; aspect-ratio: 1; }
+.arc .ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid #FFF; }
+.arc .spoke { position: absolute; left: 50%; top: 50%; width: 2px; height: 46%; background: #FFF; transform-origin: top center; }
+.arc .lbl { position: absolute; font-size: 11px; font-weight: 700; transform: translate(-50%,-50%); }
+
+.grid { display: grid; gap: 6%; width: 92%; }
+.cell { border: 1.5px solid #FFF; aspect-ratio: 1; display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+
+.solid { width: 78%; aspect-ratio: 1; background: #FFF; }
+
+/* HUD lives outside the pyramid footprint so it never enters the reflection.
+   It is for the operator reading the screen, not for the ghost. */
+#hud {
+  position: fixed; left: 0; right: 0; bottom: 0; padding: 6px 10px;
+  font-size: 11px; line-height: 1.35; color: #7d7d7d; background: #000;
+  display: flex; justify-content: space-between; gap: 10px; z-index: 10;
+  font-variant-numeric: tabular-nums;
+}
+#hud b { color: #d9d9d9; font-weight: 600; }
+#hud .hint { text-align: right; }
+#tapzones { position: fixed; inset: 0; display: flex; z-index: 5; }
+#tapzones div { flex: 1; }
+</style>
+</head>
+<body>
+
+<div id="stage"></div>
+
+<div id="hud">
+  <div><b id="step-name">—</b> · step <span id="step-n">1</span>/<span id="step-total">6</span> · level <b id="lvl">—</b></div>
+  <div class="hint">tap L/R = level · swipe or long-press right edge = next test</div>
+</div>
+<div id="tapzones"><div id="zL"></div><div id="zR"></div></div>
+
+<script>
+/* Each test yields ONE number the operator can report. That is the whole design
+   constraint: a test whose outcome is "looked nice" measures nothing. */
+
+const TESTS = [
+  {
+    name: "glyph height",
+    unit: "px cap height",
+    levels: [40, 32, 26, 21, 17, 14, 11, 9, 7],
+    // Report the SMALLEST level still legible through the pyramid.
+    render(px) {
+      return `<div class="ladder">
+        <div style="font-size:${px}px">VESPER 0123</div>
+        <div style="font-size:${px}px">handoff · 21:40</div>
+        <div class="tag" style="font-size:${Math.max(9, px * 0.55)}px">${px}px</div>
+      </div>`;
+    }
+  },
+  {
+    name: "colour survival",
+    unit: "swatch set",
+    levels: [1, 2, 3],
+    // A partial reflector is not colour-neutral and dim colours vanish first.
+    render(set) {
+      const sets = [
+        [["#FFFFFF","W"],["#FFE9B0","warm"],["#B9E4FF","cool"],["#8FE3B0","grn"],["#FFA98F","org"],["#C9A9FF","vio"]],
+        [["#CCCCCC","75%"],["#999999","60%"],["#666666","40%"],["#4D4D4D","30%"],["#333333","20%"],["#1A1A1A","10%"]],
+        [["#FF3B30","red"],["#34C759","green"],["#0A84FF","blue"],["#FFD60A","yellow"],["#FF375F","pink"],["#30D5C8","teal"]]
+      ];
+      return `<div class="swatches">` + sets[set-1].map(
+        ([c,l]) => `<div class="sw" style="background:${c}">${l}</div>`).join("") + `</div>`;
+    }
+  },
+  {
+    name: "viewing arc",
+    unit: "degrees off-axis",
+    levels: [1],
+    // Step around the pyramid and note the angle at which the image breaks.
+    render() {
+      let spokes = "", lbls = "";
+      for (let a = 0; a < 360; a += 15) {
+        const major = a % 45 === 0;
+        spokes += `<div class="spoke" style="transform:rotate(${a}deg);height:${major?46:38}%;opacity:${major?1:.5}"></div>`;
+        if (major) {
+          const r = 0.40, rad = (a - 90) * Math.PI / 180;
+          lbls += `<div class="lbl" style="left:${50 + Math.cos(rad)*r*100}%;top:${50 + Math.sin(rad)*r*100}%">${a}</div>`;
+        }
+      }
+      return `<div class="arc"><div class="ring"></div>${spokes}${lbls}</div>`;
+    }
+  },
+  {
+    name: "element density",
+    unit: "simultaneous elements",
+    levels: [1, 2, 4, 6, 9, 12, 16],
+    // Report the highest count where EVERY cell is still readable.
+    render(n) {
+      const cols = Math.ceil(Math.sqrt(n));
+      let cells = "";
+      for (let i = 1; i <= n; i++) cells += `<div class="cell">${i}</div>`;
+      return `<div class="grid" style="grid-template-columns:repeat(${cols},1fr)">${cells}</div>`;
+    }
+  },
+  {
+    name: "ambient ceiling",
+    unit: "room light",
+    levels: [1],
+    // Fixed bright target. The OPERATOR varies the room light and records the
+    // point the ghost washes out. The screen is the constant here.
+    render() {
+      return `<div class="solid"></div>`;
+    }
+  },
+  {
+    name: "motion legibility",
+    unit: "px/s drift",
+    levels: [0, 30, 60, 120, 240],
+    // A scene that updates is the real use. Static legibility is not enough.
+    render(v) {
+      const dur = v === 0 ? 0 : Math.round(200 / v * 10) / 10;
+      const anim = v === 0 ? "" :
+        `animation: drift ${dur}s linear infinite alternate;`;
+      return `<style>@keyframes drift{from{transform:translateY(-18%)}to{transform:translateY(18%)}}</style>
+        <div class="ladder" style="${anim}">
+          <div style="font-size:22px">VESPER 0123</div>
+          <div class="tag" style="font-size:12px">${v} px/s</div>
+        </div>`;
+    }
+  }
+];
+
+let ti = 0, li = 0;
+const stage = document.getElementById("stage");
+document.getElementById("step-total").textContent = TESTS.length;
+
+function draw() {
+  const t = TESTS[ti];
+  li = Math.max(0, Math.min(li, t.levels.length - 1));
+  const html = t.render(t.levels[li]);
+  stage.innerHTML = ["n","e","s","w"].map(
+    d => `<div class="face ${d}"><div class="inner">${html}</div></div>`).join("");
+  document.getElementById("step-name").textContent = t.name;
+  document.getElementById("step-n").textContent = ti + 1;
+  document.getElementById("lvl").textContent = `${t.levels[li]} ${t.unit}`;
+}
+
+function level(d) { li += d; draw(); }
+function test(d)  { ti = (ti + d + TESTS.length) % TESTS.length; li = 0; draw(); }
+
+document.getElementById("zL").addEventListener("click", () => level(-1));
+document.getElementById("zR").addEventListener("click", () => level(+1));
+addEventListener("keydown", e => {
+  if (e.key === "ArrowLeft")  level(-1);
+  if (e.key === "ArrowRight") level(+1);
+  if (e.key === "ArrowDown")  test(+1);
+  if (e.key === "ArrowUp")    test(-1);
+});
+let sx = 0, sy = 0;
+addEventListener("touchstart", e => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, {passive:true});
+addEventListener("touchend", e => {
+  const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
+  if (Math.abs(dy) > 60 && Math.abs(dy) > Math.abs(dx)) { test(dy < 0 ? +1 : -1); }
+}, {passive:true});
+
+draw();
+</script>
+</body>
+</html>
