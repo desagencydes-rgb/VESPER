@@ -26,6 +26,63 @@ Last updated: 2026-08-12.
 
 ---
 
+## Device roles — owner decisions, 2026-08-14
+
+Recorded because these are placement decisions, and placement decided in conversation and
+not written down is placement that gets re-litigated every time someone asks why.
+
+**The MacBook is the preferred primary device.** Not yet acquired; the owner intends to buy
+one shortly. It remains **excluded from the fabric until measured** — no placeholder profile,
+no reserved role that shapes a design around a machine that does not exist. When it arrives
+it enrols by the same path as every other node. Its intended role is primary control and the
+development machine for the iPhone app.
+
+**The iPhone runs standalone. It does NOT depend on the desktop for inference.** The owner
+explicitly rejected an iPhone-to-desktop inference path. Instead it runs small local models
+or calls an API, inside an app to be built on the MacBook.
+
+> This overturns an assumption made earlier the same day. The voice latency chain was about
+> to be scoped as *phone hears → desktop thinks → phone speaks*, which would have put a
+> cross-site network hop inside a 1200 ms budget that accounts for zero network time. The
+> owner's design removes the hop entirely. **`SPIKE-002` must therefore be measured on the
+> iPhone against local-or-API inference, not on the desktop** — the desktop is not in that
+> chain. The spike currently says "on the minimum profile", written as though one machine
+> does everything, and that wording is now wrong for the voice path.
+
+**The J3 is a display first.** Its primary role is the `SPIKE-004` Pepper's-ghost output — a
+flat screen under a transparent pyramid producing an apparent floating image. It has a
+microphone and speaker, so it *can* serve voice, but the owner placed it deliberately: **a
+backup for voice, and not the first backup layer.** It is `Z2` by key storage (file-based),
+so `INV-TRUST-1` already forbids it holding state, issuing commands or receiving secrets —
+which is consistent with a render-and-observe endpoint and inconsistent with a primary voice
+path that would need to act on what it hears.
+
+**The broken desktop is the standing candidate for the always-on server**, conditional on
+repair. The owner raised it for that role and the instinct is right: a mains-powered machine
+that stays in site A is exactly what the fabric lacks, since `SPIKE-001` pass criterion 3
+(a `control_plane_host` with `always_on`) is met by no enrolled node. It remains
+**UNAVAILABLE** until it POSTs — a pre-POST power fault means Wake-on-LAN cannot help it, so
+it is a repair task before it is a node. Cheapest first test is a known-good PSU.
+
+**All devices on one network at once is the intended best case.** The owner's point that this
+is when the fabric is most useful is correct, and `ADR-002` already supports it: `state.db`
+carries **seven independently leased domains** (`tasks`, `world`, `memory`, `devices`,
+`policy`, `autonomy_queue`, `alarms`), so different devices can hold different domain leases
+and write concurrently. What they cannot do is both write the *same* domain — that is the
+fencing primitive `ADR-002 D3`, accepted 2026-08-14. Concurrency across domains is a
+property of the design, not something still to be added.
+
+### Consequent re-scoping
+
+| Item | Was | Now |
+|---|---|---|
+| `SPIKE-002` voice chain | measured on "the minimum profile", single machine implied | measured on the **iPhone**, local-or-API, no desktop hop |
+| `SPIKE-004` volumetric | exotic optics, blocked on hardware, 10-day box | Pepper's ghost on the **J3**, runnable now, 3-day box |
+| `SPIKE-001 §3.5` camera/audio | skipped for the desktop by owner direction | correct, and now clearly so — voice lives on the phones, never here |
+| always-on member | unfilled structural gap | **Kali laptop** (candidate, being onboarded) or the **repaired desktop** |
+
+---
+
 ## Strong desktop — observed 2026-08-12 (read-only, from the machine itself)
 
 | Component | Value | Note |

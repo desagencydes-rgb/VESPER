@@ -76,6 +76,20 @@ pass_criteria = "Every path in contracts/policy/latency_budgets.toml meets its b
 on_fail = "COC Part XIV.3 limitation record with an R&D path, naming the specific stage that does not close and by how much. Budgets are NOT relaxed (INV-PERF-1); the path is not redefined so the slow part falls outside it; and a measurement on a stronger profile is not reported in its place."
 blocks = ["SR-047 verification", "A-020", "R2 gate"]
 depends_on = ["SPIKE-001"]
+rescoped = """2026-08-14, owner decision on device roles. This spike says "on the MINIMUM
+profile", written as though one machine captures audio, runs inference and speaks. That is
+not the architecture. Voice and hearing live on the phones, never on the site-A desktop --
+which is why SPIKE-001 3.5 was already skipped there.
+
+The trap this avoids: the chain was about to be scoped as phone-hears -> desktop-thinks ->
+phone-speaks, which puts a CROSS-SITE NETWORK HOP inside a 1200 ms end-to-end budget that
+currently accounts for ZERO network time. The owner rejected that path outright: the iPhone
+is to run standalone on small local models or an API, inside an app built on the MacBook.
+
+So this spike must be measured ON THE IPHONE against local-or-API inference. The desktop is
+not in the voice chain at all, and a desktop measurement would be a measurement of the wrong
+machine -- exactly what 5 forbids. Blocked on the iPhone app existing, which is blocked on
+the MacBook being acquired."""
 time_box = "10 working days"
 owner_role = "Presence & Interaction Engineer · Intelligence Systems Engineer"
 requires_hardware = true
