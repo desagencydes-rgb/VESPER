@@ -684,19 +684,119 @@ def measure_throughput(runner: dict, tier: str, minutes: float, runs: int, concu
 # --------------------------------------------------------------------------- memory / storage
 
 
-def measure_memory() -> dict:
+def _process_inventory(top: int = 20) -> tuple[list[dict] | None, str | None]:
+    """What is actually resident, so 'the owner's real working set' is a recorded
+    fact rather than an adjective. Without this, a headroom figure cannot be
+    reproduced or even interpreted: 9 GB free with a browser open and 9 GB free
+    with nothing open are different measurements that print the same number."""
+    system = platform.system()
+    try:
+        if system == "Windows":
+            ps = (
+                "Get-Process | Where-Object { $_.WorkingSet64 -gt 20MB } | "
+                "Sort-Object WorkingSet64 -Descending | Select-Object -First %d "
+                "ProcessName, @{n='mb';e={[math]::Round($_.WorkingSet64/1MB,1)}}, "
+                "@{n='windowed';e={[bool]$_.MainWindowTitle}} | ConvertTo-Json -Compress"
+            ) % top
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", ps],
+                capture_output=True, text=True, timeout=30, check=True,
+            )
+            data = json.loads(out.stdout.strip() or "[]")
+            return (data if isinstance(data, list) else [data]), None
+        if system == "Linux":
+            rows = []
+            for pid in os.listdir("/proc"):
+                if not pid.isdigit():
+                    continue
+                try:
+                    with open(f"/proc/{pid}/status", encoding="utf-8") as f:
+                        name = rss = None
+                        for line in f:
+                            if line.startswith("Name:"):
+                                name = line.split(None, 1)[1].strip()
+                            elif line.startswith("VmRSS:"):
+                                rss = int(line.split()[1]) / 1024.0
+                        if name and rss and rss > 20:
+                            rows.append({"ProcessName": name, "mb": round(rss, 1)})
+                except (OSError, ValueError):
+                    continue
+            rows.sort(key=lambda r: r["mb"], reverse=True)
+            return rows[:top], None
+    except Exception as e:  # noqa: BLE001
+        return None, f"process inventory unavailable: {e}"
+    return None, f"unsupported platform: {system}"
+
+
+def measure_memory(window_seconds: float = 0.0, interval_seconds: float = 5.0,
+                   label: str | None = None) -> dict:
+    """SPIKE-001 §3.2.
+
+    A SINGLE READING IS NOT THE PROTOCOL FIGURE, and the previous version of this
+    function said so in a note while still returning only a single reading. §3.2
+    asks for headroom under the owner's real working set -- and a working set is
+    not static. A browser reclaims and re-allocates; a point sample taken in a
+    trough reports headroom the machine does not reliably have.
+
+    So with --window-seconds this samples across a window and reports the
+    MINIMUM available, not the mean. Headroom that only exists on average is not
+    headroom: the moment that decides whether a model can stay resident is the
+    worst moment, not the typical one.
+    """
     total, total_err = _ram_gb()
-    avail, avail_err = _ram_available_gb()
+    inv_start, inv_err = _process_inventory()
+
+    if window_seconds <= 0:
+        avail, avail_err = _ram_available_gb()
+        return {
+            "total_gb": total, "total_gb_error": total_err,
+            "available_gb_now": avail, "available_gb_error": avail_err,
+            "sampling": "POINT-IN-TIME -- not the §3.2 protocol figure",
+            "process_inventory": inv_start, "process_inventory_error": inv_err,
+            "note": (
+                "Single reading. §3.2 wants headroom under the owner's real working "
+                "set, sampled over a window. Re-run with --window-seconds."
+            ),
+        }
+
+    samples = []
+    t_end = time.monotonic() + window_seconds
+    while time.monotonic() < t_end:
+        a, err = _ram_available_gb()
+        if a is not None:
+            samples.append(a)
+        elif err:
+            return {"total_gb": total, "error": err}
+        time.sleep(min(interval_seconds, max(0.0, t_end - time.monotonic())))
+
+    inv_end, _ = _process_inventory()
+    if not samples:
+        return {"total_gb": total, "error": "no samples collected"}
+
+    lo, hi = min(samples), max(samples)
     return {
+        "label": label,
         "total_gb": total, "total_gb_error": total_err,
-        "available_gb_now": avail, "available_gb_error": avail_err,
-        "note": (
-            "'available_gb_now' is a point-in-time OS reading, not the SPIKE-001 "
-            "protocol figure. The protocol wants headroom measured WITH the "
-            "owner's real working set loaded (browser, editor, whatever they "
-            "actually run) -- run this again while that is actually open, and "
-            "record both."
+        "sampling": {
+            "window_seconds": window_seconds,
+            "interval_seconds": interval_seconds,
+            "n_samples": len(samples),
+        },
+        # The headroom figure. Deliberately the worst sample in the window.
+        "available_gb_min": round(lo, 2),
+        "available_gb_median": round(statistics.median(samples), 2),
+        "available_gb_max": round(hi, 2),
+        "available_gb_range": round(hi - lo, 2),
+        "headroom_definition": (
+            "available_gb_min -- the WORST sample in the window, not the mean. "
+            "Headroom that exists only on average is not headroom; the moment "
+            "that decides whether a resident model survives is the worst moment."
         ),
+        "in_use_gb_max": round(total - lo, 2) if total else None,
+        "process_inventory_at_start": inv_start,
+        "process_inventory_at_end": inv_end,
+        "process_inventory_error": inv_err,
+        "samples_gb": samples,
     }
 
 
@@ -786,6 +886,13 @@ def main() -> int:
     p.add_argument("--quick", action="store_true",
                     help="short pilot run to validate the harness. NEVER a SPIKE-001 result.")
     p.add_argument("--storage-path", default=".")
+    p.add_argument("--window-seconds", type=float, default=0.0,
+                    help="memory: sample across a window and report the MINIMUM available. "
+                         "0 = single point-in-time reading, which is NOT the §3.2 figure.")
+    p.add_argument("--interval-seconds", type=float, default=5.0)
+    p.add_argument("--label", default=None,
+                    help="memory: what condition this window was taken under, e.g. "
+                         "'owner working set, no model resident'")
     p.add_argument("--out", default=None, help="write JSON report to this path instead of the default location")
     args = p.parse_args()
 
@@ -819,7 +926,8 @@ def main() -> int:
     elif args.command == "runner":
         report["runner"] = _runner()
     elif args.command == "memory":
-        report["memory"] = measure_memory()
+        report["memory"] = measure_memory(
+            args.window_seconds, args.interval_seconds, args.label)
     elif args.command == "storage":
         report["storage"] = measure_storage(args.storage_path)
     elif args.command == "throughput":
@@ -834,7 +942,8 @@ def main() -> int:
     elif args.command == "full":
         runner = _runner()
         report["runner"] = runner
-        report["memory"] = measure_memory()
+        report["memory"] = measure_memory(
+            args.window_seconds, args.interval_seconds, args.label)
         report["storage"] = measure_storage(args.storage_path)
         if runner["available"]:
             report["throughput_idle"] = measure_throughput(

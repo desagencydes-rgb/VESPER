@@ -1,0 +1,278 @@
+{
+  "schema_version": 4,
+  "generated_at_utc": "2026-08-14T23:22:09Z",
+  "spike": "SPIKE-001",
+  "quick_mode": false,
+  "system": {
+    "os_family": "Windows",
+    "os_version": "10.0.26200",
+    "hostname_hint": "DESKTOP-F73BBDB",
+    "cpu_cores_logical": 12,
+    "ram_gb": 15.9,
+    "ram_gb_error": null,
+    "disk_total_gb": 475.9,
+    "disk_free_gb": 123.4,
+    "gpu_name_hint": "AMD Radeon RX 6650 XT",
+    "gpu_name_error": null,
+    "python_version": "3.14.2"
+  },
+  "memory": {
+    "label": "owner working set + strong-tier MoE resident (Qwen3-30B-A3B, -ngl 12, -c 8448) -- the tier whose weights mostly live in system RAM on this node",
+    "total_gb": 15.9,
+    "total_gb_error": null,
+    "sampling": {
+      "window_seconds": 180.0,
+      "interval_seconds": 5.0,
+      "n_samples": 36
+    },
+    "available_gb_min": 0.27,
+    "available_gb_median": 0.73,
+    "available_gb_max": 0.92,
+    "available_gb_range": 0.65,
+    "headroom_definition": "available_gb_min -- the WORST sample in the window, not the mean. Headroom that exists only on average is not headroom; the moment that decides whether a resident model survives is the worst moment.",
+    "in_use_gb_max": 15.63,
+    "process_inventory_at_start": [
+      {
+        "ProcessName": "llama-server",
+        "mb": 6750.2,
+        "windowed": false
+      },
+      {
+        "ProcessName": "opera",
+        "mb": 509.9,
+        "windowed": false
+      },
+      {
+        "ProcessName": "Memory Compression",
+        "mb": 454.8,
+        "windowed": false
+      },
+      {
+        "ProcessName": "opera",
+        "mb": 400.4,
+        "windowed": false
+      },
+      {
+        "ProcessName": "claude",
+        "mb": 400.4,
+        "windowed": false
+      },
+      {
+        "ProcessName": "opera",
+        "mb": 362.2,
+        "windowed": false
+      },
+      {
+        "ProcessName": "opera",
+        "mb": 351.2,
+        "windowed": false
+      },
+      {
+        "ProcessName": "claude",
+        "mb": 343.3,
+        "windowed": false
+      },
+      {
+        "ProcessName": "Photos",
+        "mb": 339,
+        "windowed": true
+      },
+      {
+        "ProcessName": "chrome",
+        "mb": 333.3,
+        "windowed": false
+      },
+      {
+        "ProcessName": "opera",
+        "mb": 295.6,
+        "windowed": true
+      },
+      {
+        "ProcessName": "MsMpEng",
+        "mb": 292.1,
+        "windowed": false
+      },
+      {
+        "ProcessName": "opera",
+        "mb": 250.3,
+        "windowed": false
+      },
+      {
+        "ProcessName": "explorer",
+        "mb": 229.4,
+        "windowed": false
+      },
+      {
+        "ProcessName": "msedge",
+        "mb": 228.1,
+        "windowed": true
+      },
+      {
+        "ProcessName": "msedge",
+        "mb": 225,
+        "windowed": false
+      },
+      {
+        "ProcessName": "opera",
+        "mb": 216.1,
+        "windowed": false
+      },
+      {
+        "ProcessName": "opera",
+        "mb": 206.5,
+        "windowed": false
+      },
+      {
+        "ProcessName": "opera",
+        "mb": 206.4,
+        "windowed": false
+      },
+      {
+        "ProcessName": "opera",
+        "mb": 201.7,
+        "windowed": false
+      }
+    ],
+    "process_inventory_at_end": [
+      {
+        "ProcessName": "llama-server",
+        "mb": 6750.4,
+        "windowed": false
+      },
+      {
+        "ProcessName": "opera",
+        "mb": 475.1,
+        "windowed": false
+      },
+      {
+        "ProcessName": "opera",
+        "mb": 422,
+        "windowed": false
+      },
+      {
+        "ProcessName": "opera",
+        "mb": 400.7,
+        "windowed": false
+      },
+      {
+        "ProcessName": "claude",
+        "mb": 393.8,
+        "windowed": false
+      },
+      {
+        "ProcessName": "claude",
+        "mb": 390,
+        "windowed": false
+      },
+      {
+        "ProcessName": "Photos",
+        "mb": 339,
+        "windowed": true
+      },
+      {
+        "ProcessName": "chrome",
+        "mb": 332.5,
+        "windowed": false
+      },
+      {
+        "ProcessName": "MsMpEng",
+        "mb": 290.7,
+        "windowed": false
+      },
+      {
+        "ProcessName": "opera",
+        "mb": 274.3,
+        "windowed": true
+      },
+      {
+        "ProcessName": "explorer",
+        "mb": 265.9,
+        "windowed": false
+      },
+      {
+        "ProcessName": "Memory Compression",
+        "mb": 254,
+        "windowed": false
+      },
+      {
+        "ProcessName": "msedge",
+        "mb": 222.4,
+        "windowed": true
+      },
+      {
+        "ProcessName": "opera",
+        "mb": 211.9,
+        "windowed": false
+      },
+      {
+        "ProcessName": "opera",
+        "mb": 208.6,
+        "windowed": false
+      },
+      {
+        "ProcessName": "opera",
+        "mb": 190.2,
+        "windowed": false
+      },
+      {
+        "ProcessName": "SnippingTool",
+        "mb": 179.8,
+        "windowed": true
+      },
+      {
+        "ProcessName": "chrome",
+        "mb": 171.6,
+        "windowed": false
+      },
+      {
+        "ProcessName": "Taskmgr",
+        "mb": 169,
+        "windowed": true
+      },
+      {
+        "ProcessName": "Notepad",
+        "mb": 155.6,
+        "windowed": true
+      }
+    ],
+    "process_inventory_error": null,
+    "samples_gb": [
+      0.42,
+      0.42,
+      0.42,
+      0.27,
+      0.65,
+      0.8,
+      0.8,
+      0.8,
+      0.32,
+      0.78,
+      0.81,
+      0.81,
+      0.84,
+      0.84,
+      0.82,
+      0.92,
+      0.92,
+      0.88,
+      0.88,
+      0.61,
+      0.66,
+      0.64,
+      0.63,
+      0.64,
+      0.65,
+      0.63,
+      0.64,
+      0.75,
+      0.78,
+      0.74,
+      0.74,
+      0.74,
+      0.73,
+      0.52,
+      0.58,
+      0.58
+    ]
+  }
+}

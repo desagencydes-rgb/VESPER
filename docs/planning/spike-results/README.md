@@ -299,10 +299,38 @@ as of `schema_version 4` is the minute-10 wall rate.
 
 ## 3.2 memory · 3.3 storage · 3.6 thermal — closed 2026-08-14
 
-**3.2 memory — PARTIAL.** 15.9 GB total, 9.79 GB available with no model resident. The
-protocol asks for headroom measured **with the owner's real working set loaded** (browser,
-editor, whatever actually runs). This figure is a point-in-time OS reading on an idle machine
-and is not that. **One re-run needed, while the machine is in normal use.**
+**3.2 memory — DONE, and it produced the hardest constraint in the spike.** Measured
+2026-08-15 with the owner's real working set open (Opera, Chrome, Terminal), sampled every 5 s
+across a 180 s window per condition. **The reported figure is the worst sample, not the mean** —
+headroom that exists only on average is not headroom. Summary:
+`SPIKE-001-3.2-headroom-summary.json`.
+
+| Condition | worst-case free | in use | paging (pages/s) | verdict |
+|---|---|---|---|---|
+| working set, no model | 6.57 GB | 9.33 GB | — | baseline |
+| working set + `standard` (Qwen3-8B, `-ngl 99`) | 2.85 GB | 13.05 GB | 10.8 avg | **coexists** |
+| working set + `strong` (MoE, `-ngl 12`) | **0.27 GB** | 15.63 GB | **660.8 avg**, 1176 peak | **does not coexist** |
+
+**The strong tier and the owner's working set cannot share this node.** Only 12 of the MoE's
+layers fit in 7.2 GB of VRAM, so ~13 GB of its 17.8 GB of weights sit in system RAM; add a
+9.3 GB working set and the demand exceeds 15.9 GB. The machine does not fail — it **pages**,
+at 660 pages/sec against 10.8 for `standard`, with 4 GB of pagefile peak. That is measured, not
+projected, and it is invisible to any check that only asks whether the model loaded.
+
+Two consequences, both structural rather than cosmetic:
+
+1. **The 3.4 human-present degradation mode must UNLOAD the strong model, not deprioritise
+   it.** A scheduler that keeps it resident and merely lowers its priority will page the
+   owner's browser — precisely the failure that mode exists to prevent.
+2. **Residency cost is not a function of VRAM alone.** A fully GPU-offloaded model still costs
+   ~3.7 GB of *system* RAM here (page cache for the weights plus process overhead), and the
+   MoE costs ~13 GB. `capability_profiles.toml` needs a host-RAM cost per resident model or
+   SPIKE-012's residency manager will decide on a number that omits 13 GB.
+
+**And it makes 3.1's strong-tier figure conditional.** The matrix ran on an otherwise idle
+machine, so 6.79 tok/s describes a state this node cannot be in while the owner is using it.
+What `strong` sustains *while paging* is **not measured** and is expected to be materially
+worse. Recorded as unmeasured rather than estimated.
 
 **3.3 storage — DONE.** Sequential write **1271.7 MB/s**, random 4K write **75,787 IOPS**, on
 `C:\Projects\VESPER-runtime`. 123.5 GB free of 475.9 GB. Swap inactive before and after,
@@ -349,7 +377,8 @@ seconds — the exact error 3.1 exists to prevent.
 | Item | State | Cost to close |
 |---|---|---|
 | 3.1 full tier matrix, both conditions | **DONE** — 6 configs x 2 conditions x 3 runs | — |
-| 3.2 memory headroom under real working set | **OPEN** | one run, ~1 min, while the machine is in use |
+| 3.2 memory headroom under real working set | **DONE** — 3 conditions, and the strong tier does not coexist | — |
+| `strong` throughput WHILE paging | **OPEN** | 3.1's strong figures assume an idle machine |
 | 3.3 storage + checkpoint commit | **DONE** | — |
 | 3.4 network | closed as policy | — |
 | 3.5 camera / audio | skipped for this node | — |
