@@ -1,0 +1,331 @@
+{
+  "schema_version": 3,
+  "generated_at_utc": "2026-08-14T18:43:53Z",
+  "spike": "SPIKE-001",
+  "quick_mode": false,
+  "system": {
+    "os_family": "Linux",
+    "os_version": "#1 SMP PREEMPT_DYNAMIC Kali 6.16.8-1kali1 (2025-09-24)",
+    "hostname_hint": "CSF",
+    "cpu_cores_logical": 4,
+    "ram_gb": 3.71,
+    "ram_gb_error": null,
+    "disk_total_gb": 112.0,
+    "disk_free_gb": 74.8,
+    "gpu_name_hint": "Intel Corporation UHD Graphics 620 (rev 07)",
+    "gpu_name_error": null,
+    "python_version": "3.13.11"
+  },
+  "runner": {
+    "backend": "llama.cpp/llama-server",
+    "url": "http://127.0.0.1:8080",
+    "available": true,
+    "health": {
+      "status": "ok"
+    },
+    "model_path": "/home/csf/vesper-runtime/models/Qwen3-1.7B-Q4_K_M.gguf",
+    "build_info": "b10431-1692f9e50",
+    "n_ctx": 512,
+    "total_slots": 2,
+    "server_props": {
+      "default_generation_settings": {
+        "params": {
+          "seed": 4294967295,
+          "temperature": 0.800000011920929,
+          "dynatemp_range": 0.0,
+          "dynatemp_exponent": 1.0,
+          "top_k": 40,
+          "top_p": 0.949999988079071,
+          "min_p": 0.05000000074505806,
+          "top_n_sigma": -1.0,
+          "xtc_probability": 0.0,
+          "xtc_threshold": 0.10000000149011612,
+          "typical_p": 1.0,
+          "repeat_last_n": 64,
+          "repeat_penalty": 1.0,
+          "presence_penalty": 0.0,
+          "frequency_penalty": 0.0,
+          "dry_multiplier": 0.0,
+          "dry_base": 1.75,
+          "dry_allowed_length": 2,
+          "dry_penalty_last_n": 64,
+          "mirostat": 0,
+          "mirostat_tau": 5.0,
+          "mirostat_eta": 0.10000000149011612,
+          "adaptive_target": -1.0,
+          "adaptive_decay": 0.8999999761581421,
+          "max_tokens": -1,
+          "n_predict": -1,
+          "n_keep": 0,
+          "n_discard": 0,
+          "ignore_eos": false,
+          "stream": false,
+          "n_probs": 0,
+          "min_keep": 0,
+          "chat_format": "Content-only",
+          "reasoning_format": "none",
+          "reasoning_in_content": false,
+          "generation_prompt": "",
+          "samplers": [
+            "penalties",
+            "dry",
+            "top_n_sigma",
+            "top_k",
+            "typ_p",
+            "top_p",
+            "min_p",
+            "xtc",
+            "temperature"
+          ],
+          "speculative.types": "none",
+          "timings_per_token": false,
+          "post_sampling_probs": false,
+          "backend_sampling": false,
+          "lora": []
+        },
+        "n_ctx": 512
+      },
+      "total_slots": 2,
+      "model_alias": "/home/csf/vesper-runtime/models/Qwen3-1.7B-Q4_K_M.gguf",
+      "model_ftype": "Q4_K - Medium",
+      "model_path": "/home/csf/vesper-runtime/models/Qwen3-1.7B-Q4_K_M.gguf",
+      "modalities": {
+        "vision": false,
+        "video": false,
+        "audio": false
+      },
+      "media_marker": "<__media_O0BXpjoTnWu0zPmFf3IziEPtDCLQbKyz__>",
+      "endpoint_slots": true,
+      "endpoint_props": false,
+      "endpoint_metrics": false,
+      "ui": false,
+      "ui_settings": {},
+      "chat_template": "{%- if tools %}\n    {{- '<|im_start|>system\\n' }}\n    {%- if messages[0].role == 'system' %}\n        {{- messages[0].content + '\\n\\n' }}\n    {%- endif %}\n    {{- \"# Tools\\n\\nYou may call one or more functions to assist with the user query.\\n\\nYou are provided with function signatures within <tools></tools> XML tags:\\n<tools>\" }}\n    {%- for tool in tools %}\n        {{- \"\\n\" }}\n        {{- tool | tojson }}\n    {%- endfor %}\n    {{- \"\\n</tools>\\n\\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\\n<tool_call>\\n{\\\"name\\\": <function-name>, \\\"arguments\\\": <args-json-object>}\\n</tool_call><|im_end|>\\n\" }}\n{%- else %}\n    {%- if messages[0].role == 'system' %}\n        {{- '<|im_start|>system\\n' + messages[0].content + '<|im_end|>\\n' }}\n    {%- endif %}\n{%- endif %}\n{%- set ns = namespace(multi_step_tool=true, last_query_index=messages|length - 1) %}\n{%- for forward_message in messages %}\n    {%- set index = (messages|length - 1) - loop.index0 %}\n    {%- set message = messages[index] %}\n    {%- set current_content = message.content if message.content is not none else '' %}\n    {%- set tool_start = '<tool_response>' %}\n    {%- set tool_start_length = tool_start|length %}\n    {%- set start_of_message = current_content[:tool_start_length] %}\n    {%- set tool_end = '</tool_response>' %}\n    {%- set tool_end_length = tool_end|length %}\n    {%- set start_pos = (current_content|length) - tool_end_length %}\n    {%- if start_pos < 0 %}\n        {%- set start_pos = 0 %}\n    {%- endif %}\n    {%- set end_of_message = current_content[start_pos:] %}\n    {%- if ns.multi_step_tool and message.role == \"user\" and not(start_of_message == tool_start and end_of_message == tool_end) %}\n        {%- set ns.multi_step_tool = false %}\n        {%- set ns.last_query_index = index %}\n    {%- endif %}\n{%- endfor %}\n{%- for message in messages %}\n    {%- if (message.role == \"user\") or (message.role == \"system\" and not loop.first) %}\n        {{- '<|im_start|>' + message.role + '\\n' + message.content + '<|im_end|>' + '\\n' }}\n    {%- elif message.role == \"assistant\" %}\n        {%- set content = message.content %}\n        {%- set reasoning_content = '' %}\n        {%- if message.reasoning_content is defined and message.reasoning_content is not none %}\n            {%- set reasoning_content = message.reasoning_content %}\n        {%- else %}\n            {%- if '</think>' in message.content %}\n                {%- set content = (message.content.split('</think>')|last).lstrip('\\n') %}\n                {%- set reasoning_content = (message.content.split('</think>')|first).rstrip('\\n') %}\n                {%- set reasoning_content = (reasoning_content.split('<think>')|last).lstrip('\\n') %}\n            {%- endif %}\n        {%- endif %}\n        {%- if loop.index0 > ns.last_query_index %}\n            {%- if loop.last or (not loop.last and reasoning_content) %}\n                {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content.strip('\\n') + '\\n</think>\\n\\n' + content.lstrip('\\n') }}\n            {%- else %}\n                {{- '<|im_start|>' + message.role + '\\n' + content }}\n            {%- endif %}\n        {%- else %}\n            {{- '<|im_start|>' + message.role + '\\n' + content }}\n        {%- endif %}\n        {%- if message.tool_calls %}\n            {%- for tool_call in message.tool_calls %}\n                {%- if (loop.first and content) or (not loop.first) %}\n                    {{- '\\n' }}\n                {%- endif %}\n                {%- if tool_call.function %}\n                    {%- set tool_call = tool_call.function %}\n                {%- endif %}\n                {{- '<tool_call>\\n{\"name\": \"' }}\n                {{- tool_call.name }}\n                {{- '\", \"arguments\": ' }}\n                {%- if tool_call.arguments is string %}\n                    {{- tool_call.arguments }}\n                {%- else %}\n                    {{- tool_call.arguments | tojson }}\n                {%- endif %}\n                {{- '}\\n</tool_call>' }}\n            {%- endfor %}\n        {%- endif %}\n        {{- '<|im_end|>\\n' }}\n    {%- elif message.role == \"tool\" %}\n        {%- if loop.first or (messages[loop.index0 - 1].role != \"tool\") %}\n            {{- '<|im_start|>user' }}\n        {%- endif %}\n        {{- '\\n<tool_response>\\n' }}\n        {{- message.content }}\n        {{- '\\n</tool_response>' }}\n        {%- if loop.last or (messages[loop.index0 + 1].role != \"tool\") %}\n            {{- '<|im_end|>\\n' }}\n        {%- endif %}\n    {%- endif %}\n{%- endfor %}\n{%- if add_generation_prompt %}\n    {{- '<|im_start|>assistant\\n' }}\n    {%- if enable_thinking is defined and enable_thinking is false %}\n        {{- '<think>\\n\\n</think>\\n\\n' }}\n    {%- endif %}\n{%- endif %}",
+      "chat_template_caps": {
+        "supports_object_arguments": true,
+        "supports_parallel_tool_calls": true,
+        "supports_preserve_reasoning": false,
+        "supports_string_content": true,
+        "supports_system_role": true,
+        "supports_tool_calls": true,
+        "supports_tools": true,
+        "supports_typed_content": false
+      },
+      "bos_token": ",",
+      "eos_token": "<|im_end|>",
+      "build_info": "b10431-1692f9e50",
+      "is_sleeping": false,
+      "cors_proxy_enabled": false
+    },
+    "launch_command": "llama-server -m Qwen3-1.7B-Q4_K_M.gguf -c 1024 --parallel 2 -t 4 --host 127.0.0.1 --port 8080 (CPU-only, no -ngl: node has no discrete GPU; llama.cpp b10431 ubuntu-x64 build)"
+  },
+  "throughput": {
+    "tier": "draft",
+    "model_path": "/home/csf/vesper-runtime/models/Qwen3-1.7B-Q4_K_M.gguf",
+    "build_info": "b10431-1692f9e50",
+    "server_n_ctx": 512,
+    "minutes_per_run": 10.0,
+    "runs": 3,
+    "concurrent_load": true,
+    "quick_mode": false,
+    "gpu_in_use": null,
+    "gpu_in_use_reason": "llama-server exposes no CPU/GPU split over HTTP. Verify from the server startup log ('load_tensors: offloaded N/N layers to GPU') and record the -ngl flag used, in runner.launch_command.",
+    "run_results": [
+      {
+        "samples": [
+          {
+            "minute": 1.0,
+            "interval_tokens_per_sec": 7.78,
+            "interval_effective_tokens_per_sec": 7.19,
+            "cumulative_tokens_per_sec": 7.78,
+            "interval_tokens": 432
+          },
+          {
+            "minute": 5.0,
+            "interval_tokens_per_sec": 7.45,
+            "interval_effective_tokens_per_sec": 7.0,
+            "cumulative_tokens_per_sec": 7.51,
+            "interval_tokens": 1680
+          },
+          {
+            "minute": 10.0,
+            "interval_tokens_per_sec": 7.63,
+            "interval_effective_tokens_per_sec": 7.19,
+            "cumulative_tokens_per_sec": 7.57,
+            "interval_tokens": 2158
+          }
+        ],
+        "sustained_tokens_per_sec": 7.63,
+        "sustained_from_checkpoint_minute": 10.0,
+        "sustained_is_final_checkpoint": true,
+        "cumulative_tokens_per_sec": 7.57,
+        "effective_tokens_per_sec": 7.12,
+        "sustained_effective_tokens_per_sec": 7.19,
+        "total_tokens": 4270,
+        "wall_seconds": 600.1,
+        "generation_seconds": 564.0,
+        "prompt_eval_seconds_per_request": [
+          2.223,
+          2.349,
+          2.306,
+          1.891,
+          2.697,
+          1.837,
+          1.771,
+          1.954,
+          1.861,
+          1.743,
+          3.297,
+          2.644,
+          1.864,
+          1.754,
+          2.132,
+          1.764,
+          1.918
+        ],
+        "requests_started": 17,
+        "requests_completed": 16,
+        "final_request_aborted_at_deadline": true,
+        "ignore_eos": true,
+        "tier_generation_length": 256
+      },
+      {
+        "samples": [
+          {
+            "minute": 1.0,
+            "interval_tokens_per_sec": 7.7,
+            "interval_effective_tokens_per_sec": 7.23,
+            "cumulative_tokens_per_sec": 7.7,
+            "interval_tokens": 434
+          },
+          {
+            "minute": 5.0,
+            "interval_tokens_per_sec": 7.72,
+            "interval_effective_tokens_per_sec": 7.14,
+            "cumulative_tokens_per_sec": 7.71,
+            "interval_tokens": 1714
+          },
+          {
+            "minute": 10.0,
+            "interval_tokens_per_sec": 7.7,
+            "interval_effective_tokens_per_sec": 7.23,
+            "cumulative_tokens_per_sec": 7.71,
+            "interval_tokens": 2169
+          }
+        ],
+        "sustained_tokens_per_sec": 7.7,
+        "sustained_from_checkpoint_minute": 10.0,
+        "sustained_is_final_checkpoint": true,
+        "cumulative_tokens_per_sec": 7.71,
+        "effective_tokens_per_sec": 7.19,
+        "sustained_effective_tokens_per_sec": 7.23,
+        "total_tokens": 4317,
+        "wall_seconds": 600.1,
+        "generation_seconds": 560.2,
+        "prompt_eval_seconds_per_request": [
+          1.959,
+          1.726,
+          2.09,
+          2.393,
+          2.304,
+          3.662,
+          2.83,
+          2.467,
+          2.177,
+          3.097,
+          1.783,
+          1.877,
+          3.129,
+          1.933,
+          2.298,
+          1.891,
+          2.235
+        ],
+        "requests_started": 17,
+        "requests_completed": 16,
+        "final_request_aborted_at_deadline": true,
+        "ignore_eos": true,
+        "tier_generation_length": 256
+      },
+      {
+        "samples": [
+          {
+            "minute": 1.0,
+            "interval_tokens_per_sec": 7.82,
+            "interval_effective_tokens_per_sec": 7.23,
+            "cumulative_tokens_per_sec": 7.82,
+            "interval_tokens": 434
+          },
+          {
+            "minute": 5.0,
+            "interval_tokens_per_sec": 7.64,
+            "interval_effective_tokens_per_sec": 7.19,
+            "cumulative_tokens_per_sec": 7.67,
+            "interval_tokens": 1725
+          },
+          {
+            "minute": 10.0,
+            "interval_tokens_per_sec": 7.7,
+            "interval_effective_tokens_per_sec": 7.27,
+            "cumulative_tokens_per_sec": 7.68,
+            "interval_tokens": 2182
+          }
+        ],
+        "sustained_tokens_per_sec": 7.7,
+        "sustained_from_checkpoint_minute": 10.0,
+        "sustained_is_final_checkpoint": true,
+        "cumulative_tokens_per_sec": 7.68,
+        "effective_tokens_per_sec": 7.23,
+        "sustained_effective_tokens_per_sec": 7.27,
+        "total_tokens": 4341,
+        "wall_seconds": 600.1,
+        "generation_seconds": 564.9,
+        "prompt_eval_seconds_per_request": [
+          2.49,
+          2.017,
+          2.378,
+          1.761,
+          2.283,
+          1.942,
+          1.759,
+          2.217,
+          1.772,
+          1.731,
+          1.914,
+          2.0,
+          3.067,
+          2.297,
+          1.782,
+          1.922,
+          1.725
+        ],
+        "requests_started": 17,
+        "requests_completed": 16,
+        "final_request_aborted_at_deadline": true,
+        "ignore_eos": true,
+        "tier_generation_length": 256
+      }
+    ],
+    "median_sustained_tokens_per_sec": 7.7,
+    "spread_tokens_per_sec": {
+      "min": 7.63,
+      "max": 7.7,
+      "values": [
+        7.63,
+        7.7,
+        7.7
+      ]
+    },
+    "median_effective_tokens_per_sec": 7.19,
+    "spread_effective_tokens_per_sec": {
+      "min": 7.12,
+      "max": 7.23,
+      "values": [
+        7.12,
+        7.19,
+        7.23
+      ]
+    },
+    "router_should_use": "median_effective_tokens_per_sec \u2014 it is wall-clock and therefore sees contention that median_sustained_tokens_per_sec, being generation-time only, is blind to."
+  }
+}

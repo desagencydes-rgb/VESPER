@@ -113,10 +113,30 @@ Launch command recorded verbatim (the flags *are* the configuration under test):
 `llama-server -m Qwen3-1.7B-Q4_K_M.gguf -c 1024 --parallel 2 -t 4 --host 127.0.0.1 --port 8080`
 (CPU-only, no `-ngl`).
 
-<!-- THROUGHPUT_TABLE -->
-_Full-protocol medians (3 × 10-min, wall-clock rate, with spread) are being measured and will
-be filled in here on completion. Cold sanity check before the protocol run: **~10.7 tok/s** on
-a 128-token generation._
+Full protocol: 3 × 10-min runs per condition. Median, with min–max spread (criterion 6 wants
+both). **Read the wall-clock column** — it is the one the router consumes.
+
+| Condition | gen rate (sustained) | **wall-clock (effective)** | wall spread | contention |
+|---|---|---|---|---|
+| draft, idle | 11.02 | **10.26** | 9.18–10.42 | — |
+| draft, concurrent | 7.70 | **7.19** | 7.12–7.23 | **−29.9%** |
+
+**A node-class finding, not just a number: on a CPU-only node the two-rate distinction
+collapses.** Node 1's sharpest throughput lesson was that `sustained` (generation-time) is
+*structurally blind* to CPU contention — on its GPU the generation rate moved −0.2% under load
+while wall-clock moved −37%, because the synthetic load is CPU-bound and never touches the
+accelerator. On this machine there is no accelerator: generation happens on the same CPU the
+load contends, so **both** metrics fall together (−30.1% generation, −29.9% wall-clock). The
+gap node 1 had to warn about does not open here. This does not retire node 1's rule — the
+router must still consume `effective_tokens_per_sec` — it explains *why* the rule mattered
+there (a GPU node) and why the two columns happen to agree here (a CPU node). Recorded so a
+future reader does not "discover" the agreement and mistake it for the metrics being
+interchangeable in general; they are not.
+
+The idle spread has one low run (9.18 against 10.26/10.42); the concurrent spread is very tight
+(7.12–7.23). No thermal collapse was seen across the 30-min windows, but this is a passively
+cooled ultrabook and a longer or hotter run could differ — not claimed beyond what was
+measured.
 
 **The comparison that matters for design:** node 1 sustained ~151 tok/s on this exact model
 on its GPU. This node does ~10–11 tok/s on CPU — roughly **14× slower**. That is the honest
