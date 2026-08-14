@@ -1,0 +1,19 @@
+{
+  "schema_version": 3,
+  "generated_at_utc": "2026-08-14T17:57:24Z",
+  "spike": "SPIKE-001",
+  "quick_mode": false,
+  "system": {
+    "os_family": "Linux",
+    "os_version": "#1 SMP PREEMPT_DYNAMIC Kali 6.16.8-1kali1 (2025-09-24)",
+    "hostname_hint": "CSF",
+    "cpu_cores_logical": 4,
+    "ram_gb": 3.71,
+    "ram_gb_error": null,
+    "disk_total_gb": 112.0,
+    "disk_free_gb": 67.8,
+    "gpu_name_hint": "Intel Corporation UHD Graphics 620 (rev 07)",
+    "gpu_name_error": null,
+    "python_version": "3.13.11"
+  }
+}
