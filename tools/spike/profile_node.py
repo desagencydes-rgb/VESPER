@@ -50,7 +50,12 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+# 3 (2026-08-14): throughput switched to a STREAMING request with ignore_eos, so
+# checkpoints fire on the wall clock instead of on request returns. Reports at
+# schema_version 2 and 3 are NOT directly comparable at `strong`, where the old
+# sampling aliased; at `draft`/`standard`, where requests returned every few
+# seconds, they are. See docs/planning/spike-results/README.md Finding 4.
+SCHEMA_VERSION = 3
 LLAMA_SERVER_URL = os.environ.get("VESPER_LLAMA_SERVER", "http://127.0.0.1:8080")
 REPORT_DIR = Path(__file__).resolve().parents[2] / "docs" / "planning" / "spike-results"
 
@@ -270,10 +275,12 @@ def detect_runner() -> dict:
 
 
 def _llama_generate(prompt: str, n_predict: int, timeout: float = 600) -> dict:
-    """POST /completion. llama-server returns a `timings` block carrying
-    predicted_n and predicted_ms -- the generation-only figures. Prompt-eval
-    time is reported separately and is deliberately NOT folded in: SPIKE-001
-    §3.1 measures generation throughput."""
+    """POST /completion, non-streaming. Retained for the warm-up only.
+
+    NOT used for measurement any more. See _llama_stream and the note on
+    _single_throughput_run: a non-streaming request advances the token count
+    only when it RETURNS, which makes every derived rate a function of where
+    request boundaries happen to fall."""
     body = json.dumps({
         "prompt": prompt,
         "n_predict": n_predict,
@@ -286,6 +293,62 @@ def _llama_generate(prompt: str, n_predict: int, timeout: float = 600) -> dict:
     )
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read())
+
+
+def _llama_stream(prompt: str, n_predict: int, timeout: float):
+    """POST /completion with stream=true, yielding one item per token as it
+    arrives. This is what makes wall-clock sampling possible at all.
+
+    TWO REASONS THIS REPLACED THE NON-STREAMING PATH, both found on 2026-08-14
+    by asking why the `strong` tier's spread was three times every other tier's:
+
+    1. SAMPLING. A non-streaming request advances the token count only when it
+       returns. At `strong` one request runs 625-1137 s -- longer than the whole
+       10-minute window -- so a single return crossed two or three checkpoint
+       boundaries and every interval collapsed into whichever one it landed on.
+       The three published MoE figures came from three DIFFERENT checkpoints,
+       and one of them was the MINUTE-1 value, which is the single figure §3.1
+       names and forbids. Streaming advances the count continuously, so a
+       checkpoint fires on the clock rather than on a request boundary.
+
+    2. GENERATION TIME WITHOUT PROMPT EVAL. Accumulating inter-token intervals
+       gives generation-only time directly, and does so for an ABORTED request
+       too. The old path could only read `timings` from a completed response,
+       so a request still running at the deadline contributed nothing -- which
+       at `strong`, where a full request outlasts the window, is every request.
+
+    `ignore_eos` is sent so a request lasts the tier's declared length instead
+    of however long the model chooses to talk. Without it, no `strong` run ever
+    reached n_predict: the dense candidate stopped at 2064-2520 tokens against a
+    declared 8192, so the tier measured the model's natural answer length rather
+    than the tier's."""
+    body = json.dumps({
+        "prompt": prompt,
+        "n_predict": n_predict,
+        "stream": True,
+        "cache_prompt": False,
+        # SPIKE-001 §3.1 fixes the GENERATION LENGTH per tier. A model that
+        # stops early makes the tier argument inert -- the same defect class as
+        # the 512-token cap removed on 2026-08-13, arriving by a different road.
+        "ignore_eos": True,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{LLAMA_SERVER_URL}/completion", data=body,
+        headers={"Content-Type": "application/json", "Accept": "text/event-stream"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        for raw in resp:
+            line = raw.decode("utf-8", "replace").strip()
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if not payload or payload == "[DONE]":
+                continue
+            try:
+                yield json.loads(payload)
+            except json.JSONDecodeError:
+                continue
 
 
 def _gpu_in_use(runner: dict) -> tuple[bool | None, str | None]:
@@ -374,63 +437,129 @@ def _single_throughput_run(tier: str, minutes: float, checkpoints_min: list[floa
 
     start = time.monotonic()
     cumulative_tokens = 0
-    cumulative_predict_ms = 0.0
+    # Generation-only seconds, accumulated as the sum of INTER-TOKEN intervals.
+    # The gap before a request's first token carries prompt eval and connection
+    # setup and is deliberately excluded, which is the same boundary the old
+    # `timings.predicted_ms` drew -- but computed continuously, so an aborted
+    # request contributes its real generation time instead of nothing.
+    cumulative_gen_s = 0.0
+    prompt_gaps_s = []
     samples = []
+    requests_started = 0
+    requests_completed = 0
     next_checkpoint_idx = 0
     deadline = start + minutes * 60
     # Interval accounting: each checkpoint reports the rate achieved SINCE the
     # previous one, so a hot minute-10 figure is not diluted by a cold minute-1.
     last_tokens = 0
-    last_predict_ms = 0.0
+    last_gen_s = 0.0
+    last_wall = 0.0
 
-    # Per-request timeout must scale with ctx_tokens, not sit at a fixed 600s:
-    # `strong`'s 8192-token requests take ~775s at this node's measured ~10.5
-    # tok/s, already past a flat 600s cap -- which is exactly what silently
-    # dropped 2 of 3 runs on the first strong-tier pass. Floor of 2 tok/s is a
-    # generous safety margin below any speed observed so far (idle or
-    # contended), plus fixed overhead for prompt eval and connection setup.
+    # Per-request timeout scales with ctx_tokens rather than sitting at a fixed
+    # 600 s: `strong`'s 8192-token requests need ~775 s at this node's ~10.5
+    # tok/s, which is exactly what silently dropped 2 of 3 runs on the first
+    # strong-tier pass. Floor of 2 tok/s, generously below anything observed.
     req_timeout = max(600.0, ctx_tokens / 2.0 + 60.0)
 
-    while time.monotonic() < deadline:
-        try:
-            resp = _llama_generate(BENCH_PROMPT, n_predict=ctx_tokens, timeout=req_timeout)
-        except (urllib.error.URLError, OSError) as e:
-            return {"error": f"generation request failed: {e}", "partial_samples": samples}
-        timings = resp.get("timings") or {}
-        if "predicted_n" not in timings or "predicted_ms" not in timings:
-            return {"error": "llama-server response carried no timings block", "partial_samples": samples}
-        cumulative_tokens += timings["predicted_n"]
-        cumulative_predict_ms += timings["predicted_ms"]
-        elapsed_min = (time.monotonic() - start) / 60.0
-
-        while next_checkpoint_idx < len(checkpoints_min) and elapsed_min >= checkpoints_min[next_checkpoint_idx]:
+    def _fire_checkpoints(now: float) -> None:
+        """Fire every checkpoint whose wall-clock time has passed. Called after
+        EVERY token, so a checkpoint lands within one token of its true time
+        rather than whenever a request happens to return."""
+        nonlocal next_checkpoint_idx, last_tokens, last_gen_s, last_wall
+        elapsed_min = (now - start) / 60.0
+        while (next_checkpoint_idx < len(checkpoints_min)
+               and elapsed_min >= checkpoints_min[next_checkpoint_idx]):
             d_tok = cumulative_tokens - last_tokens
-            d_ms = cumulative_predict_ms - last_predict_ms
+            d_gen = cumulative_gen_s - last_gen_s
+            d_wall = (now - start) - last_wall
             samples.append({
                 "minute": checkpoints_min[next_checkpoint_idx],
-                "interval_tokens_per_sec": round(d_tok / (d_ms / 1000.0), 2) if d_ms > 0 else None,
+                # Generation-time rate -- the figure §3.1 names.
+                "interval_tokens_per_sec": round(d_tok / d_gen, 2) if d_gen > 0 else None,
+                # Wall-clock rate -- the figure the router must use.
+                "interval_effective_tokens_per_sec": (
+                    round(d_tok / d_wall, 2) if d_wall > 0 else None),
                 "cumulative_tokens_per_sec": (
-                    round(cumulative_tokens / (cumulative_predict_ms / 1000.0), 2)
-                    if cumulative_predict_ms > 0 else None
-                ),
+                    round(cumulative_tokens / cumulative_gen_s, 2)
+                    if cumulative_gen_s > 0 else None),
+                "interval_tokens": d_tok,
             })
-            last_tokens, last_predict_ms = cumulative_tokens, cumulative_predict_ms
+            last_tokens = cumulative_tokens
+            last_gen_s = cumulative_gen_s
+            last_wall = now - start
             next_checkpoint_idx += 1
 
-    if cumulative_predict_ms <= 0:
+    while time.monotonic() < deadline:
+        requests_started += 1
+        req_start = time.monotonic()
+        prev_tok_t = None
+        aborted = False
+        try:
+            for chunk in _llama_stream(BENCH_PROMPT, ctx_tokens, req_timeout):
+                now = time.monotonic()
+                if chunk.get("content"):
+                    if prev_tok_t is None:
+                        # First token: the interval since req_start is prompt
+                        # eval, not generation. Recorded separately, never
+                        # folded into the generation figure.
+                        prompt_gaps_s.append(now - req_start)
+                    else:
+                        cumulative_gen_s += now - prev_tok_t
+                    prev_tok_t = now
+                    cumulative_tokens += 1
+                    _fire_checkpoints(now)
+                if chunk.get("stop"):
+                    requests_completed += 1
+                    break
+                if now >= deadline:
+                    # Abort mid-request. The window is 10 minutes of measurement,
+                    # and at `strong` a full request outlasts it -- so honouring
+                    # the window means cutting the request, not the reverse.
+                    aborted = True
+                    break
+        except (urllib.error.URLError, OSError) as e:
+            return {"error": f"generation request failed: {e}", "partial_samples": samples}
+        if aborted:
+            break
+
+    # Any checkpoint not reached by real elapsed time is still emitted, so the
+    # sample array's shape does not depend on how fast the machine was.
+    _fire_checkpoints(time.monotonic())
+
+    if cumulative_gen_s <= 0:
         return {"error": "no generation time accumulated"}
 
     # SPIKE-001 §3.1: sustained := the LAST interval's rate (the machine as it is
     # once hot), not the cumulative average, which is flattered by the cold start.
+    #
+    # The final checkpoint is now guaranteed non-empty, because checkpoints fire
+    # on the clock rather than on request returns. Before 2026-08-14 an interval
+    # could contain zero returned requests and yield None, and `sustained` then
+    # silently fell back to an EARLIER checkpoint -- which is how a published
+    # `strong` figure came to be the minute-1 value that §3.1 explicitly forbids.
     final_interval = next(
         (s["interval_tokens_per_sec"] for s in reversed(samples)
+         if s.get("interval_tokens_per_sec") is not None), None,
+    )
+    final_effective = next(
+        (s["interval_effective_tokens_per_sec"] for s in reversed(samples)
+         if s.get("interval_effective_tokens_per_sec") is not None), None,
+    )
+    # Which checkpoint did `sustained` actually come from? Recorded, not assumed.
+    # If this is ever not the last checkpoint, the figure is not the minute-N
+    # value its name implies, and the reader must be able to see that.
+    sustained_from = next(
+        (s["minute"] for s in reversed(samples)
          if s.get("interval_tokens_per_sec") is not None), None,
     )
     wall = time.monotonic() - start
     return {
         "samples": samples,
         "sustained_tokens_per_sec": final_interval,
-        "cumulative_tokens_per_sec": round(cumulative_tokens / (cumulative_predict_ms / 1000.0), 2),
+        "sustained_from_checkpoint_minute": sustained_from,
+        "sustained_is_final_checkpoint": (
+            bool(samples) and sustained_from == samples[-1]["minute"]),
+        "cumulative_tokens_per_sec": round(cumulative_tokens / cumulative_gen_s, 2),
         # Tokens delivered per second of WALL CLOCK, not per second of server-side
         # generation time. The difference is everything the machine spends outside
         # the accelerator -- scheduling, HTTP, tokenisation, client overhead -- and
@@ -439,8 +568,21 @@ def _single_throughput_run(tier: str, minutes: float, checkpoints_min: list[floa
         # -0.29% while this figure moved -11.05%. Reporting only the first would
         # have said contention costs nothing, which is false.
         "effective_tokens_per_sec": round(cumulative_tokens / wall, 2) if wall > 0 else None,
+        "sustained_effective_tokens_per_sec": final_effective,
         "total_tokens": cumulative_tokens,
         "wall_seconds": round(wall, 1),
+        "generation_seconds": round(cumulative_gen_s, 1),
+        # Prompt-eval and connection setup, excluded from the generation figure
+        # and reported so the exclusion is visible rather than merely asserted.
+        "prompt_eval_seconds_per_request": [round(g, 3) for g in prompt_gaps_s],
+        "requests_started": requests_started,
+        "requests_completed": requests_completed,
+        # At `strong` a full 8192-token request outlasts the 10-minute window, so
+        # requests_completed = 0 is the CORRECT outcome, not a failure. Recorded
+        # because a reader comparing tiers needs to know the difference.
+        "final_request_aborted_at_deadline": requests_started > requests_completed,
+        "ignore_eos": True,
+        "tier_generation_length": ctx_tokens,
     }
 
 

@@ -178,23 +178,36 @@ class.
 | `strong` sampling fix | small | Checkpoints fire only when a request returns; at `strong` one request outlasts the window, so intervals alias and one published figure came from **minute 1** — the value §3.1 names and forbids. Needs `ignore_eos` **and** wall-clock sampling. Do not re-run `strong` before both land. |
 | §3.2, §3.3, §3.6 | hours each | Memory headroom, the five stores, thermal/power. §3.3's `synchronous = FULL` figure is SPIKE-008's input. |
 | §3.5 | — | Skipped for this node by owner direction; recorded DECLARED-and-unmeasured, not measured-absent. Another node re-opens it. |
-| **Criterion 4 — 7-day passive availability window** | **7 days wall clock** | **The only item here that working harder cannot compress**, and SPIKE-002/007/008 all sit behind SPIKE-001. §3.4 is locked as *policy*; a policy is an intent about the future, not an observation of the past, so it does not produce an observed `availability_class`. |
+| **Criterion 4 — availability** | **closed by decision** | See below. Not a pending measurement. |
 
-**Criterion 3 is already known to FAIL on this node** and is not pending measurement: the
-node is `on_demand` with wake blocked per SPIKE-010, so no candidate meets
-`control_plane_host` with `always_on`. Per §5 that is a finding about the fabric, not about
-the requirement — `INV-TRUST-2` already forbids designing continuity-critical capability onto
-a node that cannot stay up. **The fabric needs an always-on member.**
+**Criteria 3 and 4 are dispositioned by owner decision (2026-08-14), not pending.** A 7-day
+passive observation window was started and withdrawn the same day as incoherent: the sampler
+runs *on* the node, so it cannot observe the node while the node is off — and the node is off
+whenever the owner is not at it. Seven days of that measures the owner's working hours, not
+the machine, and not the machine that will exist after relocation.
+
+`availability_class` for this node is therefore **DECLARED by owner policy and recorded as
+declared**: the node is treated as *available*, on the operational commitment that it is left
+powered on and dedicated to VESPER, with a human-present degradation mode (confine VESPER to
+light work while someone is at the machine, restore when they leave).
+
+**The commitment is the load-bearing part, and it is the one thing to keep honest.**
+`INV-TRUST-2` forbids placing continuity-critical capability on a node that can be off with no
+way back, and SPIKE-010 records that VESPER cannot wake this one. So the declaration is safe
+exactly as long as the machine is in fact left on, and unsafe the moment it is not. That is an
+operating condition to honour, not a measurement to take — and it is why remote wake
+(SPIKE-009/010) stays worth doing even though it is off the F0/F1 path.
 
 ---
 
 ## Next actions, in order
 
-1. **Owner:** perform the readiness gate. Answer `OWNER-DECISION-006` (a), (b), (c). **(b) is the only thing standing between this corpus and F0**, and `CI-008` now enforces that mechanically rather than by discipline.
-2. **Engineering, day 1, because it is the only 7-day-wide item on the board:** start SPIKE-001 criterion 4's passive availability window. Every day it is not started is a day added to the end of the plan.
-3. **Human:** push, enable branch protection, replace `@owner` in `CODEOWNERS` (`SETUP.md`). Then self-test `CI-002` and `CI-044` red.
-4. **Engineering, no dependency on any owner decision:** finish `SPIKE-001` (`small` re-run first) → then `SPIKE-008`, which is the one that makes decision 1(b) *safe* rather than merely unblocking → `SPIKE-002`, `SPIKE-007`.
-5. **Then, and only then:** F0 — but not before `INV-ADR-1` is discharged by `ADR-002` acceptance. First increment is the persistent runtime, event bus, durable task state and checkpoints, gated by `A-033` and `A-034` **with their negative-control runs recorded**.
+1. **Owner:** `OWNER-DECISION-006(b)` — accept `ADR-002`, **with the SPIKE-008 report in hand**. That report is now evidence rather than a promise. (b) is the only thing standing between this corpus and F0, and `CI-008` enforces it mechanically rather than by discipline.
+2. **Owner:** `006(a)` ratify `ADR-007` — node cryptographic identity: how a device proves it is that device (enrollment, attestation, revocation, recovery). Needed because `ADR-001` requires `node_id` to be a key rather than a self-asserted name, without which event supersession is forgeable. A security boundary, so `AUTHORITY_AND_PRECEDENCE §5` reserves it to the owner. And `006(c)`: whether four REM-carried decisions get numbered ADR ids.
+3. **Engineering:** finish `SPIKE-001` §3.2, §3.3, §3.6 → then `SPIKE-011` and `SPIKE-012`, which are the same work as F1's model gateway and should be run as one pass rather than three.
+4. **Then:** F0 — but not before `INV-ADR-1` is discharged by `ADR-002` acceptance. First increment is the persistent runtime, event bus, durable task state and checkpoints, gated by `A-033` and `A-034` **with their negative-control runs recorded**.
+
+*Done and no longer listed:* branch protection is live, `CODEOWNERS` points at the real owner account, and the repository is pushed. `CI-002` and `CI-044` remain `PENDING` on review history and the governed-surface check respectively, not on host configuration.
 
 **Scale, stated plainly so no plan is built on a wrong premise.** The corpus is ~37,800 lines
 across 161 files. The runtime is **0 lines** — all 3,362 lines under `tools/` are verification

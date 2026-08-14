@@ -118,7 +118,7 @@ foreach ($cfg in $MATRIX) {
     $launch = "llama-server.exe -m $($cfg.model) -ngl $ngl -fa on --cache-type-k q8_0 --cache-type-v q8_0 -c $($cfg.ctx) --parallel 1 --host 127.0.0.1 --port 8080  [build $BUILD, Vulkan; GPU delta $([math]::Round($loadedGpu - $idleGpu,1)) MiB]"
 
     foreach ($cond in @('idle','concurrent')) {
-        $dest = Join-Path $OUT ("SPIKE-001-3.1-{0}-{1}.json" -f $cfg.label, $cond)
+        $dest = Join-Path $OUT ("SPIKE-001-3.1-v3-{0}-{1}.json" -f $cfg.label, $cond)
         Write-Output ("  -- {0} condition -> {1}" -f $cond, (Split-Path $dest -Leaf))
         Push-Location $REPO
         if ($cond -eq 'concurrent') {
