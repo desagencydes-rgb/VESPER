@@ -37,7 +37,7 @@ Each measurement runs **three times**; the recorded value is the **median**, and
 ### 3.1 Sustained inference throughput
 
 ```
-FOR each candidate node N, FOR each capability_tier T in {draft, small, standard}:
+FOR each candidate node N, FOR each capability_tier T in {draft, small, standard, strong}:
     1. Load the tier-representative model.
     2. Warm up: 200 tokens, discarded.
     3. Run a 10-minute continuous generation at the tier's expected context length.
@@ -48,7 +48,28 @@ FOR each candidate node N, FOR each capability_tier T in {draft, small, standard
 
 > **Minute 10, not minute 1.** A thermally-throttled laptop delivers a different number after ten minutes than after ten seconds, and VESPER's overnight work runs for hours. Recording the peak would be measuring a machine that does not exist during the workload that matters.
 
+**`strong` was missing, and is now in the loop.** `contracts/entities/model_profile.schema.json` defines `capability_tier` as `{draft, small, standard, strong}`, and `strong` is the tier SR-009 routes to for difficulty-based selection. This protocol iterated only the first three, so `strong` could never leave `UNKNOWN` and pass criterion 1 could not be met on any node. Corrected 2026-08-13.
+
+> **`strong` is expected to exceed accelerator memory and spill to CPU.** That is the tier's purpose, not a failed measurement. It answers *what is the most capable thing this node can run at all*, accepting that it may be slow enough to be useful only for long-running work. Record the tokens/sec it actually achieves, however low, together with the layer split — a measured single-digit figure is a finding, and refusing to record it because it is unflattering is the failure mode §5 already forbids.
+
 **Concurrent-load variant, mandatory.** Repeat step 3 with a synthetic background load representing the resource governor, world model and persistence layer. Record both figures. **The router uses the concurrent figure.**
+
+**Two rates, and the difference between them is the measurement.** Added 2026-08-13 after the first real run exposed the gap:
+
+- `sustained_tokens_per_sec` — tokens per second of **generation time**, as the inference server reports it.
+- `effective_tokens_per_sec` — tokens per second of **wall clock**, which additionally carries scheduling, request handling, tokenisation and client overhead.
+
+MEASURED on the first candidate node, `small` tier, idle vs. concurrent:
+
+| | generation rate | wall-clock rate |
+|---|---|---|
+| idle | 102.63 | 100.57 |
+| concurrent | 102.33 | 89.45 |
+| delta | **−0.29%** | **−11.05%** |
+
+The generation rate says the concurrent load costs essentially nothing. That is not a measurement of the machine, it is an artefact of where the boundary is drawn: the synthetic load is CPU-bound and the accelerator was never contended, so a generation-time metric cannot see it. Eleven percent of real throughput disappeared anyway.
+
+> **The router must use `effective_tokens_per_sec` from the concurrent condition.** Reporting the generation rate here would satisfy §5's letter — the concurrent figure *was* reported — while committing exactly the error §5 exists to prevent. Both rates are recorded for both conditions.
 
 ### 3.2 Memory headroom (SR-057)
 

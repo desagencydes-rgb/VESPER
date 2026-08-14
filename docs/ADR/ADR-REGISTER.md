@@ -17,12 +17,12 @@
 | ID | Subject (Foundation wording) | Status | Where the decision lives |
 |---|---|---|---|
 | **ADR-001** | Event transport: transport, persistence and delivery guarantees | **ACCEPTED** *(see §3)* | `docs/ADR/ADR-001-coordination-substrate.md` |
-| **ADR-002** | Persistence engine: task state, memory, provenance, migration and recovery | **PROPOSED** | `docs/ADR/ADR-002-persistence.md` — **blocks F0** via `INV-ADR-1`, now mechanically enforced by `CI-008` |
+| **ADR-002** | Persistence engine: task state, memory, provenance, migration and recovery | **ACCEPTED** 2026-08-14 | `docs/ADR/ADR-002-persistence.md` — accepted by the owner under `OWNER-DECISION-006(b)` on the seven `SPIKE-008` criteria tested. **`INV-ADR-1` discharged; F0 unblocked.** |
 | **ADR-003** | Model runtime abstraction: local/remote normalization without vendor coupling | **DEFERRED — correctly** | Not required before F1. The dependency-direction rule protects it; confirmed by all three adversarial reviews. |
 | **ADR-004** | BAG/index architecture: maps + exact + semantic + summaries + caches | **CARRIED BY REM-010 + contracts** | `REM-010 §4`, `contracts/entities/knowledge_map.schema.json`, `contracts/entities/context_budget.schema.json`. Engine selection deferred to F1. |
 | **ADR-005** | World model representation: entities, spaces, devices, observations, time, confidence | **CARRIED BY REM-011** | `REM-011 §3.1–3.2`, `contracts/entities/world_fact.schema.json`, `SM-WORLD-FACT`. Superseded as a separate filing. |
 | **ADR-006** | Tool sandbox: isolation for code/tool execution | **DEFERRED — bounded** | Local decision, permitted only because the trust-zone boundary is fixed (REM-003). Required before R1. |
-| **ADR-007** | Device identity/trust: enrollment, authentication, revocation, recovery | **PROPOSED — owner ratification required** | `docs/ADR/ADR-007-device-identity-and-trust.md` · `OWNER-DECISION-006` |
+| **ADR-007** | Device identity/trust: enrollment, authentication, revocation, recovery | **ACCEPTED** 2026-08-14 | `docs/ADR/ADR-007-device-identity-and-trust.md` — ratified by the owner under `OWNER-DECISION-006(a)`, option A |
 | **ADR-008** | Presence transport: semantic scenes and interaction events | **CARRIED BY REM-009** | `REM-009 §4`, `contracts/entities/semantic_scene.schema.json`, `contracts/entities/endpoint_capability.schema.json`, `SM-SCENE`, `DF-SELECT-ENDPOINT`, `DF-DEGRADE` |
 | **ADR-009** | Autonomous scheduler: triggers, budgets, checkpoints, stop/reporting | **CARRIED BY REM-007 + REM-008** | `REM-007 §4`, `REM-008 §4`, `contracts/entities/trigger.schema.json`, `contracts/policy/trigger_registry.toml`, `contracts/policy/interruption_budget.toml`, `SM-TRIGGER`, `DF-TRIGGER-EVAL` |
 | **ADR-010** | Memory retention: automatic/user-approved/expiring/session memory | **CARRIED BY REM-010** | `REM-010 §4`, `DF-MEMORY-AUTHORITY`, `INV-MEM-1` |
@@ -73,8 +73,8 @@ retired_reason = "NEVER_EXISTED — cited by REM-003..006 as decision records; o
 `AUTHORITY_AND_PRECEDENCE §5` assigns ADRs to *"Engineering; owner for security boundaries"*. Baseline 02 §3 assigns ADR approval to the **Chief Architect**; Baseline 02 §16 forbids any agent approving its own security boundary.
 
 - **ADR-001** and **ADR-012** carry `Status: ACCEPTED`, stamped by an engineering pass.
-- **ADR-002** is filed `PROPOSED` because accepting it would discharge `INV-ADR-1` — the F0 gate — by the hand that wrote it.
-- **ADR-007** is filed `PROPOSED` because it is a security boundary and therefore owner-reserved.
+- **ADR-002** was filed `PROPOSED` because accepting it would have discharged `INV-ADR-1` — the F0 gate — by the hand that wrote it. **Resolved 2026-08-14: accepted by the owner**, on `SPIKE-008` evidence rather than on the record's own argument.
+- **ADR-007** was filed `PROPOSED` because it is a security boundary and therefore owner-reserved. **Resolved 2026-08-14: ratified by the owner.**
 
 This asymmetry is **recorded, not resolved**. Either the three coordination/persistence/topology ADRs are confirmed together at the readiness gate, or ADR-001 and ADR-012's acceptance should be re-confirmed on the same basis. See `OWNER-DECISION-006`.
 

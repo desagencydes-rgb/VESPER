@@ -35,7 +35,30 @@ status_vocabulary = ["NOT_STARTED", "RUNNING", "REPORTED", "SUPERSEDED"]
 [spikes.SPIKE-001]
 title = "Node capability profiles, measured"
 protocol = "docs/spikes/SPIKE-001-node-capability-profiles.md"
-status = "NOT_STARTED"
+status = "RUNNING"
+status_note = """RUNNING since 2026-08-13 on the first candidate node. 3.1 is measured for
+draft, standard and strong (both strong candidates) in both load conditions, 3 x 10 min
+each, and is being re-measured under harness schema_version 3. Open: 3.2, 3.3, 3.6.
+3.5 skipped by owner direction. Nothing promoted to capability_profiles.toml; it keeps
+measured = false.
+
+CRITERION 4 IS DISPOSITIONED, NOT PENDING -- owner decision 2026-08-14. A 7-day passive
+window was started and then WITHDRAWN the same day as incoherent: the sampler runs ON the
+node, so it cannot observe the node while the node is off, and the node is off whenever
+the owner is not at it. Seven days of that measures the owner's working hours, not the
+machine's availability, and the machine being measured is not the machine that will exist
+after relocation. availability_class for this node is therefore DECLARED by owner policy,
+not observed, and is recorded as declared. The 3.4 policy lock of 2026-08-13 already said
+this; the window was a re-opening of a closed decision.
+
+DECLARED: the node is treated as AVAILABLE, on the operational commitment that it is left
+powered on and dedicated to VESPER after relocation, with a human-present degradation mode
+(confine VESPER to light work while someone is at the machine, restore on their leaving).
+The commitment is the load-bearing part: INV-TRUST-2 forbids placing continuity-critical
+capability on a node that can be off with no way back, and SPIKE-010 records that VESPER
+cannot wake this one. So `always_on` is safe to declare exactly as long as the machine is
+in fact left on, and unsafe the moment it is not -- which is an operating condition to
+honour, not a measurement to take."""
 question = "What can each candidate node actually sustain, and what is the minimum viable profile for SR-005 local fallback?"
 pass_criteria = "Every field in contracts/policy/capability_profiles.toml currently marked UNKNOWN carries a MEASURED value for at least one candidate node, and at least one node meets the declared minimum for local_inference_small."
 on_fail = "If no candidate node sustains local_inference_small, SR-005's local fallback does not close on available hardware. Deliverable is a COC Part XIV.3 limitation record with an R&D path, plus a hardware recommendation. The requirement is NOT narrowed."
@@ -53,6 +76,20 @@ pass_criteria = "Every path in contracts/policy/latency_budgets.toml meets its b
 on_fail = "COC Part XIV.3 limitation record with an R&D path, naming the specific stage that does not close and by how much. Budgets are NOT relaxed (INV-PERF-1); the path is not redefined so the slow part falls outside it; and a measurement on a stronger profile is not reported in its place."
 blocks = ["SR-047 verification", "A-020", "R2 gate"]
 depends_on = ["SPIKE-001"]
+rescoped = """2026-08-14, owner decision on device roles. This spike says "on the MINIMUM
+profile", written as though one machine captures audio, runs inference and speaks. That is
+not the architecture. Voice and hearing live on the phones, never on the site-A desktop --
+which is why SPIKE-001 3.5 was already skipped there.
+
+The trap this avoids: the chain was about to be scoped as phone-hears -> desktop-thinks ->
+phone-speaks, which puts a CROSS-SITE NETWORK HOP inside a 1200 ms end-to-end budget that
+currently accounts for ZERO network time. The owner rejected that path outright: the iPhone
+is to run standalone on small local models or an API, inside an app built on the MacBook.
+
+So this spike must be measured ON THE IPHONE against local-or-API inference. The desktop is
+not in the voice chain at all, and a desktop measurement would be a measurement of the wrong
+machine -- exactly what 5 forbids. Blocked on the iPhone app existing, which is blocked on
+the MacBook being acquired."""
 time_box = "10 working days"
 owner_role = "Presence & Interaction Engineer · Intelligence Systems Engineer"
 requires_hardware = true
@@ -70,16 +107,36 @@ owner_role = "Platform Engineer · Security Engineer"
 requires_hardware = false
 
 [spikes.SPIKE-004]
-title = "Optical feasibility envelope of the volumetric output"
+title = "Pepper's-ghost volumetric output on an ordinary phone screen"
 protocol = "docs/spikes/SPIKE-004-volumetric-optics.md"
 status = "NOT_STARTED"
-question = "What is the real optical feasibility envelope of the glass/holographic output, and which scene properties does it constrain?"
-pass_criteria = "A measured envelope: usable volume, viewing angle, ambient-light tolerance, refresh rate, and element density at legible size -- expressed as constraints on the `volumetric` rung of contracts/policy/degradation_ladder.toml."
+question = "On a phone screen under a reflective pyramid, what content is actually legible -- at what size, brightness, viewing angle and ambient light -- and which scene properties does that constrain?"
+pass_criteria = "A measured envelope on the real setup: minimum legible glyph height, usable viewing arc, ambient-light ceiling at which the image washes out, refresh behaviour, and the maximum number of simultaneous scene elements that stay readable -- expressed as constraints on the `volumetric` rung of contracts/policy/degradation_ladder.toml."
 on_fail = "The `volumetric` rung is recorded as R&D. CONTRACTS ARE NOT BLOCKED and proceed now: the semantic-scene architecture is endpoint-independent by construction, so an unavailable rung is a degradation, not a redesign."
 blocks = ["the volumetric ladder rung only"]
-time_box = "10 working days"
+time_box = "3 working days"
 owner_role = "Presence & Interaction Engineer"
 requires_hardware = true
+rescoped = """2026-08-14, by owner correction, and the correction is large enough that the
+old scoping was wrong rather than merely imprecise. This spike was written as if the
+volumetric rung meant exotic optics -- a light-field or holographic display to be sourced
+and characterised -- which put it in the 'blocked on hardware we do not own' pile with a
+10-day box.
+
+It is not that. The intended output is PEPPER'S GHOST: an ordinary flat screen, mostly the
+J3, showing content laid out so that a transparent pyramid or glass box placed on the
+screen reflects it into an apparent floating image. Nineteenth-century stagecraft, a
+century-old technique, and the only hardware beyond the phone is a piece of shaped
+transparent plastic.
+
+Consequences of the correction: the spike is RUNNABLE NOW on hardware already in the house,
+the time box drops from 10 days to 3, and the questions change entirely. Usable volume,
+element density and refresh rate as originally written are display-panel properties already
+known from the phone's spec sheet. What actually needs measuring is what the OPTICS cost:
+the reflection is dim (a partial reflector passes most light through), so the real limits
+are legibility at small size, how much ambient light washes the image out, and how narrow
+the viewing arc is before the illusion collapses. Those are the constraints the semantic
+scene must respect, and none of them was in the old pass criteria."""
 
 [spikes.SPIKE-005]
 title = "Delegated presence: programmatic call origination without deceptive impersonation"
@@ -132,3 +189,58 @@ time_box = "5 working days"
 owner_role = "Core Systems Engineer"
 requires_hardware = true
 raised_by = "ADR-002, filed 2026-08-12. The other seven spikes measure hardware and platforms; this one measures whether the persistence DECISION survives contact with them."
+
+[spikes.SPIKE-009]
+title = "Cross-site connectivity fabric"
+protocol = "docs/spikes/SPIKE-009-cross-site-connectivity.md"
+status = "NOT_STARTED"
+question = "Can nodes on DIFFERENT physical networks reach each other securely, at zero recurring cost, low-maintenance, through home-grade NAT on both ends -- and does the whole existing design silently assume they share a LAN?"
+pass_criteria = "A node on network A establishes an authenticated, encrypted channel to a node on network B that: survives NAT on both ends; reconnects automatically after either side's address changes; binds to node cryptographic identity (ADR-007), not to an IP; and costs nothing recurring. Self-run WireGuard is the primary; a mesh provider is an OPTIONAL fallback selected by a live endpoint resolver."
+on_fail = "If self-run WireGuard cannot traverse both home NATs without a public relay, the deliverable is a limitation record naming the MINIMUM infrastructure the fabric needs (a relay endpoint) and its real cost, plus the fallback-mesh option evaluated on the same criteria. Cross-site operation stays R&D and the LAN-only assumption is made EXPLICIT in the affected specs rather than left implicit. NOT permitted: hardcoding a node IP; assuming a static public address; treating the transport as trusted (it is untrusted plumbing -- ADR-007 identity and trust zones still gate authority, a reachable node is not a trusted node); or depending on a third party while claiming zero maintenance."
+blocks = ["the site-A desktop's use as a remote node", "any cross-site placement", "SPIKE-010 WAN wake path"]
+time_box = "5 working days"
+owner_role = "Device/Network Engineer · Security Engineer"
+requires_hardware = true
+raised_by = "Owner, 2026-08-12: a roaming laptop/phone in one city and a compute desktop in another. The corpus so far measures LAN round-trip (SPIKE-001 3.4) and speaks of 'reachable enrolled nodes' without defining reach across the internet. This may also require a new owner-authored SR for cross-site operation -- flagged for OWNER attention, not invented here."
+
+[spikes.SPIKE-010]
+title = "Remote wake feasibility"
+protocol = "docs/spikes/SPIKE-010-remote-wake-feasibility.md"
+status = "NOT_STARTED"
+question = "Can VESPER bring an off or sleeping compute node to a usable state on demand -- over LAN, then over WAN -- and return it to sleep, with no person present?"
+pass_criteria = "LAN: from a second node on the same network, a magic packet wakes the target from S3 (and ideally full shutdown S5); the target reaches a reachable, usable state within a stated budget; VESPER can then return it to sleep. WAN: the same, initiated cross-site through the SPIKE-009 fabric, via router WoL forwarding OR an always-on site-A-side agent."
+on_fail = "If there is no always-on presence on the site-A network AND the router cannot forward a wake packet, remote wake over WAN is INFEASIBLE and is recorded as such. The node's availability_class stays on_demand with wake dependent on a HUMAN (a family member powers it on); nothing continuity-critical is designed onto it (INV-TRUST-2 already forbids that). NOT permitted: claiming remote wake works from a LAN-only test; marking the node always_on; or assuming a person will be present to press the button."
+blocks = ["the 'VESPER turns it on' capability", "the wakeable attribute on the site-A desktop profile"]
+depends_on = ["SPIKE-009"]
+time_box = "3 working days"
+owner_role = "Device/Network Engineer"
+requires_hardware = true
+raised_by = "Owner, 2026-08-12. Partial evidence already gathered on the strong desktop (site A): onboard Realtek GbE supports WoL and is armed; blockers are that Ethernet is unplugged (currently on a USB Wi-Fi dongle that cannot WoL), that WoL-from-S5 is a BIOS setting not yet verified, and that after the owner relocates the site-A LAN has no always-on device to deliver a cross-site wake. The SEPARATE broken desktop (pre-POST power fault) is out of scope: a machine that cannot POST cannot be woken -- it is a repair task, not a node."
+
+[spikes.SPIKE-011]
+title = "Service-level on-demand dormancy"
+protocol = "docs/spikes/SPIKE-011-service-level-dormancy.md"
+status = "NOT_STARTED"
+question = "Can individual heavy services on an already-awake node (starting with local LLM inference) sit fully dormant -- near-zero CPU/GPU/power draw -- until a request actually needs them, activate within an acceptable latency budget, and return to dormant afterward, with no person present?"
+pass_criteria = "A stable request endpoint with no service loaded activates the target service and serves the request within a stated cold-start budget; after a configurable idle TTL with no requests the service unloads and measured GPU/VRAM/power draw returns to within a small margin of true system idle; the always-on gatekeeper process itself shows negligible idle CPU/RAM; repeated load/unload cycles do not leak VRAM or require a restart."
+on_fail = "If cold-start latency is unacceptable for a given caller, that service is named as an exception and kept warm, with the power/heat/wear cost of doing so recorded explicitly rather than silently accepted. Dormancy stays opt-in per service, not assumed universal. NOT permitted: reporting a warm-cache benchmark as the cold-start number; claiming idle draw improvements without a measured before/after; or unloading a service that has a request in flight."
+blocks = ["the VESPER-owned llama.cpp/llama-server hosting decision", "capability_profiles power/idle fields for the site-A desktop"]
+depends_on = ["SPIKE-001"]
+time_box = "2 working days"
+owner_role = "Core Systems Engineer"
+requires_hardware = true
+raised_by = "Owner, 2026-08-13. Extends SPIKE-010's whole-machine wake pattern one level down: SPIKE-010 asks whether the machine itself can sleep and be woken; this asks whether individual services can do the same while the machine stays up, for the common case where the site-A desktop is on but idle except when VESPER actually calls into it. Candidate tooling already exists in the wild (llama-swap, an idle-unloading reverse proxy for llama.cpp-compatible servers) rather than needing to be built from scratch."
+
+[spikes.SPIKE-012]
+title = "Residency manager -- multi-model, multi-agent orchestration on one GPU"
+protocol = "docs/spikes/SPIKE-012-residency-manager.md"
+status = "NOT_STARTED"
+question = "On a single 8 GB GPU, which residency modes are actually viable, and can a residency manager switch between them, serve concurrent agents, and defend against swap thrash without a person present?"
+pass_criteria = "For each declared residency mode in docs/planning/INFERENCE_ARCHITECTURE.md: either the mode loads and serves within its VRAM budget with measured tokens/sec under concurrent load, or it is recorded as NOT VIABLE on this hardware with the measured reason. Plus: concurrent agents sharing one model via parallel slots scale without per-agent model duplication; a mode switch completes within a stated budget; anti-thrash policy demonstrably caps swap rate under adversarial mixed-model demand; a model with a request in flight is never evicted; headroom reservation keeps the machine responsive throughout; and under a FOREIGN GPU workload (a household member starting a game or other GPU-heavy application) VESPER yields rather than thrashing, the foreign application stays usable, and what VESPER loses plus its recovery time are recorded."
+on_fail = "Any mode that cannot hold its VRAM budget is recorded as NOT VIABLE on 8 GB with its measured shortfall -- it is NOT rescued by silently shrinking the model, dropping context, or re-measuring on better hardware. If anti-thrash cannot bound the swap rate under adversarial demand, ELASTIC mode is restricted to a fixed resident set and the limitation is recorded. If VESPER cannot yield to a foreign GPU workload without thrashing, the resident set is capped low enough that a household application can always start, and the cap is recorded as a limitation -- the machine belongs to the household first. NOT permitted: reporting single-agent throughput as concurrent throughput; reporting a warm-model latency as a mode-switch cost; claiming a mode works without sustained-load measurement; allocating VRAM to the last byte and calling the machine responsive; or measuring contention only against VESPER's own workloads when the real machine is shared."
+blocks = ["the VESPER inference stack build", "capability_profiles local_inference fields for the site-A desktop", "any multi-agent placement on the site-A desktop"]
+depends_on = ["SPIKE-001", "SPIKE-011"]
+time_box = "4 working days"
+owner_role = "Core Systems Engineer"
+requires_hardware = true
+raised_by = "Owner, 2026-08-13. VESPER needs multiple models, multiple tasks and multiple agents concurrently -- which invalidated an earlier assumption that the node serves one request at a time. Design recorded in docs/planning/INFERENCE_ARCHITECTURE.md: residency states (ACTIVE/WARM/DORMANT/COLD), selectable residency modes (SOLO_MAX, LEAD_SCOUT, COUNCIL, SWARM, ELASTIC, DORMANT_ALL) over a fixed VRAM budget, and concurrency served by parallel slots on a resident model rather than by duplicating models. This spike is the LAST orchestration spike by owner direction -- it deliberately absorbs headroom monitoring, task tracking, priority and swap policy so that no further spike needs opening before the build proceeds."

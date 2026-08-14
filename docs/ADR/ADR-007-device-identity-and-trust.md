@@ -2,7 +2,8 @@
 
 | | |
 |---|---|
-| **Status** | **PROPOSED — owner ratification required.** This is a security boundary; `AUTHORITY_AND_PRECEDENCE §5` reserves those for the project owner, and Baseline 02 §16 forbids an agent approving its own security boundary. Raised as `OWNER-DECISION-006`. |
+| **Status** | **ACCEPTED** — ratified by the project owner 2026-08-14, as written, under `OWNER-DECISION-006(a)`, option A. Previously `PROPOSED`. This is a security boundary; `AUTHORITY_AND_PRECEDENCE §5` reserves those for the project owner, and Baseline 02 §16 forbids an agent approving its own security boundary — so this line was not writable by engineering on its own authority. |
+| **Ratification record** | The owner's stated condition was that each device hold its own keys with separate keys used for verification. That is D1 (per-node Ed25519 keypair; `node_id` is the fingerprint of the public key) and D7 (a separate owner enrollment key, held off every node). The four practical consequences were put to the owner before ratification and accepted: no trust-on-first-use at enrollment (D3), non-overridable automatic demotion on storage degradation (D4), the file-based-key handset admitted at `Z2` rather than excluded (D2), and loss of the enrollment key halting new enrollments while the fabric continues (D7). One clarification was made and is recorded because a ratification should not rest on a conflation: **this record is IDENTITY, not transport encryption.** It establishes which node is which. The encrypted channel between sites is `SPIKE-009`'s fabric, a different layer, and ADR-007's §D4 session binding runs over it rather than replacing it. |
 | **Date** | 2026-08-12 |
 | **Owner** | Device/Network Engineer · Security Engineer |
 | **Supersedes** | Foundation ADR-007 *"Device identity/trust: enrollment, authentication, revocation, recovery"* — previously *Intentionally unresolved* |
