@@ -1,0 +1,26 @@
+{
+  "schema_version": 3,
+  "generated_at_utc": "2026-08-14T17:57:30Z",
+  "spike": "SPIKE-001",
+  "quick_mode": false,
+  "system": {
+    "os_family": "Linux",
+    "os_version": "#1 SMP PREEMPT_DYNAMIC Kali 6.16.8-1kali1 (2025-09-24)",
+    "hostname_hint": "CSF",
+    "cpu_cores_logical": 4,
+    "ram_gb": 3.71,
+    "ram_gb_error": null,
+    "disk_total_gb": 112.0,
+    "disk_free_gb": 67.8,
+    "gpu_name_hint": "Intel Corporation UHD Graphics 620 (rev 07)",
+    "gpu_name_error": null,
+    "python_version": "3.13.11"
+  },
+  "memory": {
+    "total_gb": 3.71,
+    "total_gb_error": null,
+    "available_gb_now": 2.18,
+    "available_gb_error": null,
+    "note": "'available_gb_now' is a point-in-time OS reading, not the SPIKE-001 protocol figure. The protocol wants headroom measured WITH the owner's real working set loaded (browser, editor, whatever they actually run) -- run this again while that is actually open, and record both."
+  }
+}
