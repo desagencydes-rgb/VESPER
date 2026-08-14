@@ -4,6 +4,27 @@ Raw harness output from `tools/spike/profile_node.py`. This directory is under
 `docs/planning/`, outside `NORMATIVE_ROOTS`, and nothing here has a path into
 `contracts/policy/capability_profiles.toml`. Promotion is a separate, deliberate act.
 
+> **Two nodes are now measured.** Everything below the "The full 3.1 matrix" heading is
+> **node 1**, the site-A desktop (Windows, RX 6650 XT). **Node 2** — the Kali laptop
+> (`CSF`, ASUS VivoBook, i3-8130U, 3.7 GB RAM, **CPU-only**) — was onboarded 2026-08-14; its
+> results and the reasoning around them are in **`NODE-2-KALI-LAPTOP-FINDINGS.md`**, with the
+> machine-preparation log in `MACHINE-PREP-KALI.md`. Node-2 raw harness files:
+>
+> | File | Section |
+> |---|---|
+> | `SPIKE-008-adr002-validation-kali.json` | SPIKE-008 blocking suite (2nd node class; control fails; 500/500 crash trials) |
+> | `SPIKE-001-3.x-kali-system.json` | §system identity |
+> | `SPIKE-001-3.2-kali-memory.json` | §3.2 memory headroom |
+> | `SPIKE-001-3.3-kali-storage.json` | §3.3 storage |
+> | `SPIKE-001-3.1-kali-draft-qwen1.7B-idle.json` | §3.1 draft tier, CPU-only, idle |
+> | `SPIKE-001-3.1-kali-draft-qwen1.7B-concurrent.json` | §3.1 draft tier, CPU-only, concurrent |
+>
+> The single most consequential node-2 finding for the fabric: **this laptop is a viable
+> _interim_ always-on control-plane host** (the gap no enrolled node fills) *conditional on*
+> the owner's availability commitment and an `ADR-007`/disk-encryption path to Z0 — but its
+> measured availability class is `on_demand`, not `always_on`, and its RAM makes it the bridge,
+> not the destination. Full reasoning in `NODE-2-KALI-LAPTOP-FINDINGS.md`.
+
 | File | Condition | Transcribable? |
 |---|---|---|
 | `SPIKE-001-3.1-v3-draft-qwen1.7B-{idle,concurrent}.json` | tier `draft`, 3 x 10 min | **yes** — authoritative |
