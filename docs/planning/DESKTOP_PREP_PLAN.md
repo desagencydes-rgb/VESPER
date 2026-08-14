@@ -1,6 +1,10 @@
 # Desktop prep plan — making the site-A desktop VESPER's best node
 
-**Status: PLAN ONLY. Nothing below has been executed.** Everything here came from a **read-only** inventory on 2026-08-13. No install, uninstall, delete, or config change has happened yet. This file is the reminder — bring it back tomorrow and we work through it in order.
+**Status: MOSTLY DONE, checked 2026-08-13 later the same day.** Everything below §0 was a read-only inventory. Nearly all of it has since been executed (by hand, outside this doc's tracking) — this update just re-verifies current state against the plan so the record stays honest.
+
+**Verified done:** Clawdbot (task + `.clawdbot\` both gone) · Ollama (binary gone) · llama.cpp canonicalized to VESPER's own copy at `VESPER-runtime\llama.cpp\`, the other three sibling-project copies no longer present · `Downloads` cleaned (58.73 GB → 0.13 GB) · disk free 35.1 GB → 150.1 GB · AnyDesk uninstalled · Docker Desktop service present but `Stopped`/`Manual` (not autostarting) · Rainmeter/Copilot not found autostarting · `profile_node.py` already ported off Ollama to llama-server (commit `a162042`) · **Opera Air autostart removed** (`HKCU\...\Run` entry deleted this session — Opera itself still installed, just no longer launches at login).
+
+**Still open, deliberately not touched:** §3 power plan (`High performance` unchanged) — owner asked to defer this alongside the wake/remote-power work.
 
 Not in the normative/enforced set (`docs/planning/` is outside `NORMATIVE_ROOTS`), so nothing here is CI-checked. It's a working note.
 
