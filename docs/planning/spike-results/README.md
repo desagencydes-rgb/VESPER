@@ -21,16 +21,26 @@ Raw harness output from `tools/spike/profile_node.py`. This directory is under
 Node: Ryzen 5 5500 · 15.9 GB RAM · RX 6650 XT, 7.2 GB usable VRAM · llama.cpp build
 `b10405-e79e4bf66`, Vulkan · `-fa on --cache-type-k q8_0 --cache-type-v q8_0 --parallel 1`.
 
-Every row is the median of 3 x 10-minute runs. **Read the wall-clock column** — see §Two rates.
+Every row is the **median of 3 x 10-minute runs, with the min–max spread** — pass criterion 6
+requires both, and in one row below the spread is what decides whether the finding survives.
+**Read the wall-clock column** — see §Two rates.
 
-| Tier | Model | `-ngl` | GPU delta | gen idle | **wall idle** | gen conc. | **wall conc.** | contention cost |
-|---|---|---|---|---|---|---|---|---|
-| `draft` | Qwen3-1.7B | 99 | 1171 MiB | 157.67 | **151.42** | 158.80 | **94.88** | **−37.3%** |
-| `draft` | Llama-3.2-3B | 99 | 2032 MiB | 103.28 | **99.50** | 102.94 | **72.03** | **−27.6%** |
-| `standard` | Qwen3-8B | 99 | 5225 MiB | 47.53 | **47.38** | 47.45 | **46.79** | **−1.2%** |
-| `strong` | Qwen3-30B-A3B (MoE) | 12 | 4720 MiB | 9.34 | **9.73** | 8.16 | **8.54** | **−12.2%** |
-| `strong` | Mistral-Small-24B (dense) | 16 | 5868 MiB | 3.32 | **3.29** | 3.26 | **3.25** | **−1.2%** |
-| `small` | Llama-3.2-3B | 99 | — | 102.63 | **100.57** | 102.33 | **89.45** | −11.1% |
+| Tier | Model | `-ngl` | GPU delta | wall idle (spread) | wall conc. (spread) | contention cost |
+|---|---|---|---|---|---|---|
+| `draft` | Qwen3-1.7B | 99 | 1171 MiB | **151.42** (151.07–151.58) | **94.88** (93.05–97.47) | **−37.3%** |
+| `draft` | Llama-3.2-3B | 99 | 2032 MiB | **99.50** (99.07–99.69) | **72.03** (71.37–72.80) | **−27.6%** |
+| `standard` | Qwen3-8B | 99 | 5225 MiB | **47.38** (47.28–47.42) | **46.79** (46.63–46.80) | **−1.2%** |
+| `strong` | Qwen3-30B-A3B (MoE) | 12 | 4720 MiB | **9.73** (9.19–10.36) | **8.54** (7.90–9.19) | *not resolvable* |
+| `strong` | Mistral-Small-24B (dense) | 16 | 5868 MiB | **3.29** (3.28–3.31) | **3.25** (3.24–3.26) | **−1.2%** |
+| `small` | Llama-3.2-3B | 99 | — | **100.57** | **89.45** | −11.1% |
+
+Generation-rate medians, for completeness: draft-1.7B 157.67 / 158.80 · draft-3B 103.28 /
+102.94 · standard 47.53 / 47.45 · MoE 9.34 / 8.16 · dense 3.32 / 3.26 · small 102.63 / 102.33.
+
+**The MoE row's spread is 12–15% and its two ranges overlap at 9.19.** Every other row holds
+under 5%. So the MoE's apparent −12.2% contention cost is **not resolvable at n = 3** and is
+recorded as such rather than quoted to three significant figures. §Sampling below explains
+why that one row is noisy, and it is not because the machine is.
 
 ### Finding 1 — MoE beats a smaller dense model by ~3x at the `strong` tier
 
@@ -47,13 +57,18 @@ a tuning detail — it decides whether the tier is usable at all. **3.3 tok/s is
 The dense candidate is kept in the record rather than deleted. It is the control that makes
 the MoE figure mean something.
 
+The 3x gap survives its spread by a wide margin — the MoE's worst run (9.19) is 2.8x the
+dense candidate's best (3.31) — so this finding stands where the contention one below does not.
+
 ### Finding 2 — contention cost is inversely proportional to model speed
 
 The wall-clock penalty under concurrent load is **−37% for the 1.7B**, **−28% for the 3B**,
-and **−1.2% for the 8B and the 24B**. This is consistent and mechanical rather than noisy:
-the fixed per-request overhead the concurrent load inflates (scheduling, HTTP, tokenisation,
-client work) is roughly constant per request, so it is a large fraction of a fast model's
-request and a negligible fraction of a slow one's.
+and **−1.2% for the 8B and the 24B**, each measured on rows whose spread is under 5%. This is
+consistent and mechanical rather than noisy: the fixed per-request overhead the concurrent
+load inflates (scheduling, HTTP, tokenisation, client work) is roughly constant per request,
+so it is a large fraction of a fast model's request and a negligible fraction of a slow one's.
+
+The MoE row is excluded from this finding, not folded into it. Its ranges overlap.
 
 **The consequence for routing is the opposite of the intuition.** The tier that looks
 cheapest to run is the one that loses most when the machine is busy — which is exactly when
@@ -63,10 +78,62 @@ idle figures will over-select `draft`.
 
 ### Finding 3 — this node does not thermally throttle
 
-Minute 10 matched minute 1 in all runs, in both conditions, at every tier. 3.1's "minute 10,
-not minute 1" rule was written for thermally-throttled laptops; on this mains-powered desktop
-with a discrete card it is a no-op. The rule stays — it is correct and cheap — but on this
-node class it corrects nothing. Worth knowing, and only known because it was measured.
+Minute 10 matched minute 1 at `draft`, `small` and `standard`, in both conditions. 3.1's
+"minute 10, not minute 1" rule was written for thermally-throttled laptops; on this
+mains-powered desktop with a discrete card it is a no-op. The rule stays — it is correct and
+cheap — but on this node class it corrects nothing. Worth knowing, and only known because it
+was measured. **This finding does not extend to `strong`,** whose checkpoints do not measure
+what their labels say — see §Sampling.
+
+### Finding 4 — at `strong`, the harness samples the wrong thing, and the spread proves it
+
+This is the defect the MoE's 12–15% spread was pointing at, and it is not a property of the
+machine.
+
+`_single_throughput_run` can only fire a checkpoint **when a request returns**, because that
+is the only moment token counts advance. At `draft` (256 tokens) and `standard` (4096) a
+request returns every few seconds, so the minute-1 / minute-5 / minute-10 checkpoints land
+where their labels say. At `strong` a single request runs for **625–1,137 seconds** — longer
+than the entire 10-minute window — so one request spans two or three checkpoint boundaries,
+and every interval collapses into whichever checkpoint its return happens to cross.
+
+Reconstructed from the committed reports, per run — `sustained_tokens_per_sec` is defined as
+the *last non-null interval*, so the column on the right is the checkpoint each published
+figure actually came from:
+
+| Run | requests | checkpoint pattern (min 1 / 5 / 10) | published "sustained" is from |
+|---|---|---|---|
+| `moe30B-idle` run 0 | 2 | 10.69 / 9.34 / — | **minute 5** |
+| `moe30B-idle` run 1 | 1–2 | 10.24 / — / 10.73 | minute 10 |
+| `moe30B-idle` run 2 | 2 | 10.57 / — / 8.66 | minute 10 |
+| `moe30B-conc` run 0 | 2 | 9.40 / — / 8.16 | minute 10 |
+| `moe30B-conc` run 1 | 1–2 | 10.33 / 8.78 / — | **minute 5** |
+| `moe30B-conc` run 2 | 1 | 7.93 / — / — | **minute 1** |
+| `dense24B` all 6 | 2 | 3.3 / — / 3.3 | minute 10 |
+
+So the three MoE "sustained" values that produced a median and a 12% spread were each taken
+from a **different checkpoint over a different number of requests**. They are not one
+measurement repeated three times, and their spread is sampling geometry, not machine
+variance. One of them — `moe30B-conc` run 2 — is **the minute-1 value**, which is the single
+figure §3.1 names explicitly and forbids: *"sustained_tokens_per_sec := the MINUTE-10 value,
+not the minute-1 value."* The harness obeyed the rule's letter (take the last interval) and
+broke it in fact.
+
+This is the same defect class as the `sustained` / `effective` split found on 2026-08-13, one
+level down: **a metric whose boundary is drawn somewhere other than where its name implies.**
+It was invisible in the aggregate and only appeared by asking why one row's spread was three
+times every other row's.
+
+**What stands and what does not.** The order-of-magnitude comparison stands — 9.7 against 3.3
+is far too large to be sampling geometry, and Finding 1 is safe. What does not stand is any
+`strong` figure quoted to three significant figures, any `strong` idle-vs-concurrent delta,
+and any claim that `strong` was measured at minute 10.
+
+**Fix, before `strong` is re-run or promoted:** sample on a wall-clock timer (or stream
+tokens) rather than only at request boundaries, and send `ignore_eos` so a request lasts the
+tier's declared length instead of however long the model chooses to talk. Both are small; the
+second alone is not enough, because a 8,192-token request at 9.7 tok/s still spans 845 s and
+would still alias.
 
 ## Two rates, and why the right column is the real one
 
@@ -86,13 +153,13 @@ concurrent figure *was* reported — while committing exactly the error §5 exis
 length>` but does not send `ignore_eos`, so a model that finishes its answer early ends the
 request there. At `draft` (256) and `standard` (4096) the token totals are exact multiples of
 the tier length, so the cap was always reached and the request length is the tier's. At
-`strong` (8192) they are not: `strong-dense24B` produced ~2,064–2,189 tokens per 10-minute
-run, i.e. **one naturally-terminated response**, not a 8,192-token generation. The tok/s
-figure is still a rate over real generation, so it stands; but the `strong` rows measure
-*however long this prompt makes the model talk*, not the tier's declared length, and the
-minute-5 checkpoint is `null` in those runs because no request returned inside that window.
-Fixing this means sending `ignore_eos` — cheap, and it should happen before `strong` is
-promoted to `capability_profiles.toml`.
+`strong` (8192) **no run ever reached the cap in a single request**: totals are 2,064–2,520
+for the dense candidate and 6,314–9,996 for the MoE, across one or two EOS-terminated
+requests. The tok/s figure is still a rate over real generation, so it stands; but the
+`strong` rows measure *however long this prompt makes the model talk*, not the tier's
+declared length. Fixing this means sending `ignore_eos` — cheap, and it should happen before
+`strong` is promoted to `capability_profiles.toml`. It is necessary but **not sufficient**;
+see Finding 4 for the sampling half of the same problem.
 
 **`small` has not been re-measured since the 512-token cap was removed.** Its two files were
 taken at 512 generated tokens per request, not the tier's 1024. They are internally
