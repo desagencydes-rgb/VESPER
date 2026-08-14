@@ -55,7 +55,14 @@ from pathlib import Path
 # schema_version 2 and 3 are NOT directly comparable at `strong`, where the old
 # sampling aliased; at `draft`/`standard`, where requests returned every few
 # seconds, they are. See docs/planning/spike-results/README.md Finding 4.
-SCHEMA_VERSION = 3
+#
+# 4 (2026-08-14): the two headline aggregates are now taken over the SAME window.
+# v3 reported minute-10 generation against a whole-run-average wall rate; see
+# Finding 6. UNLIKE the 2->3 bump, v3 and v4 ARE comparable: the measurement
+# method is identical and only the aggregation changed, so a v3 report can be
+# re-aggregated from its own run_results without re-measuring. That is what was
+# done rather than spending another six hours on the matrix.
+SCHEMA_VERSION = 4
 LLAMA_SERVER_URL = os.environ.get("VESPER_LLAMA_SERVER", "http://127.0.0.1:8080")
 REPORT_DIR = Path(__file__).resolve().parents[2] / "docs" / "planning" / "spike-results"
 
@@ -600,14 +607,21 @@ def measure_throughput(runner: dict, tier: str, minutes: float, runs: int, concu
             r = _single_throughput_run(tier, minutes, checkpoints, runner.get("n_ctx"))
         run_results.append(r)
 
-    sustained_values = [
-        r["sustained_tokens_per_sec"] for r in run_results
-        if r.get("sustained_tokens_per_sec") is not None
-    ]
-    effective_values = [
-        r["effective_tokens_per_sec"] for r in run_results
-        if r.get("effective_tokens_per_sec") is not None
-    ]
+    # THE TWO HEADLINE FIGURES MUST BE TAKEN OVER THE SAME WINDOW. Schema v3
+    # aggregated the minute-10 generation rate against the WHOLE-RUN average
+    # wall rate, so the two columns of the published matrix described different
+    # windows. On a flat config that is invisible (they agreed within 1%); on
+    # the MoE, which loses ~45% across a run, the reported wall figure came out
+    # 27% above the settled rate -- 8.63 tok/s against a true 6.79. Both are
+    # aggregated at minute 10 now, and the whole-run average is kept under a
+    # name that says what it is.
+    def _vals(key):
+        return [r[key] for r in run_results if r.get(key) is not None]
+
+    sustained_values = _vals("sustained_tokens_per_sec")            # minute 10, generation clock
+    effective_values = _vals("sustained_effective_tokens_per_sec")  # minute 10, wall clock
+    whole_run_values = _vals("effective_tokens_per_sec")            # entire run, wall clock
+
     result = {
         "tier": tier,
         "model_path": runner.get("model_path"),
@@ -635,10 +649,31 @@ def measure_throughput(runner: dict, tier: str, minutes: float, runs: int, concu
             "max": round(max(effective_values), 2),
             "values": effective_values,
         }
+        result["effective_window"] = (
+            "minute 10 -- the same window as median_sustained_tokens_per_sec, so the "
+            "two are comparable to each other."
+        )
         result["router_should_use"] = (
             "median_effective_tokens_per_sec — it is wall-clock and therefore sees "
             "contention that median_sustained_tokens_per_sec, being generation-time "
             "only, is blind to."
+        )
+    if whole_run_values:
+        # Kept because it is the honest answer to "how many tokens did the node
+        # actually produce in ten minutes", which is a different question from
+        # "what rate had it settled to". For a decaying model the two diverge,
+        # and a router that plans capacity wants the settled one.
+        result["median_whole_run_effective_tokens_per_sec"] = round(
+            statistics.median(whole_run_values), 2)
+        result["spread_whole_run_effective_tokens_per_sec"] = {
+            "min": round(min(whole_run_values), 2),
+            "max": round(max(whole_run_values), 2),
+            "values": whole_run_values,
+        }
+        result["whole_run_vs_settled_note"] = (
+            "median_whole_run_effective_tokens_per_sec averages the entire run, "
+            "including the fast early minutes. It is ABOVE the settled rate by "
+            "however much the model decays. Do not quote it as a sustained figure."
         )
     else:
         result["median_sustained_tokens_per_sec"] = None

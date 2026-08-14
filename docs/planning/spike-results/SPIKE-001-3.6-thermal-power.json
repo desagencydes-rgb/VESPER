@@ -1,0 +1,42 @@
+{
+  "schema_version": 2,
+  "spike": "SPIKE-001",
+  "section": "3.6",
+  "generated_at_utc": "2026-08-14T22:43:19Z",
+  "corrected_at_utc": "2026-08-14T23:05:00Z",
+  "correction_note": "schema_version 1 of this file recorded 'NOT_OBSERVED -- minute 10 matched minute 1 in every 3.1 run at draft, small and standard'. That sentence was written by the phase-2 script before the strong-tier v3 runs had landed, and it silently omitted the tier where the effect is largest. The strong tier does NOT hold minute 1 through minute 10. Corrected here with the full per-tier drift so the claim is checkable rather than asserted.",
+
+  "sustained_load_before_throttle": "SPLIT BY TIER. draft, small and standard hold flat within +/-3% from minute 1 to minute 10 in all 3 runs and both conditions -- no throttle point exists to record for them. The strong tier decays substantially and consistently: see within_run_drift_percent below.",
+
+  "within_run_drift_percent": {
+    "method": "interval generation rate at minute 10 vs minute 1 of the same 10-minute run, schema_version 3 harness (streamed, wall-clock checkpoints, ignore_eos). One entry per run.",
+    "draft-qwen1.7B":   {"idle": [-0.1, -0.3, -2.9], "concurrent": [-7.1, -2.2, -2.8]},
+    "draft-llama3B":    {"idle": [0.4, 1.4, 0.2],    "concurrent": [1.5, 0.0, 1.3]},
+    "small-llama3B":    {"idle": [-0.3, -0.1, -2.5], "concurrent": [0.5, 2.3, 0.2]},
+    "standard-qwen8B":  {"idle": [-1.4, -2.1, -2.3], "concurrent": [-0.3, -1.9, -1.7]},
+    "strong-moe30B":    {"idle": [-39.4, -46.8, -45.3], "concurrent": [-40.3, -42.0, -40.6]},
+    "strong-dense24B":  {"idle": [-6.5, -6.2, 5.5],  "concurrent": [-7.3, -5.5, -7.6]}
+  },
+
+  "strong_tier_decay": {
+    "observed": "Qwen3-30B-A3B (MoE) loses 39-47% of its generation rate between minute 1 and minute 10, in 6 of 6 runs, in both the idle and concurrent conditions. Mistral-Small-24B (dense) loses 5-8% in 5 of 6 runs, with one +5.5% outlier.",
+    "consistency": "6/6 runs for the MoE, sign-consistent and tightly clustered. This is not noise and is not a sampling artefact of the v3 harness -- the same harness shows +/-3% at every other tier.",
+    "attribution": "NOT ESTABLISHED. Two candidate causes are consistent with the data and this spike does not separate them: (a) KV-cache growth, since attention cost rises as the 8448-token context fills during a long ignore_eos generation; (b) an expert-working-set effect specific to MoE, where early tokens are served from a small hot set of experts and the working set expands toward all experts as generation continues, which would degrade a partially-offloaded model toward its full streaming speed. Cause (b) would explain why the MoE decays ~6x harder than the dense model at the same context size, which cause (a) alone does not. Recorded as an open question, not a conclusion.",
+    "thermal_ruled_out": "NOT RULED OUT, but unlikely to be the whole story: a thermal or power limit would be expected to affect the dense 24B and the standard 8B similarly, and it does not. No die temperature is readable on this board (see acpi_thermal_reason), so this cannot be settled here.",
+    "consequence_for_the_router": "Strong-tier figures must be taken at the END of a sustained run, never early. A minute-1 sample of the MoE reads ~12.4 tok/s; the settled value is 6.8-7.4 tok/s generation and 8.63 tok/s wall. A router calibrated on the early number would over-commit to the strong tier by roughly 1.8x. This is the same failure mode as Finding 4 (checkpoint aliasing), reached by a different route, and it is why schema_version 3 samples on the wall clock."
+  },
+
+  "acpi_thermal_zones_celsius": null,
+  "acpi_thermal_reason": "MSAcpi_ThermalZoneTemperature unavailable on this board/driver. Common on desktop boards; not a failure of the measurement.",
+
+  "battery_drain_per_hour": null,
+  "battery_drain_reason": "Mains-powered desktop. No battery. Structurally not applicable to this node class, not merely unmeasured.",
+
+  "wall_power_draw_watts": null,
+  "wall_power_reason": "No wall meter available. SPIKE-011 names one as its instrument; until then every power figure in the planning docs is marked EXPECTED, never MEASURED.",
+
+  "noise_at_sustained_load": null,
+  "noise_reason": "No calibrated meter, and a phone-app reading is not a measurement. Recorded as unmeasured rather than estimated.",
+
+  "owner_usable_during_load": "DECLARED, not measured -- the 3.4 policy lock treats this node as VESPER-dedicated, so 'usable for the owner during load' is not the condition this node is operated under."
+}
