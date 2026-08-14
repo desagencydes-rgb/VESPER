@@ -242,11 +242,13 @@ reboot or a closed lid would falsify.
 ## Machine preparation (owner authorised, 2026-08-14)
 
 See `MACHINE-PREP-KALI.md` for the itemised cleanup log and the keep-awake configuration.
-Summary: **8.26 GB reclaimed** from regenerable caches and emptied trash; **all sleep/blank
-paths disabled** at the owner's explicit request ("I won't be here to wake it") — verified the
-machine can no longer suspend on idle or on lid close while xfce4-power-manager is running,
-with a `systemd-inhibit` block-lock as an active backstop. No credentials, keys, network
-config, or unidentified files were touched.
+Summary: **~14 GB reclaimed** (regenerable caches, emptied trash, and a round of owner-selected
+app/tool/model removals — Eclipse, Antigravity, mtkclient, Evil-Droid/FuzzyAI, Ollama and
+InsightFace models, an old kernel); Code-OSS and the active `.pyenv` Python were kept by owner
+choice. **All sleep/blank paths disabled** at the owner's explicit request ("I won't be here to
+wake it") across three independent layers (live `systemd-inhibit` lock, xfce settings, and a
+logind drop-in that makes it reboot-proof). **Timezone corrected** to Africa/Casablanca. No
+credentials, keys, network config, Wi-Fi driver trees, or unidentified files were touched.
 
 ---
 
