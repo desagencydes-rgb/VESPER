@@ -48,6 +48,12 @@ All twelve configurations reported `sustained_is_final_checkpoint = true` at
 `sustained_from_checkpoint_minute = 10.0` in all 3 runs. Finding 4 of the previous pass is
 closed by construction.
 
+> **The two `strong` rows are the last observed rate, not a plateau.** At that tier one
+> request spans the entire window (0 of 1 completed, aborted at the deadline), and the rate
+> was still falling with context when the clock stopped — see Finding 5. Read 6.79 as *the
+> rate at ~4.2k tokens of context*, not as a floor. Every other row is a genuine steady state
+> across dozens to hundreds of completed requests.
+
 ### Finding 1 — the MoE beats a smaller dense model by 2.2x at `strong`
 
 Qwen3-30B-A3B sustains **6.79 tok/s** where Mistral-Small-24B sustains **3.15 tok/s**, on the
@@ -110,10 +116,20 @@ cheaper one to actually run.
 
 **The consequence for routing is the opposite of the intuition.** The tier that looks cheapest
 is the one that loses most when the machine is busy — which is precisely when a router reaches
-for it. `draft` at 82.00 tok/s under load is still the fastest option here, but its lead over
-`small` collapses from 1.45x to 0.96x: **under load, `draft` is slower than `small`.** Any
-routing policy tuned on idle figures will select the wrong tier under exactly the conditions
-that motivated the choice.
+for it.
+
+Stated on identical weights, so that model speed cannot be doing the work: Llama-3.2-3B at
+the `small` request length beats **the same file** at the `draft` request length under load,
+**85.32 against 64.39** — a 32% advantage for the tier that generates four times as much per
+request. Idle, the two are within 4.4% of each other. The entire gap is contention landing on
+per-request overhead.
+
+Across models the picture is milder and should not be overstated: `draft`-Qwen3-1.7B holds
+82.00 under load against `small`'s 85.32, so the fastest draft model roughly *draws* with
+`small` rather than losing to it — a 3.9% gap that is close to spread distance. What is solid
+is the direction and the size of the collapse: `draft`-Qwen's lead over `small` falls from
+1.45x idle to 0.96x under load. Any routing policy tuned on idle figures will over-select
+`draft` under exactly the conditions that motivated choosing it.
 
 ### Finding 3 — no thermal throttle at `draft`, `small` or `standard`
 
@@ -156,20 +172,60 @@ The MoE loses **39–47% of its rate across ten minutes, in 6 of 6 runs**, sign-
 tightly clustered, in both conditions. The same harness shows ±3% at every other tier, so this
 is not a sampling artefact.
 
-**The cause is not established, and two candidates fit.** (a) KV-cache growth: attention cost
-rises as the 8448-token context fills during a long `ignore_eos` generation. (b) An MoE
-expert-working-set effect: early tokens are served from a small hot set of experts and the
-working set expands toward all of them as generation continues, degrading a partially
-offloaded model toward its full streaming speed. Only (b) explains why the MoE decays ~6x
-harder than the dense model *at the same context size*. Recorded as an open question.
+**The cause is KV-cache growth, not an MoE effect.** Two candidates were considered: (a)
+attention cost rising as the 8448-token context fills during a long `ignore_eos` generation,
+and (b) an MoE expert-working-set effect, where early tokens are served from a small hot set
+of experts and the working set expands toward all of them, degrading a partially offloaded
+model toward its full streaming speed. The percentage figures look like (b). Converting them
+to **cost per token of context** separates the two, and the existing data is enough.
 
-Thermal is not ruled out but is unlikely to be the whole story — a thermal or power limit
-should hit the dense 24B and the 8B similarly, and it does not. No die temperature is readable
-on this board, so this cannot be settled here.
+At `strong` a single request spans the entire window (0 of 1 requests completed, aborted at
+the deadline), so context grows monotonically and each interval's midpoint context is
+computable from the cumulative token count:
 
-**Consequence.** Strong-tier figures must be taken at the END of a sustained run. A minute-1
-sample of the MoE reads ~12.4 tok/s against a settled 6.79. A router calibrated on the early
-number would over-commit to `strong` by roughly 1.8x.
+| Model | ms/token, minute 1 → minute 10 | context grew by | **slowdown per token of context** |
+|---|---|---|---|
+| Qwen3-30B-A3B (MoE) | 82.3 → 135.9 | +3,863 | **17.6 µs** (runs: 13.9 / 18.2 / 17.6) |
+| Mistral-Small-24B (dense) | 295.9 → 316.5 | +1,361 | **14.6 µs** (runs: 15.1 / 14.6 / −14.2) |
+
+The two are within ~20% of each other despite a **3.6x difference in baseline per-token cost**.
+That is what (a) predicts — an additive per-context-token attention cost, roughly
+model-independent for similar layer counts sharing the same `q8_0` KV cache — and it is not
+what (b) predicts, which would be an MoE-only effect.
+
+The percentage gap is then fully accounted for by two multipliers, with no third mechanism
+needed: the MoE reaches 2.8x more context (it generates faster) *and* its baseline per-token
+cost is 3.6x lower, so the same absolute penalty is a far larger fraction of it. Checking the
+model against the observation: MoE 17.6 µs x 3,863 = +68 ms on a base of 82.3 → −45% rate
+(observed −45%); dense 14.6 µs x 1,361 = +20 ms on 295.9 → −6.3% (observed −6.5%).
+
+**`standard` is not evidence either way**, despite being flat at the same `-c 8448`. It
+completes 6 requests per run and **resets context every 4,096 tokens**, so it never tests
+monotonic growth — its flatness is a steady state across resets.
+
+**Residual uncertainty, and why this stays open.** The two µs figures differ by 20%, n = 3,
+and one dense run has the opposite sign. This is *consistent with* KV growth rather than
+proof of it. The decisive test is a context sweep at `strong` — the same model at `-c 2048`,
+`4096`, `8448` — which would show the slope directly. Thermal is not formally ruled out but
+does not fit: a thermal limit should hit the dense 24B and the 8B similarly, and it does not.
+No die temperature is readable on this board.
+
+### Consequence: `strong` does not have a single throughput number
+
+If the decay is context-driven, then **a tok/s figure for `strong` is only meaningful with the
+context length it was measured at.** 6.79 is the rate at roughly 4.2k tokens of context, which
+is where the 10-minute clock happened to stop — it is the **last observed rate, not a
+plateau**. Nothing had settled; the run ended mid-generation with context still growing.
+
+Extrapolating the fitted line to a full 8,448-token context gives **~4.4 tok/s** for the MoE.
+That figure is **EXPECTED, not MEASURED** — it is a two-point linear extrapolation and is
+recorded as such. It matters because a router calibrating on 6.79 for a job longer than ten
+minutes, or one that starts with a large prompt, would still be optimistic. In the other
+direction, a minute-1 sample reads ~12.4 tok/s and would over-commit to `strong` by 1.8x.
+
+**What the router actually needs from this tier is a rate as a function of context, not a
+scalar.** That is a finding about the shape of `capability_profiles.toml`, not just its
+values, and it should be settled by the context sweep before `strong` is promoted.
 
 ### Finding 6 — the two headline columns were aggregated over different windows
 
@@ -278,7 +334,8 @@ seconds — the exact error 3.1 exists to prevent.
 | 3.5 camera / audio | skipped for this node | — |
 | 3.6 thermal / throttle | **DONE** | — |
 | 3.6 wall power | **BLOCKED** on an instrument | a wall meter; SPIKE-011 names one |
-| Finding 5 attribution (KV growth vs MoE working set) | **OPEN QUESTION** | a context-length sweep at `strong` |
+| Finding 5 attribution | attributed to KV growth from existing data; **confirmation open** | a context sweep at `strong` (`-c 2048/4096/8448`), ~1 h |
+| `strong` rate as a function of context, for the router | **OPEN** — blocks promoting `strong` | same context sweep |
 
 Nothing here is on the F0 critical path. F0 was unblocked by ADR-002 and ADR-007 on
 2026-08-14, and promotion of any figure above into `capability_profiles.toml` remains a
