@@ -5,27 +5,35 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
 <title>SPIKE-004 · Pepper's ghost instrument</title>
 <style>
-/* SPIKE-004 measurement instrument.
-   Runs in the J3's browser. No install, no cable.
+/* SPIKE-004 measurement instrument. Runs in the J3's browser: no install, no
+   cable (adb does not enumerate this handset -- see the spike record).
 
-   PEPPER'S GHOST GEOMETRY. A transparent pyramid placed on the screen reflects
-   whatever is lit beneath each of its four faces into a single apparent image
-   floating inside it. So the screen shows FOUR copies, one per face, each
-   rotated so its foot points at the centre.
+   THE OPTICS, because the layout below is derived from them and not guessed.
+   Put the screen in the plane z=0 and a lit pixel at (x, -d, 0), with the
+   viewer out along +y and a partial reflector folded along the line y=0.
+     - Reflector VERTICAL (normal (0,1,0)): the image lands at (x, +d, 0).
+       Still z=0. The image lies flat IN THE SCREEN PLANE, just displaced. No
+       floating image. This is why a bottle, a jar or a box cannot do it.
+     - Reflector at 45 deg (normal (0,1,1)/sqrt2): the image lands at (x, 0, d).
+       Height d above the fold. The horizontal source plane maps to a VERTICAL
+       image plane, which is the whole trick.
+   Two consequences the layout depends on: content farther from the fold line
+   appears HIGHER, and x is unchanged, so nothing is mirrored.
 
-   Everything not lit is invisible in the reflection -- a partial reflector
-   passes most light through and reflects only what is bright. That is why the
-   ground is pure black and nothing here uses a panel, a border, or a card.
-   Those would be visible as ghost geometry in the pyramid.
+   Everything not lit is invisible: a partial reflector passes most light and
+   reflects only what is bright. Hence the pure black ground and no panel,
+   border or card anywhere in a test -- those would show up as ghost geometry
+   floating in the glass.
 
-   WHAT IS ACTUALLY BEING MEASURED, and it is not what the spike originally said.
-   Usable volume, refresh rate and element density are properties of the phone's
-   panel and are already on its spec sheet. What the OPTICS cost is not:
-     - minimum legible glyph height, after the reflection halves the light
-     - the ambient light level at which the image washes out
+   WHAT IS ACTUALLY MEASURED, and it is not what the spike first said. Usable
+   volume, refresh rate and element density are properties of the panel and are
+   already on its spec sheet. What the OPTICS cost is not:
+     - minimum legible glyph height, after the fold halves the light
+     - the ambient level at which the image washes out
      - the viewing arc before the illusion collapses
      - how many simultaneous elements stay readable
-   Those are the constraints the semantic scene must respect. */
+     - whether motion survives
+   Those are the constraints the semantic scene has to respect. */
 
 :root {
   --unit: min(50vw, 50vh);
@@ -39,18 +47,41 @@ html, body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Four faces. Each pane is a square in one quadrant, rotated so its BOTTOM
-   edge faces the centre of the screen, which is where the pyramid apex sits. */
 #stage { position: fixed; inset: 0; }
+
+/* PYRAMID layout: four faces meeting AT THE CENTRE, one per face of the
+   frustum. Each square sits flush against the centre point -- an earlier
+   version left a half-unit gap here, which put every face under the wrong part
+   of the glass. */
 .face {
   position: absolute; width: var(--unit); height: var(--unit);
   left: 50%; top: 50%; display: grid; place-items: center;
   transform-origin: center center;
 }
-.face.n { transform: translate(-50%, -150%) rotate(180deg); }
-.face.s { transform: translate(-50%,  -50%) rotate(0deg); }
-.face.w { transform: translate(-150%, -100%) rotate(90deg); }
-.face.e { transform: translate(  50%, -100%) rotate(-90deg); }
+.face.n { transform: translate(-50%, -100%) rotate(180deg); }
+.face.s { transform: translate(-50%,    0%) rotate(  0deg); }
+.face.w { transform: translate(-100%, -50%) rotate( 90deg); }
+.face.e { transform: translate(   0%, -50%) rotate(-90deg); }
+
+/* SINGLE layout: one 45 deg pane, viewer on one side. Strictly better on this
+   panel -- a 720x1280 phone gives each pyramid face a 360 px square, and the
+   fold throws away three quarters of the light to make images nobody is
+   standing in front of. One pane feeds the whole panel into one image. */
+.face.one {
+  width: 100vw; height: 50vh; left: 0; top: 0; transform: none;
+}
+
+/* BASELINE layout: no reflector at all. The bare panel, viewed head-on, at the
+   distance the folded path will impose. See the protocol card -- this number is
+   only comparable if that distance is matched. */
+.face.base { width: 100vw; height: 100vh; left: 0; top: 0; transform: none; }
+
+/* The 45 deg fold can put the image top toward the centre or away from it
+   depending on whether the frustum sits small-end-down or large-end-down.
+   Rather than assume the owner's glass, this flips on a keypress and they
+   settle it by looking. */
+.rot { width: 100%; height: 100%; display: grid; place-items: center; }
+#stage.flip .rot { transform: rotate(180deg); }
 
 .inner { width: 100%; height: 100%; display: grid; place-items: center; padding: 2%; }
 
@@ -72,16 +103,39 @@ html, body {
 
 .solid { width: 78%; aspect-ratio: 1; background: #FFF; }
 
-/* HUD lives outside the pyramid footprint so it never enters the reflection.
-   It is for the operator reading the screen, not for the ghost. */
+/* HUD lives outside the pyramid footprint (a 2-unit square on centre, so on a
+   720x1280 panel it spans y 280..1000 and the bottom 280 px is clear) and never
+   enters the reflection. It is for the operator reading the screen. */
 #hud {
-  position: fixed; left: 0; right: 0; bottom: 0; padding: 6px 10px;
-  font-size: 11px; line-height: 1.35; color: #7d7d7d; background: #000;
-  display: flex; justify-content: space-between; gap: 10px; z-index: 10;
-  font-variant-numeric: tabular-nums;
+  position: fixed; left: 0; right: 0; bottom: 0; padding: 5px 8px 7px;
+  font-size: 11px; line-height: 1.3; color: #6f6f6f; background: #000;
+  z-index: 10; font-variant-numeric: tabular-nums;
+  display: flex; flex-direction: column; gap: 5px;
 }
 #hud b { color: #d9d9d9; font-weight: 600; }
-#hud .hint { text-align: right; }
+#hudrow { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+#btns { display: flex; gap: 5px; flex-wrap: wrap; }
+#btns button {
+  font: inherit; font-size: 11px; padding: 5px 9px; border-radius: 3px;
+  border: 1px solid #333; background: #0d0d0d; color: #c9c9c9;
+}
+#btns button.hot { border-color: #6a6a6a; color: #fff; }
+#msg { color: #8fbf9a; min-height: 1.3em; }
+
+/* The protocol card is deliberately a readable panel. It is only ever on
+   screen with the glass off, so ghost-visible chrome does not matter here. */
+#proto {
+  position: fixed; inset: 0; background: #000; color: #cfcfcf; z-index: 20;
+  padding: 14px 16px; overflow: auto; font-size: 13px; line-height: 1.5;
+  display: none;
+}
+#proto.on { display: block; }
+#proto h2 { font-size: 14px; color: #fff; margin: 0 0 8px; }
+#proto h3 { font-size: 13px; color: #fff; margin: 14px 0 4px; }
+#proto p, #proto li { margin: 0 0 6px; }
+#proto ol, #proto ul { padding-left: 18px; }
+#proto code { color: #fff; }
+
 #tapzones { position: fixed; inset: 0; display: flex; z-index: 5; }
 #tapzones div { flex: 1; }
 </style>
@@ -89,15 +143,79 @@ html, body {
 <body>
 
 <div id="stage"></div>
-
-<div id="hud">
-  <div><b id="step-name">—</b> · step <span id="step-n">1</span>/<span id="step-total">6</span> · level <b id="lvl">—</b></div>
-  <div class="hint">tap L/R = level · swipe or long-press right edge = next test</div>
-</div>
 <div id="tapzones"><div id="zL"></div><div id="zR"></div></div>
 
+<div id="hud">
+  <div id="hudrow">
+    <div><b id="step-name">—</b> · <span id="step-n">1</span>/<span id="step-total">6</span> · <b id="lvl">—</b></div>
+    <div><span id="mode">pyramid</span> · D=<b id="dv">50</b>cm w=<b id="wv">6</b>cm · <b id="nmark">0</b> marked</div>
+  </div>
+  <div id="btns">
+    <button id="bMark" class="hot">MARK</button>
+    <button id="bSend">SEND</button>
+    <button id="bMode">layout</button>
+    <button id="bFlip">flip</button>
+    <button id="bD">D+</button>
+    <button id="bW">w+</button>
+    <button id="bProto">?</button>
+  </div>
+  <div id="msg">tap left/right of screen = level · swipe up/down = test</div>
+</div>
+
+<div id="proto">
+  <h2>SPIKE-004 — how to take a reading that means something</h2>
+
+  <h3>1. Set the geometry first</h3>
+  <p>A 45° fold makes the light path <b>eye → pane → down to screen</b>. That is
+  longer than looking straight at the phone, and it is the reason a
+  "smallest legible size on the bare screen at arm's length" number is
+  <b>not</b> comparable to the same number through the glass: the difference
+  would be part distance and part optics, and the whole of it would get blamed
+  on the optics.</p>
+  <ul>
+    <li><b>D</b> = eye to the pane, horizontally, in cm.</li>
+    <li><b>w</b> = depth of the screen strip the pane covers, in cm.</li>
+    <li>The folded path is about <b>D + w/2</b>. Set both with the D+ / w+
+    buttons before the first mark (they wrap).</li>
+  </ul>
+
+  <h3>2. Take the baseline (no glass needed)</h3>
+  <p>Switch layout to <code>baseline</code>. Lay the phone flat and look
+  <b>straight down at it</b> — the folded path meets the screen along its
+  normal, so a head-on view is the matching one, not an angled one. Put your eye
+  <b>D + w/2</b> above the screen. Run the tests and MARK.</p>
+
+  <h3>3. Take the ghost reading (needs the reflector)</h3>
+  <p>Switch layout to <code>single</code> for one pane, or <code>pyramid</code>
+  for a four-face frustum. Set the room dark, screen brightness at max, screen
+  timeout to never. If the ghost reads upside down, press <b>flip</b> — that
+  settles whether the frustum is small-end-down or large-end-down without
+  anyone having to work it out.</p>
+
+  <h3>4. What each test wants</h3>
+  <ul>
+    <li><b>glyph height</b> — step DOWN until it stops being readable, then step
+    back up one and MARK. The mark is the smallest legible size.</li>
+    <li><b>colour survival</b> — MARK the last swatch set where every patch is
+    still distinguishable.</li>
+    <li><b>viewing arc</b> — walk around the pyramid (or side to side for one
+    pane) and MARK while reading off the spoke where the image breaks. Put the
+    degree number in the note when you report it.</li>
+    <li><b>element density</b> — MARK the highest count where <b>every</b> cell
+    is still readable, not most of them.</li>
+    <li><b>ambient ceiling</b> — the screen is fixed here. <b>You</b> change the
+    room light and MARK at the point the ghost washes out.</li>
+    <li><b>motion legibility</b> — MARK the fastest drift still readable.</li>
+  </ul>
+
+  <h3>5. Send</h3>
+  <p>Press <b>SEND</b>. The record posts back to the desktop and lands in
+  <code>docs/planning/spike-results/</code>. Nothing needs typing out.</p>
+  <p style="margin-top:14px"><button onclick="document.getElementById('proto').classList.remove('on')" style="font:inherit;padding:7px 12px;border:1px solid #444;background:#111;color:#fff;border-radius:3px">close</button></p>
+</div>
+
 <script>
-/* Each test yields ONE number the operator can report. That is the whole design
+/* Each test yields ONE number the operator can mark. That is the whole design
    constraint: a test whose outcome is "looked nice" measures nothing. */
 
 const TESTS = [
@@ -105,7 +223,6 @@ const TESTS = [
     name: "glyph height",
     unit: "px cap height",
     levels: [40, 32, 26, 21, 17, 14, 11, 9, 7],
-    // Report the SMALLEST level still legible through the pyramid.
     render(px) {
       return `<div class="ladder">
         <div style="font-size:${px}px">VESPER 0123</div>
@@ -133,7 +250,6 @@ const TESTS = [
     name: "viewing arc",
     unit: "degrees off-axis",
     levels: [1],
-    // Step around the pyramid and note the angle at which the image breaks.
     render() {
       let spokes = "", lbls = "";
       for (let a = 0; a < 360; a += 15) {
@@ -151,7 +267,6 @@ const TESTS = [
     name: "element density",
     unit: "simultaneous elements",
     levels: [1, 2, 4, 6, 9, 12, 16],
-    // Report the highest count where EVERY cell is still readable.
     render(n) {
       const cols = Math.ceil(Math.sqrt(n));
       let cells = "";
@@ -161,23 +276,19 @@ const TESTS = [
   },
   {
     name: "ambient ceiling",
-    unit: "room light",
+    unit: "room light step",
     levels: [1],
-    // Fixed bright target. The OPERATOR varies the room light and records the
+    // Fixed bright target. The OPERATOR varies the room light and marks the
     // point the ghost washes out. The screen is the constant here.
-    render() {
-      return `<div class="solid"></div>`;
-    }
+    render() { return `<div class="solid"></div>`; }
   },
   {
     name: "motion legibility",
     unit: "px/s drift",
     levels: [0, 30, 60, 120, 240],
-    // A scene that updates is the real use. Static legibility is not enough.
     render(v) {
       const dur = v === 0 ? 0 : Math.round(200 / v * 10) / 10;
-      const anim = v === 0 ? "" :
-        `animation: drift ${dur}s linear infinite alternate;`;
+      const anim = v === 0 ? "" : `animation: drift ${dur}s linear infinite alternate;`;
       return `<style>@keyframes drift{from{transform:translateY(-18%)}to{transform:translateY(18%)}}</style>
         <div class="ladder" style="${anim}">
           <div style="font-size:22px">VESPER 0123</div>
@@ -187,32 +298,105 @@ const TESTS = [
   }
 ];
 
-let ti = 0, li = 0;
-const stage = document.getElementById("stage");
-document.getElementById("step-total").textContent = TESTS.length;
+const LAYOUTS = ["pyramid", "single", "baseline"];
+const D_STEPS = [30, 40, 50, 60, 80, 100];
+const W_STEPS = [3, 4, 5, 6, 8, 10, 12];
+
+let ti = 0, li = 0, mode = 0, flip = false, di = 2, wi = 3;
+const marks = [];
+
+const $ = id => document.getElementById(id);
+const stage = $("stage");
+$("step-total").textContent = TESTS.length;
+
+function faces() {
+  const l = LAYOUTS[mode];
+  if (l === "pyramid")  return [["n",""],["e",""],["s",""],["w",""]];
+  if (l === "single")   return [["one",""]];
+  return [["base",""]];
+}
 
 function draw() {
   const t = TESTS[ti];
   li = Math.max(0, Math.min(li, t.levels.length - 1));
   const html = t.render(t.levels[li]);
-  stage.innerHTML = ["n","e","s","w"].map(
-    d => `<div class="face ${d}"><div class="inner">${html}</div></div>`).join("");
-  document.getElementById("step-name").textContent = t.name;
-  document.getElementById("step-n").textContent = ti + 1;
-  document.getElementById("lvl").textContent = `${t.levels[li]} ${t.unit}`;
+  stage.className = flip ? "flip" : "";
+  stage.innerHTML = faces().map(
+    ([d]) => `<div class="face ${d}"><div class="rot"><div class="inner">${html}</div></div></div>`).join("");
+  $("step-name").textContent = t.name;
+  $("step-n").textContent = ti + 1;
+  $("lvl").textContent = `${t.levels[li]} ${t.unit}`;
+  $("mode").textContent = LAYOUTS[mode] + (flip ? " ⤾" : "");
+  $("dv").textContent = D_STEPS[di];
+  $("wv").textContent = W_STEPS[wi];
+  $("nmark").textContent = marks.length;
 }
+
+function say(m) { $("msg").textContent = m; }
 
 function level(d) { li += d; draw(); }
 function test(d)  { ti = (ti + d + TESTS.length) % TESTS.length; li = 0; draw(); }
 
-document.getElementById("zL").addEventListener("click", () => level(-1));
-document.getElementById("zR").addEventListener("click", () => level(+1));
+function mark() {
+  const t = TESTS[ti];
+  // One mark per test per layout: re-marking corrects a reading rather than
+  // appending a second one, so the record cannot end up with two answers to
+  // the same question and no way to tell which was meant.
+  const key = t.name + "|" + LAYOUTS[mode];
+  const rec = {
+    test: t.name, unit: t.unit, level: t.levels[li],
+    layout: LAYOUTS[mode], flipped: flip,
+    eye_to_pane_cm: D_STEPS[di], strip_depth_cm: W_STEPS[wi],
+    folded_path_cm: D_STEPS[di] + W_STEPS[wi] / 2
+  };
+  const at = marks.findIndex(m => m.test + "|" + m.layout === key);
+  if (at >= 0) { marks[at] = rec; say(`re-marked ${t.name} = ${rec.level} ${t.unit}`); }
+  else { marks.push(rec); say(`marked ${t.name} = ${rec.level} ${t.unit}`); }
+  draw();
+}
+
+async function send() {
+  if (!marks.length) { say("nothing marked yet"); return; }
+  say("sending…");
+  try {
+    const r = await fetch("/result", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        schema_version: 1,
+        spike: "SPIKE-004", section: "perceptual limits through a 45° fold",
+        device: "Samsung Galaxy J3 (2016)",
+        screen: {w: screen.width, h: screen.height, dpr: devicePixelRatio},
+        user_agent: navigator.userAgent,
+        marks
+      })
+    });
+    const j = await r.json();
+    say(r.ok ? `sent · ${j.written}` : `server said ${r.status}`);
+  } catch (e) {
+    say("send failed: " + e.message + " — read the marks aloud instead");
+  }
+}
+
+$("zL").addEventListener("click", () => level(-1));
+$("zR").addEventListener("click", () => level(+1));
+$("bMark").addEventListener("click", e => { e.stopPropagation(); mark(); });
+$("bSend").addEventListener("click", e => { e.stopPropagation(); send(); });
+$("bMode").addEventListener("click", e => { e.stopPropagation(); mode = (mode + 1) % LAYOUTS.length; draw(); say("layout: " + LAYOUTS[mode]); });
+$("bFlip").addEventListener("click", e => { e.stopPropagation(); flip = !flip; draw(); });
+$("bD").addEventListener("click", e => { e.stopPropagation(); di = (di + 1) % D_STEPS.length; draw(); });
+$("bW").addEventListener("click", e => { e.stopPropagation(); wi = (wi + 1) % W_STEPS.length; draw(); });
+$("bProto").addEventListener("click", e => { e.stopPropagation(); $("proto").classList.add("on"); });
+
 addEventListener("keydown", e => {
   if (e.key === "ArrowLeft")  level(-1);
   if (e.key === "ArrowRight") level(+1);
   if (e.key === "ArrowDown")  test(+1);
   if (e.key === "ArrowUp")    test(-1);
+  if (e.key === "m") mark();
+  if (e.key === "f") { flip = !flip; draw(); }
+  if (e.key === "l") { mode = (mode + 1) % LAYOUTS.length; draw(); }
 });
+
 let sx = 0, sy = 0;
 addEventListener("touchstart", e => { sx = e.touches[0].clientX; sy = e.touches[0].clientY; }, {passive:true});
 addEventListener("touchend", e => {
