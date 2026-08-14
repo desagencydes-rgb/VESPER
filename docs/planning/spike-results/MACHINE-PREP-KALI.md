@@ -131,4 +131,43 @@ left:
 **Security note for the owner:** the sudo password was supplied in the chat session, so it is
 in the transcript. Rotating it (`passwd`) is recommended, more so because this machine is being
 promoted to an always-on node.
+
+## 5. Encrypted vault (TPM-unlocked), 2026-08-14
+
+The owner chose a **TPM-unlocked encrypted vault** over full-disk encryption: full-disk cannot
+be done without booting from a USB stick with a person present, and the owner needed a
+hands-off, walk-away result. The vault gives the realistic protection — **a stolen/removed SSD
+is unreadable** — with zero interaction.
+
+**What was built.** A 2 GB LUKS2 container at `/var/lib/vesper/vault.img` (sparse — 82 MB
+actually on disk until filled), auto-mounted at **`/vault`**, owned by `csf` and writable
+without sudo. Installed for it: `cryptsetup`, `systemd-cryptsetup`, `tpm2-tools`.
+
+**How it unlocks.** Sealed to the on-board **TPM 2.0**, *presence-only* (no PCR binding) so it
+keeps working across kernel and firmware updates rather than locking out on them. `/etc/crypttab`
++ `/etc/fstab` (both `nofail`) mount it automatically on **every boot with nothing to type** —
+so "power off, power on" just works, which is what the owner asked for. `nofail` means that even
+if the vault ever failed to open, the machine still boots normally; it simply would not have
+`/vault` mounted.
+
+**Safety of the build.** The container was formatted with a temporary key held only in RAM
+(`/dev/shm`, never written to disk). The TPM was enrolled, and then — before removing anything —
+the volume was **closed and re-opened using only the TPM, headless (no passphrase fallback)**;
+that test PASSED. Only then was the temporary passphrase keyslot removed. The final volume has
+**one keyslot: the TPM** (`cryptsetup luksDump` shows a single `systemd-tpm2` token, no
+passphrase slot), and the temp key was wiped from RAM.
+
+**The one honest limitation.** There is deliberately **no passphrase or recovery key** — that
+was the point (nothing to leak on the unencrypted disk, nothing for the owner to store or lose).
+The consequence: the vault is bound to *this* TPM. If the TPM is ever cleared, or the mainboard
+replaced, the vault becomes unrecoverable and is simply recreated — acceptable because it holds
+only re-enrollable VESPER secrets, per the owner's "nothing that important" call. It protects
+against **disk theft**, not against a thief who powers on the whole running laptop (the vault
+auto-mounts at boot); defending that case is what full-disk encryption is for, and remains the
+later, in-person upgrade path.
+
+**Verified without a reboot.** The auto-unlock could not be tested by an actual reboot (the
+owner was leaving and did not want one), but the exact TPM-unseal path that boot uses was
+exercised directly (step 5 above) and passed. The first real boot is the final confirmation;
+`nofail` guarantees it is harmless if anything is off.
 </content>
