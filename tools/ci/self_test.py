@@ -268,21 +268,46 @@ CREATE_CASES: list[tuple[str, str, str, str]] = [
 ADR002 = "docs/ADR/ADR-002-persistence.md"
 REGISTER = "docs/ADR/ADR-REGISTER.md"
 _F0_PROBE = ("core/_selftest_probe.py", "# deliberate violation for tools/ci/self_test.py\n")
-_ACCEPT_ADR002_FILE = (ADR002, "| **Status** | **PROPOSED**", "| **Status** | **ACCEPTED**")
-_ACCEPT_ADR002_REG = (REGISTER, "| **ADR-002** | Persistence engine: task state, memory, provenance, migration and recovery | **PROPOSED** |",
-                      "| **ADR-002** | Persistence engine: task state, memory, provenance, migration and recovery | **ACCEPTED** |")
+
+# THE DIRECTION OF THESE CASES INVERTED ON 2026-08-14, and the reason is worth
+# keeping: the owner ACCEPTED ADR-002, and these cases had been written to
+# borrow the tree's then-current PROPOSED status as their premise. The moment
+# the real decision changed, the premise went false and the suite failed --
+# reporting "the gate does not key on what it claims to" about a gate that was
+# working correctly.
+#
+# The lesson is not "update the strings". It is that A SELF-TEST MUST CONSTRUCT
+# BOTH HALVES OF ITS OWN PRECONDITION rather than depend on the state of the
+# tree it runs against, because the tree is exactly the thing that changes.
+# These cases now build the blocked state themselves, and the discriminating
+# case reads the tree's genuine ACCEPTED status instead of manufacturing it --
+# which makes it a stronger control than the version it replaces.
+_PROPOSE_ADR002_FILE = (ADR002, "| **Status** | **ACCEPTED**", "| **Status** | **PROPOSED**")
+_PROPOSE_ADR002_REG = (
+    REGISTER,
+    "| **ADR-002** | Persistence engine: task state, memory, provenance, migration and recovery | **ACCEPTED** 2026-08-14 |",
+    "| **ADR-002** | Persistence engine: task state, memory, provenance, migration and recovery | **PROPOSED** |")
 
 SCENARIO_CASES: list[tuple[str, list[tuple[str, str]], list[tuple[str, str, str]], int, str]] = [
-    ("adr-gate", [_F0_PROBE], [], 1,
+    # RED. Both record and register pushed back to PROPOSED, so the gate is
+    # genuinely closed, and F0 code under core/ must be blocked.
+    ("adr-gate", [_F0_PROBE], [_PROPOSE_ADR002_FILE, _PROPOSE_ADR002_REG], 1,
      "CI-008: F0 code under core/ while ADR-002 is PROPOSED"),
 
-    ("adr-gate", [_F0_PROBE], [_ACCEPT_ADR002_FILE], 1,
-     "CI-008: the ADR record flipped to ACCEPTED while the register still says PROPOSED"),
+    # DISCRIMINATION, and the direction that matters most. The SAME probe file,
+    # with NO substitution at all, must PASS -- because ADR-002 is genuinely
+    # ACCEPTED in this tree. Without this the suite would only have shown that
+    # the gate dislikes files under core/, not that it keys on the decision.
+    ("adr-gate", [_F0_PROBE], [], 0,
+     "CI-008 DISCRIMINATION: the same F0 code passes because ADR-002 is genuinely ACCEPTED"),
 
-    ("adr-gate", [_F0_PROBE], [_ACCEPT_ADR002_FILE, _ACCEPT_ADR002_REG], 0,
-     "CI-008 DISCRIMINATION: the same F0 code passes once ADR-002 is genuinely ACCEPTED"),
+    # DIVERGENCE. Record and register disagreeing must fail on its own, with no
+    # probe file present -- a gate reading two sources cannot be trusted while
+    # they contradict each other, regardless of what is under core/.
+    ("adr-gate", [], [_PROPOSE_ADR002_FILE], 1,
+     "CI-008: the record says PROPOSED while the register still says ACCEPTED"),
 
-    ("adr-gate", [], [(ADR002, "| **Status** | **PROPOSED**", "| **Status** | **WITHDRAWN**")], 1,
+    ("adr-gate", [], [(ADR002, "| **Status** | **ACCEPTED**", "| **Status** | **WITHDRAWN**")], 1,
      "CI-008: an ADR status outside the decision vocabulary"),
 ]
 
