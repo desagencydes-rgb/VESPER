@@ -1231,6 +1231,13 @@ def check_f3_acceptance() -> Result:
                            "F3 scene/presence/outbox")
 
 
+def check_f5_acceptance() -> Result:
+    """THE DECISIVE GATE. C1 (pure cron) is the run the corpus calls the single
+    most important in the verification programme."""
+    return _run_acceptance("f5-acceptance", "verification/run_f5_acceptance.py",
+                           "F5 autonomy")
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -1238,6 +1245,7 @@ CHECK_FNS = {
     "f2-acceptance": check_f2_acceptance,
     "f4-acceptance": check_f4_acceptance,
     "f3-acceptance": check_f3_acceptance,
+    "f5-acceptance": check_f5_acceptance,
     "adr-gate": check_adr_gate,
     "scene-no-escape-hatch": check_scene_schema,
     "cost-policy": check_cost_policy,
