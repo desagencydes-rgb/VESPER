@@ -92,7 +92,7 @@ jobs:
       - name: F0 acceptance (A-002, A-019, A-033, A-034 + 6 controls)
         run: python tools/ci/checks.py f0-acceptance
 
-      - name: F1 increment 1 acceptance (A-004, A-021, A-022, A-023 + 3 controls)
+      - name: F1 acceptance (A-003, A-004, A-006, A-021, A-022, A-023, A-032 + 4 controls)
         run: python tools/ci/checks.py f1-acceptance
 
       # CI-026 — INV-AUTO-5 / INV-IDEA-5. The anti-cron gate, run against a

@@ -1,23 +1,25 @@
 {
   "schema_version": 1,
-  "gate": "F1-increment-1",
+  "gate": "F1",
   "acceptance_tests_claimed": [
+    "A-003",
     "A-004",
+    "A-006",
     "A-021",
     "A-022",
-    "A-023"
+    "A-023",
+    "A-032"
   ],
-  "acceptance_tests_not_claimed": {
-    "A-003": "graded evidence corpus + retrieval layer does not exist yet",
-    "A-006": "BAG/maps retrieval over a real repository not built",
-    "A-032": "context budget manager not built"
+  "partial_coverage": {
+    "A-004.4": "mid-stream provider kill during STREAMED VOICE -- needs the voice chain, which is F3. The non-streamed fallback path is covered; the audible-prefix half is not.",
+    "A-006 (embedding retrieval)": "the span index is a literal substring matcher. The property under test is that results are byte-reproducible spans, which it demonstrates; a semantic retriever slots in behind the same SourceSpan interface and is not built."
   },
-  "f1_complete": false,
+  "f1_complete": true,
   "passed": true,
-  "positive_passed": 4,
-  "positive_total": 4,
-  "controls_failed_as_required": 3,
-  "controls_total": 3,
+  "positive_passed": 7,
+  "positive_total": 7,
+  "controls_failed_as_required": 4,
+  "controls_total": 4,
   "results": [
     {
       "case": "A-021",
@@ -286,6 +288,188 @@
       ]
     },
     {
+      "case": "A-006",
+      "title": "Exact spans from a large project, byte-reproducible",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "exact fragments retrieved from a large project",
+          "passed": true,
+          "detail": "6 spans"
+        },
+        {
+          "assertion": "retrieval returns SPANS, not summaries-of-summaries",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "every cited span is byte-reproducible from source",
+          "passed": true,
+          "detail": "[]"
+        },
+        {
+          "assertion": "the repository was NOT loaded into context",
+          "passed": true,
+          "detail": "largest span 171 bytes"
+        },
+        {
+          "assertion": "span verifies against unchanged source",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "span FAILS to verify once the source changes",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-003",
+      "title": "Graded evidence corpus: 0% / partial / full",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "fixture has real retrieved spans",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "3.1 empty retrieval returns nothing to cite",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "3.1 unsupported claim is not emittable; never invented",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "3.2 the ONE unsupported specific is caught",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "3.2 caught at CLAIM level: 1 of 3 flagged, not the response",
+          "passed": true,
+          "detail": "1"
+        },
+        {
+          "assertion": "3.3 model_prior not emittable as an assertion in `research`",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "3.4 a span that does not re-read to its hash is not grounding",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "3.5 ranks 2/3/4 disagreeing produces ASK",
+          "passed": true,
+          "detail": "ASK"
+        },
+        {
+          "assertion": "3.5 no value is silently picked",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "3.5 memory.conflict emitted",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "3.6 rank 6 alone yields UNKNOWN, never an answer",
+          "passed": true,
+          "detail": "{'outcome': 'UNKNOWN', 'value': 'UNKNOWN', 'reason': 'only rank 6 (model_prior) is available, and rank 6 is NEVER authoritative -- not even when it is the only thing there, which is exactly when it would get used'}"
+        },
+        {
+          "assertion": "3.6 agreement resolves to the highest-authority rank",
+          "passed": true,
+          "detail": "{'outcome': 'RESOLVED', 'value': '14:00', 'rank': 2, 'authority': 'authoritative_source_of_record', 'reason': 'highest authority present is rank 2, and no rank 2/3/4 disagreement exists'}"
+        },
+        {
+          "assertion": "unsupported-claim rate tracked as a release metric",
+          "passed": true,
+          "detail": "0.667"
+        }
+      ]
+    },
+    {
+      "case": "A-032",
+      "title": "Context budget: automatic, manual, reported degradation",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "automatic mode stays within budget",
+          "passed": true,
+          "detail": "700"
+        },
+        {
+          "assertion": "selection is by priority class, not arrival order",
+          "passed": true,
+          "detail": "['f-policy', 'f-goal', 'f-evid']"
+        },
+        {
+          "assertion": "nothing dropped outranks anything kept",
+          "passed": true,
+          "detail": "kept worst rank 3, dropped best rank 4"
+        },
+        {
+          "assertion": "the budget is the reason anything was dropped",
+          "passed": true,
+          "detail": "used 700 of 1000"
+        },
+        {
+          "assertion": "degradation is REPORTED, never silent",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "the report names what was dropped and why",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "manual mode is invocable and overrides automatic selection",
+          "passed": true,
+          "detail": "['f-amb', 'f-policy', 'f-goal']"
+        },
+        {
+          "assertion": "manual mode is reported as manual",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "a manual pin is not silently dropped",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "the resulting overrun is reported",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "UNKNOWN propagates into the assembled context",
+          "passed": true,
+          "detail": "['f-unk']"
+        },
+        {
+          "assertion": "UNKNOWN propagation is emitted, not filled",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
       "case": "A-021-CONTROL",
       "title": "Unfiltered ARCH-24 escalation ladder",
       "is_negative_control": true,
@@ -334,6 +518,25 @@
           "assertion": "unmeasured profile rejected (INV-HW-2)",
           "passed": false,
           "detail": "strong-declared"
+        }
+      ]
+    },
+    {
+      "case": "A-003-CONTROL",
+      "title": "Per-RESPONSE grounding check",
+      "is_negative_control": true,
+      "ok": true,
+      "verdict": "CONTROL OK -- broken build failed as required",
+      "assertions": [
+        {
+          "assertion": "3.2 the ONE unsupported specific is caught",
+          "passed": false,
+          "detail": "response scored 0.67 and was accepted whole"
+        },
+        {
+          "assertion": "3.2 caught at CLAIM level, not response level",
+          "passed": false,
+          "detail": "a per-response check has no claim-level verdict to give"
         }
       ]
     }

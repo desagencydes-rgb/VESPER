@@ -1213,7 +1213,7 @@ def check_f0_acceptance() -> Result:
 
 def check_f1_acceptance() -> Result:
     return _run_acceptance("f1-acceptance", "verification/run_f1_acceptance.py",
-                           "F1 increment 1")
+                           "F1")
 
 
 CHECK_FNS = {
