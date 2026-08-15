@@ -101,6 +101,9 @@ jobs:
       - name: F4 world/privacy/enrollment (A-010, A-042, A-033.3/.4 + 1 control)
         run: python tools/ci/checks.py f4-acceptance
 
+      - name: F3 scene/presence/outbox (A-009, A-026, A-035 + 1 control)
+        run: python tools/ci/checks.py f3-acceptance
+
       # CI-026 — INV-AUTO-5 / INV-IDEA-5. The anti-cron gate, run against a
       # SHIPPED PRODUCT ARTIFACT rather than a fixture. It parses each predicate
       # BODY: every namespace root is classified against a closed vocabulary, and

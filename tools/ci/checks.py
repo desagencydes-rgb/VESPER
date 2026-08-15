@@ -1226,12 +1226,18 @@ def check_f4_acceptance() -> Result:
                            "F4 world/privacy/enrollment")
 
 
+def check_f3_acceptance() -> Result:
+    return _run_acceptance("f3-acceptance", "verification/run_f3_acceptance.py",
+                           "F3 scene/presence/outbox")
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
     "f1-acceptance": check_f1_acceptance,
     "f2-acceptance": check_f2_acceptance,
     "f4-acceptance": check_f4_acceptance,
+    "f3-acceptance": check_f3_acceptance,
     "adr-gate": check_adr_gate,
     "scene-no-escape-hatch": check_scene_schema,
     "cost-policy": check_cost_policy,

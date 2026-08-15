@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "gate": "F3-scene-presence-outbox",
+  "acceptance_tests_claimed": [
+    "A-009",
+    "A-026",
+    "A-035"
+  ],
+  "acceptance_tests_not_claimed": {
+    "A-020": "measured latency against declared budgets on target hardware. Needs SPIKE-002, which needs the iPhone app, which needs the MacBook. The budget-declaration half is enforced by CI-051.",
+    "A-027": "artifact generation with provenance (images, PDF, HTML) needs a rendering toolchain. Not a dependency this stage adds on its own.",
+    "A-009.3+": "assertions beyond 'all three render with a degradation report' involve a real spatial simulator; the pseudo_3d_glass endpoint here is a capability descriptor, not a display."
+  },
+  "f3_complete": false,
+  "passed": true,
+  "positive_passed": 3,
+  "positive_total": 3,
+  "controls_failed_as_required": 1,
+  "controls_total": 1,
+  "results": [
+    {
+      "case": "A-009",
+      "title": "One scene, three materially different endpoints",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "the degradation ladder actually loaded from the contract",
+          "passed": true,
+          "detail": "50 rungs"
+        },
+        {
+          "assertion": "1. all three produce output",
+          "passed": true,
+          "detail": "{'screen': True, 'voice': True, 'glass': True}"
+        },
+        {
+          "assertion": "2. all three produce an explicit degradations array",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "2. the array is present even when empty",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "every degradation action is in the closed enum",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "the diagram NARRATES on a voice-only endpoint",
+          "passed": true,
+          "detail": "A diagram of 3 parts. intent leads to act; act leads to record"
+        },
+        {
+          "assertion": "the table narrates its shape rather than being dropped",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "voice degradations are visual_to_narrative, not omitted",
+          "passed": true,
+          "detail": "['visual_to_narrative', 'visual_to_narrative']"
+        },
+        {
+          "assertion": "the 2D endpoint reports depth_flattened for the depth element",
+          "passed": true,
+          "detail": "[{'element_id': 'e-diagram', 'reason': 'endpoint spatial_class 2d has no depth axis', 'action': 'depth_flattened'}]"
+        },
+        {
+          "assertion": "the depth-capable endpoint degrades nothing",
+          "passed": true,
+          "detail": "[]"
+        },
+        {
+          "assertion": "an element carrying presentation markup is refused",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "withholding is reported with its reason",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "presence.withheld emitted",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-026",
+      "title": "Every capability reachable with text surfaces disabled",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "every element is deliverable through audio alone",
+          "passed": true,
+          "detail": "4 of 4"
+        },
+        {
+          "assertion": "no element required a text surface to be delivered",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "a non-text, non-visual surface still produces output",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "no capability is reachable only via text",
+          "passed": true,
+          "detail": "both non-text endpoints rendered the full scene"
+        }
+      ]
+    },
+    {
+      "case": "A-035",
+      "title": "Exactly-once EFFECT across three crash points",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "crash before the call leaves nothing on the far side",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "recovery marks it replay-safe",
+          "passed": true,
+          "detail": "{'outbox_id': 'o1', 'action': 'replay_safe', 'reason': 'intent recorded, call never made'}"
+        },
+        {
+          "assertion": "a mid-call crash records UNKNOWN, not FAILED",
+          "passed": true,
+          "detail": "UNKNOWN"
+        },
+        {
+          "assertion": "the probe found no effect, so a resend is safe",
+          "passed": true,
+          "detail": "{'outbox_id': 'o2', 'action': 'replay_safe', 'reason': 'probe found no effect; safe to resend under the same idempotency key'}"
+        },
+        {
+          "assertion": "the effect DID land on the far side",
+          "passed": true,
+          "detail": "1"
+        },
+        {
+          "assertion": "the outbox does not know it landed",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "1. the probe finds it and it is NOT resent",
+          "passed": true,
+          "detail": "{'outbox_id': 'o3', 'action': 'confirmed', 'reason': 'probe found the effect; NOT resent'}"
+        },
+        {
+          "assertion": "1. exactly-once effect: the far side saw it once",
+          "passed": true,
+          "detail": "1"
+        },
+        {
+          "assertion": "2. recovery is explicitly outbox-driven",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "3. reconcilable=false escalates to the user",
+          "passed": true,
+          "detail": "{'outbox_id': 'o4', 'action': 'escalated', 'reason': 'not reconcilable'}"
+        },
+        {
+          "assertion": "3. and does NOT retry",
+          "passed": true,
+          "detail": "1"
+        },
+        {
+          "assertion": "3. the escalation is emitted",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "4. the audit chain reconstructs end to end",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "5. delegated-identity attribution is on the outbox record",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-009-CONTROL",
+      "title": "{markdown, speech} implementation",
+      "is_negative_control": true,
+      "ok": true,
+      "verdict": "CONTROL OK -- broken build failed as required",
+      "assertions": [
+        {
+          "assertion": "2. all three produce an explicit degradations array",
+          "passed": false,
+          "detail": "the result has no degradations key at all"
+        },
+        {
+          "assertion": "the diagram NARRATES on a voice-only endpoint",
+          "passed": false,
+          "detail": "it reads a bullet list of element ids aloud"
+        }
+      ]
+    }
+  ]
+}
