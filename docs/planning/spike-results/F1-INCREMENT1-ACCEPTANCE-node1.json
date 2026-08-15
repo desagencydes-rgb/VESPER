@@ -1,0 +1,341 @@
+{
+  "schema_version": 1,
+  "gate": "F1-increment-1",
+  "acceptance_tests_claimed": [
+    "A-004",
+    "A-021",
+    "A-022",
+    "A-023"
+  ],
+  "acceptance_tests_not_claimed": {
+    "A-003": "graded evidence corpus + retrieval layer does not exist yet",
+    "A-006": "BAG/maps retrieval over a real repository not built",
+    "A-032": "context budget manager not built"
+  },
+  "f1_complete": false,
+  "passed": true,
+  "positive_passed": 4,
+  "positive_total": 4,
+  "controls_failed_as_required": 3,
+  "controls_total": 3,
+  "results": [
+    {
+      "case": "A-021",
+      "title": "OperatingPeriod and cost class, 9 cases",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "21.5 cold start is FREE_TIME",
+          "passed": true,
+          "detail": "FREE_TIME"
+        },
+        {
+          "assertion": "21.1 no transition on high-confidence inference",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "21.1 still FREE_TIME",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "21.1 evidence recorded",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "21.1 no paid call permitted",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "21.3 authenticated interaction exits FREE_TIME",
+          "passed": true,
+          "detail": "ACTIVE_SESSION"
+        },
+        {
+          "assertion": "21.2 permitted direction is allowed",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "21.2 now FREE_TIME",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "21.4 period and cause both retrievable",
+          "passed": true,
+          "detail": "FREE_TIME/inference:user_is_asleep"
+        },
+        {
+          "assertion": "21.6 suspect clock forces FREE_TIME",
+          "passed": true,
+          "detail": "FREE_TIME/clock_suspect"
+        },
+        {
+          "assertion": "21.7 credential with no cost_class refused",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "21.8 uncapped metered_free_tier treated as paid and blocked",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "21.9 no policy loaded => free class only",
+          "passed": true,
+          "detail": "('free',)"
+        }
+      ]
+    },
+    {
+      "case": "A-004",
+      "title": "Provider fallback; zero paid attempts in FREE_TIME",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "2. fallback occurred without terminating the task",
+          "passed": true,
+          "detail": "free-b"
+        },
+        {
+          "assertion": "1. error classification visible",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "1. retry timing visible",
+          "passed": true,
+          "detail": "[500, 1000]"
+        },
+        {
+          "assertion": "zero paid attempts so far (FREE_TIME)",
+          "passed": true,
+          "detail": "0"
+        },
+        {
+          "assertion": "3. task blocked rather than escalated",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "3. ZERO paid attempts at the gateway boundary",
+          "passed": true,
+          "detail": "{'free': 3, 'paid': 0, 'metered_free_tier': 0}"
+        },
+        {
+          "assertion": "3. autonomy.blocked_on_cost_policy emitted",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "3. user not woken",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "3. not escalated to paid",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-022",
+      "title": "Routing on measured profiles, inspectable, no product names",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "every difficulty routes at or above its tier floor",
+          "passed": true,
+          "detail": "got=['strong', 'strong', 'strong', 'strong'] floors=['draft', 'small', 'standard', 'strong']"
+        },
+        {
+          "assertion": "tier is non-decreasing with difficulty",
+          "passed": true,
+          "detail": "['strong', 'strong', 'strong', 'strong']"
+        },
+        {
+          "assertion": "hard reaches the strong tier",
+          "passed": true,
+          "detail": "['strong', 'strong', 'strong', 'strong']"
+        },
+        {
+          "assertion": "unmeasured profile rejected (INV-HW-2)",
+          "passed": true,
+          "detail": "[{'profile_id': 'draft-accelerated', 'reason': 'tier draft below floor strong'}, {'profile_id': 'small-accelerated', 'reason': 'tier small below floor strong'}, {'profile_id': 'standard-accelerated', 'reason': 'tier standard below floor strong'}, {'profile_id': 'strong-unmeasured', 'reason': 'throughput UNKNOWN -- unmeasured is treated as UNAVAILABLE (INV-HW-2)'}]"
+        },
+        {
+          "assertion": "routing decisions inspectable in telemetry",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "deciding factors are NAMED",
+          "passed": true,
+          "detail": "['difficulty=hard', 'tier_floor=strong', 'context_tokens=2048', 'selects_on=wall_clock_throughput (generation-time throu"
+        },
+        {
+          "assertion": "no product names in routing decisions (INV-HW-1)",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "strong does not fit beside the owner's working set: fail-closed",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "degraded route returns a weaker tier only when asked",
+          "passed": true,
+          "detail": "standard"
+        },
+        {
+          "assertion": "rejection names the host-RAM reason",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "degradation is REPORTED, never silent (RB-022)",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "report names required and granted tiers",
+          "passed": true,
+          "detail": "{'difficulty': 'hard', 'granted_tier': 'standard', 'note': 'capability degradation is REPO"
+        },
+        {
+          "assertion": "rate falls with context length (measured KV-cache slope)",
+          "passed": true,
+          "detail": "80s @1k vs 1626s @8k"
+        },
+        {
+          "assertion": "fail-closed: no silent downgrade when nothing is measured",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-023",
+      "title": "20 iterations never reach SUCCEEDED by repetition",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "1./3. across 20 iterations the verdict never flips",
+          "passed": true,
+          "detail": "0 passes in 20"
+        },
+        {
+          "assertion": "3. retry-until-agreement absent: one verdict, cached by output",
+          "passed": true,
+          "detail": "1 verdicts, 19 suppressed"
+        },
+        {
+          "assertion": "1. task is BLOCKED, never SUCCEEDED",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "2. disagreement preserved as evidence",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "4. self_model verdict recorded",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "4. self_model can NEVER accept (INV-VERIF-3)",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "4. accept refusal is emitted, not silent",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "changed output gets a genuinely new verdict",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "5. unverifiable work in FREE_TIME is deferred",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "5. machine-checkable work is not deferred",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-021-CONTROL",
+      "title": "Unfiltered ARCH-24 escalation ladder",
+      "is_negative_control": true,
+      "ok": true,
+      "verdict": "CONTROL OK -- broken build failed as required",
+      "assertions": [
+        {
+          "assertion": "21.1 no transition on high-confidence inference",
+          "passed": false,
+          "detail": ""
+        },
+        {
+          "assertion": "21.1 still FREE_TIME",
+          "passed": false,
+          "detail": "ACTIVE_SESSION"
+        },
+        {
+          "assertion": "A-004.3 zero paid attempts during FREE_TIME",
+          "passed": false,
+          "detail": "1 paid calls"
+        }
+      ]
+    },
+    {
+      "case": "A-023-CONTROL",
+      "title": "Retry-until-agreement verifier",
+      "is_negative_control": true,
+      "ok": true,
+      "verdict": "CONTROL OK -- broken build failed as required",
+      "assertions": [
+        {
+          "assertion": "across 20 iterations the verdict never flips",
+          "passed": false,
+          "detail": "passed on iteration 18"
+        }
+      ]
+    },
+    {
+      "case": "A-022-CONTROL",
+      "title": "Router accepting declared values",
+      "is_negative_control": true,
+      "ok": true,
+      "verdict": "CONTROL OK -- broken build failed as required",
+      "assertions": [
+        {
+          "assertion": "unmeasured profile rejected (INV-HW-2)",
+          "passed": false,
+          "detail": "strong-declared"
+        }
+      ]
+    }
+  ]
+}
