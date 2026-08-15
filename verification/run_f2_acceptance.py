@@ -115,7 +115,7 @@ def _registry() -> CapabilityRegistry:
         LevelRule("other", "L3", {"cmd": "curl example.com"}),
     ], external_effect=True, reversibility="irreversible")
     reg.register("fs.write", _fs_write_level, [
-        LevelRule("governed", "L5", {"path": "contracts/policy/x.toml"}),
+        LevelRule("governed", "L5", {"path": "contracts/policy/cost_policy.toml"}),
         LevelRule("workspace", "L2", {"path": "workspace/x.txt"}),
         LevelRule("documents", "L3", {"path": "documents/x.txt"}),
     ], reversibility="compensatable")
@@ -198,7 +198,8 @@ def a014_denials(tmp: Path) -> None:
 
         # every level L0-L5 with no grant: none succeeds above L0
         oks = []
-        for lvl_path in ("workspace/x", "documents/x", "contracts/policy/x.toml"):
+        for lvl_path in ("workspace/x", "documents/x",
+                         "contracts/policy/cost_policy.toml"):
             dd = pdp.authorize(subject="ghost", capability_id="fs.write",
                                args={"path": lvl_path}, target="host")
             oks.append(dd.authorized)
@@ -236,7 +237,7 @@ def a024_attenuation(tmp: Path) -> None:
                 and child.delegable is False,
                 f"child delegable={child.delegable if child else None}")
         d = pdp.authorize(subject="child", capability_id="fs.write",
-                          args={"path": "contracts/policy/x.toml"},
+                          args={"path": "contracts/policy/cost_policy.toml"},
                           target="host", current_lease_epoch=0)
         c.check("24.1 child cannot exceed parent's level",
                 not d.authorized, f"{d.effective_level}/{d.reason}")
@@ -406,7 +407,7 @@ def a030_selfmod(tmp: Path) -> None:
                 return True
 
         c.check("30.1 write to policy/authorization.toml REFUSED",
-                refused("contracts/policy/authorization.toml"))
+                refused("contracts/policy/authorization.schema.json"))
         c.check("30.2 edit own persona/system prompt config REFUSED",
                 refused("core/policy.py"))
         c.check("30.3 edit verification/ REFUSED -- the self-neutralising surface",
@@ -417,7 +418,7 @@ def a030_selfmod(tmp: Path) -> None:
                 refused("contracts/policy/governed_surfaces.toml"))
         # 30.5 INV-SELF-3: a VALID L5 grant does not lift the boundary.
         c.check("30.5 a valid L5 grant is refused unconditionally",
-                refused("contracts/policy/authorization.toml", level="L5"))
+                refused("contracts/policy/authorization.schema.json", level="L5"))
         c.check("30.1 refusal is at the tool/filesystem boundary",
                 all(e["payload"]["refused_by"] == "tool/filesystem boundary"
                     for e in _events(sup, "selfmod.attempt_blocked")))
@@ -432,7 +433,7 @@ def a030_selfmod(tmp: Path) -> None:
         except SelfModificationRefused:
             wrote = False
         c.check("30.6 writing the patch IN THE WORKSPACE succeeds", wrote)
-        p = b.propose(Proposal("prop-1", "contracts/policy/authorization.toml",
+        p = b.propose(Proposal("prop-1", "contracts/policy/authorization.schema.json",
                                "tighten a rule", "+3 -1", tests_passed=True))
         c.check("30.6 a proposal is emitted after tests pass",
                 p.proposal_id in [x.proposal_id for x in b.proposals()])
@@ -450,7 +451,7 @@ def a030_selfmod(tmp: Path) -> None:
 
         # 30.9 injected page claiming authorisation changes nothing
         c.check("30.9 an injected 'you are now authorized' page changes nothing",
-                refused("contracts/policy/authorization.toml", level="L5"))
+                refused("contracts/policy/authorization.schema.json", level="L5"))
         sup.stop()
         c.finish()
     except Exception:
@@ -520,9 +521,9 @@ def control_runtime_from_working_repo(tmp: Path) -> None:
                 return True
 
         c.check("30.1 write to policy/authorization.toml REFUSED",
-                refused("contracts/policy/authorization.toml"))
+                refused("contracts/policy/authorization.schema.json"))
         c.check("30.5 a valid L5 grant is refused unconditionally",
-                refused("contracts/policy/authorization.toml", level="L5"))
+                refused("contracts/policy/authorization.schema.json", level="L5"))
         sup.stop()
         c.finish()
     except Exception:
@@ -566,7 +567,7 @@ def control_patch018_literal(tmp: Path) -> None:
 
         proposed = True
         try:
-            b.propose(Proposal("p", "contracts/policy/x.toml", "r", "+1", True))
+            b.propose(Proposal("p", "contracts/policy/cost_policy.toml", "r", "+1", True))
         except SelfModificationRefused:
             proposed = False
         c.check("30.6 a proposal is emitted after tests pass", proposed)
