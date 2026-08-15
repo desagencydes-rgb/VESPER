@@ -1,6 +1,6 @@
 # VESPER — Engineering Status
 
-**Updated:** 2026-08-12, after the **final pre-F0 correction and verification pass** · **Maintained continuously.** If another engineer or agent takes over tomorrow, this file plus `docs/DECISION_LOG.md` is the handoff.
+**Updated:** 2026-08-15, after **F0 and F1 increment 1 landed** · **Maintained continuously.** If another engineer or agent takes over tomorrow, this file plus `docs/DECISION_LOG.md` is the handoff.
 
 ---
 
@@ -8,11 +8,11 @@
 
 | | |
 |---|---|
-| **Phase** | Final pre-F0 correction and verification pass closed. Implementation **not** authorised. |
+| **Phase** | **F0 COMPLETE and gated. F1 increment 1 complete and gated.** Implementation authorised and under way — `INV-ADR-1` was discharged 2026-08-14 by owner acceptance of `ADR-002` (with `ADR-001` and `ADR-012` already ACCEPTED). |
 | **Position** | Seven SRs carry recorded depth dispositions naming artifacts not yet written; `--profile release` fails on depth. **No completeness judgement is recorded here** — that is part of the gate. |
 | **Verdict** | **None recorded here.** The readiness gate is the project owner's act. `docs/architecture/IMPLEMENTATION_READINESS_REPORT.md` and `docs/FINAL_PRE_F0_VERIFICATION_REPORT.md` are *evidence for* that gate. |
-| **Next action** | Owner performs the readiness gate and answers `OWNER-DECISION-006`. |
-| **Known blocker on F0** | `INV-ADR-1` — no merge under `core/`, `tasks/`, `memory/` while `ADR-002` is not ACCEPTED. It is filed `PROPOSED`. **As of 2026-08-12 this blocker is MECHANICALLY ENFORCED**: `CI-008` is implemented, runs in CI, reads the status from the ADR record, and has been shown red against a file planted under `core/` and green once `ADR-002` is genuinely ACCEPTED. |
+| **Next action** | Engineering continues F1 (A-003, A-006, A-032 need a retrieval layer). Owner still owes `OWNER-DECISION-006(c)` and the ADR-001/012 authority question below. |
+| **Known blocker on F0** | **DISCHARGED 2026-08-14.** `ADR-002` was accepted by the owner under `OWNER-DECISION-006(b)`; `ADR-001` and `ADR-012` were already ACCEPTED. `CI-008` enforces this mechanically and is green. **One authority question remains open and is the owner's:** `ADR-001` and `ADR-012` carry `ACCEPTED` stamped by an engineering pass, not by the owner. The corpus records that either all three are confirmed together at the readiness gate or the other two are re-confirmed on the same basis. F0 proceeded on the mechanical gate; this is recorded, not resolved. |
 | **Repository** | `git init` **done** 2026-08-12, `core.autocrlf=false`, corpus committed as authored. Branch protection and the `@owner` handle remain host-side owner actions, so `CI-002` and `CI-044` stay `PENDING`. |
 
 **Live verification state** — every number below is produced by a command, and the command is the source of truth:
@@ -202,17 +202,27 @@ operating condition to honour, not a measurement to take — and it is why remot
 
 ## Next actions, in order
 
-1. **Owner:** `OWNER-DECISION-006(b)` — accept `ADR-002`, **with the SPIKE-008 report in hand**. That report is now evidence rather than a promise. (b) is the only thing standing between this corpus and F0, and `CI-008` enforces it mechanically rather than by discipline.
-2. **Owner:** `006(a)` ratify `ADR-007` — node cryptographic identity: how a device proves it is that device (enrollment, attestation, revocation, recovery). Needed because `ADR-001` requires `node_id` to be a key rather than a self-asserted name, without which event supersession is forgeable. A security boundary, so `AUTHORITY_AND_PRECEDENCE §5` reserves it to the owner. And `006(c)`: whether four REM-carried decisions get numbered ADR ids.
-3. **Engineering:** finish `SPIKE-001` §3.2, §3.3, §3.6 → then `SPIKE-011` and `SPIKE-012`, which are the same work as F1's model gateway and should be run as one pass rather than three.
-4. **Then:** F0 — but not before `INV-ADR-1` is discharged by `ADR-002` acceptance. First increment is the persistent runtime, event bus, durable task state and checkpoints, gated by `A-033` and `A-034` **with their negative-control runs recorded**.
+1. **Engineering — F1 remainder.** `A-003` (graded evidence corpus, no-guessing),
+   `A-006` (BAG/maps retrieval without loading the repo into context) and `A-032`
+   (context budget manager) all need a retrieval layer that does not exist yet. This is
+   the largest single piece of unbuilt F1.
+2. **Engineering — F2.** Tool contract, capability registry, `DF-AUTHORIZE`, taint,
+   execution, compensation, device registry. Gated by `A-013`, `A-014`, `A-024`,
+   `A-025`, `A-030`. Not blocked by anything outstanding.
+3. **Owner — `OWNER-DECISION-006(c)`:** whether four REM-carried decisions get numbered
+   ADR ids. Still open.
+4. **Owner — the ADR-001/ADR-012 authority question** recorded in the position table.
+5. **Blocked on hardware, not on engineering:** `SPIKE-004` needs a flat clear sheet
+   (~5 min of the owner's eyes); `SPIKE-002` needs the iPhone app, which needs the
+   MacBook; `SPIKE-008` criterion 9 needs the `foreground_only` node class.
 
 *Done and no longer listed:* branch protection is live, `CODEOWNERS` points at the real owner account, and the repository is pushed. `CI-002` and `CI-044` remain `PENDING` on review history and the governed-surface check respectively, not on host configuration.
 
 **Scale, stated plainly so no plan is built on a wrong premise.** The corpus is ~37,800 lines
-across 161 files. The runtime is **0 lines** — all 3,362 lines under `tools/` are verification
-tooling and the spike harness. `IMPLEMENTATION_SEQUENCE.md` runs F0…F8 and names **F5** as the
-decisive gate, six stages past here. Any schedule that puts a finished VESPER inside a month
-is a schedule that has not read this file.
+across 161 files. The runtime is now **3125 lines** under `core/`, plus 1297 lines of
+acceptance harness under `verification/` and ~3,400 lines of verification tooling under
+`tools/`. `IMPLEMENTATION_SEQUENCE.md` runs F0…F8 and names **F5** as the decisive gate.
+**Two of nine stages are done, and F1 only partly.** Any schedule that puts a finished VESPER
+inside a month is a schedule that has not read this file.
 
 See `docs/FINAL_PRE_F0_VERIFICATION_REPORT.md` for the full evidence, the negative-control table and the exact F0 prerequisite list.

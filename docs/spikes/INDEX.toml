@@ -36,13 +36,23 @@ status_vocabulary = ["NOT_STARTED", "RUNNING", "REPORTED", "SUPERSEDED"]
 title = "Node capability profiles, measured"
 protocol = "docs/spikes/SPIKE-001-node-capability-profiles.md"
 status = "RUNNING"
-status_note = """RUNNING since 2026-08-13 on the first candidate node.
+status_note = """RUNNING since 2026-08-13. 3.2 CLOSED 2026-08-15 -- see below.
 
 3.1 IS COMPLETE on this node as of 2026-08-14T23:42Z: 6 configurations (draft x2, small,
 standard, strong x2) x 2 load conditions x 3 x 10-minute runs, all under harness
 schema_version 3, all sampled at minute 10 and flagged as the final checkpoint. 3.3 and 3.6
-are closed. 3.2 is PARTIAL -- measured with no model resident, but the protocol wants
-headroom under the owner's real working set, so one more run is owed. 3.5 skipped by owner
+are closed.
+
+3.2 IS CLOSED as of 2026-08-15, and it produced the hardest constraint in the spike. Measured
+with the owner's real working set open, 3 conditions x 180 s x 36 samples, reporting the WORST
+sample rather than the mean. Free RAM: 6.57 GB with no model, 2.85 GB with the standard tier
+resident, 0.27 GB with the strong tier -- and at that point the machine pages at 660 pages/sec
+against 10.8 for standard. THE STRONG TIER AND THE OWNER'S WORKING SET CANNOT COEXIST ON THIS
+NODE. Two structural consequences: the 3.4 human-present degradation mode must UNLOAD the
+strong model rather than deprioritise it (a scheduler that lowers its priority pages the
+owner's browser instead), and residency cost is a function of HOST RAM, not VRAM alone -- a
+fully GPU-offloaded model still costs ~3.7 GB of system RAM. Both are now enforced in
+core/router.py, which fails closed when the required tier does not fit. 3.5 skipped by owner
 direction; 3.4 closed as policy. The one instrument-blocked item is wall power (SPIKE-011).
 
 Two defects were found in the reporting and corrected, both of the same class -- a metric
