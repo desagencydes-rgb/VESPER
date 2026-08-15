@@ -1216,10 +1216,16 @@ def check_f1_acceptance() -> Result:
                            "F1")
 
 
+def check_f2_acceptance() -> Result:
+    return _run_acceptance("f2-acceptance", "verification/run_f2_acceptance.py",
+                           "F2 authorization core")
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
     "f1-acceptance": check_f1_acceptance,
+    "f2-acceptance": check_f2_acceptance,
     "adr-gate": check_adr_gate,
     "scene-no-escape-hatch": check_scene_schema,
     "cost-policy": check_cost_policy,
