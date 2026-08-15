@@ -254,21 +254,30 @@ def a022_routing(tmp: Path) -> None:
     try:
         sup = _sup(tmp, "n22")
         # Measured 2026-08-14, SPIKE-001 3.1 v4, concurrent condition.
+        # Throughput figures: SPIKE-001 3.1 v4, concurrent condition, minute 10.
+        # Host-RAM figures: ONLY the two that were actually measured on
+        # 2026-08-15 (SPIKE-001-3.2-headroom-summary.json) carry a number.
+        # `draft` and `small` were NOT measured for residency cost, so they are
+        # None -- INV-HW-2 forbids inventing them, and a plausible-looking 2.0
+        # here would be a declared figure wearing a measured one's clothes.
+        # `None` means "no constraint recorded", which is what is true.
         profiles = [
             MeasuredProfile("draft-accelerated", "draft", "accelerated",
-                            82.00, 142.01, measured=True, host_ram_gb=2.0,
+                            82.00, 142.01, measured=True, host_ram_gb=None,
                             source="SPIKE-001-3.1-v3-draft-qwen1.7B-concurrent"),
             MeasuredProfile("small-accelerated", "small", "accelerated",
-                            85.32, 97.64, measured=True, host_ram_gb=2.5,
+                            85.32, 97.64, measured=True, host_ram_gb=None,
                             source="SPIKE-001-3.1-v3-small-llama3B-concurrent"),
             MeasuredProfile("standard-accelerated", "standard", "accelerated",
-                            46.56, 45.67, measured=True, host_ram_gb=3.7,
-                            source="SPIKE-001-3.1-v3-standard-qwen8B-concurrent"),
+                            46.56, 45.67, measured=True, host_ram_gb=3.72,
+                            source="SPIKE-001-3.1-v3-standard-qwen8B-concurrent "
+                                   "+ 3.2 headroom (6.57 - 2.85 GB measured)"),
             MeasuredProfile("strong-accelerated", "strong", "accelerated",
-                            7.33, 6.79, measured=True, host_ram_gb=13.0,
+                            7.33, 6.79, measured=True, host_ram_gb=6.30,
                             context_slowdown_us_per_token=17.6,
                             measured_at_context_tokens=4200,
-                            source="SPIKE-001-3.1-v3-strong-moe30B-concurrent"),
+                            source="SPIKE-001-3.1-v3-strong-moe30B-concurrent "
+                                   "+ 3.2 headroom (6.57 - 0.27 GB measured)"),
             MeasuredProfile("strong-unmeasured", "strong", "cpu_only",
                             None, None, measured=False,
                             source="never measured"),
@@ -315,16 +324,18 @@ def a022_routing(tmp: Path) -> None:
         # ~13 GB the strong tier needs, and 660 pages/sec when it was forced.
         # DEFAULT IS FAIL-CLOSED: the task defers rather than being answered by
         # a model too weak for it.
+        # 5.0 GB free: less than the 6.30 GB the strong tier was measured to
+        # cost, so it genuinely does not fit and the router must say so.
         fail_closed = False
         try:
-            r.select("hard", host_ram_free_gb=6.57)
+            r.select("hard", host_ram_free_gb=5.0)
         except NoRouteAvailable:
             fail_closed = True
         c.check("strong does not fit beside the owner's working set: fail-closed",
                 fail_closed)
 
         # Degradation is available but must be ASKED FOR, and is REPORTED.
-        d_low = r.select("hard", host_ram_free_gb=6.57, allow_degraded=True)
+        d_low = r.select("hard", host_ram_free_gb=5.0, allow_degraded=True)
         c.check("degraded route returns a weaker tier only when asked",
                 d_low.tier != "strong", d_low.tier)
         c.check("rejection names the host-RAM reason",

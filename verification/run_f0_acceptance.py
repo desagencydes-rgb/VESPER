@@ -45,8 +45,9 @@ from core.hlc import HLC, HybridLogicalClock  # noqa: E402
 from core.lease import LeaseManager, PromotionRefused  # noqa: E402
 from core.store import StaleEpochWrite, StoreSet  # noqa: E402
 from core.supervisor import Supervisor  # noqa: E402
-from core.tasks import (IllegalTransition, Outbox,  # noqa: E402
-                        TaskStore, VerificationRequired)
+import core.tasks as core_tasks  # noqa: E402
+from core.tasks import (ALLOWED, IllegalTransition,  # noqa: E402
+                        Outbox, TaskStore, VerificationRequired)
 
 RESULTS: list[dict] = []
 
@@ -139,6 +140,49 @@ def a002_persistent_identity(tmp: Path) -> None:
         c.finish(error=traceback.format_exc(limit=6))
 
 
+def inv_task_1_no_running_to_succeeded(tmp: Path) -> None:
+    """The forbidden edge, asserted against the REAL TaskStore.
+
+    This case exists because its absence was a hole. The suite originally
+    tested INV-TASK-1 only through a control that built its own broken dict --
+    so planting the forbidden edge in core/tasks.py left the whole gate GREEN.
+    A control that does not exercise the shipped code path proves nothing about
+    the shipped code.
+    """
+    c = Case("INV-TASK-1", "RUNNING->SUCCEEDED refused by the real transition table")
+    try:
+        sup = _rt(tmp, "ninv1").start()
+        t = sup.tasks.create("do the thing",
+                             {"kind": "deterministic", "assertion": "exit==0"})
+        sup.tasks.transition(t, "READY")
+        sup.tasks.transition(t, "RUNNING")
+
+        refused = False
+        try:
+            sup.tasks.transition(t, "SUCCEEDED",
+                                 evidence={"passed": True,
+                                           "verified_by": "deterministic"})
+        except IllegalTransition:
+            refused = True
+        c.check("RUNNING->SUCCEEDED raises IllegalTransition", refused)
+        c.check("task did not reach SUCCEEDED",
+                sup.tasks.get(t.task_id).state == "RUNNING",
+                sup.tasks.get(t.task_id).state)
+        c.check("the edge is absent from the shipped table",
+                "SUCCEEDED" not in ALLOWED["RUNNING"], str(ALLOWED["RUNNING"]))
+
+        # The legal route still works, so this is not merely "everything fails".
+        sup.tasks.transition(t, "VERIFYING")
+        sup.tasks.transition(t, "SUCCEEDED",
+                             evidence={"passed": True, "verified_by": "deterministic"})
+        c.check("VERIFYING->SUCCEEDED with a passing verdict still works",
+                sup.tasks.get(t.task_id).state == "SUCCEEDED")
+        sup.stop()
+        c.finish()
+    except Exception:
+        c.finish(error=traceback.format_exc(limit=6))
+
+
 # ===========================================================================
 # A-019 — Restore deliberately corrupted state from checkpoint
 # ===========================================================================
@@ -217,7 +261,17 @@ def a033_1_hlc_order_beats_arrival(tmp: Path) -> None:
 
 
 def a033_2_replay_idempotent(tmp: Path) -> None:
-    c = Case("A-033.2", "Replaying a 500-event stream twice changes nothing")
+    """SCOPE LIMIT, stated rather than implied.
+
+    This exercises the BUS's consumer-idempotency mechanism with an
+    accumulate-only consumer. "World-model state byte-identical" in A-033.2's
+    own words is only partly demonstrated: there is no world model in F0, so
+    what is proved is that duplicate delivery is suppressed and counted, not
+    that a real world-model write path is idempotent. That second half belongs
+    to F4 and is NOT claimed here.
+    """
+    c = Case("A-033.2", "Replay twice: duplicates suppressed and counted "
+                        "(bus-level; world-model half deferred to F4)")
     try:
         sup = _rt(tmp, "n3332").start()
         applied: list[str] = []
@@ -561,21 +615,44 @@ def control_read_then_write_fencing(tmp: Path) -> None:
 
 
 def control_running_to_succeeded(tmp: Path) -> None:
-    """A-002/INV-TASK-1 against a build whose table has the forbidden edge."""
-    c = Case("INV-TASK-1-CONTROL", "State machine WITH RUNNING->SUCCEEDED",
+    """INV-TASK-1 against the REAL table with the forbidden edge planted.
+
+    The first version of this control built a broken dict of its own and never
+    touched core/tasks.py, so planting the edge in the shipped table left the
+    gate green. It now monkeypatches the real ALLOWED table, runs the real
+    TaskStore, and restores it in a finally block.
+    """
+    c = Case("INV-TASK-1-CONTROL", "Real transition table WITH RUNNING->SUCCEEDED",
              control=True)
+    original = dict(core_tasks.ALLOWED)
     try:
-        broken = {"RUNNING": ("SUCCEEDED",)}      # the forbidden edge, present
-        state = "RUNNING"
-        allowed = "SUCCEEDED" in broken.get(state, ())
-        if allowed:
-            state = "SUCCEEDED"
-        c.check("RUNNING->SUCCEEDED is refused", not allowed)
-        c.check("success requires passing through VERIFYING",
-                state != "SUCCEEDED", f"state={state}")
+        core_tasks.ALLOWED["RUNNING"] = ("SUCCEEDED",) + original["RUNNING"]
+        sup = _rt(tmp, "nctl1").start()
+        t = sup.tasks.create("do the thing",
+                             {"kind": "deterministic", "assertion": "exit==0"})
+        sup.tasks.transition(t, "READY")
+        sup.tasks.transition(t, "RUNNING")
+        refused = False
+        try:
+            sup.tasks.transition(t, "SUCCEEDED",
+                                 evidence={"passed": True,
+                                           "verified_by": "deterministic"})
+        except IllegalTransition:
+            refused = True
+        c.check("RUNNING->SUCCEEDED raises IllegalTransition", refused)
+        c.check("task did not reach SUCCEEDED",
+                sup.tasks.get(t.task_id).state == "RUNNING",
+                sup.tasks.get(t.task_id).state)
+        c.check("the edge is absent from the shipped table",
+                "SUCCEEDED" not in core_tasks.ALLOWED["RUNNING"],
+                str(core_tasks.ALLOWED["RUNNING"]))
+        sup.stop()
         c.finish()
     except Exception:
         c.finish(error=traceback.format_exc(limit=6))
+    finally:
+        core_tasks.ALLOWED.clear()
+        core_tasks.ALLOWED.update(original)
 
 
 def control_replay_from_plan_start(tmp: Path) -> None:
@@ -627,6 +704,7 @@ def control_queue_non_owner_write(tmp: Path) -> None:
 
 POSITIVE = [
     a002_persistent_identity,
+    inv_task_1_no_running_to_succeeded,
     a019_restore_from_checkpoint,
     a033_1_hlc_order_beats_arrival,
     a033_2_replay_idempotent,
@@ -698,6 +776,18 @@ def main() -> int:
             "schema_version": 1,
             "gate": "F0",
             "acceptance_tests": ["A-002", "A-019", "A-033", "A-034"],
+            "scope_limits": {
+                "A-033.2": ("Bus-level only. A-033.2 asks for world-model state to "
+                            "be byte-identical after a double replay; there is no "
+                            "world model in F0, so what is demonstrated is that "
+                            "duplicate delivery is suppressed and counted. The "
+                            "world-model half belongs to F4 and is not claimed."),
+                "A-033.3": "Fact expiry to UNKNOWN needs the world model (F4).",
+                "A-033.4": "Conflict emission needs the world model (F4).",
+                "A-034.2": ("Partition with both sides live needs real cross-node "
+                            "transport (F6). The refusal logic is exercised via "
+                            "A-034.4; the two-live-nodes topology is not."),
+            },
             "passed": gate,
             "positive_passed": pos_ok, "positive_total": len(pos),
             "controls_failed_as_required": ctl_ok, "controls_total": len(ctl),

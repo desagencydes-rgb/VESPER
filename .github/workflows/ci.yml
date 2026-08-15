@@ -84,6 +84,17 @@ jobs:
       - name: CI-007 no-product-names
         run: python tools/ci/checks.py no-product-names
 
+      # F-STAGE ACCEPTANCE GATES. IMPLEMENTATION_SEQUENCE names these as the
+      # exit condition for each stage -- "an artifact that can fail" -- so they
+      # run here rather than by hand. Each runs its positive cases AND its
+      # negative controls; a control that PASSES is reported as a harness defect
+      # and fails the build, because at that point its positive case is void.
+      - name: F0 acceptance (A-002, A-019, A-033, A-034 + 6 controls)
+        run: python tools/ci/checks.py f0-acceptance
+
+      - name: F1 increment 1 acceptance (A-004, A-021, A-022, A-023 + 3 controls)
+        run: python tools/ci/checks.py f1-acceptance
+
       # CI-026 — INV-AUTO-5 / INV-IDEA-5. The anti-cron gate, run against a
       # SHIPPED PRODUCT ARTIFACT rather than a fixture. It parses each predicate
       # BODY: every namespace root is classified against a closed vocabulary, and

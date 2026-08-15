@@ -7,9 +7,15 @@
     "A-033",
     "A-034"
   ],
+  "scope_limits": {
+    "A-033.2": "Bus-level only. A-033.2 asks for world-model state to be byte-identical after a double replay; there is no world model in F0, so what is demonstrated is that duplicate delivery is suppressed and counted. The world-model half belongs to F4 and is not claimed.",
+    "A-033.3": "Fact expiry to UNKNOWN needs the world model (F4).",
+    "A-033.4": "Conflict emission needs the world model (F4).",
+    "A-034.2": "Partition with both sides live needs real cross-node transport (F6). The refusal logic is exercised via A-034.4; the two-live-nodes topology is not."
+  },
   "passed": true,
-  "positive_passed": 12,
-  "positive_total": 12,
+  "positive_passed": 13,
+  "positive_total": 13,
   "controls_failed_as_required": 6,
   "controls_total": 6,
   "results": [
@@ -62,6 +68,35 @@
         },
         {
           "assertion": "identity (node_id) is stable across the restart",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "INV-TASK-1",
+      "title": "RUNNING->SUCCEEDED refused by the real transition table",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "RUNNING->SUCCEEDED raises IllegalTransition",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "task did not reach SUCCEEDED",
+          "passed": true,
+          "detail": "RUNNING"
+        },
+        {
+          "assertion": "the edge is absent from the shipped table",
+          "passed": true,
+          "detail": "('WAITING', 'VERIFYING', 'RESUMABLE', 'BLOCKED', 'RETRYING', 'FAILED', 'CANCELLED')"
+        },
+        {
+          "assertion": "VERIFYING->SUCCEEDED with a passing verdict still works",
           "passed": true,
           "detail": ""
         }
@@ -137,7 +172,7 @@
     },
     {
       "case": "A-033.2",
-      "title": "Replaying a 500-event stream twice changes nothing",
+      "title": "Replay twice: duplicates suppressed and counted (bus-level; world-model half deferred to F4)",
       "is_negative_control": false,
       "ok": true,
       "verdict": "PASS",
@@ -435,20 +470,25 @@
     },
     {
       "case": "INV-TASK-1-CONTROL",
-      "title": "State machine WITH RUNNING->SUCCEEDED",
+      "title": "Real transition table WITH RUNNING->SUCCEEDED",
       "is_negative_control": true,
       "ok": true,
       "verdict": "CONTROL OK -- broken build failed as required",
       "assertions": [
         {
-          "assertion": "RUNNING->SUCCEEDED is refused",
+          "assertion": "RUNNING->SUCCEEDED raises IllegalTransition",
           "passed": false,
           "detail": ""
         },
         {
-          "assertion": "success requires passing through VERIFYING",
+          "assertion": "task did not reach SUCCEEDED",
           "passed": false,
-          "detail": "state=SUCCEEDED"
+          "detail": "SUCCEEDED"
+        },
+        {
+          "assertion": "the edge is absent from the shipped table",
+          "passed": false,
+          "detail": "('SUCCEEDED', 'WAITING', 'VERIFYING', 'RESUMABLE', 'BLOCKED', 'RETRYING', 'FAILED', 'CANCELLED')"
         }
       ]
     },

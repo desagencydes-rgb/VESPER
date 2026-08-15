@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -43,7 +44,13 @@ LATENCY = REPO / "contracts" / "policy" / "latency_budgets.toml"
 
 # Directories whose code must never name a product. Scanned once they exist;
 # absence is not a pass, it is reported as "not yet applicable".
-PRODUCT_NAME_SCOPES = ["routing", "resources", "policy", "world", "models"]
+PRODUCT_NAME_SCOPES = ["routing", "resources", "policy", "world", "models",
+                        # core/ added 2026-08-15 when F0/F1 landed. The router,
+                        # the cost choke point and the policy skeleton all live
+                        # here, and INV-HW-1 is precisely about routing, resource
+                        # and policy paths. Scanning only the aspirational
+                        # directories would have left the real ones uncovered.
+                        "core"]
 PRODUCT_NAMES = ["macbook neo", "macbook", "galaxy j3", " j3 ", "iphone"]
 
 
@@ -1170,8 +1177,49 @@ def check_latency_budgets() -> Result:
     return r
 
 
+# --------------------------------------------------------------------------
+# F-stage acceptance gates -- run the real harnesses, do not re-implement them
+# --------------------------------------------------------------------------
+def _run_acceptance(name: str, script: str, stage: str) -> Result:
+    """Run an acceptance harness as a subprocess and surface its verdict.
+
+    Shelling out rather than importing keeps ONE definition of each gate. A
+    check that re-implemented the assertions could drift from the harness and
+    then disagree with it, and the disagreement would be discovered by whoever
+    trusted the wrong one.
+    """
+    r = Result(name)
+    path = REPO / script
+    if not path.exists():
+        r.err(f"{script} is missing -- the {stage} gate cannot be evaluated")
+        return r
+    proc = subprocess.run([sys.executable, str(path)], capture_output=True,
+                          text=True, cwd=str(REPO), timeout=900)
+    tail = [ln for ln in proc.stdout.splitlines() if ln.strip()][-6:]
+    if proc.returncode != 0:
+        r.err(f"{stage} acceptance gate FAILED (exit {proc.returncode})")
+        for ln in tail:
+            r.err(f"  {ln}")
+        return r
+    for ln in tail:
+        if "passed" in ln or "required" in ln or "GATE" in ln or "INCREMENT" in ln:
+            r.note(ln.strip())
+    return r
+
+
+def check_f0_acceptance() -> Result:
+    return _run_acceptance("f0-acceptance", "verification/run_f0_acceptance.py", "F0")
+
+
+def check_f1_acceptance() -> Result:
+    return _run_acceptance("f1-acceptance", "verification/run_f1_acceptance.py",
+                           "F1 increment 1")
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "f0-acceptance": check_f0_acceptance,
+    "f1-acceptance": check_f1_acceptance,
     "adr-gate": check_adr_gate,
     "scene-no-escape-hatch": check_scene_schema,
     "cost-policy": check_cost_policy,
