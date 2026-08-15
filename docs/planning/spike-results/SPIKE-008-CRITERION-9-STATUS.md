@@ -105,8 +105,14 @@ failure: it becomes a presence endpoint only, never a survival host — a
 
 ## Still open on this spike, unchanged
 
-- **Criterion 8** (`§1.5` read-time upcasting) — needs the F0 runtime codec. Not
-  a hardware block; it is waiting on code that does not exist yet.
+- ~~**Criterion 8** (`§1.5` read-time upcasting) — needs the F0 runtime codec.
+  Not a hardware block; it is waiting on code that does not exist yet.~~
+  **CLOSED 2026-08-16.** F0 shipped and the code now exists: `core/codec.py`.
+  `validate_persistence.py upcasting` runs it with a non-compliant control that
+  fails as required. Evidence:
+  `docs/planning/spike-results/SPIKE-008-criterion8-upcasting.json`. Worth
+  noting how long it sat: the block was lifted the moment F0 landed, and the
+  deferral text went on reading as a block for two days after it had expired.
 - **Power-cut crash trials.** Both nodes used `SIGKILL`, which does not exercise
   the drive's write cache the way pulling power does. The SQLite/WAL layer is
   validated; the storage device's flush-on-power-loss behaviour is not, on

@@ -194,6 +194,13 @@ class AutonomyLoop:
         self._last_fire: dict[str, int] = {}
         self._lock = threading.RLock()
         self.ticks = 0
+        # KNOWN, RECORDED 2026-08-16: these three lists are unbounded. Every
+        # entry is also published to the durable log, so they are a convenience
+        # for callers rather than the record of what happened -- but a process
+        # that stays up for a month accumulates all of it in memory. At the
+        # declared 60 s cadence that is ~1,440 of each per day. Left as-is
+        # while the first 24 h endurance run was in flight, because bounding
+        # them changes what that run's Part 1 can be judged against.
         self.heartbeats: list = []
         self.fired: list = []
         self.noops: list = []

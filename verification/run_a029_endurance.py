@@ -62,6 +62,7 @@ from a029_protocol import (ATTRIBUTE, INJECTED_VALUE, SUBJECT,  # noqa: E402
                            check_part1, check_part2, check_part3,
                            part3_run_record, temperature_trigger)
 from harness import Case, print_results  # noqa: E402
+from verify_a029_from_log import judge_from_log  # noqa: E402
 
 from core.autonomy import (AutonomyLoop, AutonomyRunner,  # noqa: E402
                            PredicateEvaluator, Trigger)
@@ -461,6 +462,31 @@ BROKEN = [
 ]
 
 
+def _cross_check(node: str, root: Path, expect_ok: bool, results: list) -> None:
+    """The log-derived verdict must AGREE with the harness's own.
+
+    Two instruments looking at the same run from different evidence: the
+    harness from its in-memory lists, `verify_a029_from_log` from the durable
+    log. Agreement is the point -- a disagreement means one of them is reading
+    something that is not what happened, and finding that out on a 24-hour run
+    is finding it out a day late.
+    """
+    c = Case(f"A-029-LOG-XCHECK-{node}",
+             "the log-derived verdict agrees with the harness's")
+    try:
+        rec, _ev = judge_from_log(root / node, SELF_TEST_TICK_S,
+                                  window_s=SELF_TEST_WINDOW_S,
+                                  case_id=f"from-log-{node}")
+        c.check(f"log-derived verdict is {'PASS' if expect_ok else 'FAIL'}, "
+                "matching the harness",
+                rec["ok"] == expect_ok,
+                f"log says {'PASS' if rec['ok'] else 'FAIL'}; harness says "
+                f"{'PASS' if expect_ok else 'FAIL'}")
+        c.finish(sink=results)
+    except Exception:
+        c.finish(error=traceback.format_exc(limit=6), sink=results)
+
+
 def self_test(root: Path) -> list:
     results: list = []
     print(f"  self-test: {SELF_TEST_WINDOW_S:.0f}s per build at a "
@@ -475,6 +501,7 @@ def self_test(root: Path) -> list:
     except Exception:
         c.finish(error=traceback.format_exc(limit=6), sink=results)
     print(f"  [{'ok' if results[-1]['ok'] else 'FAIL'}] healthy build")
+    _cross_check("rt_ok", root, True, results)
 
     for build, title, why in BROKEN:
         c = Case(f"A-029-RT-{build.upper()}", title, control=True)
@@ -495,6 +522,12 @@ def self_test(root: Path) -> list:
             c.finish(error=traceback.format_exc(limit=6), sink=results)
         rec = results[-1]
         print(f"  [{'ok' if rec['ok'] else 'FAIL'}] {build}: {why}")
+        # The log verifier must also see this build as broken. The leak build
+        # is the exception and is stated rather than skipped: RSS never reaches
+        # the event log, so a log-only verdict CANNOT see a leak, and it is
+        # right for it to say PASS there. That is a real limit of log-derived
+        # evidence, not an agreement failure.
+        _cross_check(f"rt_{build}", root, build == "leak", results)
         if build == "hang" and rec["ok"]:
             stalls = [a for a in rec["assertions"]
                       if "loop_stalled" in a["assertion"] and a["passed"]]
@@ -595,6 +628,20 @@ NOT_CLAIMED = {
         "three uniform over the whole window. Stratification is what lets three "
         "independent draws share one window without overlapping."),
     "A-012 / A-041": "alarm hardware cases remain blocked on devices.",
+    "liveness evidence source": (
+        "Part 1 is judged from `AutonomyLoop.heartbeats`, the loop's IN-MEMORY "
+        "list, not from `autonomy.heartbeat` records in the durable log. If the "
+        "two ever disagree the harness believes the list, which is the weaker "
+        "of the two and not the one A-029 names ('full event log retained'). "
+        "Known and recorded on 2026-08-16 rather than changed mid-flight while "
+        "a 24 h run was in progress; the fix is to read the log and is owed "
+        "before the R4 gate."),
+    "unbounded in-memory history": (
+        "`AutonomyLoop` retains every heartbeat, firing and no-op for the life "
+        "of the process. At the declared 60 s cadence that is ~1,440 of each "
+        "per day -- harmless across this window, unbounded across a month. The "
+        "endurance run is the instrument that would eventually catch it, and it "
+        "is recorded here so the finding is not mistaken for a discovery later."),
 }
 
 
