@@ -9,8 +9,8 @@
   ],
   "scope_limits": {
     "A-033.2": "Bus-level only. A-033.2 asks for world-model state to be byte-identical after a double replay; there is no world model in F0, so what is demonstrated is that duplicate delivery is suppressed and counted. The world-model half belongs to F4 and is not claimed.",
-    "A-033.3": "Fact expiry to UNKNOWN needs the world model (F4).",
-    "A-033.4": "Conflict emission needs the world model (F4).",
+    "A-033.3": "CLOSED 2026-08-15 in verification/run_f4_acceptance.py -- the world model now exists.",
+    "A-033.4": "CLOSED 2026-08-15 in verification/run_f4_acceptance.py -- the world model now exists.",
     "A-034.2": "Partition with both sides live needs real cross-node transport (F6). The refusal logic is exercised via A-034.4; the two-live-nodes topology is not."
   },
   "passed": true,
