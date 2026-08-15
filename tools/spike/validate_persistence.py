@@ -16,10 +16,16 @@ This harness implements the blocking half of the protocol:
     1.3  checkpoint budget, synchronous=FULL   -> criterion 5
     1.4  append-only enforcement               -> criterion 7
 
-Not implemented here, and recorded as NOT_RUN rather than passed: 1.5 read-time
-upcasting (needs the runtime's event codec, which does not exist until F0) and
-1.6 portability across node classes (needs the other candidate nodes, which are
-not enrolled). Criteria 8 and 9 therefore stay open, and this harness says so.
+    1.5  read-time upcasting                  -> criterion 8
+
+Not implemented here, and recorded as NOT_RUN rather than passed: 1.6
+portability across node classes (needs the other candidate nodes, which are not
+enrolled). Criterion 9 therefore stays open, and this harness says so.
+
+1.5 was NOT_RUN until 2026-08-16 for the recorded reason "needs the runtime's
+event codec and upcaster registry, which do not exist until F0". F0 shipped, so
+the reason expired; `core/codec.py` is that registry and criterion 8 now runs
+with its own non-compliant control.
 
     python validate_persistence.py fencing        # 1.1, both builds
     python validate_persistence.py crash          # 1.2
@@ -525,6 +531,139 @@ def run_appendonly(tmp: Path) -> dict:
     }
 
 
+# --------------------------------------------------------- §1.5 read-time upcasting
+
+
+def run_upcasting(tmp: Path) -> dict:
+    """§1.5 / criterion 8. Write at N-1, register an upcaster, read at N.
+
+    THIS WAS DEFERRED FOR A REASON THAT HAS EXPIRED. The recorded reason was
+    "needs the runtime's event codec and upcaster registry, which do not exist
+    until F0". F0 exists, and `core/codec.py` is that registry, so the criterion
+    is ordinary engineering rather than a blocked one.
+
+    Three assertions, from the spike text, and the third is the one that
+    matters: a missing upcaster must produce an EXPLICIT ERROR rather than a
+    silently-dropped field.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from core.codec import MissingUpcaster, NewerThanReader, UpcasterRegistry
+
+    N = 2                       # the reader's current version
+    etype = "world.observed"
+    stored = {"type": etype, "schema_version": 1, "subject": "workshop",
+              "payload": {"celsius": 31.4}}
+    # The bytes as they sit in the log, captured before any read happens.
+    stored_bytes = json.dumps(stored, sort_keys=True).encode()
+
+    reg = UpcasterRegistry()
+
+    def v1_to_v2(body: dict) -> dict:
+        # A realistic bump: the scalar becomes a unit-qualified pair. Note the
+        # in-place mutation -- upcasters get written this way, and the registry
+        # must still not be able to reach the caller's dict.
+        body["payload"] = {"value": body["payload"]["celsius"], "unit": "C"}
+        body["schema_version"] = 2
+        return body
+
+    reg.register(etype, 1, v1_to_v2)
+    upcast = reg.upcast(stored, to_version=N)
+
+    after_bytes = json.dumps(stored, sort_keys=True).encode()
+    reader_got_upcast_form = (upcast["schema_version"] == N
+                              and upcast["payload"] == {"value": 31.4, "unit": "C"})
+
+    # The missing-upcaster path, on a type with no chain registered at all.
+    missing_raised, missing_detail = False, ""
+    try:
+        reg.upcast({"type": "device.enrolled", "schema_version": 1, "payload": {}},
+                   to_version=N)
+    except MissingUpcaster as e:
+        missing_raised, missing_detail = True, str(e).split(".")[0]
+
+    # A body NEWER than the reader: the offline-node case. Refused, not guessed.
+    newer_raised = False
+    try:
+        reg.upcast({"type": etype, "schema_version": 3, "payload": {}},
+                   to_version=N)
+    except NewerThanReader:
+        newer_raised = True
+
+    # ---- the mandatory non-compliant control -----------------------------
+    # §1.1 requires the fencing suite to be run against a deliberately
+    # non-compliant build, and the same discipline applies here: a criterion
+    # that cannot fail is measuring nothing. This is the naive codec -- the one
+    # that gets written when nobody has thought about the missing-upcaster
+    # path -- and criterion 8 MUST come out false against it.
+    class NaiveCodec:
+        """THE DEFECT: upcasts in place, and returns the old form when no
+        upcaster is registered instead of raising."""
+
+        def __init__(self) -> None:
+            self._fns: dict = {}
+
+        def register(self, etype_: str, from_v: int, fn) -> None:
+            self._fns[(etype_, from_v)] = fn
+
+        def upcast(self, body: dict, *, to_version: int, event_type=None) -> dict:
+            etype_ = event_type or body.get("type")
+            v = int(body.get("schema_version", 1))
+            while v < to_version:
+                fn = self._fns.get((etype_, v))
+                if fn is None:
+                    return body          # <- silently hands back the old form
+                body = fn(body)          # <- and mutates the caller's dict
+                v = int(body.get("schema_version", v + 1))
+            return body
+
+    naive_stored = {"type": etype, "schema_version": 1, "subject": "workshop",
+                    "payload": {"celsius": 31.4}}
+    naive_before = json.dumps(naive_stored, sort_keys=True).encode()
+    naive = NaiveCodec()
+    naive.register(etype, 1, v1_to_v2)
+    naive.upcast(naive_stored, to_version=N)
+    naive_bytes_unchanged = (naive_before
+                             == json.dumps(naive_stored, sort_keys=True).encode())
+    naive_missing_raised = False
+    try:
+        naive.upcast({"type": "device.enrolled", "schema_version": 1,
+                      "payload": {}}, to_version=N)
+    except Exception:
+        naive_missing_raised = True
+    control_criterion_8 = bool(naive_bytes_unchanged and naive_missing_raised)
+
+    return {
+        "section": "1.5",
+        "reader_version": N,
+        "stored_version": 1,
+        "control_build": {
+            "description": ("naive codec: upcasts in place and returns the old "
+                            "form when no upcaster is registered"),
+            "stored_bytes_unchanged_after_read": naive_bytes_unchanged,
+            "missing_upcaster_raises": naive_missing_raised,
+            "criterion_8_upcaster_behaviour": control_criterion_8,
+            "control_failed_as_required": not control_criterion_8,
+        },
+        "reader_receives_upcast_form": reader_got_upcast_form,
+        "stored_bytes_unchanged_after_read": stored_bytes == after_bytes,
+        "missing_upcaster_raises": missing_raised,
+        "missing_upcaster_message": missing_detail,
+        "newer_than_reader_refused": newer_raised,
+        "criterion_8_upcaster_behaviour": bool(
+            reader_got_upcast_form and stored_bytes == after_bytes
+            and missing_raised and newer_raised
+            # A pass is not claimed unless the control failed. If the naive
+            # build also satisfies criterion 8, the criterion tests nothing and
+            # the compliant result is void rather than confirmed.
+            and not control_criterion_8),
+        "note": ("The upcaster above mutates its argument in place, which is how "
+                 "one is ordinarily written. The stored dict is still unchanged "
+                 "afterwards because the registry deep-copies before the first "
+                 "step and holds no store handle to write a fixed-up record "
+                 "back through."),
+    }
+
+
 # --------------------------------------------------------------------------- report
 
 
@@ -542,6 +681,13 @@ def cmd_all(args) -> int:
     print("  §1.4 append-only ...")
     appendonly = run_appendonly(tmp)
     print(f"       all blocked at storage layer={appendonly['criterion_7_all_blocked']}")
+
+    print("  §1.5 read-time upcasting ...")
+    upcasting = run_upcasting(tmp)
+    print(f"       criterion 8={upcasting['criterion_8_upcaster_behaviour']}  "
+          f"(stored bytes unchanged="
+          f"{upcasting['stored_bytes_unchanged_after_read']}, missing upcaster "
+          f"raises={upcasting['missing_upcaster_raises']})")
 
     print("  §1.3 checkpoint budget under read load ...")
     checkpoint = run_checkpoint(tmp, n=args.commits)
@@ -561,7 +707,7 @@ def cmd_all(args) -> int:
         "5_checkpoint_p95_within_budget": checkpoint["criterion_5_within_budget"],
         "6_checkpoint_acked_before_step": checkpoint["criterion_6_checkpoint_acked_before_step_complete"],
         "7_append_only_enforced_at_storage": appendonly["criterion_7_all_blocked"],
-        "8_upcaster_behaviour": None,
+        "8_upcaster_behaviour": upcasting["criterion_8_upcaster_behaviour"],
         "9_all_stores_open_every_node_class": None,
     }
     report = {
@@ -581,11 +727,7 @@ def cmd_all(args) -> int:
             "1.2_crash_safety": crash,
             "1.3_checkpoint_budget": checkpoint,
             "1.4_append_only": appendonly,
-            "1.5_read_time_upcasting": {
-                "status": "NOT_RUN",
-                "reason": "Needs the runtime's event codec and upcaster registry, which "
-                          "do not exist until F0. Criterion 8 stays OPEN.",
-            },
+            "1.5_read_time_upcasting": upcasting,
             "1.6_portability": {
                 "status": "NOT_RUN",
                 "reason": "Needs the other candidate node classes enrolled, including the "
@@ -621,7 +763,8 @@ def cmd_all(args) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=["fencing", "crash", "checkpoint", "appendonly", "all"])
+    ap.add_argument("cmd", choices=["fencing", "crash", "checkpoint", "appendonly",
+                                    "upcasting", "all"])
     ap.add_argument("--out")
     ap.add_argument("--workdir",
                     default=str(Path(os.environ.get("TEMP", "/tmp")) / "vesper_spike008"))
@@ -637,8 +780,27 @@ def main() -> int:
     fn = {"fencing": lambda: run_fencing(tmp, args.writes),
           "crash": lambda: run_crash(tmp, args.trials),
           "checkpoint": lambda: run_checkpoint(tmp, args.commits),
-          "appendonly": lambda: run_appendonly(tmp)}[args.cmd]
-    print(json.dumps(fn(), indent=2)[:4000])
+          "appendonly": lambda: run_appendonly(tmp),
+          "upcasting": lambda: run_upcasting(tmp)}[args.cmd]
+    result = fn()
+    if args.out:
+        # A section run on its own is still a measurement artifact, and a
+        # criterion recorded from a terminal scrollback is a criterion nobody
+        # can re-read.
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "generated_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "spike": "SPIKE-008", "adr": "ADR-002",
+            "section_only": args.cmd,
+            "node": {"os": f"{platform.system()} {platform.version()}",
+                     "python": platform.python_version(),
+                     "sqlite": sqlite3.sqlite_version},
+            "section": result,
+        }
+        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.out).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        print(f"wrote {args.out}")
+    print(json.dumps(result, indent=2)[:4000])
     return 0
 
 

@@ -35,6 +35,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from .codec import UpcasterRegistry
 from .hlc import HLC, HybridLogicalClock, wall_iso
 from .store import StoreSet
 
@@ -134,10 +135,17 @@ class EventBus:
     """In-process, ordered, at-least-once with enforced consumer idempotency."""
 
     def __init__(self, clock: HybridLogicalClock, store: StoreSet,
-                 *, component: str = "bus") -> None:
+                 *, component: str = "bus",
+                 codec: UpcasterRegistry | None = None) -> None:
         self._clock = clock
         self._store = store
         self._component = component
+        # ADR-002 D4: migration is read-time upcasting, so the codec belongs on
+        # the READ path and nowhere else. A default empty registry is correct
+        # rather than lax -- with no upcasters registered, a body at the current
+        # version passes through and a body at any other version RAISES, which
+        # is the behaviour criterion 8 asks for.
+        self.codec = codec if codec is not None else UpcasterRegistry()
         self._subs: dict[str, list[Subscription]] = {}
         self._lock = threading.RLock()
         self._published = 0
@@ -268,7 +276,12 @@ class EventBus:
         """
         n = 0
         for rec in self._store.read("log", after_seq=after_seq):
-            ev = Event.from_dict(rec.body)
+            # Upcast on read, never on write, and never back into the store.
+            # `rec.body` is left exactly as it was read: the codec returns a new
+            # dict and holds no store handle to write one back through.
+            ev = Event.from_dict(
+                self.codec.upcast(rec.body, to_version=ENVELOPE_SCHEMA_VERSION,
+                                  event_type=rec.kind))
             with self._lock:
                 subs = list(self._subs.get(ev.type, ()))
             for sub in subs:

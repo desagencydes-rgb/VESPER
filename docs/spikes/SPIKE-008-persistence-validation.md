@@ -75,7 +75,7 @@ Open all five stores on every candidate node class from SPIKE-001, including the
 | 5 | Checkpoint commit ≤ 200 ms p95 on the minimum profile under load |
 | 6 | Checkpoint acknowledged **before** step completion, verified by event order |
 | 7 | Every `UPDATE`/`DELETE` against an append-only store fails at the storage layer |
-| 8 | Missing upcaster raises; stored bytes never mutate on read |
+| 8 | Missing upcaster raises; stored bytes never mutate on read — **PASSED 2026-08-16**, `docs/planning/spike-results/SPIKE-008-criterion8-upcasting.json`. Deferred until F0 existed; `core/codec.py` is the registry. Its non-compliant control (a codec that upcasts in place and returns the old form when no upcaster is registered) **fails as required**. |
 | 9 | All five stores open on every candidate node class |
 
 ## 3. On fail

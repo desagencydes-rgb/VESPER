@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-08-15T23:46:57+00:00",
+  "spike": "SPIKE-008",
+  "adr": "ADR-002",
+  "section_only": "upcasting",
+  "node": {
+    "os": "Windows 10.0.26200",
+    "python": "3.14.2",
+    "sqlite": "3.50.4"
+  },
+  "section": {
+    "section": "1.5",
+    "reader_version": 2,
+    "stored_version": 1,
+    "control_build": {
+      "description": "naive codec: upcasts in place and returns the old form when no upcaster is registered",
+      "stored_bytes_unchanged_after_read": false,
+      "missing_upcaster_raises": false,
+      "criterion_8_upcaster_behaviour": false,
+      "control_failed_as_required": true
+    },
+    "reader_receives_upcast_form": true,
+    "stored_bytes_unchanged_after_read": true,
+    "missing_upcaster_raises": true,
+    "missing_upcaster_message": "no upcaster registered for 'device",
+    "newer_than_reader_refused": true,
+    "criterion_8_upcaster_behaviour": true,
+    "note": "The upcaster above mutates its argument in place, which is how one is ordinarily written. The stored dict is still unchanged afterwards because the registry deep-copies before the first step and holds no store handle to write a fixed-up record back through."
+  }
+}

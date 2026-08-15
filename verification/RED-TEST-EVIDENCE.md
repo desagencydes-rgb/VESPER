@@ -28,7 +28,40 @@ applying the mutation and running the named check.
 | `f3-acceptance` | Make recovery replay instead of probe | **RED** |
 | `f5-acceptance` | Remove the `UNKNOWN` guard from the evaluator | **RED** |
 | `f5-acceptance` | Make the interlock fail **open** when the token expires | **RED** |
+| `a029-endurance` | **B1** the loop wedges at 40% of the window (a hang, not an exception) | **RED** — part 1 fails **and the watchdog emits `autonomy.loop_stalled`** |
+| `a029-endurance` | **B2** every trigger `SCHEDULE`-class | **RED** — parts 1 and 2 pass, part 3 fails |
+| `a029-endurance` | **B3** a *correct* build that retains 1 MB per tick | **RED** — every A-029 part passes, `E1` fails at +76.9 MB against an 8.4 MB budget |
+| `SPIKE-008 §1.5` | Naive codec: upcasts in place, returns the old form when no upcaster is registered | **RED** — criterion 8 false; caller's dict mutated and no raise |
 | all | restore | **GREEN** |
+
+### The two the endurance harness's own self-test caught, 2026-08-16
+
+Both were found by running the controls before trusting the harness, which is
+the whole reason the self-test is a precondition of launching a 24-hour run.
+
+5. **The first B3 leak control PASSED — so it measured nothing.** It leaked
+   inside a trigger's predicate, and `PredicateEvaluator.evaluate()`
+   short-circuits to `False` on an `UNKNOWN` term *before* calling the
+   predicate. Across a window where the fact is usually `UNKNOWN` the leak
+   barely ran: 3 MB instead of 96 MB, comfortably inside budget. Written from
+   the same mental model as the code it checked — pattern #3 again, in a control
+   written *by the pass that had just read that short-circuit*. Fixed by leaking
+   from a bus subscriber on `autonomy.heartbeat`, which runs per tick regardless
+   of any predicate's verdict.
+
+6. **`E3` thread stability failed a healthy build.** It compared `min` to `max`
+   across the run, and a run's first samples are taken while the supervisor,
+   driver, watchdog, sampler and controller threads are still coming up — so it
+   read a correct startup as instability. Fixed by comparing first-quarter and
+   last-quarter means, the same shape the RSS criterion uses.
+
+**A fifth vacuous check, found the same night and fixed in production code
+rather than in a test.** A-029 Part 1 asserts `autonomy.loop_stalled` never
+fires. **Nothing in the runtime could emit that event** — no watchdog existed,
+because nothing drove the loop in real time. The assertion was an absence that
+could not become a presence. `core/autonomy.py`'s `AutonomyRunner` now watches
+the loop from a separate thread (a detector inside the loop it watches cannot
+report that loop's death), and B1 above is the run that proves it fires.
 
 ## The C1 asymmetry, recorded because it is the point
 
