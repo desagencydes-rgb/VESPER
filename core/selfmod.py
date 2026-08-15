@@ -34,31 +34,42 @@ what is consulted.
 from __future__ import annotations
 
 import threading
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from .bus import EventBus
 
-# Paths in the RUNNING ARTIFACT that the runtime may never write. Prefix match
-# on a repo-relative POSIX path.
-GOVERNED_PREFIXES = (
-    "contracts/policy/",        # authorization, cost, capability profiles
-    "contracts/",               # every schema the system validates against
-    "verification/",            # A-030.3: the self-neutralising surface
-    "tools/ci/",                # the checks themselves
-    "tools/traceability_lint.py",
-    "docs/ADR/",                # decisions of record
-    ".github/workflows/",       # the thing that runs the checks
-    "core/",                    # the runtime's own code
-)
-
-# Files whose identity is the boundary itself. Named separately so that
-# "shrink the governed list" is refused by the same rule that protects
-# everything else, rather than by a special case someone can forget.
-PINNED = ("contracts/policy/governed_surfaces.toml",)
+# THE GOVERNED LIST IS READ FROM THE PINNED ARTIFACT, NEVER HARDCODED HERE.
+# A-030.4 requires the list to come from `contracts/policy/governed_surfaces.toml`,
+# and the first version of this module hardcoded a copy instead. The copy had
+# already drifted: it was missing `security/`, `spec/`, `models/`,
+# `config/prompts/`, `config/personas/`, `routing/`, `docs/source/`, `docs/COC/`
+# and `CODEOWNERS`, and it invented `docs/ADR/`. Every one of those omissions is
+# a surface the boundary would have let the runtime write.
+#
+# That artifact names S6 as "THE SURFACE AN IMPLEMENTATION FORGETS -- a runtime
+# that can edit its own tests can neutralise every other surface without
+# touching one." A hardcoded copy is the same failure one level up: a boundary
+# that reads a stale list defends a system that no longer exists.
+GOVERNED_SURFACES_ARTIFACT = "contracts/policy/governed_surfaces.toml"
 
 WORKSPACE_PREFIX = "workspace/"
+
+
+def _norm(p: str) -> str:
+    """Normalise a repo-relative path for comparison.
+
+    NOT `lstrip("./")`. That strips any leading run of '.' and '/' characters,
+    so `.github/workflows/` becomes `github/workflows/` and then matches
+    nothing -- silently un-governing the directory that holds the CI which
+    enforces every other boundary. Only a literal leading './' is removed.
+    """
+    p = str(p).replace("\\", "/")
+    while p.startswith("./"):
+        p = p[2:]
+    return p
 
 
 class SelfModificationRefused(Exception):
@@ -79,20 +90,56 @@ class SelfModificationBoundary:
     """Path-based refusal. Never consults the model, never reads the content."""
 
     def __init__(self, bus: EventBus, *, repo_root: Path,
-                 workspace_root: Path | None = None) -> None:
+                 workspace_root: Path | None = None,
+                 governed_artifact: Path | None = None) -> None:
         self._bus = bus
         self._repo = Path(repo_root).resolve()
         self._workspace = Path(workspace_root).resolve() if workspace_root else None
         self._proposals: dict[str, Proposal] = {}
         self._lock = threading.RLock()
+        # Read once at construction from the PINNED artifact. Re-reading per
+        # call would mean a runtime that managed to edit the file could widen
+        # its own permissions between two writes.
+        self._prefixes, self._exact = self._load_governed(
+            governed_artifact or (self._repo / GOVERNED_SURFACES_ARTIFACT))
+
+    @staticmethod
+    def _load_governed(path: Path) -> tuple[tuple, tuple]:
+        """Load GOVERNED_PATHS from the pinned artifact.
+
+        A MISSING ARTIFACT IS FAIL-CLOSED, not fail-open. If the file cannot be
+        read, the boundary does not fall back to "nothing is governed" -- it
+        governs the whole repository, because a boundary that opens when its
+        configuration goes missing is worse than no boundary at all: it looks
+        like it is working.
+        """
+        if not path.exists():
+            return (("",), ())     # "" is a prefix of every path
+        try:
+            doc = tomllib.loads(path.read_text(encoding="utf-8"))
+        except (OSError, tomllib.TOMLDecodeError):
+            return (("",), ())
+        prefixes, exact = [], []
+        for surface in (doc.get("surfaces") or {}).values():
+            for raw in surface.get("paths", ()):
+                p = _norm(raw)
+                (prefixes if p.endswith("/") else exact).append(p)
+        # The artifact itself is always governed, whatever it says about itself.
+        exact.append(GOVERNED_SURFACES_ARTIFACT)
+        return tuple(sorted(set(prefixes))), tuple(sorted(set(exact)))
+
+    def governed_paths(self) -> dict:
+        """What this boundary is actually enforcing. For audit, and for tests."""
+        return {"prefixes": list(self._prefixes), "exact": list(self._exact),
+                "source": GOVERNED_SURFACES_ARTIFACT}
 
     # ------------------------------------------------------------- the check
 
     def is_governed(self, rel_path: str) -> bool:
-        p = rel_path.replace("\\", "/").lstrip("./")
-        if p in PINNED:
+        p = _norm(rel_path)
+        if p in self._exact:
             return True
-        return any(p.startswith(pref) for pref in GOVERNED_PREFIXES)
+        return any(p.startswith(pref) for pref in self._prefixes)
 
     def check_write(self, path: str | Path, *, subject: str = "runtime",
                     level: str = "L1", in_workspace: bool = False) -> None:

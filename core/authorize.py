@@ -230,7 +230,15 @@ class PolicyDecisionPoint:
 
     def _deny(self, subject: str, cap: Capability, reason: str,
               level: str, detail: str) -> Decision:
-        assert reason in DENY_REASONS, f"denial reason {reason!r} is outside the domain"
+        if reason not in DENY_REASONS:
+            # NOT an assert: `python -O` strips asserts, and this is the check
+            # that keeps A-014's "each denial names its reason from
+            # DF-AUTHORIZE's output domain" true at runtime rather than only
+            # under test.
+            raise ValueError(
+                f"denial reason {reason!r} is outside DF-AUTHORIZE's output "
+                f"domain {DENY_REASONS}. A denial the owner cannot look up is "
+                "one that trains people to route around the system.")
         d = Decision(False, level, reason, cap.capability_id, subject, detail)
         # Every denial is audited. A denial nobody recorded is
         # indistinguishable from an action that never happened.
