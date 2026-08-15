@@ -1218,7 +1218,7 @@ def check_f1_acceptance() -> Result:
 
 def check_f2_acceptance() -> Result:
     return _run_acceptance("f2-acceptance", "verification/run_f2_acceptance.py",
-                           "F2 authorization core")
+                           "F2")
 
 
 CHECK_FNS = {

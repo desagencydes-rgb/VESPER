@@ -95,7 +95,7 @@ jobs:
       - name: F1 acceptance (A-003, A-004, A-006, A-021, A-022, A-023, A-032 + 4 controls)
         run: python tools/ci/checks.py f1-acceptance
 
-      - name: F2 authorization core (A-013, A-014, A-024, A-025, A-030 + 3 controls)
+      - name: F2 acceptance (A-013, A-014, A-024, A-025, A-030 + exec/devices + 3 controls)
         run: python tools/ci/checks.py f2-acceptance
 
       # CI-026 — INV-AUTO-5 / INV-IDEA-5. The anti-cron gate, run against a

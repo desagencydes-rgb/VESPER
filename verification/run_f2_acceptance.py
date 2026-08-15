@@ -37,6 +37,10 @@ from core.authorize import (DENY_REASONS, Grant,  # noqa: E402
 from core.capability import (CapabilityRegistry,  # noqa: E402
                              ConstantLevelRefused, LevelRule)
 from core.config import RuntimeConfig  # noqa: E402
+from core.devices import (DeviceProfile, DeviceRegistry,  # noqa: E402
+                          PlacementRefused)
+from core.executor import (CompensatorMissing, Executor,  # noqa: E402
+                           NotAuthorized)
 from core.selfmod import (Proposal, SelfModificationBoundary,  # noqa: E402
                           SelfModificationRefused)
 from core.supervisor import Supervisor  # noqa: E402
@@ -521,6 +525,229 @@ def a030_selfmod(tmp: Path) -> None:
         c.finish(error=traceback.format_exc(limit=6))
 
 
+
+# ===========================================================================
+# A-024.4 — grant expiring mid-task, and the execution path
+# ===========================================================================
+
+def a024_4_expiry_mid_task(tmp: Path) -> None:
+    c = Case("A-024.4", "Grant expiring mid-task => WAITING, not proceed, not FAILED")
+    try:
+        sup = _sup(tmp, "n244")
+        reg = _registry()
+        clock = {"t": 0}
+        pdp = PolicyDecisionPoint(sup.bus, reg, now_ms=lambda: clock["t"])
+        ex = Executor(sup.bus, reg, pdp)
+
+        wrote = []
+        ex.bind("fs.write", lambda a: (wrote.append(a), {"ok": True})[1],
+                compensator=lambda a, r: wrote.append({"undo": a}))
+        pdp.issue(Grant("g", "agent", "fs.write", ("host",), "L3", 1000, 0))
+
+        # Step 1 of the task: authorised, executes.
+        r1 = ex.execute(subject="agent", capability_id="fs.write",
+                        args={"path": "documents/a.txt"}, target="host",
+                        current_lease_epoch=0, idempotency_key="k1",
+                        task_id="task-1")
+        c.check("first step executes while the grant is valid",
+                r1.outcome == "VERIFIED" and len(wrote) == 1, r1.outcome)
+
+        # The grant expires MID-TASK.
+        clock["t"] = 5000
+        refused = False
+        try:
+            ex.execute(subject="agent", capability_id="fs.write",
+                       args={"path": "documents/b.txt"}, target="host",
+                       current_lease_epoch=0, idempotency_key="k2",
+                       task_id="task-1")
+        except NotAuthorized as e:
+            refused = e.decision.reason == "grant_expired"
+        c.check("the next step is refused, not silently proceeded", refused)
+        c.check("no silent proceed: nothing further was written", len(wrote) == 1,
+                str(len(wrote)))
+
+        waiting = _events(sup, "task.waiting_on_authorization")
+        c.check("the task goes WAITING", len(waiting) == 1)
+        c.check("WAITING, explicitly not FAILED",
+                bool(waiting) and waiting[0]["payload"]["task_state"] == "WAITING",
+                waiting[0]["payload"]["task_state"] if waiting else "none")
+        c.check("the reason is named",
+                bool(waiting) and waiting[0]["payload"]["reason"] == "grant_expired")
+        sup.stop()
+        c.finish()
+    except Exception:
+        c.finish(error=traceback.format_exc(limit=6))
+
+
+def f2_execution_and_compensation(tmp: Path) -> None:
+    c = Case("F2-EXEC", "Execution: re-check, idempotency, compensation, no retry")
+    try:
+        sup = _sup(tmp, "nexec")
+        reg = _registry()
+        reg.register("mail.send", lambda a: "L4" if a.get("external") else "L2", [
+            LevelRule("ext", "L4", {"external": True}),
+            LevelRule("int", "L2", {"external": False}),
+        ], reversibility="compensatable", external_effect=True)
+        reg.register("payment.charge", lambda a: "L5" if a.get("amount", 0) > 100
+                     else "L4", [
+            LevelRule("large", "L5", {"amount": 500}),
+            LevelRule("small", "L4", {"amount": 10}),
+        ], reversibility="irreversible", external_effect=True)
+        pdp = PolicyDecisionPoint(sup.bus, reg, now_ms=lambda: 0)
+        ex = Executor(sup.bus, reg, pdp)
+
+        # A `compensatable` capability without a compensator is refused AT BIND.
+        refused_bind = False
+        try:
+            ex.bind("mail.send", lambda a: {"ok": True})
+        except CompensatorMissing:
+            refused_bind = True
+        c.check("compensatable without a compensator is refused at BIND time",
+                refused_bind)
+
+        sent, comp = [], []
+        ex.bind("mail.send", lambda a: (sent.append(a), {"ok": True})[1],
+                compensator=lambda a, r: comp.append(a))
+        pdp.issue(Grant("gm", "agent", "mail.send", ("host",), "L4", 10_000, 0,
+                        issued_for_command_id="cmd-1"))
+
+        r = ex.execute(subject="agent", capability_id="mail.send",
+                       args={"external": True}, target="host",
+                       command_id="cmd-1", idempotency_key="msg-42",
+                       task_id="t")
+        c.check("authorised execution invokes exactly once",
+                r.outcome == "VERIFIED" and len(sent) == 1, str(len(sent)))
+
+        # A replayed plan must not invoke twice even with the outbox cursor lost.
+        r2 = ex.execute(subject="agent", capability_id="mail.send",
+                        args={"external": True}, target="host",
+                        command_id="cmd-1", idempotency_key="msg-42",
+                        task_id="t")
+        c.check("the same idempotency key does not invoke twice",
+                len(sent) == 1, str(len(sent)))
+        c.check("the duplicate is recorded, not silently ignored",
+                len(_events(sup, "tool.suppressed_duplicate")) == 1)
+
+        # An irreversible capability whose outcome is UNKNOWN is never retried.
+        class Unknown(Exception):
+            outcome_unknown = True
+
+        attempts = []
+
+        def flaky(a):
+            attempts.append(a)
+            raise Unknown("connection dropped after send")
+
+        ex.bind("payment.charge", flaky)
+        pdp.issue(Grant("gp", "agent", "payment.charge", ("host",), "L5",
+                        10_000, 0, issued_for_command_id="cmd-2"))
+        rp = ex.execute(subject="agent", capability_id="payment.charge",
+                        args={"amount": 500}, target="host",
+                        command_id="cmd-2", idempotency_key="pay-1", task_id="t")
+        c.check("an unknown outcome is OUTCOME_UNKNOWN, not FAILED",
+                rp.outcome == "OUTCOME_UNKNOWN", rp.outcome)
+        c.check("it is invoked once and NOT retried", len(attempts) == 1,
+                str(len(attempts)))
+        unk = _events(sup, "tool.outcome_unknown")
+        c.check("retry is explicitly refused, with the reason recorded",
+                bool(unk) and unk[0]["payload"]["retry_permitted"] is False)
+        c.check("an irreversible failure is escalated",
+                len(_events(sup, "tool.irreversible_failure")) == 1)
+
+        # A compensatable failure runs its counter-action.
+        def boom(a):
+            sent.append(a)
+            raise RuntimeError("delivery rejected downstream")
+
+        ex2 = Executor(sup.bus, reg, pdp)
+        ex2.bind("mail.send", boom, compensator=lambda a, r: comp.append(a))
+        pdp.issue(Grant("gm2", "agent2", "mail.send", ("host",), "L4", 10_000,
+                        0, issued_for_command_id="cmd-3"))
+        rc = ex2.execute(subject="agent2", capability_id="mail.send",
+                         args={"external": True}, target="host",
+                         command_id="cmd-3", idempotency_key="msg-99", task_id="t")
+        c.check("a compensatable failure runs its compensator",
+                rc.outcome == "COMPENSATED" and len(comp) == 1, rc.outcome)
+        c.check("compensation is recorded",
+                len(_events(sup, "tool.compensated")) == 1)
+
+        # Authorization is re-checked at the executor, not trusted from earlier.
+        refused_exec = False
+        try:
+            ex.execute(subject="nobody", capability_id="mail.send",
+                       args={"external": False}, target="host",
+                       idempotency_key="nope", task_id="t")
+        except NotAuthorized as e:
+            refused_exec = e.decision.reason == "no_grant"
+        c.check("execution re-checks authorization immediately before invoking",
+                refused_exec)
+        sup.stop()
+        c.finish()
+    except Exception:
+        c.finish(error=traceback.format_exc(limit=6))
+
+
+def f2_device_registry(tmp: Path) -> None:
+    c = Case("F2-DEVICES", "Device registry: profiles not products, INV-TRUST-2")
+    try:
+        sup = _sup(tmp, "ndev")
+        dr = DeviceRegistry(sup.bus)
+        phone = dr.register(DeviceProfile(
+            "node-a", "foreground_only", "file_based", spatial_class="planar",
+            has_microphone=True, has_speaker=True,
+            capabilities={"local_inference_small": 42.0, "voice_capture": True},
+            measured={"local_inference_small": False, "voice_capture": True}))
+        desk = dr.register(DeviceProfile(
+            "node-b", "always_on", "os_keychain",
+            capabilities={"local_inference_strong": 6.79},
+            measured={"local_inference_strong": True}))
+
+        # ADR-007: key storage sets the trust-zone ceiling.
+        c.check("file-based key storage caps the node at Z2",
+                phone.trust_zone_ceiling() == "Z2", phone.trust_zone_ceiling())
+        c.check("os-keychain storage reaches Z1",
+                desk.trust_zone_ceiling() == "Z1", desk.trust_zone_ceiling())
+
+        # INV-HW-2: unmeasured is UNAVAILABLE, not assumed.
+        c.check("an unmeasured capability reads as unavailable",
+                phone.capability("local_inference_small") is None)
+        c.check("a measured capability reads its value",
+                desk.capability("local_inference_strong") == 6.79)
+        c.check("the profile names what is unmeasured rather than hiding it",
+                phone.to_dict()["unmeasured"] == ["local_inference_small"],
+                str(phone.to_dict()["unmeasured"]))
+
+        # INV-TRUST-2: refused, not warned about.
+        refused = False
+        try:
+            dr.assign("tasks", ["node-a"])
+        except PlacementRefused:
+            refused = True
+        c.check("continuity-critical state alone on a foreground-only node "
+                "is REFUSED", refused)
+        c.check("the refusal is recorded",
+                len(_events(sup, "placement.refused")) == 1)
+
+        # The legitimate mixed case is NOT refused -- the check is on the set.
+        res = dr.assign("tasks", ["node-a", "node-b"])
+        c.check("the same domain across a foreground-only AND an always-on node "
+                "is permitted", res["survival_hosts"] == ["node-b"],
+                str(res["survival_hosts"]))
+        c.check("a non-critical domain on a foreground-only node is permitted",
+                dr.assign("devices", ["node-a"])["nodes"] == ["node-a"])
+
+        # INV-HW-1: no product names anywhere in what the registry emits.
+        blob = json.dumps(dr.all()).lower()
+        banned = ("macbook", "iphone", "galaxy", "j3", "ryzen", "radeon",
+                  "samsung", "asus", "intel")
+        c.check("no product names in the registry (INV-HW-1)",
+                not any(b in blob for b in banned))
+        sup.stop()
+        c.finish()
+    except Exception:
+        c.finish(error=traceback.format_exc(limit=6))
+
+
 # ===========================================================================
 # NEGATIVE CONTROLS — all three named by the spec
 # ===========================================================================
@@ -641,19 +868,20 @@ def control_patch018_literal(tmp: Path) -> None:
 
 
 POSITIVE = [a013_argument_sensitivity, a014_denials, a024_attenuation,
-            a025_taint, a030_selfmod]
+            a024_4_expiry_mid_task, a025_taint, a030_selfmod,
+            f2_execution_and_compensation, f2_device_registry]
 CONTROLS = [control_untainted_summariser, control_runtime_from_working_repo,
             control_patch018_literal]
 
 PARTIAL = {
-    "A-024.4": ("grant expiring mid-task => task WAITING needs the executor "
-                "loop, which is F2's execution half and is not built here. The "
-                "expiry denial itself is covered by A-014."),
-    "A-030.8": ("'no such code path' is structural and belongs to CI-015, not "
-                "to a runtime assertion. Not claimed as a runtime test."),
-    "execution/compensation": ("the tool EXECUTION and compensation paths are "
-                               "F2 scope and are not built. What is built is "
-                               "the authorization boundary they must pass."),
+    "A-030.8": ("'no such code path' is a STRUCTURAL claim -- CI-015 checks that "
+                "no promotion path exists in the tree. It is not expressible as "
+                "a runtime assertion, and is not claimed as one here."),
+    "tool sandboxing": ("capabilities execute in-process. Process isolation and "
+                        "resource limits for untrusted tool code are not built; "
+                        "what is built is the authorization boundary every "
+                        "invocation passes and the compensation path it takes "
+                        "on failure."),
 }
 
 
@@ -694,18 +922,20 @@ def main() -> int:
     print("\n  PARTIAL COVERAGE, named rather than left to inference:")
     for k, why in PARTIAL.items():
         print(f"    {k}: {why}")
-    print(f"\n  F2 AUTHORIZATION CORE: {'PASS' if gate else 'FAIL'}   "
+    print(f"\n  F2 GATE: {'PASS' if gate else 'FAIL'}   "
           f"({time.time() - t0:.1f}s)")
-    print("  F2 as a whole is NOT complete -- tool execution, compensation and "
-          "the device registry are not built.")
+    print("  All 5 of F2's acceptance tests are claimed, plus execution, "
+          "compensation and the device registry.")
 
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(json.dumps({
-            "schema_version": 1, "gate": "F2-authorization-core",
+            "schema_version": 1, "gate": "F2",
             "acceptance_tests_claimed": ["A-013", "A-014", "A-024", "A-025",
                                          "A-030"],
-            "partial_coverage": PARTIAL, "f2_complete": False,
+            "also_covered": ["tool execution", "compensation",
+                             "device registry", "A-024.4 WAITING on expiry"],
+            "partial_coverage": PARTIAL, "f2_complete": True,
             "passed": gate, "positive_passed": pos_ok,
             "positive_total": len(pos),
             "controls_failed_as_required": ctl_ok, "controls_total": len(ctl),

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "gate": "F2-authorization-core",
+  "gate": "F2",
   "acceptance_tests_claimed": [
     "A-013",
     "A-014",
@@ -8,15 +8,20 @@
     "A-025",
     "A-030"
   ],
+  "also_covered": [
+    "tool execution",
+    "compensation",
+    "device registry",
+    "A-024.4 WAITING on expiry"
+  ],
   "partial_coverage": {
-    "A-024.4": "grant expiring mid-task => task WAITING needs the executor loop, which is F2's execution half and is not built here. The expiry denial itself is covered by A-014.",
-    "A-030.8": "'no such code path' is structural and belongs to CI-015, not to a runtime assertion. Not claimed as a runtime test.",
-    "execution/compensation": "the tool EXECUTION and compensation paths are F2 scope and are not built. What is built is the authorization boundary they must pass."
+    "A-030.8": "'no such code path' is a STRUCTURAL claim -- CI-015 checks that no promotion path exists in the tree. It is not expressible as a runtime assertion, and is not claimed as one here.",
+    "tool sandboxing": "capabilities execute in-process. Process isolation and resource limits for untrusted tool code are not built; what is built is the authorization boundary every invocation passes and the compensation path it takes on failure."
   },
-  "f2_complete": false,
+  "f2_complete": true,
   "passed": true,
-  "positive_passed": 5,
-  "positive_total": 5,
+  "positive_passed": 8,
+  "positive_total": 8,
   "controls_failed_as_required": 3,
   "controls_total": 3,
   "results": [
@@ -152,6 +157,45 @@
         },
         {
           "assertion": "24.6 the refusal is emitted",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-024.4",
+      "title": "Grant expiring mid-task => WAITING, not proceed, not FAILED",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "first step executes while the grant is valid",
+          "passed": true,
+          "detail": "VERIFIED"
+        },
+        {
+          "assertion": "the next step is refused, not silently proceeded",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "no silent proceed: nothing further was written",
+          "passed": true,
+          "detail": "1"
+        },
+        {
+          "assertion": "the task goes WAITING",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "WAITING, explicitly not FAILED",
+          "passed": true,
+          "detail": "WAITING"
+        },
+        {
+          "assertion": "the reason is named",
           "passed": true,
           "detail": ""
         }
@@ -325,6 +369,129 @@
         },
         {
           "assertion": "30.9 and the write is still refused at the boundary",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "F2-EXEC",
+      "title": "Execution: re-check, idempotency, compensation, no retry",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "compensatable without a compensator is refused at BIND time",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "authorised execution invokes exactly once",
+          "passed": true,
+          "detail": "1"
+        },
+        {
+          "assertion": "the same idempotency key does not invoke twice",
+          "passed": true,
+          "detail": "1"
+        },
+        {
+          "assertion": "the duplicate is recorded, not silently ignored",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "an unknown outcome is OUTCOME_UNKNOWN, not FAILED",
+          "passed": true,
+          "detail": "OUTCOME_UNKNOWN"
+        },
+        {
+          "assertion": "it is invoked once and NOT retried",
+          "passed": true,
+          "detail": "1"
+        },
+        {
+          "assertion": "retry is explicitly refused, with the reason recorded",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "an irreversible failure is escalated",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "a compensatable failure runs its compensator",
+          "passed": true,
+          "detail": "COMPENSATED"
+        },
+        {
+          "assertion": "compensation is recorded",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "execution re-checks authorization immediately before invoking",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "F2-DEVICES",
+      "title": "Device registry: profiles not products, INV-TRUST-2",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "file-based key storage caps the node at Z2",
+          "passed": true,
+          "detail": "Z2"
+        },
+        {
+          "assertion": "os-keychain storage reaches Z1",
+          "passed": true,
+          "detail": "Z1"
+        },
+        {
+          "assertion": "an unmeasured capability reads as unavailable",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "a measured capability reads its value",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "the profile names what is unmeasured rather than hiding it",
+          "passed": true,
+          "detail": "['local_inference_small']"
+        },
+        {
+          "assertion": "continuity-critical state alone on a foreground-only node is REFUSED",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "the refusal is recorded",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "the same domain across a foreground-only AND an always-on node is permitted",
+          "passed": true,
+          "detail": "['node-b']"
+        },
+        {
+          "assertion": "a non-critical domain on a foreground-only node is permitted",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "no product names in the registry (INV-HW-1)",
           "passed": true,
           "detail": ""
         }
