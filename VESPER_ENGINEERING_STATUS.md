@@ -8,10 +8,10 @@
 
 | | |
 |---|---|
-| **Phase** | **F0 and F1 COMPLETE. F2's authorization core complete.** All gated in CI. Implementation authorised and under way — `INV-ADR-1` was discharged 2026-08-14 by owner acceptance of `ADR-002` (with `ADR-001` and `ADR-012` already ACCEPTED). |
+| **Phase** | **F0, F1, F2 COMPLETE. F3, F4, F5 part-built — every software-only case done, hardware-blocked cases named.** All six gates run in CI. Implementation authorised and under way — `INV-ADR-1` was discharged 2026-08-14 by owner acceptance of `ADR-002` (with `ADR-001` and `ADR-012` already ACCEPTED). |
 | **Position** | Seven SRs carry recorded depth dispositions naming artifacts not yet written; `--profile release` fails on depth. **No completeness judgement is recorded here** — that is part of the gate. |
 | **Verdict** | **None recorded here.** The readiness gate is the project owner's act. `docs/architecture/IMPLEMENTATION_READINESS_REPORT.md` and `docs/FINAL_PRE_F0_VERIFICATION_REPORT.md` are *evidence for* that gate. |
-| **Next action** | Engineering finishes **F2** — tool **execution**, compensation and the device registry. The authorization boundary they must pass is built and gated. Owner still owes `OWNER-DECISION-006(c)` and the ADR-001/012 authority question below. |
+| **Next action** | Everything not blocked on hardware is built. What remains needs the **MacBook**, the **iPhone app**, **cameras**, a **flat clear sheet**, and a **24-hour endurance run**. Owner still owes `OWNER-DECISION-006(c)` and the ADR-001/012 authority question below. |
 | **Known blocker on F0** | **DISCHARGED 2026-08-14.** `ADR-002` was accepted by the owner under `OWNER-DECISION-006(b)`; `ADR-001` and `ADR-012` were already ACCEPTED. `CI-008` enforces this mechanically and is green. **One authority question remains open and is the owner's:** `ADR-001` and `ADR-012` carry `ACCEPTED` stamped by an engineering pass, not by the owner. The corpus records that either all three are confirmed together at the readiness gate or the other two are re-confirmed on the same basis. F0 proceeded on the mechanical gate; this is recorded, not resolved. |
 | **Repository** | `git init` **done** 2026-08-12, `core.autocrlf=false`, corpus committed as authored. Branch protection and the `@owner` handle remain host-side owner actions, so `CI-002` and `CI-044` stay `PENDING`. |
 
@@ -202,25 +202,35 @@ operating condition to honour, not a measurement to take — and it is why remot
 
 ## Next actions, in order
 
-1. **Engineering — F2 remainder.** The authorization core (`A-013`, `A-014`, `A-024`,
-   `A-025`, `A-030`) is built and gated. What is left: the tool **execution** path,
-   **compensation** for `compensatable` capabilities, and the **device registry**.
-   `A-024.4` (grant expiring mid-task → `WAITING`) needs the executor loop and is
-   the one acceptance case deferred with it.
-2. **Owner — `OWNER-DECISION-006(c)`:** whether four REM-carried decisions get numbered
-   ADR ids. Still open.
-3. **Owner — the ADR-001/ADR-012 authority question** recorded in the position table.
-4. **Blocked on hardware, not on engineering:** `SPIKE-004` needs a flat clear sheet
-   (~5 min of the owner's eyes); `SPIKE-002` needs the iPhone app, which needs the
-   MacBook; `SPIKE-008` criterion 9 needs the `foreground_only` node class.
+**Engineering has run out of unblocked work.** Everything below needs hardware,
+owner action, or real elapsed time.
+
+1. **Owner — get a flat clear sheet** (plastic sheet protector, CD case lid,
+   acetate). ~5 minutes of eyes closes `SPIKE-004`. The instrument is built and
+   served; the bare-panel baseline half needs no glass at all.
+2. **Owner — `OWNER-DECISION-006(c)`:** whether four REM-carried decisions get
+   numbered ADR ids. Still open.
+3. **Owner — the ADR-001/ADR-012 authority question** recorded in the position
+   table above.
+4. **Owner — the MacBook.** It unblocks the iPhone app, which unblocks
+   `SPIKE-002`, which unblocks `A-020` (the measured latency chain).
+5. **Owner — the broken desktop.** It is the intended always-on server; the
+   Kali laptop is the interim control-plane host and its RAM makes it a bridge,
+   not a destination.
+6. **Engineering, when hardware exists:** `A-008`/`A-028`/`A-039` (cameras,
+   video, capture indicators), `A-012`/`A-041` (alarm hardware),
+   `SPIKE-008` criterion 9 on a `foreground_only` node.
+7. **Engineering, needs elapsed time:** the **24-hour `A-029` endurance run**.
+   The compressed run passes; the literal window is owed before the R4 gate and
+   is the only thing that can surface a slow leak or an hour-19 exhaustion.
 
 *Done and no longer listed:* branch protection is live, `CODEOWNERS` points at the real owner account, and the repository is pushed. `CI-002` and `CI-044` remain `PENDING` on review history and the governed-surface check respectively, not on host configuration.
 
 **Scale, stated plainly so no plan is built on a wrong premise.** The corpus is ~37,800 lines
-across 161 files. The runtime is now **4300 lines** under `core/`, plus 2325 lines of acceptance
+across 161 files. The runtime is now **6509 lines** under `core/`, plus 4274 lines of acceptance
 harness under `verification/` and ~3,400 lines of verification tooling under `tools/`.
 `IMPLEMENTATION_SEQUENCE.md` runs F0…F8 and names **F5** as the decisive gate.
-**Two of nine stages are complete, and F2 is part-built.** Any schedule that puts a finished VESPER inside a month
+**Three of nine stages are complete (F0, F1, F2); F3, F4 and F5 are part-built with every software-only acceptance case passing.** Any schedule that puts a finished VESPER inside a month
 is a schedule that has not read this file.
 
 See `docs/FINAL_PRE_F0_VERIFICATION_REPORT.md` for the full evidence, the negative-control table and the exact F0 prerequisite list.

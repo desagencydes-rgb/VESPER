@@ -19,7 +19,33 @@ applying the mutation and running the named check.
 | `f2-acceptance` | Make `summarise()` return `verified_local` instead of the weakest input class | **RED** |
 | `f2-acceptance` | Let an `L5` grant bypass `SelfModificationBoundary.check_write` | **RED** |
 | `f2-acceptance` | Reintroduce `lstrip("./")` in the governed-path parser | **RED** — `NOT governed: ['.github/workflows/ci.yml']` |
+| `f2-acceptance` | Let an expired grant proceed instead of going `WAITING` | **RED** |
+| `f2-acceptance` | Drop the `INV-TRUST-2` placement check | **RED** |
+| `f4-acceptance` | Let expired facts return their last known value | **RED** |
+| `f4-acceptance` | Make the privacy router ignore ambiguity | **RED** |
+| `f4-acceptance` | Add the `DISCOVERED → TRUSTED` edge | **RED** |
+| `f3-acceptance` | Drop the `degradations` array when empty | **RED** |
+| `f3-acceptance` | Make recovery replay instead of probe | **RED** |
+| `f5-acceptance` | Remove the `UNKNOWN` guard from the evaluator | **RED** |
+| `f5-acceptance` | Make the interlock fail **open** when the token expires | **RED** |
 | all | restore | **GREEN** |
+
+## The C1 asymmetry, recorded because it is the point
+
+`A-029-C1-CONTROL` is the pure-cron build, and the corpus calls its red run
+*"the single most important run in the verification programme"*. It does not
+fail everything — that would prove nothing. It fails **only part 3**:
+
+```
+PART 1+2 pass on this build (recorded, not asserted as failure)
+   -> liveness and provenance both hold
+Part 3 NOT every fired trigger is SCHEDULE-class
+   -> 240 fired, all SCHEDULE-class: cron wearing autonomy's vocabulary
+```
+
+A build can be flawlessly live and flawlessly provenanced and still be a cron
+job. Part 3 is the only thing that tells them apart, and this run is the proof
+that part 3 has teeth.
 
 ## The four controls that passed and shouldn't have
 
