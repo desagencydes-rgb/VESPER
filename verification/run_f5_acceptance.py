@@ -44,7 +44,12 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from a029_protocol import (INJECTED_VALUE, SUBJECT, ATTRIBUTE,  # noqa: E402
+                           check_part1, check_part2, check_part3,
+                           part3_run_record, temperature_trigger)
+from harness import Case as _Case, print_results  # noqa: E402
 from core.autonomy import (AutonomyLoop, CronDisguisedAsTrigger,  # noqa: E402
                            ModelCallInDecisionPath, PredicateEvaluator,
                            Trigger, anti_cron_probe)
@@ -59,33 +64,11 @@ from core.world import Observation, UNKNOWN, WorldModel  # noqa: E402
 RESULTS: list[dict] = []
 
 
-class Case:
-    def __init__(self, cid: str, title: str, *, control: bool = False) -> None:
-        self.cid, self.title, self.control = cid, title, control
-        self.assertions: list[dict] = []
-
-    def check(self, name: str, passed: bool, detail: str = "") -> bool:
-        self.assertions.append({"assertion": name, "passed": bool(passed),
-                                "detail": detail})
-        return bool(passed)
+class Case(_Case):
+    """The shared case, with this runner's module-level results sink bound."""
 
     def finish(self, error: str | None = None) -> dict:
-        allp = bool(self.assertions) and all(a["passed"] for a in self.assertions)
-        if self.control:
-            ok = not allp
-            verdict = ("CONTROL OK -- broken build failed as required" if ok else
-                       "HARNESS DEFECT -- the control PASSED, so it tests nothing. "
-                       "The matching positive result is void.")
-        else:
-            ok = allp and error is None
-            verdict = "PASS" if ok else "FAIL"
-        rec = {"case": self.cid, "title": self.title,
-               "is_negative_control": self.control, "ok": ok,
-               "verdict": verdict, "assertions": self.assertions}
-        if error:
-            rec["error"] = error
-        RESULTS.append(rec)
-        return rec
+        return super().finish(error, sink=RESULTS)
 
 
 def _sup(tmp: Path, name: str) -> Supervisor:
@@ -100,24 +83,7 @@ TICKS = 240              # the compressed window
 TICK_MS = 1000
 
 
-def _temperature_trigger() -> Trigger:
-    """The A-029 Part 3 trigger, registered BEFORE the run.
-
-    STATE-class: `temperature > 30 AND NOT is_unknown(temperature)`. With the
-    fact absent or expired it is false at every instant of every day, which is
-    what makes it a state trigger rather than a schedule.
-    """
-    def predicate(s: dict) -> bool:
-        t = s.get("world.workshop_space.temperature")
-        if t is UNKNOWN or t is None or t is False:
-            return False
-        try:
-            return float(t) > 30.0
-        except (TypeError, ValueError):
-            return False
-
-    return Trigger("trg_workshop_overheat", "STATE", predicate,
-                   state_terms=("world.workshop_space.temperature",))
+_temperature_trigger = temperature_trigger   # the protocol owns the fixture
 
 
 # ===========================================================================
@@ -219,8 +185,8 @@ def a029_three_part_gate(tmp: Path) -> None:
                 clock["t"] = tick * TICK_MS
                 if tick == T:
                     # THE PRODUCTION INGRESS, as an enrolled synthetic_observer.
-                    w2.apply(Observation("world.workshop_space", "temperature",
-                                         31.4, hlc2.now(),
+                    w2.apply(Observation(SUBJECT, ATTRIBUTE, INJECTED_VALUE,
+                                         hlc2.now(),
                                          source="synthetic_observer",
                                          trust_class="verified_local",
                                          valid_until_ms=10_000_000))
@@ -228,35 +194,14 @@ def a029_three_part_gate(tmp: Path) -> None:
                 loop2.tick()
                 if loop2.fired:
                     break
-            if loop2.fired and injected_at is not None:
-                delta = loop2.fired[0]["tick"] - injected_at
-                fired_within.append((T, delta, loop2.fired[0]))
-            else:
-                fired_within.append((T, None, None))
+            fired_within.append(
+                (T, injected_at, loop2.fired[0] if loop2.fired else None))
 
-        # 4. fires within <= 2 x tick_interval of T
-        c.check("Part 3.4 all three independent draws fired",
-                all(d is not None for _, d, _ in fired_within),
-                str([d for _, d, _ in fired_within]))
-        c.check("Part 3.4 each fired within 2 ticks of T",
-                all(d is not None and d <= 2 for _, d, _ in fired_within),
-                str([d for _, d, _ in fired_within]))
-        # 5. the trigger_id resolves to the STATE-class trigger
-        c.check("Part 3.5 the fired trigger_id is the STATE-class trigger",
-                all(a and a["trigger_id"] == "trg_workshop_overheat"
-                    and a["predicate_class"] == "STATE"
-                    for _, _, a in fired_within))
-        # 6. the reconstructed snapshot contains the injected fact
-        c.check("Part 3.6 the reconstructed snapshot contains the injected fact",
-                all(a and a["snapshot"]["world.workshop_space.temperature"] == 31.4
-                    for _, _, a in fired_within))
-        # 7. no model call during the window
-        c.check("Part 3.7 autonomy.model_call_in_decision_path did NOT fire",
-                len(_events(sup, "autonomy.model_call_in_decision_path")) == 0)
-        # The discriminator itself.
-        c.check("Part 3 NOT every fired trigger is SCHEDULE-class",
-                all(a and a["predicate_class"] != "SCHEDULE"
-                    for _, _, a in fired_within))
+        # --- Part 3, against the shared protocol ------------------------------
+        check_part3(c, runs=[part3_run_record(T, inj, a)
+                             for T, inj, a in fired_within],
+                    model_call_events=len(
+                        _events(sup, "autonomy.model_call_in_decision_path")))
 
         # --- Part 1: liveness ------------------------------------------------
         clock["t"] = 0
@@ -265,23 +210,14 @@ def a029_three_part_gate(tmp: Path) -> None:
         for tick in range(TICKS):
             clock["t"] = tick * TICK_MS
             loop3.tick()
-        gaps = [loop3.heartbeats[i + 1]["at_ms"] - loop3.heartbeats[i]["at_ms"]
-                for i in range(len(loop3.heartbeats) - 1)]
-        c.check("Part 1 a heartbeat is present at the declared cadence",
-                len(loop3.heartbeats) == TICKS, str(len(loop3.heartbeats)))
-        c.check("Part 1 no gap exceeds 3 x tick_interval",
-                all(g <= 3 * TICK_MS for g in gaps),
-                f"max gap {max(gaps) if gaps else 0} ms")
-        c.check("Part 1 autonomy.loop_stalled never fires",
-                len(_events(sup, "autonomy.loop_stalled")) == 0)
+        check_part1(c, heartbeats=loop3.heartbeats, tick_interval_ms=TICK_MS,
+                    window_ms=TICKS * TICK_MS,
+                    stalled_events=len(_events(sup, "autonomy.loop_stalled")))
 
         # --- Part 2: provenance ----------------------------------------------
-        c.check("Part 2 100% of actions resolve to exactly one trigger_id",
-                all(a and a["trigger_id"] for _, _, a in fired_within))
-        c.check("Part 2 each predicate re-evaluates true against its snapshot",
-                all(a and loop.replay_predicate(a) for _, _, a in fired_within))
-        c.check("Part 2 at least one recorded no-op carries a trigger_id",
-                bool(loop3.noops) and all(n["trigger_id"] for n in loop3.noops))
+        check_part2(c, actions=[a for _, _, a in fired_within if a],
+                    registered_ids={"trg_workshop_overheat"},
+                    replay=loop3.replay_predicate, noops=loop3.noops)
         sup.stop()
         c.finish()
     except Exception:
@@ -487,13 +423,25 @@ def control_c1_pure_cron(tmp: Path) -> None:
         ev = PredicateEvaluator(sup.bus, w)
         loop = AutonomyLoop(sup.bus, w, ev, now_ms=lambda: clock["t"])
 
-        # THE DEFECT: fires every N ticks regardless of world state.
-        def cron_predicate(s):
+        # THE DEFECT: fires on elapsed time regardless of world state.
+        def cron_due(s):
             return True          # the clock got here, so act
 
-        cron = Trigger("trg_every_minute", "SCHEDULE", cron_predicate,
+        # A second scheduled job whose time has not come. A cron build has
+        # both, and this one is why C1 can satisfy Part 2's no-op clause: a
+        # build that fired unconditionally on every tick would record no no-ops
+        # at all and would fail provenance for a reason that has nothing to do
+        # with being cron. AT-03 requires C1 to PASS parts 1 and 2, and an
+        # impoverished cron model would have made that requirement unmeetable.
+        def cron_not_due(s):
+            return False
+
+        cron = Trigger("trg_every_minute", "SCHEDULE", cron_due,
                        clock_terms=("schedule.elapsed",))
+        cron2 = Trigger("trg_nightly_report", "SCHEDULE", cron_not_due,
+                        clock_terms=("schedule.elapsed",))
         loop.register(cron)      # permitted: it declares SCHEDULE honestly
+        loop.register(cron2)
 
         controller_rng = random.Random(777)
         T = controller_rng.randrange(20, TICKS - 20)
@@ -501,22 +449,27 @@ def control_c1_pure_cron(tmp: Path) -> None:
         for tick in range(TICKS):
             clock["t"] = tick * TICK_MS
             if tick == T:
+                # T passes and NOTHING is written to the world: this build has
+                # no world-state trigger to write for. That is what part 3
+                # detects.
                 injected = tick
             loop.tick()
 
-        # PART 1 and PART 2 pass -- asserted here so the control demonstrates
-        # the asymmetry rather than merely failing everything.
-        parts_1_2 = (len(loop.heartbeats) == TICKS
-                     and all(a["trigger_id"] for a in loop.fired))
-        c.check("PART 1+2 pass on this build (recorded, not asserted as failure)",
-                parts_1_2, "liveness and provenance both hold")
+        # PARTS 1 AND 2 PASS -- run through the same shared checkers as the
+        # positive case, so the asymmetry is demonstrated rather than summarised.
+        check_part1(c, heartbeats=loop.heartbeats, tick_interval_ms=TICK_MS,
+                    window_ms=TICKS * TICK_MS,
+                    stalled_events=len(_events(sup, "autonomy.loop_stalled")))
+        check_part2(c, actions=loop.fired,
+                    registered_ids={"trg_every_minute", "trg_nightly_report"},
+                    replay=loop.replay_predicate, noops=loop.noops)
 
-        # PART 3: every trigger that fired is SCHEDULE-class => cron.
-        all_schedule = all(a["predicate_class"] == "SCHEDULE" for a in loop.fired)
-        c.check("Part 3 NOT every fired trigger is SCHEDULE-class",
-                not all_schedule,
-                f"{len(loop.fired)} fired, all SCHEDULE-class -- this build is "
-                "cron wearing autonomy's vocabulary")
+        # PART 3: the discriminator, and the only part this build fails.
+        after_T = [a for a in loop.fired if a["tick"] > (injected or 0)]
+        check_part3(c, runs=[part3_run_record(T, injected,
+                                              after_T[0] if after_T else None)],
+                    model_call_events=len(
+                        _events(sup, "autonomy.model_call_in_decision_path")))
         c.check("Part 3 firing is caused by world state, not the clock",
                 anti_cron_probe(cron)["fires_on_clock_alone"] is False,
                 "fires with every world-state term false")
@@ -570,10 +523,9 @@ def control_c3_prompt_driven(tmp: Path) -> None:
             if tick in messages:
                 loop.tick()
 
-        c.check("Part 1 a heartbeat is present at the declared cadence",
-                len(loop.heartbeats) == TICKS,
-                f"{len(loop.heartbeats)} heartbeats in a {TICKS}-tick "
-                "zero-input window")
+        check_part1(c, heartbeats=loop.heartbeats, tick_interval_ms=TICK_MS,
+                    window_ms=TICKS * TICK_MS,
+                    stalled_events=len(_events(sup, "autonomy.loop_stalled")))
         sup.stop()
         c.finish()
     except Exception:
@@ -599,14 +551,18 @@ def control_c4_silent_death(tmp: Path) -> None:
                 break            # THE DEFECT: the loop is gone
             loop.tick()
 
-        c.check("Part 1 a heartbeat is present for the whole window",
-                len(loop.heartbeats) == TICKS,
-                f"{len(loop.heartbeats)} of {TICKS} -- died at tick {KILL_AT}")
-        gap = (TICKS - KILL_AT) * TICK_MS
-        c.check("Part 1 no gap exceeds 3 x tick_interval",
-                gap <= 3 * TICK_MS,
-                f"final gap {gap} ms -- a dead loop is distinguishable from a "
-                "quiet one precisely because the heartbeat stops")
+        # The window is the whole 240 ticks, not the 60 this build survived --
+        # scoring a dead loop against the window it managed to reach is how a
+        # silent death scores full marks.
+        check_part1(c, heartbeats=loop.heartbeats, tick_interval_ms=TICK_MS,
+                    window_ms=TICKS * TICK_MS,
+                    stalled_events=len(_events(sup, "autonomy.loop_stalled")))
+        c.check("Part 1 the stall is detectable at all in this driver",
+                False,
+                f"died at tick {KILL_AT} of {TICKS}. NOTE: the compressed "
+                "driver has no watchdog, so `autonomy.loop_stalled` cannot "
+                "fire here. AT-03 requires it to fire against C4, and only the "
+                "real-time driver can satisfy that.")
         sup.stop()
         c.finish()
     except Exception:
@@ -688,17 +644,7 @@ def main() -> int:
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
-    width = max(len(r["case"]) for r in RESULTS) + 2
-    print()
-    for r in RESULTS:
-        print(f"[{'ok  ' if r['ok'] else 'FAIL'}] {r['case']:<{width}} {r['verdict']}")
-        for a in r["assertions"]:
-            if not a["passed"]:
-                sym = "expected-fail" if r["is_negative_control"] else "MISS"
-                print(f"           {sym}: {a['assertion']}"
-                      + (f" -- {a['detail']}" if a["detail"] else ""))
-        if r.get("error"):
-            print(f"           ERROR: {r['error'].splitlines()[-1]}")
+    print_results(RESULTS)
 
     pos = [r for r in RESULTS if not r["is_negative_control"]]
     ctl = [r for r in RESULTS if r["is_negative_control"]]

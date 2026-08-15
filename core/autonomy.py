@@ -34,6 +34,7 @@ death) tests.
 from __future__ import annotations
 
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -278,3 +279,154 @@ class AutonomyLoop:
     def registry_report(self) -> list:
         with self._lock:
             return [anti_cron_probe(t) for t in self._triggers.values()]
+
+
+class AutonomyRunner:
+    """Drives the loop in real time, and watches it FROM OUTSIDE.
+
+    WHY THIS EXISTS AT ALL. `AutonomyLoop.tick()` is a single cycle; something
+    has to call it. Until now the only caller was a test loop advancing a
+    simulated clock, which means A-029 Part 1 -- liveness across a real window
+    -- had nothing to be true of. `Supervisor` deliberately refuses the job
+    ("THE HEARTBEAT DOES NOT PRETEND TO BE A SCHEDULER"), and it is right to:
+    driving autonomy from the lease heartbeat would make elapsed time a reason
+    to act. This is the driver, kept separate for that reason.
+
+    THE WATCHDOG IS A SEPARATE THREAD, AND THAT IS THE WHOLE POINT. A stall
+    detector living inside the loop it watches cannot report the one failure
+    that matters -- the loop being dead -- because a dead thread emits nothing.
+    `AT-03` requires `autonomy.loop_stalled` to FIRE against C4, the
+    silent-death build. Before this class, NOTHING in the runtime could emit
+    that event, which made A-029 Part 1's "`autonomy.loop_stalled` never fires"
+    an assertion about an event no code path could produce. An absence that
+    cannot become a presence measures nothing.
+
+    SCHEDULING IS BY ABSOLUTE DEADLINE, not by sleeping for the interval. A
+    24-hour run of `sleep(60)` accumulates every cycle's work as drift; over
+    1,440 cycles that is the difference between a cadence and an approximation.
+    Lateness is recorded per cycle rather than smoothed away.
+    """
+
+    STALL_FACTOR = 3          # INV-AUTO-1: absence beyond 3x tick_interval
+
+    def __init__(self, bus: EventBus, loop: AutonomyLoop, *,
+                 tick_interval_s: float | None = None,
+                 monotonic: Callable[[], float] = time.monotonic) -> None:
+        self._bus = bus
+        self._loop = loop
+        self.tick_interval_s = (tick_interval_s if tick_interval_s is not None
+                                else loop.tick_interval_s)
+        self._mono = monotonic
+        self._stopping = threading.Event()
+        self._tick_thread: threading.Thread | None = None
+        self._watch_thread: threading.Thread | None = None
+
+        self._last_tick_mono: float = 0.0
+        self._lock = threading.RLock()
+        self.late_ticks = 0
+        self.max_lateness_s = 0.0
+        self.stall_episodes = 0
+        self.cycle_errors = 0
+        self.started_mono: float = 0.0
+
+    # ----------------------------------------------------------------- drive
+
+    def start(self) -> "AutonomyRunner":
+        self.started_mono = self._mono()
+        with self._lock:
+            self._last_tick_mono = self.started_mono
+        self._tick_thread = threading.Thread(target=self._drive, daemon=True,
+                                             name="vesper-autonomy")
+        self._watch_thread = threading.Thread(target=self._watch, daemon=True,
+                                              name="vesper-autonomy-watchdog")
+        self._tick_thread.start()
+        self._watch_thread.start()
+        return self
+
+    def _drive(self) -> None:
+        deadline = self.started_mono
+        while not self._stopping.is_set():
+            began = self._mono()
+            lateness = began - deadline
+            if lateness > self.tick_interval_s:
+                self.late_ticks += 1
+                self.max_lateness_s = max(self.max_lateness_s, lateness)
+            try:
+                self._loop.tick()
+            except Exception as e:  # noqa: BLE001
+                # A cycle that raises must not take the loop down: a dead loop
+                # is the failure this whole class exists to make visible, and
+                # dying quietly on one bad predicate is how it happens.
+                self.cycle_errors += 1
+                self._bus.publish("autonomy.cycle_error", subject="loop",
+                                  payload={"error": f"{type(e).__name__}: {e}"},
+                                  component="autonomy")
+            with self._lock:
+                self._last_tick_mono = self._mono()
+            deadline += self.tick_interval_s
+            # If we are more than a whole interval behind, resynchronise rather
+            # than firing a burst of catch-up ticks. A burst would forge the
+            # cadence the gate is measuring.
+            now = self._mono()
+            if deadline < now:
+                deadline = now + self.tick_interval_s
+            self._stopping.wait(max(0.0, deadline - now))
+
+    # -------------------------------------------------------------- watchdog
+
+    def _watch(self) -> None:
+        interval = max(0.05, self.tick_interval_s / 2.0)
+        stalled = False
+        while not self._stopping.wait(interval):
+            with self._lock:
+                since = self._mono() - self._last_tick_mono
+            limit = self.STALL_FACTOR * self.tick_interval_s
+            if since > limit and not stalled:
+                # Edge-triggered: one event per episode, not one per poll. A
+                # dead loop would otherwise emit thousands of identical events
+                # and bury the moment it died.
+                stalled = True
+                self.stall_episodes += 1
+                self._bus.publish(
+                    "autonomy.loop_stalled", subject="loop",
+                    payload={"since_last_tick_s": round(since, 3),
+                             "limit_s": limit,
+                             "tick_interval_s": self.tick_interval_s,
+                             "episode": self.stall_episodes,
+                             "note": ("INV-AUTO-1: absence beyond 3x "
+                                      "tick_interval is an incident, not a "
+                                      "quiet period. Detected from outside the "
+                                      "loop thread, because a dead thread "
+                                      "cannot report its own death.")},
+                    component="autonomy")
+            elif since <= limit and stalled:
+                stalled = False
+                self._bus.publish("autonomy.loop_resumed", subject="loop",
+                                  payload={"episode": self.stall_episodes},
+                                  component="autonomy")
+
+    # ------------------------------------------------------------------ stop
+
+    def stop(self) -> dict:
+        self._stopping.set()
+        for t in (self._tick_thread, self._watch_thread):
+            if t is not None:
+                t.join(timeout=self.tick_interval_s * 2 + 5.0)
+        return self.status()
+
+    def alive(self) -> bool:
+        return bool(self._tick_thread and self._tick_thread.is_alive())
+
+    def status(self) -> dict:
+        with self._lock:
+            since = self._mono() - self._last_tick_mono
+        return {
+            "ticks": self._loop.ticks,
+            "tick_interval_s": self.tick_interval_s,
+            "since_last_tick_s": round(since, 3),
+            "late_ticks": self.late_ticks,
+            "max_lateness_s": round(self.max_lateness_s, 3),
+            "stall_episodes": self.stall_episodes,
+            "cycle_errors": self.cycle_errors,
+            "elapsed_s": round(self._mono() - self.started_mono, 1),
+        }

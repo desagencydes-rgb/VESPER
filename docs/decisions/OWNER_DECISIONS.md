@@ -1,6 +1,6 @@
 # VESPER — Decisions requiring the project owner
 
-**Status: FIVE RESOLVED 2026-08-12 · `OWNER-DECISION-006`(a) RESOLVED 2026-08-14 (ADR-007 RATIFIED) · (b) and (c) OPEN; (b) still BLOCKS F0** · **Raised:** 2026-08-11 · **Ruling:** project owner
+**Status: FIVE RESOLVED 2026-08-12 · `OWNER-DECISION-006`(a) RESOLVED 2026-08-14 (ADR-007 RATIFIED) · (b) RESOLVED 2026-08-14 (ADR-002 ACCEPTED; `INV-ADR-1` discharged, F0 unblocked) · (c) OPEN and blocks nothing** · **Raised:** 2026-08-11 · **Ruling:** project owner
 
 | ID | Ruling | Propagated to |
 |---|---|---|
@@ -185,7 +185,17 @@ Confirm A / B / C.
 
 ## OWNER-DECISION-006
 
-**Raised:** 2026-08-12 (second engineering pass) · **Status: (a) RESOLVED 2026-08-14 · (b) and (c) OPEN**
+**Raised:** 2026-08-12 (second engineering pass) · **Status: (a) and (b) RESOLVED 2026-08-14 · (c) OPEN**
+
+> **(b) RULED 2026-08-14 — `ADR-002` ACCEPTED by the project owner**, under this
+> decision, on the seven `SPIKE-008` criteria tested rather than on the record's own
+> argument. `INV-ADR-1` is discharged and F0 is unblocked; F0 has since been built and
+> gated. Propagated to `docs/ADR/ADR-002-persistence.md` §Acceptance authority, which
+> also records the condition the acceptance was given under and the two criteria left
+> open. **Criterion 8 (read-time upcasting) was deferred only because the F0 runtime did
+> not exist; it does now, so that criterion is engineering work rather than a blocked
+> one.** The paragraphs below predate this ruling and are retained unaltered as the
+> record of what was asked.
 
 > **(a) RULED 2026-08-14 — `ADR-007` RATIFIED as written (option A).** The owner's condition was
 > that each device hold its own keys, with separate keys for verification; that is D1 and D7 as
