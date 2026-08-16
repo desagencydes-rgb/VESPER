@@ -221,6 +221,42 @@ Worth ratifying as a real contract value at some point.
 
 ---
 
+## 3a. What the run has already found, at hour 1
+
+The endurance run is doing the job it exists for. Two measurements, and the first
+is a warning about how to read the second.
+
+**The store's file size overstates its growth by 26×.** At hour 1 the store
+directory was 3.9 MB and rising at ~3.2 MB/h, which projects to 83 MB/day. That
+number is wrong. `log.db` itself is **4 KB**; `log.db-wal` is **3.5 MB**. It is
+uncheckpointed WAL, `wal_autocheckpoint` is 1000 pages (~4 MB), so it folds back
+on its own and plateaus rather than growing forever. **Measured from the records
+instead of the files, the real rate is ~126 KB/h → 3.1 MB/day → 1.13 GB/year.**
+Worth knowing before anyone reads a directory listing and files a bug.
+
+**Three events per tick, and all three say the same thing.** For one idle
+trigger, every tick emits `autonomy.heartbeat`, `autonomy.predicate_unknown` and
+`autonomy.noop` — 65 of each in the first hour:
+
+| Event | Bytes each | Share |
+|---|---|---|
+| `autonomy.predicate_unknown` | 801 | 39% |
+| `autonomy.noop` | 664 | 32% |
+| `autonomy.heartbeat` | 560 | 27% |
+
+The largest of the three is the *explanation*: `predicate_unknown` carries a
+constant prose `note` about why an unknown fact does not fire, written into
+every record, 1,440 times a day. It is excellent documentation and it belongs in
+the event type, not in each instance.
+
+**This matters at scale rather than tonight.** 1.13 GB/year is with **one**
+registered trigger; no-ops and unknowns scale linearly with the trigger count, so
+twenty triggers is ~20 GB/year on a machine meant to run forever. Not touched
+tonight — changing what is emitted per tick would change the evidence Parts 1 and
+2 are judged from, mid-run, which is the exact thing §3 argues against.
+
+---
+
 ## 4. Tomorrow morning, in order
 
 ### 4.1 Read the run — and know how to read a FAIL
