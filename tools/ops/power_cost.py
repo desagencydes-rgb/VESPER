@@ -100,6 +100,7 @@ DEFAULT_MONTHLY_KWH = 250.0
 
 STATUS_PATH = Path("C:/Projects/VESPER-endurance-2026-08-16/docs/planning/"
                    "spike-results/A-029-endurance-live.json")
+SILENT_STREAK_ALARM = 30        # samples; at 60 s each, half an hour of silence
 SAMPLES_PATH = REPO / "docs" / "planning" / "spike-results" / "A-029-power-samples.jsonl"
 REPORT_PATH = REPO / "docs" / "planning" / "spike-results" / "A-029-power-cost.json"
 
@@ -116,11 +117,19 @@ def marginal_band(monthly_kwh: float) -> tuple[float, str]:
 
 
 def find_run_pid() -> int | None:
-    """The A-029 process, found by what it is running rather than by a pid file."""
+    """The A-029 process, found by what it is running rather than by a pid file.
+
+    The interpreter check is load-bearing: the shell that launched the run
+    carries the same string in its own command line, and matching on the
+    substring alone latches onto that wrapper -- a live process that burns no
+    CPU, so every marginal figure derived from it reads a true-looking zero.
+    """
     if psutil is None:
         return None
     for p in psutil.process_iter(["pid", "name", "cmdline"]):
         try:
+            if "python" not in (p.info.get("name") or "").lower():
+                continue
             cl = " ".join(p.info.get("cmdline") or [])
             if "run_a029_endurance.py" in cl and "--launch" in cl:
                 return p.info["pid"]
@@ -149,6 +158,7 @@ def track(args) -> int:
     t0 = time.monotonic()
     last_cpu_s = proc.cpu_times() if proc else None
     last_cpu_total = (last_cpu_s.user + last_cpu_s.system) if last_cpu_s else 0.0
+    silent_streak = 0
 
     while True:
         time.sleep(args.interval)
@@ -161,6 +171,22 @@ def track(args) -> int:
             proc_cpu_delta = max(0.0, now_cpu_total - last_cpu_total)
             last_cpu_total = now_cpu_total
 
+            # A live process driving a 1 Hz loop cannot consume exactly no CPU.
+            # The contradiction means we are watching the wrong process, and it
+            # is the only signal that distinguishes "costs nothing" from
+            # "measures nothing" -- the two look identical in the output.
+            alive = bool(proc and proc.is_running())
+            if alive and proc_cpu_delta == 0.0:
+                silent_streak += 1
+                if silent_streak == SILENT_STREAK_ALARM:
+                    print(f"  SUSPECT: pid {pid} has been alive and burnt 0.0 s "
+                          f"of CPU for {silent_streak} straight samples. This is "
+                          f"not a process running a tick loop; the marginal "
+                          f"figures from these samples measure nothing.",
+                          flush=True)
+            else:
+                silent_streak = 0
+
             watts = args.idle_watts + (args.full_watts - args.idle_watts) * (cpu_pct / 100.0)
             if args.wall_watts:
                 watts = args.wall_watts          # a real reading overrides the model
@@ -171,7 +197,12 @@ def track(args) -> int:
                 "system_watts_estimated": round(watts, 2),
                 "interval_s": args.interval,
                 "a029_cpu_s_delta": round(proc_cpu_delta, 3),
-                "a029_alive": bool(proc and proc.is_running()),
+                "a029_alive": alive,
+                # Marks this sample's marginal figure as attributable to the run.
+                # Samples written before the interpreter check existed carry no
+                # such key, and report() declines to count them.
+                "a029_pid": pid,
+                "a029_pid_valid": pid is not None,
             }
             with SAMPLES_PATH.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(sample) + "\n")
@@ -213,8 +244,16 @@ def report(args) -> int:
     kwh_system = joules / 3_600_000.0
     mean_w = joules / span_s if span_s else 0.0
 
-    a029_cpu_s = sum(r["a029_cpu_s_delta"] for r in rows)
+    # The marginal figure is scaled over the window in which the run's pid was
+    # actually resolved, not over the whole file. Mixing the two would dilute a
+    # measured rate with samples that measured a shell doing nothing.
+    marginal_rows = [r for r in rows if r.get("a029_pid_valid")]
+    marginal_span_s = sum(r["interval_s"] for r in marginal_rows)
+    a029_cpu_s = sum(r["a029_cpu_s_delta"] for r in marginal_rows)
     kwh_a029 = (a029_cpu_s * args.core_watts) / 3_600_000.0
+    marginal_hours = marginal_span_s / 3600.0
+    marginal_per24 = (24.0 / marginal_hours) if marginal_hours else 0.0
+    void_rows = len(rows) - len(marginal_rows)
 
     price, band = marginal_band(args.monthly_kwh)
     if args.mad_per_kwh:
@@ -237,10 +276,16 @@ def report(args) -> int:
           f"{kwh_system * per24 * 30 * price:.0f} MAD")
     print()
     print(f"  THE A-029 RUN ITSELF (marginal)")
-    print(f"    cpu consumed       {a029_cpu_s:.1f} s over {hours:.2f} h")
-    print(f"    energy so far      {kwh_a029:.6f} kWh = {kwh_a029 * price:.4f} MAD")
-    print(f"    projected 24 h     {kwh_a029 * per24:.6f} kWh = "
-          f"{kwh_a029 * per24 * price:.4f} MAD")
+    if not marginal_rows:
+        print("    NOT MEASURED -- no sample resolved the run's pid.")
+    else:
+        print(f"    cpu consumed       {a029_cpu_s:.1f} s over {marginal_hours:.2f} h")
+        print(f"    energy so far      {kwh_a029:.6f} kWh = {kwh_a029 * price:.4f} MAD")
+        print(f"    projected 24 h     {kwh_a029 * marginal_per24:.6f} kWh = "
+              f"{kwh_a029 * marginal_per24 * price:.4f} MAD")
+    if void_rows:
+        print(f"    ({void_rows} earlier samples excluded: the pid they watched "
+              f"was the launching shell, not the run)")
     print()
     print("  The run did not cause the machine to be on: it had been up 13.2 h")
     print("  when the run started. The marginal figure is what VESPER added.")
@@ -277,10 +322,14 @@ def report(args) -> int:
             "mad_per_30d": round(kwh_system * per24 * 30 * price, 1),
         },
         "a029_run_marginal": {
+            "measured": bool(marginal_rows),
+            "samples": len(marginal_rows),
+            "hours": round(marginal_hours, 3),
+            "samples_excluded_unattributable": void_rows,
             "kwh_so_far": round(kwh_a029, 8),
             "mad_so_far": round(kwh_a029 * price, 6),
-            "kwh_per_24h": round(kwh_a029 * per24, 8),
-            "mad_per_24h": round(kwh_a029 * per24 * price, 6),
+            "kwh_per_24h": round(kwh_a029 * marginal_per24, 8),
+            "mad_per_24h": round(kwh_a029 * marginal_per24 * price, 6),
         },
     }
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
