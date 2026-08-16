@@ -355,8 +355,25 @@ function mark() {
   draw();
 }
 
+// Set once a mixed-layout send has been acknowledged, so the guard warns and
+// then gets out of the way rather than blocking a deliberate mixed record.
+let mixedAck = false;
+
 async function send() {
   if (!marks.length) { say("nothing marked yet"); return; }
+  // The layout button wraps, so one press past `baseline` lands back on
+  // `pyramid` -- and the first run in the field did exactly that, recording
+  // five marks under a layout whose reflector was not on the table. Those
+  // marks look like readings and measure nothing. The operator is looking at
+  // the phone, not at the HUD, so the instrument has to say it.
+  const seen = [...new Set(marks.map(m => m.layout))];
+  if (seen.length > 1 && !mixedAck) {
+    mixedAck = true;
+    const counts = seen.map(l => `${l}:${marks.filter(m => m.layout === l).length}`);
+    say(`HOLD — marks span ${seen.length} layouts (${counts.join(", ")}). ` +
+        `Was every reflector actually in place? Press SEND again to send anyway.`);
+    return;
+  }
   say("sending…");
   try {
     const r = await fetch("/result", {
