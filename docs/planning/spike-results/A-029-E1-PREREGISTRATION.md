@@ -69,6 +69,14 @@ VOID either. It is a *criterion* defect, and the rule is:
   `len(sampler.samples)`), which measure the program rather than the allocator.
   RSS is kept, reported, and no longer asserted against a budget.
 
+  **And that replacement criterion must assert a growth *rate* against tick
+  count, not an absolute size against `maxlen`.** As established above, a 24 h
+  window at a 60 s tick reaches 1,440 entries against a 10,000 bound, so
+  `len(heartbeats) <= 10_000` would pass without the window being capable of
+  failing it — the exact shape of check this project keeps catching. The
+  assertion has to be that tracked heap per tick stops rising, which a window
+  that never saturates the bound can still falsify.
+
 **What would overturn this and make it a real leak:** tracked Python heap
 growing without deceleration across the window, or the bounded structures
 exceeding their declared maxima, or the next run showing RSS still climbing at
