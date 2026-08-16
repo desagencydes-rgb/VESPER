@@ -132,6 +132,11 @@ class ResourceSampler(threading.Thread):
 
     def sample(self) -> dict:
         s = {"at_s": round(time.monotonic() - self.t0, 2),
+             # Wall AND monotonic, because their divergence is the signal. A
+             # suspended machine stops the monotonic clock and does not stop
+             # wall time, so the gap between them is how a nap is told apart
+             # from a stall.
+             "wall_s": round(time.time(), 2),
              "ticks": self._loop.ticks,
              "heartbeats": len(self._loop.heartbeats),
              "fired": len(self._loop.fired),
@@ -176,6 +181,49 @@ def _quarter_means(values: list[float]) -> tuple[float, float]:
         return (statistics.fmean(values), statistics.fmean(values)) if values else (0.0, 0.0)
     q = max(1, n // 4)
     return statistics.fmean(values[:q]), statistics.fmean(values[-q:])
+
+
+def detect_void(samples: list[dict], tick_interval_s: float) -> dict | None:
+    """VOID vs FAILED — AT-03's distinction, which this harness owed.
+
+    AT-03: "If the external ingress is unavailable during the run, the run is
+    **void** (harness defect), not failed (product defect). A void run is
+    re-run, never counted."
+
+    The environmental failure this run is actually exposed to is the machine
+    sleeping, hibernating or being suspended for an update. Any of those
+    produce exactly the symptoms of a dead loop -- a gap beyond 3x
+    tick_interval, a stall episode, late ticks -- and reporting that as FAIL
+    would say VESPER broke when the desktop napped.
+
+    The discriminator is mechanical, in the same spirit as the anti-cron probe:
+    a suspended machine stops the monotonic clock and does not stop wall time.
+    Divergence between the two across one sampling interval is the environment,
+    not the product. A genuinely stalled loop diverges by NEITHER -- both
+    clocks keep running while nothing ticks, which is why this cannot launder a
+    real stall into a void.
+    """
+    for a, b in zip(samples, samples[1:]):
+        if "wall_s" not in a or "wall_s" not in b:
+            continue
+        mono = b["at_s"] - a["at_s"]
+        wall = b["wall_s"] - a["wall_s"]
+        drift = wall - mono
+        if drift > 3 * tick_interval_s:
+            return {
+                "void": True,
+                "reason": "suspension",
+                "at_s": b["at_s"],
+                "wall_gap_s": round(wall, 1),
+                "monotonic_gap_s": round(mono, 1),
+                "unaccounted_s": round(drift, 1),
+                "note": ("wall time advanced " f"{drift:.0f} s more than the "
+                         "monotonic clock across one sampling interval, which "
+                         "means the machine was suspended. AT-03: void "
+                         "(environment), not failed (product). Re-run; never "
+                         "count it either way."),
+            }
+    return None
 
 
 def check_resources(c: Case, samples: list[dict]) -> dict:
@@ -487,6 +535,33 @@ def _cross_check(node: str, root: Path, expect_ok: bool, results: list) -> None:
         c.finish(error=traceback.format_exc(limit=6), sink=results)
 
 
+def _void_detector_cases(results: list) -> None:
+    """The void detector, both directions.
+
+    A discriminator that only ever says "void" would let every failed run be
+    excused as an environmental one, so the stall case is asserted as loudly as
+    the suspension case.
+    """
+    tick = 60.0
+    healthy = [{"at_s": i * 60.0, "wall_s": 1000.0 + i * 60.0} for i in range(10)]
+    # A nap: wall time jumps an hour, the monotonic clock does not.
+    napped = [dict(s) for s in healthy]
+    for s in napped[5:]:
+        s["wall_s"] += 3600.0
+    # A genuine stall: the loop stops, but BOTH clocks keep running normally.
+    stalled = [dict(s) for s in healthy]
+
+    c = Case("A-029-VOID-DETECTOR", "void vs failed, both directions")
+    c.check("a suspended machine is detected as VOID",
+            (detect_void(napped, tick) or {}).get("reason") == "suspension")
+    c.check("a healthy run is NOT void", detect_void(healthy, tick) is None)
+    c.check("a genuine stall is NOT laundered into a void -- both clocks ran",
+            detect_void(stalled, tick) is None)
+    c.finish(sink=results)
+    print(f"  [{'ok' if results[-1]['ok'] else 'FAIL'}] void detector: "
+          "suspension is void, a stall is not")
+
+
 def self_test(root: Path) -> list:
     results: list = []
     print(f"  self-test: {SELF_TEST_WINDOW_S:.0f}s per build at a "
@@ -502,6 +577,7 @@ def self_test(root: Path) -> list:
         c.finish(error=traceback.format_exc(limit=6), sink=results)
     print(f"  [{'ok' if results[-1]['ok'] else 'FAIL'}] healthy build")
     _cross_check("rt_ok", root, True, results)
+    _void_detector_cases(results)
 
     for build, title, why in BROKEN:
         c = Case(f"A-029-RT-{build.upper()}", title, control=True)
@@ -588,9 +664,16 @@ def launch(args) -> int:
     rec = c.finish()
     print_results([rec])
 
+    voided = detect_void(r["samples"], args.tick)
+    if voided:
+        print("\n  RUN VOID -- NOT FAILED. " + voided["note"])
+
     payload = {
-        "schema_version": 1, "state": "COMPLETE",
-        "gate": "A-029-endurance", "passed": rec["ok"],
+        "schema_version": 1,
+        "state": "VOID" if voided else "COMPLETE",
+        "void": voided,
+        "gate": "A-029-endurance",
+        "passed": None if voided else rec["ok"],
         "declared_tick_interval_s": args.tick,
         "window_hours": args.hours,
         "elapsed_s": r["elapsed_s"],
@@ -610,6 +693,9 @@ def launch(args) -> int:
     out = Path(args.out) if args.out else STATUS_PATH
     _write_status(out, payload)
     print(f"\n  wrote {out}")
+    if voided:
+        print("  A-029 ENDURANCE: VOID (environment suspended; re-run)")
+        return 2
     print(f"  A-029 ENDURANCE: {'PASS' if rec['ok'] else 'FAIL'}")
     return 0 if rec["ok"] else 1
 
