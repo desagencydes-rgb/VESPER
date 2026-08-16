@@ -95,7 +95,10 @@ macOS runway — but it loses at the job it would be bought for.
 ### 2. Not one of the six reaches the `strong` tier
 
 macOS caps GPU-wired memory near 75% of unified RAM: about **12 GB on a 16 GB machine**,
-13.5 GB on the 18 GB M3 Pro. Mistral-Small-24B Q4_K_M needs ~14.3 GB; Qwen3-30B-A3B ~18.6 GB.
+13.5 GB on the 18 GB M3 Pro. Read from the GGUF files themselves on 2026-08-17:
+**Mistral-Small-24B Q4_K_M is 13.35 GB** and **Qwen3-30B-A3B Q4_K_M is 17.35 GB** — an earlier
+revision of this line said 14.3 and 18.6, both estimated rather than measured. The 13.35 GB dense
+model clears a 16 GB Mac's ~12 GB wired cap by less than nothing; the MoE does not come close.
 
 This restates, on new hardware, what `SPIKE-001 3.2` already **measured** on the desktop: with
 the owner working set resident, the strong tier left 0.27 GB free of 15.9 GB and the machine

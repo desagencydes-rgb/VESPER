@@ -65,39 +65,86 @@ Vendor guidance for Qwen3.8-27B, by quantization:
 
 **Node 1's ceiling is not a matter of arithmetic. It was measured.**
 
-The tempting calculation — 8 GB VRAM plus 9.33 GB free system RAM (15.9 total minus the 6.57 GB
-measured working set) equals 17.33 GB addressable — **is wrong, and this repo already has the
-evidence that falsifies it.** With `-ngl N`, N layers sit in VRAM and the remainder in system
-RAM, but the KV cache, llama.cpp's compute buffers and mmap page-cache pressure all draw on the
-same 15.9 GB. `SPIKE-001` §3.2 measured where that actually lands:
+> **CORRECTION, 2026-08-17.** An earlier revision of this section attributed the §3.2 failure to
+> *"Mistral-Small-24B, ~14.3 GB"*. **Both halves were wrong.** The model that failed §3.2 was
+> **Qwen3-30B-A3B**, and the on-disk sizes, read from the files themselves, are
+> **Mistral-Small-24B = 13.35 GB** and **Qwen3-30B-A3B = 17.35 GB**. The corrected boundary is
+> higher than the one first recorded, which makes the 3-bit case *better* than this document
+> originally claimed. The conclusion does not change, but it now rests on the right number and
+> for the right reason — which is speed, not capacity.
 
-> Mistral-Small-24B Q4_K_M — **~14.3 GB of weights**, `-ngl 16` — left **0.27 GB free of 15.9**
-> and drove the machine to **660 pages/s** with 4 GB of pagefile peak.
+The tempting calculation — 8 GB VRAM plus 9.33 GB free system RAM equals ~17.3 GB addressable —
+is wrong, because the KV cache, llama.cpp's compute buffers and mmap page-cache pressure all draw
+on the same 15.9 GB. `SPIKE-001` §3.2 measured where it actually lands:
+
+> **Qwen3-30B-A3B Q4_K_M — 17.35 GB on disk**, `-ngl 12` — left **0.27 GB free of 15.9** and drove
+> the machine to **660 pages/s average** with 4 GB of pagefile peak.
 > Recorded verdict: *DOES NOT COEXIST*.
 
-A 14.3 GB model failed on a machine the naive sum said could hold 17.33 GB. **The operative
-ceiling on node 1 is therefore ~14.3 GB of weights — a measured failure, not a calculated
-limit.** Anything at or above that size fails the same way.
+Against the 13.35 GB dense model, which §3.1 ran to completion, that puts the coexistence boundary
+**somewhere between 13.35 GB and 17.35 GB** — bounded on both sides by measurement, and not
+pinned more precisely than that by any run on record.
 
-| Qwen3.8-27B | Size | Against the measured 14.3 GB boundary |
+| Qwen3.8-27B | Size | Against the measured band |
 |---|---|---|
-| **4-bit** | 17–19 GB | **3–5 GB past it.** Will not load usefully |
-| **3-bit** | 13–16 GB | **Straddles it.** Best case sits within a hair of the boundary; worst case is past it |
+| **4-bit** | 17–19 GB | **At or past 17.35 GB, which is measured to fail.** Will not load usefully |
+| **3-bit** | 13–16 GB | **Inside the unpinned band.** At the bottom of its range it is comparable to a model that did run, so it probably *loads* |
 
-Neither configuration clears a boundary that a **smaller** model already failed.
+**So 3-bit is not excluded on memory, and this document previously implied it was.** It is
+excluded on speed, which the next section derives from the same measurements.
 
 ---
 
-## 3. Why 3-bit is not a way around it
+## 3. The bandwidth law, and why no configuration escapes it
 
-3-bit is the only configuration that even approaches node 1, and it fails on memory before any
-other argument is needed: at 13–16 GB it straddles the 14.3 GB boundary that a smaller model
-already failed at. Three further reasons make it a non-starter even at the bottom of that range:
+3-bit probably loads. It is still excluded, and the reason is arithmetic that this node's own
+measurements pin down almost exactly.
 
-**Speed.** Node 1 measured Mistral-Small-24B Q4 at **3.15 tok/s** with `-ngl 16`. A 27B at
-3-bit with an 8 GB card lands in the same single-digit band; independent reports put a *20 GB*
-VRAM card at 7–10 tok/s and note that 8 GB with heavy CPU offload falls to single digits.
-Against the `standard` tier's measured **45.8 tok/s**, that is roughly **15× slower**.
+Generating one token requires reading **every weight the model activates**, once. So the ceiling is
+not compute — it is
+**tokens/second ≈ effective memory bandwidth ÷ bytes read per token**. Node 1's four dense
+measurements, with the GGUF sizes read from the files themselves:
+
+| Model | On disk | Fits in 7.2 GB VRAM? | Measured tok/s | size × tok/s |
+|---|---|---|---|---|
+| Qwen3-1.7B | 1.19 GB | yes | 148.2 | **176 GB/s** |
+| Llama-3.2-3B | 1.88 GB | yes | 98.7 | **186 GB/s** |
+| Qwen3-8B | 4.68 GB | yes | 45.8 | **214 GB/s** |
+| Mistral-Small-24B | 13.35 GB | **no** | 3.15 | **42 GB/s** |
+
+The product is not a coincidence. The three that fit in VRAM all land at **~180–215 GB/s** — the
+RX 6650 XT's memory bandwidth. The one that does not fit lands at **42 GB/s** — dual-channel DDR4.
+**The moment a model stops fitting in VRAM, throughput falls off a ~5× cliff**, and after that it
+is governed by system RAM speed no matter what else is tuned.
+
+Qwen3.8-27B is **dense**, so every one of its 27B parameters is read for every token. At 3-bit it
+is ~14 GB, which does not fit in 7.2 GB of VRAM. The law then predicts:
+
+    42 GB/s ÷ ~14 GB  ≈  3 tokens/second
+
+which is the same single-digit band the 13.35 GB dense model was actually measured in. Against the
+`standard` tier's measured **45.8 tok/s**, that is roughly **15× slower**.
+
+**Why the proposed workarounds do not move this number.** Each was checked against the same
+measurements rather than dismissed:
+
+| Idea | What it does | Why it does not help |
+|---|---|---|
+| **Use the SSD as RAM** (swap / pagefile) | Already in use — 27.6 GB allocated on this machine | This is what §3.2 measured *failing*: **660 pages/s**, 0.27 GB free. NVMe runs ~3–7 GB/s against RAM's 42, so it makes the divisor **worse by another ~10×**, not better. It is the failure mode, not the fix |
+| **Push more onto the GPU** (`-ngl`) | Puts more layers in VRAM | The card physically holds **7.2 GB, measured**. It is already the thing being maximised; a 14 GB model cannot have more than half of it resident, and VRAM is not expandable |
+| **Add virtual memory / a bigger pagefile** | Grows addressable space | Capacity was never the binding constraint at 3-bit — **speed is**. More slow space does not make weights arrive faster |
+| **Shift work from CPU to GPU** | Better parallelism | Token generation is **bandwidth-bound, not compute-bound**. Both processors already spend most of their time waiting on memory |
+
+**The one lever that genuinely works on this hardware is architecture, and this node already
+measured it.** `Qwen3-30B-A3B` is a **Mixture-of-Experts** model: 30B parameters total but only
+~3B activate per token, so it reads a fraction of itself per token. It is **larger on disk than
+the dense 24B (17.35 GB vs 13.35 GB), sits on fewer GPU layers, thrashes the pagefile — and is
+still more than twice as fast** (6.79 vs 3.15 tok/s). That is the bandwidth law working in the
+other direction.
+
+**Qwen3.8-27B is dense, so it gets none of that benefit.** If the goal is a stronger local model on
+node 1, the property to shop for is **MoE with a small active-parameter count**, not a better dense
+27B — and that is a search this evaluation recommends over adopting this model.
 
 **The latency budget forbids it.** `A-020` declares a 1200 ms voice chain. At ~3 tok/s a single
 short reply takes tens of seconds. This model cannot sit anywhere near that path.
@@ -131,11 +178,12 @@ non-running 27B changes nothing operationally on this machine.
 
 ## 5. Decision
 
-1. **Do not add it to node 1, at any quantization.** At Q4 it sits 3–5 GB past the measured
-   14.3 GB failure boundary; at Q3 it straddles that same boundary, and even at the bottom of
-   its range it is ~15× slower than the tier it would displace, unmeasured in quality, and
-   barred from the latency path. Node 1's usable ceiling remains the `standard` tier — which
-   §3.2 established and this evaluation does not disturb.
+1. **Do not add it to node 1, at any quantization — but for the right reason.** At Q4 it is at or
+   past the 17.35 GB that §3.2 measured failing. At Q3 it probably **loads**, and is then
+   **~3 tok/s** by the bandwidth law in §3 — ~15× slower than the tier it would displace,
+   unmeasured in quality, and barred from the latency path. **The binding constraint is speed,
+   not capacity**, and no swap, pagefile or offload setting changes it, because all of them act
+   on the wrong side of the division. Node 1's usable ceiling remains the `standard` tier.
 
 2. **Record it as the candidate `strong`-tier reference**, superseding Mistral-Small-24B in
    *planning only*. It enrols by measurement on a node that can hold it, exactly as every other
