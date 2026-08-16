@@ -32,7 +32,10 @@ Recorded because these are placement decisions, and placement decided in convers
 not written down is placement that gets re-litigated every time someone asks why.
 
 **The MacBook is the preferred primary device.** Not yet acquired; the owner intends to buy
-one shortly. It remains **excluded from the fabric until measured** — no placeholder profile,
+one shortly. Six reseller offers were benchmarked against this role on 2026-08-16 —
+see `MACBOOK_PROCUREMENT_BENCHMARK.md`, which carries the ranking, the negotiation range and
+the prediction that no offer on the table reaches the `strong` tier. It remains
+**excluded from the fabric until measured** — no placeholder profile,
 no reserved role that shapes a design around a machine that does not exist. When it arrives
 it enrols by the same path as every other node. Its intended role is primary control and the
 development machine for the iPhone app.
