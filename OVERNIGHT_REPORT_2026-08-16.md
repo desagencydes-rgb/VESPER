@@ -35,13 +35,14 @@ control.
 
 | | |
 |---|---|
-| Commits tonight | 5, on `feat/f0-f1-endurance`, **nothing pushed** |
+| Commits tonight | 8, on `feat/f0-f1-endurance`, **nothing pushed** |
 | PR #5 | **untouched and frozen** — your review is the review the last report describes |
 | New runtime code | 163 lines (`core/codec.py`) + the real-time driver and watchdog |
 | New harness code | ~1,290 lines across four files |
-| Acceptance gates | 6, all still green |
+| Acceptance gates | 6, all still green — F5 gains a real-time case, so 5 positive + 5 controls |
 | `checks.py` · `self_test.py` | 17 / 17 · 47 / 47 |
 | Endurance harness self-test | **6/6 healthy pass · 3/3 broken fail as required** |
+| Red tests added tonight | 6, every one shown RED before it was trusted |
 | `SPIKE-008` | 7 criteria → **8**; criterion 9 still needs the second node |
 
 ---
@@ -174,20 +175,43 @@ old form) fails as required, and criterion 8 is not claimed unless it does.
 
 ---
 
-## 3. Recorded, not fixed — deliberately
+## 3. Two findings closed, and one gap in CI closed with them
 
-Both are real, both are small, and both were left alone because a 24-hour run was
-in flight and changing what it is judged against mid-run is worse than either
-defect.
+These were recorded as "found, not fixed" earlier in the night, on the grounds
+that they change how a run is scored while a run is in progress. They are now
+fixed, landing for the **next** run — the one in flight is pinned to `94b84fb`
+and is unaffected. They were coupled, which is why neither could be done alone:
+bounding the history was blocked behind moving the evidence.
 
-1. **Part 1 is judged from an in-memory list, not the durable log.** If the two
-   ever disagree the harness believes the weaker one, and it is not the one
-   A-029 names. `verify_a029_from_log.py` is the answer; making it the *primary*
-   judge is owed before the R4 gate.
-2. **`AutonomyLoop` retains every heartbeat, firing and no-op for the life of the
-   process.** ~1,440 of each per day at the declared cadence — harmless across
-   this window, unbounded across a month. Recorded at the code and in the
-   harness's `NOT_CLAIMED` so it is not mistaken for a discovery later.
+1. **The durable log is now the primary evidence.** A-029's run configuration
+   says *"full event log retained"*, and the log is what the system recorded
+   rather than what the harness remembers doing. The in-memory verdict is
+   demoted to a cross-check, and **a disagreement between the two is a failure
+   of the run** — two instruments reading different evidence about the same run
+   should not need reconciling afterwards.
+2. **`AutonomyLoop`'s history is bounded** at 10,000 entries (~7 days at the
+   declared cadence) with a `dropped_history` counter — because a `deque` with
+   `maxlen` drops silently, and a caller must be able to tell a complete record
+   from a tail. Safe only now that Part 1 is judged from the log.
+3. **`AutonomyRunner` and its watchdog had no CI coverage at all.** Their only
+   test was the 2.5-minute manual self-test, so a regression in the watchdog
+   would have reached `main` with every gate green — which is precisely how the
+   vacuous `loop_stalled` assertion survived in the first place. `A-029-RT` adds
+   ~3 s to the F5 gate: the loop must tick with nobody calling `tick()`, and
+   when it wedges the watchdog must emit `autonomy.loop_stalled` **from outside
+   the wedged thread**. Red-tested two ways — a watchdog that detects the stall
+   and says nothing, and a watchdog moved into the loop thread — both RED,
+   restore GREEN.
+
+**A third encounter with the same trap.** The wedging trigger needed a *known*
+probe fact to work, because `evaluate()` short-circuits on an `UNKNOWN` term
+**before** calling the predicate — so a wedging predicate over an unknown fact
+never runs and the test passes by never testing anything. That is the same
+short-circuit that made the first leak control vacuous. It has now produced
+three vacuous controls in one night, written by someone who had just read the
+code. It is worth treating as a known hazard of this codebase rather than three
+separate mistakes: **any control that works by making a predicate misbehave must
+first put that predicate on the executed path.**
 
 **A declared cadence of 60 s is a choice this harness made, not one it
 inherited.** Nothing in `contracts/` or `spec/` declares a production tick
