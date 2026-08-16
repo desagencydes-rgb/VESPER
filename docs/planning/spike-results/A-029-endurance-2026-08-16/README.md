@@ -143,6 +143,23 @@ criteria for the first time.
 2. `A-029` stays **owed** before gate R4. `INV-AUTO-3` additionally requires the
    **C1 pure-cron negative control** recorded as failing Part 3 before `A-029`
    may be cited at all — independent of this run.
+
+   **OPEN QUESTION, raised here because nothing else records it.** What window
+   must C1 run for? `AT-03` calls C1 *"the single most important run in the
+   verification programme"* and specifies **no window for it**. `CI-027`, the
+   check that enforces `INV-AUTO-3`, is `impl = "PENDING"`, so nothing
+   mechanical decides it. The only C1 evidence today is the harness self-test's
+   cron build — **24 s at a 0.25 s cadence** — recorded as `B2` in
+   `RED-TEST-EVIDENCE.md`.
+
+   The argument that a compressed C1 does **not** discharge it: a negative
+   control should differ from the positive run in **exactly one variable**, the
+   build. A compressed C1 against a real-time `A-029` differs in two, so it
+   controls for nothing about the real-time window — and the whole reason
+   `A-029` runs for 24 h is that the compressed run cannot surface what the
+   long window surfaces. By that reasoning C1 owes a real-time run too. This is
+   an **owner/spec decision, not an engineering fact**, and it is recorded
+   rather than resolved.
 3. A **fresh 24 h run on `HEAD`** is the closure. Nothing memory-heavy may share
    its window: `SPIKE-001` §3.2 drives free RAM to 0.27 GB at 660 pages/s, which
    would perturb the run it is measured beside.
