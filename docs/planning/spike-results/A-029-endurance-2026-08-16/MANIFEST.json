@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "gate": "A-029-endurance",
+  "state": "RECORDED_PARTIAL",
+  "passed": null,
+  "void": false,
+  "void_reason_not_applicable": "AT-03 voids a run only if the external observation ingress was unavailable. It was available; 3 of 3 injections landed. An external process kill is not that clause.",
+  "declared_window_hours": 24.0,
+  "observed_window_hours": 22.9993,
+  "completion_fraction": 0.9583,
+  "declared_tick_interval_s": 60.0,
+  "started_iso": "2026-08-16T00:42:32",
+  "terminated_iso": "2026-08-16T23:42:30",
+  "termination": "external process kill; runtime.started present, runtime.stopped absent",
+  "run_build_commit": "94b84fb",
+  "harness_commits_after_launch": [
+    "fa7d24d",
+    "5ae6996",
+    "fafe39d"
+  ],
+  "harness_lines_changed_after_launch": 391,
+  "integrity_check": "ok",
+  "record_counts": {
+    "autonomy.heartbeat": 1381,
+    "autonomy.noop": 1372,
+    "autonomy.predicate_unknown": 1372,
+    "autonomy.trigger_fired": 9,
+    "world.fact_updated": 3,
+    "control.lease_acquired": 1,
+    "runtime.started": 1
+  },
+  "total_records": 4139,
+  "resource_series_gap": "hours 12-21 absent; the live status file retains only the last 120 samples and the end-of-run write never happened",
+  "endurance_run_owed": true,
+  "files": {
+    "A-029-endurance-live-at-kill.json": {
+      "bytes": 38142,
+      "sha256": "47ce54ac805f4b4f136aa04b6ea4500e99690d1cb32b60feecf752b5178915a5"
+    },
+    "A-029-FROM-LOG-declared-24h.json": {
+      "bytes": 3869,
+      "sha256": "7a827cbb7c5515ed55e9d0215fee0f102b694c8aba5a0f343c88354df781a4a8"
+    },
+    "A-029-FROM-LOG-observed-23h.json": {
+      "bytes": 3866,
+      "sha256": "0e125782e0cd7b75ae24c6b1b0a72bb990a9e3d2af37bbe6a3fec3960408e788"
+    },
+    "log.db": {
+      "bytes": 3641344,
+      "sha256": "89b5813276ec5e6e96e909759affffd6850ab6a5871909bd968f11bcfa909040"
+    },
+    "README.md": {
+      "bytes": 7597,
+      "sha256": "93088a25439b07df0d17196f64c384befa91de023d81c9d908b25f88b29f4a4b"
+    }
+  }
+}
