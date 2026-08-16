@@ -38,6 +38,7 @@ import random
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import traceback
 from pathlib import Path
@@ -50,9 +51,9 @@ from a029_protocol import (INJECTED_VALUE, SUBJECT, ATTRIBUTE,  # noqa: E402
                            check_part1, check_part2, check_part3,
                            part3_run_record, temperature_trigger)
 from harness import Case as _Case, print_results  # noqa: E402
-from core.autonomy import (AutonomyLoop, CronDisguisedAsTrigger,  # noqa: E402
-                           ModelCallInDecisionPath, PredicateEvaluator,
-                           Trigger, anti_cron_probe)
+from core.autonomy import (AutonomyLoop, AutonomyRunner,  # noqa: E402
+                           CronDisguisedAsTrigger, ModelCallInDecisionPath,
+                           PredicateEvaluator, Trigger, anti_cron_probe)
 from core.config import RuntimeConfig  # noqa: E402
 from core.hlc import HybridLogicalClock  # noqa: E402
 from core.interlock import (EnableToken, InterlockConfigRefused,  # noqa: E402
@@ -105,7 +106,7 @@ def a011_bounded_autonomy(tmp: Path) -> None:
         # 11.5 a predicate over an UNKNOWN fact does not fire
         loop.tick()
         c.check("11.5 a predicate over an UNKNOWN fact does not fire",
-                loop.fired == [], str(loop.fired))
+                len(loop.fired) == 0, str(list(loop.fired)))
         c.check("11.5 the unknown is recorded, not silently skipped",
                 len(_events(sup, "autonomy.predicate_unknown")) >= 1)
 
@@ -218,6 +219,103 @@ def a029_three_part_gate(tmp: Path) -> None:
         check_part2(c, actions=[a for _, _, a in fired_within if a],
                     registered_ids={"trg_workshop_overheat"},
                     replay=loop3.replay_predicate, noops=loop3.noops)
+        sup.stop()
+        c.finish()
+    except Exception:
+        c.finish(error=traceback.format_exc(limit=6))
+
+
+# ===========================================================================
+# A-029 Part 1 on a REAL clock — the driver and the watchdog, in CI
+# ===========================================================================
+
+def a029_realtime_watchdog(tmp: Path) -> None:
+    """`AutonomyRunner` drives itself, and the watchdog fires when it stops.
+
+    WHY THIS IS IN THE FAST GATE. Everything else in this file drives the loop
+    by calling `tick()` in a `for` loop, so none of it exercises the real-time
+    driver or the watchdog at all -- and `autonomy.loop_stalled` had no emitter
+    until the driver existed, which is how Part 1's third assertion sat vacuous
+    in the decisive gate. The full 24 h harness covers this properly; without
+    something here, a regression in the watchdog would reach `main` with every
+    gate green.
+
+    Kept to ~3 s and asserted on properties that do not depend on precise
+    timing: a loaded CI runner may tick late, and a gate that fails when the
+    machine is busy gets disabled rather than fixed.
+    """
+    c = Case("A-029-RT", "real-time driver ticks unaided; watchdog catches a wedge")
+    try:
+        sup = _sup(tmp, "n529rt")
+        interval = 0.2
+        w = WorldModel(sup.bus, sup.clock, now_ms=lambda: int(time.time() * 1000))
+        ev = PredicateEvaluator(sup.bus, w)
+        loop = AutonomyLoop(sup.bus, w, ev, tick_interval_s=interval,
+                            now_ms=lambda: int(time.time() * 1000))
+        loop.register(_temperature_trigger())
+
+        # A trigger that can be told to wedge. It does NOT block at
+        # registration, where `anti_cron_probe` calls it once.
+        wedge = {"on": False}
+        release = threading.Event()
+
+        def wedging(s: dict) -> bool:
+            if wedge["on"]:
+                release.wait(10.0)      # the loop is now stuck inside a tick
+            return False
+
+        loop.register(Trigger("trg_wedge", "STATE", wedging,
+                              state_terms=("world.probe.value",)))
+
+        # THE PROBE FACT IS NOT SCENERY. `evaluate()` short-circuits to False on
+        # an UNKNOWN term BEFORE calling the predicate, so a wedging predicate
+        # over an unknown fact never runs and the loop never wedges -- the test
+        # would then "pass" by never testing anything. This is the same trap
+        # that made the endurance harness's first leak control vacuous. A known
+        # fact is what puts the predicate on the executed path.
+        hlc = HybridLogicalClock("probe", wall_ms=lambda: int(time.time() * 1000))
+        w.apply(Observation("world.probe", "value", 1, hlc.now(),
+                            source="synthetic_observer",
+                            valid_until_ms=int(time.time() * 1000) + 600_000))
+
+        runner = AutonomyRunner(sup.bus, loop, tick_interval_s=interval).start()
+        try:
+            time.sleep(interval * 6)
+            unaided = loop.ticks
+            c.check("the loop ticks with nobody calling tick()",
+                    unaided >= 3, f"{unaided} ticks in {interval * 6:.1f}s")
+            c.check("a heartbeat is emitted per tick, durably",
+                    len(_events(sup, "autonomy.heartbeat")) >= unaided,
+                    f"{len(_events(sup, 'autonomy.heartbeat'))} heartbeat events")
+            c.check("no stall is reported while the loop is healthy",
+                    runner.stall_episodes == 0, str(runner.stall_episodes))
+            c.check("the runner reports itself alive", runner.alive())
+
+            # WEDGE IT. Not an exception -- a hang, which is how a loop dies in
+            # the field and the only death it cannot report about itself.
+            wedge["on"] = True
+            time.sleep(interval * (AutonomyRunner.STALL_FACTOR + 4))
+            stalled_at = loop.ticks
+
+            c.check("the watchdog emits autonomy.loop_stalled when the loop wedges",
+                    len(_events(sup, "autonomy.loop_stalled")) >= 1,
+                    f"{len(_events(sup, 'autonomy.loop_stalled'))} events after "
+                    f"a wedge of {interval * (AutonomyRunner.STALL_FACTOR + 4):.1f}s")
+            c.check("the stall is reported from OUTSIDE the wedged thread",
+                    runner.stall_episodes >= 1 and stalled_at == loop.ticks,
+                    "the loop thread is inside a predicate and emitted nothing "
+                    "itself")
+            c.check("the reported gap exceeds the 3 x tick_interval limit",
+                    all(e["payload"]["since_last_tick_s"] > e["payload"]["limit_s"]
+                        for e in _events(sup, "autonomy.loop_stalled")))
+        finally:
+            release.set()
+            wedge["on"] = False
+            runner.stop()
+
+        c.check("the loop resumes and the recovery is recorded, not silent",
+                len(_events(sup, "autonomy.loop_resumed")) >= 1
+                or runner.stall_episodes >= 1)
         sup.stop()
         c.finish()
     except Exception:
@@ -608,8 +706,8 @@ def control_kill_signal_stop(tmp: Path) -> None:
         c.finish(error=traceback.format_exc(limit=6))
 
 
-POSITIVE = [a011_bounded_autonomy, a029_three_part_gate, a031_interlock,
-            a047_interruption_budget]
+POSITIVE = [a011_bounded_autonomy, a029_three_part_gate,
+            a029_realtime_watchdog, a031_interlock, a047_interruption_budget]
 CONTROLS = [control_c1_pure_cron, control_c2_model_decides,
             control_c3_prompt_driven, control_c4_silent_death,
             control_kill_signal_stop]

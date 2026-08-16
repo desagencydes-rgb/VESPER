@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -182,9 +183,14 @@ def anti_cron_probe(trigger: Trigger) -> dict:
 class AutonomyLoop:
     """Ticks, evaluates, acts. Never asks a model whether to act."""
 
+    # ~7 days at a 60 s cadence. Large enough that no acceptance window is
+    # truncated, small enough that a month-long process is bounded.
+    DEFAULT_HISTORY = 10_000
+
     def __init__(self, bus: EventBus, world: WorldModel,
                  evaluator: PredicateEvaluator, *, tick_interval_s: float = 1.0,
-                 now_ms: Any = None) -> None:
+                 now_ms: Any = None,
+                 history_limit: int = DEFAULT_HISTORY) -> None:
         self._bus = bus
         self._world = world
         self._eval = evaluator
@@ -194,16 +200,32 @@ class AutonomyLoop:
         self._last_fire: dict[str, int] = {}
         self._lock = threading.RLock()
         self.ticks = 0
-        # KNOWN, RECORDED 2026-08-16: these three lists are unbounded. Every
-        # entry is also published to the durable log, so they are a convenience
-        # for callers rather than the record of what happened -- but a process
-        # that stays up for a month accumulates all of it in memory. At the
-        # declared 60 s cadence that is ~1,440 of each per day. Left as-is
-        # while the first 24 h endurance run was in flight, because bounding
-        # them changes what that run's Part 1 can be judged against.
-        self.heartbeats: list = []
-        self.fired: list = []
-        self.noops: list = []
+        # BOUNDED, and the bound is the point. Every entry here is also
+        # published to the durable log, so these are a convenience for callers
+        # -- never the record of what happened. Unbounded, they made a process
+        # that stays up for a month accumulate a month of history in memory,
+        # which the endurance run exists to catch.
+        #
+        # `dropped_history` is not decoration: a caller that reads these lists
+        # must be able to tell "nothing was dropped" from "I am looking at a
+        # tail". Silently handing back a truncated history is how a long run
+        # gets judged against the part of itself it happens to remember.
+        self.history_limit = history_limit
+        self.dropped_history = 0
+        self.heartbeats: deque = deque(maxlen=history_limit)
+        self.fired: deque = deque(maxlen=history_limit)
+        self.noops: deque = deque(maxlen=history_limit)
+
+    def _remember(self, dq: deque, item: dict) -> None:
+        """Append to a bounded history, counting what falls off the end.
+
+        A `deque(maxlen=...)` drops silently, which is exactly the behaviour a
+        caller must not inherit unknowingly. Counting the drop is what lets
+        `dropped_history` distinguish a complete record from a tail.
+        """
+        if dq.maxlen is not None and len(dq) == dq.maxlen:
+            self.dropped_history += 1
+        dq.append(item)
 
     def register(self, trigger: Trigger) -> Trigger:
         """Register a trigger. A cron-in-disguise is REFUSED at registration.
@@ -232,7 +254,7 @@ class AutonomyLoop:
             triggers = list(self._triggers.values())
 
         hb = {"tick": self.ticks, "at_ms": self._now_ms()}
-        self.heartbeats.append(hb)
+        self._remember(self.heartbeats, hb)
         self._bus.publish("autonomy.heartbeat", subject="loop", payload=hb,
                           component="autonomy")
 
@@ -252,7 +274,7 @@ class AutonomyLoop:
                 # a quiet night is distinguishable from a dead one.
                 noop = {"trigger_id": t.trigger_id, "tick": self.ticks,
                         "fired": False, "snapshot": snap}
-                self.noops.append(noop)
+                self._remember(self.noops, noop)
                 self._bus.publish("autonomy.noop", subject=t.trigger_id,
                                   payload=noop, component="autonomy")
                 continue
@@ -272,7 +294,7 @@ class AutonomyLoop:
                 "snapshot": snap,
                 "model_involved_in_decision": False,
             }
-            self.fired.append(action)
+            self._remember(self.fired, action)
             actions.append(action)
             self._bus.publish("autonomy.trigger_fired", subject=t.trigger_id,
                               payload=action, component="autonomy")

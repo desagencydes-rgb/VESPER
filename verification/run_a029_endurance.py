@@ -659,10 +659,31 @@ def launch(args) -> int:
         return tail[-120:]
 
     r = run.run(on_sample=on_sample)
+
+    # THE DURABLE LOG IS THE PRIMARY EVIDENCE. A-029's run configuration says
+    # "full event log retained", and the log is what the system recorded rather
+    # than what the harness remembers doing. The in-memory verdict is kept as a
+    # CROSS-CHECK: two instruments on different evidence, and a disagreement is
+    # a failure of the run rather than a detail to reconcile afterwards. This
+    # ordering was owed -- until now Part 1 was judged from the loop's own list.
+    log_rec, log_ev = judge_from_log(root / "a029", args.tick,
+                                     window_s=r["elapsed_s"],
+                                     case_id="A-029-FROM-LOG")
+
     c = Case("A-029-ENDURANCE", f"{args.hours} h zero-input window, real clock")
     detail = judge(c, r)
+    mem_ok = all(a["passed"] for a in c.assertions)
+    c.check("the log-derived verdict and the in-memory verdict AGREE",
+            log_rec["ok"] == mem_ok,
+            f"log says {'PASS' if log_rec['ok'] else 'FAIL'}, in-memory says "
+            f"{'PASS' if mem_ok else 'FAIL'}. They read different evidence about "
+            "the same run, so a disagreement means one of them is not reading "
+            "what happened.")
+    c.check("the primary (log-derived) verdict passes", log_rec["ok"],
+            "; ".join(a["assertion"] for a in log_rec["assertions"]
+                      if not a["passed"]) or "")
     rec = c.finish()
-    print_results([rec])
+    print_results([rec, log_rec])
 
     voided = detect_void(r["samples"], args.tick)
     if voided:
@@ -688,6 +709,14 @@ def launch(args) -> int:
         "resources": detail,
         "samples": r["samples"],
         "result": rec,
+        "primary_evidence": "durable event log",
+        "log_derived_result": log_rec,
+        "log_derived_counts": {
+            "heartbeats": len(log_ev["heartbeats"]),
+            "firings": len(log_ev["fired"]),
+            "noops": len(log_ev["noops"]),
+            "injections": len(log_ev["injections"]),
+        },
         "not_claimed": NOT_CLAIMED,
     }
     out = Path(args.out) if args.out else STATUS_PATH
@@ -714,20 +743,12 @@ NOT_CLAIMED = {
         "three uniform over the whole window. Stratification is what lets three "
         "independent draws share one window without overlapping."),
     "A-012 / A-041": "alarm hardware cases remain blocked on devices.",
-    "liveness evidence source": (
-        "Part 1 is judged from `AutonomyLoop.heartbeats`, the loop's IN-MEMORY "
-        "list, not from `autonomy.heartbeat` records in the durable log. If the "
-        "two ever disagree the harness believes the list, which is the weaker "
-        "of the two and not the one A-029 names ('full event log retained'). "
-        "Known and recorded on 2026-08-16 rather than changed mid-flight while "
-        "a 24 h run was in progress; the fix is to read the log and is owed "
-        "before the R4 gate."),
-    "unbounded in-memory history": (
-        "`AutonomyLoop` retains every heartbeat, firing and no-op for the life "
-        "of the process. At the declared 60 s cadence that is ~1,440 of each "
-        "per day -- harmless across this window, unbounded across a month. The "
-        "endurance run is the instrument that would eventually catch it, and it "
-        "is recorded here so the finding is not mistaken for a discovery later."),
+    "resource evidence is in-memory only": (
+        "The A-029 parts are judged from the durable log, but the resource "
+        "criteria (E1-E4) cannot be: RSS, handles and thread counts never reach "
+        "the event log, so they come from the sampler's own record. A leak is "
+        "therefore attested by one instrument rather than two. Telemetry would "
+        "close this and is not in scope for the endurance harness."),
 }
 
 
