@@ -140,6 +140,27 @@ def cmd_preflight(args) -> int:
     act = AlarmActuator([rung], emit=emit)
     report = act.preflight()
     report["observation_channel"] = rung._observe_mode
+    if IS_LINUX:
+        # The acknowledgement question on this node is not "does the session
+        # lock" -- Linux does not gate audio or input on that. It is whether
+        # EV_KEY is readable off /dev/input, which is what makes a keypress a
+        # PHYSICAL, ASR-independent acknowledgement under 41.3.
+        probe = AckWatcher()
+        report["ack_channel"] = "evdev"
+        report["ack_channel_verified"] = probe.available
+        report["ack_channel_note"] = (
+            "EV_KEY readable off /dev/input: any key or the lid acknowledges, "
+            "with no speech, no screen and no unlock."
+            if probe.available else
+            "/dev/input is NOT readable -- the `input` group has not taken "
+            "effect for this session. Log out and back in, or reboot. Without "
+            "it there is no physical acknowledgement channel and INV-ALARM-2 is "
+            "unmet.")
+        probe.close()
+        _save("preflight.json", {"records": records, "report": report})
+        print("\n" + json.dumps(report, indent=2, default=str))
+        return 0 if report["ladder_depth"] else 1
+
     lock = console_lock_state()
     report["console_lock_on_wake"] = lock
     report["console_lock_note"] = {
