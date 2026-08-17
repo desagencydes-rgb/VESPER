@@ -180,9 +180,32 @@ Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $act -Trigger $trg `
 
 # -------------------------------------------------------------------------- fire
 def cmd_fire(args) -> int:
+    """Wrapper that GUARANTEES a result file, including on a crash.
+
+    The first rehearsal exited 1 and wrote nothing, so the only evidence that
+    anything had happened at all was the Task Scheduler's LastTaskResult. A
+    headless alarm that dies silently is indistinguishable from one that was
+    never scheduled, and "I could not check it" must not read as "it passed".
+    """
+    import traceback
+    try:
+        return _fire(args)
+    except Exception:
+        tb = traceback.format_exc()
+        _save("fire-result.json", {"result": {
+            "fired": False, "reason": "CRASHED",
+            "traceback": tb.splitlines()[-8:], "gate_evidence": False,
+            "note": ("the fire path raised before completing. Recorded rather "
+                     "than lost, because a task that exits non-zero and writes "
+                     "nothing leaves no way to tell a crash from a no-show.")}})
+        print(tb, file=sys.stderr)
+        return 1
+
+
+def _fire(args) -> int:
     from core.autonomy import PredicateEvaluator, anti_cron_probe
-    from core.bus import EventBus
-    from core.hlc import HybridLogicalClock
+    from core.config import RuntimeConfig
+    from core.supervisor import Supervisor
     from core.world import Observation, WorldModel
 
     records: list = []
@@ -205,14 +228,17 @@ def cmd_fire(args) -> int:
               file=sys.stderr)
         return 2
 
-    bus = EventBus.__new__(EventBus)          # bus only for the evaluator's emits
-    try:
-        bus.__init__()                        # type: ignore[misc]
-    except Exception:
-        pass
-    clock = HybridLogicalClock("alarm_node")
-    world = WorldModel(bus, clock, now_ms=lambda: int(time.time() * 1000))
-    ev = PredicateEvaluator(bus, world)
+    # The real runtime, not a hand-built stand-in. The first version constructed
+    # an EventBus through __new__ and called __init__ with no arguments -- the
+    # bus needs a clock and a store, so it stayed uninitialised and the first
+    # publish() raised. Supervisor wires clock, store and bus in dependency
+    # order and gives the alarm a DURABLE log for free, which is where its
+    # evidence belongs anyway.
+    cfg = RuntimeConfig(node_id="alarm_node", data_dir=STATE_DIR / "data")
+    sup = Supervisor(cfg).start()
+    clock = sup.clock
+    world = WorldModel(sup.bus, clock, now_ms=lambda: int(time.time() * 1000))
+    ev = PredicateEvaluator(sup.bus, world)
     trigger = build_alarm_trigger(alarm, holds_lease=lambda: True,
                                   partition_suspected=lambda: False)
 
@@ -247,6 +273,10 @@ def cmd_fire(args) -> int:
             break
         time.sleep(5)
 
+    try:
+        sup.stop()
+    except Exception:
+        pass
     result["preflight"] = pre
     result["console_lock_at_fire"] = console_lock_state()
     result["volume_restored_to"] = rung.restore()
