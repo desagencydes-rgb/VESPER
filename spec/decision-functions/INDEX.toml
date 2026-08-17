@@ -289,3 +289,46 @@ inputs = ["episode", "observation", "attempts", "operating_period"]
 output = "RETRY | COMPENSATE | ESCALATE | HALT"
 model_access = false
 enforces = ["INV-ACT-5", "INV-ACT-6"]
+
+# ---------------------------------------------------------------------------
+# Added 2026-08-17 to close four recorded depth dispositions (SR-023, SR-033,
+# SR-035, SR-038). Each was raised only because the missing mechanism was
+# ALREADY named load-bearing by an acceptance-test assertion -- the
+# discriminator recorded in DECISION_LOG.md row 9. SR-016, SR-017 and SR-034
+# were deliberately NOT raised: 016/017 are F6 work whose assertions A-045
+# already holds, and SR-034 is the worked example of the discriminator, where a
+# decision function for "clean hierarchy, formatting, vocabulary" would be a
+# document written to move a linter.
+# ---------------------------------------------------------------------------
+
+[decision_functions.DF-ARTIFACT-ROUTE]
+title = "Local/remote generation routing for artifacts"
+owner_rem = "REM-010"
+inputs = ["kind", "privacy_class", "evidence_sensitivity", "local_capability", "provider_admitted", "cost_class"]
+output = "LOCAL | REMOTE(provider_id) | REFUSE(reason)"
+model_access = false
+enforces = ["INV-EVID-1", "INV-COST-3", "INV-PRIV-1"]
+
+[decision_functions.DF-PRESENT-BIND]
+title = "Artifact presentation binding -- scene, document, or neither"
+owner_rem = "REM-009"
+inputs = ["artifact_kind", "media_type", "endpoint_capability", "scene_available"]
+output = "SEMANTIC_SCENE(scene_ref) | DOCUMENT_REF | NOT_PRESENTABLE"
+model_access = false
+enforces = ["INV-SCENE-3", "INV-SCENE-2"]
+
+[decision_functions.DF-PERSONA]
+title = "Expressive register selection under truth precedence"
+owner_rem = "REM-009"
+inputs = ["situational_state", "scene_urgency", "persons_present", "claim_confidence", "boundary_asserted"]
+output = "register_id + downgrade_reason | NONE"
+model_access = false
+enforces = ["INV-EVID-1", "INV-EVID-3"]
+
+[decision_functions.DF-SECURITY-TRIAGE]
+title = "Security signal triage: anomaly, indicator, incident"
+owner_rem = "REM-011"
+inputs = ["observation", "asset_enrolled", "signature_match", "confirmed_effect", "baseline"]
+output = "ANOMALY | INDICATOR | INCIDENT | UNKNOWN | REFUSE_UNENROLLED"
+model_access = false
+enforces = ["INV-TRUST-1", "INV-EVID-1"]

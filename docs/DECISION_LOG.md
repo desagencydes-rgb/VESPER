@@ -258,3 +258,47 @@ The thirteen rows below are the **decisions** taken in response, not a defect li
 | 11 | **`INV-GOV-1` written rather than repointing `CI-039` at a convenient invariant** | `CI-039` (governor damping) named an invariant that did not describe damping. The tempting correction — point it at whichever nearby invariant makes the registry consistent — is the `A-029` defect in a different file. The missing invariant was written instead. |
 | 12 | **Repository initialised; the whole suite executed from a clean clone** | The corpus had no git history, so nothing had ever proven the tooling ran anywhere except this working directory. It now does, with `CI-008` demonstrably blocking a planted `core/probe.py`. |
 | 13 | **Published coverage restated as `ENFORCED TODAY: 15/118`** | The tree previously reported checks that *exist*. The figure now counts only invariants named by a check that is implemented, bidirectionally consistent, red-run and non-vacuous — four conditions, each of which was individually false somewhere in this tree before this pass. The number went **down**, which is the point: *"the objective is not to make the repository look green."* |
+
+---
+
+## Depth pass — 2026-08-17 · four of the seven raised, three deliberately left red
+
+`PLAN_2026-08-17.md` scheduled "the seven under-specified requirements" as a day's writing and
+described them as *"the only thing keeping `--profile release` red."* Applying row 9's
+discriminator to each row before writing anything found that framing wrong in a way that
+matters: **`--profile release` cannot go green today, and should not.** Three of the seven are
+red on purpose, and one of them exists specifically to be red.
+
+The discriminator, restated: raise an SR only where the missing mechanism is **already named
+load-bearing** by a CI check, an invariant's `enforced_by`, or an acceptance-test assertion.
+Each row below was tested against it individually, and the acceptance test is quoted because
+the quote is what makes the judgement reviewable rather than assertable.
+
+| Row | Named load-bearing by | Decision |
+|---|---|---|
+| **SR-023** | `A-027`: *"every artifact carries provenance (inputs, model, evidence refs); artifacts are registered in the artifact registry and are retrievable by correlation ID"* — three assertions with no referent | **Raised.** `contracts/entities/artifact.schema.json` + `DF-ARTIFACT-ROUTE` |
+| **SR-033** | `A-027`, plus `INV-SCENE-3` (no free-form markdown or HTML escape hatch) | **Raised.** Shares the Artifact type; adds `DF-PRESENT-BIND` |
+| **SR-035** | `A-036`: *"asserted by showing the policy layer changes behaviour with the model held constant"* — unsatisfiable unless a policy artifact exists outside the prompt; `INV-EVID-1` | **Raised.** `contracts/policy/persona_policy.schema.json` + `DF-PERSONA` |
+| **SR-038** | `A-044`: *"detection emits a typed security event"*, an anomaly-and-indicator injection procedure, `INV-TRUST-1` | **Raised.** `contracts/events/security_signal.schema.json` + `DF-SECURITY-TRIAGE` |
+| **SR-034** | `A-027`'s *"clean hierarchy and formatting"* — no decision content two engineers would implement differently | **Left `CONTRACTED`.** Raising it requires the DF its own depth note refuses |
+| **SR-016 / SR-017** | `A-045` already holds the assertions; no CI check or invariant names the mechanism | **Left `DESIGNED`.** F6 work; 017 depends on 016's fabric contract |
+
+**Why SR-034 was not written, stated once so it is not re-derived.** It is row 9's worked
+example of the discriminator. A `DF-ARTIFACT-RENDER` for *"clean hierarchy, formatting, design,
+vocabulary"* would be a document written to move a linter — the exact failure `TR-026` exists to
+prevent. Writing it would have turned the release profile green **and destroyed the only worked
+example in the corpus of a requirement correctly held below `SPECIFIED`.** The linter going from
+7 errors to 0 would have been a worse outcome than 7 to 3.
+
+**The promotion was proven, not declared.** `TR-025` + `TR-026` together define `SPECIFIED` as a
+contract **and** a state machine or decision function. Removing `decision_functions` from the
+raised `SR-038` row was verified to make `TR-026` fire red (errors 3 → 5), and the registry was
+restored byte-identically (`sha256:822b7e29…`) — a promotion whose gate has never been seen to
+fail is a promotion that was declared. The four depth notes were replaced by this section rather
+than deleted, because the reasoning for holding a row is worth more than the row.
+
+`--profile release` **7 errors → 3**, all `TR-027`, all deliberate. Engineering profile PASS,
+`reference_lint` PASS over 131 normative files, `checks.py all` 17/17, `self_test.py` 47/47,
+`ci-registry` 1/1 with the decision-function count 33 → 37. `ENFORCED TODAY` is unchanged at
+**17/118** — this pass added contracts and decision functions, not CI checks, and the figure
+counts only invariants named by an implemented, red-run, non-vacuous check.

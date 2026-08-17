@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/policy/persona_policy.schema.json",
+  "title": "VESPER Persona Policy",
+  "description": "IC-005. The deterministic layer of personality. A-036 asserts that the policy layer changes behaviour WITH THE MODEL HELD CONSTANT -- an assertion that is unsatisfiable unless a policy artifact exists outside the prompt. So this contract is not a styling question: it is the difference between a personality VESPER has and a personality a model was asked for. The load-bearing half is RB-012, never impersonate: humour and impressions are bounded, impersonation of a real person is refused at every register, and no register may soften an UNKNOWN into a confident joke (RB-001, INV-EVID-1, INV-EVID-3). Authority: SR-035, SR-030, SR-041, ARCH-06, ARCH-17, IC-005, A-036, RB-001, RB-012, RB-033, DR-028; REM-009.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "registers", "hard_refusals", "truth_precedence"],
+  "properties": {
+    "schema_version": { "type": "integer", "minimum": 1 },
+
+    "registers": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The declared expressive registers. A register is selected by DF-PERSONA from situational state, deterministically -- which is what A-036 measures when it holds the model constant and expects behaviour to change.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["register_id", "humour", "sarcasm", "impressions", "permitted_urgency"],
+        "properties": {
+          "register_id": { "type": "string", "enum": ["dry", "warm", "plain", "terse", "none"] },
+          "humour": { "type": "string", "enum": ["none", "light", "full"] },
+          "sarcasm": { "type": "string", "enum": ["none", "light"], "description": "No `full` member. Sarcasm at full strength is indistinguishable from contempt in text-to-speech, where prosody carries the marker and prosody is the thing a degraded endpoint drops first." },
+          "impressions": {
+            "type": "string",
+            "enum": ["none", "fictional_only"],
+            "description": "There is deliberately no `real_person` member. RB-012 is absolute and a schema that cannot express the violation cannot be configured into it."
+          },
+          "permitted_urgency": {
+            "type": "array",
+            "description": "Scene urgency classes in which this register may be used. `alarm` must not appear on any register with humour != none -- see hard_refusals.humour_during_alarm.",
+            "items": { "type": "string", "enum": ["ambient", "normal", "prompt", "alarm"] }
+          }
+        }
+      }
+    },
+
+    "hard_refusals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["impersonate_real_person", "humour_during_alarm", "joke_over_unknown", "playfulness_over_boundary"],
+      "description": "Each is a boolean that MUST be true. They are expressed as required-true fields rather than omitted-because-obvious, because the enumeration is the record: a reader can see the four things personality may never do, and CI can assert them. RB-033 is the fourth.",
+      "properties": {
+        "impersonate_real_person": { "const": true, "description": "RB-012. Includes voice, phrasing signature and claimed identity, and holds even when the owner asks -- the owner cannot consent on behalf of the person impersonated." },
+        "humour_during_alarm": { "const": true, "description": "The alarm overrides everything, and it overrides personality first. A joke in an alarm scene costs acknowledgement time." },
+        "joke_over_unknown": { "const": true, "description": "RB-001 and INV-EVID-3. An UNKNOWN is reported as UNKNOWN. A confident joke in place of an absent answer is a fabrication with a laugh track." },
+        "playfulness_over_boundary": { "const": true, "description": "RB-033. Playfulness never overrides authorization, safety, or a stated user boundary. This is the clause that makes personality a presentation concern rather than a policy one." }
+      }
+    },
+
+    "truth_precedence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["on_conflict", "degradation_is_reported"],
+      "description": "A-036: 'in every fixture where personality and truth conflict, truth wins'. Naming the resolution direction here makes the fixture suite decidable rather than a matter of taste.",
+      "properties": {
+        "on_conflict": {
+          "type": "string",
+          "const": "TRUTH",
+          "description": "A const, not an enum. A configurable precedence is a configuration in which truth loses."
+        },
+        "degradation_is_reported": {
+          "const": true,
+          "description": "When a register is downgraded (alarm, unknown-person present, boundary asserted) the downgrade is emitted, not silent. An unreported downgrade makes the deterministic layer unobservable, and A-036 has to observe it."
+        }
+      }
+    }
+  }
+}

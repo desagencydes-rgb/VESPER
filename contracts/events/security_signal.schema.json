@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/events/security_signal.schema.json",
+  "title": "VESPER SecuritySignal",
+  "description": "IC-009. The typed security event A-044 asserts detection emits. The registry calls this the highest-value of the seven remaining depth gaps, and the reason is asymmetry: ADR-007 D6 supplies the compromise-RESPONSE half in full, while the DETECTION half had no artifact -- so a response mechanism sat behind a trigger nobody had typed. The triage rule distinguishing anomaly from indicator from incident is DF-SECURITY-TRIAGE, and the scope is fixed by OWNER-DECISION-005: owner-enrolled assets only, a target outside the enrolled set is REFUSED rather than scanned. Authority: SR-038, ARCH-19, IC-009, A-044, INV-TRUST-1, ADR-007 D6, OWNER-DECISION-005; REM-011.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["signal_id", "schema_version", "observed_at_hlc", "asset_ref", "enrolment", "classification", "evidence", "response"],
+  "properties": {
+    "signal_id": { "type": "string", "pattern": "^sec_[0-9a-z]{8,}$" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "observed_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" },
+
+    "asset_ref": { "type": "string", "description": "The subject asset. Always present: a security signal with no subject cannot be triaged and cannot be scoped." },
+
+    "enrolment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enrolled", "scope_decision"],
+      "description": "OWNER-DECISION-005's permanent scope, checked BEFORE classification rather than after. Confirmed by the owner 2026-08-12 (single-occupant dwelling, no third-party assets in range). Placing this block ahead of `classification` is deliberate: a signal about an unenrolled asset must never acquire a severity, because a severity is what justifies a response against it.",
+      "properties": {
+        "enrolled": { "type": "boolean" },
+        "scope_decision": {
+          "type": "string",
+          "enum": ["IN_SCOPE", "REFUSED_UNENROLLED"],
+          "description": "REFUSED_UNENROLLED is emitted and logged rather than dropped. A silently discarded out-of-scope signal is indistinguishable from a detector that was never running -- and 'I could not check it' must never read the same as 'it passed'."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "enrolled": { "const": false } }, "required": ["enrolled"] },
+          "then": { "properties": { "scope_decision": { "const": "REFUSED_UNENROLLED" } } }
+        }
+      ]
+    },
+
+    "classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class", "confidence", "basis"],
+      "description": "The output of DF-SECURITY-TRIAGE. The three-way split is the whole point: an anomaly is a deviation, an indicator is a deviation with a known attack signature, an incident is an indicator with confirmed effect. Collapsing them produces either alarm fatigue or a missed intrusion, and which one depends only on where the single threshold was set.",
+      "properties": {
+        "class": { "type": "string", "enum": ["ANOMALY", "INDICATOR", "INCIDENT", "UNKNOWN"] },
+        "confidence": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Null is legal and means unquantified. INV-EVID-3: UNKNOWN is first-class, and a fabricated 0.5 is worse than an honest null because it is arithmetically usable."
+        },
+        "basis": {
+          "type": "array",
+          "minItems": 1,
+          "description": "What the classification rests on: the rule ids or signature ids that fired. minItems 1 -- a classification with no basis is a verdict with no evidence, which INV-EVID-1 forbids emitting as an assertion.",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["preserved", "preserved_before_remediation", "evidence_refs"],
+      "description": "A-044: 'evidence is preserved BEFORE remediation'. Ordering is the assertion, so it is a field rather than a hope. Isolating a node destroys volatile state; a remediation that ran first is a remediation that destroyed the record of what it was remediating.",
+      "properties": {
+        "preserved": { "type": "boolean" },
+        "preserved_before_remediation": {
+          "type": "boolean",
+          "description": "FALSE is a recorded failure of the procedure, not a configuration. It exists so the violation is visible in the log rather than absent from it."
+        },
+        "evidence_refs": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+
+    "response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["isolation", "credential_action", "recovery"],
+      "description": "ADR-007 D6's half, bound to the detection half by the same envelope. INV-TRUST-1 is the constraint that makes isolation meaningful: a node demoted to Z2 may not hold state, issue commands or receive secrets, so isolation is a trust-zone transition rather than a firewall rule.",
+      "properties": {
+        "isolation": { "type": "string", "enum": ["NONE", "DEMOTED_TO_Z2", "DISENROLLED"] },
+        "credential_action": { "type": "string", "enum": ["NONE", "ROTATED", "REVOKED"] },
+        "recovery": { "type": "string", "enum": ["NONE", "RESTORED_FROM_KNOWN_GOOD", "PENDING_OWNER"] }
+      }
+    }
+  }
+}
