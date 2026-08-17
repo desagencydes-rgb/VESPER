@@ -128,6 +128,32 @@ def _warble(seconds: float, amplitude: float = 0.95):
     return wave.astype("float32")
 
 
+ES_CONTINUOUS = 0x80000000
+ES_SYSTEM_REQUIRED = 0x00000001
+ES_DISPLAY_REQUIRED = 0x00000002
+
+
+def keep_display_awake(on: bool = True) -> bool:
+    """Hold the display on for the duration of the alarm.
+
+    THE MONITORS ARE THE SPEAKERS. This node's audible outputs are two display
+    panels over HDMI/DP, and the power scheme sleeps them after 900 s idle -- a
+    sleeping panel can drop its audio endpoint, so the alarm would be sounding
+    into a device that is no longer there. That is the same failure the owner
+    described about a phone in silent mode, arriving through the display power
+    policy instead of the volume slider, and it is invisible until the one
+    morning it matters.
+
+    ES_CONTINUOUS holds the request until it is released, so this is set before
+    the first escalation step and cleared when the alarm is done.
+    """
+    try:
+        flags = (ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED) if on             else ES_CONTINUOUS
+        return bool(ctypes.windll.kernel32.SetThreadExecutionState(flags))
+    except Exception:
+        return False
+
+
 def _load_wav(path: str):
     """Load a WAV to mono float32 at SAMPLE_RATE, normalised to full scale.
 
@@ -255,6 +281,7 @@ class WindowsAudioRung:
         self._probe_rms = 0.0
         self._margin = 0.0
         self._floor_snr = 0.0
+        self._display_held = False
         self._last_observed_snr = 0.0
         self._proc: subprocess.Popen | None = None
         self._stream = None
@@ -296,6 +323,12 @@ class WindowsAudioRung:
                       f"level={now_level:.2f}. The device is reachable and will "
                       f"not become audible, which is the case that must not be "
                       f"counted as a rung."))
+
+        # Hold the panels awake before probing: measuring audibility through a
+        # display that is about to sleep measures the wrong machine.
+        self._display_held = keep_display_awake(True)
+        if not self._display_held:
+            blocking.append("display_wake_request_refused")
 
         # Noise floor first, then a probe tone, then look for the difference.
         # THE TONE MUST STILL BE PLAYING WHILE THE MICROPHONE RECORDS. The first
@@ -436,10 +469,14 @@ class WindowsAudioRung:
         except Exception:
             pass
 
+    def release_display(self) -> None:
+        keep_display_awake(False)
+
     def restore(self) -> dict:
         """Put the machine back. A prototype that leaves the volume at 0.95 and
         the mute off is a prototype that changed the owner's machine silently."""
         out = dict(self._restore)
+        keep_display_awake(False)
         try:
             if self._vol is not None and self._restore:
                 self._vol.SetMute(1 if self._restore["muted"] else 0, None)
