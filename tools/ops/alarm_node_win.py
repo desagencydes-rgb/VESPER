@@ -55,6 +55,7 @@ from core.alarm import (NOT_ACTUABLE, READY, UNREACHABLE, UNVERIFIABLE,
                         UNVERIFIED, ReadinessReport)
 
 VOLUME_FLOOR = 0.75          # below this an alarm is not reliably audible
+MIC_DEAD_EPS = 1e-4          # below this the capture stream is not running
 PROBE_TONE_HZ = 880
 # A warble, not a beep. Two alternating tones cut through room noise and through
 # a noise-suppressing microphone far better than a steady sine, and they are what
@@ -395,7 +396,16 @@ class WindowsAudioRung:
             # audible while they sat here awake, and letting that carry a run
             # where nothing was measured is how the first rehearsal reported
             # READY into an empty room.
-            self._mic_dead = (self._noise_floor <= 0.0 and self._probe_rms <= 0.0)
+            # A DEAD STREAM IS NOT EXACTLY ZERO. The first version tested
+            # <= 0.0 and a blocked microphone returns tiny non-zero values
+            # (1.5e-5 measured on a disconnected device), so the check never
+            # fired, the rung read UNVERIFIABLE instead of UNVERIFIED, and the
+            # alarm refused to fire in the one situation it was built for.
+            # Measured separation: a live room floor is 4.4e-4 to 1.8e-3; a dead
+            # stream is 1.5e-5. MIC_DEAD_EPS sits an order of magnitude clear of
+            # both.
+            self._mic_dead = (self._noise_floor < MIC_DEAD_EPS
+                              and self._probe_rms < MIC_DEAD_EPS)
             if not heard and self._owner_attested and not self._mic_dead:
                 heard = True
                 self._observe_mode = "owner_attested"
