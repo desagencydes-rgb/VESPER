@@ -83,6 +83,16 @@ html, body {
 .rot { width: 100%; height: 100%; display: grid; place-items: center; }
 #stage.flip .rot { transform: rotate(180deg); }
 
+/* MIRROR. A single reflection REVERSES HANDEDNESS -- that is a parity fact, not
+   a property of this geometry -- so no rotation can undo it: rotate(180deg) is
+   scale(-1,-1) with determinant +1, and a mirror needs determinant -1. Text in
+   the ghost therefore reads right-to-left until the source is pre-mirrored,
+   which is what scaleX(-1) does. Confirmed in the field 2026-08-17: the ghost
+   rendered "VESPER 01:53" and the page title reversed. See the correction in
+   SPIKE-004 section 6. */
+#stage.mirror .rot { transform: scaleX(-1); }
+#stage.flip.mirror .rot { transform: rotate(180deg) scaleX(-1); }
+
 .inner { width: 100%; height: 100%; display: grid; place-items: center; padding: 2%; }
 
 /* --- test content --- */
@@ -148,13 +158,14 @@ html, body {
 <div id="hud">
   <div id="hudrow">
     <div><b id="step-name">—</b> · <span id="step-n">1</span>/<span id="step-total">6</span> · <b id="lvl">—</b></div>
-    <div><span id="mode">pyramid</span> · D=<b id="dv">50</b>cm w=<b id="wv">6</b>cm · <b id="nmark">0</b> marked</div>
+    <div><span id="mode">pyramid</span> · D=<b id="dv">50</b>cm w=<b id="wv">6</b>cm · <b id="geom">M</b> · <b id="nmark">0</b> marked</div>
   </div>
   <div id="btns">
     <button id="bMark" class="hot">MARK</button>
     <button id="bSend">SEND</button>
     <button id="bMode">layout</button>
     <button id="bFlip">flip</button>
+    <button id="bMirror">mirror</button>
     <button id="bD">D+</button>
     <button id="bW">w+</button>
     <button id="bProto">?</button>
@@ -302,7 +313,10 @@ const LAYOUTS = ["pyramid", "single", "baseline"];
 const D_STEPS = [30, 40, 50, 60, 80, 100];
 const W_STEPS = [3, 4, 5, 6, 8, 10, 12];
 
-let ti = 0, li = 0, mode = 0, flip = false, di = 2, wi = 3;
+// mirror defaults ON: the field run of 2026-08-17 showed the ghost reads
+// right-to-left without it, so an operator who never touches the button gets a
+// readable image rather than an unreadable one they have to diagnose.
+let ti = 0, li = 0, mode = 0, flip = false, mirror = true, di = 2, wi = 3;
 const marks = [];
 
 const $ = id => document.getElementById(id);
@@ -320,7 +334,7 @@ function draw() {
   const t = TESTS[ti];
   li = Math.max(0, Math.min(li, t.levels.length - 1));
   const html = t.render(t.levels[li]);
-  stage.className = flip ? "flip" : "";
+  stage.className = (flip ? "flip " : "") + (mirror ? "mirror" : "");
   stage.innerHTML = faces().map(
     ([d]) => `<div class="face ${d}"><div class="rot"><div class="inner">${html}</div></div></div>`).join("");
   $("step-name").textContent = t.name;
@@ -330,6 +344,7 @@ function draw() {
   $("dv").textContent = D_STEPS[di];
   $("wv").textContent = W_STEPS[wi];
   $("nmark").textContent = marks.length;
+  $("geom").textContent = (flip ? "F" : "-") + (mirror ? "M" : "-");
 }
 
 function say(m) { $("msg").textContent = m; }
@@ -345,7 +360,7 @@ function mark() {
   const key = t.name + "|" + LAYOUTS[mode];
   const rec = {
     test: t.name, unit: t.unit, level: t.levels[li],
-    layout: LAYOUTS[mode], flipped: flip,
+    layout: LAYOUTS[mode], flipped: flip, mirrored: mirror,
     eye_to_pane_cm: D_STEPS[di], strip_depth_cm: W_STEPS[wi],
     folded_path_cm: D_STEPS[di] + W_STEPS[wi] / 2
   };
@@ -400,6 +415,7 @@ $("bMark").addEventListener("click", e => { e.stopPropagation(); mark(); });
 $("bSend").addEventListener("click", e => { e.stopPropagation(); send(); });
 $("bMode").addEventListener("click", e => { e.stopPropagation(); mode = (mode + 1) % LAYOUTS.length; draw(); say("layout: " + LAYOUTS[mode]); });
 $("bFlip").addEventListener("click", e => { e.stopPropagation(); flip = !flip; draw(); });
+$("bMirror").addEventListener("click", e => { e.stopPropagation(); mirror = !mirror; draw(); say("mirror: " + (mirror ? "on" : "off")); });
 $("bD").addEventListener("click", e => { e.stopPropagation(); di = (di + 1) % D_STEPS.length; draw(); });
 $("bW").addEventListener("click", e => { e.stopPropagation(); wi = (wi + 1) % W_STEPS.length; draw(); });
 $("bProto").addEventListener("click", e => { e.stopPropagation(); $("proto").classList.add("on"); });
@@ -411,6 +427,7 @@ addEventListener("keydown", e => {
   if (e.key === "ArrowUp")    test(-1);
   if (e.key === "m") mark();
   if (e.key === "f") { flip = !flip; draw(); }
+  if (e.key === "m") { mirror = !mirror; draw(); }
   if (e.key === "l") { mode = (mode + 1) % LAYOUTS.length; draw(); }
 });
 

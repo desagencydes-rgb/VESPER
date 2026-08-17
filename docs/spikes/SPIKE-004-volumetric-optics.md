@@ -79,7 +79,30 @@ reflector folded along the line `y=0`:
 
 Two consequences the screen layout depends on, and both are derived above rather
 than assumed: content **farther from the fold line appears higher**, and `x` is
-unchanged, so **nothing is mirrored**.
+unchanged, so ~~**nothing is mirrored**~~.
+
+> **CORRECTED 2026-08-17, by looking at it.** The second half is wrong. The ghost
+> renders text **right-to-left** — the field run photographed `VESPER 01:53` and
+> the page title both reversed.
+>
+> The error is instructive, so it is kept rather than quietly fixed. The table
+> above is right that the *world* `x` coordinate is preserved; the mistake was
+> concluding from that that the image is not mirrored. **Handedness is not a
+> coordinate.** A single reflection is orientation-reversing — the full map here
+> is `(x,y,z) -> (x,-z,-y)`, whose determinant is `-1` — and the viewer stands on
+> the far side of the fold, so their left-right axis is inverted relative to
+> someone looking down at the panel. Preserved coordinate, reversed image.
+>
+> It also explains why the `flip` control could never have fixed it:
+> `rotate(180deg)` is `scale(-1,-1)` with determinant **+1**. No rotation undoes a
+> reflection. The instrument now applies `scaleX(-1)` — a separate `mirror`
+> control, **on by default** — and every mark records `mirrored` alongside
+> `flipped` so a reading can never be read back without knowing which geometry
+> produced it.
+>
+> The general lesson is the one this file already argues for elsewhere: a
+> derivation checked only against the coordinate it happens to track is not
+> checked. **Five minutes of looking through the glass falsified it.**
 
 ### 6.1 What this rules in and out
 
