@@ -336,6 +336,8 @@ class EvdevAck:
     """
 
     EV_KEY = 0x01
+    EV_SW = 0x05            # switches: lid, tablet mode, headphone jack
+    SW_LID = 0x00           # value 0 = lid OPEN, 1 = lid CLOSED
     _FMT = "llHHi"          # timeval(2x long), type, code, value
 
     def __init__(self) -> None:
@@ -370,6 +372,16 @@ class EvdevAck:
                     self._FMT, data[off:off + self._size])
                 if etype == self.EV_KEY and value == 1:
                     return f"evdev_{name}_key_{code}"
+                # OPENING THE LID ACKNOWLEDGES. With the lid shut there is no
+                # keyboard to reach, so the only physical act available is
+                # opening it -- and that is an EV_SW transition, not EV_KEY. An
+                # acknowledgement channel that cannot be reached in the position
+                # the machine is actually in is not a channel. Note the
+                # direction: value 0 is OPEN. Treating any lid event as an
+                # acknowledgement would let CLOSING it stop the alarm, which is
+                # the gesture of someone going back to sleep.
+                if etype == self.EV_SW and code == self.SW_LID and value == 0:
+                    return f"evdev_{name}_lid_opened"
         return None
 
     def close(self) -> None:
