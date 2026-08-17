@@ -227,6 +227,8 @@ class WindowsAudioRung:
         self._out_indices = ([i for i in (out_indices or []) if i is not None]
                              or ([out_index] if out_index is not None else [None]))
         self._streams: list = []
+        self._pumps: list = []
+        self._stop_evt: threading.Event | None = None
         # OWNER-ATTESTED AUDIBILITY. On this node the microphone cannot settle
         # the question: the headset mic is close-talk with active suppression and
         # measured the probe at 0.9x its own noise floor, and the phone mic
@@ -413,12 +415,16 @@ class WindowsAudioRung:
             return False
 
     def silence(self) -> None:
-        for st in self._streams:
+        if self._stop_evt is not None:
+            self._stop_evt.set()
+        for th in self._pumps:                 # let the writers finish the block
             try:
-                st.abort(); st.close()
-            except Exception:
+                th.join(timeout=2.0)           # they are in, then close their own
+            except Exception:                  # stream. No cross-thread close.
                 pass
+        self._pumps = []
         self._streams = []
+        self._stop_evt = None
         try:
             import sounddevice as sd
             sd.stop()
@@ -479,6 +485,8 @@ class WindowsAudioRung:
         import sounddevice as sd
         self.silence()
         data = np.ascontiguousarray(wave, dtype="float32")
+        evt = threading.Event()
+        self._stop_evt = evt
         for idx in self._out_indices:
             try:
                 st = sd.OutputStream(samplerate=SAMPLE_RATE, channels=1,
@@ -486,13 +494,32 @@ class WindowsAudioRung:
                 st.start()
                 self._streams.append(st)
 
-                def _pump(stream=st, buf=data):
+                # THE WRITER OWNS THE STREAM'S WHOLE LIFETIME. The first version
+                # wrote the buffer in one blocking call and let silence() close
+                # the stream from the main thread -- closing a stream while
+                # another thread is inside write() SEGFAULTS the process, which
+                # was observed as exit 139 on the first acknowledgement test. A
+                # crash at that moment would take the alarm down mid-escalation,
+                # so the buffer goes out in blocks with a stop check between them
+                # and only this thread ever closes it.
+                def _pump(stream=st, buf=data, stop=evt):
                     try:
-                        stream.write(buf)
+                        block = 2048
+                        for i in range(0, buf.size, block):
+                            if stop.is_set():
+                                break
+                            stream.write(buf[i:i + block])
                     except Exception:
                         pass
+                    finally:
+                        try:
+                            stream.stop(); stream.close()
+                        except Exception:
+                            pass
 
-                threading.Thread(target=_pump, daemon=True).start()
+                th = threading.Thread(target=_pump, daemon=True)
+                th.start()
+                self._pumps.append(th)
             except Exception:
                 continue
 
@@ -565,19 +592,51 @@ def set_console_lock(value: int) -> bool:
 class KeyboardAck:
     """Physical, ASR-independent acknowledgement -- INV-ALARM-2 / case 41.3.
 
-    Any key. No speech, no screen, no unlock, which is what RUNBOOK-ALARM §1
-    requires and what rules out a touchscreen tap on a phone. Polls
-    GetAsyncKeyState so focus is not required; this is why the console lock
-    matters, since a locked session routes input to another desktop entirely.
+    ANY key, ANY mouse button, or ANY cursor movement. No speech, no screen, no
+    unlock, which is what RUNBOOK-ALARM S1 requires and what rules out a
+    touchscreen tap. Polls GetAsyncKeyState so window focus is not needed.
+
+    WIDE ON PURPOSE. The failure being guarded against is not a spurious stop --
+    the owner is standing at the machine and meant it. It is an alarm at full
+    volume on two monitors that will not stop, which is the outcome that makes
+    someone unplug the speakers and never arm it again. A stop that is slightly
+    too easy is a far better error than a stop that does not work.
+
+    THE LOCK SCREEN IS THE REAL RISK. A locked session routes input to another
+    desktop entirely, so none of this is readable there -- which is why `arm`
+    clears CONSOLELOCK and verifies the read-back, and why an unreadable value
+    refuses to arm rather than hoping.
     """
 
-    def __init__(self) -> None:
+    # Left/right/middle/X1/X2 mouse, then every key.
+    _MOUSE = (0x01, 0x02, 0x04, 0x05, 0x06)
+
+    def __init__(self, *, watch_cursor: bool = True) -> None:
         self._u32 = ctypes.windll.user32
-        for vk in range(8, 256):                 # drain keys already down
-            self._u32.GetAsyncKeyState(vk)
+        self._watch_cursor = watch_cursor
+        for vk in list(self._MOUSE) + list(range(8, 256)):
+            self._u32.GetAsyncKeyState(vk)          # drain anything already down
+        self._origin = self._cursor()
+
+    def _cursor(self):
+        class _P(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+        p = _P()
+        try:
+            self._u32.GetCursorPos(ctypes.byref(p))
+            return (p.x, p.y)
+        except Exception:
+            return None
 
     def poll(self) -> str | None:
+        for vk in self._MOUSE:
+            if self._u32.GetAsyncKeyState(vk) & 0x0001:
+                return f"mouse_button_{vk}"
         for vk in range(8, 256):
             if self._u32.GetAsyncKeyState(vk) & 0x0001:
                 return f"keyboard_vk_{vk}"
+        if self._watch_cursor and self._origin:
+            now = self._cursor()
+            if now and (abs(now[0] - self._origin[0]) + abs(now[1] - self._origin[1])) > 40:
+                return "cursor_moved"
         return None
