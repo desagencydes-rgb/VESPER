@@ -72,6 +72,8 @@ def _dev_args(args) -> str:
         out += f" --output-device {args.output_device}"
     if getattr(args, "mic_device", None) is not None:
         out += f" --mic-device {args.mic_device}"
+    if getattr(args, "cap_s", 300) != 300:
+        out += f" --cap-s {args.cap_s}"
     if getattr(args, "attest_audible", False):
         out += " --attest-audible"
     if getattr(args, "min_margin", 6.0) != 6.0:
@@ -194,7 +196,7 @@ def cmd_fire(args) -> int:
                             mic_index=args.mic_device,
                             min_margin=args.min_margin,
                             owner_attested=args.attest_audible)
-    act = AlarmActuator([rung], emit=emit)
+    act = AlarmActuator([rung], emit=emit, cap_s=args.cap_s)
     pre = act.preflight()
     pre["observation_channel"] = rung._observe_mode
     if not pre["ladder_depth"]:
@@ -249,6 +251,12 @@ def cmd_fire(args) -> int:
     result["console_lock_at_fire"] = console_lock_state()
     result["volume_restored_to"] = rung.restore()
     result["gate_evidence"] = False
+    result["cap_s"] = args.cap_s
+    result["cap_deviation"] = (
+        None if args.cap_s == 900 else
+        f"trg_alarm_fire specifies a 900 s cap; this run used {args.cap_s} s "
+        f"because the acknowledgement channel is degraded (session locks on "
+        f"wake, keypress unreadable until sign-in). Recorded, not silent.")
     _save("fire-result.json", {"records": records, "result": result})
     print("\n" + json.dumps(result, indent=2, default=str)[:2000])
     return 0
@@ -276,6 +284,14 @@ def main() -> int:
                         help="output device index, or several comma-separated "
                              "to sound them together (e.g. 6,5)")
         sp.add_argument("--mic-device", type=int, default=None)
+        sp.add_argument("--cap-s", type=int, default=300,
+                        help="hard escalation cap. trg_alarm_fire specifies 900; "
+                             "the prototype defaults to 300 because the "
+                             "acknowledgement channel is DEGRADED on this node -- "
+                             "the session locks on wake, so a keypress is not "
+                             "readable until the owner signs in. A shorter cap "
+                             "bounds an alarm that cannot be stopped promptly. "
+                             "The deviation is recorded in the run output.")
         sp.add_argument("--attest-audible", action="store_true",
                         help="the owner confirmed BY EAR that this output is "
                              "loud enough. Recorded as observation_channel="

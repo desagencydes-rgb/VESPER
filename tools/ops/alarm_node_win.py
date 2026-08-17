@@ -397,17 +397,16 @@ class WindowsAudioRung:
         # enough to outlast the acknowledgement poll, so there is never a silent
         # gap in which a sleeper settles again.
         import numpy as np
-        amp = min(1.0, 0.55 + 0.15 * level)
+        amp = min(1.0, 0.6 + 0.13 * level)
         seconds = 30.0
-        bed_name = None
-        if level >= 2:
-            beds = alarm_beds()
-            src = beds[min(level - 2, len(beds) - 1)] if beds else None
-            bed_name = (src.replace("\\", "/").rsplit("/", 1)[-1] if src
-                        else "warble")
-            mix = _alarm_bed(seconds, amp, src)
-        else:
-            mix = np.zeros(int(SAMPLE_RATE * seconds), dtype="float32")
+        # THE BED STARTS AT LEVEL 1. It used to begin at level 2, so the first
+        # escalation step was unaccompanied speech -- which is the gentlest thing
+        # the alarm can do, spent on a heavy sleeper at the moment it most needs
+        # to work. Speech alone is a notification; this is a wake-up.
+        beds = alarm_beds()
+        src = beds[min(max(level - 1, 0), len(beds) - 1)] if beds else None
+        bed_name = (src.replace("\\", "/").rsplit("/", 1)[-1] if src else "warble")
+        mix = _alarm_bed(seconds, amp, src)
 
         # ONE BUFFER. sd.play replaces whatever is already sounding, so playing
         # speech separately would cut the bed off mid-alarm; the speech is laid
