@@ -1,0 +1,431 @@
+{
+  "schema_version": 1,
+  "gate": "F5-autonomy-compressed",
+  "acceptance_tests_claimed": [
+    "A-011",
+    "A-029",
+    "A-031",
+    "A-047"
+  ],
+  "acceptance_tests_not_claimed": {
+    "A-029 24-hour window": "THE LITERAL 24 h ENDURANCE RUN IS NOT PERFORMED. This runs the identical protocol -- same tick count, same three independent external draws of T, same assertions -- over a compressed simulated clock. A compressed run cannot surface a slow leak, a drifting clock or a resource exhaustion that only appears at hour 19. The 24 h run is OWED before the R4 gate.",
+    "A-012": "scheduled alarm with multimodal escalation -- needs real devices.",
+    "A-041": "alarm ownership and acknowledgement channels -- 41.3 requires a physical ASR-independent channel and 41.7 a documented physical kill. Blocked on hardware.",
+    "A-031.1 timing": "the 2 s T_new_action budget is asserted as a declared value, not measured under real actuation load."
+  },
+  "f5_complete": false,
+  "endurance_run_owed": true,
+  "passed": true,
+  "positive_passed": 4,
+  "positive_total": 4,
+  "controls_failed_as_required": 5,
+  "controls_total": 5,
+  "results": [
+    {
+      "case": "A-011",
+      "title": "Bounded FREE_TIME work: every action has a trigger_id",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "11.5 a predicate over an UNKNOWN fact does not fire",
+          "passed": true,
+          "detail": "[]"
+        },
+        {
+          "assertion": "11.5 the unknown is recorded, not silently skipped",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "11.6 at least one recorded no-op carries a trigger_id",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "11.3 the trigger fires when the world enters the firing state",
+          "passed": true,
+          "detail": "1"
+        },
+        {
+          "assertion": "11.3 with no model involvement in the decision",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "11.1 100% of actions resolve to a registered trigger_id",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "11.2 the predicate re-evaluates true against its snapshot",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "11.2 the snapshot contains the observed fact",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "11.4 a model call in the decision path RAISES",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "11.4 and autonomy.model_call_in_decision_path is emitted",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-029",
+      "title": "Zero-input autonomy: liveness, provenance, anti-cron",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "Part 3.4 all three independent draws fired",
+          "passed": true,
+          "detail": "[1, 1, 1]"
+        },
+        {
+          "assertion": "Part 3.4 each fired within 2 ticks of T",
+          "passed": true,
+          "detail": "[1, 1, 1]"
+        },
+        {
+          "assertion": "Part 3.5 the fired trigger_id is the STATE-class trigger",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "Part 3.6 the reconstructed snapshot contains the injected fact",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "Part 3.7 autonomy.model_call_in_decision_path did NOT fire",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "Part 3 NOT every fired trigger is SCHEDULE-class",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "Part 1 a heartbeat is present at the declared cadence",
+          "passed": true,
+          "detail": "240"
+        },
+        {
+          "assertion": "Part 1 no gap exceeds 3 x tick_interval",
+          "passed": true,
+          "detail": "max gap 1000 ms"
+        },
+        {
+          "assertion": "Part 1 autonomy.loop_stalled never fires",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "Part 2 100% of actions resolve to exactly one trigger_id",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "Part 2 each predicate re-evaluates true against its snapshot",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "Part 2 at least one recorded no-op carries a trigger_id",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-031",
+      "title": "Emergency stop: dead-man's switch, no automatic re-arm",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "autonomy runs while a fresh token is present",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.1 all autonomous actuation ceases",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.1 within the T_new_action budget",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.1 in-flight work becomes RESUMABLE",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.1 the stop is audited",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.4 observation continues under STOP_AUTONOMY",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.4 telemetry continues under STOP_AUTONOMY",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.4 checkpointing continues under STOP_AUTONOMY",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.4 user_invoked_work continues under STOP_AUTONOMY",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.4 alarms continues under STOP_AUTONOMY",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.9 re-arm resumes from checkpoint and names the principal",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.5 alarms halt under STOP_ALL",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.5 observation and telemetry continue",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.2 autonomy runs while renewals arrive",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.2 severing the stop path HALTS autonomy within the TTL",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.2 the reason is the expired token, not an arriving signal",
+          "passed": true,
+          "detail": "enable_token_expired"
+        },
+        {
+          "assertion": "31.3 a compromised policy plane cannot re-enable autonomy",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.6 the runtime cannot mint, extend or replay a token",
+          "passed": true,
+          "detail": "[True, True, True]"
+        },
+        {
+          "assertion": "31.6 presenting a seen token again is refused",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.7 the runtime cannot modify interlock configuration",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.8 still stopped 24 h later; no automatic re-arm",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-047",
+      "title": "Budget: high-value non-decaying items queue, never drop",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "budget adherence: only the allowance surfaces",
+          "passed": true,
+          "detail": "['high-stable']"
+        },
+        {
+          "assertion": "the highest-priority candidate is the one that surfaces",
+          "passed": true,
+          "detail": "['high-stable']"
+        },
+        {
+          "assertion": "high-value NON-DECAYING items are queued, never dropped",
+          "passed": true,
+          "detail": "queued=['low-stable'] dropped=['high-decay', 'low-decay']"
+        },
+        {
+          "assertion": "decaying items over budget are dropped, and RECORDED",
+          "passed": true,
+          "detail": "['high-decay', 'low-decay']"
+        },
+        {
+          "assertion": "the drop is emitted, not silent",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "preparation is unbudgeted",
+          "passed": true,
+          "detail": "['prep-1', 'prep-2']"
+        },
+        {
+          "assertion": "an unbounded number of prepared-but-not-surfaced actions is permitted",
+          "passed": true,
+          "detail": "500 prepared, 0 surfaced"
+        },
+        {
+          "assertion": "queued items surface at the next interaction boundary",
+          "passed": true,
+          "detail": "1 queued"
+        },
+        {
+          "assertion": "alarm class bypasses the budget entirely",
+          "passed": true,
+          "detail": "['alarm-1']"
+        },
+        {
+          "assertion": "and everything else still respects a zero budget",
+          "passed": true,
+          "detail": "['alarm-1']"
+        },
+        {
+          "assertion": "every (period, attention_state) pair has a defined budget",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "an unlisted pair is silent, not generous",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-029-C1-CONTROL",
+      "title": "Pure cron: all triggers SCHEDULE-class",
+      "is_negative_control": true,
+      "ok": true,
+      "verdict": "CONTROL OK -- broken build failed as required",
+      "assertions": [
+        {
+          "assertion": "PART 1+2 pass on this build (recorded, not asserted as failure)",
+          "passed": true,
+          "detail": "liveness and provenance both hold"
+        },
+        {
+          "assertion": "Part 3 NOT every fired trigger is SCHEDULE-class",
+          "passed": false,
+          "detail": "240 fired, all SCHEDULE-class -- this build is cron wearing autonomy's vocabulary"
+        },
+        {
+          "assertion": "Part 3 firing is caused by world state, not the clock",
+          "passed": false,
+          "detail": "fires with every world-state term false"
+        }
+      ]
+    },
+    {
+      "case": "A-029-C2-CONTROL",
+      "title": "Model-decides loop",
+      "is_negative_control": true,
+      "ok": true,
+      "verdict": "CONTROL OK -- broken build failed as required",
+      "assertions": [
+        {
+          "assertion": "Part 3.7 autonomy.model_call_in_decision_path did NOT fire",
+          "passed": false,
+          "detail": "the loop asked a model whether to act"
+        },
+        {
+          "assertion": "the decision path is model-free",
+          "passed": false,
+          "detail": "a model call was reached from inside the decision path"
+        }
+      ]
+    },
+    {
+      "case": "A-029-C3-CONTROL",
+      "title": "Prompt-driven loop",
+      "is_negative_control": true,
+      "ok": true,
+      "verdict": "CONTROL OK -- broken build failed as required",
+      "assertions": [
+        {
+          "assertion": "Part 1 a heartbeat is present at the declared cadence",
+          "passed": false,
+          "detail": "0 heartbeats in a 240-tick zero-input window"
+        }
+      ]
+    },
+    {
+      "case": "A-029-C4-CONTROL",
+      "title": "Silent death at the midpoint",
+      "is_negative_control": true,
+      "ok": true,
+      "verdict": "CONTROL OK -- broken build failed as required",
+      "assertions": [
+        {
+          "assertion": "Part 1 a heartbeat is present for the whole window",
+          "passed": false,
+          "detail": "60 of 240 -- died at tick 60"
+        },
+        {
+          "assertion": "Part 1 no gap exceeds 3 x tick_interval",
+          "passed": false,
+          "detail": "final gap 180000 ms -- a dead loop is distinguishable from a quiet one precisely because the heartbeat stops"
+        }
+      ]
+    },
+    {
+      "case": "A-031-CONTROL",
+      "title": "Kill-signal stop implementation",
+      "is_negative_control": true,
+      "ok": true,
+      "verdict": "CONTROL OK -- broken build failed as required",
+      "assertions": [
+        {
+          "assertion": "autonomy runs while healthy",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "31.2 severing the stop path HALTS autonomy within the TTL",
+          "passed": false,
+          "detail": "the signal never arrived, so autonomy ran on forever"
+        }
+      ]
+    }
+  ]
+}

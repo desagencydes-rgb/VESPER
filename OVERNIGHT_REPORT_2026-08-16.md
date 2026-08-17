@@ -1,0 +1,333 @@
+# VESPER — overnight session report, night of 2026-08-16
+
+> ## ⚠ DO NOT POWER OFF THIS MACHINE
+>
+> **The 24-hour `A-029` endurance run is in flight on it.** It started at
+> **00:42 on 2026-08-16** and finishes at **~00:42 on 2026-08-17**. Powering
+> down, sleeping or restarting kills it and the 24 hours start again from zero.
+> This is the "needs the machine left alone for a day" item from yesterday's
+> report, and it is now the day.
+>
+> Sleep and hibernate are already `Never` on the active High performance scheme
+> and no reboot is pending — I checked rather than assumed. The remaining risk
+> is a manual shutdown.
+>
+> ```
+> python verification/run_a029_endurance.py --status
+> ```
+
+---
+
+## 1. The headline
+
+**The 24-hour endurance run — yesterday's "single most significant gap between
+*passes* and *proven*" — is running**, on a harness that was shown to fail
+against three deliberately broken builds before it was trusted with a day of
+elapsed time.
+
+And **yesterday's report was wrong about one thing, in your favour**: engineering
+had *not* run out of unblocked work. `SPIKE-008` criterion 8 was deferred with
+the recorded reason *"needs the runtime's event codec and upcaster registry,
+which do not exist until F0"*. F0 shipped in the very session that wrote the
+handover, so the block lifted the moment it landed and the deferral text went on
+reading as a block. **Criterion 8 is now closed**, with its own non-compliant
+control.
+
+| | |
+|---|---|
+| Commits tonight | 8, on `feat/f0-f1-endurance`, **nothing pushed** |
+| PR #5 | **untouched and frozen** — your review is the review the last report describes |
+| New runtime code | 163 lines (`core/codec.py`) + the real-time driver and watchdog |
+| New harness code | ~1,290 lines across four files |
+| Acceptance gates | 6, all still green — F5 gains a real-time case, so 5 positive + 5 controls |
+| `checks.py` · `self_test.py` | 17 / 17 · 47 / 47 |
+| Endurance harness self-test | **6/6 healthy pass · 3/3 broken fail as required** |
+| Red tests added tonight | 6, every one shown RED before it was trusted |
+| `SPIKE-008` | 7 criteria → **8**; criterion 9 still needs the second node |
+
+---
+
+## 2. What the night produced
+
+### 2.1 `A-029` on a real clock — and the fifth vacuous check
+
+The 24-hour run could not simply be *started*, because nothing could run it.
+`AutonomyLoop.tick()` had no real-time caller: the only thing that had ever
+driven it was a `for` loop advancing a simulated clock. Part 1 — liveness across
+a window — had nothing to be true of.
+
+`AutonomyRunner` (in `core/autonomy.py`) is that driver. Two properties worth
+your attention:
+
+- **It schedules by absolute deadline**, not by sleeping for the interval. Over
+  1,440 cycles, `sleep(60)` accumulates every cycle's own work as drift, which
+  is the difference between a cadence and an approximation.
+- **Its watchdog is a separate thread**, because a stall detector living inside
+  the loop it watches cannot report the one failure that matters. A dead thread
+  emits nothing.
+
+That second point uncovered **a fifth instance of yesterday's §5 pattern, in the
+decisive gate itself**: A-029 Part 1 asserts `autonomy.loop_stalled` never
+fires, and **nothing in the runtime could emit that event**. There was no
+watchdog. The assertion was an absence that could not become a presence — it
+would have read green forever, against any build, including a dead one. It is
+now emitted by the watchdog, and the `B1` control below is the run that proves
+it fires.
+
+### 2.2 One definition of the gate, two drivers
+
+The obvious way to build a real-time A-029 is to copy the compressed one and
+change the clock — after which the gate has two definitions that agree today,
+drift apart at the first amendment, and **both keep printing PASS**.
+
+So A-029's three parts now live in `verification/a029_protocol.py` and are
+asserted identically by the compressed driver and the real-time one. The
+compressed gate still passes, unchanged in verdict, with strictly stronger
+assertions.
+
+That refactor immediately exposed something: **C1's cron model was
+under-built.** It fired unconditionally on every tick and therefore recorded no
+no-ops at all — so it passed the old Part 2 check by having nothing to check.
+AT-03 requires C1 to *pass* parts 1 and 2 and fail only part 3. Cron now has a
+due job and a not-due one, which is what cron actually is.
+
+### 2.3 The controls, and the two the self-test caught
+
+Three deliberately broken builds, each at real cadence, each required to fail —
+run **before** launching anything:
+
+| Build | Result |
+|---|---|
+| **B1** the loop wedges at 40% of the window (a hang, not an exception) | part 1 fails **and the watchdog fires** |
+| **B2** every trigger `SCHEDULE`-class | parts 1 and 2 pass, part 3 fails — the asymmetry AT-03 requires |
+| **B3** a *correct* build that retains 1 MB per tick | every A-029 part passes, `E1` fails at **+76.9 MB** against an 8.4 MB budget |
+
+**B3 is the only control that tests the reason for running 24 hours at all**,
+and it is where the self-test earned its place twice:
+
+1. **My first B3 passed — so it measured nothing.** It leaked inside a trigger's
+   predicate, and `PredicateEvaluator.evaluate()` short-circuits on an `UNKNOWN`
+   term *before* calling the predicate. Across a window where the fact is
+   usually `UNKNOWN` the leak barely ran: 3 MB instead of 96 MB, comfortably
+   inside budget. That is yesterday's pattern #3 exactly — a control written from
+   the same mental model as the code it checks — written by the pass that had
+   just read that short-circuit. It is recorded in the file rather than quietly
+   corrected.
+2. **`E3` thread stability failed a *healthy* build**, by comparing `min` to
+   `max` across a run whose first samples are taken while five threads are still
+   coming up. It read a correct startup as instability.
+
+### 2.4 Two instruments, cross-checked
+
+The harness judges Part 1 from the loop's own in-memory list and Part 3 from the
+injection times its own controller recorded — i.e. from its account of itself.
+That is yesterday's failure #4 in a different costume.
+
+`verification/verify_a029_from_log.py` re-derives all three parts from the
+durable event log alone: heartbeats from `autonomy.heartbeat` records, and **the
+moment `T` arrived from the `world.fact_updated` write the system recorded**
+rather than the one the controller claims to have made. A trigger it cannot
+rebuild is `UNVERIFIABLE` and **fails** — "I could not check it" must never read
+the same as "it passed". It opens the store read-only rather than copying it,
+because SPIKE-008's own portability control established that copying a SQLite
+store under a live writer is the unsafe path.
+
+The self-test now requires the two instruments to **agree on all four builds**.
+The leak build is the stated exception: RSS never reaches the event log, so a
+log-only verdict cannot see a leak and is right to say PASS. That is a real limit
+of log-derived evidence, recorded rather than smoothed over.
+
+### 2.5 VOID vs FAILED
+
+AT-03 already carries this distinction and the harness lacked it: *"if the
+external ingress is unavailable during the run, the run is **void** (harness
+defect), not failed (product defect)... a void run is re-run, never counted."*
+
+The environmental failure a desktop run is actually exposed to is the machine
+sleeping or restarting — and all three symptoms are identical to a dead loop.
+The discriminator is mechanical, in the spirit of the anti-cron probe: **a
+suspended machine stops the monotonic clock and does not stop wall time.** A
+genuinely stalled loop diverges by neither — both clocks run while nothing ticks
+— which is why this cannot launder a real stall into a void. Asserted in both
+directions.
+
+### 2.6 `SPIKE-008` criterion 8 — the expired deferral
+
+`core/codec.py` is the upcaster registry ADR-002 D4 specified: upcasters keyed
+by `(event_type, from_version)`, applied on read until the reader's version is
+reached.
+
+**The registry holds no store handle, and that is the enforcement.** The way an
+implementation fails "stored bytes never mutate on read" is by fixing up the
+record it just read while it happens to have both forms in hand. This class has
+nowhere to write one back to — the same construction as `PredicateEvaluator`,
+which cannot call a model because it was never handed anything that could. The
+probe's upcaster deliberately mutates its argument in place, which is how one is
+ordinarily written, and the stored dict is still unchanged afterwards.
+
+A missing upcaster **raises and names the exact step**. The silent version — hand
+back the old form, drop the unknown field — surfaces as a `None` three frames
+away with nothing tying it to a schema change. A body *newer* than the reader is
+refused rather than guessed at.
+
+Its non-compliant control (the naive codec that upcasts in place and returns the
+old form) fails as required, and criterion 8 is not claimed unless it does.
+
+---
+
+## 3. Two findings closed, and one gap in CI closed with them
+
+These were recorded as "found, not fixed" earlier in the night, on the grounds
+that they change how a run is scored while a run is in progress. They are now
+fixed, landing for the **next** run — the one in flight is pinned to `94b84fb`
+and is unaffected. They were coupled, which is why neither could be done alone:
+bounding the history was blocked behind moving the evidence.
+
+1. **The durable log is now the primary evidence.** A-029's run configuration
+   says *"full event log retained"*, and the log is what the system recorded
+   rather than what the harness remembers doing. The in-memory verdict is
+   demoted to a cross-check, and **a disagreement between the two is a failure
+   of the run** — two instruments reading different evidence about the same run
+   should not need reconciling afterwards.
+2. **`AutonomyLoop`'s history is bounded** at 10,000 entries (~7 days at the
+   declared cadence) with a `dropped_history` counter — because a `deque` with
+   `maxlen` drops silently, and a caller must be able to tell a complete record
+   from a tail. Safe only now that Part 1 is judged from the log.
+3. **`AutonomyRunner` and its watchdog had no CI coverage at all.** Their only
+   test was the 2.5-minute manual self-test, so a regression in the watchdog
+   would have reached `main` with every gate green — which is precisely how the
+   vacuous `loop_stalled` assertion survived in the first place. `A-029-RT` adds
+   ~3 s to the F5 gate: the loop must tick with nobody calling `tick()`, and
+   when it wedges the watchdog must emit `autonomy.loop_stalled` **from outside
+   the wedged thread**. Red-tested two ways — a watchdog that detects the stall
+   and says nothing, and a watchdog moved into the loop thread — both RED,
+   restore GREEN.
+
+**A third encounter with the same trap.** The wedging trigger needed a *known*
+probe fact to work, because `evaluate()` short-circuits on an `UNKNOWN` term
+**before** calling the predicate — so a wedging predicate over an unknown fact
+never runs and the test passes by never testing anything. That is the same
+short-circuit that made the first leak control vacuous. It has now produced
+three vacuous controls in one night, written by someone who had just read the
+code. It is worth treating as a known hazard of this codebase rather than three
+separate mistakes: **any control that works by making a predicate misbehave must
+first put that predicate on the executed path.**
+
+**A declared cadence of 60 s is a choice this harness made, not one it
+inherited.** Nothing in `contracts/` or `spec/` declares a production tick
+cadence. `INV-AUTO-1` fixes the tolerance at 3× that interval, so the number
+matters; it is recorded in the artifact rather than left in a default argument.
+Worth ratifying as a real contract value at some point.
+
+---
+
+## 3a. What the run has already found, at hour 1
+
+The endurance run is doing the job it exists for. Two measurements, and the first
+is a warning about how to read the second.
+
+**The store's file size overstates its growth by 26×.** At hour 1 the store
+directory was 3.9 MB and rising at ~3.2 MB/h, which projects to 83 MB/day. That
+number is wrong. `log.db` itself is **4 KB**; `log.db-wal` is **3.5 MB**. It is
+uncheckpointed WAL, `wal_autocheckpoint` is 1000 pages (~4 MB), so it folds back
+on its own and plateaus rather than growing forever. **Measured from the records
+instead of the files, the real rate is ~126 KB/h → 3.1 MB/day → 1.13 GB/year.**
+Worth knowing before anyone reads a directory listing and files a bug.
+
+**Three events per tick, and all three say the same thing.** For one idle
+trigger, every tick emits `autonomy.heartbeat`, `autonomy.predicate_unknown` and
+`autonomy.noop` — 65 of each in the first hour:
+
+| Event | Bytes each | Share |
+|---|---|---|
+| `autonomy.predicate_unknown` | 801 | 39% |
+| `autonomy.noop` | 664 | 32% |
+| `autonomy.heartbeat` | 560 | 27% |
+
+The largest of the three is the *explanation*: `predicate_unknown` carries a
+constant prose `note` about why an unknown fact does not fire, written into
+every record, 1,440 times a day. It is excellent documentation and it belongs in
+the event type, not in each instance.
+
+**This matters at scale rather than tonight.** 1.13 GB/year is with **one**
+registered trigger; no-ops and unknowns scale linearly with the trigger count, so
+twenty triggers is ~20 GB/year on a machine meant to run forever. Not touched
+tonight — changing what is emitted per tick would change the evidence Parts 1 and
+2 are judged from, mid-run, which is the exact thing §3 argues against.
+
+---
+
+## 4. Tomorrow morning, in order
+
+### 4.1 Read the run — and know how to read a FAIL
+
+```bash
+python verification/run_a029_endurance.py --status
+```
+
+It will be ~8 hours in. What you want to see: `stalls 0`, `late ticks 0`, and an
+`rss` figure that has not climbed. At 00:52 it read 32.0 MB, 0 stalls, 0 late
+ticks, with heartbeats and no-ops accumulating one per minute.
+
+**If it reports FAIL with stalls or late ticks, check whether the machine
+napped before believing it.** The run in flight is pinned to a commit that
+predates §2.5, so it cannot label itself VOID. Compare the artifact's wall-clock
+span (`started_iso` → `finished_iso`) against its monotonic `elapsed_s`: if wall
+time ran materially longer, the machine was suspended and the run is **void, not
+failed** — re-run it, never count it.
+
+### 4.2 Two five-minute things, unchanged from yesterday's plan
+
+The **bare-panel baseline** needs no glass (SPIKE-004 §8), and a **flat clear
+sheet** closes the other half. Not a jar or tumbler — §6.1 records why vertical
+walls cannot work.
+
+### 4.3 Review PR #5, then decide what to do with tonight's branch
+
+PR #5 is exactly as you left it. Tonight's work is five commits on
+`feat/f0-f1-endurance`, stacked on it, **unpushed** — I did not push because you
+had not asked me to and the branch changes what a reviewer of #5 would see. Say
+the word and it goes up as its own PR stacked on #5.
+
+### 4.4 The two decisions
+
+Unchanged and still yours, laid out in full in `PLAN_2026-08-16.md` §3:
+`OWNER-DECISION-006(c)` (the ADR namespace — 2 minutes, blocks nothing) and the
+`ADR-001`/`ADR-012` authority question (~10 minutes, and the more interesting of
+the two).
+
+`OWNER-DECISION-006(b)`'s stale "still BLOCKS F0" header is fixed; the ruling has
+been in `ADR-002` since 08-14.
+
+---
+
+## 5. Housekeeping you should know about
+
+- **A git worktree exists at `C:/Projects/VESPER-endurance-2026-08-16`**, pinned
+  at commit `94b84fb`, so nothing I edited afterwards could perturb a run in
+  flight. It has its own store directory.
+- **The completed run's artifact lands inside that worktree**, at
+  `docs/planning/spike-results/A-029-endurance-live.json`. **Copy it into the
+  main tree before running `git worktree remove`**, or the night's headline
+  deliverable goes with it.
+- Nothing touched `main`. Nothing touched `feat/f0-f1-runtime`. No owner decision
+  was inferred, discharged or implied.
+
+---
+
+## 6. What is still blocked, and by what
+
+Unchanged from yesterday except where noted:
+
+| Item | Blocker |
+|---|---|
+| `SPIKE-008` criterion 9 | a `foreground_only` node — hardware |
+| F6 discovery, placement, migration | a second **always-on** node (the Kali laptop is enrolled but `on_demand`) — the desktop repair |
+| iPhone app → `SPIKE-002` → `A-020` | the MacBook |
+| `A-008`, `A-028`, `A-039`, `A-012`, `A-041` | cameras, alarm devices, a physical ASR-independent channel |
+| `SPIKE-004` ghost reading | a flat clear sheet — five minutes of looking |
+| ~~`SPIKE-008` criterion 8~~ | ~~the F0 codec~~ — **closed tonight** |
+
+F6 was deliberately not started. It needs the second always-on node, and the
+software-only half would have left a **fourth** part-built stage in a tree that
+already carries three — which makes tomorrow's review worse, not better.

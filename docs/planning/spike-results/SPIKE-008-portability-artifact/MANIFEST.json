@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "spike": "SPIKE-008",
+  "section": "1.6 portability / criterion 9",
+  "role": "emit",
+  "negative_control": false,
+  "emitted_by": {
+    "hostname_hint": "DESKTOP-F73BBDB",
+    "os_family": "Windows",
+    "os_version": "10.0.26200",
+    "python_version": "3.14.2",
+    "sqlite_version": "3.50.4"
+  },
+  "rows_per_store": 200,
+  "seed_text": "vesper-spike008-portability",
+  "files": {
+    "log.db": {
+      "store": "log",
+      "append_only": true,
+      "bytes": 32768,
+      "file_sha256": "6996c26a79e5b8455a651e166348112dfc217b11f36d26070a3be132c8673384",
+      "logical_sha256": "dafad0b8c478edeefcf2b02237161dc3179e22a815fdde5a8b7ec675c97417aa",
+      "rows": 200,
+      "checkpoint": "wal_checkpoint(TRUNCATE) -> busy=0, log_frames=0, checkpointed=0",
+      "sidecars_present": []
+    },
+    "state.db": {
+      "store": "state",
+      "append_only": false,
+      "bytes": 32768,
+      "file_sha256": "d0a7bb1ad22ef248c75eab053d7b995230b8471639b026a3e75e73385a044fe5",
+      "logical_sha256": "d11c75708ac220562e13428bea1b2d7a29c92e847740633a5093d294f706238e",
+      "rows": 200,
+      "checkpoint": "wal_checkpoint(TRUNCATE) -> busy=0, log_frames=0, checkpointed=0",
+      "sidecars_present": []
+    },
+    "audit.db": {
+      "store": "audit",
+      "append_only": true,
+      "bytes": 32768,
+      "file_sha256": "e499c15d47dc7e95a881d376a6a19fdba685fb02203a38b9d72bfc6bfbf30554",
+      "logical_sha256": "915d503522a134bb83d61cae5afd7184b16a6d69eae0a29c17d604ec41098225",
+      "rows": 200,
+      "checkpoint": "wal_checkpoint(TRUNCATE) -> busy=0, log_frames=0, checkpointed=0",
+      "sidecars_present": []
+    },
+    "tombstones.db": {
+      "store": "tombstones",
+      "append_only": true,
+      "bytes": 32768,
+      "file_sha256": "a276d0cd9d9577b7ff598bc933ca8af1f57291cacad9adb8639d892556f0bb2b",
+      "logical_sha256": "3a501e8ae198223dfd922d36c8cd10ab177aa8928fc317b25c300afc18e902bd",
+      "rows": 200,
+      "checkpoint": "wal_checkpoint(TRUNCATE) -> busy=0, log_frames=0, checkpointed=0",
+      "sidecars_present": []
+    },
+    "workspace.db": {
+      "store": "workspace",
+      "append_only": false,
+      "bytes": 32768,
+      "file_sha256": "9a07b3ffd343d9b8560c6774230275e23f508c14ae65100e78724c3a3e370e9e",
+      "logical_sha256": "36fd2710408cdefc14bbf7135a8956513b290983696f7ac4d056a31b1da151f4",
+      "rows": 200,
+      "checkpoint": "wal_checkpoint(TRUNCATE) -> busy=0, log_frames=0, checkpointed=0",
+      "sidecars_present": []
+    }
+  },
+  "how_to_verify": "On a DIFFERENT node class, from a checkout of this repository: python tools/spike/portability_probe.py verify --dir <this dir>",
+  "what_a_pass_means": "logical_sha256 matching on both nodes means the DATA is portable, which is what ADR-002 D10 survival carry requires. file_sha256 matching additionally means the bytes were transferred intact. A logical match with a file mismatch is still a pass for criterion 9 and must be reported as such, not as a failure."
+}

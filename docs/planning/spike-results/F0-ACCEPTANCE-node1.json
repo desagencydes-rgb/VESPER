@@ -1,0 +1,529 @@
+{
+  "schema_version": 1,
+  "gate": "F0",
+  "acceptance_tests": [
+    "A-002",
+    "A-019",
+    "A-033",
+    "A-034"
+  ],
+  "scope_limits": {
+    "A-033.2": "Bus-level only. A-033.2 asks for world-model state to be byte-identical after a double replay; there is no world model in F0, so what is demonstrated is that duplicate delivery is suppressed and counted. The world-model half belongs to F4 and is not claimed.",
+    "A-033.3": "CLOSED 2026-08-15 in verification/run_f4_acceptance.py -- the world model now exists.",
+    "A-033.4": "CLOSED 2026-08-15 in verification/run_f4_acceptance.py -- the world model now exists.",
+    "A-034.2": "Partition with both sides live needs real cross-node transport (F6). The refusal logic is exercised via A-034.4; the two-live-nodes topology is not."
+  },
+  "passed": true,
+  "positive_passed": 13,
+  "positive_total": 13,
+  "controls_failed_as_required": 6,
+  "controls_total": 6,
+  "results": [
+    {
+      "case": "A-002",
+      "title": "Task survives process death and node handover",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "task survives process death",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "goal unchanged",
+          "passed": true,
+          "detail": "\"summarise the week's telemetry\""
+        },
+        {
+          "assertion": "completed steps unchanged",
+          "passed": true,
+          "detail": "[1, 2]"
+        },
+        {
+          "assertion": "outbox cursor unchanged",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "task was NOT recreated (same task_id)",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "RUNNING task became RESUMABLE after unclean stop, not lost",
+          "passed": true,
+          "detail": "RESUMABLE"
+        },
+        {
+          "assertion": "lease_epoch advanced (the one field allowed to differ)",
+          "passed": true,
+          "detail": "1 -> 2"
+        },
+        {
+          "assertion": "runtime.unclean_shutdown_detected emitted",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "identity (node_id) is stable across the restart",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "INV-TASK-1",
+      "title": "RUNNING->SUCCEEDED refused by the real transition table",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "RUNNING->SUCCEEDED raises IllegalTransition",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "task did not reach SUCCEEDED",
+          "passed": true,
+          "detail": "RUNNING"
+        },
+        {
+          "assertion": "the edge is absent from the shipped table",
+          "passed": true,
+          "detail": "('WAITING', 'VERIFYING', 'RESUMABLE', 'BLOCKED', 'RETRYING', 'FAILED', 'CANCELLED')"
+        },
+        {
+          "assertion": "VERIFYING->SUCCEEDED with a passing verdict still works",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-019",
+      "title": "Corrupted current state is restored from checkpoint",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "state is corrupted before restore",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "goal restored from checkpoint",
+          "passed": true,
+          "detail": "build the index"
+        },
+        {
+          "assertion": "completed steps restored",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "outbox cursor restored -- INV-TASK-2",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "restored task re-enters RESUMABLE, never SUCCEEDED",
+          "passed": true,
+          "detail": "RESUMABLE"
+        },
+        {
+          "assertion": "checkpoint reference points at the checkpoint used",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "task.restored emitted",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-033.1",
+      "title": "Skewed node: final state follows HLC order, not arrival",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "read-back is in HLC order, not insertion order",
+          "passed": true,
+          "detail": "['B-value', 'A-value']"
+        },
+        {
+          "assertion": "the later-HLC write is last (it wins supersession)",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "HLC comparison is total across nodes",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-033.2",
+      "title": "Replay twice: duplicates suppressed and counted (bus-level; world-model half deferred to F4)",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "replay saw the whole stream",
+          "passed": true,
+          "detail": "502"
+        },
+        {
+          "assertion": "state byte-identical after replay",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "no duplicate application",
+          "passed": true,
+          "detail": "applied=500"
+        },
+        {
+          "assertion": "duplicates were counted, not silently dropped",
+          "passed": true,
+          "detail": "500"
+        }
+      ]
+    },
+    {
+      "case": "A-033.5",
+      "title": "A write with hlc <= current is rejected, state unchanged",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "stale write rejected",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "state unchanged after rejection",
+          "passed": true,
+          "detail": "{'v': 'occupied'}"
+        }
+      ]
+    },
+    {
+      "case": "A-033.6",
+      "title": "Wall clock regresses 60 s: ordering unaffected, event emitted",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "HLC strictly increasing across the regression",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "system.clock_regression signalled",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "signalled once per episode, not once per stamp",
+          "passed": true,
+          "detail": "episodes=1"
+        }
+      ]
+    },
+    {
+      "case": "A-033.7",
+      "title": "Consumer registered with no idempotency key is refused",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "registration refused, not warned about",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "the careless consumer is not registered",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-034.1",
+      "title": "Clean departure: standby promotes, task resumes from checkpoint",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "epoch advanced on promotion",
+          "passed": true,
+          "detail": "1 -> 2"
+        },
+        {
+          "assertion": "task resumes from checkpoint",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "resume replays from the outbox cursor -- INV-TASK-2",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "control.lease_acquired emitted",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-034.3",
+      "title": "Stale ex-owner rejoining after TTL is fenced",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "new owner's epoch is higher",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "stale ex-owner's write rejected by fencing",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "state holds the new owner's value",
+          "passed": true,
+          "detail": "{'v': 'from-new'}"
+        },
+        {
+          "assertion": "control.fenced emitted",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-034.4",
+      "title": "Lease expiry with no quorum: no automatic promotion",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "no automatic promotion",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "control.promotion_requires_operator emitted",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "L4+ external actions suppressed while partitioned",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "L1 actions still permitted (degraded, not dead)",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-034.5",
+      "title": "Kill mid-RUNNING after an external send: no repeat on resume",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "action performed exactly once",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "task is RESUMABLE after the kill",
+          "passed": true,
+          "detail": "RESUMABLE"
+        },
+        {
+          "assertion": "nothing at or before the cursor is replayed",
+          "passed": true,
+          "detail": "0 pending"
+        },
+        {
+          "assertion": "the sent action is not repeated",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-034.6",
+      "title": "Non-owner write to `policy` is refused, not queued",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "refused",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "rule cited is INV-OWN-1",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "the decision was made, not defaulted",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "policy.write_refused emitted",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "explicitly NOT queued",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-033.1-CONTROL",
+      "title": "Wall-clock last-write-wins build",
+      "is_negative_control": true,
+      "ok": true,
+      "verdict": "CONTROL OK -- broken build failed as required",
+      "assertions": [
+        {
+          "assertion": "read-back is in HLC order, not insertion order",
+          "passed": false,
+          "detail": "['A-value', 'B-value']"
+        },
+        {
+          "assertion": "the later-HLC write is last (it wins supersession)",
+          "passed": false,
+          "detail": "['A-value', 'B-value']"
+        }
+      ]
+    },
+    {
+      "case": "A-033.2-CONTROL",
+      "title": "Bus without consumer idempotency",
+      "is_negative_control": true,
+      "ok": true,
+      "verdict": "CONTROL OK -- broken build failed as required",
+      "assertions": [
+        {
+          "assertion": "state byte-identical after replay",
+          "passed": false,
+          "detail": "500 -> 1000"
+        },
+        {
+          "assertion": "no duplicate application",
+          "passed": false,
+          "detail": "applied=1000"
+        }
+      ]
+    },
+    {
+      "case": "A-034.3-CONTROL",
+      "title": "Read-then-write fencing (non-atomic)",
+      "is_negative_control": true,
+      "ok": true,
+      "verdict": "CONTROL OK -- broken build failed as required",
+      "assertions": [
+        {
+          "assertion": "stale ex-owner's write rejected by fencing",
+          "passed": false,
+          "detail": "final='from-old-STALE'"
+        },
+        {
+          "assertion": "state holds the new owner's value",
+          "passed": false,
+          "detail": "final='from-old-STALE', seen_epoch=2"
+        }
+      ]
+    },
+    {
+      "case": "INV-TASK-1-CONTROL",
+      "title": "Real transition table WITH RUNNING->SUCCEEDED",
+      "is_negative_control": true,
+      "ok": true,
+      "verdict": "CONTROL OK -- broken build failed as required",
+      "assertions": [
+        {
+          "assertion": "RUNNING->SUCCEEDED raises IllegalTransition",
+          "passed": false,
+          "detail": ""
+        },
+        {
+          "assertion": "task did not reach SUCCEEDED",
+          "passed": false,
+          "detail": "SUCCEEDED"
+        },
+        {
+          "assertion": "the edge is absent from the shipped table",
+          "passed": false,
+          "detail": "('SUCCEEDED', 'WAITING', 'VERIFYING', 'RESUMABLE', 'BLOCKED', 'RETRYING', 'FAILED', 'CANCELLED')"
+        }
+      ]
+    },
+    {
+      "case": "A-034.5-CONTROL",
+      "title": "Resume from plan start, ignoring the outbox cursor",
+      "is_negative_control": true,
+      "ok": true,
+      "verdict": "CONTROL OK -- broken build failed as required",
+      "assertions": [
+        {
+          "assertion": "the sent action is not repeated",
+          "passed": false,
+          "detail": "sent 2 times"
+        }
+      ]
+    },
+    {
+      "case": "A-034.6-CONTROL",
+      "title": "Non-owner writes QUEUED instead of refused",
+      "is_negative_control": true,
+      "ok": true,
+      "verdict": "CONTROL OK -- broken build failed as required",
+      "assertions": [
+        {
+          "assertion": "refused",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "explicitly NOT queued",
+          "passed": false,
+          "detail": "queue depth 1"
+        }
+      ]
+    }
+  ]
+}

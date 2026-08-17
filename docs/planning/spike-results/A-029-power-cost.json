@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "provenance": "ESTIMATED",
+  "note": "wattage is modelled from CPU utilisation against declared idle/full figures; this machine exposes no power sensor. Pass --wall-watts from a plug-in energy meter to make it measured.",
+  "declared": {
+    "idle_watts": 65.0,
+    "full_watts": 250.0,
+    "watts_per_busy_core": 15.0,
+    "household_monthly_kwh": 250.0,
+    "tariff_bands_mad_per_kwh": [
+      {
+        "up_to_kwh_month": 100,
+        "mad": 0.901
+      },
+      {
+        "up_to_kwh_month": 200,
+        "mad": 1.0732
+      },
+      {
+        "up_to_kwh_month": 300,
+        "mad": 1.1676
+      },
+      {
+        "up_to_kwh_month": 500,
+        "mad": 1.3817
+      },
+      {
+        "up_to_kwh_month": null,
+        "mad": 1.5958
+      }
+    ],
+    "tariff_source": "https://kherba.com/tarifs (retrieved 2026-08-16)",
+    "tariff_note": "band prices treated as all-in per kWh; sources conflict on whether 18% or 20% VAT is embedded in them (Morocco's VAT reform completed in 2026). Pass --mad-per-kwh from your bill to remove the ambiguity.",
+    "marginal_band": "200-300 kWh/month",
+    "marginal_mad_per_kwh": 1.1676
+  },
+  "observed": {
+    "samples": 625,
+    "hours": 10.417,
+    "mean_system_watts": 66.64,
+    "a029_cpu_seconds": 0.1
+  },
+  "machine_being_on": {
+    "kwh_so_far": 0.6941,
+    "mad_so_far": 0.81,
+    "kwh_per_24h": 1.599,
+    "mad_per_24h": 1.87,
+    "mad_per_30d": 56.0
+  },
+  "a029_run_marginal": {
+    "measured": true,
+    "samples": 6,
+    "hours": 0.1,
+    "samples_excluded_unattributable": 619,
+    "kwh_so_far": 4e-07,
+    "mad_so_far": 0.0,
+    "kwh_per_24h": 9.5e-05,
+    "mad_per_24h": 0.000111
+  }
+}

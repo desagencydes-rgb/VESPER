@@ -1,0 +1,315 @@
+{
+  "schema_version": 4,
+  "generated_at_utc": "2026-08-14T19:32:09Z",
+  "spike": "SPIKE-001",
+  "quick_mode": false,
+  "system": {
+    "os_family": "Windows",
+    "os_version": "10.0.26200",
+    "hostname_hint": "DESKTOP-F73BBDB",
+    "cpu_cores_logical": 12,
+    "ram_gb": 15.9,
+    "ram_gb_error": null,
+    "disk_total_gb": 475.9,
+    "disk_free_gb": 123.7,
+    "gpu_name_hint": "AMD Radeon RX 6650 XT",
+    "gpu_name_error": null,
+    "python_version": "3.14.2"
+  },
+  "runner": {
+    "backend": "llama.cpp/llama-server",
+    "url": "http://127.0.0.1:8080",
+    "available": true,
+    "health": {
+      "status": "ok"
+    },
+    "model_path": "C:\\Projects\\VESPER-runtime\\models\\Qwen3-8B-Q4_K_M.gguf",
+    "build_info": "b10405-e79e4bf66",
+    "n_ctx": 8448,
+    "total_slots": 1,
+    "server_props": {
+      "default_generation_settings": {
+        "params": {
+          "seed": 4294967295,
+          "temperature": 0.800000011920929,
+          "dynatemp_range": 0.0,
+          "dynatemp_exponent": 1.0,
+          "top_k": 40,
+          "top_p": 0.949999988079071,
+          "min_p": 0.05000000074505806,
+          "top_n_sigma": -1.0,
+          "xtc_probability": 0.0,
+          "xtc_threshold": 0.10000000149011612,
+          "typical_p": 1.0,
+          "repeat_last_n": 64,
+          "repeat_penalty": 1.0,
+          "presence_penalty": 0.0,
+          "frequency_penalty": 0.0,
+          "dry_multiplier": 0.0,
+          "dry_base": 1.75,
+          "dry_allowed_length": 2,
+          "dry_penalty_last_n": 64,
+          "mirostat": 0,
+          "mirostat_tau": 5.0,
+          "mirostat_eta": 0.10000000149011612,
+          "adaptive_target": -1.0,
+          "adaptive_decay": 0.8999999761581421,
+          "max_tokens": -1,
+          "n_predict": -1,
+          "n_keep": 0,
+          "n_discard": 0,
+          "ignore_eos": false,
+          "stream": false,
+          "n_probs": 0,
+          "min_keep": 0,
+          "chat_format": "Content-only",
+          "reasoning_format": "none",
+          "reasoning_in_content": false,
+          "generation_prompt": "",
+          "samplers": [
+            "penalties",
+            "dry",
+            "top_n_sigma",
+            "top_k",
+            "typ_p",
+            "top_p",
+            "min_p",
+            "xtc",
+            "temperature"
+          ],
+          "speculative.types": "none",
+          "timings_per_token": false,
+          "post_sampling_probs": false,
+          "backend_sampling": false,
+          "lora": []
+        },
+        "n_ctx": 8448
+      },
+      "total_slots": 1,
+      "model_alias": "C:\\Projects\\VESPER-runtime\\models\\Qwen3-8B-Q4_K_M.gguf",
+      "model_ftype": "Q4_K - Medium",
+      "model_path": "C:\\Projects\\VESPER-runtime\\models\\Qwen3-8B-Q4_K_M.gguf",
+      "modalities": {
+        "vision": false,
+        "video": false,
+        "audio": false
+      },
+      "media_marker": "<__media_dLkhTTH1BkxYj1Dma6xje3yBay6zlidG__>",
+      "endpoint_slots": true,
+      "endpoint_props": false,
+      "endpoint_metrics": false,
+      "ui": true,
+      "ui_settings": {},
+      "chat_template": "{%- if tools %}\n    {{- '<|im_start|>system\\n' }}\n    {%- if messages[0].role == 'system' %}\n        {{- messages[0].content + '\\n\\n' }}\n    {%- endif %}\n    {{- \"# Tools\\n\\nYou may call one or more functions to assist with the user query.\\n\\nYou are provided with function signatures within <tools></tools> XML tags:\\n<tools>\" }}\n    {%- for tool in tools %}\n        {{- \"\\n\" }}\n        {{- tool | tojson }}\n    {%- endfor %}\n    {{- \"\\n</tools>\\n\\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\\n<tool_call>\\n{\\\"name\\\": <function-name>, \\\"arguments\\\": <args-json-object>}\\n</tool_call><|im_end|>\\n\" }}\n{%- else %}\n    {%- if messages[0].role == 'system' %}\n        {{- '<|im_start|>system\\n' + messages[0].content + '<|im_end|>\\n' }}\n    {%- endif %}\n{%- endif %}\n{%- set ns = namespace(multi_step_tool=true, last_query_index=messages|length - 1) %}\n{%- for message in messages[::-1] %}\n    {%- set index = (messages|length - 1) - loop.index0 %}\n    {%- set tool_start = \"<tool_response>\" %}\n    {%- set tool_start_length = tool_start|length %}\n    {%- set start_of_message = message.content[:tool_start_length] %}\n    {%- set tool_end = \"</tool_response>\" %}\n    {%- set tool_end_length = tool_end|length %}\n    {%- set start_pos = (message.content|length) - tool_end_length %}\n    {%- if start_pos < 0 %}\n        {%- set start_pos = 0 %}\n    {%- endif %}\n    {%- set end_of_message = message.content[start_pos:] %}\n    {%- if ns.multi_step_tool and message.role == \"user\" and not(start_of_message == tool_start and end_of_message == tool_end) %}\n        {%- set ns.multi_step_tool = false %}\n        {%- set ns.last_query_index = index %}\n    {%- endif %}\n{%- endfor %}\n{%- for message in messages %}\n    {%- if (message.role == \"user\") or (message.role == \"system\" and not loop.first) %}\n        {{- '<|im_start|>' + message.role + '\\n' + message.content + '<|im_end|>' + '\\n' }}\n    {%- elif message.role == \"assistant\" %}\n        {%- set content = message.content %}\n        {%- set reasoning_content = '' %}\n        {%- if message.reasoning_content is defined and message.reasoning_content is not none %}\n            {%- set reasoning_content = message.reasoning_content %}\n        {%- else %}\n            {%- if '</think>' in message.content %}\n                {%- set content = (message.content.split('</think>')|last).lstrip('\\n') %}\n        {%- set reasoning_content = (message.content.split('</think>')|first).rstrip('\\n') %}\n        {%- set reasoning_content = (reasoning_content.split('<think>')|last).lstrip('\\n') %}\n            {%- endif %}\n        {%- endif %}\n        {%- if loop.index0 > ns.last_query_index %}\n            {%- if loop.last or (not loop.last and reasoning_content) %}\n                {{- '<|im_start|>' + message.role + '\\n<think>\\n' + reasoning_content.strip('\\n') + '\\n</think>\\n\\n' + content.lstrip('\\n') }}\n            {%- else %}\n                {{- '<|im_start|>' + message.role + '\\n' + content }}\n            {%- endif %}\n        {%- else %}\n            {{- '<|im_start|>' + message.role + '\\n' + content }}\n        {%- endif %}\n        {%- if message.tool_calls %}\n            {%- for tool_call in message.tool_calls %}\n                {%- if (loop.first and content) or (not loop.first) %}\n                    {{- '\\n' }}\n                {%- endif %}\n                {%- if tool_call.function %}\n                    {%- set tool_call = tool_call.function %}\n                {%- endif %}\n                {{- '<tool_call>\\n{\"name\": \"' }}\n                {{- tool_call.name }}\n                {{- '\", \"arguments\": ' }}\n                {%- if tool_call.arguments is string %}\n                    {{- tool_call.arguments }}\n                {%- else %}\n                    {{- tool_call.arguments | tojson }}\n                {%- endif %}\n                {{- '}\\n</tool_call>' }}\n            {%- endfor %}\n        {%- endif %}\n        {{- '<|im_end|>\\n' }}\n    {%- elif message.role == \"tool\" %}\n        {%- if loop.first or (messages[loop.index0 - 1].role != \"tool\") %}\n            {{- '<|im_start|>user' }}\n        {%- endif %}\n        {{- '\\n<tool_response>\\n' }}\n        {{- message.content }}\n        {{- '\\n</tool_response>' }}\n        {%- if loop.last or (messages[loop.index0 + 1].role != \"tool\") %}\n            {{- '<|im_end|>\\n' }}\n        {%- endif %}\n    {%- endif %}\n{%- endfor %}\n{%- if add_generation_prompt %}\n    {{- '<|im_start|>assistant\\n' }}\n    {%- if enable_thinking is defined and enable_thinking is false %}\n        {{- '<think>\\n\\n</think>\\n\\n' }}\n    {%- endif %}\n{%- endif %}",
+      "chat_template_caps": {
+        "supports_object_arguments": true,
+        "supports_parallel_tool_calls": true,
+        "supports_preserve_reasoning": false,
+        "supports_string_content": true,
+        "supports_system_role": true,
+        "supports_tool_calls": true,
+        "supports_tools": true,
+        "supports_typed_content": false
+      },
+      "bos_token": "<|endoftext|>",
+      "eos_token": "<|im_end|>",
+      "build_info": "b10405-e79e4bf66",
+      "is_sleeping": false,
+      "cors_proxy_enabled": false
+    },
+    "launch_command": "llama-server.exe -m Qwen3-8B-Q4_K_M.gguf -ngl 99 -fa on --cache-type-k q8_0 --cache-type-v q8_0 -c 8448 --parallel 1 --host 127.0.0.1 --port 8080  [build b10405-e79e4bf66, Vulkan; GPU delta 5737 MiB]"
+  },
+  "throughput": {
+    "tier": "standard",
+    "model_path": "C:\\Projects\\VESPER-runtime\\models\\Qwen3-8B-Q4_K_M.gguf",
+    "build_info": "b10405-e79e4bf66",
+    "server_n_ctx": 8448,
+    "minutes_per_run": 10.0,
+    "runs": 3,
+    "concurrent_load": false,
+    "quick_mode": false,
+    "gpu_in_use": null,
+    "gpu_in_use_reason": "llama-server exposes no CPU/GPU split over HTTP. Verify from the server startup log ('load_tensors: offloaded N/N layers to GPU') and record the -ngl flag used, in runner.launch_command.",
+    "run_results": [
+      {
+        "samples": [
+          {
+            "minute": 1.0,
+            "interval_tokens_per_sec": 46.77,
+            "interval_effective_tokens_per_sec": 46.64,
+            "cumulative_tokens_per_sec": 46.77,
+            "interval_tokens": 2799
+          },
+          {
+            "minute": 5.0,
+            "interval_tokens_per_sec": 45.91,
+            "interval_effective_tokens_per_sec": 45.75,
+            "cumulative_tokens_per_sec": 46.08,
+            "interval_tokens": 10980
+          },
+          {
+            "minute": 10.0,
+            "interval_tokens_per_sec": 46.11,
+            "interval_effective_tokens_per_sec": 45.97,
+            "cumulative_tokens_per_sec": 46.09,
+            "interval_tokens": 13792
+          }
+        ],
+        "sustained_tokens_per_sec": 46.11,
+        "sustained_from_checkpoint_minute": 10.0,
+        "sustained_is_final_checkpoint": true,
+        "cumulative_tokens_per_sec": 46.09,
+        "effective_tokens_per_sec": 45.95,
+        "sustained_effective_tokens_per_sec": 45.97,
+        "total_tokens": 27571,
+        "wall_seconds": 600.0,
+        "generation_seconds": 598.1,
+        "prompt_eval_seconds_per_request": [
+          0.155,
+          0.273,
+          0.269,
+          0.274,
+          0.297,
+          0.292,
+          0.31
+        ],
+        "requests_started": 7,
+        "requests_completed": 6,
+        "final_request_aborted_at_deadline": true,
+        "ignore_eos": true,
+        "tier_generation_length": 4096
+      },
+      {
+        "samples": [
+          {
+            "minute": 1.0,
+            "interval_tokens_per_sec": 46.77,
+            "interval_effective_tokens_per_sec": 46.64,
+            "cumulative_tokens_per_sec": 46.77,
+            "interval_tokens": 2799
+          },
+          {
+            "minute": 5.0,
+            "interval_tokens_per_sec": 46.1,
+            "interval_effective_tokens_per_sec": 45.93,
+            "cumulative_tokens_per_sec": 46.24,
+            "interval_tokens": 11023
+          },
+          {
+            "minute": 10.0,
+            "interval_tokens_per_sec": 45.81,
+            "interval_effective_tokens_per_sec": 45.67,
+            "cumulative_tokens_per_sec": 46.02,
+            "interval_tokens": 13702
+          }
+        ],
+        "sustained_tokens_per_sec": 45.81,
+        "sustained_from_checkpoint_minute": 10.0,
+        "sustained_is_final_checkpoint": true,
+        "cumulative_tokens_per_sec": 46.02,
+        "effective_tokens_per_sec": 45.87,
+        "sustained_effective_tokens_per_sec": 45.67,
+        "total_tokens": 27524,
+        "wall_seconds": 600.0,
+        "generation_seconds": 598.0,
+        "prompt_eval_seconds_per_request": [
+          0.164,
+          0.289,
+          0.312,
+          0.311,
+          0.289,
+          0.323,
+          0.29
+        ],
+        "requests_started": 7,
+        "requests_completed": 6,
+        "final_request_aborted_at_deadline": true,
+        "ignore_eos": true,
+        "tier_generation_length": 4096
+      },
+      {
+        "samples": [
+          {
+            "minute": 1.0,
+            "interval_tokens_per_sec": 46.74,
+            "interval_effective_tokens_per_sec": 46.62,
+            "cumulative_tokens_per_sec": 46.74,
+            "interval_tokens": 2798
+          },
+          {
+            "minute": 5.0,
+            "interval_tokens_per_sec": 46.14,
+            "interval_effective_tokens_per_sec": 45.97,
+            "cumulative_tokens_per_sec": 46.26,
+            "interval_tokens": 11032
+          },
+          {
+            "minute": 10.0,
+            "interval_tokens_per_sec": 45.67,
+            "interval_effective_tokens_per_sec": 45.53,
+            "cumulative_tokens_per_sec": 45.97,
+            "interval_tokens": 13658
+          }
+        ],
+        "sustained_tokens_per_sec": 45.67,
+        "sustained_from_checkpoint_minute": 10.0,
+        "sustained_is_final_checkpoint": true,
+        "cumulative_tokens_per_sec": 45.97,
+        "effective_tokens_per_sec": 45.81,
+        "sustained_effective_tokens_per_sec": 45.53,
+        "total_tokens": 27488,
+        "wall_seconds": 600.0,
+        "generation_seconds": 598.0,
+        "prompt_eval_seconds_per_request": [
+          0.156,
+          0.322,
+          0.298,
+          0.308,
+          0.31,
+          0.307,
+          0.299
+        ],
+        "requests_started": 7,
+        "requests_completed": 6,
+        "final_request_aborted_at_deadline": true,
+        "ignore_eos": true,
+        "tier_generation_length": 4096
+      }
+    ],
+    "median_sustained_tokens_per_sec": 45.81,
+    "spread_tokens_per_sec": {
+      "min": 45.67,
+      "max": 46.11,
+      "values": [
+        46.11,
+        45.81,
+        45.67
+      ]
+    },
+    "median_effective_tokens_per_sec": 45.67,
+    "spread_effective_tokens_per_sec": {
+      "min": 45.53,
+      "max": 45.97,
+      "values": [
+        45.97,
+        45.67,
+        45.53
+      ]
+    },
+    "router_should_use": "median_effective_tokens_per_sec — it is wall-clock and therefore sees contention that median_sustained_tokens_per_sec, being generation-time only, is blind to.",
+    "effective_window": "minute 10 -- the same window as median_sustained_tokens_per_sec, so the two are comparable to each other.",
+    "median_whole_run_effective_tokens_per_sec": 45.87,
+    "spread_whole_run_effective_tokens_per_sec": {
+      "min": 45.81,
+      "max": 45.95,
+      "values": [
+        45.95,
+        45.87,
+        45.81
+      ]
+    },
+    "whole_run_vs_settled_note": "median_whole_run_effective_tokens_per_sec averages the entire run, including the fast early minutes. It is ABOVE the settled rate by however much the model decays. Do not quote it as a sustained figure.",
+    "aggregate_correction": "Aggregates re-derived from this file's own run_results by tools/spike/reaggregate.py. The samples are unchanged and were never wrong. What changed: median_effective_tokens_per_sec is now the median of the per-run minute-10 wall rate (sustained_effective_tokens_per_sec), matching the window median_sustained_tokens_per_sec already used. Under schema_version 3 it was the whole-run average, which sits above the settled rate by however much the model decays across the run. The whole-run figure is retained under median_whole_run_effective_tokens_per_sec.",
+    "superseded_median_effective_tokens_per_sec": 45.87
+  }
+}

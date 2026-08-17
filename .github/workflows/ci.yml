@@ -84,6 +84,32 @@ jobs:
       - name: CI-007 no-product-names
         run: python tools/ci/checks.py no-product-names
 
+      # F-STAGE ACCEPTANCE GATES. IMPLEMENTATION_SEQUENCE names these as the
+      # exit condition for each stage -- "an artifact that can fail" -- so they
+      # run here rather than by hand. Each runs its positive cases AND its
+      # negative controls; a control that PASSES is reported as a harness defect
+      # and fails the build, because at that point its positive case is void.
+      - name: F0 acceptance (A-002, A-019, A-033, A-034 + 6 controls)
+        run: python tools/ci/checks.py f0-acceptance
+
+      - name: F1 acceptance (A-003, A-004, A-006, A-021, A-022, A-023, A-032 + 4 controls)
+        run: python tools/ci/checks.py f1-acceptance
+
+      - name: F2 acceptance (A-013, A-014, A-024, A-025, A-030 + exec/devices + 3 controls)
+        run: python tools/ci/checks.py f2-acceptance
+
+      - name: F4 world/privacy/enrollment (A-010, A-042, A-033.3/.4 + 1 control)
+        run: python tools/ci/checks.py f4-acceptance
+
+      - name: F3 scene/presence/outbox (A-009, A-026, A-035 + 1 control)
+        run: python tools/ci/checks.py f3-acceptance
+
+      # THE DECISIVE GATE. A-029 part 3 is the anti-cron discriminator, and C1
+      # -- the pure-cron control -- is the only artifact demonstrating the
+      # anti-chatbot property is tested rather than asserted.
+      - name: F5 autonomy (A-011, A-029, A-031, A-047 + 5 controls incl. C1)
+        run: python tools/ci/checks.py f5-acceptance
+
       # CI-026 — INV-AUTO-5 / INV-IDEA-5. The anti-cron gate, run against a
       # SHIPPED PRODUCT ARTIFACT rather than a fixture. It parses each predicate
       # BODY: every namespace root is classified against a closed vocabulary, and

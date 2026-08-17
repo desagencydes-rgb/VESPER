@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "spike": "SPIKE-001",
+  "section": "3.2",
+  "node": "node 1 -- site-A desktop (DESKTOP-F73BBDB), Ryzen 5 5500, 15.9 GB RAM, RX 6650 XT 7.2 GB usable VRAM",
+  "generated_at_utc": "2026-08-15T00:40:00Z",
+  "method": "Available physical RAM sampled every 5 s across a 180 s window, 36 samples per condition. The reported headroom is the MINIMUM sample in the window, not the mean -- headroom that exists only on average is not headroom, and the moment that decides whether a resident model survives is the worst moment. Paging measured separately via Windows performance counters over the same conditions. Owner's real working set was open throughout: Opera, Chrome, Windows Terminal, and the usual shell processes.",
+
+  "conditions": [
+    {
+      "label": "owner working set, no model resident",
+      "report": "SPIKE-001-3.2-workingset-nomodel.json",
+      "available_gb_min": 6.57,
+      "available_gb_median": 6.67,
+      "available_gb_max": 6.71,
+      "in_use_gb_max": 9.33,
+      "pages_per_sec": null,
+      "verdict": "Baseline. The owner's working set costs about 3.2 GB against the empty-machine reading of 9.79 GB taken at 23:42 with nothing open."
+    },
+    {
+      "label": "owner working set + standard tier resident (Qwen3-8B Q4_K_M, -ngl 99, all layers on GPU, -c 8448)",
+      "report": "SPIKE-001-3.2-workingset-standardmodel.json",
+      "available_gb_min": 2.85,
+      "available_gb_median": 3.21,
+      "in_use_gb_max": 13.05,
+      "pages_per_sec": {"min": 0.0, "max": 46.2, "avg": 10.8},
+      "verdict": "COEXISTS. 2.85 GB of headroom at the worst moment and effectively no paging. Note that a fully GPU-offloaded model still costs ~3.7 GB of SYSTEM RAM here (page cache for the model file plus process overhead) -- -ngl 99 does not mean zero host memory, and a capacity plan that assumed it would be wrong by 3.7 GB."
+    },
+    {
+      "label": "owner working set + strong tier resident (Qwen3-30B-A3B MoE, -ngl 12, -c 8448)",
+      "report": "SPIKE-001-3.2-workingset-strongmodel.json",
+      "available_gb_min": 0.27,
+      "available_gb_median": 0.73,
+      "available_gb_max": 0.92,
+      "in_use_gb_max": 15.63,
+      "pages_per_sec": {"min": 19.9, "max": 1175.9, "avg": 660.8},
+      "pagefile_peak_used_mb": 4039,
+      "verdict": "DOES NOT COEXIST. 0.27 GB of 15.9 GB free at the worst moment, and the machine is actively paging -- 660 pages/sec average against 10.8 for the standard tier, with 4 GB of pagefile peak usage. This is measured behaviour, not a projection."
+    }
+  ],
+
+  "finding": {
+    "headline": "The strong tier and the owner's working set cannot coexist on this node.",
+    "why": "Only 12 of the MoE's layers fit in 7.2 GB of VRAM, so roughly 13 GB of its 17.8 GB of weights live in system RAM. Add the owner's 9.3 GB working set and the demand exceeds 15.9 GB of physical memory. The machine does not fail -- it pages, which is why this is invisible to any check that only asks whether the model loaded.",
+    "consequence_for_the_ladder": "This is a HARD constraint on the 3.4 human-present degradation mode, not a tuning note. That mode says: confine VESPER to light work while someone is at the machine, restore on their leaving. It is now measured that the strong tier is not merely 'heavy' in that mode, it is unrunnable -- the resident model must be UNLOADED when the owner's working set is present, not merely deprioritised. A scheduler that keeps the strong model resident and just lowers its priority will page the owner's browser instead, which is the failure the mode exists to prevent.",
+    "consequence_for_the_router": "Model residency is not free and is not a function of VRAM alone. capability_profiles.toml needs a host-RAM cost per resident model, separate from VRAM, or the residency manager (SPIKE-012) will make decisions on a number that omits 13 GB.",
+    "relationship_to_3.1": "3.1 measured the strong tier at 6.79 tok/s with NO owner working set present -- the matrix ran on an otherwise idle machine. That figure therefore describes a condition this node cannot be in while the owner is using it. It is not wrong; it is conditional, and the condition was not previously stated."
+  },
+
+  "open": {
+    "throughput_while_paging": "NOT MEASURED. 3.1's strong-tier figures were taken without the owner's working set. What the strong tier sustains WHILE paging at 660 pages/sec is unknown and is expected to be materially worse. Recorded as unmeasured rather than estimated.",
+    "protocol_note": "3.2 as written asks for headroom 'with the owner's real working set loaded'. It does not say with which model resident, and the three conditions above show that the answer changes by an order of magnitude depending on the answer. The protocol should name the model condition; recorded here rather than silently choosing one."
+  }
+}

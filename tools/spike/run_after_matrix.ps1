@@ -76,7 +76,14 @@ $therm = @{
     schema_version = 1
     spike = "SPIKE-001"; section = "3.6"
     generated_at_utc = (Get-Date).ToUniversalTime().ToString('o')
-    sustained_load_before_throttle = "NOT_OBSERVED -- minute 10 matched minute 1 in every 3.1 run at draft, small and standard, in both conditions. This node did not throttle within a 10-minute window, so no throttle point exists to record."
+    # DO NOT hardcode a verdict here again. The first version of this line
+    # asserted "minute 10 matched minute 1 at draft, small and standard" -- a
+    # sentence written before the strong-tier runs existed, which then shipped
+    # as a finding and quietly omitted the one tier where the effect is large
+    # (the MoE loses 39-47% across a 10-minute run). The verdict is derived
+    # from the 3.1 reports afterwards and written by hand; this script records
+    # only that the input is available.
+    sustained_load_before_throttle = "PENDING -- derive from the minute-1 vs minute-10 interval rates in the 3.1 v3 reports, per tier and per condition, and write the per-tier drift table into this file. Do not summarise across tiers: they do not behave alike."
     battery_drain_per_hour = $null
     battery_drain_reason = "Mains-powered desktop. No battery. Structurally not applicable to this node class, not merely unmeasured."
     wall_power_draw_watts = $null

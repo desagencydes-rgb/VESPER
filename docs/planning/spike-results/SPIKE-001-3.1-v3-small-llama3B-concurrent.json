@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "generated_at_utc": "2026-08-14T17:00:44Z",
   "spike": "SPIKE-001",
   "quick_mode": false,
@@ -418,8 +418,20 @@
         95.87
       ]
     },
-    "median_effective_tokens_per_sec": 85.64,
+    "median_effective_tokens_per_sec": 85.32,
     "spread_effective_tokens_per_sec": {
+      "min": 85.16,
+      "max": 86.01,
+      "values": [
+        85.16,
+        86.01,
+        85.32
+      ]
+    },
+    "router_should_use": "median_effective_tokens_per_sec — it is wall-clock and therefore sees contention that median_sustained_tokens_per_sec, being generation-time only, is blind to.",
+    "effective_window": "minute 10 -- the same window as median_sustained_tokens_per_sec, so the two are comparable to each other.",
+    "median_whole_run_effective_tokens_per_sec": 85.64,
+    "spread_whole_run_effective_tokens_per_sec": {
       "min": 85.5,
       "max": 85.76,
       "values": [
@@ -428,6 +440,8 @@
         85.64
       ]
     },
-    "router_should_use": "median_effective_tokens_per_sec \u2014 it is wall-clock and therefore sees contention that median_sustained_tokens_per_sec, being generation-time only, is blind to."
+    "whole_run_vs_settled_note": "median_whole_run_effective_tokens_per_sec averages the entire run, including the fast early minutes. It is ABOVE the settled rate by however much the model decays. Do not quote it as a sustained figure.",
+    "aggregate_correction": "Aggregates re-derived from this file's own run_results by tools/spike/reaggregate.py. The samples are unchanged and were never wrong. What changed: median_effective_tokens_per_sec is now the median of the per-run minute-10 wall rate (sustained_effective_tokens_per_sec), matching the window median_sustained_tokens_per_sec already used. Under schema_version 3 it was the whole-run average, which sits above the settled rate by however much the model decays across the run. The whole-run figure is retained under median_whole_run_effective_tokens_per_sec.",
+    "superseded_median_effective_tokens_per_sec": 85.64
   }
 }

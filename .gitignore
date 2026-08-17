@@ -20,3 +20,10 @@ Thumbs.db
 *.key
 .env
 .env.*
+
+# SQLite sidecars are transient. An evidence store committed under
+# docs/planning/spike-results/ must be a WAL-CONSOLIDATED SNAPSHOT
+# (con.backup / .backup), never a live store plus its sidecars: SPIKE-008
+# lost 300 committed rows copying a store that had an open writer.
+*.db-shm
+*.db-wal

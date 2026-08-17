@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "spike": "SPIKE-008",
+  "section": "1.6 portability -- NEGATIVE CONTROL",
+  "scenario": "stores copied while the runtime holds them open, wal_autocheckpoint=0",
+  "node": {
+    "hostname_hint": "DESKTOP-F73BBDB",
+    "os_family": "Windows",
+    "os_version": "10.0.26200",
+    "python_version": "3.14.2",
+    "sqlite_version": "3.50.4"
+  },
+  "rows_in_live_store": 500,
+  "rows_in_copied_store": 200,
+  "rows_lost": 300,
+  "wal_bytes_left_behind": 45352,
+  "copied_store_opens": true,
+  "copied_store_integrity_check": "ok",
+  "control_demonstrated_the_loss": true,
+  "why_this_is_the_dangerous_case": "The copied store OPENS and passes integrity_check while missing 300 committed rows. A carry that checks only 'does it open' would certify this store as good.",
+  "verdict": "CONTROL OK -- loss demonstrated"
+}

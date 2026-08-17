@@ -56,7 +56,7 @@ result on a different SQLite build is exactly the second data point it needs.
 | 1.3 checkpoint | 5 — p95 within 200 ms | **p95 = 0.07 ms** (p50 0.03, max 1.74), synchronous=FULL | p95 1.17 ms |
 | 1.3 checkpoint | 6 — checkpoint acked before step | 0 ordering violations | ok |
 | 1.4 append-only | 7 — UPDATE/DELETE blocked at storage | **all blocked** (SQLite BEFORE trigger, RAISE(ABORT)) | blocked |
-| 1.5 upcasting | 8 | **NOT_RUN** — needs the F0 runtime codec | NOT_RUN |
+| 1.5 upcasting | 8 | **PASS 2026-08-16** on node 1 — `core/codec.py` exists now that F0 has shipped | PASS |
 | 1.6 portability | 9 | see below | NOT_RUN |
 
 **Two findings worth carrying, neither of which is "it passed":**

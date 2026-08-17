@@ -1,0 +1,292 @@
+{
+  "schema_version": 1,
+  "gate": "F4-world-privacy-enrollment",
+  "acceptance_tests_claimed": [
+    "A-010",
+    "A-042",
+    "A-033.3",
+    "A-033.4"
+  ],
+  "acceptance_tests_not_claimed": {
+    "A-008": "perception with provenance -- needs a camera and a physical handwritten note. BLOCKED ON HARDWARE, not on engineering.",
+    "A-028": "media evidence pipeline -- needs video ingest. Blocked on hardware.",
+    "A-039": "sensor lifecycle and privacy -- 4 of its 5 assertions are about physical capture indicators and an OS-level off path. Blocked on hardware. INV-PRIV-2's non-exportability is covered under A-010-B.",
+    "A-042.6": "role separation names specific devices. The registry enforces the PROFILE rule (INV-TRUST-2, in core/devices.py, gated under F2); binding it to particular handsets is an enrollment-time act, not a test."
+  },
+  "f4_complete": false,
+  "closes_f0_scope_limits": [
+    "A-033.3",
+    "A-033.4"
+  ],
+  "passed": true,
+  "positive_passed": 5,
+  "positive_total": 5,
+  "controls_failed_as_required": 1,
+  "controls_total": 1,
+  "results": [
+    {
+      "case": "A-033.3",
+      "title": "Partitioned 2 h: every expired fact reads UNKNOWN",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "facts read their value while fresh",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "every fact past valid_until reads UNKNOWN",
+          "passed": true,
+          "detail": "{('kitchen', 'occupancy'): 'UNKNOWN', ('owner', 'location'): 'UNKNOWN', ('front_door', 'state'): 'UNKNOWN'}"
+        },
+        {
+          "assertion": "NONE reads its last known value",
+          "passed": true,
+          "detail": "{('kitchen', 'occupancy'): 'UNKNOWN', ('owner', 'location'): 'UNKNOWN', ('front_door', 'state'): 'UNKNOWN'}"
+        },
+        {
+          "assertion": "the reason names expiry, not absence",
+          "passed": true,
+          "detail": "expired at 60000; INV-COORD-2 forbids reading the last known value"
+        },
+        {
+          "assertion": "the sweep reports all three",
+          "passed": true,
+          "detail": "3"
+        },
+        {
+          "assertion": "expiry is emitted, not silent",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-033.4",
+      "title": "Two valid contradictory sources: no value changes",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "first observation applies",
+          "passed": true,
+          "detail": "kitchen"
+        },
+        {
+          "assertion": "the contradicting write is NOT applied",
+          "passed": true,
+          "detail": "{'applied': False, 'reason': 'conflict', 'value': 'CONFLICTED'}"
+        },
+        {
+          "assertion": "NO attribute value changed",
+          "passed": true,
+          "detail": "cam-a"
+        },
+        {
+          "assertion": "the reader receives CONFLICTED",
+          "passed": true,
+          "detail": "CONFLICTED"
+        },
+        {
+          "assertion": "world.conflict emitted",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "both sources named in the conflict",
+          "passed": true,
+          "detail": "['cam-a', 'cam-b']"
+        },
+        {
+          "assertion": "no winner was picked",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-010-A",
+      "title": "Topological spatial model; stale entries expire",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "spatial relations are topological",
+          "passed": true,
+          "detail": "[('adjacent_to', 'kitchen'), ('connects_to', 'study')]"
+        },
+        {
+          "assertion": "adjacency is symmetric without coordinates",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "a metric relation is refused (INV-WORLD-2)",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "observation carries confidence",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "a stale entry expires to UNKNOWN",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "a weak match resolves to unknown_person, not the owner",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "an ambiguous strong match also resolves to unknown_person",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "a single strong match does resolve",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "the non-resolution is emitted",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-010-B",
+      "title": "Full cross-product: every ambiguous cell resolves private",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "the fixture is the full cross-product",
+          "passed": true,
+          "detail": "45 cells"
+        },
+        {
+          "assertion": "every ambiguous cell avoids shared and public surfaces",
+          "passed": true,
+          "detail": "[]"
+        },
+        {
+          "assertion": "the cross-product's ambiguous cells are the majority",
+          "passed": true,
+          "detail": "36 ambiguous of 45, expected 36"
+        },
+        {
+          "assertion": "private content with a stranger present goes to the earpiece",
+          "passed": true,
+          "detail": "private_earpiece"
+        },
+        {
+          "assertion": "with no private surface available it WITHHOLDS",
+          "passed": true,
+          "detail": "WITHHOLD"
+        },
+        {
+          "assertion": "UNKNOWN confidence is treated as ambiguous, not guessed",
+          "passed": true,
+          "detail": "private_earpiece"
+        },
+        {
+          "assertion": "the unambiguous public case still uses the public display",
+          "passed": true,
+          "detail": "public_display"
+        },
+        {
+          "assertion": "physiological/mood inference export is REFUSED (INV-PRIV-2)",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "the refusal is recorded",
+          "passed": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "case": "A-042",
+      "title": "Admission is a gate; Z2 is a real bound",
+      "is_negative_control": false,
+      "ok": true,
+      "verdict": "PASS",
+      "assertions": [
+        {
+          "assertion": "1. DISCOVERED -> TRUSTED is unreachable directly",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "2. capable but insecure lands in LIMITED_TRUST",
+          "passed": true,
+          "detail": "LIMITED_TRUST"
+        },
+        {
+          "assertion": "2. and its trust zone is Z2",
+          "passed": true,
+          "detail": "Z2"
+        },
+        {
+          "assertion": "3. a Z2 node may not hold state, issue commands, or receive secrets",
+          "passed": true,
+          "detail": "{'hold_state': True, 'issue_command': True, 'receive_secret': True}"
+        },
+        {
+          "assertion": "3. each refusal is recorded",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "4. trusted but unmeasured is NOT routable",
+          "passed": true,
+          "detail": "{'node_id': 'node-y', 'state': 'TRUSTED', 'trust_zone': 'Z1', 'security_baseline_passed': True, 'capability_floor_passed': True, 'measured_tokens_per_sec': None, 'routable': False, 'roles': []}"
+        },
+        {
+          "assertion": "4. trusted AND measured is routable",
+          "passed": true,
+          "detail": "['node-z']"
+        },
+        {
+          "assertion": "5. expiry demotes TRUSTED -> LIMITED_TRUST",
+          "passed": true,
+          "detail": "LIMITED_TRUST"
+        },
+        {
+          "assertion": "5. and emits a capability degradation",
+          "passed": true,
+          "detail": ""
+        },
+        {
+          "assertion": "5. the demoted node is no longer routable",
+          "passed": true,
+          "detail": "[]"
+        }
+      ]
+    },
+    {
+      "case": "A-010-CONTROL",
+      "title": "Routing by largest available display",
+      "is_negative_control": true,
+      "ok": true,
+      "verdict": "CONTROL OK -- broken build failed as required",
+      "assertions": [
+        {
+          "assertion": "every ambiguous cell avoids shared and public surfaces",
+          "passed": false,
+          "detail": "36 ambiguous cells routed public"
+        }
+      ]
+    }
+  ]
+}

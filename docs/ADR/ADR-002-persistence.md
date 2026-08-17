@@ -187,10 +187,10 @@ The owner's stated condition: *"as long as it ensures data isn't lost, even if o
 | 5 — checkpoint at `synchronous = FULL` under read load ≤ 200 ms p95 | **PASS** — 1.17 ms |
 | 6 — checkpoint acknowledged before step completion (D6 ordering) | **PASS** |
 | 7 — `UPDATE`/`DELETE` on append-only stores refused at the storage layer | **PASS** |
-| 8 — read-time upcasting behaviour | **NOT RUN** — needs the F0 event codec |
+| 8 — read-time upcasting behaviour | **PASS 2026-08-16** — `core/codec.py`; non-compliant control fails as required |
 | 9 — all five stores open on every candidate node class | **NOT RUN** — one node enrolled |
 
-**The acceptance is explicitly on the seven criteria tested.** Criteria 8 and 9 are verified during F0 and on the second enrolled node respectively; if either fails, this record is revised then, which is the same disposition §3 already carries. Report: `docs/planning/spike-results/SPIKE-008-adr002-validation.json`.
+**The acceptance was explicitly on the seven criteria tested.** Criterion 8 has since been verified during F0 exactly as this clause anticipated: the codec is `core/codec.py`, the missing-upcaster path raises rather than dropping a field, stored bytes are unchanged after a read, and a body newer than the reader is refused rather than guessed at. Evidence: `docs/planning/spike-results/SPIKE-008-criterion8-upcasting.json`. **Criterion 9 remains open** and is verified on the second enrolled node; if it fails, this record is revised then, which is the same disposition §3 already carries. Report: `docs/planning/spike-results/SPIKE-008-adr002-validation.json`.
 
 > **Note for the readiness gate.** ADR-001 and ADR-012 carry `Status: ACCEPTED` stamped in an earlier engineering pass under the same authority question. Either all three are confirmed together at the gate, or the acceptance of ADR-001/ADR-012 should be re-confirmed on the same basis. Recorded here rather than resolved, because it is the same authority question and should be answered once. See `OWNER-DECISION-006`.
 

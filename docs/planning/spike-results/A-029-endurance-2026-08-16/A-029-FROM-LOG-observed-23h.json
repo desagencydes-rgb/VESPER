@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "gate": "A-029-from-log",
+  "source": "docs\\planning\\spike-results\\A-029-endurance-2026-08-16\\log.db",
+  "declared_tick_interval_s": 60.0,
+  "observed_span_h": 22.999,
+  "heartbeats": 1381,
+  "firings": 9,
+  "noops": 1372,
+  "injections": [
+    {
+      "after_tick": 94,
+      "source": "synthetic_observer"
+    },
+    {
+      "after_tick": 574,
+      "source": "synthetic_observer"
+    },
+    {
+      "after_tick": 994,
+      "source": "synthetic_observer"
+    }
+  ],
+  "stalled_events": 0,
+  "result": {
+    "case": "A-029-FROM-LOG",
+    "title": "A-029 re-derived from the durable event log",
+    "is_negative_control": false,
+    "ok": true,
+    "verdict": "PASS",
+    "assertions": [
+      {
+        "assertion": "Part 1 heartbeats are present at all",
+        "passed": true,
+        "detail": "1381 heartbeats"
+      },
+      {
+        "assertion": "Part 1 no gap exceeds 3 x tick_interval",
+        "passed": true,
+        "detail": "max gap 60022 ms against a 180000.0 ms limit"
+      },
+      {
+        "assertion": "Part 1 heartbeats span the whole window, both ends",
+        "passed": true,
+        "detail": "first at 1786837352736, last at 1786920150330, window 1786837352736..1786920210330.0 ms"
+      },
+      {
+        "assertion": "Part 1 the heartbeat count matches the declared cadence",
+        "passed": true,
+        "detail": "1381 heartbeats, expected ~1381 (+/-27)"
+      },
+      {
+        "assertion": "Part 1 autonomy.loop_stalled never fires",
+        "passed": true,
+        "detail": "0 stall episodes"
+      },
+      {
+        "assertion": "Part 2 at least one action was taken to have provenance for",
+        "passed": true,
+        "detail": "9 actions"
+      },
+      {
+        "assertion": "Part 2 100% of actions resolve to exactly one registered trigger_id",
+        "passed": true,
+        "detail": "['trg_workshop_overheat']"
+      },
+      {
+        "assertion": "Part 2 each predicate re-evaluates true against its snapshot",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "assertion": "Part 2 at least one recorded no-op carries a trigger_id",
+        "passed": true,
+        "detail": "1372 recorded no-ops"
+      },
+      {
+        "assertion": "Part 3.4 every independent draw of T produced a firing",
+        "passed": true,
+        "detail": "[1, 1, 1]"
+      },
+      {
+        "assertion": "Part 3.4 each fired within 2 x tick_interval of T",
+        "passed": true,
+        "detail": "[1, 1, 1]"
+      },
+      {
+        "assertion": "Part 3.5 the fired trigger_id resolves to the STATE-class trigger",
+        "passed": true,
+        "detail": "['trg_workshop_overheat', 'trg_workshop_overheat', 'trg_workshop_overheat']"
+      },
+      {
+        "assertion": "Part 3.5 and its predicate_class is STATE",
+        "passed": true,
+        "detail": "['STATE', 'STATE', 'STATE']"
+      },
+      {
+        "assertion": "Part 3.6 the reconstructed snapshot contains the injected fact",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "assertion": "Part 3.7 autonomy.model_call_in_decision_path did NOT fire",
+        "passed": true,
+        "detail": "0 events"
+      },
+      {
+        "assertion": "Part 3 NOT every fired trigger is SCHEDULE-class",
+        "passed": true,
+        "detail": "every firing was SCHEDULE-class -- this build is cron wearing autonomy's vocabulary"
+      },
+      {
+        "assertion": "every fired trigger_id could be rebuilt and re-evaluated",
+        "passed": true,
+        "detail": ""
+      },
+      {
+        "assertion": "the injected observation came from an enrolled synthetic_observer",
+        "passed": true,
+        "detail": "{'synthetic_observer'}"
+      }
+    ]
+  }
+}
