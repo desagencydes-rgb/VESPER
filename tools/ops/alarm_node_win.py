@@ -45,6 +45,7 @@ import ctypes
 import math
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -215,8 +216,17 @@ class WindowsAudioRung:
 
     def __init__(self, *, mic_index: int | None = None,
                  out_index: int | None = None,
+                 out_indices: list | None = None,
                  min_margin: float = 6.0,
                  owner_attested: bool = False) -> None:
+        # MORE THAN ONE OUTPUT, SAME RUNG. Two monitors driven together are two
+        # independent audio endpoints, so a dead speaker on one does not silence
+        # the alarm -- a real robustness gain. It is NOT a second rung: both
+        # endpoints hang off this one machine, and A-012's ladder is across
+        # DEVICES. If this node sleeps, both go quiet together.
+        self._out_indices = ([i for i in (out_indices or []) if i is not None]
+                             or ([out_index] if out_index is not None else [None]))
+        self._streams: list = []
         # OWNER-ATTESTED AUDIBILITY. On this node the microphone cannot settle
         # the question: the headset mic is close-talk with active suppression and
         # measured the probe at 0.9x its own noise floor, and the phone mic
@@ -230,7 +240,7 @@ class WindowsAudioRung:
         # out_index pins the OUTPUT device. Windows' "default" was a headset
         # lying on the desk, which is audible to a microphone 40 cm away and to
         # nobody asleep. An alarm names the speaker it intends to be heard from.
-        self._out_index = out_index
+        self._out_index = self._out_indices[0]
         # The probe must clear the noise floor by this MULTIPLE, not merely
         # exceed it. A headset on a desk measured 2.6x the floor and would not
         # wake anyone; the margin is what separates "detectable" from "loud".
@@ -403,9 +413,15 @@ class WindowsAudioRung:
             return False
 
     def silence(self) -> None:
+        for st in self._streams:
+            try:
+                st.abort(); st.close()
+            except Exception:
+                pass
+        self._streams = []
         try:
-            if self._stream is not None:
-                self._stream.stop(); self._stream.close(); self._stream = None
+            import sounddevice as sd
+            sd.stop()
         except Exception:
             pass
         try:
@@ -453,8 +469,32 @@ class WindowsAudioRung:
         sd.wait()
 
     def _play_async(self, wave) -> None:
+        """Play the SAME buffer on every configured output, concurrently.
+
+        `sd.play` owns a single global stream, so calling it once per device
+        stops the previous one and only the last device ever sounds. Each output
+        therefore gets its own OutputStream written from its own thread.
+        """
+        import numpy as np
         import sounddevice as sd
-        sd.play(wave, SAMPLE_RATE, device=self._out_index)
+        self.silence()
+        data = np.ascontiguousarray(wave, dtype="float32")
+        for idx in self._out_indices:
+            try:
+                st = sd.OutputStream(samplerate=SAMPLE_RATE, channels=1,
+                                     dtype="float32", device=idx)
+                st.start()
+                self._streams.append(st)
+
+                def _pump(stream=st, buf=data):
+                    try:
+                        stream.write(buf)
+                    except Exception:
+                        pass
+
+                threading.Thread(target=_pump, daemon=True).start()
+            except Exception:
+                continue
 
     def _speech_wave(self, message: str):
         """Render speech to a file, then play it through the PINNED output.

@@ -57,6 +57,15 @@ def _emitter(records: list):
     return emit
 
 
+def _out_list(spec) -> list:
+    """"6,5" -> [6, 5]. Order matters only for logging; both sound together."""
+    if spec in (None, ""):
+        return []
+    if isinstance(spec, int):
+        return [spec]
+    return [int(x) for x in str(spec).replace(" ", "").split(",") if x != ""]
+
+
 def _dev_args(args) -> str:
     out = ""
     if getattr(args, "output_device", None) is not None:
@@ -98,7 +107,7 @@ def cmd_devices(args) -> int:
 def cmd_preflight(args) -> int:
     records: list = []
     emit = _emitter(records)
-    rung = WindowsAudioRung(out_index=args.output_device,
+    rung = WindowsAudioRung(out_indices=_out_list(args.output_device),
                             mic_index=args.mic_device,
                             min_margin=args.min_margin,
                             owner_attested=args.attest_audible)
@@ -181,7 +190,7 @@ def cmd_fire(args) -> int:
                           window_s=WINDOW_S,
                           label=args.message)
 
-    rung = WindowsAudioRung(out_index=args.output_device,
+    rung = WindowsAudioRung(out_indices=_out_list(args.output_device),
                             mic_index=args.mic_device,
                             min_margin=args.min_margin,
                             owner_attested=args.attest_audible)
@@ -263,8 +272,9 @@ def main() -> int:
     sub.add_parser("devices").set_defaults(fn=cmd_devices)
 
     def audio_opts(sp):
-        sp.add_argument("--output-device", type=int, default=None,
-                        help="output device index (see `devices`)")
+        sp.add_argument("--output-device", default=None,
+                        help="output device index, or several comma-separated "
+                             "to sound them together (e.g. 6,5)")
         sp.add_argument("--mic-device", type=int, default=None)
         sp.add_argument("--attest-audible", action="store_true",
                         help="the owner confirmed BY EAR that this output is "
