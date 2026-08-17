@@ -2,6 +2,12 @@
 
 **Updated:** 2026-08-17, after the A-029 endurance partial was dispositioned and the run relaunched · **Maintained continuously.** If another engineer or agent takes over tomorrow, this file plus `docs/DECISION_LOG.md` is the handoff.
 
+> **Read `MEMORY.md` first.** It carries what is *not* derivable from this file, the code or the
+> git history: the measured numbers with their provenance, the **bandwidth law** that governs
+> every model decision on node 1, the mistakes already made and corrected, and the doctrine this
+> project keeps rediscovering. Not required reading — a place to stand on. The current plan is
+> `PLAN_2026-08-17.md`.
+
 ---
 
 ## Current position
