@@ -236,6 +236,47 @@ marks are, and no `baseline` pass has ever been run — §7 makes the baseline t
 thing that gives every ghost number its meaning, so a guard that stayed silent
 through the first baseline pass would have failed on the run that matters most.
 
+### 8.3 The first baseline pass does not count, and the reason is geometry
+
+**2026-08-17 23:45.** The first `baseline` pass ever taken produced six marks,
+all `stepped: true`, correctly labelled and named — the instrument worked. The
+readings do not.
+
+Every mark carries `flipped: true, mirrored: true`. **Neither transform has any
+meaning in `baseline`**: that layout is the bare panel viewed head-on, with no
+fold and no reflection to undo. `mirror` defaults on because the ghost needs it
+(§6), and that default is precisely what carried it into the one layout that
+must not have it. What the pass actually measured is how small the operator can
+read text that is upside down and backwards.
+
+That shows up in the numbers. `glyph height` came back as **40 px — the largest
+value on the scale**, marked as the *smallest legible* size, on a bare phone
+screen at ~53 cm. Reversed text is the explanation. And because §7 makes the
+baseline the datum every ghost reading is compared against, a baseline degraded
+by two transforms does not lose one row: it biases the entire spike toward
+*"the fold costs nothing"*.
+
+Two further readings are not yet trustworthy for reasons the instrument cannot
+fix:
+
+- `ambient ceiling: 4` (*daylight / bright*) was marked 11 s after the previous
+  mark. That step asks the operator to **change the room light** until the image
+  washes out — the only measurement here that alters the room rather than the
+  phone.
+- `viewing arc: 90°` says the image never breaks at any angle. On a bare LCD at
+  90° off-axis the panel is edge-on; real panels wash out well before that.
+
+**The files are kept, not deleted.** They carry `flipped` and `mirrored` on
+every mark, which is exactly why the defect was visible at all — the geometry
+fields added in §6's correction did their job on the first run that needed them.
+A reading whose geometry is recorded can be disqualified; one whose geometry is
+unknown cannot.
+
+**Fixed in the instrument:** selecting `baseline` now forces both transforms off
+and the `flip` / `mirror` buttons refuse while it is selected, saying why. The
+protocol card says it too, along with the note that the ambient step needs the
+room light genuinely varied.
+
 **The lesson worth keeping is not the one that commit drew.** It read six
 suspicious numbers and reached for operator discipline. The numbers were
 suspicious because the instrument was broken in a way that reports nothing — no

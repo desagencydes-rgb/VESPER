@@ -241,6 +241,13 @@ html, body {
   <b>straight down at it</b> — the folded path meets the screen along its
   normal, so a head-on view is the matching one, not an angled one. Put your eye
   <b>D + w/2</b> above the screen. Run the tests and MARK.</p>
+  <p><b>flip and mirror are forced off here, and the buttons will refuse.</b>
+  There is no fold in this layout and so nothing to undo: a mirrored baseline
+  measures how small you can read backwards text, not how small you can read.
+  The first baseline pass was taken with both on and has to be re-run.</p>
+  <p><b>ambient ceiling needs the room light actually changed</b>, not the
+  scale walked to the end — that step is the one measurement here that asks you
+  to alter the room rather than the phone.</p>
 
   <h3>3. Take the ghost reading (needs the reflector)</h3>
   <p>Switch layout to <code>single</code> for one pane, or <code>pyramid</code>
@@ -584,10 +591,41 @@ $("bSend").addEventListener("click", e => { e.stopPropagation(); send(); });
 // A layout change starts a fresh pass: the level returns to the floor and the
 // pending-mark acknowledgement is dropped, so "untouched default" stays true
 // of what the HUD is showing.
-function setLayout(m) { mode = m; li = 0; pendingKey = null; draw(); say("layout: " + LAYOUTS[mode]); }
+//
+// AND IT SETTLES THE GEOMETRY, because `baseline` has none. The first baseline
+// pass (2026-08-17 23:45) was taken with flip AND mirror on, and neither has
+// any meaning there: `baseline` is the BARE PANEL viewed head-on, with no fold
+// and no reflection to undo. What it actually measured was how small the
+// operator can read text that is upside down and backwards -- which is why the
+// smallest "legible" font-size came back as 40 px, the largest value on the
+// scale. Section 7 makes this reading the datum every ghost number is compared
+// against, so a baseline degraded by two transforms does not merely lose one
+// row, it biases the whole spike toward "the optics cost nothing".
+//
+// So the transforms are FORCED OFF here and the buttons refuse while it is
+// selected. mirror defaults on for the ghost, which is right, and that default
+// is exactly what carried it into a layout that must not have it.
+function baselineGeometry() { return LAYOUTS[mode] === "baseline"; }
+function setLayout(m) {
+  mode = m; li = 0; pendingKey = null;
+  if (baselineGeometry()) { flip = false; mirror = false; }
+  draw();
+  say("layout: " + LAYOUTS[mode] +
+      (baselineGeometry() ? " — flip and mirror forced OFF: no fold, nothing to undo" : ""));
+}
+function setGeom(which) {
+  if (baselineGeometry()) {
+    say(`${which} does nothing in baseline — the bare panel has no fold. ` +
+        `Switch to single or pyramid first.`);
+    return;
+  }
+  if (which === "flip") flip = !flip; else mirror = !mirror;
+  draw();
+  say(which + ": " + ((which === "flip" ? flip : mirror) ? "on" : "off"));
+}
 $("bMode").addEventListener("click", e => { e.stopPropagation(); setLayout((mode + 1) % LAYOUTS.length); });
-$("bFlip").addEventListener("click", e => { e.stopPropagation(); flip = !flip; draw(); });
-$("bMirror").addEventListener("click", e => { e.stopPropagation(); mirror = !mirror; draw(); say("mirror: " + (mirror ? "on" : "off")); });
+$("bFlip").addEventListener("click", e => { e.stopPropagation(); setGeom("flip"); });
+$("bMirror").addEventListener("click", e => { e.stopPropagation(); setGeom("mirror"); });
 $("bD").addEventListener("click", e => { e.stopPropagation(); di = (di + 1) % D_STEPS.length; draw(); });
 $("bW").addEventListener("click", e => { e.stopPropagation(); wi = (wi + 1) % W_STEPS.length; draw(); });
 $("bProto").addEventListener("click", e => { e.stopPropagation(); $("proto").classList.add("on"); });
@@ -603,8 +641,8 @@ addEventListener("keydown", e => {
   // corruption of the one field that makes two readings comparable. The J3 has
   // no keyboard, so this only ever bit a desktop pass; mirror is `r` now.
   if (e.key === "m") mark();
-  if (e.key === "f") { flip = !flip; draw(); }
-  if (e.key === "r") { mirror = !mirror; draw(); }
+  if (e.key === "f") setGeom("flip");
+  if (e.key === "r") setGeom("mirror");
   if (e.key === "l") { setLayout((mode + 1) % LAYOUTS.length); }
 });
 
