@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vesper.local/contracts/entities/artifact.schema.json",
+  "title": "VESPER Artifact",
+  "description": "IC-003. The typed product of a generation request: an image, a report, a plan. A-027 asserts three properties this schema exists to make assertable -- every artifact carries provenance (inputs, model, evidence refs), artifacts are registered, and an artifact is retrievable by correlation ID. Without this type those assertions have no referent. THE BODY IS NEVER INLINE MARKUP (INV-SCENE-3): a document artifact is a content-addressed blob plus a media type, and a *presented* artifact binds to a SemanticScene via DF-PRESENT-BIND. 'Output results in HTML' is the phrasing that reintroduces a chat UI, so `presentation.as` has no `html` member and `additionalProperties` is false everywhere. Authority: SR-023, SR-033, SR-034, ARCH-07, ARCH-09, ARCH-12, IC-003, IC-010, A-027; DR-010.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["artifact_id", "schema_version", "created_at_hlc", "correlation_id", "kind", "body_ref", "provenance", "presentation"],
+  "properties": {
+    "artifact_id": { "type": "string", "pattern": "^art_[0-9a-z]{8,}$" },
+    "schema_version": { "type": "integer", "minimum": 1 },
+    "created_at_hlc": { "$ref": "https://vesper.local/contracts/events/event_envelope.schema.json#/$defs/hlc" },
+
+    "correlation_id": {
+      "type": "string",
+      "description": "REQUIRED, not nullable. A-027 asserts artifacts are 'retrievable by correlation ID'; a nullable field makes that assertion unsatisfiable for exactly the artifacts nobody indexed. This is the registry key."
+    },
+
+    "kind": {
+      "type": "string",
+      "enum": ["image", "report", "plan", "dataset", "diagram"],
+      "description": "SR-023 covers image and report generation; SR-033 covers plans, which are the presentation-bound case. A closed vocabulary, because a free-form kind cannot be routed by DF-ARTIFACT-ROUTE."
+    },
+
+    "body_ref": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["content_hash", "media_type", "byte_length", "storage_ref"],
+      "description": "CONTENT-ADDRESSED POINTER, never the content. An inline body field would be the markdown/HTML escape hatch INV-SCENE-3 forbids in scenes, arriving through the artifact door instead. The hash is what makes provenance verifiable rather than merely recorded.",
+      "properties": {
+        "content_hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "media_type": { "type": "string", "description": "IANA media type of the stored blob: application/pdf, text/markdown, image/png. Naming the type here is what lets a renderer decide it cannot present this artifact, rather than guessing." },
+        "byte_length": { "type": "integer", "minimum": 0 },
+        "storage_ref": { "type": "string", "description": "Opaque store locator. Not a filesystem path: a path pins the artifact to the node that generated it, and REM-002 requires artifacts to survive node loss." }
+      }
+    },
+
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inputs", "generator", "evidence_refs", "route"],
+      "description": "A-027's first assertion. Every field is required because a partially-recorded provenance is indistinguishable from a fabricated one at read time.",
+      "properties": {
+        "inputs": {
+          "type": "array",
+          "minItems": 1,
+          "description": "The request and any source artifacts, by id. minItems 1: an artifact that records no input records nothing.",
+          "items": { "type": "string" }
+        },
+        "generator": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model_id", "model_locality", "provider_id"],
+          "properties": {
+            "model_id": { "type": "string" },
+            "model_locality": { "type": "string", "enum": ["local", "remote"], "description": "The recorded outcome of DF-ARTIFACT-ROUTE. Recording it on the artifact is what makes an exfiltration reviewable after the fact rather than only preventable before it." },
+            "provider_id": { "type": ["string", "null"], "description": "Null when model_locality is local. Non-null obliges the INV-COST-3 choke point to have been traversed." }
+          }
+        },
+        "evidence_refs": {
+          "type": "array",
+          "description": "REM-010 evidence backing factual content. REQUIRED even when empty -- an absent array is indistinguishable from an unrecorded source, and INV-EVID-1 forbids a model_prior claim being emitted as an assertion. An empty array on a `report` is a claim that the report asserts nothing factual.",
+          "items": { "type": "string" }
+        },
+        "route": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["decision", "privacy_class"],
+          "description": "The DF-ARTIFACT-ROUTE input and output, recorded together. Storing only the decision makes a wrong decision unreconstructable.",
+          "properties": {
+            "decision": { "type": "string", "enum": ["LOCAL", "REMOTE", "REFUSE"] },
+            "privacy_class": { "type": "string", "enum": ["public", "personal", "private", "UNKNOWN"] },
+            "refusal_reason": { "type": ["string", "null"] }
+          }
+        }
+      }
+    },
+
+    "presentation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["as"],
+      "description": "SR-033's load-bearing half. A generated presentation is a SemanticScene, NOT an HTML blob. There is deliberately no `html` and no `rendered_markup` member: the enum below is the whole vocabulary, and a producer wanting to ship markup has nowhere to put it. `document_ref` is the honest alternative -- the artifact stays a file the owner can open, and VESPER presents *about* it through a scene rather than pretending markup is a scene.",
+      "properties": {
+        "as": {
+          "type": "string",
+          "enum": ["semantic_scene", "document_ref", "not_presentable"],
+          "description": "`semantic_scene`: bound to a scene, required for kind = plan (see allOf). `document_ref`: the blob is offered for retrieval and any narration is a separate scene. `not_presentable`: a dataset, recorded rather than silently undisplayable."
+        },
+        "scene_ref": { "type": ["string", "null"], "pattern": "^(scn_[0-9a-z]{8,})?$", "description": "Required when as = semantic_scene." }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "as": { "const": "semantic_scene" } }, "required": ["as"] },
+          "then": { "required": ["scene_ref"], "properties": { "scene_ref": { "type": "string" } } }
+        }
+      ]
+    },
+
+    "registry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registered", "supersedes"],
+      "description": "A-027's 'artifacts are registered in the artifact registry'. `registered = false` is legal and is how a generation failure is recorded; it is not legal to omit the field, because an absent registry block reads the same as a successful registration.",
+      "properties": {
+        "registered": { "type": "boolean" },
+        "supersedes": { "type": ["string", "null"], "description": "Prior artifact id when this is a regeneration. A corrected report that does not name what it replaces leaves two contradictory artifacts both retrievable by the same correlation ID." }
+      }
+    }
+  },
+
+  "allOf": [
+    {
+      "if": { "properties": { "kind": { "const": "plan" } }, "required": ["kind"] },
+      "then": {
+        "properties": { "presentation": { "properties": { "as": { "const": "semantic_scene" } } } },
+        "description": "SR-033, stated as a constraint rather than a comment: a plan is the artifact kind the COC calls a 'presentation', and it must bind to a scene. This is the clause that stops 'output results in HTML' from being satisfiable."
+      }
+    }
+  ]
+}

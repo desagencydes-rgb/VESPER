@@ -906,3 +906,136 @@ DF-ENDPOINT-RECOVER(episode, observation, attempts, period) -> RETRY | COMPENSAT
   # relabels the outcome. Re-running until the verifier agrees is forbidden by
   # DF-VERIFY-SELECT and that prohibition is inherited here.
 ```
+
+## DF-ARTIFACT-ROUTE — artifact generation locality · REM-010
+
+```
+DF-ARTIFACT-ROUTE(kind, privacy_class, evidence_sensitivity, local_capability,
+                  provider_admitted, cost_class)
+    -> LOCAL | REMOTE(provider_id) | REFUSE(reason)
+
+  if privacy_class is UNKNOWN:            return LOCAL if local_capability
+                                          else REFUSE("privacy unresolved")
+  if privacy_class == "private":          return LOCAL if local_capability
+                                          else REFUSE("private content, no
+                                                       local capability")
+  if evidence_sensitivity == "owner_only": return LOCAL if local_capability
+                                           else REFUSE("owner-only evidence")
+
+  if local_capability and satisfies(local_capability, kind):
+                                          return LOCAL
+
+  if not provider_admitted:               return REFUSE("no admitted provider")
+  return REMOTE(provider_admitted.provider_id)   # traverses the INV-COST-3
+                                                 # cost-class choke point; a
+                                                 # path here that skips it is
+                                                 # non-compliant
+
+  # FAIL-SAFE DIRECTION. The natural implementation picks the strongest model,
+  # which is remote, which sends the owner's private evidence off the node --
+  # and it does so most eagerly for the hardest requests, which are the ones
+  # most likely to carry the sensitive material. Every branch above resolves
+  # UNKNOWN and `private` toward LOCAL or REFUSE, never toward REMOTE.
+  #
+  # PROHIBITED: there is no branch that downgrades privacy_class to obtain a
+  # route. Refusing to generate is an outcome; reclassifying the content is a
+  # laundering step, and the artifact's provenance.route records which happened.
+```
+
+## DF-PRESENT-BIND — artifact presentation binding · REM-009
+
+```
+DF-PRESENT-BIND(artifact_kind, media_type, endpoint_capability, scene_available)
+    -> SEMANTIC_SCENE(scene_ref) | DOCUMENT_REF | NOT_PRESENTABLE
+
+  if artifact_kind == "plan":
+      if not scene_available:             return NOT_PRESENTABLE
+      return SEMANTIC_SCENE(scene_available.scene_ref)   # SR-033: a plan is a
+                                                         # presentation and
+                                                         # binds to a scene
+  if artifact_kind == "dataset":          return NOT_PRESENTABLE
+
+  if scene_available and satisfies_modality(endpoint_capability, scene_available):
+                                          return SEMANTIC_SCENE(...)
+  return DOCUMENT_REF                     # the blob is offered for retrieval;
+                                          # any narration is a separate scene
+
+  # FAIL-SAFE DIRECTION. The natural implementation renders the report to HTML
+  # and ships it to whatever surface is largest -- which is a screen dump, is
+  # unnarratable, and is the exact shape INV-SCENE-3 forbids. There is no
+  # branch returning markup because the Artifact schema has nowhere to put it.
+  #
+  # PROHIBITED: NOT_PRESENTABLE is a reported outcome, never a silent drop
+  # (INV-SCENE-2 -- an unreported degradation is indistinguishable from none).
+```
+
+## DF-PERSONA — expressive register under truth precedence · REM-009
+
+```
+DF-PERSONA(situational_state, scene_urgency, persons_present, claim_confidence,
+           boundary_asserted)
+    -> (register_id, downgrade_reason) | NONE
+
+  if scene_urgency == "alarm":       return ("none", "alarm_overrides_persona")
+  if boundary_asserted:              return ("plain", "boundary_asserted")
+  if claim_confidence is UNKNOWN:    return ("plain", "unknown_not_joked")
+  if any(p.role == "unknown_person" for p in persons_present):
+                                     return ("plain", "unknown_person_present")
+
+  return (register_for(situational_state), None)
+
+  # This function is the whole of A-036's measurable claim: it takes no model
+  # input and returns a different register for the same request under different
+  # state, so behaviour changes WITH THE MODEL HELD CONSTANT. A personality
+  # implemented only in a prompt cannot satisfy that assertion at all.
+  #
+  # FAIL-SAFE DIRECTION. The natural implementation treats personality as a
+  # constant and lets the model decide when to be funny -- so it is funniest
+  # exactly where it is least wanted: mid-alarm, over an UNKNOWN, in front of a
+  # stranger, after the owner has said stop. All four resolve to a downgrade.
+  #
+  # PROHIBITED: no branch returns a register whose `impressions` is anything but
+  # `none` or `fictional_only`. RB-012 is absolute, and the persona policy
+  # schema cannot express a real-person impression, so this function cannot
+  # select one. Every downgrade emits its reason (truth_precedence
+  # .degradation_is_reported) -- a silent downgrade is unobservable, and A-036
+  # has to observe it.
+```
+
+## DF-SECURITY-TRIAGE — anomaly, indicator, incident · REM-011
+
+```
+DF-SECURITY-TRIAGE(observation, asset_enrolled, signature_match,
+                   confirmed_effect, baseline)
+    -> ANOMALY | INDICATOR | INCIDENT | UNKNOWN | REFUSE_UNENROLLED
+
+  if not asset_enrolled:            return REFUSE_UNENROLLED   # emitted and
+                                                               # logged, never
+                                                               # dropped
+  if baseline is UNKNOWN:           return UNKNOWN   # no baseline means no
+                                                     # deviation is computable
+  if confirmed_effect:              return INCIDENT
+  if signature_match:               return INDICATOR
+  if deviates(observation, baseline): return ANOMALY
+  return UNKNOWN
+
+  # The three-way split is the value. One threshold produces either alarm
+  # fatigue or a missed intrusion, and which one depends only on where the
+  # threshold sits. An ANOMALY is a deviation; an INDICATOR is a deviation with
+  # a known attack signature; an INCIDENT is an indicator with confirmed effect.
+  #
+  # SCOPE, fixed by OWNER-DECISION-005 and confirmed permanent 2026-08-12:
+  # enrolment is checked FIRST, before any severity is computed, because a
+  # severity is what would justify a response against an asset that is not the
+  # owner's.
+  #
+  # FAIL-SAFE DIRECTION. The natural implementation returns "clean" when it has
+  # no baseline -- which reads identically to "checked and safe". UNKNOWN is
+  # returned instead: "I could not check it" must never read the same as
+  # "it passed".
+  #
+  # PROHIBITED: no branch escalates on confidence alone, and no branch remediates
+  # before evidence is preserved -- the SecuritySignal envelope records
+  # `preserved_before_remediation` so a violation of that ordering is visible in
+  # the log rather than absent from it.
+```

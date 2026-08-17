@@ -285,10 +285,9 @@ status = "SPECIFIED"
 arch = ["ARCH-07", "ARCH-09"]
 ic = ["IC-003"]
 tests = ["A-027"]
-contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json"]
-status = "CONTRACTED"
-depth_disposition = "artifact generation contract"
-depth_note = "An Artifact type with provenance, plus a local/remote generation routing rule. A-027 asserts provenance today. No invariant or CI check names a mechanism, so the missing artifact is a genuine gap rather than a missing ceremony. F5 work."
+contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json", "contracts/entities/artifact.schema.json"]
+decision_functions = ["DF-ARTIFACT-ROUTE"]
+status = "SPECIFIED"
 
 [requirements.SR-024]
 arch = ["ARCH-07"]
@@ -388,10 +387,10 @@ status = "SPECIFIED"
 arch = ["ARCH-07", "ARCH-12"]
 ic = ["IC-003", "IC-010"]
 tests = ["A-015", "A-027"]
-contracts = ["contracts/results/result.schema.json"]
-status = "CONTRACTED"
-depth_disposition = "artifact generation contract + presentation binding"
-depth_note = "Shares SR-023's Artifact type, plus the rule that a generated presentation is a SemanticScene rather than an HTML blob -- which matters, because 'output results in HTML' is exactly the phrasing that reintroduces a chat UI. Recorded so the risk is visible before F5, not discovered during it."
+contracts = ["contracts/results/result.schema.json", "contracts/entities/artifact.schema.json", "contracts/entities/semantic_scene.schema.json"]
+decision_functions = ["DF-PRESENT-BIND"]
+invariants = ["INV-SCENE-3"]
+status = "SPECIFIED"
 
 [requirements.SR-034]
 arch = ["ARCH-12"]
@@ -406,10 +405,10 @@ depth_note = "Shares SR-023's Artifact type. Deliberately NOT given a decision f
 arch = ["ARCH-06", "ARCH-17"]
 ic = ["IC-005"]
 tests = ["A-036"]
-contracts = ["contracts/entities/semantic_scene.schema.json"]
-status = "CONTRACTED"
-depth_disposition = "persona and disclosure policy contract"
-depth_note = "A persona contract bounding humor, sarcasm and impressions against RB-001 (truth) and RB-012 (never impersonate) -- the second is the load-bearing half and is why this is a real gap rather than a styling question. A-036 asserts the behaviour. No CI check names the mechanism yet."
+contracts = ["contracts/entities/semantic_scene.schema.json", "contracts/policy/persona_policy.schema.json"]
+decision_functions = ["DF-PERSONA"]
+invariants = ["INV-EVID-1", "INV-EVID-3"]
+status = "SPECIFIED"
 
 [requirements.SR-036]
 arch = ["ARCH-04", "ARCH-23"]
@@ -435,10 +434,10 @@ note = "Governed by DR-031: isolated research adapter, disabled by default, neve
 arch = ["ARCH-19"]
 ic = ["IC-009"]
 tests = ["A-044"]
-contracts = ["contracts/events/event_envelope.schema.json"]
-status = "CONTRACTED"
-depth_disposition = "security signal contract + triage decision function"
-depth_note = "A SecuritySignal type and a triage rule distinguishing anomaly from indicator from incident, bound to OWNER-DECISION-005's owner-enrolled-assets-only scope. A-044 (R5) holds the assertions. ADR-007 D6 supplies the compromise-response half; the detection half has no artifact. Highest-value of the seven remaining."
+contracts = ["contracts/events/event_envelope.schema.json", "contracts/events/security_signal.schema.json"]
+decision_functions = ["DF-SECURITY-TRIAGE"]
+invariants = ["INV-TRUST-1"]
+status = "SPECIFIED"
 
 [requirements.SR-039]
 arch = ["ARCH-08", "ARCH-19"]
