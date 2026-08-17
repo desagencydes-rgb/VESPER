@@ -52,7 +52,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from core.alarm import (NOT_ACTUABLE, READY, UNREACHABLE, UNVERIFIABLE,
-                        ReadinessReport)
+                        UNVERIFIED, ReadinessReport)
 
 VOLUME_FLOOR = 0.75          # below this an alarm is not reliably audible
 PROBE_TONE_HZ = 880
@@ -410,7 +410,9 @@ class WindowsAudioRung:
 
         if not heard:
             return ReadinessReport(
-                self.rung_id, UNVERIFIABLE, reachable=True, settings_actuated=True,
+                self.rung_id,
+                UNVERIFIED if getattr(self, "_mic_dead", False) else UNVERIFIABLE,
+                reachable=True, settings_actuated=True,
                 blocking_settings=tuple(blocking),
                 note=(f"settings changed and verified, but the probe tone was "
                       f"not observed: floor={self._noise_floor:.5f} "

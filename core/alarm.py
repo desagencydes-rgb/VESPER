@@ -50,10 +50,28 @@ HARD_CAP_S = 900
 # read the same as "it passed".
 READY = "READY"                  # reachable, settings actuated, sound observed
 NOT_ACTUABLE = "NOT_ACTUABLE"    # reachable, but the settings could not be changed
-UNVERIFIABLE = "UNVERIFIABLE"    # actuated, but nothing could observe the result
+UNVERIFIABLE = "UNVERIFIABLE"    # the instrument WORKED and heard nothing
+UNVERIFIED = "UNVERIFIED"        # no working instrument -- nothing was measured
 UNREACHABLE = "UNREACHABLE"      # not present at all
 
-COUNTED_AS_RUNG = (READY,)
+# UNVERIFIED FIRES. UNVERIFIABLE DOES NOT. The distinction is the whole of this
+# module's judgement and it is worth stating plainly:
+#
+#   UNVERIFIABLE  the microphone worked, listened, and heard nothing. That is
+#                 EVIDENCE OF SILENCE. Firing into it wakes nobody, and counting
+#                 it produces a ladder that reports depth and delivers none.
+#
+#   UNVERIFIED    there was no working instrument at all -- at the lock screen
+#                 Windows blocks microphone access, so both readings come back
+#                 exactly 0.0. That is ABSENCE OF EVIDENCE, which is a different
+#                 thing, and treating it as evidence of silence would mean the
+#                 alarm declines to fire precisely when it cannot check itself.
+#
+# The fail-safe direction is fixed by trg_alarm_fire's own note: on partition,
+# FIRE -- "a missed wake-up violates SR-043; a duplicate wake-up is an
+# annoyance." An unverifiable INSTRUMENT must not silence the alarm. It fires,
+# and the run records that nothing observed it.
+COUNTED_AS_RUNG = (READY, UNVERIFIED)
 
 
 @dataclass(slots=True)
@@ -70,6 +88,12 @@ class ReadinessReport:
     @property
     def counts(self) -> bool:
         return self.state in COUNTED_AS_RUNG
+
+    @property
+    def verified(self) -> bool:
+        """Counted AND observed. A run on UNVERIFIED rungs only is not evidence
+        the alarm made a sound -- only that nothing contradicted it."""
+        return self.state == READY
 
 
 class RungDriver(Protocol):
@@ -204,6 +228,10 @@ class AlarmActuator:
 
         report = {
             "counted_rungs": [r.rung_id for r in self.rungs],
+            "verified_rungs": [r.rung_id for r in self.rungs
+                               if r.readiness and r.readiness.verified],
+            "unverified_rungs": [r.rung_id for r in self.rungs
+                                 if r.readiness and not r.readiness.verified],
             "rejected": [{"rung_id": r.rung_id, "state": r.state,
                           "blocking_settings": list(r.blocking_settings)}
                          for r in self.rejected],
