@@ -149,7 +149,7 @@ $set = New-ScheduledTaskSettingsSet -WakeToRun -AllowStartIfOnBatteries `
   -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 2) `
   -StartWhenAvailable
 Register-ScheduledTask -TaskName '{TASK_NAME}' -Action $act -Trigger $trg `
-  -Settings $set -Force -RunLevel Highest | Out-Null
+  -Settings $set -Force | Out-Null
 (Get-ScheduledTask -TaskName '{TASK_NAME}').Settings.WakeToRun
 """
     r = subprocess.run(["powershell", "-NonInteractive", "-NoProfile", "-Command", ps],
