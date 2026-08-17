@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "kind": "capability-probe",
+  "spike": "SPIKE-004",
+  "section": "what this browser can actually parse",
+  "device": "NOT the J3 — desktop browser (see user_agent); readings from here are a rehearsal, not a field run",
+  "tag": "chrome151-other",
+  "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36",
+  "viewport": {
+    "w": 1920,
+    "h": 935,
+    "dpr": 1,
+    "screen_w": 1920,
+    "screen_h": 1080
+  },
+  "supports": {
+    "display:grid": true,
+    "place-items": true,
+    "min()": true,
+    "flex gap": true,
+    "inset": true,
+    "aspect-ratio": true,
+    "display:flex": true,
+    "calc()": true,
+    "transform": true,
+    "var()": true
+  },
+  "measured": {
+    "tapzones": {
+      "w": 1920,
+      "h": 935,
+      "x": 0,
+      "y": 0
+    },
+    "zL": {
+      "w": 960,
+      "h": 935,
+      "x": 0,
+      "y": 0
+    },
+    "zR": {
+      "w": 960,
+      "h": 935,
+      "x": 960,
+      "y": 0
+    },
+    "face": {
+      "w": 467,
+      "h": 467,
+      "x": 727,
+      "y": 1
+    },
+    "stage": {
+      "w": 1920,
+      "h": 935,
+      "x": 0,
+      "y": 0
+    },
+    "unit_px": "467px"
+  },
+  "received_at_utc": "2026-08-17T23:28:09.390955+00:00",
+  "reported_by": "127.0.0.1"
+}

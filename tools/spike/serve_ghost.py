@@ -29,6 +29,11 @@ RESULTS_DIR = SPIKE_DIR.parents[1] / "docs" / "planning" / "spike-results"
 MAX_BODY = 256 * 1024  # a run record is ~2 KB; this is slack, not a budget
 
 
+def _slug(value: object, fallback: str = "run") -> str:
+    """Filename-safe token from anything the page reports."""
+    return re.sub(r"[^a-z0-9-]+", "-", str(value).lower()).strip("-") or fallback
+
+
 class GhostHandler(SimpleHTTPRequestHandler):
     def __init__(self, *a, **kw):
         super().__init__(*a, directory=str(SPIKE_DIR), **kw)
@@ -62,8 +67,16 @@ class GhostHandler(SimpleHTTPRequestHandler):
         payload["reported_by"] = self.client_address[0]
         payload.setdefault("spike", "SPIKE-004")
 
-        label = re.sub(r"[^a-z0-9-]+", "-", str(payload.get("layout", "run")).lower()).strip("-")
-        name = f"SPIKE-004-ghost-{label or 'run'}-{now.strftime('%Y%m%dT%H%M%SZ')}.json"
+        # A capability probe is a property of the browser, not an event in the
+        # field, so it is named for the browser and OVERWRITTEN on every load.
+        # Timestamping it would put one file per page refresh into the results
+        # directory and bury the six readings the spike is actually for.
+        if payload.get("kind") == "capability-probe":
+            tag = _slug(payload.get("tag", "unknown"))
+            name = f"SPIKE-004-capability-probe-{tag}.json"
+        else:
+            label = _slug(payload.get("layout", "run"))
+            name = f"SPIKE-004-ghost-{label}-{now.strftime('%Y%m%dT%H%M%SZ')}.json"
         RESULTS_DIR.mkdir(parents=True, exist_ok=True)
         out = RESULTS_DIR / name
         out.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")

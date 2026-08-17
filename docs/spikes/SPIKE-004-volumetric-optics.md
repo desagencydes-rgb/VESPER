@@ -134,7 +134,7 @@ costs is:
 
 | Measured | Datum |
 |---|---|
-| Glyph height | Smallest cap height still legible, px |
+| Glyph height | Smallest ~~cap height~~ **font-size** still legible, CSS px (dpr 2). The instrument varies `font-size`; cap height is ~0.7 of it, and the two were being used interchangeably |
 | Colour survival | Last swatch set where every patch stays distinguishable |
 | Viewing arc | Degrees off-axis at which the image breaks |
 | Element density | Highest count where **every** element stays readable |
@@ -175,7 +175,71 @@ intervention, to gain a shell the spike has no use for.)
 `tools/spike/spike004_ghost.html`, served by `tools/spike/serve_ghost.py` on
 port 8899. Three layouts (`pyramid` / `single` / `baseline`), a `flip` toggle
 that settles small-end-down vs large-end-down frustum orientation by looking
-rather than by reasoning, and `D` / `w` steppers. The operator marks each
-reading and presses SEND; the page POSTs the record and it lands in
-`docs/planning/spike-results/` with no transcription step, because six numbers
-read aloud is six numbers that can be mistyped.
+rather than by reasoning, a `mirror` toggle (§6, on by default), and `D` / `w`
+steppers. The operator marks each reading and presses SEND; the page POSTs the
+record and it lands in `docs/planning/spike-results/` with no transcription
+step, because six numbers read aloud is six numbers that can be mistyped.
+
+**The instrument runs in a 2016 browser, and this is a design constraint, not a
+footnote.** Every result file records the same user agent: Chrome 55 on Android
+5.1.1 (`SM-J320F`). The page was written on a desktop in CSS that browser cannot
+parse, and **an unsupported declaration is dropped silently** — nothing throws
+and nothing logs, so the instrument looked correct everywhere except on the only
+device it is for. On load the page now POSTs a **capability probe**:
+`CSS.supports()` for each feature it depends on, plus the measured
+`getBoundingClientRect()` of the tap zones and a face. It lands as
+`SPIKE-004-capability-probe-<browser>.json`, overwritten per load, because it
+records a property of the browser rather than an event in the field. Nothing in
+the page may use a feature newer than Chrome 55, and the probe is what makes
+that checkable rather than asserted.
+
+### 8.2 Correction — why the first two runs returned six defaults
+
+**2026-08-18.** The commit of 2026-08-17 (`b2c257a`) recorded that two field runs
+had produced six marks each with every value at `levels[0]`, and concluded:
+
+> ~~Not measurements — defaults, recorded because MARK never checked whether the
+> operator had moved the scale.~~
+
+~~The instrument was manufacturing numbers because the operator never stepped the
+scale.~~ **That was one cause and it was not the main one.** The operator
+reported the next day that tapping the sides of the screen did nothing — only the
+buttons and the swipes worked — and the cause generalised: `#tapzones` was
+positioned with `inset: 0`, which is Chrome 87. Dropped, the element took auto
+offsets, wrapped no content, and measured **0 × 0**. The level control had no hit
+target at all.
+
+It did not stop there. The collapse ran through the test content itself:
+
+| Test | Rendered with | Available | What the operator saw when they stepped it |
+|---|---|---|---|
+| glyph height | flex ladder, `gap` | `gap` is Cr 84 | text at the right size, unspaced — **readable** |
+| colour survival | grid + `aspect-ratio` | Cr 57 / Cr 88 | swatches zero px tall — **nothing** |
+| viewing arc | `aspect-ratio` box, spokes sized in % of it | Cr 88 | no ring, no spokes — **nothing to mark against** |
+| element density | `display:grid` + `aspect-ratio` cells | Cr 57 / Cr 88 | 1 cell and 16 cells looked identical — **nothing** |
+| ambient ceiling | `.solid` square via `aspect-ratio` | Cr 88 | the caption only — **no white field to wash out** |
+| motion legibility | flex ladder + `@keyframes` | animations OK | drift visible — **readable** |
+
+So for four of the six tests, **stepping the scale changed nothing on screen.**
+"The operator never stepped it" and "stepping it did nothing" are different
+facts, and the record asserted the first. An operator who moved a control, saw no
+change, and left the value where it was behaved correctly; the instrument did
+not.
+
+**What stands from `b2c257a`, unchanged.** The `stepped` flag is still right and
+stays: the floor can be the true answer, and "measured the floor" must survive as
+a different fact from "never touched it". The `viewing arc` and `ambient ceiling`
+scales really were single-valued (`levels: [1]`) and really did make those two
+tests unanswerable — that defect was independent of the CSS and is fixed. The
+`stepped` set is now keyed by `test|layout` rather than by test name, because
+marks are, and no `baseline` pass has ever been run — §7 makes the baseline the
+thing that gives every ghost number its meaning, so a guard that stayed silent
+through the first baseline pass would have failed on the run that matters most.
+
+**The lesson worth keeping is not the one that commit drew.** It read six
+suspicious numbers and reached for operator discipline. The numbers were
+suspicious because the instrument was broken in a way that reports nothing — no
+error, no log, no visual clue on the machine it was authored on. **Before
+concluding that a reading is the operator's fault, establish that the instrument
+was capable of showing them anything.** That is what the load probe in §8.1 now
+does automatically, on the device, every session.
