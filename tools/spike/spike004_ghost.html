@@ -260,18 +260,24 @@ const TESTS = [
   {
     name: "viewing arc",
     unit: "degrees off-axis",
-    levels: [1],
-    render() {
+    // A SCALE, not a single value. This read [1] until 2026-08-18, so the
+    // operator was asked to walk round, find the angle where the image breaks,
+    // and then had nowhere to put it -- every mark recorded "1" whatever they
+    // saw. Step to the angle at which it breaks and MARK that.
+    levels: [0, 15, 30, 45, 60, 75, 90],
+    render(sel) {
       let spokes = "", lbls = "";
       for (let a = 0; a < 360; a += 15) {
         const major = a % 45 === 0;
-        spokes += `<div class="spoke" style="transform:rotate(${a}deg);height:${major?46:38}%;opacity:${major?1:.5}"></div>`;
+        const chosen = (a === sel) || (a === 360 - sel && sel !== 0);
+        spokes += `<div class="spoke" style="transform:rotate(${a}deg);height:${major?46:38}%;opacity:${chosen?1:(major?.85:.4)};background:${chosen?"#FF3B30":"#FFF"};width:${chosen?4:2}px"></div>`;
         if (major) {
           const r = 0.40, rad = (a - 90) * Math.PI / 180;
           lbls += `<div class="lbl" style="left:${50 + Math.cos(rad)*r*100}%;top:${50 + Math.sin(rad)*r*100}%">${a}</div>`;
         }
       }
-      return `<div class="arc"><div class="ring"></div>${spokes}${lbls}</div>`;
+      return `<div class="arc"><div class="ring"></div>${spokes}${lbls}
+        <div class="lbl" style="left:50%;top:50%;font-size:13px">${sel}&deg;</div></div>`;
     }
   },
   {
@@ -287,11 +293,19 @@ const TESTS = [
   },
   {
     name: "ambient ceiling",
-    unit: "room light step",
-    levels: [1],
-    // Fixed bright target. The OPERATOR varies the room light and marks the
-    // point the ghost washes out. The screen is the constant here.
-    render() { return `<div class="solid"></div>`; }
+    // ORDINAL, AND SAID SO. Section 2 asks for lux at 100/300/500/1000 with a
+    // meter. There is no meter and no browser light sensor on Android 5.1.1, so
+    // this records an ordinal step and names itself as such -- a number labelled
+    // "lux" that came from an eyeball is worse than an honest ordinal, and
+    // CI-034 exists to stop exactly that substitution.
+    unit: "room light step (ordinal, NOT lux)",
+    levels: [0, 1, 2, 3, 4],
+    render(v) {
+      const names = ["dark room", "screen only", "dim lamp",
+                     "room light on", "daylight / bright"];
+      return `<div class="ladder"><div class="solid"></div>
+        <div class="tag" style="font-size:13px">${v} &middot; ${names[v]}</div></div>`;
+    }
   },
   {
     name: "motion legibility",
@@ -317,6 +331,18 @@ const W_STEPS = [3, 4, 5, 6, 8, 10, 12];
 // right-to-left without it, so an operator who never touches the button gets a
 // readable image rather than an unreadable one they have to diagnose.
 let ti = 0, li = 0, mode = 0, flip = false, mirror = true, di = 2, wi = 3;
+
+// WHICH SCALES THE OPERATOR ACTUALLY MOVED. Two field runs produced six marks
+// each, and every single value was levels[0] -- the untouched default. The
+// instrument recorded six numbers that read like measurements and were not, in a
+// spike whose own protocol says a clean-looking number that is wrong is worse
+// than no number. A mark on a scale nobody stepped is now refused once, and
+// recorded as `stepped:false` if the operator insists -- because the floor CAN
+// be the true answer (a static drift of 0 px/s is a real reading) and the
+// difference between "measured the floor" and "never touched it" has to survive
+// into the record.
+const stepped = new Set();
+let pendingKey = null;
 const marks = [];
 
 const $ = id => document.getElementById(id);
@@ -349,11 +375,20 @@ function draw() {
 
 function say(m) { $("msg").textContent = m; }
 
-function level(d) { li += d; draw(); }
-function test(d)  { ti = (ti + d + TESTS.length) % TESTS.length; li = 0; draw(); }
+function level(d) { li += d; stepped.add(TESTS[ti].name); draw(); }
+function test(d)  { ti = (ti + d + TESTS.length) % TESTS.length; li = 0; pendingKey = null; draw(); }
 
 function mark() {
   const t = TESTS[ti];
+  const wasStepped = stepped.has(t.name) || t.levels.length === 1;
+  const key0 = t.name + "|" + LAYOUTS[mode];
+  if (!wasStepped && pendingKey !== key0) {
+    pendingKey = key0;
+    say(`${t.name}: scale untouched (still ${t.levels[0]} ${t.unit}). ` +
+        `Step it, or press MARK again to record the default deliberately.`);
+    return;
+  }
+  pendingKey = null;
   // One mark per test per layout: re-marking corrects a reading rather than
   // appending a second one, so the record cannot end up with two answers to
   // the same question and no way to tell which was meant.
@@ -361,6 +396,7 @@ function mark() {
   const rec = {
     test: t.name, unit: t.unit, level: t.levels[li],
     layout: LAYOUTS[mode], flipped: flip, mirrored: mirror,
+    stepped: wasStepped,
     eye_to_pane_cm: D_STEPS[di], strip_depth_cm: W_STEPS[wi],
     folded_path_cm: D_STEPS[di] + W_STEPS[wi] / 2
   };
