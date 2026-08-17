@@ -127,6 +127,56 @@ def _warble(seconds: float, amplitude: float = 0.95):
     return wave.astype("float32")
 
 
+def _load_wav(path: str):
+    """Load a WAV to mono float32 at SAMPLE_RATE, normalised to full scale.
+
+    Stdlib `wave` plus numpy rather than a new dependency. The shipped alarm
+    sounds are 22.05 kHz stereo 16-bit, so both a channel mixdown and a resample
+    are required; linear interpolation is ample for an alarm.
+    """
+    import wave
+
+    import numpy as np
+    with wave.open(path, "rb") as w:
+        ch, rate, n = w.getnchannels(), w.getframerate(), w.getnframes()
+        raw = w.readframes(n)
+    x = np.frombuffer(raw, dtype="<i2").astype("float32") / 32768.0
+    if ch > 1:
+        x = x.reshape(-1, ch).mean(axis=1)
+    if rate != SAMPLE_RATE:
+        src = np.linspace(0, 1, x.size, endpoint=False)
+        dst = np.linspace(0, 1, int(x.size * SAMPLE_RATE / rate), endpoint=False)
+        x = np.interp(dst, src, x).astype("float32")
+    peak = float(np.max(np.abs(x))) or 1.0
+    return (x / peak).astype("float32")
+
+
+def alarm_beds() -> list:
+    """The shipped alarm sounds, longest first. Real alarm audio beats a tone."""
+    from pathlib import Path as _P
+    d = _P("C:/Windows/Media")
+    return sorted((str(f) for f in d.glob("Alarm*.wav")), reverse=False)
+
+
+def _alarm_bed(seconds: float, amplitude: float, source: str | None = None):
+    """A continuous bed of real alarm audio, tiled to `seconds`.
+
+    CONTINUOUS IS THE POINT. A 2.5 s burst every few seconds is an attention
+    signal, which is what a notification is for. Waking a sleeping person needs
+    sustained sound that does not stop until it is acknowledged -- the owner said
+    so directly, and they are right: the previous warble would not have woken
+    anyone.
+    """
+    import numpy as np
+    beds = alarm_beds()
+    if not beds:
+        return _warble(seconds, amplitude)
+    x = _load_wav(source or beds[0])
+    reps = int(np.ceil(SAMPLE_RATE * seconds / max(x.size, 1)))
+    out = np.tile(x, max(reps, 1))[:int(SAMPLE_RATE * seconds)]
+    return (out * amplitude).astype("float32")
+
+
 def _band_snr(buf, freqs=WARBLE_HZ, sr: int = SAMPLE_RATE) -> float:
     """Energy at the alarm's frequencies over the surrounding noise.
 
@@ -289,20 +339,50 @@ class WindowsAudioRung:
     # ------------------------------------------------------------------ actuate
     def actuate(self, level: int, message: str) -> dict:
         """Escalating intensity on the one rung: speech, then warble, then both."""
-        target = min(1.0, VOLUME_FLOOR + 0.05 * level)
+        # Master goes to full by the second step. A wake-up that is still
+        # ramping the system volume at level 3 is spending its escalation budget
+        # on a slider instead of on the sleeper.
+        target = 0.9 if level <= 1 else 1.0
         try:
             self._vol.SetMasterVolumeLevelScalar(target, None)
         except Exception:
             pass
 
-        spoken = self._speak(message)
-        played = None
+        # The bed runs CONTINUOUSLY under the speech and is restarted long
+        # enough to outlast the acknowledgement poll, so there is never a silent
+        # gap in which a sleeper settles again.
+        import numpy as np
+        amp = min(1.0, 0.55 + 0.15 * level)
+        seconds = 30.0
+        bed_name = None
         if level >= 2:
-            played = "warble"
-            self._play_async(_warble(2.5, min(1.0, 0.6 + 0.1 * level)))
-        return {"level": level, "volume": round(target, 3),
-                "spoke": spoken, "played": played,
-                "note": "intensity escalation on ONE device; not a device ladder"}
+            beds = alarm_beds()
+            src = beds[min(level - 2, len(beds) - 1)] if beds else None
+            bed_name = (src.replace("\\", "/").rsplit("/", 1)[-1] if src
+                        else "warble")
+            mix = _alarm_bed(seconds, amp, src)
+        else:
+            mix = np.zeros(int(SAMPLE_RATE * seconds), dtype="float32")
+
+        # ONE BUFFER. sd.play replaces whatever is already sounding, so playing
+        # speech separately would cut the bed off mid-alarm; the speech is laid
+        # OVER the bed and the sum is clipped rather than allowed to wrap.
+        speech = self._speech_wave(message)
+        spoken = speech is not None
+        if spoken:
+            s = (speech * 0.95).astype("float32")[:mix.size]
+            mix[:s.size] = np.clip(mix[:s.size] + s, -1.0, 1.0)
+            if level >= 3:              # repeat the words further in
+                at = int(SAMPLE_RATE * 12)
+                end = min(mix.size, at + s.size)
+                mix[at:end] = np.clip(mix[at:end] + s[:end - at], -1.0, 1.0)
+
+        self._play_async(mix)
+        return {"level": level, "volume": round(target, 3), "bed_amplitude": amp,
+                "spoke": spoken, "played": bed_name,
+                "note": ("intensity escalation on ONE device; not a device "
+                         "ladder. Level 1 is speech alone, level 2+ lays it "
+                         "over a continuous bed of real alarm audio.")}
 
     # ------------------------------------------------------------------ observe
     def observe(self) -> bool:
@@ -376,20 +456,31 @@ class WindowsAudioRung:
         import sounddevice as sd
         sd.play(wave, SAMPLE_RATE, device=self._out_index)
 
-    def _speak(self, message: str) -> bool:
-        ps = (
-            "Add-Type -AssemblyName System.Speech; "
-            "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
-            "$s.Volume = 100; $s.Rate = 0; "
-            f"$s.Speak('{message.replace(chr(39), chr(39) * 2)}')"
-        )
+    def _speech_wave(self, message: str):
+        """Render speech to a file, then play it through the PINNED output.
+
+        The speech API writes to the system default device, which here is a
+        headset on a desk -- so a naive implementation puts the alarm bed on the
+        monitor the owner can hear and the words on the one they cannot. Synthesising
+        to a wave file and playing it through the same device as the bed keeps the
+        whole alarm on one verified output.
+        """
+        import tempfile
         try:
-            self._proc = subprocess.Popen(
-                ["powershell", "-NonInteractive", "-NoProfile", "-Command", ps],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True
+            tmp = Path(tempfile.gettempdir()) / "vesper_alarm_speech.wav"
+            safe = message.replace("'", "''")
+            ps = ("Add-Type -AssemblyName System.Speech; "
+                  "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+                  "$s.Volume = 100; $s.Rate = -1; "
+                  f"$s.SetOutputToWaveFile('{tmp}'); $s.Speak('{safe}'); "
+                  "$s.Dispose()")
+            subprocess.run(["powershell", "-NonInteractive", "-NoProfile",
+                            "-Command", ps], capture_output=True, timeout=90)
+            if not tmp.exists() or tmp.stat().st_size < 1024:
+                return None
+            return _load_wav(str(tmp))
         except Exception:
-            return False
+            return None
 
 
 # --------------------------------------------------------------------- console
