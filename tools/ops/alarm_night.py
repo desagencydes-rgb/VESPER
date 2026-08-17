@@ -338,11 +338,18 @@ def _fire(args) -> int:
     result["volume_restored_to"] = rung.restore()
     result["gate_evidence"] = False
     result["cap_s"] = args.cap_s
+    # The deviation note must describe THIS node. On node 2 the acknowledgement
+    # channel is not degraded -- evdev reads a real keypress in seconds -- so the
+    # contract's 900 s needs no excuse, and claiming a Windows lock-screen reason
+    # in node 2's record would be a false statement in the evidence.
     result["cap_deviation"] = (
         None if args.cap_s == 900 else
-        f"trg_alarm_fire specifies a 900 s cap; this run used {args.cap_s} s "
-        f"because the acknowledgement channel is degraded (session locks on "
-        f"wake, keypress unreadable until sign-in). Recorded, not silent.")
+        f"trg_alarm_fire specifies a 900 s cap; this run used {args.cap_s} s. "
+        + ("Reason: the acknowledgement channel is degraded on this node -- the "
+           "session locks on wake and a keypress is unreadable until sign-in."
+           if not IS_LINUX else
+           "Reason: operator choice for a prototype run; the acknowledgement "
+           "channel itself is verified working (evdev)."))
     _save("fire-result.json", {"records": records, "result": result})
     print("\n" + json.dumps(result, indent=2, default=str)[:2000])
     return 0
