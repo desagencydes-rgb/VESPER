@@ -82,6 +82,38 @@ Its value is not compute. It is a **second real node** for distributed work, and
 long-clock tests that need wall time rather than power — the endurance harness is ~30 MB
 and 5 threads, so this laptop runs it comfortably while the desktop does real work.
 
+**Reaching it** (established 2026-08-17): `ssh -i ~/.ssh/vesper_node2 csf@192.168.100.102`,
+key `vesper_node2` authorised in `~/.ssh/authorized_keys`. `sshd` had to be enabled once with
+`systemctl enable --now ssh`. **ICMP is blocked in both directions — ping proves nothing here;
+test TCP/22 instead.** Desktop↔laptop TCP works, so there is no AP isolation and `SPIKE-009`'s
+premise is not blocked.
+
+**It never sleeps, and that is why the alarm lives here.** Three layers, all verified live on
+2026-08-17: a `logind` drop-in `10-vesper-nosleep.conf` (`HandleLidSwitch`/`ExternalPower`/
+`Docked` = ignore, and `IdleAction=ignore` read back over D-Bus), xfce
+`presentation-mode=true` with `inactivity-on-ac=0` / `lid-action-on-ac=0` / `dpms-enabled=false`,
+and a `systemd-inhibit` lock. **The inhibitor does NOT survive a reboot** — it was gone when
+checked; the other two layers did survive and are the load-bearing ones.
+
+Audio: built-in **analog** HDA Intel PCH, PipeWire + `pipewire-pulse` + wireplumber.
+`spd-say` ships; `alsa-utils` and `pulseaudio-utils` were installed 2026-08-17.
+`csf` is in `audio` and (since 2026-08-17) `input`.
+
+### Why the alarm is on node 2 and not node 1
+
+Node 1's only audible outputs are the two monitors' **HDMI** speakers — the rear analog jack
+and the headset are both inaudible in the room. Windows resumes from a timer wake with the
+**panels dark**, and a dark panel has no audio endpoint, so the alarm plays into nothing.
+`ES_DISPLAY_REQUIRED` prevents a panel sleeping but does **not wake one already asleep**, and
+`SC_MONITORPOWER` from a locked session did not override it. Five rehearsals, five silences.
+
+`CONSOLELOCK` is **not** what governs sign-in-on-wake on this machine: Windows Hello is
+enabled, so Hello's policy wins and the legacy value is ignored — which is also why the
+setting is absent from Settings. Setting it to 0 changed nothing.
+
+Node 2 has none of these: analog speakers, no display in the path, and a session lock that
+gates neither audio nor input.
+
 ### Other devices
 Owner's phone (always on) · iPhone · Samsung Galaxy J3 (2016, 360×640 @ dpr 2, Android 5.1.1)
 · MacBook (expected 2026-08-20) · several old tablets, camera usability to be audited.
