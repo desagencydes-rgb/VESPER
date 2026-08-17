@@ -154,6 +154,41 @@ def keep_display_awake(on: bool = True) -> bool:
         return False
 
 
+HWND_BROADCAST = 0xFFFF
+WM_SYSCOMMAND = 0x0112
+SC_MONITORPOWER = 0xF170
+MONITOR_ON = -1
+MOUSEEVENTF_MOVE = 0x0001
+
+
+def wake_display() -> bool:
+    """Turn the panels ON, which is not the same as stopping them sleeping.
+
+    ES_DISPLAY_REQUIRED prevents a display timing out; it does NOT wake one that
+    is already in standby. Resuming from S3 into a locked session lands with the
+    panels dark -- and on this node the panels ARE the speakers, so their HDMI
+    audio endpoints are gone and every write succeeds into nothing. That is
+    precisely what the first rehearsal produced: fired=True, eight escalation
+    steps, spoke=True, and a silent room.
+
+    The nudge is one pixel. The acknowledgement watcher ignores cursor movement
+    below 40 px, so waking the screen cannot be mistaken for the owner waking up.
+    """
+    ok = False
+    try:
+        ctypes.windll.user32.SendMessageW(HWND_BROADCAST, WM_SYSCOMMAND,
+                                          SC_MONITORPOWER, MONITOR_ON)
+        ok = True
+    except Exception:
+        pass
+    try:
+        ctypes.windll.user32.mouse_event(MOUSEEVENTF_MOVE, 0, 1, 0, 0)
+        ctypes.windll.user32.mouse_event(MOUSEEVENTF_MOVE, 0, -1, 0, 0)
+    except Exception:
+        pass
+    return ok
+
+
 def _load_wav(path: str):
     """Load a WAV to mono float32 at SAMPLE_RATE, normalised to full scale.
 
@@ -282,6 +317,8 @@ class WindowsAudioRung:
         self._margin = 0.0
         self._floor_snr = 0.0
         self._display_held = False
+        self._display_woken = False
+        self._mic_dead = False
         self._last_observed_snr = 0.0
         self._proc: subprocess.Popen | None = None
         self._stream = None
@@ -327,6 +364,8 @@ class WindowsAudioRung:
         # Hold the panels awake before probing: measuring audibility through a
         # display that is about to sleep measures the wrong machine.
         self._display_held = keep_display_awake(True)
+        self._display_woken = wake_display()
+        time.sleep(1.5)          # HDMI endpoints reappear a beat after the panel
         if not self._display_held:
             blocking.append("display_wake_request_refused")
 
@@ -348,9 +387,20 @@ class WindowsAudioRung:
             self._margin = _band_snr(buf)
             heard = self._margin >= self._min_margin
             self._observe_mode = "microphone"
-            if not heard and self._owner_attested:
+            # A DEAD INSTRUMENT IS NOT AN ATTESTABLE ONE. Windows blocks
+            # microphone access at the lock screen, so a locked session reads
+            # exactly 0.0 for both floor and probe -- digital silence, not a
+            # quiet room. Attestation may stand in for a WEAK reading, never for
+            # the absence of a reading: the owner attested that this output is
+            # audible while they sat here awake, and letting that carry a run
+            # where nothing was measured is how the first rehearsal reported
+            # READY into an empty room.
+            self._mic_dead = (self._noise_floor <= 0.0 and self._probe_rms <= 0.0)
+            if not heard and self._owner_attested and not self._mic_dead:
                 heard = True
                 self._observe_mode = "owner_attested"
+            elif self._mic_dead:
+                self._observe_mode = "instrument_unavailable"
             self.silence()
         except Exception as exc:
             return ReadinessReport(self.rung_id, UNVERIFIABLE, reachable=True,
@@ -369,7 +419,11 @@ class WindowsAudioRung:
                       f"(need {self._min_margin:.0f}x and >0.004). Speakers "
                       f"powered off, jack unplugged or output routed elsewhere "
                       f"all look like this. Reporting READY here is what makes "
-                      f"an alarm fire into silence."))
+                      f"an alarm fire into silence."
+                      + (" MICROPHONE UNAVAILABLE (both readings exactly 0.0) -- "
+                         "the session is probably locked, so nothing was measured "
+                         "and owner attestation does not apply."
+                         if getattr(self, '_mic_dead', False) else "")))
 
         return ReadinessReport(
             self.rung_id, READY, reachable=True, settings_actuated=True,
@@ -397,6 +451,7 @@ class WindowsAudioRung:
         # enough to outlast the acknowledgement poll, so there is never a silent
         # gap in which a sleeper settles again.
         import numpy as np
+        wake_display()           # every step: a panel that slept mid-alarm is silent
         amp = min(1.0, 0.6 + 0.13 * level)
         seconds = 30.0
         # THE BED STARTS AT LEVEL 1. It used to begin at level 2, so the first
