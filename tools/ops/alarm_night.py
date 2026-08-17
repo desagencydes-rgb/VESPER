@@ -39,8 +39,25 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
 from core.alarm import AlarmActuator, AlarmInstance, build_alarm_trigger
-from tools.ops.alarm_node_win import (KeyboardAck, WindowsAudioRung,
-                                      console_lock_state, set_console_lock)
+
+# ONE RUNNER, TWO NODES. The fire path -- predicate evaluation, the anti-cron
+# probe, the cap, the guaranteed result file -- is identical on both machines and
+# must stay that way; only the thing that makes a noise differs. Importing the
+# wrong platform's driver at module scope is what would fork them.
+IS_LINUX = sys.platform.startswith("linux")
+if IS_LINUX:
+    from tools.ops.alarm_node_linux import EvdevAck as AckWatcher
+    from tools.ops.alarm_node_linux import LinuxAudioRung as AudioRung
+
+    def console_lock_state():
+        return None          # no such concept; Linux does not gate audio on it
+
+    def set_console_lock(_v):
+        return True
+else:
+    from tools.ops.alarm_node_win import KeyboardAck as AckWatcher
+    from tools.ops.alarm_node_win import WindowsAudioRung as AudioRung
+    from tools.ops.alarm_node_win import console_lock_state, set_console_lock
 
 TASK_NAME = "VESPER-Alarm-Prototype"
 STATE_DIR = REPO / ".alarm-state"
@@ -55,6 +72,16 @@ def _emitter(records: list):
         print(f"[{rec['at_wall']}] {kind}: "
               f"{json.dumps(payload, default=str)[:220]}", flush=True)
     return emit
+
+
+def _make_rung(args):
+    if IS_LINUX:
+        return AudioRung(min_margin=args.min_margin,
+                         owner_attested=args.attest_audible)
+    return AudioRung(out_indices=_out_list(args.output_device),
+                     mic_index=args.mic_device,
+                     min_margin=args.min_margin,
+                     owner_attested=args.attest_audible)
 
 
 def _out_list(spec) -> list:
@@ -109,10 +136,7 @@ def cmd_devices(args) -> int:
 def cmd_preflight(args) -> int:
     records: list = []
     emit = _emitter(records)
-    rung = WindowsAudioRung(out_indices=_out_list(args.output_device),
-                            mic_index=args.mic_device,
-                            min_margin=args.min_margin,
-                            owner_attested=args.attest_audible)
+    rung = _make_rung(args)
     act = AlarmActuator([rung], emit=emit)
     report = act.preflight()
     report["observation_channel"] = rung._observe_mode
@@ -215,10 +239,21 @@ def _fire(args) -> int:
                           window_s=WINDOW_S,
                           label=args.message)
 
-    rung = WindowsAudioRung(out_indices=_out_list(args.output_device),
-                            mic_index=args.mic_device,
-                            min_margin=args.min_margin,
-                            owner_attested=args.attest_audible)
+    # PREFLIGHT NEAR THE ALARM, NOT AT LAUNCH. Node 2 never sleeps, so this
+    # process may be started the night before and sit for eleven hours. A
+    # readiness check from eleven hours earlier is a statement about a machine
+    # that no longer exists -- the volume could have been changed, headphones
+    # plugged in, the sink switched. Wait until five minutes out, then measure.
+    lead_s = due - time.time()
+    if lead_s > 600:
+        emit("alarm.waiting", {"due": args.at,
+                               "sleeping_until_s_before_due": 300,
+                               "hours_to_wait": round(lead_s / 3600, 2),
+                               "note": ("preflight is deferred so readiness is "
+                                        "measured near the firing time")})
+        time.sleep(max(0.0, lead_s - 300))
+
+    rung = _make_rung(args)
     act = AlarmActuator([rung], emit=emit, cap_s=args.cap_s)
     pre = act.preflight()
     pre["observation_channel"] = rung._observe_mode
@@ -249,7 +284,7 @@ def _fire(args) -> int:
               file=sys.stderr)
         return 3
 
-    ack = KeyboardAck()
+    ack = AckWatcher()
     deadline = due + WINDOW_S
     result = {"fired": False, "reason": "window elapsed without the predicate firing"}
 
