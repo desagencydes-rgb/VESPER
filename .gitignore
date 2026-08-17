@@ -27,3 +27,6 @@ Thumbs.db
 # lost 300 committed rows copying a store that had an open writer.
 *.db-shm
 *.db-wal
+
+# Prototype alarm run state: live, per-run, not evidence.
+/.alarm-state/
