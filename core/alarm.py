@@ -277,10 +277,17 @@ class AlarmActuator:
                 break
 
             rung = self.rungs[min(idx, len(self.rungs) - 1)]
-            step = {"rung_id": rung.rung_id, "level": rung.level,
-                    "elapsed_s": round(elapsed, 1)}
+            # INTENSITY COMES FROM THE STEP, NOT FROM THE RUNG. The first version
+            # passed rung.level, which is the rung's POSITION in the ladder and
+            # is fixed -- so on a one-rung ladder every step actuated at level 1
+            # and the alarm never got louder or more insistent. Six identical
+            # steps is not an escalation, and on a heavy sleeper the whole point
+            # is that it grows.
+            intensity = min(idx + 1, 6)
+            step = {"rung_id": rung.rung_id, "level": intensity,
+                    "rung_position": rung.level, "elapsed_s": round(elapsed, 1)}
             try:
-                step["actuation"] = rung.driver.actuate(rung.level, alarm.label)
+                step["actuation"] = rung.driver.actuate(intensity, alarm.label)
                 # The observation is a SEPARATE call. It does not read the return
                 # value above, and this is the ACTUATED -> VERIFIED prohibition
                 # in code rather than in a comment.
