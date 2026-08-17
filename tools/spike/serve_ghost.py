@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as _dt
+import hashlib
 import json
 import re
 import sys
@@ -88,6 +89,36 @@ class GhostHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
         sys.stderr.write(f"[ghost] wrote {out}\n")
+        sys.stderr.flush()
+
+    def do_GET(self):  # noqa: N802  (stdlib naming)
+        """Serve the instrument with its own hash substituted for __BUILD__.
+
+        The page is edited between passes, and on 2026-08-17 the operator ran it
+        twice against a copy loaded before the fix -- the records looked like
+        two field runs and were two runs of an old instrument. `Cache-Control:
+        no-store` stops the PHONE caching it; nothing stopped a tab that was
+        simply never reloaded. Computing the stamp here rather than hardcoding
+        it in the page means it cannot be forgotten on an edit, which is the
+        only way a version marker stays true.
+        """
+        if self.path.split("?")[0] not in ("/spike004_ghost.html", "/"):
+            return super().do_GET()
+
+        page = SPIKE_DIR / "spike004_ghost.html"
+        if not page.is_file():
+            self.send_error(404, "instrument not found")
+            return
+        raw = page.read_bytes()
+        stamp = hashlib.sha256(raw).hexdigest()[:8]
+        body = raw.replace(b"__BUILD__", stamp.encode("ascii"))
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        sys.stderr.write(f"[ghost] served instrument build {stamp}\n")
         sys.stderr.flush()
 
     def end_headers(self):

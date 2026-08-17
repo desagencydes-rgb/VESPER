@@ -204,12 +204,14 @@ html, body {
 <div id="hud">
   <div id="hudrow">
     <div><b id="step-name">—</b> · <span id="step-n">1</span>/<span id="step-total">6</span> · <b id="lvl">—</b></div>
-    <div><span id="mode">pyramid</span> · D=<b id="dv">50</b>cm w=<b id="wv">6</b>cm · <b id="geom">M</b> · <b id="nmark">0</b> marked</div>
+    <div><span id="mode">pyramid</span> · D=<b id="dv">50</b>cm w=<b id="wv">6</b>cm · <b id="geom">M</b> · <b id="nmark">0</b> marked · <span id="build">—</span></div>
   </div>
   <div id="btns">
     <button id="bMark" class="hot">MARK</button>
     <button id="bSend">SEND</button>
-    <button id="bMode">layout</button>
+    <button id="bL0">pyr</button>
+    <button id="bL1">1pane</button>
+    <button id="bL2">base</button>
     <button id="bFlip">flip</button>
     <button id="bMirror">mirror</button>
     <button id="bD">D+</button>
@@ -440,6 +442,15 @@ function browserTag() {
   return (cr ? "chrome" + cr[1] : "unknown") + (/Android/.test(ua) ? "-android" : "-other");
 }
 
+// WHICH BUILD IS ON THE PHONE. The instrument was fixed at 00:47 and the
+// operator ran it twice afterwards on a page loaded at 00:32, so neither run
+// had the fix and nothing in the record said so. The server substitutes the
+// served file's own hash here, so it cannot go stale by being forgotten: it is
+// shown in the HUD and posted with every record. Two records that disagree
+// about the instrument are now distinguishable from two that disagree about
+// the optics.
+const BUILD = "__BUILD__";
+
 const $ = id => document.getElementById(id);
 const stage = $("stage");
 
@@ -465,6 +476,7 @@ function faceEdge() {
   return Math.max(40, Math.floor(e * 0.88));
 }
 $("step-total").textContent = TESTS.length;
+$("build").textContent = "b:" + BUILD;
 
 function faces() {
   const l = LAYOUTS[mode];
@@ -485,6 +497,7 @@ function draw() {
   $("step-n").textContent = ti + 1;
   $("lvl").textContent = `${t.levels[li]} ${t.unit}`;
   $("mode").textContent = LAYOUTS[mode] + (flip ? " ⤾" : "");
+  ["bL0", "bL1", "bL2"].forEach((id, m) => $(id).classList.toggle("hot", mode === m));
   $("dv").textContent = D_STEPS[di];
   $("wv").textContent = W_STEPS[wi];
   $("nmark").textContent = marks.length;
@@ -563,7 +576,7 @@ async function send() {
     const r = await fetch("/result", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
-        schema_version: 1, kind: "marks",
+        schema_version: 1, kind: "marks", build: BUILD,
         // Top-level, because the server names the file from it and every record
         // so far landed as "...-ghost-run-..." -- the label was written to
         // distinguish a `baseline` pass from a `single` one and never received
@@ -623,7 +636,17 @@ function setGeom(which) {
   draw();
   say(which + ": " + ((which === "flip" ? flip : mirror) ? "on" : "off"));
 }
-$("bMode").addEventListener("click", e => { e.stopPropagation(); setLayout((mode + 1) % LAYOUTS.length); });
+// ONE BUTTON PER LAYOUT, AND NONE OF THEM WRAP. A single cycling `layout`
+// button has now cost two field runs: e78256f recorded five marks under a
+// layout whose reflector was not on the table, and on 2026-08-17 23:50 an
+// operator asked for `baseline` pressed past it and marked six readings under
+// `single`. A control that punishes one extra press with a silently wrong
+// record is the defect, not the press. The active layout is also shown lit, so
+// the answer to "which am I in" is on the button rather than only in the HUD
+// the operator is not looking at.
+[["bL0", 0], ["bL1", 1], ["bL2", 2]].forEach(([id, m]) => {
+  $(id).addEventListener("click", e => { e.stopPropagation(); setLayout(m); });
+});
 $("bFlip").addEventListener("click", e => { e.stopPropagation(); setGeom("flip"); });
 $("bMirror").addEventListener("click", e => { e.stopPropagation(); setGeom("mirror"); });
 $("bD").addEventListener("click", e => { e.stopPropagation(); di = (di + 1) % D_STEPS.length; draw(); });
@@ -690,6 +713,7 @@ function probe() {
   return {
     schema_version: 1,
     kind: "capability-probe",
+    build: BUILD,
     spike: "SPIKE-004",
     section: "what this browser can actually parse",
     device: deviceName(),
