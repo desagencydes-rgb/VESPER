@@ -37,7 +37,16 @@ preferences this project has converged on.
 difference between a session that knows the shape of the work and one that
 rediscovers it.
 
-### b. SSH access to node 2
+### b. SSH access to node 2 — inbound to the Mac is NOT needed
+
+A first draft of this file asked the owner to enable **Remote Login** on the
+MacBook. That was wrong and the owner caught it. The session runs **on** the
+MacBook, so it needs no way to SSH *into* it; it reads its own hardware with
+`system_profiler` directly. Enable Remote Login only if a *future* task needs
+node 1 or node 2 to reach the Mac, and not before — it is an open listening
+service on the owner's primary machine and should be bought with a reason.
+
+What the Mac does need is **outbound** access to node 2:
 
 The Kali laptop holds the alarm. Reaching it needs a private key that is not in
 the repo and must never be:
@@ -97,9 +106,20 @@ story is that cliff — it holds 7.2 GB, and past that it falls from ~200 GB/s t
 
 **RAM size decides which project this is.** 16 GB is an excellent second node;
 32 GB makes the two models node 1 effectively cannot run become usable. Unknown
-as of writing — ask, or read it off `system_profiler`. Everything above is a
-**prediction and not a measurement**, and `INV-HW-2` makes an unmeasured
-profile `UNKNOWN`, which means `UNAVAILABLE`.
+as of writing — **read it yourself, do not ask the owner**:
+
+```sh
+system_profiler SPHardwareDataType | egrep -i 'Chip|Memory|Model Identifier|Total Number'
+```
+
+The owner's standing preference, stated 2026-08-19: they will move the key pair
+and the memory files and grant anything that needs granting; everything else on
+that machine is the session's job, **retrieving its specifications included**.
+
+Every figure in the table above is a **prediction and not a measurement**, and
+`INV-HW-2` makes an unmeasured profile `UNKNOWN`, which means `UNAVAILABLE`.
+Nothing about the M1 Pro enters `capability_profiles.toml` on the strength of a
+law that has only been checked on a different machine.
 
 **3. Consider it as the alarm's second rung.** `A-012` requires escalation
 across a **device ladder**; today's ladder is depth 1, which is why every firing

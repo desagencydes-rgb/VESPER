@@ -23,3 +23,5 @@ GPU at rest: 1156.1 MiB
   model: 13669.9 MB
   healthy. GPU 1156.1 -> 7048.6 MiB (delta 5892.5 MiB)
   -- idle condition -> SPIKE-001-3.1-v3-strong-dense24B-idle.json
+     gen 3.07 tok/s   wall 3.07 tok/s
+  -- concurrent condition -> SPIKE-001-3.1-v3-strong-dense24B-concurrent.json
