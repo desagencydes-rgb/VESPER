@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "kind": "capability-probe",
+  "build": "__BUILD__",
   "spike": "SPIKE-004",
   "section": "what this browser can actually parse",
   "device": "Samsung Galaxy J3 (2016)",
@@ -58,6 +59,6 @@
     },
     "unit_px": "180px"
   },
-  "received_at_utc": "2026-08-17T23:32:30.636089+00:00",
+  "received_at_utc": "2026-08-18T00:03:12.919328+00:00",
   "reported_by": "192.168.100.28"
 }

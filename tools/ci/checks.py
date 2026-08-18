@@ -1238,6 +1238,33 @@ def check_f5_acceptance() -> Result:
                            "F5 autonomy")
 
 
+def check_f6_acceptance() -> Result:
+    """F6 placement and survival -- A-048 in full, plus A-017.
+
+    A-048's negative controls are BUILDS, not inputs: a node-pinned placement
+    and an undamped one. A build that pins VESPER to one machine passes every
+    other acceptance test in the suite and fails the owner's actual
+    requirement, which is why the control has to be a whole placement policy
+    rather than a bad fixture.
+    """
+    return _run_acceptance("f6-acceptance", "verification/run_f6_acceptance.py",
+                           "F6 placement/survival/recovery")
+
+
+def check_placement_stress() -> Result:
+    """Properties over randomised fabrics, not outcomes over chosen ones.
+
+    Separate from the F6 gate so a failure is attributable: the gate says a
+    named case broke, this says a property broke on an input nobody chose. The
+    scoring defect that made a 20x throughput gain read as 9% passed four of
+    A-048's nine cases before a fifth caught it, which is the argument for
+    having both.
+    """
+    return _run_acceptance("placement-stress",
+                           "verification/stress_placement.py",
+                           "placement property/stress")
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -1246,6 +1273,8 @@ CHECK_FNS = {
     "f4-acceptance": check_f4_acceptance,
     "f3-acceptance": check_f3_acceptance,
     "f5-acceptance": check_f5_acceptance,
+    "f6-acceptance": check_f6_acceptance,
+    "placement-stress": check_placement_stress,
     "adr-gate": check_adr_gate,
     "scene-no-escape-hatch": check_scene_schema,
     "cost-policy": check_cost_policy,
