@@ -505,11 +505,18 @@ status = "SPECIFIED"
 arch = ["ARCH-09", "ARCH-14"]
 ic = ["IC-002", "IC-008"]
 tests = ["A-011", "A-021"]
-contracts = ["contracts/policy/cost_policy.toml"]
+contracts = ["contracts/policy/cost_policy.toml", "contracts/entities/model_profile.schema.json"]
 state_machines = ["SM-OPERATING-PERIOD"]
 decision_functions = ["DF-OPERATING-PERIOD", "DF-PROVIDER-ADMIT", "DF-AUTONOMY-ELIGIBLE"]
-invariants = ["INV-COST-1", "INV-COST-2"]
-ci = ["CI-021", "CI-020"]
+# INV-COST-4 added 2026-08-18 with CI-022. "Free models only" is unenforceable
+# if a model profile can be unclassified: an unclassified profile is read as
+# free, and the requirement is defeated without anything appearing to break.
+# INV-COST-4 was in INVARIANTS.toml naming CI-022 as its enforcer while no SR
+# named either -- which TR-067 caught the moment CI-022 stopped being PENDING.
+# A-021 was already here and is INV-COST-4's other declared enforcer, so this
+# is where it belonged.
+invariants = ["INV-COST-1", "INV-COST-2", "INV-COST-4"]
+ci = ["CI-021", "CI-020", "CI-022"]
 status = "SPECIFIED"
 
 [requirements.SR-046]

@@ -250,10 +250,12 @@ self_test_evidence = "tools/ci/self_test.py -- 'paid' added to permitted_cost_cl
 name = "cost-class-nonnull"
 enforces = ["INV-COST-4"]
 kind = "structural"
-impl = "PENDING"
+impl = "tools/ci/checks.py cost-class-nonnull"
 note = "Requires model-profile and credential fixtures, which do not exist yet. Previously pointed at `checks.py cost-policy`, which inspects only the policy file and never a profile -- an enforcement claim the code did not perform."
 blocking = "pr"
 self_test = "Declare a model profile fixture with no cost_class."
+self_test_evidence = "tools/ci/self_test.py cost-class-nonnull -- 2 cases, red then green"
+subject = "contracts/entities/model_profile.schema.json"
 
 # ---------------------------------------------------------- autonomy
 [checks.CI-023]
@@ -276,9 +278,12 @@ self_test = "Register a predicate containing an unbounded loop."
 name = "action-has-trigger"
 enforces = ["INV-TRIG-1"]
 kind = "structural"
-impl = "PENDING"
+impl = "tools/ci/checks.py action-has-trigger"
 blocking = "pr"
 self_test = "Construct an autonomous action with no trigger_id."
+self_test_evidence = "tools/ci/self_test.py action-has-trigger -- 1 case, red then green"
+subject = "core/autonomy.py"
+note = "Scoped by the code's own convention: an autonomy event whose SUBJECT is a trigger must carry trigger_id in its payload, or the durable record cannot be joined back to it. Non-action diagnostics are exempt BY NAME in checks.py and the check fails if a listed exemption stops being emitted, so the list cannot outlive its reason. Payload names resolve within their own function scope and one hop through a helper's returned dict; anything deeper is reported unresolved rather than assumed either way."
 
 [checks.CI-026]
 name = "non-schedule-trigger-present"
@@ -342,9 +347,12 @@ self_test = "Submit one commit that both relaxes a latency budget and edits the 
 name = "verification-criteria-typed"
 enforces = ["INV-VERIF-3"]
 kind = "structural"
-impl = "PENDING"
+impl = "tools/ci/checks.py verification-criteria-typed"
 blocking = "pr"
 self_test = "Create a task fixture whose verification_criteria is free text."
+self_test_evidence = "tools/ci/self_test.py verification-criteria-typed -- 1 case, red then green"
+subject = "contracts/entities/task.schema.json"
+note = "Follows the $ref and checks the target is not itself a bare string. A $ref that makes free text look typed is worse than free text, because it passes inspection."
 
 [checks.CI-033]
 name = "claim-support-required"
@@ -468,9 +476,12 @@ note = "Split from CI-046 for the same reason CI-034b was split from CI-034."
 name = "idea-retirement-reason"
 enforces = ["INV-IDEA-4"]
 kind = "structural"
-impl = "PENDING"
+impl = "tools/ci/checks.py idea-retirement-reason"
 blocking = "pr"
 self_test = "Transition an ImprovementIdea to RETIRED with no disposition_reason."
+self_test_evidence = "tools/ci/self_test.py idea-retirement-reason -- 1 case, red then green"
+subject = "contracts/entities/improvement_idea.schema.json"
+note = "Asserts the rule STRUCTURALLY. The property description already said MANDATORY on RETIRED, and a description does not reject a document -- the allOf if/then does."
 
 [checks.CI-048]
 name = "loss-class-affect-boundary"

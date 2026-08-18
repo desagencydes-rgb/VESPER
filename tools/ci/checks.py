@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import ast
 import subprocess
 import sys
 import tomllib
@@ -41,6 +42,12 @@ LADDER = REPO / "contracts" / "policy" / "degradation_ladder.toml"
 TUNABLES = REPO / "contracts" / "policy" / "tunables.toml"
 CAPPROFILES = REPO / "contracts" / "policy" / "capability_profiles.toml"
 LATENCY = REPO / "contracts" / "policy" / "latency_budgets.toml"
+MODEL_PROFILE = REPO / "contracts" / "entities" / "model_profile.schema.json"
+IDEA = REPO / "contracts" / "entities" / "improvement_idea.schema.json"
+TASK = REPO / "contracts" / "entities" / "task.schema.json"
+VERIF_STRATEGY = (REPO / "contracts" / "entities"
+                  / "verification_strategy.schema.json")
+AUTONOMY = REPO / "core" / "autonomy.py"
 
 # Directories whose code must never name a product. Scanned once they exist;
 # absence is not a pass, it is reported as "not yet applicable".
@@ -1180,6 +1187,324 @@ def check_latency_budgets() -> Result:
 # --------------------------------------------------------------------------
 # F-stage acceptance gates -- run the real harnesses, do not re-implement them
 # --------------------------------------------------------------------------
+def _json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _nullable(spec: dict) -> bool:
+    """Does this property schema admit null in any of its spellings?"""
+    t = spec.get("type")
+    if t == "null" or (isinstance(t, list) and "null" in t):
+        return True
+    return any(_nullable(sub) for key in ("anyOf", "oneOf", "allOf")
+               for sub in spec.get(key, []) if isinstance(sub, dict))
+
+
+def _returns_dict_with_key(tree, func_name: str, key: str) -> bool:
+    """Does the module-level `func_name` return a dict literal carrying `key`?"""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == func_name:
+            for sub in ast.walk(node):
+                if (isinstance(sub, ast.Return)
+                        and isinstance(sub.value, ast.Dict)
+                        and any(isinstance(k, ast.Constant) and k.value == key
+                                for k in sub.value.keys)):
+                    return True
+    return False
+
+
+def _name_dict_has_key(scope, module, name: str, key: str) -> bool | None:
+    """Does `name` hold a dict carrying `key`? None when it cannot be resolved.
+
+    ONE HOP, AND THE THIRD ANSWER MATTERS. `name = {...}` is resolved directly;
+    `name = helper(...)` is resolved by reading `helper`'s returned dict
+    literal. That second case is not hypothetical -- `autonomy.py` publishes
+    `payload=probe` where `probe = anti_cron_probe(trigger)`, and the returned
+    dict does carry `trigger_id`. A resolver that stopped at literals reported
+    that line as an INV-TRIG-1 violation when the code was correct.
+
+    Anything deeper returns None rather than True or False, and the caller
+    reports it as unresolved. Guessing True would let a real omission through
+    on any indirection; guessing False would cry wolf until someone disabled
+    the check. "I could not tell" is the honest third answer and it is the one
+    that gets acted on.
+
+    IT RESOLVES INSIDE A SCOPE, and that is not a detail. Searching the whole
+    module for an assignment to `probe` found the one inside `anti_cron_probe`
+    -- a dict COMPREHENSION, not a dict literal -- and reported the caller's
+    perfectly correct `probe = anti_cron_probe(trigger)` as unresolvable. Two
+    functions may both use a name like `probe` or `payload`, and a resolver
+    that ignores scope answers a question about the wrong variable.
+    """
+    for node in ast.walk(scope):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == name
+                   for t in node.targets):
+            continue
+        val = node.value
+        if isinstance(val, ast.Dict):
+            return any(isinstance(k, ast.Constant) and k.value == key
+                       for k in val.keys)
+        if isinstance(val, ast.Call) and isinstance(val.func, ast.Name):
+            return _returns_dict_with_key(module, val.func.id, key)
+        return None
+    return None
+
+
+# --------------------------------------------------------------------------
+# CI-022 -- INV-COST-4: a model profile's cost class is NON-NULLABLE.
+# The failure mode is specific, and it is not "the field is missing": it is
+# that a profile nobody classified gets READ as free, and a paid call is then
+# made under a budget that was never asked about it. So a default is refused,
+# null is refused, and dropping the field from `required` is refused -- three
+# spellings of the same silence.
+# --------------------------------------------------------------------------
+def check_cost_class_nonnull() -> Result:
+    r = Result("cost-class-nonnull")
+    if not MODEL_PROFILE.is_file():
+        r.err("contracts/entities/model_profile.schema.json is missing -- "
+              "INV-COST-4 has no subject")
+        return r
+    doc = _json(MODEL_PROFILE)
+    cc = doc.get("properties", {}).get("cost_class")
+    if cc is None:
+        r.err("model_profile declares no `cost_class` property (INV-COST-4)")
+        return r
+    if "cost_class" not in doc.get("required", []):
+        r.err("`cost_class` is not in `required` -- an unclassified profile "
+              "would validate, and INV-COST-4 exists because it would then be "
+              "treated as free")
+    if "default" in cc:
+        r.err(f"`cost_class` declares a default ({cc['default']!r}). A default "
+              "IS the silent classification this invariant forbids")
+    if _nullable(cc):
+        r.err("`cost_class` admits null -- 'we forgot to classify it' becomes "
+              "'it was treated as free'")
+    enum = cc.get("enum")
+    if not enum:
+        r.err("`cost_class` is not an enum, so any string would validate and "
+              "the budget could not branch on it")
+    else:
+        missing = {"free", "paid"} - set(enum)
+        if missing:
+            r.err(f"`cost_class` enum omits {sorted(missing)} -- the cost "
+                  "policy distinguishes them")
+        r.note(f"cost_class enum: {enum}")
+    if doc.get("additionalProperties") is not False:
+        r.err("model_profile permits additional properties, so a misspelled "
+              "`cost_clas` would validate beside a missing real one")
+    return r
+
+
+# --------------------------------------------------------------------------
+# CI-047 -- INV-IDEA-4: nothing leaves the backlog silently.
+# A RETIRED idea with no disposition_reason is indistinguishable from one the
+# system quietly gave up on. The rule has to be STRUCTURAL: the property
+# description already says MANDATORY, and a description does not reject a
+# document.
+# --------------------------------------------------------------------------
+def check_idea_retirement_reason() -> Result:
+    r = Result("idea-retirement-reason")
+    if not IDEA.is_file():
+        r.err("contracts/entities/improvement_idea.schema.json is missing")
+        return r
+    doc = _json(IDEA)
+    status = doc.get("properties", {}).get("status", {})
+    if "RETIRED" not in (status.get("enum") or []):
+        r.err("`status` has no RETIRED state -- INV-IDEA-4 has no subject")
+        return r
+
+    conditional = None
+    for clause in doc.get("allOf", []):
+        cond = clause.get("if", {}).get("properties", {}).get("status", {})
+        if cond.get("const") == "RETIRED" or "RETIRED" in (cond.get("enum") or []):
+            conditional = clause
+            break
+    if conditional is None:
+        r.err("no allOf if/then binds RETIRED to a disposition_reason. The "
+              "property description says MANDATORY; a description does not "
+              "reject a document (INV-IDEA-4)")
+        return r
+
+    then = conditional.get("then", {})
+    if "disposition_reason" not in then.get("required", []):
+        r.err("the RETIRED clause does not `require` disposition_reason")
+    sub = then.get("properties", {}).get("disposition_reason", {})
+    if _nullable(sub) or sub.get("minLength", 0) < 1:
+        r.err("a RETIRED idea may carry an empty or null disposition_reason -- "
+              "an empty reason is silence with extra steps")
+    r.note("RETIRED is structurally bound to a non-empty disposition_reason")
+    return r
+
+
+# --------------------------------------------------------------------------
+# CI-032 -- INV-VERIF-3: verification criteria are TYPED, never free text.
+# RB-004 asks for a "machine-checkable acceptance condition". Free text is
+# checkable only by a model, which makes the thing verified and the thing
+# verifying the same kind of judgement -- and a task can then be declared done
+# by writing a sentence about it.
+# --------------------------------------------------------------------------
+def check_verification_criteria_typed() -> Result:
+    r = Result("verification-criteria-typed")
+    if not TASK.is_file():
+        r.err("contracts/entities/task.schema.json is missing")
+        return r
+    doc = _json(TASK)
+    if "verification_criteria" not in doc.get("required", []):
+        r.err("`verification_criteria` is not required -- a task with no "
+              "acceptance condition could be created (INV-VERIF-3)")
+    vc = doc.get("properties", {}).get("verification_criteria")
+    if vc is None:
+        r.err("task declares no `verification_criteria`")
+        return r
+    ref = vc.get("$ref")
+    if not ref:
+        r.err(f"`verification_criteria` is inline (type={vc.get('type')!r}) "
+              "rather than a $ref to a typed strategy. Free text here is the "
+              "failure INV-VERIF-3 names")
+    elif "verification_strategy" not in ref:
+        r.err(f"`verification_criteria` refs {ref!r}, not the verification "
+              "strategy contract")
+    elif not VERIF_STRATEGY.is_file():
+        r.err("verification_strategy.schema.json is missing, so the $ref "
+              "resolves to nothing and the typing is nominal")
+    else:
+        strat = _json(VERIF_STRATEGY)
+        if strat.get("type") == "string":
+            r.err("verification_strategy is itself a bare string -- a $ref "
+                  "that makes free text look typed is worse than free text")
+        r.note(f"typed via {ref.rsplit('/', 1)[-1]}; strategy requires "
+               f"{strat.get('required')}")
+    return r
+
+
+# --------------------------------------------------------------------------
+# CI-025 -- INV-TRIG-1: every autonomous action resolves to exactly one
+# registered trigger_id, INCLUDING NO-OPS. The no-op clause is the one that
+# matters: a system recording only what it did cannot be audited for what it
+# decided not to do, and "nothing happened" is indistinguishable from "the loop
+# was dead".
+#
+# WHAT COUNTS AS AN ACTION, and why the discriminator is not a hand-picked
+# list. The first version of this check flagged every `autonomy.*` publication
+# and immediately went red on `autonomy.model_call_in_decision_path` -- which
+# is a VIOLATION DIAGNOSTIC emitted from `model_call_attempted(where)`, a
+# function that has no trigger in scope and could not name one if it wanted to.
+# INV-TRIG-1 is about actions, not about every event in the namespace.
+#
+# The rule used instead comes from the code's own structure: an event whose
+# SUBJECT is a trigger is a per-trigger decision, and a per-trigger decision
+# whose payload drops the trigger_id cannot be joined back to its trigger in
+# the durable log. Machinery diagnostics are subject-scoped to something else
+# and are listed explicitly below -- and the check FAILS if a listed exemption
+# is no longer emitted, so the list cannot quietly outlive its reason.
+# --------------------------------------------------------------------------
+
+# Named exemptions: autonomy events that are NOT per-trigger actions. Each must
+# still be emitted somewhere, or the entry is stale and is reported as such.
+NON_ACTION_AUTONOMY_EVENTS = {
+    "autonomy.model_call_in_decision_path":
+        "a refused model call inside the evaluator (A-011.4). Emitted from a "
+        "path that has no trigger in scope by construction",
+}
+
+
+def check_action_has_trigger() -> Result:
+    r = Result("action-has-trigger")
+    if not AUTONOMY.is_file():
+        r.err("core/autonomy.py is missing -- INV-TRIG-1 has no subject")
+        return r
+    tree = ast.parse(AUTONOMY.read_text(encoding="utf-8"))
+
+    # Walk per function, so a payload name resolves against the scope it was
+    # written in rather than against a same-named variable in some other
+    # function. The module itself is included last for any module-level call.
+    scopes = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
+    scopes.append(tree)
+
+    published = []
+    seen_calls = set()
+    for scope in scopes:
+        for node in ast.walk(scope):
+            if not isinstance(node, ast.Call) or id(node) in seen_calls:
+                continue
+            fn = node.func
+            if not (isinstance(fn, ast.Attribute) and fn.attr == "publish"):
+                continue
+            topic = node.args[0] if node.args else None
+            if not (isinstance(topic, ast.Constant)
+                    and isinstance(topic.value, str)
+                    and topic.value.startswith("autonomy.")):
+                continue
+            seen_calls.add(id(node))
+
+            payload = subject = None
+            for kw in node.keywords:
+                if kw.arg == "payload":
+                    payload = kw.value
+                elif kw.arg == "subject":
+                    subject = kw.value
+            if payload is None and len(node.args) >= 3:
+                payload = node.args[2]
+            if subject is None and len(node.args) >= 2:
+                subject = node.args[1]
+
+            # Subject is a trigger => this is a per-trigger decision.
+            trigger_scoped = (isinstance(subject, ast.Attribute)
+                              and subject.attr == "trigger_id")
+
+            carries = False
+            if isinstance(payload, ast.Dict):
+                carries = any(isinstance(k, ast.Constant)
+                              and k.value == "trigger_id"
+                              for k in payload.keys)
+            elif isinstance(payload, ast.Name):
+                carries = _name_dict_has_key(scope, tree, payload.id,
+                                             "trigger_id")
+            published.append((topic.value, node.lineno, carries, trigger_scoped))
+
+    if not published:
+        r.err("no autonomy.* events are published from core/autonomy.py -- the "
+              "check has no subject and would otherwise pass vacuously")
+        return r
+
+    actions = [(t, ln, c) for t, ln, c, scoped in published if scoped]
+    if not actions:
+        r.err("no autonomy event is scoped to a trigger, so INV-TRIG-1 has "
+              "nothing to bind -- either the loop records no decisions or the "
+              "subject convention changed and this check went blind")
+    for topic, line, carries in actions:
+        if carries is None:
+            r.err(f"core/autonomy.py:{line} publishes {topic!r} with a payload "
+                  "this check cannot resolve to a dict. Not assumed either "
+                  "way: extend the resolver or pass a literal, but an "
+                  "unreadable payload is not evidence of a trigger_id "
+                  "(INV-TRIG-1)")
+        elif not carries:
+            r.err(f"core/autonomy.py:{line} publishes {topic!r} about a "
+                  "trigger but drops trigger_id from the payload, so the "
+                  "durable record cannot be joined back to it (INV-TRIG-1)")
+
+    seen = {t for t, _, _, _ in published}
+    for topic, why in sorted(NON_ACTION_AUTONOMY_EVENTS.items()):
+        if topic not in seen:
+            r.err(f"{topic!r} is listed as a non-action exemption but is no "
+                  f"longer emitted. Remove the exemption rather than leaving a "
+                  f"standing hole ({why})")
+
+    noops = [t for t, _, _ in actions if "noop" in t]
+    if not noops:
+        r.err("no trigger-scoped no-op event is published. INV-TRIG-6 makes "
+              "the recorded no-op the evidence that the loop ran at all; "
+              "without one, a dead loop and an idle one look identical")
+
+    exempt = sorted(seen & set(NON_ACTION_AUTONOMY_EVENTS))
+    r.note(f"{len(actions)} trigger-scoped decisions, all carrying trigger_id; "
+           f"no-op events {sorted(set(noops))}; exempt diagnostics {exempt}")
+    return r
+
+
 def _run_acceptance(name: str, script: str, stage: str) -> Result:
     """Run an acceptance harness as a subprocess and surface its verdict.
 
@@ -1285,6 +1610,10 @@ CHECK_FNS = {
     "tunable-range-immutable": check_tunables,
     "measured-not-declared": check_measured_not_declared,
     "latency-budgets-declared": check_latency_budgets,
+    "cost-class-nonnull": check_cost_class_nonnull,
+    "idea-retirement-reason": check_idea_retirement_reason,
+    "verification-criteria-typed": check_verification_criteria_typed,
+    "action-has-trigger": check_action_has_trigger,
 }
 
 
