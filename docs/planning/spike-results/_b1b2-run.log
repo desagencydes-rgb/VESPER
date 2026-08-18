@@ -7,3 +7,19 @@ GPU at rest: 1156.1 MiB
   model: 1925.8 MB
   healthy. GPU 1156.1 -> 3275.4 MiB (delta 2119.3 MiB)
   -- idle condition -> SPIKE-001-3.1-v3-small-llama3B-idle.json
+     gen 100.2 tok/s   wall 99.08 tok/s
+  -- concurrent condition -> SPIKE-001-3.1-v3-small-llama3B-concurrent.json
+     gen 101.04 tok/s   wall 92.04 tok/s
+
+======== strong-moe30B  (tier=strong, -c 8448, -ngl 12) ========
+  model: 17769 MB
+  healthy. GPU 1156.1 -> 5338.4 MiB (delta 4182.3 MiB)
+  -- idle condition -> SPIKE-001-3.1-v3-strong-moe30B-idle.json
+     gen 7.45 tok/s   wall 7.45 tok/s
+  -- concurrent condition -> SPIKE-001-3.1-v3-strong-moe30B-concurrent.json
+     gen 7.12 tok/s   wall 7.12 tok/s
+
+======== strong-dense24B  (tier=strong, -c 8448, -ngl 16) ========
+  model: 13669.9 MB
+  healthy. GPU 1156.1 -> 7048.6 MiB (delta 5892.5 MiB)
+  -- idle condition -> SPIKE-001-3.1-v3-strong-dense24B-idle.json
