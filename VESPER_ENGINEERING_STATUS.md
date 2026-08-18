@@ -1,6 +1,6 @@
 # VESPER — Engineering Status
 
-**Updated:** 2026-08-17, after the A-029 endurance partial was dispositioned and the run relaunched · **Maintained continuously.** If another engineer or agent takes over tomorrow, this file plus `docs/DECISION_LOG.md` is the handoff.
+**Updated:** 2026-08-18, after F6 placement landed and six CI checks were implemented · **Maintained continuously.** If another engineer or agent takes over tomorrow, this file plus `docs/DECISION_LOG.md` is the handoff.
 
 > **Read `MEMORY.md` first.** It carries what is *not* derivable from this file, the code or the
 > git history: the measured numbers with their provenance, the **bandwidth law** that governs
@@ -14,10 +14,10 @@
 
 | | |
 |---|---|
-| **Phase** | **F0, F1, F2 COMPLETE. F3, F4, F5 part-built — every software-only case done, hardware-blocked cases named.** All six gates run in CI. Implementation authorised and under way — `INV-ADR-1` was discharged 2026-08-14 by owner acceptance of `ADR-002` (with `ADR-001` and `ADR-012` already ACCEPTED). |
-| **Position** | Seven SRs carry recorded depth dispositions naming artifacts not yet written; `--profile release` fails on depth. **No completeness judgement is recorded here** — that is part of the gate. |
+| **Phase** | **F0, F1, F2 COMPLETE. F3, F4, F5, F6 part-built — every software-only case done, hardware-blocked cases named.** Seven gates run in CI. **F6 placement landed 2026-08-18**: `DF-PLACE` and `DF-SURVIVAL-PROFILE` implemented in `core/placement.py`, `A-048` (nine cases, both mandatory negative controls) and `A-017` green, plus a property harness over randomised fabrics. Implementation authorised and under way — `INV-ADR-1` was discharged 2026-08-14 by owner acceptance of `ADR-002` (with `ADR-001` and `ADR-012` already ACCEPTED). |
+| **Position** | **Three** SRs remain below `SPECIFIED` and `--profile release` fails on depth, deliberately: `SR-034` is the corpus's worked example of a requirement correctly held there, and `SR-016`/`SR-017` are F6 network-fabric work whose assertions `A-045` already holds. The other four were raised 2026-08-17 against the assertion that already named their mechanism. **No completeness judgement is recorded here** — that is part of the gate. |
 | **Verdict** | **None recorded here.** The readiness gate is the project owner's act. `docs/architecture/IMPLEMENTATION_READINESS_REPORT.md` and `docs/FINAL_PRE_F0_VERIFICATION_REPORT.md` are *evidence for* that gate. |
-| **Next action** | Everything not blocked on hardware is built. What remains needs the **MacBook** (expected 2026-08-20), the **iPhone app**, **cameras**, and a **flat clear sheet**. The **24-hour endurance run is in flight** — relaunched 2026-08-17 00:09:58, lands ~2026-08-18 00:10; see item 7 below. Owner still owes `OWNER-DECISION-006(c)` and the ADR-001/012 authority question below. |
+| **Next action** | Software-only work continues to land — F6 placement on 2026-08-18. What remains blocked needs the **MacBook** (expected 2026-08-20), the **iPhone app**, **cameras**, and a **flat clear sheet**. **The endurance run is NOT in flight**; this line claimed it was for a day after it stopped being true. `A-029` is F5's gate, seventh of nine in the build order, and is scheduled for week 3 alongside the work it actually gates — the 23 h partial is banked as evidence. Owner still owes `OWNER-DECISION-006(c)` and the ADR-001/012 authority question below. |
 | **Known blocker on F0** | **DISCHARGED 2026-08-14.** `ADR-002` was accepted by the owner under `OWNER-DECISION-006(b)`; `ADR-001` and `ADR-012` were already ACCEPTED. `CI-008` enforces this mechanically and is green. **One authority question remains open and is the owner's:** `ADR-001` and `ADR-012` carry `ACCEPTED` stamped by an engineering pass, not by the owner. The corpus records that either all three are confirmed together at the readiness gate or the other two are re-confirmed on the same basis. F0 proceeded on the mechanical gate; this is recorded, not resolved. |
 | **Repository** | `git init` **done** 2026-08-12, `core.autocrlf=false`, corpus committed as authored. Branch protection and the `@owner` handle remain host-side owner actions, so `CI-002` and `CI-044` stay `PENDING`. |
 
@@ -25,17 +25,29 @@
 
 ```
 tools/traceability_lint.py                    PASS   0 errors, 0 warnings, 0 info
-tools/traceability_lint.py --profile release  FAIL   7 errors, DEPTH only (7 SRs below SPECIFIED)
-tools/reference_lint.py                       PASS   0 errors — 128 normative files scanned
+tools/traceability_lint.py --profile release  FAIL   3 errors, DEPTH only (SR-016, SR-017, SR-034)
+tools/reference_lint.py                       PASS   0 errors — 136 normative files scanned
 tools/reference_lint.py --self-test           PASS   5/5 red-then-green
-tools/ci/checks.py all                        PASS   17/17 runnable checks
-tools/ci/self_test.py                         PASS   47/47 red under violation, green after restore
-tools/ci/checks.py status                            15/56 check IDs implemented, 41 PENDING
-tools/ci/checks.py ci-registry                       ENFORCED TODAY: 17/118 invariants
+tools/ci/checks.py all                        PASS   25/25 runnable checks
+tools/ci/self_test.py                         PASS   55/55 red under violation, green after restore
+tools/ci/checks.py status                            21/56 check IDs implemented, 35 PENDING
+tools/ci/checks.py ci-registry                       ENFORCED TODAY: 23/118 invariants
+verification/run_f0_acceptance.py             PASS
+verification/run_f1_acceptance.py             PASS
+verification/run_f2_acceptance.py             PASS
+verification/run_f3_acceptance.py             PASS   A-009, A-026, A-035
+verification/run_f4_acceptance.py             PASS
+verification/run_f5_acceptance.py             PASS   A-029 + C1 control
+verification/run_f6_acceptance.py             PASS   A-048 (9 cases) + A-017, 3 controls
+verification/stress_placement.py              PASS   320k property assertions
 verification/run_a029_endurance.py --self-test PASS  6/6 healthy, 3/3 controls fail as required
 ```
 
-**The two figures that matter, and the difference between them.** *"15 of 56 checks implemented"* is true and flattering. *"17 of 118 invariants are enforced today"* is the number a reader actually wants, and until this pass it appeared nowhere. An invariant counts as enforced today only if a check names it that is **implemented**, **symmetric in both registries**, **red-run by the harness**, and **not vacuous on this tree**. `ci-registry` computes it on every run, so it cannot go stale. Two implemented checks are currently **vacuous** and excluded by name: `CI-007` (no `routing/` or `models/` directory exists to scan) and `CI-008` (no file exists under `core/`, `tasks/` or `memory/` to gate). Both are armed and both have been shown red against a planted violation.
+**The two figures that matter, and the difference between them.** *"21 of 56 checks implemented"* is true and flattering. *"23 of 118 invariants are enforced today"* is the number a reader actually wants. An invariant counts as enforced today only if a check names it that is **implemented**, **symmetric in both registries**, **red-run by the harness**, and **not vacuous on this tree**. `ci-registry` computes it on every run, so it cannot go stale.
+
+**The vacuity exclusion is now empty, and the prose that said otherwise was stale.** Until 2026-08-18 this paragraph named `CI-007` and `CI-008` as excluded for having nothing to scan. `_vacuous_checks()` adds `CI-007` only when *no* scope directory exists and `CI-008` only when `core/`, `tasks/` and `memory/` are all empty — and `core/` has held 65 files since F0 landed. Neither has been excluded for some time; the sentence describing them as excluded outlived the condition it described. Read the command, not this file.
+
+**Six checks landed 2026-08-18**, each with an executed red run and each traced to a requirement: `CI-022` cost-class-nonnull, `CI-025` action-has-trigger, `CI-032` verification-criteria-typed, `CI-047` idea-retirement-reason, `CI-019` interlock-independence, `CI-023` evaluator-no-model-capability. `TR-067` fired on three of them — an implemented check that no SR names — and each was placed by evidence: the SR already listed the invariant's *other* declared enforcer.
 
 > **`--profile release` failing is the correct state**, not a defect. It fails on depth: seven SRs are not yet `SPECIFIED`. Each records the artifact that would raise it. The dispositions do **not** excuse the depth — that was checked deliberately, because a disposition mechanism that turns a FAIL into a PASS is a mechanism for optimising the verdict.
 

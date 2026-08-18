@@ -182,6 +182,79 @@ Owner's phone (always on) · iPhone · Samsung Galaxy J3 (2016, 360×640 @ dpr 2
 
 ---
 
+## 4b. What the night of 2026-08-17/18 established, and what it cost to learn
+
+### The instrument, not the operator (SPIKE-004)
+
+`spike004_ghost.html` was written on a desktop in CSS that the target handset's
+**Chrome 55** cannot parse — `display:grid` (Cr 57), `place-items` (59), `min()`
+(79), flex `gap` (84), `inset` (87), `aspect-ratio` (88). **An unsupported
+declaration is dropped silently**, so it looked correct everywhere except on the
+one device it is for. Four of the six tests rendered *nothing*, and a commit had
+already blamed the operator for recording defaults.
+
+**Three field runs were lost to this, in three different ways**, and the general
+lesson is worth more than any of them: *before concluding a reading is the
+operator's fault, establish that the instrument could show them anything.*
+
+- The tap zones measured **0 × 0**, so the level control had no hit target.
+- The first `baseline` pass ran with `flip` and `mirror` **on** — meaningless on
+  a bare panel with no fold — so it measured how small reversed text can be
+  read. `glyph height` came back 40 px, the *largest* value on the scale.
+- The next two ran on a page loaded **before** the fix, from a tab nobody
+  reloaded, and nothing in the record said so.
+
+**Fixed, and the fixes are the reusable part.** The page POSTs a capability
+probe on load (`CSS.supports()` plus measured rects), the server substitutes the
+served file's own sha256 for `__BUILD__` so a stale page cannot hide, `baseline`
+forces the transforms off, and the wrapping `layout` button became three
+non-wrapping ones. **SPIKE-004 still has zero valid readings.** It is parked and
+it blocks nothing — its own §1 says so.
+
+### `DF-PLACE` had two gaps that only show up when you implement it
+
+1. **`hosts` filters on trust zone alone**, which makes `A-048.4` unsatisfiable:
+   a `Z0 foreground_only` node would be a top-ranked *full* host and survival
+   would never be entered on any topology. `INV-PLACE-3` says survival begins
+   when no **full host** is reachable, and `INV-TRUST-2` permits runtime
+   survival exactly there — those cohere only if such a node is never a full
+   host. `core/placement.py::is_full_host` encodes that, with the alternative
+   reading named in case the corpus meant the literal one.
+2. **The degradation bypass is listed after two gates that have already
+   returned**, so it is dead code as written. `INV-PLACE-2`'s prose governs and
+   the bypass goes first.
+
+**The survival core is ALL-OR-NOTHING.** Filling it greedily makes it partially
+satisfiable, and the property harness found what that produces: at pressure 0.75
+a core member fell out for want of storage, and at 0.95 three others stopped
+fitting, released their budget, and **it came back**. A core that reappears as
+conditions worsen is not a core.
+
+**A ratio test needs a magnitude whose ratios mean something.** The first scalar
+score was additive with availability weighted +1000, so a node with **twenty
+times** the throughput scored 9% better and placement returned KEEP.
+
+### Reaching node 2, and what is armed on it
+
+`ssh -i ~/.ssh/vesper_node2 csf@192.168.100.102` — the username is **`csf`**,
+recorded here because probing six plausible names found none of them and this
+file already had the answer.
+
+**The 09:00 alarm is a detached process, not a timer.** `pid 32626`,
+`alarm_night.py fire --at 2026-08-18 09:00`, reparented to init, one long
+`time.sleep()` to five minutes before due. **There is no systemd timer and no
+cron behind it**: if the process dies or the machine reboots, there is no alarm
+and nothing will say so. That is the single largest fragility in the alarm
+setup and it is recorded rather than fixed, because changing it at 01:40 on the
+night it has to work is the wrong time to test a change.
+
+`A-034.2` (partition, both sides live) is **no longer blocked on capability** —
+two real nodes and key-based SSH both exist. It was deliberately not run on the
+night of 08-17/18 because it requires partitioning the network on the machine
+holding that alarm.
+
+---
+
 ## 5. Open questions, recorded rather than resolved
 
 1. **What window must `C1` run for?** `AT-03` calls it the most important run in the
@@ -210,3 +283,6 @@ Owner's phone (always on) · iPhone · Samsung Galaxy J3 (2016, 360×640 @ dpr 2
 | Owner decisions | `docs/decisions/OWNER_DECISIONS.md` |
 | Endurance evidence, 23 h partial | `docs/planning/spike-results/A-029-endurance-2026-08-16/` |
 | Procurement and model evaluations | `docs/planning/MACBOOK_PROCUREMENT_BENCHMARK.md`, `QWEN38_27B_EVALUATION.md` |
+| Placement / survival | `core/placement.py`, `verification/run_f6_acceptance.py`, `verification/stress_placement.py` |
+| Alarm armed-state evidence | `docs/planning/spike-results/ALARM-0900-armed-verification-20260818.json` |
+| J3 browser capability probes | `docs/planning/spike-results/SPIKE-004-capability-probe-*.json` |
