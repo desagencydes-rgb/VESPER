@@ -255,6 +255,95 @@ holding that alarm.
 
 ---
 
+## 4c. The alarm on node 2 — what the day of 2026-08-18 established
+
+### The `arm` subcommand cannot run on the node the alarm lives on
+
+`tools/ops/alarm_night.py arm` is **Windows-only**. It shells out to
+`powershell -Command Register-ScheduledTask ... -WakeToRun`, and node 2 has
+neither `powershell` nor `pwsh`. It is a leftover from when the alarm lived on
+node 1.
+
+**So the only usable path on node 2 is `fire` launched detached** — which is
+precisely the single point of failure, and it is not an oversight in the
+operator's habits, it is the absence of an implementation.
+
+### "This node needs no wake step" is a premise, not a guarantee
+
+`alarm_node_linux.py`'s header states *"THIS NODE NEEDS NO WAKE STEP … there is
+no rtcwake, no wake timer, and none of the class of failure that comes with
+them."* That is true **only while the three stay-awake layers hold**, and
+nothing was checking that they do. Measured 2026-08-18:
+
+| | |
+|---|---|
+| `HandleLidSwitch/ExternalPower/Docked` | `ignore` — present in the drop-in |
+| `IdleAction` | `ignore`, read live over D-Bus |
+| xfce `presentation-mode` / `inactivity-on-ac` | `true` / `0`, read live |
+| `sleep.target`, `suspend.target`, `hibernate.target` | **`static` — NOT masked** |
+| `/sys/class/rtc/rtc0/wakealarm` | **empty — no RTC wake armed** |
+
+Lid close and idle are covered. **A manual suspend or a power-off is not**, and
+a suspended laptop will not ring, because there is no wake path to ring it.
+
+### The watchdog restores the primary; it never fires
+
+`tools/ops/alarm_watchdog.py` + a `systemd --user` timer every 2 min. One
+firing path exists at all times, so a double alarm is structurally impossible
+rather than merely unlikely. Three refusals: stale intent, already-completed
+due, live primary. Live primary is matched by reading argv out of `/proc` —
+`pgrep -f` matches the launcher wrapper *and the shell running the pgrep*, and
+a watchdog that matches its own command line concludes "all is well" over a
+dead alarm.
+
+**`Linger=yes` is set. Autologin is deliberately NOT.** Autologin removes the
+laptop's login password; that is a security trade the owner makes, not one
+engineering makes with a sudo password handed over for a different purpose.
+Audio was measured reachable from a `systemd-run --user` unit with no
+graphical session, so autologin looks unnecessary — **expected, not verified.
+The only thing that verifies it is an attended reboot.**
+
+### The failure worth remembering, because of how it presented
+
+The watchdog's first version passed every refusal test and did not work.
+`Popen(start_new_session=True)` detaches from the terminal but **not from the
+systemd cgroup**, and the watchdog is a `Type=oneshot` unit whose `KillMode`
+defaults to `control-group`. Systemd killed the restored alarm the instant the
+watchdog finished — 2 ms after launching it.
+
+The journal recorded `{"action": "relaunch", "relaunched_pid": 518375}` and the
+unit recorded `Result=success`. **Both were true statements about what the
+watchdog did, and the alarm was dead anyway.** It is the `spd-say` lesson in a
+new place: exiting 0 is a self-report, and the fact is whether anything is
+running. The fix goes through `systemd-run --user` into its own transient unit
+and then re-reads `/proc`.
+
+### `A-034.2` is blocked on transport, not on the alarm
+
+The note written on 2026-08-17 said `A-034.2` was ready and held back only
+because node 2 carried the alarm. **That was wrong.** `A-034.2` partitions two
+live control-plane sides, and a repo-wide search for sockets, HTTP servers,
+asyncio servers or RPC finds exactly one network binding in the tree — the
+SPIKE-004 ghost instrument. Key-based SSH is the *operator's* access channel,
+not VESPER's control plane. F0's original note was the accurate one. The real
+blocker is `SR-016`/`SR-017`, both still `DESIGNED`.
+
+### The iPhone alarm rung is a system behaviour, not something to build
+
+**AlarmKit** (iOS/iPadOS 26+) rings on the Lock Screen, StandBy and Dynamic
+Island through silent mode, and **a volume-button press dismisses it** — an
+Apple DTS engineer states this directly. That is `41.3`'s no-speech/no-screen/
+no-unlock acknowledgement, delivered as a system behaviour.
+
+The cost is an **entitlement Apple reviews**, which is exactly the risk
+`SPIKE-003` §2 names in advance: *"entitlements are frequently documented and
+unobtainable."* It counts when it is held, not when it is cited. **Android is
+the cheaper second rung** — `MediaSession` + a foreground service, no
+entitlement, and what every alarm app on the platform already does.
+
+Full record: `docs/planning/spike-results/SPIKE-003-ACK-CHANNEL-PARTIAL.md`
+and `ALARM-SPOF-OWNER-ACTIONS.md`.
+
 ## 5. Open questions, recorded rather than resolved
 
 1. **What window must `C1` run for?** `AT-03` calls it the most important run in the
