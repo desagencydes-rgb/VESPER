@@ -219,12 +219,33 @@ ol li{margin-bottom:.4rem}
   function paintCap(){
     var html = "";
     var verdict, vclass;
+    // ORDER MATTERS, and this block was wrong on its first run against a real
+    // handset. It reported "READY" on an iPhone whose permission state read
+    // `denied` and whose device list was empty, because the verdict consulted
+    // only the capability flags and never the permission. An instrument that
+    // says READY over a dead camera is the exact failure it was written to
+    // prevent, so the permission is now checked BEFORE the optimistic branch.
     if (!cap.secure_context){ verdict = "WILL NOT WORK — not a secure context"; vclass = "s-dead"; }
     else if (!cap.has_getUserMedia){ verdict = "WILL NOT WORK — no getUserMedia"; vclass = "s-dead"; }
     else if (cap.frame_camera_policy === "BLOCKED BY EMBEDDER"){
       verdict = "WILL NOT WORK HERE — the page embedding this one did not grant camera"; vclass = "s-dead"; }
+    else if (cap.permission_state === "denied"){
+      verdict = "BLOCKED — permission is denied for THIS frame, not for the site"; vclass = "s-dead"; }
+    else if (cap.in_iframe && cap.cams_seen === 0 && cap.enumerated){
+      verdict = "BLOCKED — zero cameras visible inside this frame"; vclass = "s-dead"; }
+    else if (cap.permission_state === "prompt"){
+      verdict = "UNKNOWN until you tap — permission not yet granted"; vclass = "s-idle"; }
     else { verdict = "READY — camera should be reachable"; vclass = "s-live"; }
     html += '<div class="state ' + vclass + '" style="margin:0 0 .6rem">' + verdict + '</div>';
+    // Safari implements no featurePolicy API, so on iOS the frame question
+    // cannot be asked directly and is answered by these two symptoms instead.
+    if (vclass === "s-dead" && cap.in_iframe){
+      html += '<p class="hint" style="margin:0 0 .6rem"><strong>A site-level '
+            + '"Camera: Allow" does not fix this.</strong> This page runs in a '
+            + 'frame of its own, and a frame only gets the camera if the page '
+            + 'embedding it hands the permission down. Ask for the standalone '
+            + 'link instead of the artifact.</p>';
+    }
     html += row("secure context", cap.secure_context ? "yes" : "NO — getUserMedia will be blocked");
     html += row("protocol", esc(cap.protocol));
     html += row("inside an iframe", cap.in_iframe ? "yes" : "no");
@@ -349,6 +370,7 @@ ol li{margin-bottom:.4rem}
     navigator.mediaDevices.enumerateDevices().then(function(ds){
       var cams = ds.filter(function(d){ return d.kind === "videoinput"; });
       S.devices = cams.map(function(d){ return { id: d.deviceId, label: d.label }; });
+      cap.cams_seen = cams.length; cap.enumerated = true; paintCap();
       var el = $("devlist");
       if (!cams.length){ el.innerHTML = '<p class="hint">No video input devices reported.</p>'; render(); return; }
       el.innerHTML = cams.map(function(d, i){

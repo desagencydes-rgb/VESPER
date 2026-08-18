@@ -19,6 +19,21 @@ delegated the capability.
 So the artifact is fine for reading and cannot be the instrument. This serves
 the same file from a page that IS the top-level document.
 
+DRIVEN END TO END BEFORE BEING HANDED OVER, 2026-08-18 21:44
+------------------------------------------------------------
+Against this server on node 1, over TLS, not by inspection:
+
+    GET /                200, 20839 bytes, the real page (build stamp present)
+    Cache-Control        no-store, must-revalidate
+    certificate SAN      IP Address:192.168.100.66, DNS:localhost
+    POST /result         saved A-008-camera-audit-<stamp>.json
+
+The SAN line is the one that matters and the one a hand-written openssl command
+usually omits. iOS does not fall back to the common name: a certificate without
+a matching subjectAltName produces a hard failure with no tap-through, which
+looks exactly like the server being broken rather than the certificate being
+self-signed.
+
 WHY HTTPS AND NOT PLAIN HTTP
 ----------------------------
 `getUserMedia` requires a secure context. `http://` on a LAN address is not one

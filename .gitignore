@@ -30,3 +30,7 @@ Thumbs.db
 
 # Prototype alarm run state: live, per-run, not evidence.
 /.alarm-state/
+
+# Self-signed TLS material for tools/spike/serve_camera_audit.py. Regenerated
+# on demand; a private key must never be committed.
+tools/spike/_certs/
