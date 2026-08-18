@@ -1788,9 +1788,39 @@ def _run_acceptance(name: str, script: str, stage: str) -> Result:
         return r
     proc = subprocess.run([sys.executable, str(path)], capture_output=True,
                           text=True, cwd=str(REPO), timeout=900)
-    tail = [ln for ln in proc.stdout.splitlines() if ln.strip()][-6:]
+    lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+    tail = lines[-6:]
     if proc.returncode != 0:
         r.err(f"{stage} acceptance gate FAILED (exit {proc.returncode})")
+
+        # SURFACE THE CASE THAT FAILED, not just the closing notes.
+        #
+        # This used to print the last six lines only. Every acceptance runner
+        # ends with the same block -- the standing "owed" notes and the gate
+        # verdict -- so a CI failure showed the items that are ALWAYS owed and
+        # never the assertion that actually broke. On 2026-08-18 that made a red
+        # `gates` job unreadable: it listed the 24 h endurance run and the alarm
+        # hardware cases, which are owed on every run including the green ones.
+        #
+        # The failing case is identified by the harness's own markers, so this
+        # does not need to know what any particular gate asserts.
+        # `expected-fail` lines are negative controls behaving CORRECTLY -- a
+        # control that passes is the defect, not one that fails. Including them
+        # listed eight healthy controls as failures and buried the one real
+        # MISS, which is the same illegibility this block exists to remove.
+        failed = [ln for ln in lines
+                  if ln.startswith("[FAIL]")
+                  or " MISS:" in ln
+                  or " ERROR:" in ln]
+        if failed:
+            r.err("  the assertions that actually failed:")
+            for ln in failed[:20]:
+                r.err(f"    {ln.strip()}")
+            if len(failed) > 20:
+                r.err(f"    ... and {len(failed) - 20} more")
+        else:
+            r.err("  no [FAIL]/MISS/ERROR line was produced -- the runner exited "
+                  "non-zero without naming a case, which is itself the defect")
         for ln in tail:
             r.err(f"  {ln}")
         return r
