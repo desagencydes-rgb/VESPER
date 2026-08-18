@@ -280,10 +280,38 @@ def a029_realtime_watchdog(tmp: Path) -> None:
 
         runner = AutonomyRunner(sup.bus, loop, tick_interval_s=interval).start()
         try:
+            t0 = time.monotonic()
             time.sleep(interval * 6)
+            elapsed = time.monotonic() - t0
             unaided = loop.ticks
+
+            # THE FLOOR IS SCALED TO THE TIME THAT ACTUALLY ELAPSED, and it is
+            # deliberately generous.
+            #
+            # This assertion was `unaided >= 3` against a hard-coded 1.2 s. On
+            # 2026-08-18 the gates job went red on it once in three runs of
+            # IDENTICAL code -- the three commits differed only by a markdown
+            # file, a JSON result and a log -- while passing locally with a 2x
+            # margin. A shared CI runner can starve a Python thread for longer
+            # than 0.4 s without anything being wrong with the loop.
+            #
+            # A required check that fails one run in three is worse than one
+            # that fails always: it teaches whoever is waiting to re-run until
+            # green, and the day it goes red for a real reason that habit
+            # discards the finding.
+            #
+            # What A-029 actually claims here is that the loop ticks WITH
+            # NOBODY CALLING tick(). The rate is a secondary, machine-dependent
+            # claim and it is the only part a contended scheduler breaks. The
+            # floor keeps "sustained, unaided, roughly at the interval" -- two
+            # ticks minimum, so a single start-up tick cannot satisfy it -- and
+            # stops asserting a throughput this test was never measuring.
+            nominal = int(elapsed / interval)
+            floor = max(2, nominal // 3)
             c.check("the loop ticks with nobody calling tick()",
-                    unaided >= 3, f"{unaided} ticks in {interval * 6:.1f}s")
+                    unaided >= floor,
+                    f"{unaided} ticks in {elapsed:.2f}s "
+                    f"(interval {interval}s, nominal {nominal}, floor {floor})")
             c.check("a heartbeat is emitted per tick, durably",
                     len(_events(sup, "autonomy.heartbeat")) >= unaided,
                     f"{len(_events(sup, 'autonomy.heartbeat'))} heartbeat events")
