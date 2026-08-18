@@ -28,6 +28,53 @@ clock rather than at 09:00:
 **Covered: the primary crashing, being OOM-killed, being killed by accident, or
 exiting early for any reason — while the user session is alive.**
 
+## STATUS UPDATE — 2026-08-18 15:45, after the owner supplied root
+
+Two of the three actions below are **done**, and one is deliberately not.
+
+| Action | State | Evidence |
+|---|---|---|
+| `loginctl enable-linger csf` | **DONE** | `Linger=yes` read back |
+| lightdm autologin | **NOT DONE — deliberately** | see below |
+| mask the sleep targets | **NOT DONE — needs the owner's call** | it changes what the laptop does when the owner closes it |
+
+**Autologin was not enabled, and the reason is not technical.** It removes the
+laptop's login password: anyone who opens the lid gets a live session. That is
+a security tradeoff about the owner's personal machine, and root access handed
+over to close a reboot hole is not consent to make it. It is also very possibly
+unnecessary — see the next paragraph.
+
+**The audio path does not appear to need a graphical session.** Measured on
+node 2 after lingering was enabled, from a `systemd-run --user` unit in its own
+cgroup — the same shape a boot-time timer would have:
+
+```
+pactl info                 Server String: /run/user/1000/pulse/native   rc=0
+pactl get-default-sink     alsa_output.pci-0000_00_1f.3.analog-stereo
+pactl list sinks short     1 sink, analog-stereo, SUSPENDED
+spd-say                    /usr/bin/spd-say
+pipewire / pipewire-pulse / wireplumber      all `enabled` as user units
+```
+
+With `Linger=yes`, `systemd --user` starts at boot and those enabled units come
+with it. So the expected post-reboot behaviour is: audio works, the watchdog
+timer runs, and the alarm is restored — **with no autologin and no loss of the
+login password.**
+
+**That expectation is NOT verified, and the only thing that verifies it is a
+reboot.** It was not run unattended: if node 2 came back without audio or
+without networking while the owner was out, there would be no alarm and no way
+to fix it remotely. It is a five-minute check with the owner present:
+
+```sh
+sudo reboot          # then, from node 1, once it answers on 22:
+ssh csf@192.168.100.102 'systemctl --user is-active pipewire;   systemctl --user list-timers vesper-alarm-watchdog.timer --no-pager;   ps -eo pid,cmd | grep "[a]larm_night"'
+```
+
+All three must come back green. If audio is absent, autologin is the fix and
+the tradeoff becomes worth making — but not before, and not without the owner
+choosing it.
+
 ## What is NOT covered, and why
 
 **Reboot and power-off.** Measured on node 2, 2026-08-18:
