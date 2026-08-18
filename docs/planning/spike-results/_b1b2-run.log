@@ -1,0 +1,9 @@
+SPIKE-001 3.1 B1+B2 SUBSET  --  started 2026-08-18T21:38:33.6564419+01:00
+3 configurations, ~60 min each, ~3 h total
+
+GPU at rest: 1156.1 MiB
+
+======== small-llama3B  (tier=small, -c 2048, -ngl 99) ========
+  model: 1925.8 MB
+  healthy. GPU 1156.1 -> 3275.4 MiB (delta 2119.3 MiB)
+  -- idle condition -> SPIKE-001-3.1-v3-small-llama3B-idle.json

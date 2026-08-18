@@ -239,6 +239,28 @@ def check(f: Findings) -> None:
             if not s.get("on_fail"):
                 f.err("RF-044", f"{sid} declares no on_fail disposition")
 
+            # ---------------------------------------------------- RF-047
+            # The registry is the status authority; the protocol document's
+            # header must not contradict it.
+            #
+            # On 2026-08-18 three protocol headers read NOT_STARTED while the
+            # registry read RUNNING and 87 measured reports sat in
+            # spike-results/. Nothing was wrong with the measurements and
+            # nothing failed -- the documents a reader opens first simply
+            # described a project that had not begun. A status that drifts
+            # towards NOT_STARTED is the dangerous direction: it makes
+            # finished work invisible and invites redoing it.
+            if proto and (REPO / proto).is_file():
+                head = (REPO / proto).read_text(encoding="utf-8",
+                                                errors="replace")[:2000]
+                m = re.search(r"\*\*Status\*\*\s*\|\s*([A-Z_]+)", head)
+                declared = s.get("status")
+                if m and declared and m.group(1) != declared:
+                    f.err("RF-047",
+                          f"{sid} status disagrees: INDEX.toml says {declared}, "
+                          f"{proto} header says {m.group(1)}. The registry is "
+                          f"the authority; the document is stale")
+
     referenced_spikes: set[str] = set()
     for p in files:
         text = p.read_text(encoding="utf-8", errors="replace")
@@ -292,6 +314,15 @@ SELF_TEST_CASES = [
         "| **ADR-002**",
         _OUT_OF_NAMESPACE_ADR,
         "an ADR id outside the Foundation namespace",
+    ),
+    # RF-047, added 2026-08-18. Three protocol headers read NOT_STARTED while
+    # the registry read RUNNING and 87 measured reports sat on disk. The
+    # mutation reverts one header to the stale value it actually had.
+    (
+        "docs/spikes/SPIKE-001-node-capability-profiles.md",
+        "| **Status** | RUNNING |",
+        "| **Status** | NOT_STARTED |",
+        "a spike protocol header contradicting the registry's status",
     ),
     # SCOPE red runs, added 2026-08-12. Each of these three mutations was GREEN
     # before the scan scope was extended.

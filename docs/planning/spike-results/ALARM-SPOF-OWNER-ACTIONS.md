@@ -75,6 +75,76 @@ All three must come back green. If audio is absent, autologin is the fix and
 the tradeoff becomes worth making — but not before, and not without the owner
 choosing it.
 
+## CORRECTION — 2026-08-18 evening. Suspend does not fail gracefully; it hangs.
+
+**Two things recorded earlier today were wrong, and the owner corrected both.**
+
+A suspend/wake test was run at 16:23: the RTC register was set 3 minutes out,
+read back correctly, and the machine was told to suspend. From node 1 it went
+unreachable and stayed unreachable well past the wake time.
+
+**What I wrote:** first that the RTC wake had failed, then — when the machine
+answered again at 16:30 — that it had "come back on its own."
+
+**What actually happened, per the owner at the keyboard:** the laptop *never
+suspended*. The screen went black or dark grey and it **hung there**. It did not
+enter S3, it did not power down, and it did not resume. The owner held the power
+button to force it off, powered it back on, and logged in. The 16:30 recovery
+was a **hard reset by a person**, not a wake by a machine.
+
+Both of my readings were inferences from one bit of information — whether TCP/22
+answered — and both were stated with more confidence than one bit can carry.
+A host that is hung, a host that is suspended, and a host that is off are
+indistinguishable from the other end of a network, and I twice treated the
+absence of an answer as if it named a cause.
+
+### What the test actually established
+
+**Suspend on node 2 is broken in the worst available way.** Not "it sleeps and
+cannot wake" — it *hangs on the way down* and needs a physical power cycle. The
+RTC wake path is therefore untested rather than disproven: nothing ever got far
+enough for the alarm to matter.
+
+The earlier suspicion still stands as the likely reason a wake would not have
+worked anyway: `/proc/acpi/wakeup` exposes **no RTC line** on this ASUS
+VivoBook, so the firmware most likely does not offer RTC alarm as a wake source.
+That remains **unconfirmed** and should not be repeated as fact.
+
+### The owner's ruling on masking
+
+**Declined, 2026-08-18.** The sleep targets stay unmasked and the laptop keeps
+its ability to suspend.
+
+That makes the guidance a matter of discipline rather than of structure:
+**do not suspend node 2**, because suspending it hangs it, and a hung node 2 is
+an alarm that does not ring and cannot be recovered remotely. Closing the lid is
+fine — `HandleLidSwitch=ignore` is verified live. Leaving it idle is fine —
+`IdleAction=ignore` is verified live. The only unsafe act is an explicit
+suspend, and nothing in the system now performs one.
+
+### What the hard reset bought for free
+
+The reboot check this document asks for at §STATUS UPDATE **has now happened**,
+under harsher conditions than a clean `sudo reboot`:
+
+```
+boot                     16:30:15
+systemd --user started   16:30:27   (12 s after boot)
+watchdog first fired     16:32:15   -> relaunch, verified_running true, pid 4554
+pipewire/wireplumber/pipewire-pulse   active
+alarm process            alive, guarding 2026-08-19 09:00
+```
+
+`systemd --user` started **12 seconds after boot and ~7 minutes before the
+graphical login at 16:37**, which is the specific thing `Linger=yes` was set to
+buy. The watchdog then noticed the missing primary and restored it without
+anyone asking.
+
+**So the reboot hole is closed and measured, and autologin is confirmed
+unnecessary** — the laptop keeps its login password. The recovery path survived
+a power-loss-class event, which is a stronger result than the planned test would
+have produced.
+
 ## What is NOT covered, and why
 
 **Reboot and power-off.** Measured on node 2, 2026-08-18:

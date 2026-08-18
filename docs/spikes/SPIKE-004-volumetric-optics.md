@@ -2,10 +2,15 @@
 
 | | |
 |---|---|
-| **Status** | NOT_STARTED · **Time box** 10 working days · **Owner** Presence & Interaction Engineer |
+| **Status** | RUNNING · **Time box** 10 working days · **Owner** Presence & Interaction Engineer |
 | **Question** | What is the real optical feasibility envelope of the glass/holographic output, and which scene properties does it constrain? |
 | **Blocks** | **The `volumetric` ladder rung only.** Contracts are *not* blocked and proceed now. |
 | **Requires hardware** | Yes |
+
+> **Status authority is `docs/spikes/INDEX.toml`, not this line.** RUNNING. Instrument built and fixed 2026-08-18; ZERO VALID READINGS to date -- every result on disk is a default recorded through a broken instrument. Blocked on a flat clear sheet, not on engineering.
+> This header read `NOT_STARTED` until 2026-08-18 while the registry said
+> `RUNNING` and results sat on disk; `tools/reference_lint.py` now refuses
+> that drift (`RF-047`) so the two cannot disagree again.
 
 > **§2's protocol is amended by §6–§8 (2026-08-14).** The assembly is a Pepper's
 > ghost on an ordinary phone screen, not an exotic display. Several properties
