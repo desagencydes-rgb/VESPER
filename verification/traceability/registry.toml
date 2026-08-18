@@ -474,8 +474,13 @@ ic = ["IC-008"]
 tests = ["A-011", "A-029", "A-030", "A-047"]
 contracts = ["contracts/entities/trigger.schema.json", "contracts/policy/governed_surfaces.toml"]
 decision_functions = ["DF-TRIGGER-EVAL", "DF-GOVERNED-WRITE", "DF-AUTONOMY-ELIGIBLE"]
-invariants = ["INV-SELF-7", "INV-AUTO-1", "INV-AUTO-5"]
-ci = ["CI-015", "CI-026"]
+# INV-TRIG-2 added 2026-08-18 with CI-023. INV-AUTO-1's "no autonomous action
+# without a trigger" is defeated if the evaluator can ask a model whether there
+# is anything worth doing, so the evaluator's lack of model capability belongs
+# with it. A-011 and A-029, INV-TRIG-2's other declared enforcers, are both
+# already listed here.
+invariants = ["INV-SELF-7", "INV-AUTO-1", "INV-AUTO-5", "INV-TRIG-2"]
+ci = ["CI-015", "CI-026", "CI-023"]
 state_machines = ["SM-TRIGGER"]
 status = "SPECIFIED"
 
@@ -560,8 +565,13 @@ tests = ["A-002", "A-019", "A-030", "A-031", "A-037", "A-050"]
 contracts = ["contracts/policy/governed_surfaces.toml", "contracts/policy/autonomy_enable_token.schema.json", "contracts/entities/record_loss.schema.json"]
 state_machines = ["SM-PROPOSAL"]
 decision_functions = ["DF-GOVERNED-WRITE", "DF-ACTUATION-GATE", "DF-LOSS-CLASS"]
-invariants = ["INV-SELF-1", "INV-SELF-4", "INV-STOP-1", "INV-LOSS-2", "INV-LOSS-6", "INV-ADR-1"]
-ci = ["CI-008", "CI-015", "CI-018", "CI-048", "CI-016"]
+# INV-STOP-2 added 2026-08-18 with CI-019. The stop path's independence is
+# what makes INV-STOP-1 achievable rather than aspirational: a stop that
+# traverses a lease cannot happen during the partition it is most needed in.
+# A-031 was already listed here and is INV-STOP-2's other declared enforcer.
+invariants = ["INV-SELF-1", "INV-SELF-4", "INV-STOP-1", "INV-STOP-2", "INV-LOSS-2", "INV-LOSS-6", "INV-ADR-1"]
+ci = ["CI-008", "CI-015", "CI-018", "CI-048", "CI-016", "CI-019"]
+contracts_note = "core/interlock.py is CI-019's subject"
 status = "SPECIFIED"
 
 [requirements.SR-050]

@@ -48,6 +48,8 @@ TASK = REPO / "contracts" / "entities" / "task.schema.json"
 VERIF_STRATEGY = (REPO / "contracts" / "entities"
                   / "verification_strategy.schema.json")
 AUTONOMY = REPO / "core" / "autonomy.py"
+INTERLOCK = REPO / "core" / "interlock.py"
+CORE = REPO / "core"
 
 # Directories whose code must never name a product. Scanned once they exist;
 # absence is not a pass, it is reported as "not yet applicable".
@@ -1505,6 +1507,129 @@ def check_action_has_trigger() -> Result:
     return r
 
 
+def _local_imports(path: Path) -> set[str]:
+    """Sibling modules this file imports, by bare module name.
+
+    `from .lease import X` -> {"lease"}; `from core.lease import X` -> same;
+    `import core.lease` -> same. Three spellings of one dependency, and a
+    boundary check that understood only one of them would be trivially evaded
+    by writing another.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            mod = node.module or ""
+            if node.level and not mod:
+                # `from . import lease`
+                found.update(a.name for a in node.names)
+            elif node.level:
+                found.add(mod.split(".")[0])
+            elif mod.startswith("core."):
+                found.add(mod.split(".")[1])
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name.startswith("core."):
+                    found.add(a.name.split(".")[1])
+    return found
+
+
+def _boundary(result: Result, subject: Path, forbidden: dict[str, str],
+              why: str) -> None:
+    """Assert `subject` imports none of `forbidden`, and that the ban is real.
+
+    THE SECOND HALF IS THE POINT. A ban list naming modules that do not exist
+    passes on every tree and enforces nothing -- the exact vacuity this repo
+    keeps finding in its own checks. So every forbidden module must be present
+    in core/, or the entry is reported as stale rather than quietly satisfied.
+    """
+    if not subject.is_file():
+        result.err(f"{subject.relative_to(REPO).as_posix()} is missing -- the "
+                   "boundary has no subject")
+        return
+    missing = [m for m in forbidden if not (CORE / f"{m}.py").is_file()]
+    if missing:
+        result.err(f"ban list names modules that do not exist in core/: "
+                   f"{sorted(missing)}. A ban on nothing passes everywhere; "
+                   "remove the entry or fix the name")
+    imported = _local_imports(subject)
+    for mod in sorted(forbidden):
+        if mod in imported:
+            result.err(f"{subject.name} imports core.{mod} -- {forbidden[mod]} "
+                       f"({why})")
+    result.note(f"{subject.name} imports {sorted(imported) or ['nothing local']}; "
+                f"banned: {sorted(forbidden)}")
+
+
+# --------------------------------------------------------------------------
+# CI-019 -- INV-STOP-2: the stop path does not traverse the control plane, the
+# PDP, any lease, or any model inference.
+#
+# The interlock is a dead-man's switch: autonomy runs only while a fresh enable
+# token is present, so stopping is the ABSENCE of a renewal and every failure
+# of the stop path fails toward stopped. That property is destroyed by any
+# dependency that can itself fail, block or refuse -- a stop that needs a lease
+# is a stop that cannot happen during the partition you most want to stop in.
+# --------------------------------------------------------------------------
+def check_interlock_independence() -> Result:
+    r = Result("interlock-independence")
+    _boundary(r, INTERLOCK, {
+        "lease": "the stop path would depend on ownership it may not hold "
+                 "during a partition",
+        "authorize": "the PDP is the control plane's decision point; a stop "
+                     "that can be refused is not a stop",
+        "gateway": "model inference in the stop path makes stopping depend on "
+                   "the thing being stopped",
+        "router": "routing is a model-selection path and can block",
+        "policy": "policy is evaluated by the control plane the stop must "
+                  "outlive",
+        "selfmod": "the self-modification boundary is governed by the runtime "
+                   "the interlock exists to halt",
+    }, "INV-STOP-2")
+    return r
+
+
+# --------------------------------------------------------------------------
+# CI-023 -- INV-TRIG-2: the evaluator holds no model capability.
+#
+# "Is there anything worth doing?" asked of a model is a chatbot talking to
+# itself, and it is also non-reproducible: the same world state would produce
+# different actions on different days. The evaluator decides by predicate over
+# world state or it does not decide. The attempt path must EMIT AND RAISE --
+# emitting alone leaves a build that logs its own violation and carries on.
+# --------------------------------------------------------------------------
+def check_evaluator_no_model_capability() -> Result:
+    r = Result("evaluator-no-model-capability")
+    _boundary(r, AUTONOMY, {
+        "gateway": "the model gateway is a model capability by definition",
+        "router": "the router exists to choose a model",
+        "context": "context assembly is a model-call preparation path",
+    }, "INV-TRIG-2")
+    if not AUTONOMY.is_file():
+        return r
+
+    tree = ast.parse(AUTONOMY.read_text(encoding="utf-8"))
+    fn = next((n for n in ast.walk(tree)
+               if isinstance(n, ast.FunctionDef)
+               and n.name == "model_call_attempted"), None)
+    if fn is None:
+        r.err("no `model_call_attempted` path exists. INV-TRIG-2 requires an "
+              "attempt to be emitted AND raised; with no such function the "
+              "attempt would simply succeed")
+        return r
+    raises = any(isinstance(n, ast.Raise) for n in ast.walk(fn))
+    emits = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "publish" for n in ast.walk(fn))
+    if not emits:
+        r.err("`model_call_attempted` does not publish -- the violation would "
+              "be refused but invisible in the audit trail (A-011.4)")
+    if not raises:
+        r.err("`model_call_attempted` does not raise -- a build that logs its "
+              "own violation and carries on is the failure A-011.4 names")
+    r.note("model_call_attempted both emits and raises")
+    return r
+
+
 def _run_acceptance(name: str, script: str, stage: str) -> Result:
     """Run an acceptance harness as a subprocess and surface its verdict.
 
@@ -1614,6 +1739,8 @@ CHECK_FNS = {
     "idea-retirement-reason": check_idea_retirement_reason,
     "verification-criteria-typed": check_verification_criteria_typed,
     "action-has-trigger": check_action_has_trigger,
+    "interlock-independence": check_interlock_independence,
+    "evaluator-no-model-capability": check_evaluator_no_model_capability,
 }
 
 

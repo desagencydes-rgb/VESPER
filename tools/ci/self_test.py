@@ -320,6 +320,34 @@ CASES += [
      "loop become indistinguishable (INV-TRIG-6)"),
 ]
 
+
+INTERLOCK = "core/interlock.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-019
+    ("interlock-independence", INTERLOCK,
+     _sub("from .bus import EventBus",
+          "from .bus import EventBus\nfrom .lease import LeaseManager", 1),
+     "the stop path taking a lease dependency -- a stop that needs ownership "
+     "cannot happen during the partition you most want to stop in"),
+
+    # ---------------------------------------------------------------- CI-023
+    ("evaluator-no-model-capability", AUTONOMY,
+     _sub("from .bus import EventBus",
+          "from .bus import EventBus\nfrom .gateway import ModelGateway", 1),
+     "the evaluator importing the model gateway -- 'is there anything worth "
+     "doing?' asked of a model is a chatbot talking to itself"),
+
+    ("evaluator-no-model-capability", AUTONOMY,
+     _sub('        raise ModelCallInDecisionPath(\n'
+          '            f"a model call was attempted inside {where}; the '
+          'evaluator has no "\n'
+          '            "model path by construction and this call is refused")',
+          "        return None", 1),
+     "a build that emits its own violation and carries on -- A-011.4 requires "
+     "the attempt to be raised, not merely logged"),
+]
+
 REGISTER = "docs/ADR/ADR-REGISTER.md"
 _F0_PROBE = ("core/_selftest_probe.py", "# deliberate violation for tools/ci/self_test.py\n")
 
