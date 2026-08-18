@@ -19,6 +19,16 @@ struck through and corrected, because the correction is usually the useful part.
 Ryzen 5 5500 · 12 logical cores · **15.9 GB DDR4** · RX 6650 XT with **7.2 GB usable
 VRAM, measured** · 475.9 GB disk · Windows 11 · llama.cpp `b10405-e79e4bf66`, Vulkan.
 
+> **THERE ARE TWO `llama-server.exe` ON THIS MACHINE AND ONLY ONE IS COMPARABLE.**
+> Use `C:\Projects\VESPER-runtime\llama.cpp\llama-server.exe` — that is
+> `b10405-e79e4bf66`, and every figure in the table below was measured with it.
+> `C:\Tools\llama-cpp\llama-server.exe` is build **8631**, a different
+> checkpoint. It starts, loads, and emits tokens perfectly well; the figures
+> simply are not comparable to these, and nothing says so. The comparable one
+> is the **9 KB** file, not the 14 MB one — it is a launcher against 52 DLLs.
+> `PLAN_2026-08-18` named the wrong path; `run_tier_matrix.ps1` names the right
+> one. See `docs/planning/spike-results/SPIKE-001-RUNNER-BINARY-TRAP.md`.
+
 **Measured sustained throughput** (`SPIKE-001` §3.1, median of 3 × 10-min runs, GGUF sizes
 read from the files themselves on 2026-08-17):
 
