@@ -1630,6 +1630,149 @@ def check_evaluator_no_model_capability() -> Result:
     return r
 
 
+# --------------------------------------------------------------------------
+# CI-005 -- INV-COORD-4: wall clock never participates in ordering or
+# supersession. Only HLC does.
+#
+# The failure this refuses is SILENT. Two nodes whose clocks differ by a second
+# will agree on every test in the suite and disagree only about which of two
+# concurrent writes happened last -- and the loser is discarded without anyone
+# being told. That is why ADR-001 puts node_id inside the HLC tuple in the
+# first place: ordering must come from a clock that cannot go backwards
+# relative to another node's.
+#
+# WHAT IT DOES NOT FLAG, deliberately. Comparing "is it 09:00 yet" against the
+# wall clock is not ordering and not supersession -- the alarm does exactly
+# that and is correct to. A check that fired there would need an annotation on
+# every legitimate use, and a check that cries wolf gets disabled, which is the
+# lesson CI-025 already paid for. So only two shapes are refused:
+#
+#   1. a sort/min/max/heapq keyed on a wall-clock timestamp, and
+#   2. a comparison whose BOTH sides are wall-clock timestamps -- the shape of
+#      "which record wins", as opposed to "has this moment arrived".
+#
+# ESCAPE HATCH. `WALL-CLOCK-OK` on the statement's lines allows it, and every
+# use is reported as a note rather than passing silently, so an annotation is
+# something a reviewer sees rather than something that hides.
+# --------------------------------------------------------------------------
+
+# Timestamp names only. `swallowed` contains "wall" and `wall_tokens_per_sec`
+# is a throughput, so a substring test would flag both -- the check has to know
+# the difference between a clock reading and a word that happens to contain one.
+_WALL_NAME = re.compile(r"(^|_)at_wall$|^wall(_iso|_ms)?$|_wall_ms$")
+_CLOCK_CALLS = {("time", "time"), ("datetime", "now"), ("datetime", "utcnow"),
+                ("datetime", "today"), ("time", "time_ns")}
+_ORDERING_FNS = {"sorted", "min", "max"}
+_ANNOTATION = "WALL-CLOCK-OK"
+
+
+def _names_in(node: ast.AST) -> set[str]:
+    out: set[str] = set()
+    for n in ast.walk(node):
+        if isinstance(n, ast.Attribute):
+            out.add(n.attr)
+        elif isinstance(n, ast.Name):
+            out.add(n.id)
+        elif isinstance(n, ast.Constant) and isinstance(n.value, str):
+            out.add(n.value)
+    return out
+
+
+def _is_wall(node: ast.AST) -> bool:
+    """True when this expression reads a wall clock."""
+    if any(_WALL_NAME.search(nm) for nm in _names_in(node)):
+        return True
+    for n in ast.walk(node):
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
+            base = n.func.value
+            if isinstance(base, ast.Name) and (base.id, n.func.attr) in _CLOCK_CALLS:
+                return True
+    return False
+
+
+def _annotated(lines: list[str], node: ast.AST) -> bool:
+    lo = getattr(node, "lineno", None)
+    hi = getattr(node, "end_lineno", lo)
+    if lo is None:
+        return False
+    # One line of slack each way: the annotation is often on the line above.
+    for k in range(max(1, lo - 1), min(len(lines), (hi or lo) + 1) + 1):
+        if _ANNOTATION in lines[k - 1]:
+            return True
+    return False
+
+
+def check_no_wall_clock_ordering() -> Result:
+    r = Result("no-wall-clock-ordering")
+    if not CORE.is_dir():
+        r.note("core/ does not exist yet -- not applicable")
+        return r
+    files = sorted(CORE.glob("*.py"))
+    if not files:
+        r.err("core/ contains no modules -- INV-COORD-4 cannot be evaluated, "
+              "and a check with nothing to scan must not report PASS")
+        return r
+
+    scanned = allowed = 0
+    for path in files:
+        src = path.read_text(encoding="utf-8")
+        lines = src.splitlines()
+        try:
+            tree = ast.parse(src)
+        except SyntaxError as e:
+            r.err(f"{path.name}: does not parse ({e.msg}) -- cannot be scanned")
+            continue
+        scanned += 1
+        rel = path.relative_to(REPO).as_posix()
+
+        for n in ast.walk(tree):
+            # ---- shape 1: ordering keyed on a wall clock
+            key = None
+            if isinstance(n, ast.Call):
+                fname = None
+                if isinstance(n.func, ast.Name):
+                    fname = n.func.id
+                elif isinstance(n.func, ast.Attribute):
+                    fname = n.func.attr
+                if fname in _ORDERING_FNS or fname == "sort" or (
+                        isinstance(n.func, ast.Attribute)
+                        and isinstance(n.func.value, ast.Name)
+                        and n.func.value.id == "heapq"):
+                    key = next((kw.value for kw in n.keywords
+                                if kw.arg == "key"), None)
+                    subject = key if key is not None else n
+                    if _is_wall(subject):
+                        if _annotated(lines, n):
+                            allowed += 1
+                            r.note(f"{rel}:{n.lineno} wall-clock ordering "
+                                   f"allowed by {_ANNOTATION}")
+                        else:
+                            r.err(f"{rel}:{n.lineno} orders by a wall-clock "
+                                  f"timestamp. INV-COORD-4: only HLC orders. "
+                                  f"Two nodes a second apart silently disagree "
+                                  f"about which write won")
+
+            # ---- shape 2: supersession by comparing two wall clocks
+            if isinstance(n, ast.Compare) and n.ops and isinstance(
+                    n.ops[0], (ast.Lt, ast.Gt, ast.LtE, ast.GtE)):
+                sides = [n.left, *n.comparators]
+                if len(sides) >= 2 and all(_is_wall(s) for s in sides):
+                    if _annotated(lines, n):
+                        allowed += 1
+                        r.note(f"{rel}:{n.lineno} wall-clock comparison "
+                               f"allowed by {_ANNOTATION}")
+                    else:
+                        r.err(f"{rel}:{n.lineno} decides precedence by "
+                              f"comparing two wall-clock timestamps. "
+                              f"INV-COORD-4: supersession is HLC's, and the "
+                              f"loser here is discarded without anyone being "
+                              f"told")
+
+    r.note(f"scanned {scanned} modules in core/; {allowed} annotated "
+           f"exception(s)")
+    return r
+
+
 def _run_acceptance(name: str, script: str, stage: str) -> Result:
     """Run an acceptance harness as a subprocess and surface its verdict.
 
@@ -1741,6 +1884,7 @@ CHECK_FNS = {
     "action-has-trigger": check_action_has_trigger,
     "interlock-independence": check_interlock_independence,
     "evaluator-no-model-capability": check_evaluator_no_model_capability,
+    "no-wall-clock-ordering": check_no_wall_clock_ordering,
 }
 
 

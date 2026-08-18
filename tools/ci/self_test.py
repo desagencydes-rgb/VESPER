@@ -348,6 +348,34 @@ CASES += [
      "the attempt to be raised, not merely logged"),
 ]
 
+BUS = "core/bus.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-005
+    # The registry's declared self-test, verbatim: "Sort a collection by
+    # observed_at_wall without a WALL-CLOCK-OK annotation." bus.py is where it
+    # belongs -- its own header claims observed_at_wall is "structurally
+    # excluded from every ordering path in this file", and a claim in a
+    # docstring is exactly the kind that stops being true quietly.
+    ("no-wall-clock-ordering", BUS,
+     _sub("    observed_at_wall: str",
+          "    observed_at_wall: str\n\n"
+          "    def _replay_order(self, events):\n"
+          "        return sorted(events, key=lambda e: e.observed_at_wall)", 1),
+     "replay ordered by observed_at_wall -- two nodes a second apart would "
+     "silently disagree about which write won, and the loser is discarded "
+     "with nobody told"),
+
+    ("no-wall-clock-ordering", BUS,
+     _sub("    observed_at_wall: str",
+          "    observed_at_wall: str\n\n"
+          "    def supersedes(self, other):\n"
+          "        return self.observed_at_wall > other.observed_at_wall", 1),
+     "supersession decided by comparing two wall clocks -- the shape "
+     "INV-COORD-4 refuses, as distinct from asking whether a moment "
+     "has arrived"),
+]
+
 REGISTER = "docs/ADR/ADR-REGISTER.md"
 _F0_PROBE = ("core/_selftest_probe.py", "# deliberate violation for tools/ci/self_test.py\n")
 

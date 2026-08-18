@@ -91,9 +91,12 @@ self_test = "Register a bus consumer with no declared idempotency key."
 name = "no-wall-clock-ordering"
 enforces = ["INV-COORD-4"]
 kind = "structural"
-impl = "PENDING"
+impl = "tools/ci/checks.py no-wall-clock-ordering"
+note = "Refuses two shapes only: an ordering keyed on a wall-clock timestamp, and a comparison whose BOTH sides are wall-clock timestamps -- the shape of `which record wins`. Asking whether a moment has arrived is neither, and the alarm does exactly that correctly; a check that needed an annotation on every legitimate wall-clock read would be disabled within a week, which is the cost CI-025 already paid. `WALL-CLOCK-OK` allows a use and reports it as a note, so an exception is visible rather than silent."
 blocking = "pr"
 self_test = "Sort a collection by observed_at_wall without a WALL-CLOCK-OK annotation."
+self_test_evidence = "tools/ci/self_test.py no-wall-clock-ordering -- 2 cases, red then green"
+subject = "core/"
 
 # ---------------------------------------------------------- ownership
 [checks.CI-008]
