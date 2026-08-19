@@ -30,7 +30,17 @@
 schema_version = 1
 authority = "REM-011 §3.6 · REM-014 · SR-005, SR-006, SR-057, SR-058, SR-060 · INV-HW-1/2, INV-PLACE-3, INV-TRUST-2"
 node_profile_schema = "contracts/entities/node_capability_profile.schema.json"
-measured = false
+# TRUE SINCE 2026-08-19, and it means something narrower than it looks.
+#
+# CI-034 requires this before ANY capability may carry a number, so it is a
+# file-level flag guarding a per-capability claim. It does NOT assert that every
+# field below is measured -- 32 are still honestly UNKNOWN and INV-HW-2 keeps
+# every one of them UNAVAILABLE. It asserts that the values which ARE present
+# are backed by evidence and traceable to it.
+#
+# Rationale, including what was deliberately NOT promoted and why:
+#   docs/planning/spike-results/SPIKE-001-B4-PROMOTION-RATIONALE.md
+measured = true
 measured_by = "SPIKE-001"
 unmeasured_disposition = "UNAVAILABLE"
 
@@ -160,7 +170,24 @@ min_storage_gb = "UNKNOWN"
 requires_accelerator = false
 requires_always_on = false
 min_trust_zone = "Z2"
-sustained_tokens_per_sec_min = "UNKNOWN"
+# DERIVED FROM A REQUIREMENT, NOT COPIED FROM A MEASUREMENT.
+#
+# What binds here is not time-to-first-token -- it is that generation must
+# outpace speech delivery or the voice stalls mid-sentence. Natural speech runs
+# about 150 words/min, ~2.5 words/s, ~1.3 tokens/word, so break-even is ~3.25
+# tok/s with ZERO margin. 2x headroom is the smallest that survives ordinary
+# jitter -- a longer token, a scheduling pause, a cache miss.
+#
+# latency_budgets.toml asserts its budgets on the MINIMUM viable node, offline,
+# FREE_TIME, local models only, so this floor is written for that node and not
+# for the best one.
+#
+# It discriminates against real measurements on node 1: the 24B dense model
+# (3.05 tok/s) cannot host voice, the 30B MoE (7.12) barely can, the 8B (45.8)
+# does so comfortably. The 2x multiplier is engineering's judgement and is the
+# only invented number in this file -- see the rationale document.
+sustained_tokens_per_sec_min = 7
+sustained_tokens_per_sec_min_basis = "derived: 2x natural speech rate (~3.25 tok/s break-even) per latency_budgets.toml minimum-viable-node profile"
 spike = "SPIKE-002"
 note = "Gated on the wake_to_first_audio budget (800 ms), not on whether the components run at all. A voice stack that runs but misses the budget has not delivered this capability."
 
