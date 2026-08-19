@@ -1,0 +1,31 @@
+SPIKE-001 3.1 B1+B2 SUBSET  --  started 2026-08-18T21:38:33.6564419+01:00
+3 configurations, ~60 min each, ~3 h total
+
+GPU at rest: 1156.1 MiB
+
+======== small-llama3B  (tier=small, -c 2048, -ngl 99) ========
+  model: 1925.8 MB
+  healthy. GPU 1156.1 -> 3275.4 MiB (delta 2119.3 MiB)
+  -- idle condition -> SPIKE-001-3.1-v3-small-llama3B-idle.json
+     gen 100.2 tok/s   wall 99.08 tok/s
+  -- concurrent condition -> SPIKE-001-3.1-v3-small-llama3B-concurrent.json
+     gen 101.04 tok/s   wall 92.04 tok/s
+
+======== strong-moe30B  (tier=strong, -c 8448, -ngl 12) ========
+  model: 17769 MB
+  healthy. GPU 1156.1 -> 5338.4 MiB (delta 4182.3 MiB)
+  -- idle condition -> SPIKE-001-3.1-v3-strong-moe30B-idle.json
+     gen 7.45 tok/s   wall 7.45 tok/s
+  -- concurrent condition -> SPIKE-001-3.1-v3-strong-moe30B-concurrent.json
+     gen 7.12 tok/s   wall 7.12 tok/s
+
+======== strong-dense24B  (tier=strong, -c 8448, -ngl 16) ========
+  model: 13669.9 MB
+  healthy. GPU 1156.1 -> 7048.6 MiB (delta 5892.5 MiB)
+  -- idle condition -> SPIKE-001-3.1-v3-strong-dense24B-idle.json
+     gen 3.07 tok/s   wall 3.07 tok/s
+  -- concurrent condition -> SPIKE-001-3.1-v3-strong-dense24B-concurrent.json
+     gen 3.05 tok/s   wall 3.05 tok/s
+
+GPU released: 1273.8 MiB
+TIER MATRIX COMPLETE  --  2026-08-19T00:49:05.5632627+01:00

@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "kind": "capability-probe",
+  "spike": "SPIKE-004",
+  "section": "what this browser can actually parse",
+  "device": "Samsung Galaxy J3 (2016)",
+  "tag": "chrome55-android",
+  "user_agent": "Mozilla/5.0 (Linux; Android 5.1.1; SM-J320F Build/LMY47V) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/55.0.2883.91 Mobile Safari/537.36",
+  "viewport": {
+    "w": 360,
+    "h": 559,
+    "dpr": 2,
+    "screen_w": 360,
+    "screen_h": 640
+  },
+  "supports": {
+    "display:grid": false,
+    "place-items": false,
+    "min()": false,
+    "flex gap": false,
+    "inset": false,
+    "aspect-ratio": false,
+    "display:flex": true,
+    "calc()": true,
+    "transform": true,
+    "var()": true
+  },
+  "measured": {
+    "tapzones": {
+      "w": 360,
+      "h": 559,
+      "x": 0,
+      "y": 0
+    },
+    "zL": {
+      "w": 180,
+      "h": 559,
+      "x": 0,
+      "y": 0
+    },
+    "zR": {
+      "w": 180,
+      "h": 559,
+      "x": 180,
+      "y": 0
+    },
+    "face": {
+      "w": 180,
+      "h": 180,
+      "x": 90,
+      "y": 100
+    },
+    "stage": {
+      "w": 360,
+      "h": 559,
+      "x": 0,
+      "y": 0
+    },
+    "unit_px": "180px"
+  },
+  "received_at_utc": "2026-08-17T23:49:45.191449+00:00",
+  "reported_by": "192.168.100.28"
+}

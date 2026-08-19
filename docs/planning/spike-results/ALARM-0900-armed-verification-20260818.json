@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "check": "alarm-armed-verification",
+  "node": "node2",
+  "checked_at_local": "2026-08-18T01:35:50+01:00",
+  "process": {
+    "pid": 32626,
+    "alive": true,
+    "cmdline": "python3 tools/ops/alarm_night.py fire --at 2026-08-18 09:00 --cap-s 900",
+    "ppid_is_init": true,
+    "state": "State:\tS (sleeping)",
+    "rss_kb": "VmRSS:\t   20200 kB",
+    "started": "Mon Aug 17 22:52:30 2026"
+  },
+  "schedule": {
+    "systemd_timers": "0",
+    "user_timers": "1",
+    "crontab_lines": "0",
+    "at_jobs": "0"
+  },
+  "no_sleep_layers": {
+    "logind_dropin": "present",
+    "logind_values": "[Login];HandleLidSwitch=ignore;HandleLidSwitchExternalPower=ignore;HandleLidSwitchDocked=ignore;",
+    "systemd_inhibitors": "6 inhibitors listed.",
+    "xfce_presentation_mode": "true"
+  },
+  "audio": {
+    "sinks": "1",
+    "default_sink": "Default Sink: alsa_output.pci-0000_00_1f.3.analog-stereo",
+    "note": "volume deliberately NOT changed and no sound played - it is 01:40"
+  },
+  "uptime": "up 3 hours, 37 minutes",
+  "log_tail": "[2026-08-17T22:52:31] alarm.waiting: {\"due\": \"2026-08-18 09:00\", \"sleeping_until_s_before_due\": 300, \"hours_to_wait\": 10.12, \"note\": \"preflight is deferred so readiness is measured near the firing time\"}"
+}

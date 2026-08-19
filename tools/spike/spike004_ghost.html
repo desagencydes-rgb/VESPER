@@ -35,19 +35,46 @@
      - whether motion survives
    Those are the constraints the semantic scene has to respect. */
 
+/* THE BROWSER THIS RUNS IN, which is the constraint every rule below obeys.
+   Every result file in spike-results/ records the same user agent: Chrome 55
+   on Android 5.1.1 (SM-J320F). Chrome 55 shipped in 2016 and predates most of
+   the CSS this page was first written in. On 2026-08-18 the operator reported
+   that tapping the sides of the screen did nothing -- only the buttons and the
+   swipes worked -- and the cause turned out to be general rather than local:
+
+     feature        shipped   what its silent removal did here
+     display:grid   Cr 57     every centred test rendered as stacked blocks
+     place-items    Cr 59     nothing was centred inside any face
+     min()          Cr 79     --unit was invalid, so .face fell back to auto
+     flex gap       Cr 84     ladders and the HUD lost all their spacing
+     inset          Cr 87     #tapzones took auto offsets -> a 0x0 hit target
+     aspect-ratio   Cr 88     swatches, the arc, the density cells and the
+                              ambient square all collapsed to zero height
+
+   An unsupported declaration is DROPPED SILENTLY. Nothing throws, nothing
+   logs: the page renders wrong on the one device that matters and right on the
+   desktop it was written on, which is why this survived two field runs. The
+   load probe now posts CSS.supports() results and the measured tap-zone
+   rectangle with every session, so this is a recorded measurement rather than
+   a recollection about version numbers.
+
+   NOTHING BELOW MAY USE A FEATURE NEWER THAN CHROME 55. Squares are sized in
+   px by JS, not by aspect-ratio; centring is flexbox, not grid; spacing is
+   margins, not gap; offsets are written out, not inset. */
+
 :root {
-  --unit: min(50vw, 50vh);
+  --unit: 180px;   /* replaced with a measured px value by sizeStage() on load */
   --fg: #FFFFFF;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body {
   height: 100%; width: 100%; background: #000; color: var(--fg);
   overflow: hidden; touch-action: manipulation;
-  font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
-#stage { position: fixed; inset: 0; }
+#stage { position: fixed; left: 0; right: 0; top: 0; bottom: 0; }
 
 /* PYRAMID layout: four faces meeting AT THE CENTRE, one per face of the
    frustum. Each square sits flush against the centre point -- an earlier
@@ -55,7 +82,8 @@ html, body {
    of the glass. */
 .face {
   position: absolute; width: var(--unit); height: var(--unit);
-  left: 50%; top: 50%; display: grid; place-items: center;
+  left: 50%; top: 50%;
+  display: flex; align-items: center; justify-content: center;
   transform-origin: center center;
 }
 .face.n { transform: translate(-50%, -100%) rotate(180deg); }
@@ -80,28 +108,48 @@ html, body {
    depending on whether the frustum sits small-end-down or large-end-down.
    Rather than assume the owner's glass, this flips on a keypress and they
    settle it by looking. */
-.rot { width: 100%; height: 100%; display: grid; place-items: center; }
+.rot { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
 #stage.flip .rot { transform: rotate(180deg); }
 
-.inner { width: 100%; height: 100%; display: grid; place-items: center; padding: 2%; }
+/* MIRROR. A single reflection REVERSES HANDEDNESS -- that is a parity fact, not
+   a property of this geometry -- so no rotation can undo it: rotate(180deg) is
+   scale(-1,-1) with determinant +1, and a mirror needs determinant -1. Text in
+   the ghost therefore reads right-to-left until the source is pre-mirrored,
+   which is what scaleX(-1) does. Confirmed in the field 2026-08-17: the ghost
+   rendered "VESPER 01:53" and the page title reversed. See the correction in
+   SPIKE-004 section 6. */
+#stage.mirror .rot { transform: scaleX(-1); }
+#stage.flip.mirror .rot { transform: rotate(180deg) scaleX(-1); }
+
+.inner { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; padding: 2%; }
 
 /* --- test content --- */
-.ladder { display: flex; flex-direction: column; align-items: center; gap: 0.25em; }
+.ladder { display: flex; flex-direction: column; align-items: center; }
+.ladder > * + * { margin-top: 0.25em; }   /* flex `gap` is Chrome 84 */
 .ladder div { white-space: nowrap; line-height: 1.05; font-weight: 600; }
 .tag { font-variant-numeric: tabular-nums; opacity: 0.85; font-weight: 400; }
 
-.swatches { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4%; width: 92%; }
-.sw { aspect-ratio: 1; display: grid; place-items: end center; font-size: 9px; font-weight: 700; padding-bottom: 3%; color: #000; }
+/* Was a 3-column grid of aspect-ratio squares: two features this browser does
+   not have, so the swatches had no size at all. JS now passes an edge length
+   in px and these only carry the appearance. */
+.swatches { display: flex; flex-wrap: wrap; justify-content: center; }
+.sw {
+  display: flex; align-items: flex-end; justify-content: center;
+  font-size: 9px; font-weight: 700; padding-bottom: 3px; color: #000;
+}
 
-.arc { position: relative; width: 92%; aspect-ratio: 1; }
-.arc .ring { position: absolute; inset: 0; border-radius: 50%; border: 2px solid #FFF; }
+.arc { position: relative; }   /* px width AND height from JS */
+.arc .ring { position: absolute; left: 0; top: 0; right: 0; bottom: 0; border-radius: 50%; border: 2px solid #FFF; }
 .arc .spoke { position: absolute; left: 50%; top: 50%; width: 2px; height: 46%; background: #FFF; transform-origin: top center; }
 .arc .lbl { position: absolute; font-size: 11px; font-weight: 700; transform: translate(-50%,-50%); }
 
-.grid { display: grid; gap: 6%; width: 92%; }
-.cell { border: 1.5px solid #FFF; aspect-ratio: 1; display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+.grid { display: flex; flex-wrap: wrap; justify-content: center; align-content: center; }
+.cell {
+  border: 1.5px solid #FFF; display: flex; align-items: center;
+  justify-content: center; font-size: 12px; font-weight: 700;
+}
 
-.solid { width: 78%; aspect-ratio: 1; background: #FFF; }
+.solid { background: #FFF; }   /* px width AND height from JS */
 
 /* HUD lives outside the pyramid footprint (a 2-unit square on centre, so on a
    720x1280 panel it spans y 280..1000 and the bottom 280 px is clear) and never
@@ -110,11 +158,14 @@ html, body {
   position: fixed; left: 0; right: 0; bottom: 0; padding: 5px 8px 7px;
   font-size: 11px; line-height: 1.3; color: #6f6f6f; background: #000;
   z-index: 10; font-variant-numeric: tabular-nums;
-  display: flex; flex-direction: column; gap: 5px;
+  display: flex; flex-direction: column;
 }
+#hud > * + * { margin-top: 5px; }
 #hud b { color: #d9d9d9; font-weight: 600; }
-#hudrow { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
-#btns { display: flex; gap: 5px; flex-wrap: wrap; }
+#hudrow { display: flex; justify-content: space-between; align-items: baseline; }
+#hudrow > * + * { margin-left: 8px; }
+#btns { display: flex; flex-wrap: wrap; }
+#btns button { margin: 0 5px 5px 0; }
 #btns button {
   font: inherit; font-size: 11px; padding: 5px 9px; border-radius: 3px;
   border: 1px solid #333; background: #0d0d0d; color: #c9c9c9;
@@ -125,7 +176,7 @@ html, body {
 /* The protocol card is deliberately a readable panel. It is only ever on
    screen with the glass off, so ghost-visible chrome does not matter here. */
 #proto {
-  position: fixed; inset: 0; background: #000; color: #cfcfcf; z-index: 20;
+  position: fixed; left: 0; top: 0; right: 0; bottom: 0; background: #000; color: #cfcfcf; z-index: 20;
   padding: 14px 16px; overflow: auto; font-size: 13px; line-height: 1.5;
   display: none;
 }
@@ -136,7 +187,12 @@ html, body {
 #proto ol, #proto ul { padding-left: 18px; }
 #proto code { color: #fff; }
 
-#tapzones { position: fixed; inset: 0; display: flex; z-index: 5; }
+/* THE REPORTED SYMPTOM. `inset: 0` is Chrome 87; dropped here, this fixed div
+   took auto offsets, wrapped no content and measured 0x0, so there was nothing
+   on either side of the screen to tap. The buttons kept working because they
+   have intrinsic size, and the swipes because that listener is on the window --
+   which is exactly the pattern the operator described. */
+#tapzones { position: fixed; left: 0; right: 0; top: 0; bottom: 0; display: flex; z-index: 5; }
 #tapzones div { flex: 1; }
 </style>
 </head>
@@ -148,13 +204,16 @@ html, body {
 <div id="hud">
   <div id="hudrow">
     <div><b id="step-name">—</b> · <span id="step-n">1</span>/<span id="step-total">6</span> · <b id="lvl">—</b></div>
-    <div><span id="mode">pyramid</span> · D=<b id="dv">50</b>cm w=<b id="wv">6</b>cm · <b id="nmark">0</b> marked</div>
+    <div><span id="mode">pyramid</span> · D=<b id="dv">50</b>cm w=<b id="wv">6</b>cm · <b id="geom">M</b> · <b id="nmark">0</b> marked · <span id="build">—</span></div>
   </div>
   <div id="btns">
     <button id="bMark" class="hot">MARK</button>
     <button id="bSend">SEND</button>
-    <button id="bMode">layout</button>
+    <button id="bL0">pyr</button>
+    <button id="bL1">1pane</button>
+    <button id="bL2">base</button>
     <button id="bFlip">flip</button>
+    <button id="bMirror">mirror</button>
     <button id="bD">D+</button>
     <button id="bW">w+</button>
     <button id="bProto">?</button>
@@ -184,6 +243,13 @@ html, body {
   <b>straight down at it</b> — the folded path meets the screen along its
   normal, so a head-on view is the matching one, not an angled one. Put your eye
   <b>D + w/2</b> above the screen. Run the tests and MARK.</p>
+  <p><b>flip and mirror are forced off here, and the buttons will refuse.</b>
+  There is no fold in this layout and so nothing to undo: a mirrored baseline
+  measures how small you can read backwards text, not how small you can read.
+  The first baseline pass was taken with both on and has to be re-run.</p>
+  <p><b>ambient ceiling needs the room light actually changed</b>, not the
+  scale walked to the end — that step is the one measurement here that asks you
+  to alter the room rather than the phone.</p>
 
   <h3>3. Take the ghost reading (needs the reflector)</h3>
   <p>Switch layout to <code>single</code> for one pane, or <code>pyramid</code>
@@ -195,7 +261,8 @@ html, body {
   <h3>4. What each test wants</h3>
   <ul>
     <li><b>glyph height</b> — step DOWN until it stops being readable, then step
-    back up one and MARK. The mark is the smallest legible size.</li>
+    back up one and MARK. The mark is the smallest legible <b>font-size</b> in
+    CSS px, not cap height and not device px (this panel reports dpr 2).</li>
     <li><b>colour survival</b> — MARK the last swatch set where every patch is
     still distinguishable.</li>
     <li><b>viewing arc</b> — walk around the pyramid (or side to side for one
@@ -221,9 +288,17 @@ html, body {
 const TESTS = [
   {
     name: "glyph height",
-    unit: "px cap height",
+    // FONT-SIZE, AND SAID SO. This read "px cap height" while the render set
+    // `font-size`, and the two are not the same number -- cap height is roughly
+    // 0.7 em, so every reading overstated the smallest legible glyph by about a
+    // third. Same substitution the ambient test makes explicit below: the label
+    // has to name what was actually varied, because the value is going into
+    // `degradation_ladder.toml` as a bound something else will be checked
+    // against. Multiply by ~0.7 for cap height if a cap-height figure is ever
+    // needed; do not relabel this one.
+    unit: "px font-size (NOT cap height)",
     levels: [40, 32, 26, 21, 17, 14, 11, 9, 7],
-    render(px) {
+    render(px, S) {
       return `<div class="ladder">
         <div style="font-size:${px}px">VESPER 0123</div>
         <div style="font-size:${px}px">handoff · 21:40</div>
@@ -236,57 +311,87 @@ const TESTS = [
     unit: "swatch set",
     levels: [1, 2, 3],
     // A partial reflector is not colour-neutral and dim colours vanish first.
-    render(set) {
+    render(set, S) {
+      // Edge in px, computed from the measured face: aspect-ratio (Chrome 88)
+      // used to do this and was silently dropped, so every swatch was zero
+      // pixels tall and this test showed nothing at any level.
+      const e = Math.max(12, Math.floor(S / 3) - 6);
       const sets = [
         [["#FFFFFF","W"],["#FFE9B0","warm"],["#B9E4FF","cool"],["#8FE3B0","grn"],["#FFA98F","org"],["#C9A9FF","vio"]],
         [["#CCCCCC","75%"],["#999999","60%"],["#666666","40%"],["#4D4D4D","30%"],["#333333","20%"],["#1A1A1A","10%"]],
         [["#FF3B30","red"],["#34C759","green"],["#0A84FF","blue"],["#FFD60A","yellow"],["#FF375F","pink"],["#30D5C8","teal"]]
       ];
-      return `<div class="swatches">` + sets[set-1].map(
-        ([c,l]) => `<div class="sw" style="background:${c}">${l}</div>`).join("") + `</div>`;
+      return `<div class="swatches" style="width:${S}px">` + sets[set-1].map(
+        ([c,l]) => `<div class="sw" style="background:${c};width:${e}px;height:${e}px;margin:3px">${l}</div>`
+      ).join("") + `</div>`;
     }
   },
   {
     name: "viewing arc",
     unit: "degrees off-axis",
-    levels: [1],
-    render() {
+    // A SCALE, not a single value. This read [1] until 2026-08-18, so the
+    // operator was asked to walk round, find the angle where the image breaks,
+    // and then had nowhere to put it -- every mark recorded "1" whatever they
+    // saw. Step to the angle at which it breaks and MARK that.
+    levels: [0, 15, 30, 45, 60, 75, 90],
+    render(sel, S) {
       let spokes = "", lbls = "";
       for (let a = 0; a < 360; a += 15) {
         const major = a % 45 === 0;
-        spokes += `<div class="spoke" style="transform:rotate(${a}deg);height:${major?46:38}%;opacity:${major?1:.5}"></div>`;
+        const chosen = (a === sel) || (a === 360 - sel && sel !== 0);
+        spokes += `<div class="spoke" style="transform:rotate(${a}deg);height:${major?46:38}%;opacity:${chosen?1:(major?.85:.4)};background:${chosen?"#FF3B30":"#FFF"};width:${chosen?4:2}px"></div>`;
         if (major) {
           const r = 0.40, rad = (a - 90) * Math.PI / 180;
           lbls += `<div class="lbl" style="left:${50 + Math.cos(rad)*r*100}%;top:${50 + Math.sin(rad)*r*100}%">${a}</div>`;
         }
       }
-      return `<div class="arc"><div class="ring"></div>${spokes}${lbls}</div>`;
+      // Explicit square in px. The ring and every spoke are sized in % OF THIS
+      // BOX, and the box used to get its height from aspect-ratio -- so the
+      // ring had no radius and the spokes no length. The operator was asked to
+      // mark against a red spoke that was never drawn.
+      return `<div class="arc" style="width:${S}px;height:${S}px"><div class="ring"></div>${spokes}${lbls}
+        <div class="lbl" style="left:50%;top:50%;font-size:13px">${sel}&deg;</div></div>`;
     }
   },
   {
     name: "element density",
     unit: "simultaneous elements",
     levels: [1, 2, 4, 6, 9, 12, 16],
-    render(n) {
+    render(n, S) {
+      // Was display:grid (Chrome 57) with aspect-ratio cells (Chrome 88).
+      // Neither exists here, so the cells stacked as zero-height blocks and
+      // "12 simultaneous elements" and "1" looked identical: nothing.
       const cols = Math.ceil(Math.sqrt(n));
+      const e = Math.max(14, Math.floor(S / cols) - 8);
       let cells = "";
-      for (let i = 1; i <= n; i++) cells += `<div class="cell">${i}</div>`;
-      return `<div class="grid" style="grid-template-columns:repeat(${cols},1fr)">${cells}</div>`;
+      for (let i = 1; i <= n; i++) {
+        cells += `<div class="cell" style="width:${e}px;height:${e}px;margin:4px">${i}</div>`;
+      }
+      return `<div class="grid" style="width:${S}px">${cells}</div>`;
     }
   },
   {
     name: "ambient ceiling",
-    unit: "room light step",
-    levels: [1],
-    // Fixed bright target. The OPERATOR varies the room light and marks the
-    // point the ghost washes out. The screen is the constant here.
-    render() { return `<div class="solid"></div>`; }
+    // ORDINAL, AND SAID SO. Section 2 asks for lux at 100/300/500/1000 with a
+    // meter. There is no meter and no browser light sensor on Android 5.1.1, so
+    // this records an ordinal step and names itself as such -- a number labelled
+    // "lux" that came from an eyeball is worse than an honest ordinal, and
+    // CI-034 exists to stop exactly that substitution.
+    unit: "room light step (ordinal, NOT lux)",
+    levels: [0, 1, 2, 3, 4],
+    render(v, S) {
+      const names = ["dark room", "screen only", "dim lamp",
+                     "room light on", "daylight / bright"];
+      const e = Math.max(24, Math.floor(S * 0.78));
+      return `<div class="ladder"><div class="solid" style="width:${e}px;height:${e}px"></div>
+        <div class="tag" style="font-size:13px">${v} &middot; ${names[v]}</div></div>`;
+    }
   },
   {
     name: "motion legibility",
     unit: "px/s drift",
     levels: [0, 30, 60, 120, 240],
-    render(v) {
+    render(v, S) {
       const dur = v === 0 ? 0 : Math.round(200 / v * 10) / 10;
       const anim = v === 0 ? "" : `animation: drift ${dur}s linear infinite alternate;`;
       return `<style>@keyframes drift{from{transform:translateY(-18%)}to{transform:translateY(18%)}}</style>
@@ -302,12 +407,76 @@ const LAYOUTS = ["pyramid", "single", "baseline"];
 const D_STEPS = [30, 40, 50, 60, 80, 100];
 const W_STEPS = [3, 4, 5, 6, 8, 10, 12];
 
-let ti = 0, li = 0, mode = 0, flip = false, di = 2, wi = 3;
+// mirror defaults ON: the field run of 2026-08-17 showed the ghost reads
+// right-to-left without it, so an operator who never touches the button gets a
+// readable image rather than an unreadable one they have to diagnose.
+let ti = 0, li = 0, mode = 0, flip = false, mirror = true, di = 2, wi = 3;
+
+// WHICH SCALES THE OPERATOR ACTUALLY MOVED. Two field runs produced six marks
+// each, and every single value was levels[0] -- the untouched default. The
+// instrument recorded six numbers that read like measurements and were not, in a
+// spike whose own protocol says a clean-looking number that is wrong is worse
+// than no number. A mark on a scale nobody stepped is now refused once, and
+// recorded as `stepped:false` if the operator insists -- because the floor CAN
+// be the true answer (a static drift of 0 px/s is a real reading) and the
+// difference between "measured the floor" and "never touched it" has to survive
+// into the record.
+const stepped = new Set();
+let pendingKey = null;
 const marks = [];
+
+// WHAT DEVICE THIS ACTUALLY IS. Both payloads used to hardcode
+// "Samsung Galaxy J3 (2016)", so a desktop load posted a record that named the
+// handset it was not running on. The instrument IS opened on a desktop -- to
+// check it renders before anyone stands in a dark room with it -- and a record
+// that misnames its own source is the same class of defect as a mark whose
+// geometry is unknown. The UA decides; nothing is asserted.
+function deviceName() {
+  const ua = navigator.userAgent;
+  if (/SM-J320F/.test(ua)) return "Samsung Galaxy J3 (2016)";
+  return "NOT the J3 — " + (/Android/.test(ua) ? "some Android" : "desktop browser") +
+         " (see user_agent); readings from here are a rehearsal, not a field run";
+}
+function browserTag() {
+  const ua = navigator.userAgent, cr = ua.match(/Chrome\/(\d+)/);
+  return (cr ? "chrome" + cr[1] : "unknown") + (/Android/.test(ua) ? "-android" : "-other");
+}
+
+// WHICH BUILD IS ON THE PHONE. The instrument was fixed at 00:47 and the
+// operator ran it twice afterwards on a page loaded at 00:32, so neither run
+// had the fix and nothing in the record said so. The server substitutes the
+// served file's own hash here, so it cannot go stale by being forgotten: it is
+// shown in the HUD and posted with every record. Two records that disagree
+// about the instrument are now distinguishable from two that disagree about
+// the optics.
+const BUILD = "__BUILD__";
 
 const $ = id => document.getElementById(id);
 const stage = $("stage");
+
+// SIZES IN PIXELS, BECAUSE THE BROWSER CANNOT COMPUTE THEM. `--unit` was
+// `min(50vw, 50vh)`, and min() is Chrome 79: on this handset the custom
+// property held an unparseable value, `width: var(--unit)` was invalid at
+// computed-value time, and every pyramid face fell back to shrink-to-fit.
+// One device, one viewport, so JS measures it once and writes real px.
+function sizeStage() {
+  const u = Math.floor(Math.min(innerWidth, innerHeight) / 2);
+  document.documentElement.style.setProperty("--unit", u + "px");
+}
+
+// The largest square a face can show, in px. `single` gets the full width but
+// only half the height (the pane covers the top half); `baseline` gets the
+// whole panel; a pyramid face is a quarter-panel square. 0.88 leaves the
+// .inner 2% padding and a hair of margin.
+function faceEdge() {
+  const l = LAYOUTS[mode];
+  const e = l === "pyramid" ? Math.min(innerWidth, innerHeight) / 2
+          : l === "single"  ? Math.min(innerWidth, innerHeight / 2)
+          :                   Math.min(innerWidth, innerHeight);
+  return Math.max(40, Math.floor(e * 0.88));
+}
 $("step-total").textContent = TESTS.length;
+$("build").textContent = "b:" + BUILD;
 
 function faces() {
   const l = LAYOUTS[mode];
@@ -319,37 +488,65 @@ function faces() {
 function draw() {
   const t = TESTS[ti];
   li = Math.max(0, Math.min(li, t.levels.length - 1));
-  const html = t.render(t.levels[li]);
-  stage.className = flip ? "flip" : "";
+  sizeStage();
+  const html = t.render(t.levels[li], faceEdge());
+  stage.className = (flip ? "flip " : "") + (mirror ? "mirror" : "");
   stage.innerHTML = faces().map(
     ([d]) => `<div class="face ${d}"><div class="rot"><div class="inner">${html}</div></div></div>`).join("");
   $("step-name").textContent = t.name;
   $("step-n").textContent = ti + 1;
   $("lvl").textContent = `${t.levels[li]} ${t.unit}`;
   $("mode").textContent = LAYOUTS[mode] + (flip ? " ⤾" : "");
+  ["bL0", "bL1", "bL2"].forEach((id, m) => $(id).classList.toggle("hot", mode === m));
   $("dv").textContent = D_STEPS[di];
   $("wv").textContent = W_STEPS[wi];
   $("nmark").textContent = marks.length;
+  $("geom").textContent = (flip ? "F" : "-") + (mirror ? "M" : "-");
 }
 
 function say(m) { $("msg").textContent = m; }
 
-function level(d) { li += d; draw(); }
-function test(d)  { ti = (ti + d + TESTS.length) % TESTS.length; li = 0; draw(); }
+// Keyed by test AND layout, because marks are. Keyed by name alone, a scale
+// stepped during the `single` pass counted as stepped for the `baseline` pass
+// too -- and no baseline pass has ever been run, so the guard would have been
+// silent on the very run that gives every ghost number its meaning (section 7).
+function key(t) { return t.name + "|" + LAYOUTS[mode]; }
+function level(d) { li += d; stepped.add(key(TESTS[ti])); draw(); }
+function test(d)  { ti = (ti + d + TESTS.length) % TESTS.length; li = 0; pendingKey = null; draw(); }
 
 function mark() {
   const t = TESTS[ti];
+  const wasStepped = stepped.has(key(t)) || t.levels.length === 1;
+  const key0 = key(t);
+  if (!wasStepped && pendingKey !== key0) {
+    pendingKey = key0;
+    say(`${t.name}: scale untouched (still ${t.levels[li]} ${t.unit}). ` +
+        `Step it, or press MARK again to record the default deliberately.`);
+    return;
+  }
+  pendingKey = null;
   // One mark per test per layout: re-marking corrects a reading rather than
   // appending a second one, so the record cannot end up with two answers to
   // the same question and no way to tell which was meant.
-  const key = t.name + "|" + LAYOUTS[mode];
+  const mk = key(t);
   const rec = {
     test: t.name, unit: t.unit, level: t.levels[li],
-    layout: LAYOUTS[mode], flipped: flip,
+    layout: LAYOUTS[mode], flipped: flip, mirrored: mirror,
+    stepped: wasStepped,
     eye_to_pane_cm: D_STEPS[di], strip_depth_cm: W_STEPS[wi],
-    folded_path_cm: D_STEPS[di] + W_STEPS[wi] / 2
+    folded_path_cm: D_STEPS[di] + W_STEPS[wi] / 2,
+    // THE OTHER HALF OF THE GEOMETRY. The record already carried the operator's
+    // physical distances, and legibility depends on the ON-SCREEN size too --
+    // which is no longer a fixed fraction of anything, because squares are now
+    // px computed from the viewport, and Android's URL bar moves `innerHeight`
+    // between sessions. Without these, `density: 12` from a run with the bar
+    // showing and `density: 12` from one without look identical in the record
+    // and were different tests. Only `glyph height` describes itself; the other
+    // four are sized entirely by this number.
+    face_edge_px: faceEdge(),
+    viewport: {w: innerWidth, h: innerHeight, dpr: devicePixelRatio}
   };
-  const at = marks.findIndex(m => m.test + "|" + m.layout === key);
+  const at = marks.findIndex(m => m.test + "|" + m.layout === mk);
   if (at >= 0) { marks[at] = rec; say(`re-marked ${t.name} = ${rec.level} ${t.unit}`); }
   else { marks.push(rec); say(`marked ${t.name} = ${rec.level} ${t.unit}`); }
   draw();
@@ -379,9 +576,15 @@ async function send() {
     const r = await fetch("/result", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
-        schema_version: 1,
+        schema_version: 1, kind: "marks", build: BUILD,
+        // Top-level, because the server names the file from it and every record
+        // so far landed as "...-ghost-run-..." -- the label was written to
+        // distinguish a `baseline` pass from a `single` one and never received
+        // anything to work with. Joined, so a mixed-layout send says so in its
+        // own filename rather than only inside the JSON.
+        layout: [...new Set(marks.map(m => m.layout))].sort().join("+"),
         spike: "SPIKE-004", section: "perceptual limits through a 45° fold",
-        device: "Samsung Galaxy J3 (2016)",
+        device: deviceName(),
         screen: {w: screen.width, h: screen.height, dpr: devicePixelRatio},
         user_agent: navigator.userAgent,
         marks
@@ -398,8 +601,54 @@ $("zL").addEventListener("click", () => level(-1));
 $("zR").addEventListener("click", () => level(+1));
 $("bMark").addEventListener("click", e => { e.stopPropagation(); mark(); });
 $("bSend").addEventListener("click", e => { e.stopPropagation(); send(); });
-$("bMode").addEventListener("click", e => { e.stopPropagation(); mode = (mode + 1) % LAYOUTS.length; draw(); say("layout: " + LAYOUTS[mode]); });
-$("bFlip").addEventListener("click", e => { e.stopPropagation(); flip = !flip; draw(); });
+// A layout change starts a fresh pass: the level returns to the floor and the
+// pending-mark acknowledgement is dropped, so "untouched default" stays true
+// of what the HUD is showing.
+//
+// AND IT SETTLES THE GEOMETRY, because `baseline` has none. The first baseline
+// pass (2026-08-17 23:45) was taken with flip AND mirror on, and neither has
+// any meaning there: `baseline` is the BARE PANEL viewed head-on, with no fold
+// and no reflection to undo. What it actually measured was how small the
+// operator can read text that is upside down and backwards -- which is why the
+// smallest "legible" font-size came back as 40 px, the largest value on the
+// scale. Section 7 makes this reading the datum every ghost number is compared
+// against, so a baseline degraded by two transforms does not merely lose one
+// row, it biases the whole spike toward "the optics cost nothing".
+//
+// So the transforms are FORCED OFF here and the buttons refuse while it is
+// selected. mirror defaults on for the ghost, which is right, and that default
+// is exactly what carried it into a layout that must not have it.
+function baselineGeometry() { return LAYOUTS[mode] === "baseline"; }
+function setLayout(m) {
+  mode = m; li = 0; pendingKey = null;
+  if (baselineGeometry()) { flip = false; mirror = false; }
+  draw();
+  say("layout: " + LAYOUTS[mode] +
+      (baselineGeometry() ? " — flip and mirror forced OFF: no fold, nothing to undo" : ""));
+}
+function setGeom(which) {
+  if (baselineGeometry()) {
+    say(`${which} does nothing in baseline — the bare panel has no fold. ` +
+        `Switch to single or pyramid first.`);
+    return;
+  }
+  if (which === "flip") flip = !flip; else mirror = !mirror;
+  draw();
+  say(which + ": " + ((which === "flip" ? flip : mirror) ? "on" : "off"));
+}
+// ONE BUTTON PER LAYOUT, AND NONE OF THEM WRAP. A single cycling `layout`
+// button has now cost two field runs: e78256f recorded five marks under a
+// layout whose reflector was not on the table, and on 2026-08-17 23:50 an
+// operator asked for `baseline` pressed past it and marked six readings under
+// `single`. A control that punishes one extra press with a silently wrong
+// record is the defect, not the press. The active layout is also shown lit, so
+// the answer to "which am I in" is on the button rather than only in the HUD
+// the operator is not looking at.
+[["bL0", 0], ["bL1", 1], ["bL2", 2]].forEach(([id, m]) => {
+  $(id).addEventListener("click", e => { e.stopPropagation(); setLayout(m); });
+});
+$("bFlip").addEventListener("click", e => { e.stopPropagation(); setGeom("flip"); });
+$("bMirror").addEventListener("click", e => { e.stopPropagation(); setGeom("mirror"); });
 $("bD").addEventListener("click", e => { e.stopPropagation(); di = (di + 1) % D_STEPS.length; draw(); });
 $("bW").addEventListener("click", e => { e.stopPropagation(); wi = (wi + 1) % W_STEPS.length; draw(); });
 $("bProto").addEventListener("click", e => { e.stopPropagation(); $("proto").classList.add("on"); });
@@ -409,9 +658,15 @@ addEventListener("keydown", e => {
   if (e.key === "ArrowRight") level(+1);
   if (e.key === "ArrowDown")  test(+1);
   if (e.key === "ArrowUp")    test(-1);
+  // `m` was bound twice -- to MARK and to mirror -- so one press recorded a
+  // mark and then inverted the geometry, and the NEXT mark's `mirrored` field
+  // disagreed with what the operator believed they were looking at. Silent
+  // corruption of the one field that makes two readings comparable. The J3 has
+  // no keyboard, so this only ever bit a desktop pass; mirror is `r` now.
   if (e.key === "m") mark();
-  if (e.key === "f") { flip = !flip; draw(); }
-  if (e.key === "l") { mode = (mode + 1) % LAYOUTS.length; draw(); }
+  if (e.key === "f") setGeom("flip");
+  if (e.key === "r") setGeom("mirror");
+  if (e.key === "l") { setLayout((mode + 1) % LAYOUTS.length); }
 });
 
 let sx = 0, sy = 0;
@@ -422,6 +677,88 @@ addEventListener("touchend", e => {
 }, {passive:true});
 
 draw();
+
+// The phone gets rotated on the table mid-session and every square is now a
+// fixed px value, so they have to be recomputed rather than reflowed.
+addEventListener("resize", draw);
+addEventListener("orientationchange", draw);
+
+/* THE CAPABILITY PROBE.
+
+   The layout above was rewritten on 2026-08-18 against a claim about which CSS
+   features Chrome 55 has. That claim was recalled, not measured, and it is now
+   load-bearing for the whole instrument -- which is the exact shape of thing
+   this spike's own protocol says to distrust. So the page asks the browser
+   directly and posts the answers with the measured hit-target rectangle.
+
+   It runs on load, with no button, because the operator's hands are on the
+   glass: they open the URL and the ground truth is already in the record. A
+   0x0 #tapzones rect is not an argument about version numbers, it is the
+   reported symptom, measured.
+
+   CSS.supports() is Chrome 28, so it runs on the device it is asked about. */
+function probe() {
+  const sup = (p, v) => {
+    try { return !!(window.CSS && CSS.supports && CSS.supports(p, v)); }
+    catch (e) { return null; }
+  };
+  const rect = sel => {
+    const el = document.querySelector(sel);
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return {w: Math.round(r.width), h: Math.round(r.height),
+            x: Math.round(r.left), y: Math.round(r.top)};
+  };
+  const ua = navigator.userAgent;
+  return {
+    schema_version: 1,
+    kind: "capability-probe",
+    build: BUILD,
+    spike: "SPIKE-004",
+    section: "what this browser can actually parse",
+    device: deviceName(),
+    tag: browserTag(),
+    user_agent: ua,
+    viewport: {w: innerWidth, h: innerHeight, dpr: devicePixelRatio,
+               screen_w: screen.width, screen_h: screen.height},
+    supports: {
+      "display:grid":  sup("display", "grid"),
+      "place-items":   sup("place-items", "center"),
+      "min()":         sup("width", "min(1px, 2px)"),
+      "flex gap":      sup("gap", "5px"),
+      "inset":         sup("inset", "0px"),
+      "aspect-ratio":  sup("aspect-ratio", "1"),
+      "display:flex":  sup("display", "flex"),
+      "calc()":        sup("width", "calc(1px + 1px)"),
+      "transform":     sup("transform", "scaleX(-1)"),
+      "var()":         sup("width", "var(--unit)")
+    },
+    // The measurement the operator reported: side taps did nothing.
+    measured: {
+      tapzones: rect("#tapzones"), zL: rect("#zL"), zR: rect("#zR"),
+      face: rect(".face"), stage: rect("#stage"),
+      unit_px: getComputedStyle(document.documentElement).getPropertyValue("--unit").trim()
+    }
+  };
+}
+
+(async function sendProbe() {
+  try {
+    const r = await fetch("/result", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(probe())
+    });
+    const z = probe().measured.zL;
+    // Told plainly, because a 0-wide tap zone is the difference between "the
+    // operator did not step the scale" and "stepping it did nothing".
+    $("msg").textContent = r.ok
+      ? `probe sent · tap zone ${z ? z.w + "x" + z.h : "missing"} · ` +
+        (z && z.w > 0 ? "sides live" : "SIDES DEAD — use the buttons")
+      : `probe rejected (${r.status}) — instrument still usable`;
+  } catch (e) {
+    $("msg").textContent = "probe not sent (" + e.message + ") — instrument still usable";
+  }
+})();
 </script>
 </body>
 </html>

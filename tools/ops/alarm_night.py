@@ -39,8 +39,25 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
 from core.alarm import AlarmActuator, AlarmInstance, build_alarm_trigger
-from tools.ops.alarm_node_win import (KeyboardAck, WindowsAudioRung,
-                                      console_lock_state, set_console_lock)
+
+# ONE RUNNER, TWO NODES. The fire path -- predicate evaluation, the anti-cron
+# probe, the cap, the guaranteed result file -- is identical on both machines and
+# must stay that way; only the thing that makes a noise differs. Importing the
+# wrong platform's driver at module scope is what would fork them.
+IS_LINUX = sys.platform.startswith("linux")
+if IS_LINUX:
+    from tools.ops.alarm_node_linux import EvdevAck as AckWatcher
+    from tools.ops.alarm_node_linux import LinuxAudioRung as AudioRung
+
+    def console_lock_state():
+        return None          # no such concept; Linux does not gate audio on it
+
+    def set_console_lock(_v):
+        return True
+else:
+    from tools.ops.alarm_node_win import KeyboardAck as AckWatcher
+    from tools.ops.alarm_node_win import WindowsAudioRung as AudioRung
+    from tools.ops.alarm_node_win import console_lock_state, set_console_lock
 
 TASK_NAME = "VESPER-Alarm-Prototype"
 STATE_DIR = REPO / ".alarm-state"
@@ -55,6 +72,16 @@ def _emitter(records: list):
         print(f"[{rec['at_wall']}] {kind}: "
               f"{json.dumps(payload, default=str)[:220]}", flush=True)
     return emit
+
+
+def _make_rung(args):
+    if IS_LINUX:
+        return AudioRung(min_margin=args.min_margin,
+                         owner_attested=args.attest_audible)
+    return AudioRung(out_indices=_out_list(args.output_device),
+                     mic_index=args.mic_device,
+                     min_margin=args.min_margin,
+                     owner_attested=args.attest_audible)
 
 
 def _out_list(spec) -> list:
@@ -109,13 +136,31 @@ def cmd_devices(args) -> int:
 def cmd_preflight(args) -> int:
     records: list = []
     emit = _emitter(records)
-    rung = WindowsAudioRung(out_indices=_out_list(args.output_device),
-                            mic_index=args.mic_device,
-                            min_margin=args.min_margin,
-                            owner_attested=args.attest_audible)
+    rung = _make_rung(args)
     act = AlarmActuator([rung], emit=emit)
     report = act.preflight()
     report["observation_channel"] = rung._observe_mode
+    if IS_LINUX:
+        # The acknowledgement question on this node is not "does the session
+        # lock" -- Linux does not gate audio or input on that. It is whether
+        # EV_KEY is readable off /dev/input, which is what makes a keypress a
+        # PHYSICAL, ASR-independent acknowledgement under 41.3.
+        probe = AckWatcher()
+        report["ack_channel"] = "evdev"
+        report["ack_channel_verified"] = probe.available
+        report["ack_channel_note"] = (
+            "EV_KEY readable off /dev/input: any key or the lid acknowledges, "
+            "with no speech, no screen and no unlock."
+            if probe.available else
+            "/dev/input is NOT readable -- the `input` group has not taken "
+            "effect for this session. Log out and back in, or reboot. Without "
+            "it there is no physical acknowledgement channel and INV-ALARM-2 is "
+            "unmet.")
+        probe.close()
+        _save("preflight.json", {"records": records, "report": report})
+        print("\n" + json.dumps(report, indent=2, default=str))
+        return 0 if report["ladder_depth"] else 1
+
     lock = console_lock_state()
     report["console_lock_on_wake"] = lock
     report["console_lock_note"] = {
@@ -215,10 +260,21 @@ def _fire(args) -> int:
                           window_s=WINDOW_S,
                           label=args.message)
 
-    rung = WindowsAudioRung(out_indices=_out_list(args.output_device),
-                            mic_index=args.mic_device,
-                            min_margin=args.min_margin,
-                            owner_attested=args.attest_audible)
+    # PREFLIGHT NEAR THE ALARM, NOT AT LAUNCH. Node 2 never sleeps, so this
+    # process may be started the night before and sit for eleven hours. A
+    # readiness check from eleven hours earlier is a statement about a machine
+    # that no longer exists -- the volume could have been changed, headphones
+    # plugged in, the sink switched. Wait until five minutes out, then measure.
+    lead_s = due - time.time()
+    if lead_s > 600:
+        emit("alarm.waiting", {"due": args.at,
+                               "sleeping_until_s_before_due": 300,
+                               "hours_to_wait": round(lead_s / 3600, 2),
+                               "note": ("preflight is deferred so readiness is "
+                                        "measured near the firing time")})
+        time.sleep(max(0.0, lead_s - 300))
+
+    rung = _make_rung(args)
     act = AlarmActuator([rung], emit=emit, cap_s=args.cap_s)
     pre = act.preflight()
     pre["observation_channel"] = rung._observe_mode
@@ -249,7 +305,7 @@ def _fire(args) -> int:
               file=sys.stderr)
         return 3
 
-    ack = KeyboardAck()
+    ack = AckWatcher()
     deadline = due + WINDOW_S
     result = {"fired": False, "reason": "window elapsed without the predicate firing"}
 
@@ -282,11 +338,18 @@ def _fire(args) -> int:
     result["volume_restored_to"] = rung.restore()
     result["gate_evidence"] = False
     result["cap_s"] = args.cap_s
+    # The deviation note must describe THIS node. On node 2 the acknowledgement
+    # channel is not degraded -- evdev reads a real keypress in seconds -- so the
+    # contract's 900 s needs no excuse, and claiming a Windows lock-screen reason
+    # in node 2's record would be a false statement in the evidence.
     result["cap_deviation"] = (
         None if args.cap_s == 900 else
-        f"trg_alarm_fire specifies a 900 s cap; this run used {args.cap_s} s "
-        f"because the acknowledgement channel is degraded (session locks on "
-        f"wake, keypress unreadable until sign-in). Recorded, not silent.")
+        f"trg_alarm_fire specifies a 900 s cap; this run used {args.cap_s} s. "
+        + ("Reason: the acknowledgement channel is degraded on this node -- the "
+           "session locks on wake and a keypress is unreadable until sign-in."
+           if not IS_LINUX else
+           "Reason: operator choice for a prototype run; the acknowledgement "
+           "channel itself is verified working (evdev)."))
     _save("fire-result.json", {"records": records, "result": result})
     print("\n" + json.dumps(result, indent=2, default=str)[:2000])
     return 0

@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "generated_at_utc": "2026-08-14T21:35:58Z",
+  "generated_at_utc": "2026-08-18T22:42:30Z",
   "spike": "SPIKE-001",
   "quick_mode": false,
   "system": {
@@ -11,7 +11,7 @@
     "ram_gb": 15.9,
     "ram_gb_error": null,
     "disk_total_gb": 475.9,
-    "disk_free_gb": 123.7,
+    "disk_free_gb": 124.0,
     "gpu_name_hint": "AMD Radeon RX 6650 XT",
     "gpu_name_error": null,
     "python_version": "3.14.2"
@@ -94,7 +94,7 @@
         "video": false,
         "audio": false
       },
-      "media_marker": "<__media_VZC0E9WvtYzEnnzwRyDcm4PnCW4WpAQX__>",
+      "media_marker": "<__media_AAcegziwyRHssru5ZMgMtx3o4xoySASV__>",
       "endpoint_slots": true,
       "endpoint_props": false,
       "endpoint_metrics": false,
@@ -117,7 +117,7 @@
       "is_sleeping": false,
       "cors_proxy_enabled": false
     },
-    "launch_command": "llama-server.exe -m Mistral-Small-24B-Instruct-2501-Q4_K_M.gguf -ngl 16 -fa on --cache-type-k q8_0 --cache-type-v q8_0 -c 8448 --parallel 1 --host 127.0.0.1 --port 8080  [build b10405-e79e4bf66, Vulkan; GPU delta 6045.4 MiB]"
+    "launch_command": "llama-server.exe -m Mistral-Small-24B-Instruct-2501-Q4_K_M.gguf -ngl 16 -fa on --cache-type-k q8_0 --cache-type-v q8_0 -c 8448 --parallel 1 --host 127.0.0.1 --port 8080  [build b10405-e79e4bf66, Vulkan; GPU delta 5892.5 MiB]"
   },
   "throughput": {
     "tier": "strong",
@@ -135,121 +135,121 @@
         "samples": [
           {
             "minute": 1.0,
-            "interval_tokens_per_sec": 3.38,
+            "interval_tokens_per_sec": 3.3,
+            "interval_effective_tokens_per_sec": 3.19,
+            "cumulative_tokens_per_sec": 3.3,
+            "interval_tokens": 192
+          },
+          {
+            "minute": 5.0,
+            "interval_tokens_per_sec": 3.2,
+            "interval_effective_tokens_per_sec": 3.2,
+            "cumulative_tokens_per_sec": 3.21,
+            "interval_tokens": 767
+          },
+          {
+            "minute": 10.0,
+            "interval_tokens_per_sec": 3.07,
+            "interval_effective_tokens_per_sec": 3.07,
+            "cumulative_tokens_per_sec": 3.14,
+            "interval_tokens": 920
+          }
+        ],
+        "sustained_tokens_per_sec": 3.07,
+        "sustained_from_checkpoint_minute": 10.0,
+        "sustained_is_final_checkpoint": true,
+        "cumulative_tokens_per_sec": 3.14,
+        "effective_tokens_per_sec": 3.13,
+        "sustained_effective_tokens_per_sec": 3.07,
+        "total_tokens": 1879,
+        "wall_seconds": 600.2,
+        "generation_seconds": 598.3,
+        "prompt_eval_seconds_per_request": [
+          1.919
+        ],
+        "requests_started": 1,
+        "requests_completed": 0,
+        "final_request_aborted_at_deadline": true,
+        "ignore_eos": true,
+        "tier_generation_length": 8192
+      },
+      {
+        "samples": [
+          {
+            "minute": 1.0,
+            "interval_tokens_per_sec": 3.37,
             "interval_effective_tokens_per_sec": 3.27,
-            "cumulative_tokens_per_sec": 3.38,
+            "cumulative_tokens_per_sec": 3.37,
             "interval_tokens": 197
           },
           {
             "minute": 5.0,
-            "interval_tokens_per_sec": 3.29,
-            "interval_effective_tokens_per_sec": 3.29,
-            "cumulative_tokens_per_sec": 3.3,
-            "interval_tokens": 788
+            "interval_tokens_per_sec": 3.27,
+            "interval_effective_tokens_per_sec": 3.27,
+            "cumulative_tokens_per_sec": 3.29,
+            "interval_tokens": 785
           },
           {
             "minute": 10.0,
-            "interval_tokens_per_sec": 3.16,
-            "interval_effective_tokens_per_sec": 3.16,
-            "cumulative_tokens_per_sec": 3.23,
-            "interval_tokens": 949
+            "interval_tokens_per_sec": 3.13,
+            "interval_effective_tokens_per_sec": 3.13,
+            "cumulative_tokens_per_sec": 3.21,
+            "interval_tokens": 938
           }
         ],
-        "sustained_tokens_per_sec": 3.16,
+        "sustained_tokens_per_sec": 3.13,
         "sustained_from_checkpoint_minute": 10.0,
         "sustained_is_final_checkpoint": true,
-        "cumulative_tokens_per_sec": 3.23,
-        "effective_tokens_per_sec": 3.22,
-        "sustained_effective_tokens_per_sec": 3.16,
-        "total_tokens": 1934,
+        "cumulative_tokens_per_sec": 3.21,
+        "effective_tokens_per_sec": 3.2,
+        "sustained_effective_tokens_per_sec": 3.13,
+        "total_tokens": 1920,
+        "wall_seconds": 600.3,
+        "generation_seconds": 598.3,
+        "prompt_eval_seconds_per_request": [
+          1.909
+        ],
+        "requests_started": 1,
+        "requests_completed": 0,
+        "final_request_aborted_at_deadline": true,
+        "ignore_eos": true,
+        "tier_generation_length": 8192
+      },
+      {
+        "samples": [
+          {
+            "minute": 1.0,
+            "interval_tokens_per_sec": 3.3,
+            "interval_effective_tokens_per_sec": 3.19,
+            "cumulative_tokens_per_sec": 3.3,
+            "interval_tokens": 192
+          },
+          {
+            "minute": 5.0,
+            "interval_tokens_per_sec": 3.25,
+            "interval_effective_tokens_per_sec": 3.25,
+            "cumulative_tokens_per_sec": 3.26,
+            "interval_tokens": 779
+          },
+          {
+            "minute": 10.0,
+            "interval_tokens_per_sec": 3.03,
+            "interval_effective_tokens_per_sec": 3.03,
+            "cumulative_tokens_per_sec": 3.14,
+            "interval_tokens": 910
+          }
+        ],
+        "sustained_tokens_per_sec": 3.03,
+        "sustained_from_checkpoint_minute": 10.0,
+        "sustained_is_final_checkpoint": true,
+        "cumulative_tokens_per_sec": 3.14,
+        "effective_tokens_per_sec": 3.13,
+        "sustained_effective_tokens_per_sec": 3.03,
+        "total_tokens": 1881,
         "wall_seconds": 600.2,
         "generation_seconds": 598.3,
         "prompt_eval_seconds_per_request": [
-          1.921
-        ],
-        "requests_started": 1,
-        "requests_completed": 0,
-        "final_request_aborted_at_deadline": true,
-        "ignore_eos": true,
-        "tier_generation_length": 8192
-      },
-      {
-        "samples": [
-          {
-            "minute": 1.0,
-            "interval_tokens_per_sec": 3.36,
-            "interval_effective_tokens_per_sec": 3.25,
-            "cumulative_tokens_per_sec": 3.36,
-            "interval_tokens": 196
-          },
-          {
-            "minute": 5.0,
-            "interval_tokens_per_sec": 3.29,
-            "interval_effective_tokens_per_sec": 3.29,
-            "cumulative_tokens_per_sec": 3.3,
-            "interval_tokens": 789
-          },
-          {
-            "minute": 10.0,
-            "interval_tokens_per_sec": 3.15,
-            "interval_effective_tokens_per_sec": 3.15,
-            "cumulative_tokens_per_sec": 3.23,
-            "interval_tokens": 944
-          }
-        ],
-        "sustained_tokens_per_sec": 3.15,
-        "sustained_from_checkpoint_minute": 10.0,
-        "sustained_is_final_checkpoint": true,
-        "cumulative_tokens_per_sec": 3.23,
-        "effective_tokens_per_sec": 3.21,
-        "sustained_effective_tokens_per_sec": 3.15,
-        "total_tokens": 1929,
-        "wall_seconds": 600.1,
-        "generation_seconds": 598.1,
-        "prompt_eval_seconds_per_request": [
-          1.923
-        ],
-        "requests_started": 1,
-        "requests_completed": 0,
-        "final_request_aborted_at_deadline": true,
-        "ignore_eos": true,
-        "tier_generation_length": 8192
-      },
-      {
-        "samples": [
-          {
-            "minute": 1.0,
-            "interval_tokens_per_sec": 2.9,
-            "interval_effective_tokens_per_sec": 2.81,
-            "cumulative_tokens_per_sec": 2.9,
-            "interval_tokens": 169
-          },
-          {
-            "minute": 5.0,
-            "interval_tokens_per_sec": 3.04,
-            "interval_effective_tokens_per_sec": 3.04,
-            "cumulative_tokens_per_sec": 3.01,
-            "interval_tokens": 729
-          },
-          {
-            "minute": 10.0,
-            "interval_tokens_per_sec": 3.06,
-            "interval_effective_tokens_per_sec": 3.06,
-            "cumulative_tokens_per_sec": 3.04,
-            "interval_tokens": 918
-          }
-        ],
-        "sustained_tokens_per_sec": 3.06,
-        "sustained_from_checkpoint_minute": 10.0,
-        "sustained_is_final_checkpoint": true,
-        "cumulative_tokens_per_sec": 3.04,
-        "effective_tokens_per_sec": 3.03,
-        "sustained_effective_tokens_per_sec": 3.06,
-        "total_tokens": 1816,
-        "wall_seconds": 600.0,
-        "generation_seconds": 598.1,
-        "prompt_eval_seconds_per_request": [
-          1.899
+          1.905
         ],
         "requests_started": 1,
         "requests_completed": 0,
@@ -258,40 +258,38 @@
         "tier_generation_length": 8192
       }
     ],
-    "median_sustained_tokens_per_sec": 3.15,
+    "median_sustained_tokens_per_sec": 3.07,
     "spread_tokens_per_sec": {
-      "min": 3.06,
-      "max": 3.16,
-      "values": [
-        3.16,
-        3.15,
-        3.06
-      ]
-    },
-    "median_effective_tokens_per_sec": 3.15,
-    "spread_effective_tokens_per_sec": {
-      "min": 3.06,
-      "max": 3.16,
-      "values": [
-        3.16,
-        3.15,
-        3.06
-      ]
-    },
-    "router_should_use": "median_effective_tokens_per_sec — it is wall-clock and therefore sees contention that median_sustained_tokens_per_sec, being generation-time only, is blind to.",
-    "effective_window": "minute 10 -- the same window as median_sustained_tokens_per_sec, so the two are comparable to each other.",
-    "median_whole_run_effective_tokens_per_sec": 3.21,
-    "spread_whole_run_effective_tokens_per_sec": {
       "min": 3.03,
-      "max": 3.22,
+      "max": 3.13,
       "values": [
-        3.22,
-        3.21,
+        3.07,
+        3.13,
         3.03
       ]
     },
-    "whole_run_vs_settled_note": "median_whole_run_effective_tokens_per_sec averages the entire run, including the fast early minutes. It is ABOVE the settled rate by however much the model decays. Do not quote it as a sustained figure.",
-    "aggregate_correction": "Aggregates re-derived from this file's own run_results by tools/spike/reaggregate.py. The samples are unchanged and were never wrong. What changed: median_effective_tokens_per_sec is now the median of the per-run minute-10 wall rate (sustained_effective_tokens_per_sec), matching the window median_sustained_tokens_per_sec already used. Under schema_version 3 it was the whole-run average, which sits above the settled rate by however much the model decays across the run. The whole-run figure is retained under median_whole_run_effective_tokens_per_sec.",
-    "superseded_median_effective_tokens_per_sec": 3.21
+    "median_effective_tokens_per_sec": 3.07,
+    "spread_effective_tokens_per_sec": {
+      "min": 3.03,
+      "max": 3.13,
+      "values": [
+        3.07,
+        3.13,
+        3.03
+      ]
+    },
+    "effective_window": "minute 10 -- the same window as median_sustained_tokens_per_sec, so the two are comparable to each other.",
+    "router_should_use": "median_effective_tokens_per_sec \u2014 it is wall-clock and therefore sees contention that median_sustained_tokens_per_sec, being generation-time only, is blind to.",
+    "median_whole_run_effective_tokens_per_sec": 3.13,
+    "spread_whole_run_effective_tokens_per_sec": {
+      "min": 3.13,
+      "max": 3.2,
+      "values": [
+        3.13,
+        3.2,
+        3.13
+      ]
+    },
+    "whole_run_vs_settled_note": "median_whole_run_effective_tokens_per_sec averages the entire run, including the fast early minutes. It is ABOVE the settled rate by however much the model decays. Do not quote it as a sustained figure."
   }
 }

@@ -2,12 +2,17 @@
 
 | | |
 |---|---|
-| **Status** | NOT_STARTED |
+| **Status** | RUNNING |
 | **Question** | What can each candidate node actually sustain, and what is the minimum viable profile for SR-005 local fallback? |
 | **Time box** | 5 working days per candidate node |
 | **Owner** | Core Systems Engineer · Device/Network Engineer |
 | **Blocks** | ADR-015 · the hardware purchase decision · SR-005 / SR-006 depth · SPIKE-002 · SPIKE-007 · SPIKE-008 |
 | **Fills** | Every `UNKNOWN` in `contracts/policy/capability_profiles.toml` |
+
+> **Status authority is `docs/spikes/INDEX.toml`, not this line.** RUNNING since 2026-08-13. 3.1, 3.2, 3.3 and 3.6 all have measured reports on disk; 3.1 re-runs are in flight on the corrected sampler. Promotion into capability_profiles.toml has NOT happened, so INV-HW-2 still reads every profile as UNAVAILABLE.
+> This header read `NOT_STARTED` until 2026-08-18 while the registry said
+> `RUNNING` and results sat on disk; `tools/reference_lint.py` now refuses
+> that drift (`RF-047`) so the two cannot disagree again.
 
 > **This spike informs the hardware purchase. It is not written to justify one.** If the measurements say no candidate sustains local inference, that is the finding, and the deliverable is a limitation record plus a hardware recommendation — not a smaller definition of "local fallback".
 

@@ -418,7 +418,28 @@ class AutonomyRunner:
                 self.stall_episodes += 1
                 self._bus.publish(
                     "autonomy.loop_stalled", subject="loop",
-                    payload={"since_last_tick_s": round(since, 3),
+                    # NOT ROUNDED, and the reason is not fussiness.
+                    #
+                    # The decision above is `since > limit` on the raw floats.
+                    # This payload is the AUDIT RECORD for INV-AUTO-1 -- it is
+                    # what a reader has to judge the incident by after the fact.
+                    # Rounding `since` to 3 places while leaving `limit` raw
+                    # made the record contradict the decision that produced it:
+                    # 3 * 0.2 is 0.6000000000000001 in binary floating point, so
+                    # any gap in (0.6, 0.6005) was recorded as exactly 0.6 and
+                    # a reader checking the arithmetic would find a stall whose
+                    # own numbers say the limit was never exceeded.
+                    #
+                    # It went red in CI on 2026-08-18 and passed on this
+                    # developer's machine, because the band is about half a
+                    # millisecond wide and only a differently-scheduled watchdog
+                    # poll lands inside it. An intermittently self-refuting
+                    # audit record is worse than a consistently wrong one: it
+                    # invites re-running until the evidence looks tidy.
+                    #
+                    # Record what was compared. Rounding is presentation, and
+                    # presentation belongs to whoever renders it.
+                    payload={"since_last_tick_s": since,
                              "limit_s": limit,
                              "tick_interval_s": self.tick_interval_s,
                              "episode": self.stall_episodes,

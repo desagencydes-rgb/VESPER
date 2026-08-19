@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import ast
 import subprocess
 import sys
 import tomllib
@@ -41,6 +42,14 @@ LADDER = REPO / "contracts" / "policy" / "degradation_ladder.toml"
 TUNABLES = REPO / "contracts" / "policy" / "tunables.toml"
 CAPPROFILES = REPO / "contracts" / "policy" / "capability_profiles.toml"
 LATENCY = REPO / "contracts" / "policy" / "latency_budgets.toml"
+MODEL_PROFILE = REPO / "contracts" / "entities" / "model_profile.schema.json"
+IDEA = REPO / "contracts" / "entities" / "improvement_idea.schema.json"
+TASK = REPO / "contracts" / "entities" / "task.schema.json"
+VERIF_STRATEGY = (REPO / "contracts" / "entities"
+                  / "verification_strategy.schema.json")
+AUTONOMY = REPO / "core" / "autonomy.py"
+INTERLOCK = REPO / "core" / "interlock.py"
+CORE = REPO / "core"
 
 # Directories whose code must never name a product. Scanned once they exist;
 # absence is not a pass, it is reported as "not yet applicable".
@@ -1180,6 +1189,590 @@ def check_latency_budgets() -> Result:
 # --------------------------------------------------------------------------
 # F-stage acceptance gates -- run the real harnesses, do not re-implement them
 # --------------------------------------------------------------------------
+def _json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _nullable(spec: dict) -> bool:
+    """Does this property schema admit null in any of its spellings?"""
+    t = spec.get("type")
+    if t == "null" or (isinstance(t, list) and "null" in t):
+        return True
+    return any(_nullable(sub) for key in ("anyOf", "oneOf", "allOf")
+               for sub in spec.get(key, []) if isinstance(sub, dict))
+
+
+def _returns_dict_with_key(tree, func_name: str, key: str) -> bool:
+    """Does the module-level `func_name` return a dict literal carrying `key`?"""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == func_name:
+            for sub in ast.walk(node):
+                if (isinstance(sub, ast.Return)
+                        and isinstance(sub.value, ast.Dict)
+                        and any(isinstance(k, ast.Constant) and k.value == key
+                                for k in sub.value.keys)):
+                    return True
+    return False
+
+
+def _name_dict_has_key(scope, module, name: str, key: str) -> bool | None:
+    """Does `name` hold a dict carrying `key`? None when it cannot be resolved.
+
+    ONE HOP, AND THE THIRD ANSWER MATTERS. `name = {...}` is resolved directly;
+    `name = helper(...)` is resolved by reading `helper`'s returned dict
+    literal. That second case is not hypothetical -- `autonomy.py` publishes
+    `payload=probe` where `probe = anti_cron_probe(trigger)`, and the returned
+    dict does carry `trigger_id`. A resolver that stopped at literals reported
+    that line as an INV-TRIG-1 violation when the code was correct.
+
+    Anything deeper returns None rather than True or False, and the caller
+    reports it as unresolved. Guessing True would let a real omission through
+    on any indirection; guessing False would cry wolf until someone disabled
+    the check. "I could not tell" is the honest third answer and it is the one
+    that gets acted on.
+
+    IT RESOLVES INSIDE A SCOPE, and that is not a detail. Searching the whole
+    module for an assignment to `probe` found the one inside `anti_cron_probe`
+    -- a dict COMPREHENSION, not a dict literal -- and reported the caller's
+    perfectly correct `probe = anti_cron_probe(trigger)` as unresolvable. Two
+    functions may both use a name like `probe` or `payload`, and a resolver
+    that ignores scope answers a question about the wrong variable.
+    """
+    for node in ast.walk(scope):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == name
+                   for t in node.targets):
+            continue
+        val = node.value
+        if isinstance(val, ast.Dict):
+            return any(isinstance(k, ast.Constant) and k.value == key
+                       for k in val.keys)
+        if isinstance(val, ast.Call) and isinstance(val.func, ast.Name):
+            return _returns_dict_with_key(module, val.func.id, key)
+        return None
+    return None
+
+
+# --------------------------------------------------------------------------
+# CI-022 -- INV-COST-4: a model profile's cost class is NON-NULLABLE.
+# The failure mode is specific, and it is not "the field is missing": it is
+# that a profile nobody classified gets READ as free, and a paid call is then
+# made under a budget that was never asked about it. So a default is refused,
+# null is refused, and dropping the field from `required` is refused -- three
+# spellings of the same silence.
+# --------------------------------------------------------------------------
+def check_cost_class_nonnull() -> Result:
+    r = Result("cost-class-nonnull")
+    if not MODEL_PROFILE.is_file():
+        r.err("contracts/entities/model_profile.schema.json is missing -- "
+              "INV-COST-4 has no subject")
+        return r
+    doc = _json(MODEL_PROFILE)
+    cc = doc.get("properties", {}).get("cost_class")
+    if cc is None:
+        r.err("model_profile declares no `cost_class` property (INV-COST-4)")
+        return r
+    if "cost_class" not in doc.get("required", []):
+        r.err("`cost_class` is not in `required` -- an unclassified profile "
+              "would validate, and INV-COST-4 exists because it would then be "
+              "treated as free")
+    if "default" in cc:
+        r.err(f"`cost_class` declares a default ({cc['default']!r}). A default "
+              "IS the silent classification this invariant forbids")
+    if _nullable(cc):
+        r.err("`cost_class` admits null -- 'we forgot to classify it' becomes "
+              "'it was treated as free'")
+    enum = cc.get("enum")
+    if not enum:
+        r.err("`cost_class` is not an enum, so any string would validate and "
+              "the budget could not branch on it")
+    else:
+        missing = {"free", "paid"} - set(enum)
+        if missing:
+            r.err(f"`cost_class` enum omits {sorted(missing)} -- the cost "
+                  "policy distinguishes them")
+        r.note(f"cost_class enum: {enum}")
+    if doc.get("additionalProperties") is not False:
+        r.err("model_profile permits additional properties, so a misspelled "
+              "`cost_clas` would validate beside a missing real one")
+    return r
+
+
+# --------------------------------------------------------------------------
+# CI-047 -- INV-IDEA-4: nothing leaves the backlog silently.
+# A RETIRED idea with no disposition_reason is indistinguishable from one the
+# system quietly gave up on. The rule has to be STRUCTURAL: the property
+# description already says MANDATORY, and a description does not reject a
+# document.
+# --------------------------------------------------------------------------
+def check_idea_retirement_reason() -> Result:
+    r = Result("idea-retirement-reason")
+    if not IDEA.is_file():
+        r.err("contracts/entities/improvement_idea.schema.json is missing")
+        return r
+    doc = _json(IDEA)
+    status = doc.get("properties", {}).get("status", {})
+    if "RETIRED" not in (status.get("enum") or []):
+        r.err("`status` has no RETIRED state -- INV-IDEA-4 has no subject")
+        return r
+
+    conditional = None
+    for clause in doc.get("allOf", []):
+        cond = clause.get("if", {}).get("properties", {}).get("status", {})
+        if cond.get("const") == "RETIRED" or "RETIRED" in (cond.get("enum") or []):
+            conditional = clause
+            break
+    if conditional is None:
+        r.err("no allOf if/then binds RETIRED to a disposition_reason. The "
+              "property description says MANDATORY; a description does not "
+              "reject a document (INV-IDEA-4)")
+        return r
+
+    then = conditional.get("then", {})
+    if "disposition_reason" not in then.get("required", []):
+        r.err("the RETIRED clause does not `require` disposition_reason")
+    sub = then.get("properties", {}).get("disposition_reason", {})
+    if _nullable(sub) or sub.get("minLength", 0) < 1:
+        r.err("a RETIRED idea may carry an empty or null disposition_reason -- "
+              "an empty reason is silence with extra steps")
+    r.note("RETIRED is structurally bound to a non-empty disposition_reason")
+    return r
+
+
+# --------------------------------------------------------------------------
+# CI-032 -- INV-VERIF-3: verification criteria are TYPED, never free text.
+# RB-004 asks for a "machine-checkable acceptance condition". Free text is
+# checkable only by a model, which makes the thing verified and the thing
+# verifying the same kind of judgement -- and a task can then be declared done
+# by writing a sentence about it.
+# --------------------------------------------------------------------------
+def check_verification_criteria_typed() -> Result:
+    r = Result("verification-criteria-typed")
+    if not TASK.is_file():
+        r.err("contracts/entities/task.schema.json is missing")
+        return r
+    doc = _json(TASK)
+    if "verification_criteria" not in doc.get("required", []):
+        r.err("`verification_criteria` is not required -- a task with no "
+              "acceptance condition could be created (INV-VERIF-3)")
+    vc = doc.get("properties", {}).get("verification_criteria")
+    if vc is None:
+        r.err("task declares no `verification_criteria`")
+        return r
+    ref = vc.get("$ref")
+    if not ref:
+        r.err(f"`verification_criteria` is inline (type={vc.get('type')!r}) "
+              "rather than a $ref to a typed strategy. Free text here is the "
+              "failure INV-VERIF-3 names")
+    elif "verification_strategy" not in ref:
+        r.err(f"`verification_criteria` refs {ref!r}, not the verification "
+              "strategy contract")
+    elif not VERIF_STRATEGY.is_file():
+        r.err("verification_strategy.schema.json is missing, so the $ref "
+              "resolves to nothing and the typing is nominal")
+    else:
+        strat = _json(VERIF_STRATEGY)
+        if strat.get("type") == "string":
+            r.err("verification_strategy is itself a bare string -- a $ref "
+                  "that makes free text look typed is worse than free text")
+        r.note(f"typed via {ref.rsplit('/', 1)[-1]}; strategy requires "
+               f"{strat.get('required')}")
+    return r
+
+
+# --------------------------------------------------------------------------
+# CI-025 -- INV-TRIG-1: every autonomous action resolves to exactly one
+# registered trigger_id, INCLUDING NO-OPS. The no-op clause is the one that
+# matters: a system recording only what it did cannot be audited for what it
+# decided not to do, and "nothing happened" is indistinguishable from "the loop
+# was dead".
+#
+# WHAT COUNTS AS AN ACTION, and why the discriminator is not a hand-picked
+# list. The first version of this check flagged every `autonomy.*` publication
+# and immediately went red on `autonomy.model_call_in_decision_path` -- which
+# is a VIOLATION DIAGNOSTIC emitted from `model_call_attempted(where)`, a
+# function that has no trigger in scope and could not name one if it wanted to.
+# INV-TRIG-1 is about actions, not about every event in the namespace.
+#
+# The rule used instead comes from the code's own structure: an event whose
+# SUBJECT is a trigger is a per-trigger decision, and a per-trigger decision
+# whose payload drops the trigger_id cannot be joined back to its trigger in
+# the durable log. Machinery diagnostics are subject-scoped to something else
+# and are listed explicitly below -- and the check FAILS if a listed exemption
+# is no longer emitted, so the list cannot quietly outlive its reason.
+# --------------------------------------------------------------------------
+
+# Named exemptions: autonomy events that are NOT per-trigger actions. Each must
+# still be emitted somewhere, or the entry is stale and is reported as such.
+NON_ACTION_AUTONOMY_EVENTS = {
+    "autonomy.model_call_in_decision_path":
+        "a refused model call inside the evaluator (A-011.4). Emitted from a "
+        "path that has no trigger in scope by construction",
+}
+
+
+def check_action_has_trigger() -> Result:
+    r = Result("action-has-trigger")
+    if not AUTONOMY.is_file():
+        r.err("core/autonomy.py is missing -- INV-TRIG-1 has no subject")
+        return r
+    tree = ast.parse(AUTONOMY.read_text(encoding="utf-8"))
+
+    # Walk per function, so a payload name resolves against the scope it was
+    # written in rather than against a same-named variable in some other
+    # function. The module itself is included last for any module-level call.
+    scopes = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
+    scopes.append(tree)
+
+    published = []
+    seen_calls = set()
+    for scope in scopes:
+        for node in ast.walk(scope):
+            if not isinstance(node, ast.Call) or id(node) in seen_calls:
+                continue
+            fn = node.func
+            if not (isinstance(fn, ast.Attribute) and fn.attr == "publish"):
+                continue
+            topic = node.args[0] if node.args else None
+            if not (isinstance(topic, ast.Constant)
+                    and isinstance(topic.value, str)
+                    and topic.value.startswith("autonomy.")):
+                continue
+            seen_calls.add(id(node))
+
+            payload = subject = None
+            for kw in node.keywords:
+                if kw.arg == "payload":
+                    payload = kw.value
+                elif kw.arg == "subject":
+                    subject = kw.value
+            if payload is None and len(node.args) >= 3:
+                payload = node.args[2]
+            if subject is None and len(node.args) >= 2:
+                subject = node.args[1]
+
+            # Subject is a trigger => this is a per-trigger decision.
+            trigger_scoped = (isinstance(subject, ast.Attribute)
+                              and subject.attr == "trigger_id")
+
+            carries = False
+            if isinstance(payload, ast.Dict):
+                carries = any(isinstance(k, ast.Constant)
+                              and k.value == "trigger_id"
+                              for k in payload.keys)
+            elif isinstance(payload, ast.Name):
+                carries = _name_dict_has_key(scope, tree, payload.id,
+                                             "trigger_id")
+            published.append((topic.value, node.lineno, carries, trigger_scoped))
+
+    if not published:
+        r.err("no autonomy.* events are published from core/autonomy.py -- the "
+              "check has no subject and would otherwise pass vacuously")
+        return r
+
+    actions = [(t, ln, c) for t, ln, c, scoped in published if scoped]
+    if not actions:
+        r.err("no autonomy event is scoped to a trigger, so INV-TRIG-1 has "
+              "nothing to bind -- either the loop records no decisions or the "
+              "subject convention changed and this check went blind")
+    for topic, line, carries in actions:
+        if carries is None:
+            r.err(f"core/autonomy.py:{line} publishes {topic!r} with a payload "
+                  "this check cannot resolve to a dict. Not assumed either "
+                  "way: extend the resolver or pass a literal, but an "
+                  "unreadable payload is not evidence of a trigger_id "
+                  "(INV-TRIG-1)")
+        elif not carries:
+            r.err(f"core/autonomy.py:{line} publishes {topic!r} about a "
+                  "trigger but drops trigger_id from the payload, so the "
+                  "durable record cannot be joined back to it (INV-TRIG-1)")
+
+    seen = {t for t, _, _, _ in published}
+    for topic, why in sorted(NON_ACTION_AUTONOMY_EVENTS.items()):
+        if topic not in seen:
+            r.err(f"{topic!r} is listed as a non-action exemption but is no "
+                  f"longer emitted. Remove the exemption rather than leaving a "
+                  f"standing hole ({why})")
+
+    noops = [t for t, _, _ in actions if "noop" in t]
+    if not noops:
+        r.err("no trigger-scoped no-op event is published. INV-TRIG-6 makes "
+              "the recorded no-op the evidence that the loop ran at all; "
+              "without one, a dead loop and an idle one look identical")
+
+    exempt = sorted(seen & set(NON_ACTION_AUTONOMY_EVENTS))
+    r.note(f"{len(actions)} trigger-scoped decisions, all carrying trigger_id; "
+           f"no-op events {sorted(set(noops))}; exempt diagnostics {exempt}")
+    return r
+
+
+def _local_imports(path: Path) -> set[str]:
+    """Sibling modules this file imports, by bare module name.
+
+    `from .lease import X` -> {"lease"}; `from core.lease import X` -> same;
+    `import core.lease` -> same. Three spellings of one dependency, and a
+    boundary check that understood only one of them would be trivially evaded
+    by writing another.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            mod = node.module or ""
+            if node.level and not mod:
+                # `from . import lease`
+                found.update(a.name for a in node.names)
+            elif node.level:
+                found.add(mod.split(".")[0])
+            elif mod.startswith("core."):
+                found.add(mod.split(".")[1])
+        elif isinstance(node, ast.Import):
+            for a in node.names:
+                if a.name.startswith("core."):
+                    found.add(a.name.split(".")[1])
+    return found
+
+
+def _boundary(result: Result, subject: Path, forbidden: dict[str, str],
+              why: str) -> None:
+    """Assert `subject` imports none of `forbidden`, and that the ban is real.
+
+    THE SECOND HALF IS THE POINT. A ban list naming modules that do not exist
+    passes on every tree and enforces nothing -- the exact vacuity this repo
+    keeps finding in its own checks. So every forbidden module must be present
+    in core/, or the entry is reported as stale rather than quietly satisfied.
+    """
+    if not subject.is_file():
+        result.err(f"{subject.relative_to(REPO).as_posix()} is missing -- the "
+                   "boundary has no subject")
+        return
+    missing = [m for m in forbidden if not (CORE / f"{m}.py").is_file()]
+    if missing:
+        result.err(f"ban list names modules that do not exist in core/: "
+                   f"{sorted(missing)}. A ban on nothing passes everywhere; "
+                   "remove the entry or fix the name")
+    imported = _local_imports(subject)
+    for mod in sorted(forbidden):
+        if mod in imported:
+            result.err(f"{subject.name} imports core.{mod} -- {forbidden[mod]} "
+                       f"({why})")
+    result.note(f"{subject.name} imports {sorted(imported) or ['nothing local']}; "
+                f"banned: {sorted(forbidden)}")
+
+
+# --------------------------------------------------------------------------
+# CI-019 -- INV-STOP-2: the stop path does not traverse the control plane, the
+# PDP, any lease, or any model inference.
+#
+# The interlock is a dead-man's switch: autonomy runs only while a fresh enable
+# token is present, so stopping is the ABSENCE of a renewal and every failure
+# of the stop path fails toward stopped. That property is destroyed by any
+# dependency that can itself fail, block or refuse -- a stop that needs a lease
+# is a stop that cannot happen during the partition you most want to stop in.
+# --------------------------------------------------------------------------
+def check_interlock_independence() -> Result:
+    r = Result("interlock-independence")
+    _boundary(r, INTERLOCK, {
+        "lease": "the stop path would depend on ownership it may not hold "
+                 "during a partition",
+        "authorize": "the PDP is the control plane's decision point; a stop "
+                     "that can be refused is not a stop",
+        "gateway": "model inference in the stop path makes stopping depend on "
+                   "the thing being stopped",
+        "router": "routing is a model-selection path and can block",
+        "policy": "policy is evaluated by the control plane the stop must "
+                  "outlive",
+        "selfmod": "the self-modification boundary is governed by the runtime "
+                   "the interlock exists to halt",
+    }, "INV-STOP-2")
+    return r
+
+
+# --------------------------------------------------------------------------
+# CI-023 -- INV-TRIG-2: the evaluator holds no model capability.
+#
+# "Is there anything worth doing?" asked of a model is a chatbot talking to
+# itself, and it is also non-reproducible: the same world state would produce
+# different actions on different days. The evaluator decides by predicate over
+# world state or it does not decide. The attempt path must EMIT AND RAISE --
+# emitting alone leaves a build that logs its own violation and carries on.
+# --------------------------------------------------------------------------
+def check_evaluator_no_model_capability() -> Result:
+    r = Result("evaluator-no-model-capability")
+    _boundary(r, AUTONOMY, {
+        "gateway": "the model gateway is a model capability by definition",
+        "router": "the router exists to choose a model",
+        "context": "context assembly is a model-call preparation path",
+    }, "INV-TRIG-2")
+    if not AUTONOMY.is_file():
+        return r
+
+    tree = ast.parse(AUTONOMY.read_text(encoding="utf-8"))
+    fn = next((n for n in ast.walk(tree)
+               if isinstance(n, ast.FunctionDef)
+               and n.name == "model_call_attempted"), None)
+    if fn is None:
+        r.err("no `model_call_attempted` path exists. INV-TRIG-2 requires an "
+              "attempt to be emitted AND raised; with no such function the "
+              "attempt would simply succeed")
+        return r
+    raises = any(isinstance(n, ast.Raise) for n in ast.walk(fn))
+    emits = any(isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "publish" for n in ast.walk(fn))
+    if not emits:
+        r.err("`model_call_attempted` does not publish -- the violation would "
+              "be refused but invisible in the audit trail (A-011.4)")
+    if not raises:
+        r.err("`model_call_attempted` does not raise -- a build that logs its "
+              "own violation and carries on is the failure A-011.4 names")
+    r.note("model_call_attempted both emits and raises")
+    return r
+
+
+# --------------------------------------------------------------------------
+# CI-005 -- INV-COORD-4: wall clock never participates in ordering or
+# supersession. Only HLC does.
+#
+# The failure this refuses is SILENT. Two nodes whose clocks differ by a second
+# will agree on every test in the suite and disagree only about which of two
+# concurrent writes happened last -- and the loser is discarded without anyone
+# being told. That is why ADR-001 puts node_id inside the HLC tuple in the
+# first place: ordering must come from a clock that cannot go backwards
+# relative to another node's.
+#
+# WHAT IT DOES NOT FLAG, deliberately. Comparing "is it 09:00 yet" against the
+# wall clock is not ordering and not supersession -- the alarm does exactly
+# that and is correct to. A check that fired there would need an annotation on
+# every legitimate use, and a check that cries wolf gets disabled, which is the
+# lesson CI-025 already paid for. So only two shapes are refused:
+#
+#   1. a sort/min/max/heapq keyed on a wall-clock timestamp, and
+#   2. a comparison whose BOTH sides are wall-clock timestamps -- the shape of
+#      "which record wins", as opposed to "has this moment arrived".
+#
+# ESCAPE HATCH. `WALL-CLOCK-OK` on the statement's lines allows it, and every
+# use is reported as a note rather than passing silently, so an annotation is
+# something a reviewer sees rather than something that hides.
+# --------------------------------------------------------------------------
+
+# Timestamp names only. `swallowed` contains "wall" and `wall_tokens_per_sec`
+# is a throughput, so a substring test would flag both -- the check has to know
+# the difference between a clock reading and a word that happens to contain one.
+_WALL_NAME = re.compile(r"(^|_)at_wall$|^wall(_iso|_ms)?$|_wall_ms$")
+_CLOCK_CALLS = {("time", "time"), ("datetime", "now"), ("datetime", "utcnow"),
+                ("datetime", "today"), ("time", "time_ns")}
+_ORDERING_FNS = {"sorted", "min", "max"}
+_ANNOTATION = "WALL-CLOCK-OK"
+
+
+def _names_in(node: ast.AST) -> set[str]:
+    out: set[str] = set()
+    for n in ast.walk(node):
+        if isinstance(n, ast.Attribute):
+            out.add(n.attr)
+        elif isinstance(n, ast.Name):
+            out.add(n.id)
+        elif isinstance(n, ast.Constant) and isinstance(n.value, str):
+            out.add(n.value)
+    return out
+
+
+def _is_wall(node: ast.AST) -> bool:
+    """True when this expression reads a wall clock."""
+    if any(_WALL_NAME.search(nm) for nm in _names_in(node)):
+        return True
+    for n in ast.walk(node):
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute):
+            base = n.func.value
+            if isinstance(base, ast.Name) and (base.id, n.func.attr) in _CLOCK_CALLS:
+                return True
+    return False
+
+
+def _annotated(lines: list[str], node: ast.AST) -> bool:
+    lo = getattr(node, "lineno", None)
+    hi = getattr(node, "end_lineno", lo)
+    if lo is None:
+        return False
+    # One line of slack each way: the annotation is often on the line above.
+    for k in range(max(1, lo - 1), min(len(lines), (hi or lo) + 1) + 1):
+        if _ANNOTATION in lines[k - 1]:
+            return True
+    return False
+
+
+def check_no_wall_clock_ordering() -> Result:
+    r = Result("no-wall-clock-ordering")
+    if not CORE.is_dir():
+        r.note("core/ does not exist yet -- not applicable")
+        return r
+    files = sorted(CORE.glob("*.py"))
+    if not files:
+        r.err("core/ contains no modules -- INV-COORD-4 cannot be evaluated, "
+              "and a check with nothing to scan must not report PASS")
+        return r
+
+    scanned = allowed = 0
+    for path in files:
+        src = path.read_text(encoding="utf-8")
+        lines = src.splitlines()
+        try:
+            tree = ast.parse(src)
+        except SyntaxError as e:
+            r.err(f"{path.name}: does not parse ({e.msg}) -- cannot be scanned")
+            continue
+        scanned += 1
+        rel = path.relative_to(REPO).as_posix()
+
+        for n in ast.walk(tree):
+            # ---- shape 1: ordering keyed on a wall clock
+            key = None
+            if isinstance(n, ast.Call):
+                fname = None
+                if isinstance(n.func, ast.Name):
+                    fname = n.func.id
+                elif isinstance(n.func, ast.Attribute):
+                    fname = n.func.attr
+                if fname in _ORDERING_FNS or fname == "sort" or (
+                        isinstance(n.func, ast.Attribute)
+                        and isinstance(n.func.value, ast.Name)
+                        and n.func.value.id == "heapq"):
+                    key = next((kw.value for kw in n.keywords
+                                if kw.arg == "key"), None)
+                    subject = key if key is not None else n
+                    if _is_wall(subject):
+                        if _annotated(lines, n):
+                            allowed += 1
+                            r.note(f"{rel}:{n.lineno} wall-clock ordering "
+                                   f"allowed by {_ANNOTATION}")
+                        else:
+                            r.err(f"{rel}:{n.lineno} orders by a wall-clock "
+                                  f"timestamp. INV-COORD-4: only HLC orders. "
+                                  f"Two nodes a second apart silently disagree "
+                                  f"about which write won")
+
+            # ---- shape 2: supersession by comparing two wall clocks
+            if isinstance(n, ast.Compare) and n.ops and isinstance(
+                    n.ops[0], (ast.Lt, ast.Gt, ast.LtE, ast.GtE)):
+                sides = [n.left, *n.comparators]
+                if len(sides) >= 2 and all(_is_wall(s) for s in sides):
+                    if _annotated(lines, n):
+                        allowed += 1
+                        r.note(f"{rel}:{n.lineno} wall-clock comparison "
+                               f"allowed by {_ANNOTATION}")
+                    else:
+                        r.err(f"{rel}:{n.lineno} decides precedence by "
+                              f"comparing two wall-clock timestamps. "
+                              f"INV-COORD-4: supersession is HLC's, and the "
+                              f"loser here is discarded without anyone being "
+                              f"told")
+
+    r.note(f"scanned {scanned} modules in core/; {allowed} annotated "
+           f"exception(s)")
+    return r
+
+
 def _run_acceptance(name: str, script: str, stage: str) -> Result:
     """Run an acceptance harness as a subprocess and surface its verdict.
 
@@ -1195,9 +1788,39 @@ def _run_acceptance(name: str, script: str, stage: str) -> Result:
         return r
     proc = subprocess.run([sys.executable, str(path)], capture_output=True,
                           text=True, cwd=str(REPO), timeout=900)
-    tail = [ln for ln in proc.stdout.splitlines() if ln.strip()][-6:]
+    lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+    tail = lines[-6:]
     if proc.returncode != 0:
         r.err(f"{stage} acceptance gate FAILED (exit {proc.returncode})")
+
+        # SURFACE THE CASE THAT FAILED, not just the closing notes.
+        #
+        # This used to print the last six lines only. Every acceptance runner
+        # ends with the same block -- the standing "owed" notes and the gate
+        # verdict -- so a CI failure showed the items that are ALWAYS owed and
+        # never the assertion that actually broke. On 2026-08-18 that made a red
+        # `gates` job unreadable: it listed the 24 h endurance run and the alarm
+        # hardware cases, which are owed on every run including the green ones.
+        #
+        # The failing case is identified by the harness's own markers, so this
+        # does not need to know what any particular gate asserts.
+        # `expected-fail` lines are negative controls behaving CORRECTLY -- a
+        # control that passes is the defect, not one that fails. Including them
+        # listed eight healthy controls as failures and buried the one real
+        # MISS, which is the same illegibility this block exists to remove.
+        failed = [ln for ln in lines
+                  if ln.startswith("[FAIL]")
+                  or " MISS:" in ln
+                  or " ERROR:" in ln]
+        if failed:
+            r.err("  the assertions that actually failed:")
+            for ln in failed[:20]:
+                r.err(f"    {ln.strip()}")
+            if len(failed) > 20:
+                r.err(f"    ... and {len(failed) - 20} more")
+        else:
+            r.err("  no [FAIL]/MISS/ERROR line was produced -- the runner exited "
+                  "non-zero without naming a case, which is itself the defect")
         for ln in tail:
             r.err(f"  {ln}")
         return r
@@ -1238,6 +1861,33 @@ def check_f5_acceptance() -> Result:
                            "F5 autonomy")
 
 
+def check_f6_acceptance() -> Result:
+    """F6 placement and survival -- A-048 in full, plus A-017.
+
+    A-048's negative controls are BUILDS, not inputs: a node-pinned placement
+    and an undamped one. A build that pins VESPER to one machine passes every
+    other acceptance test in the suite and fails the owner's actual
+    requirement, which is why the control has to be a whole placement policy
+    rather than a bad fixture.
+    """
+    return _run_acceptance("f6-acceptance", "verification/run_f6_acceptance.py",
+                           "F6 placement/survival/recovery")
+
+
+def check_placement_stress() -> Result:
+    """Properties over randomised fabrics, not outcomes over chosen ones.
+
+    Separate from the F6 gate so a failure is attributable: the gate says a
+    named case broke, this says a property broke on an input nobody chose. The
+    scoring defect that made a 20x throughput gain read as 9% passed four of
+    A-048's nine cases before a fifth caught it, which is the argument for
+    having both.
+    """
+    return _run_acceptance("placement-stress",
+                           "verification/stress_placement.py",
+                           "placement property/stress")
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -1246,6 +1896,8 @@ CHECK_FNS = {
     "f4-acceptance": check_f4_acceptance,
     "f3-acceptance": check_f3_acceptance,
     "f5-acceptance": check_f5_acceptance,
+    "f6-acceptance": check_f6_acceptance,
+    "placement-stress": check_placement_stress,
     "adr-gate": check_adr_gate,
     "scene-no-escape-hatch": check_scene_schema,
     "cost-policy": check_cost_policy,
@@ -1256,6 +1908,13 @@ CHECK_FNS = {
     "tunable-range-immutable": check_tunables,
     "measured-not-declared": check_measured_not_declared,
     "latency-budgets-declared": check_latency_budgets,
+    "cost-class-nonnull": check_cost_class_nonnull,
+    "idea-retirement-reason": check_idea_retirement_reason,
+    "verification-criteria-typed": check_verification_criteria_typed,
+    "action-has-trigger": check_action_has_trigger,
+    "interlock-independence": check_interlock_independence,
+    "evaluator-no-model-capability": check_evaluator_no_model_capability,
+    "no-wall-clock-ordering": check_no_wall_clock_ordering,
 }
 
 

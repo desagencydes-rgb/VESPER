@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "spike": "SPIKE-004",
+  "section": "perceptual limits through a 45° fold",
+  "device": "Samsung Galaxy J3 (2016)",
+  "screen": {
+    "w": 360,
+    "h": 640,
+    "dpr": 2
+  },
+  "user_agent": "Mozilla/5.0 (Linux; Android 5.1.1; SM-J320F Build/LMY47V) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/55.0.2883.91 Mobile Safari/537.36",
+  "marks": [
+    {
+      "test": "glyph height",
+      "unit": "px cap height",
+      "level": 40,
+      "layout": "single",
+      "flipped": true,
+      "mirrored": true,
+      "eye_to_pane_cm": 50,
+      "strip_depth_cm": 6,
+      "folded_path_cm": 53
+    },
+    {
+      "test": "colour survival",
+      "unit": "swatch set",
+      "level": 1,
+      "layout": "single",
+      "flipped": true,
+      "mirrored": true,
+      "eye_to_pane_cm": 50,
+      "strip_depth_cm": 6,
+      "folded_path_cm": 53
+    },
+    {
+      "test": "viewing arc",
+      "unit": "degrees off-axis",
+      "level": 1,
+      "layout": "single",
+      "flipped": true,
+      "mirrored": true,
+      "eye_to_pane_cm": 50,
+      "strip_depth_cm": 6,
+      "folded_path_cm": 53
+    }
+  ],
+  "received_at_utc": "2026-08-17T22:56:04.267143+00:00",
+  "reported_by": "192.168.100.28"
+}

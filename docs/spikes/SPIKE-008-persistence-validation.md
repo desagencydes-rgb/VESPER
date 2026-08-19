@@ -2,13 +2,18 @@
 
 | | |
 |---|---|
-| **Status** | NOT_STARTED |
+| **Status** | RUNNING |
 | **Question** | Does the ADR-002 storage design actually deliver atomic epoch fencing, crash-safe checkpoints within budget, and readable stores on every node class? |
 | **Time box** | 5 working days |
 | **Owner** | Core Systems Engineer |
 | **Depends on** | SPIKE-001 |
 | **Raised by** | ADR-002, filed 2026-08-12 |
 | **Blocks** | ADR-002 acceptance confidence · F0 increment 1 |
+
+> **Status authority is `docs/spikes/INDEX.toml`, not this line.** RUNNING. Seven of nine criteria closed including all four blocking ones; criteria 8 and 9 remain open.
+> This header read `NOT_STARTED` until 2026-08-18 while the registry said
+> `RUNNING` and results sat on disk; `tools/reference_lint.py` now refuses
+> that drift (`RF-047`) so the two cannot disagree again.
 
 > The other seven spikes measure hardware and platforms. **This one measures whether a decision survives contact with them.** ADR-002 chose SQLite in WAL mode because `UPDATE … WHERE lease_epoch = ?` is a single atomic statement and is therefore the fencing primitive `INV-OWN-3` needs. That reasoning is sound on paper. Migration retrofitted onto durable data is the classic unrecoverable cost (GAP-046), so the paper is checked *before* F0, not during it.
 

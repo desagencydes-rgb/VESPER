@@ -266,6 +266,116 @@ CREATE_CASES: list[tuple[str, str, str, str]] = [
 #  expected exit code, description)
 # --------------------------------------------------------------------------
 ADR002 = "docs/ADR/ADR-002-persistence.md"
+
+# ==========================================================================
+# Red runs for the four checks implemented 2026-08-18. Each mutation is the
+# deliberate violation CHECKS.toml declares for that check -- a declared
+# self-test string is not a red run, and the difference is the whole reason
+# this harness exists.
+# ==========================================================================
+
+MODEL_PROFILE = "contracts/entities/model_profile.schema.json"
+IDEA = "contracts/entities/improvement_idea.schema.json"
+TASK = "contracts/entities/task.schema.json"
+AUTONOMY = "core/autonomy.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-022
+    ("cost-class-nonnull", MODEL_PROFILE,
+     _sub('"required": ["profile_id", "schema_version", "cost_class", '
+          '"locality", "capability_tier", "min_node_profile"]',
+          '"required": ["profile_id", "schema_version", '
+          '"locality", "capability_tier", "min_node_profile"]', 1),
+     "a model profile fixture with no cost_class: the field leaves `required`"),
+
+    ("cost-class-nonnull", MODEL_PROFILE,
+     _sub('"cost_class": {\n      "enum"',
+          '"cost_class": {\n      "default": "free",\n      "enum"', 1),
+     "a default cost class -- the silent classification INV-COST-4 forbids"),
+
+    # ---------------------------------------------------------------- CI-047
+    ("idea-retirement-reason", IDEA,
+     _sub('"$comment": "INV-IDEA-4 -- nothing leaves the backlog silently.",\n'
+          '      "if": {\n        "properties": {\n          "status": {\n'
+          '            "const": "RETIRED"',
+          '"$comment": "INV-IDEA-4 -- nothing leaves the backlog silently.",\n'
+          '      "if": {\n        "properties": {\n          "status": {\n'
+          '            "const": "MERGED"', 1),
+     "the RETIRED clause quietly rebound to another state, leaving retirement "
+     "reasonless while the description still claims MANDATORY"),
+
+    # ---------------------------------------------------------------- CI-032
+    ("verification-criteria-typed", TASK,
+     _sub('"$ref": "https://vesper.local/contracts/entities/'
+          'verification_strategy.schema.json"',
+          '"type": "string"', 1),
+     "verification_criteria as free text -- RB-004's machine-checkable "
+     "acceptance condition becomes a sentence"),
+
+    # ---------------------------------------------------------------- CI-025
+    ("action-has-trigger", AUTONOMY,
+     _sub('noop = {"trigger_id": t.trigger_id, "tick": self.ticks,',
+          'noop = {"tick": self.ticks,', 1),
+     "a recorded no-op that drops its trigger_id, so a quiet night and a dead "
+     "loop become indistinguishable (INV-TRIG-6)"),
+]
+
+
+INTERLOCK = "core/interlock.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-019
+    ("interlock-independence", INTERLOCK,
+     _sub("from .bus import EventBus",
+          "from .bus import EventBus\nfrom .lease import LeaseManager", 1),
+     "the stop path taking a lease dependency -- a stop that needs ownership "
+     "cannot happen during the partition you most want to stop in"),
+
+    # ---------------------------------------------------------------- CI-023
+    ("evaluator-no-model-capability", AUTONOMY,
+     _sub("from .bus import EventBus",
+          "from .bus import EventBus\nfrom .gateway import ModelGateway", 1),
+     "the evaluator importing the model gateway -- 'is there anything worth "
+     "doing?' asked of a model is a chatbot talking to itself"),
+
+    ("evaluator-no-model-capability", AUTONOMY,
+     _sub('        raise ModelCallInDecisionPath(\n'
+          '            f"a model call was attempted inside {where}; the '
+          'evaluator has no "\n'
+          '            "model path by construction and this call is refused")',
+          "        return None", 1),
+     "a build that emits its own violation and carries on -- A-011.4 requires "
+     "the attempt to be raised, not merely logged"),
+]
+
+BUS = "core/bus.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-005
+    # The registry's declared self-test, verbatim: "Sort a collection by
+    # observed_at_wall without a WALL-CLOCK-OK annotation." bus.py is where it
+    # belongs -- its own header claims observed_at_wall is "structurally
+    # excluded from every ordering path in this file", and a claim in a
+    # docstring is exactly the kind that stops being true quietly.
+    ("no-wall-clock-ordering", BUS,
+     _sub("    observed_at_wall: str",
+          "    observed_at_wall: str\n\n"
+          "    def _replay_order(self, events):\n"
+          "        return sorted(events, key=lambda e: e.observed_at_wall)", 1),
+     "replay ordered by observed_at_wall -- two nodes a second apart would "
+     "silently disagree about which write won, and the loser is discarded "
+     "with nobody told"),
+
+    ("no-wall-clock-ordering", BUS,
+     _sub("    observed_at_wall: str",
+          "    observed_at_wall: str\n\n"
+          "    def supersedes(self, other):\n"
+          "        return self.observed_at_wall > other.observed_at_wall", 1),
+     "supersession decided by comparing two wall clocks -- the shape "
+     "INV-COORD-4 refuses, as distinct from asking whether a moment "
+     "has arrived"),
+]
+
 REGISTER = "docs/ADR/ADR-REGISTER.md"
 _F0_PROBE = ("core/_selftest_probe.py", "# deliberate violation for tools/ci/self_test.py\n")
 
@@ -370,9 +480,15 @@ LINT_CASES: list[tuple[list[str], str, object, str]] = [
     # CI-041 red-run coverage half. Mark a check implemented, forget the harness
     # case, and the registry used to stay green -- the "checks that only verify
     # their own existence" antipattern.
+    # Repointed from CI-025 to CI-004 on 2026-08-18, because CI-025 was
+    # implemented that day and the mutation stopped applying -- which the
+    # harness reported as "the mutation did not apply", exactly as it should.
+    # A self-test that silently stops testing is worse than none, so the
+    # subject moves to a check that is still PENDING rather than the case
+    # being quietly dropped.
     (["tools/ci/checks.py", "ci-registry"], "verification/ci/CHECKS.toml",
-     _sub('[checks.CI-025]\nname = "action-has-trigger"\nenforces = ["INV-TRIG-1"]\nkind = "structural"\nimpl = "PENDING"',
-          '[checks.CI-025]\nname = "action-has-trigger"\nenforces = ["INV-TRIG-1"]\nkind = "structural"\nimpl = "tools/ci/checks.py action-has-trigger"', 1),
+     _sub('[checks.CI-004]\nname = "bus-consumer-idempotency"\nenforces = ["INV-COORD-5"]\nkind = "structural"\nimpl = "PENDING"',
+          '[checks.CI-004]\nname = "bus-consumer-idempotency"\nenforces = ["INV-COORD-5"]\nkind = "structural"\nimpl = "tools/ci/checks.py bus-consumer-idempotency"', 1),
      "CI-041: a check marked implemented with no executed red run"),
 
 ]

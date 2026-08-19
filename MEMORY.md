@@ -19,6 +19,16 @@ struck through and corrected, because the correction is usually the useful part.
 Ryzen 5 5500 · 12 logical cores · **15.9 GB DDR4** · RX 6650 XT with **7.2 GB usable
 VRAM, measured** · 475.9 GB disk · Windows 11 · llama.cpp `b10405-e79e4bf66`, Vulkan.
 
+> **THERE ARE TWO `llama-server.exe` ON THIS MACHINE AND ONLY ONE IS COMPARABLE.**
+> Use `C:\Projects\VESPER-runtime\llama.cpp\llama-server.exe` — that is
+> `b10405-e79e4bf66`, and every figure in the table below was measured with it.
+> `C:\Tools\llama-cpp\llama-server.exe` is build **8631**, a different
+> checkpoint. It starts, loads, and emits tokens perfectly well; the figures
+> simply are not comparable to these, and nothing says so. The comparable one
+> is the **9 KB** file, not the 14 MB one — it is a launcher against 52 DLLs.
+> `PLAN_2026-08-18` named the wrong path; `run_tier_matrix.ps1` names the right
+> one. See `docs/planning/spike-results/SPIKE-001-RUNNER-BINARY-TRAP.md`.
+
 **Measured sustained throughput** (`SPIKE-001` §3.1, median of 3 × 10-min runs, GGUF sizes
 read from the files themselves on 2026-08-17):
 
@@ -81,6 +91,38 @@ ASUS VivoBook · i3-8130U · 4 logical cores · **3.71 GB RAM** · Intel UHD 620
 Its value is not compute. It is a **second real node** for distributed work, and a host for
 long-clock tests that need wall time rather than power — the endurance harness is ~30 MB
 and 5 threads, so this laptop runs it comfortably while the desktop does real work.
+
+**Reaching it** (established 2026-08-17): `ssh -i ~/.ssh/vesper_node2 csf@192.168.100.102`,
+key `vesper_node2` authorised in `~/.ssh/authorized_keys`. `sshd` had to be enabled once with
+`systemctl enable --now ssh`. **ICMP is blocked in both directions — ping proves nothing here;
+test TCP/22 instead.** Desktop↔laptop TCP works, so there is no AP isolation and `SPIKE-009`'s
+premise is not blocked.
+
+**It never sleeps, and that is why the alarm lives here.** Three layers, all verified live on
+2026-08-17: a `logind` drop-in `10-vesper-nosleep.conf` (`HandleLidSwitch`/`ExternalPower`/
+`Docked` = ignore, and `IdleAction=ignore` read back over D-Bus), xfce
+`presentation-mode=true` with `inactivity-on-ac=0` / `lid-action-on-ac=0` / `dpms-enabled=false`,
+and a `systemd-inhibit` lock. **The inhibitor does NOT survive a reboot** — it was gone when
+checked; the other two layers did survive and are the load-bearing ones.
+
+Audio: built-in **analog** HDA Intel PCH, PipeWire + `pipewire-pulse` + wireplumber.
+`spd-say` ships; `alsa-utils` and `pulseaudio-utils` were installed 2026-08-17.
+`csf` is in `audio` and (since 2026-08-17) `input`.
+
+### Why the alarm is on node 2 and not node 1
+
+Node 1's only audible outputs are the two monitors' **HDMI** speakers — the rear analog jack
+and the headset are both inaudible in the room. Windows resumes from a timer wake with the
+**panels dark**, and a dark panel has no audio endpoint, so the alarm plays into nothing.
+`ES_DISPLAY_REQUIRED` prevents a panel sleeping but does **not wake one already asleep**, and
+`SC_MONITORPOWER` from a locked session did not override it. Five rehearsals, five silences.
+
+`CONSOLELOCK` is **not** what governs sign-in-on-wake on this machine: Windows Hello is
+enabled, so Hello's policy wins and the legacy value is ignored — which is also why the
+setting is absent from Settings. Setting it to 0 changed nothing.
+
+Node 2 has none of these: analog speakers, no display in the path, and a session lock that
+gates neither audio nor input.
 
 ### Other devices
 Owner's phone (always on) · iPhone · Samsung Galaxy J3 (2016, 360×640 @ dpr 2, Android 5.1.1)
@@ -150,6 +192,168 @@ Owner's phone (always on) · iPhone · Samsung Galaxy J3 (2016, 360×640 @ dpr 2
 
 ---
 
+## 4b. What the night of 2026-08-17/18 established, and what it cost to learn
+
+### The instrument, not the operator (SPIKE-004)
+
+`spike004_ghost.html` was written on a desktop in CSS that the target handset's
+**Chrome 55** cannot parse — `display:grid` (Cr 57), `place-items` (59), `min()`
+(79), flex `gap` (84), `inset` (87), `aspect-ratio` (88). **An unsupported
+declaration is dropped silently**, so it looked correct everywhere except on the
+one device it is for. Four of the six tests rendered *nothing*, and a commit had
+already blamed the operator for recording defaults.
+
+**Three field runs were lost to this, in three different ways**, and the general
+lesson is worth more than any of them: *before concluding a reading is the
+operator's fault, establish that the instrument could show them anything.*
+
+- The tap zones measured **0 × 0**, so the level control had no hit target.
+- The first `baseline` pass ran with `flip` and `mirror` **on** — meaningless on
+  a bare panel with no fold — so it measured how small reversed text can be
+  read. `glyph height` came back 40 px, the *largest* value on the scale.
+- The next two ran on a page loaded **before** the fix, from a tab nobody
+  reloaded, and nothing in the record said so.
+
+**Fixed, and the fixes are the reusable part.** The page POSTs a capability
+probe on load (`CSS.supports()` plus measured rects), the server substitutes the
+served file's own sha256 for `__BUILD__` so a stale page cannot hide, `baseline`
+forces the transforms off, and the wrapping `layout` button became three
+non-wrapping ones. **SPIKE-004 still has zero valid readings.** It is parked and
+it blocks nothing — its own §1 says so.
+
+### `DF-PLACE` had two gaps that only show up when you implement it
+
+1. **`hosts` filters on trust zone alone**, which makes `A-048.4` unsatisfiable:
+   a `Z0 foreground_only` node would be a top-ranked *full* host and survival
+   would never be entered on any topology. `INV-PLACE-3` says survival begins
+   when no **full host** is reachable, and `INV-TRUST-2` permits runtime
+   survival exactly there — those cohere only if such a node is never a full
+   host. `core/placement.py::is_full_host` encodes that, with the alternative
+   reading named in case the corpus meant the literal one.
+2. **The degradation bypass is listed after two gates that have already
+   returned**, so it is dead code as written. `INV-PLACE-2`'s prose governs and
+   the bypass goes first.
+
+**The survival core is ALL-OR-NOTHING.** Filling it greedily makes it partially
+satisfiable, and the property harness found what that produces: at pressure 0.75
+a core member fell out for want of storage, and at 0.95 three others stopped
+fitting, released their budget, and **it came back**. A core that reappears as
+conditions worsen is not a core.
+
+**A ratio test needs a magnitude whose ratios mean something.** The first scalar
+score was additive with availability weighted +1000, so a node with **twenty
+times** the throughput scored 9% better and placement returned KEEP.
+
+### Reaching node 2, and what is armed on it
+
+`ssh -i ~/.ssh/vesper_node2 csf@192.168.100.102` — the username is **`csf`**,
+recorded here because probing six plausible names found none of them and this
+file already had the answer.
+
+**The 09:00 alarm is a detached process, not a timer.** `pid 32626`,
+`alarm_night.py fire --at 2026-08-18 09:00`, reparented to init, one long
+`time.sleep()` to five minutes before due. **There is no systemd timer and no
+cron behind it**: if the process dies or the machine reboots, there is no alarm
+and nothing will say so. That is the single largest fragility in the alarm
+setup and it is recorded rather than fixed, because changing it at 01:40 on the
+night it has to work is the wrong time to test a change.
+
+`A-034.2` (partition, both sides live) is **no longer blocked on capability** —
+two real nodes and key-based SSH both exist. It was deliberately not run on the
+night of 08-17/18 because it requires partitioning the network on the machine
+holding that alarm.
+
+---
+
+## 4c. The alarm on node 2 — what the day of 2026-08-18 established
+
+### The `arm` subcommand cannot run on the node the alarm lives on
+
+`tools/ops/alarm_night.py arm` is **Windows-only**. It shells out to
+`powershell -Command Register-ScheduledTask ... -WakeToRun`, and node 2 has
+neither `powershell` nor `pwsh`. It is a leftover from when the alarm lived on
+node 1.
+
+**So the only usable path on node 2 is `fire` launched detached** — which is
+precisely the single point of failure, and it is not an oversight in the
+operator's habits, it is the absence of an implementation.
+
+### "This node needs no wake step" is a premise, not a guarantee
+
+`alarm_node_linux.py`'s header states *"THIS NODE NEEDS NO WAKE STEP … there is
+no rtcwake, no wake timer, and none of the class of failure that comes with
+them."* That is true **only while the three stay-awake layers hold**, and
+nothing was checking that they do. Measured 2026-08-18:
+
+| | |
+|---|---|
+| `HandleLidSwitch/ExternalPower/Docked` | `ignore` — present in the drop-in |
+| `IdleAction` | `ignore`, read live over D-Bus |
+| xfce `presentation-mode` / `inactivity-on-ac` | `true` / `0`, read live |
+| `sleep.target`, `suspend.target`, `hibernate.target` | **`static` — NOT masked** |
+| `/sys/class/rtc/rtc0/wakealarm` | **empty — no RTC wake armed** |
+
+Lid close and idle are covered. **A manual suspend or a power-off is not**, and
+a suspended laptop will not ring, because there is no wake path to ring it.
+
+### The watchdog restores the primary; it never fires
+
+`tools/ops/alarm_watchdog.py` + a `systemd --user` timer every 2 min. One
+firing path exists at all times, so a double alarm is structurally impossible
+rather than merely unlikely. Three refusals: stale intent, already-completed
+due, live primary. Live primary is matched by reading argv out of `/proc` —
+`pgrep -f` matches the launcher wrapper *and the shell running the pgrep*, and
+a watchdog that matches its own command line concludes "all is well" over a
+dead alarm.
+
+**`Linger=yes` is set. Autologin is deliberately NOT.** Autologin removes the
+laptop's login password; that is a security trade the owner makes, not one
+engineering makes with a sudo password handed over for a different purpose.
+Audio was measured reachable from a `systemd-run --user` unit with no
+graphical session, so autologin looks unnecessary — **expected, not verified.
+The only thing that verifies it is an attended reboot.**
+
+### The failure worth remembering, because of how it presented
+
+The watchdog's first version passed every refusal test and did not work.
+`Popen(start_new_session=True)` detaches from the terminal but **not from the
+systemd cgroup**, and the watchdog is a `Type=oneshot` unit whose `KillMode`
+defaults to `control-group`. Systemd killed the restored alarm the instant the
+watchdog finished — 2 ms after launching it.
+
+The journal recorded `{"action": "relaunch", "relaunched_pid": 518375}` and the
+unit recorded `Result=success`. **Both were true statements about what the
+watchdog did, and the alarm was dead anyway.** It is the `spd-say` lesson in a
+new place: exiting 0 is a self-report, and the fact is whether anything is
+running. The fix goes through `systemd-run --user` into its own transient unit
+and then re-reads `/proc`.
+
+### `A-034.2` is blocked on transport, not on the alarm
+
+The note written on 2026-08-17 said `A-034.2` was ready and held back only
+because node 2 carried the alarm. **That was wrong.** `A-034.2` partitions two
+live control-plane sides, and a repo-wide search for sockets, HTTP servers,
+asyncio servers or RPC finds exactly one network binding in the tree — the
+SPIKE-004 ghost instrument. Key-based SSH is the *operator's* access channel,
+not VESPER's control plane. F0's original note was the accurate one. The real
+blocker is `SR-016`/`SR-017`, both still `DESIGNED`.
+
+### The iPhone alarm rung is a system behaviour, not something to build
+
+**AlarmKit** (iOS/iPadOS 26+) rings on the Lock Screen, StandBy and Dynamic
+Island through silent mode, and **a volume-button press dismisses it** — an
+Apple DTS engineer states this directly. That is `41.3`'s no-speech/no-screen/
+no-unlock acknowledgement, delivered as a system behaviour.
+
+The cost is an **entitlement Apple reviews**, which is exactly the risk
+`SPIKE-003` §2 names in advance: *"entitlements are frequently documented and
+unobtainable."* It counts when it is held, not when it is cited. **Android is
+the cheaper second rung** — `MediaSession` + a foreground service, no
+entitlement, and what every alarm app on the platform already does.
+
+Full record: `docs/planning/spike-results/SPIKE-003-ACK-CHANNEL-PARTIAL.md`
+and `ALARM-SPOF-OWNER-ACTIONS.md`.
+
 ## 5. Open questions, recorded rather than resolved
 
 1. **What window must `C1` run for?** `AT-03` calls it the most important run in the
@@ -178,3 +382,6 @@ Owner's phone (always on) · iPhone · Samsung Galaxy J3 (2016, 360×640 @ dpr 2
 | Owner decisions | `docs/decisions/OWNER_DECISIONS.md` |
 | Endurance evidence, 23 h partial | `docs/planning/spike-results/A-029-endurance-2026-08-16/` |
 | Procurement and model evaluations | `docs/planning/MACBOOK_PROCUREMENT_BENCHMARK.md`, `QWEN38_27B_EVALUATION.md` |
+| Placement / survival | `core/placement.py`, `verification/run_f6_acceptance.py`, `verification/stress_placement.py` |
+| Alarm armed-state evidence | `docs/planning/spike-results/ALARM-0900-armed-verification-20260818.json` |
+| J3 browser capability probes | `docs/planning/spike-results/SPIKE-004-capability-probe-*.json` |
