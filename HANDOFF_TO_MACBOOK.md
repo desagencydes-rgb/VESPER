@@ -16,6 +16,25 @@ command's output, the command wins.
 
 ---
 
+## 0. SUPERSEDED 2026-08-19 — two of the three now travel
+
+Section 1 below described three things a clone does not bring. Two of them have
+since been put **inside the repo**, so they arrive with `git clone` and need no
+manual copying:
+
+| | Where it is now | What you do |
+|---|---|---|
+| **Skills** (`graphify`, `browse`) | `.claude/skills/` | **Nothing.** Project-scoped skills load automatically |
+| **Memory files** | `docs/session-memory/` | Copy them once into your own memory directory — see that folder's README |
+| **The node 2 SSH key** | **NOT in the repo, and never will be** | Move it by hand. See §1b |
+
+**The key stays manual on purpose.** A private key in a git repository is
+compromised the moment the repository is cloned, mirrored, or made public, and
+it cannot be un-published by deleting it later. No convenience is worth that.
+
+Section 1 is retained below as written, because its reasoning about *why* these
+things do not travel is still the thing worth understanding.
+
 ## 1. Three things that do not travel
 
 ### a. The personal memory directory

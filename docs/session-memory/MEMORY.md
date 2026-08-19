@@ -1,0 +1,8 @@
+- [Lay out records before working on them](lay-out-records-before-working-on-them.md) — summarize what a spike/ADR/measurement says before asking for a decision; naming an ID is not laying out a decision
+- [A-029 endurance run in flight](a029-endurance-run-in-flight.md) — NOT in flight; machine free to power off anytime, gate rescheduled to week 3
+- [VESPER carries its own MEMORY.md](vesper-repo-memory-file.md) — repo-root memory file; read it before reasoning about hardware, models or doctrine
+- [Lead with the critical path](lead-with-the-critical-path-not-the-interesting-thing.md) — a deferred gate gets one line; don't spend turns being right about week-3 work
+- [Verify instruments before asking the owner](verify-instruments-before-asking-the-owner.md) — three field runs burned on one broken tool; drive it end-to-end myself first
+- [Overnight autonomous sessions](overnight-autonomous-sessions.md) — build-order work to done, then the fixed wrap-up: docs, memory, push, verify, power off
+- [/code-review ultra is unavailable](code-review-ultra-unavailable.md) — repo too big; use a path-scoped local review, never gate a day on it
+- [Browser automation fails on node 1](browser-automation-unavailable-here.md) — chrome tools error on tab grouping; verify web instruments with a Node DOM stub
