@@ -177,6 +177,16 @@ model_access = true
 model_access_note = "A model MAY produce the similarity evidence. The RESOLUTION rule -- threshold comparison and the owner/unknown boundary -- is deterministic, and INV-WORLD-1 forbids the model's output from being taken as the resolution."
 enforces = ["INV-WORLD-1", "INV-PRIV-2"]
 
+[decision_functions.DF-FABRIC-ADMIT]
+title = "Fabric admission -- is this node reachable, at what effective trust zone, and may it be administered"
+owner_rem = "REM-011"
+inputs = ["node_profile", "segment_binding", "network_fabric_contract"]
+output = "UNREACHABLE(reason) | ADMIT(effective_trust_zone, administrable: bool)"
+model_access = false
+model_access_note = "No model input of any kind. Admission decides what a node is TRUSTED WITH; a model that could influence it could talk its way into a stronger zone, which is the one place model persuasion must not reach."
+enforces = ["INV-NET-1", "INV-NET-2", "INV-NET-3"]
+note = "The output is deliberately not a bare zone. Returning a zone alone would force every caller to remember that an undeclared segment means UNREACHABLE rather than 'Z3-ish', and callers do not remember -- INV-HW-2 learned the same lesson when UNKNOWN had to be made to MEAN unavailable rather than be treated as it. UNREACHABLE is a separate arm of the return type so it cannot be read as a weak admission."
+
 [decision_functions.DF-PLACE]
 title = "Opportunistic placement -- where VESPER should be running right now"
 owner_rem = "REM-014"

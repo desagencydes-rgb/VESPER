@@ -501,6 +501,30 @@ owner_rem = "REM-011"
 enforced_by = ["A-042", "A-017"]
 kind = "structural"
 
+# --- the node fabric. SR-016 has three clauses and each one is an invariant
+# --- below, because a requirement whose halves are not separately refusable
+# --- gets satisfied by whichever half is easiest.
+[invariants.INV-NET-1]
+statement = "Every node is reached through exactly one DECLARED network segment. A node whose segment is undeclared, unlisted, or unattested is UNREACHABLE -- never reachable at some default trust zone."
+owner_rem = "REM-011"
+enforced_by = ["CI-055", "A-045"]
+kind = "structural"
+raised = "2026-08-19, F6 fabric work. SR-016 sat at DESIGNED with a depth_note recording that no CI check or invariant named its mechanism, which made writing the contract 'ceremony written to move a linter'. That was correct, and the answer is the mechanism rather than the contract: this is the network-axis twin of INV-HW-2. UNKNOWN hardware means UNAVAILABLE; an unknown network path means UNREACHABLE, and for a stronger reason -- an uncharacterised path is what a hostile one looks like."
+
+[invariants.INV-NET-2]
+statement = "A node's EFFECTIVE trust zone is the weaker of its own derived zone and the trust_zone_ceiling of the segment it is reached over. A segment may lower a node's trust zone and may NEVER raise it."
+owner_rem = "REM-011"
+enforced_by = ["CI-055", "A-045"]
+kind = "structural"
+raised = "2026-08-19. core/placement.py derived trust zone from the NODE alone (ADR-007 D2, key storage class) and had no concept of a segment. A node with hardware-backed keys therefore earned Z0 -- and with it top-ranked full-host status for continuity-critical capability -- no matter what path it was reached over. This is the same shape as the DF-PLACE gap already recorded in MEMORY.md, where filtering hosts on trust zone alone made A-048.4 unsatisfiable: a single axis was doing work that needs two."
+
+[invariants.INV-NET-3]
+statement = "Administrative control is exercised only on vesper_owned nodes. A user_owned node is never administered and never preempted for VESPER's own work, on any segment, and control traffic carries a reservation that media traffic cannot consume."
+owner_rem = "REM-011"
+enforced_by = ["CI-055", "A-045"]
+kind = "structural"
+raised = "2026-08-19. SR-016 grants VESPER 'full administrative control' and in the same sentence bounds it -- 'user-owned systems remain subject to their authorization boundary'. Being attached to VESPER's network is not consent to be managed by it. Stated separately because the permissive half is the half that gets implemented."
+
 # ------------------------------------------------- REM-012 operations
 [invariants.INV-GOV-1]
 statement = "The resource governor is a damped controller. Model-visible telemetry is ADVISORY INPUT to a deterministic governor, never a direct actuator: the model may request, the governor decides. Minimum dwell per level, asymmetric thresholds (degrade fast, recover slow), an explicit hysteresis band, and a max-transitions-per-hour cap that raises an alert rather than performing another transition."

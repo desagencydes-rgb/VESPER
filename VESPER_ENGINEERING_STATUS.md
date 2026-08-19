@@ -25,13 +25,13 @@
 
 ```
 tools/traceability_lint.py                    PASS   0 errors, 0 warnings, 0 info
-tools/traceability_lint.py --profile release  FAIL   3 errors, DEPTH only (SR-016, SR-017, SR-034)
-tools/reference_lint.py                       PASS   0 errors — 136 normative files scanned
+tools/traceability_lint.py --profile release  FAIL   2 errors, DEPTH only (SR-017, SR-034)
+tools/reference_lint.py                       PASS   0 errors — 141 normative files scanned
 tools/reference_lint.py --self-test           PASS   5/5 red-then-green
-tools/ci/checks.py all                        PASS   25/25 runnable checks
-tools/ci/self_test.py                         PASS   55/55 red under violation, green after restore
-tools/ci/checks.py status                            21/56 check IDs implemented, 35 PENDING
-tools/ci/checks.py ci-registry                       ENFORCED TODAY: 23/118 invariants
+tools/ci/checks.py all                        PASS   28/28 runnable checks
+tools/ci/self_test.py                         PASS   66/66 red under violation, green after restore
+tools/ci/checks.py status                            23/57 check IDs implemented, 34 PENDING
+tools/ci/checks.py ci-registry                       ENFORCED TODAY: 27/121 invariants
 verification/run_f0_acceptance.py             PASS
 verification/run_f1_acceptance.py             PASS
 verification/run_f2_acceptance.py             PASS
@@ -40,6 +40,7 @@ verification/run_f4_acceptance.py             PASS
 verification/run_f5_acceptance.py             PASS   A-029 + C1 control
 verification/run_f6_acceptance.py             PASS   A-048 (9 cases) + A-017, 3 controls
 verification/stress_placement.py              PASS   320k property assertions
+verification/stress_fabric.py                 PASS   180k property assertions, DF-FABRIC-ADMIT
 verification/run_a029_endurance.py --self-test PASS  6/6 healthy, 3/3 controls fail as required
 ```
 

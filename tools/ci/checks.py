@@ -42,6 +42,9 @@ LADDER = REPO / "contracts" / "policy" / "degradation_ladder.toml"
 TUNABLES = REPO / "contracts" / "policy" / "tunables.toml"
 CAPPROFILES = REPO / "contracts" / "policy" / "capability_profiles.toml"
 LATENCY = REPO / "contracts" / "policy" / "latency_budgets.toml"
+FABRIC = REPO / "contracts" / "policy" / "network_fabric.toml"
+FABRIC_IMPL = REPO / "core" / "fabric.py"
+PLACEMENT = REPO / "core" / "placement.py"
 MODEL_PROFILE = REPO / "contracts" / "entities" / "model_profile.schema.json"
 IDEA = REPO / "contracts" / "entities" / "improvement_idea.schema.json"
 TASK = REPO / "contracts" / "entities" / "task.schema.json"
@@ -59,7 +62,24 @@ PRODUCT_NAME_SCOPES = ["routing", "resources", "policy", "world", "models",
                         # here, and INV-HW-1 is precisely about routing, resource
                         # and policy paths. Scanning only the aspirational
                         # directories would have left the real ones uncovered.
-                        "core"]
+                        "core",
+                        # contracts/ and spec/ added 2026-08-19, and the reason
+                        # is the same defect one directory over. FIVE of the six
+                        # scopes above have NEVER EXISTED -- there is no
+                        # routing/, resources/, policy/, world/ or models/ in
+                        # this tree and there never has been. So CI-007 was
+                        # scanning core/ alone while INV-HW-1's own subject --
+                        # "routing, resource or POLICY paths" -- lives at
+                        # contracts/policy/, where the shipped policy contracts
+                        # actually are. _vacuous_checks() did not catch this: it
+                        # excludes CI-007 only when NO scope exists, and core/
+                        # kept it looking healthy while 5/6 scopes were fiction.
+                        # Widening it found a real violation on the first run,
+                        # in contracts/entities/node_capability_profile.schema.json.
+                        # This is the CI-016 prefix bug in a new place: a scope
+                        # list is not coverage until something confirms the
+                        # scopes resolve.
+                        "contracts", "spec"]
 PRODUCT_NAMES = ["macbook neo", "macbook", "galaxy j3", " j3 ", "iphone"]
 
 
@@ -1888,6 +1908,117 @@ def check_placement_stress() -> Result:
                            "placement property/stress")
 
 
+def check_fabric_stress() -> Result:
+    """DF-FABRIC-ADMIT over randomised fabrics, not just the shipped one.
+
+    CI-055 reads the contract in the tree -- one input, and the one least
+    likely to be wrong. This exercises the decision function over the space of
+    contracts it will meet as nodes enrol, and its load-bearing property is
+    non-elevation: a `max` that quietly becomes a `min` grants the strongest
+    trust over the least controlled path, passes any test that only checks a
+    ceiling was applied, and looks identical in a diff.
+    """
+    return _run_acceptance("fabric-stress",
+                           "verification/stress_fabric.py",
+                           "fabric property/stress")
+
+
+# --------------------------------------------------------------------------
+# CI-055 -- INV-NET-1/2/3: the network fabric contract cannot be made to lie.
+#
+# WHY THIS CHECK EXISTS AT ALL, given SR-016 sat at DESIGNED for a reason.
+# Its depth_note said building the contract first would be "ceremony written to
+# move a linter", and that was right. So the mechanism came first: three
+# invariants, a decision function, and core/fabric.py. This check is what makes
+# the contract load-bearing rather than decorative -- without it the file is a
+# set of values nothing reads under a name nothing enforces.
+#
+# THE CASE WORTH NAMING is elevation. INV-NET-2 makes a segment's zone a
+# CEILING. A check that merely confirmed a ceiling was PRESENT would pass a
+# contract in which the least controlled path granted the strongest zone, which
+# is not a weaker policy -- it is the inverse of the intended one, and it looks
+# identical in a diff.
+# --------------------------------------------------------------------------
+def check_fabric_segments() -> Result:
+    r = Result("fabric-segment-declared")
+    if not FABRIC.is_file():
+        r.err("contracts/policy/network_fabric.toml is missing -- DF-FABRIC-ADMIT has no segment declarations and INV-NET-1 defaults to refusing everything")
+        return r
+    doc = _load(FABRIC)
+
+    # INV-NET-1. Fail-closed is the invariant, not a setting on it.
+    disp = doc.get("unlisted_segment_disposition")
+    if disp != "UNREACHABLE":
+        r.err(f"unlisted_segment_disposition is {disp!r}, not 'UNREACHABLE' -- INV-NET-1 is fail-closed; an unknown network path is what a hostile one looks like")
+
+    if "attested" not in doc:
+        r.err("the contract does not declare `attested` -- absence would be read as 'yes', which is the INV-HW-2 failure mode on the network axis")
+
+    ni = doc.get("non_interference", {})
+    if ni.get("required") is not True:
+        r.err("non_interference.required must be true -- SR-016's second clause is 'devices remain usable normally by the user'")
+    if ni.get("administrative_control_scope") != "vesper_owned_only":
+        r.err(f"administrative_control_scope is {ni.get('administrative_control_scope')!r}, not 'vesper_owned_only' -- INV-NET-3: being attached to VESPER's network is not consent to be managed by it")
+    if ni.get("control_traffic_reserved") is not True:
+        r.err("control_traffic_reserved must be true -- A-045 asserts media traffic does not starve control traffic, and without a reservation that assertion has no mechanism")
+    if ni.get("user_owned_preemptible") is not False:
+        r.err("user_owned_preemptible must be false -- 'usable normally' is not 'usable when VESPER is idle'")
+
+    segs = doc.get("segment", {})
+    if not segs:
+        r.err("no segments declared")
+    ranks = {"Z0": 0, "Z1": 1, "Z2": 2, "Z3": 3}
+    controlled = 0
+    for name, s in sorted(segs.items()):
+        ceiling = s.get("trust_zone_ceiling")
+        if ceiling not in ranks:
+            r.err(f"segment {name!r}: trust_zone_ceiling {ceiling!r} is not one of {tuple(ranks)}")
+            continue
+        vc = bool(s.get("vesper_controlled", False))
+        controlled += 1 if vc else 0
+        # THE ELEVATION GUARD. A path VESPER does not control may not carry a
+        # host-capable ceiling. HOST_ZONES is (Z0, Z1) in core/placement.py, so
+        # a Z0/Z1 ceiling on an uncontrolled segment silently restores exactly
+        # the full-host eligibility INV-NET-2 exists to remove.
+        if not vc and ranks[ceiling] < ranks["Z2"]:
+            r.err(f"segment {name!r} is not vesper_controlled yet declares ceiling {ceiling}, which is host-capable (HOST_ZONES = Z0, Z1). A segment may only WEAKEN trust (INV-NET-2)")
+        if s.get("carries_control_plane") and not vc:
+            r.err(f"segment {name!r} carries the control plane on a path VESPER does not control (INV-NET-1)")
+        for own in s.get("admits_ownership", []):
+            if own not in ("vesper_owned", "user_owned"):
+                r.err(f"segment {name!r}: unknown ownership class {own!r}")
+
+    if doc.get("attested") is True and controlled == 0:
+        r.err("attested = true with no vesper_controlled segment -- attestation of a fabric that does not exist")
+
+    tc = doc.get("traffic", {}).get("control", {})
+    if tc.get("starvable") is not False:
+        r.err("traffic.control.starvable must be false -- INV-NET-3")
+    if not isinstance(tc.get("reserved_share"), (int, float)) or tc.get("reserved_share", 0) <= 0:
+        r.err("traffic.control.reserved_share must be a positive share -- a reservation of zero is not a reservation")
+
+    # The duplication guard core/fabric.py's own comment promises. It copies
+    # TRUST_ZONE_RANK rather than importing it so that a placement refactor
+    # cannot make admission fail open; that is only safe while something
+    # confirms the two have not drifted. This is that something.
+    if FABRIC_IMPL.is_file() and PLACEMENT.is_file():
+        import re as _re
+        def _ranks(path):
+            m = _re.search(r"TRUST_ZONE_RANK\s*=\s*\{([^}]*)\}", path.read_text(encoding="utf-8"))
+            return m.group(1).strip() if m else None
+        a, b = _ranks(FABRIC_IMPL), _ranks(PLACEMENT)
+        if a is None or b is None:
+            r.err("TRUST_ZONE_RANK not found in core/fabric.py or core/placement.py -- the drift guard cannot run and an unrunnable guard is a failed assertion, not a skip")
+        elif a != b:
+            r.err(f"TRUST_ZONE_RANK differs between core/fabric.py and core/placement.py -- admission and placement would disagree about which zone is stronger. fabric: {a} placement: {b}")
+
+    if not r.errors:
+        r.note(f"{len(segs)} segments, {controlled} vesper_controlled, attested={doc.get('attested')}; fail-closed disposition {disp}")
+        if doc.get("attested") is not True:
+            r.note("fabric is NOT attested: every vesper_controlled segment refuses admission today, so no node is a full host. Fail-closed and correct -- promotion of `attested` is a separate reviewed act, as `measured` is for capability_profiles.toml")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -1915,6 +2046,8 @@ CHECK_FNS = {
     "interlock-independence": check_interlock_independence,
     "evaluator-no-model-capability": check_evaluator_no_model_capability,
     "no-wall-clock-ordering": check_no_wall_clock_ordering,
+    "fabric-segment-declared": check_fabric_segments,
+    "fabric-stress": check_fabric_stress,
 }
 
 

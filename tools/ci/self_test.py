@@ -65,8 +65,31 @@ def write_mutated(path: Path, text: str, crlf: bool) -> None:
 
 
 def restore(path: Path, raw: bytes) -> None:
-    """Restore the ORIGINAL BYTES. Never write_text -- see BYTE SAFETY above."""
+    """Restore the ORIGINAL BYTES. Never write_text -- see BYTE SAFETY above.
+
+    AND DISCARD THE BYTECODE, which byte-exactness alone does not do.
+
+    Found 2026-08-19 by a negative control on the fabric harness. CPython
+    validates a cached .pyc against the source's (mtime, size). A mutation that
+    preserves LENGTH -- `max` -> `min`, or inverting the values in
+    TRUST_ZONE_RANK, both of which are real cases in this file -- changes
+    neither, and when mutate-and-restore complete inside one filesystem mtime
+    tick the interpreter keeps serving bytecode compiled from the MUTATED
+    source while the file on disk is provably correct. sha256 of the source
+    matched, `diff` was empty, and the module still computed the violation.
+
+    That is the `spd-say` lesson in a new place: the restore's own report of
+    success is not the state of the world. It cost twenty minutes of believing
+    a correct file was wrong, and the same trap silently arms any check that
+    IMPORTS a mutated module rather than reading it as text -- today that is
+    every acceptance runner under verification/, since self_test mutates
+    core/autonomy.py, core/bus.py, core/interlock.py and core/fabric.py.
+    """
     path.write_bytes(raw)
+    cache = path.parent / "__pycache__"
+    if cache.is_dir():
+        for stale in cache.glob(f"{path.stem}.*.pyc"):
+            stale.unlink(missing_ok=True)
 
 
 def digest(path: Path) -> str:
@@ -451,8 +474,24 @@ LINT_CASES: list[tuple[list[str], str, object, str]] = [
     # always wrote both fields together, so without this case the branch would
     # never have been executed. An untested branch in a linter whose purpose is
     # catching untested branches is not acceptable.
+    #
+    # REPOINTED 2026-08-19, and the reason is the harness's own standing lesson
+    # a few hundred lines up. This case used to key on SR-016's depth_note --
+    # "A dedicated-network contract..." -- and SR-016 was raised to SPECIFIED
+    # that day, which deleted the string the case depended on. The case then
+    # reported "the mutation did not apply", i.e. it correctly announced that it
+    # had stopped testing anything, which is the behaviour that makes this
+    # harness worth having.
+    #
+    # It now keys on SR-034, chosen because SR-034 is the ONE row the corpus
+    # holds below SPECIFIED deliberately and permanently -- its own note calls
+    # it "the worked example of the discriminator". Anchoring a self-test to the
+    # requirement designed never to move is the closest thing available to
+    # constructing its own precondition without inventing an SR id the COC does
+    # not contain, which would fail a different rule first and go red for the
+    # wrong reason.
     (["tools/traceability_lint.py"], "verification/traceability/registry.toml",
-     _sub('depth_note = "A dedicated-network contract', 'ddepth_note = "A dedicated-network contract', 1),
+     _sub('depth_note = "Shares SR-023\'s Artifact type.', 'ddepth_note = "Shares SR-023\'s Artifact type.', 1),
      "TR-029: a depth_disposition with the depth_note removed"),
 
     (["tools/ci/checks.py", "ci-registry"], "spec/invariants/INVARIANTS.toml",
@@ -690,6 +729,77 @@ def main() -> int:
     passed = total - failures
     print(f"{passed}/{total} self-tests behaved correctly (red under violation, green after restore)")
     return 1 if failures else 0
+
+
+# --------------------------------------------------------------------------
+# CI-055 -- the network fabric. Eight cases, chosen so each is a plausible
+# EDIT rather than an obvious sabotage: every mutation below reads like a
+# reasonable relaxation in a diff, which is the only kind that actually ships.
+# --------------------------------------------------------------------------
+FABRIC = "contracts/policy/network_fabric.toml"
+FABRIC_IMPL = "core/fabric.py"
+
+
+def _elevate_uncontrolled(text: str) -> str:
+    """Raise the ceiling on the UNCONTROLLED segment only.
+
+    Written as a function rather than a _sub because it must bite on
+    shared_household specifically -- a blind replace would also move the
+    dedicated segment and the case would stop being about elevation.
+    """
+    head, sep, tail = text.partition("[segment.shared_household]")
+    if not sep:
+        return text
+    return head + sep + tail.replace('trust_zone_ceiling = "Z2"',
+                                     'trust_zone_ceiling = "Z0"', 1)
+
+
+CASES += [
+    ("fabric-segment-declared", FABRIC,
+     _sub('unlisted_segment_disposition = "UNREACHABLE"',
+          'unlisted_segment_disposition = "REACHABLE"', 1),
+     "the fabric made fail-open -- a node on an uncharacterised path becomes "
+     "reachable, which is the one default an attacker would also choose"),
+
+    ("fabric-segment-declared", FABRIC, _elevate_uncontrolled,
+     "an uncontrolled segment given a Z0 ceiling -- HOST_ZONES is (Z0, Z1), so "
+     "this silently restores full-host eligibility on the path VESPER controls "
+     "least. INV-NET-2 makes a segment a CEILING; this inverts it"),
+
+    ("fabric-segment-declared", FABRIC,
+     _sub('administrative_control_scope = "vesper_owned_only"',
+          'administrative_control_scope = "all_nodes"', 1),
+     "administrative control widened to every node on the segment -- SR-016's "
+     "grant kept and its bound dropped"),
+
+    ("fabric-segment-declared", FABRIC,
+     _sub("control_traffic_reserved = true", "control_traffic_reserved = false", 1),
+     "the control-traffic reservation removed -- A-045's no-starvation "
+     "assertion left with nothing behind it"),
+
+    ("fabric-segment-declared", FABRIC,
+     _sub("[traffic.control]\nreserved_share = 0.2\nstarvable = false",
+          "[traffic.control]\nreserved_share = 0.2\nstarvable = true", 1),
+     "control traffic marked starvable while still carrying a reserved share "
+     "-- the two fields disagreeing is how a reservation becomes advisory"),
+
+    ("fabric-segment-declared", FABRIC,
+     _sub("user_owned_preemptible = false", "user_owned_preemptible = true", 1),
+     "the user's own devices made preemptible -- 'usable normally' quietly "
+     "redefined as 'usable when VESPER is idle'"),
+
+    ("fabric-segment-declared", FABRIC,
+     _sub("carries_control_plane = false\n\n[segment.untrusted_external]",
+          "carries_control_plane = true\n\n[segment.untrusted_external]", 1),
+     "the control plane run over a segment VESPER does not control"),
+
+    ("fabric-segment-declared", FABRIC_IMPL,
+     _sub('TRUST_ZONE_RANK = {"Z0": 0, "Z1": 1, "Z2": 2, "Z3": 3}',
+          'TRUST_ZONE_RANK = {"Z0": 3, "Z1": 2, "Z2": 1, "Z3": 0}', 1),
+     "zone ranks inverted in the fabric only -- admission and placement now "
+     "disagree about which zone is stronger, and every test that merely checks "
+     "'a ceiling was applied' still passes"),
+]
 
 
 if __name__ == "__main__":

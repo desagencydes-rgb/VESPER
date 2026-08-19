@@ -38,3 +38,4 @@ tools/spike/_certs/
 # Session-local permission grants. Machine-specific and often stale;
 # the shared allowlist is .claude/settings.json, which is tracked.
 .claude/settings.local.json
+graphify-out/

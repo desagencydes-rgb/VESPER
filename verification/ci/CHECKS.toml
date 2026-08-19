@@ -563,3 +563,21 @@ impl = "PENDING"
 blocking = "pr"
 self_test = "Add an ACTUATED -> VERIFIED edge to SM-ENDPOINT-EPISODE; close an OUTCOME_UNKNOWN episode without a recovery disposition; retry a non-idempotent action after an unknown outcome."
 note = "The prohibited-edge half of SM-ENDPOINT-EPISODE. ACTUATED -> VERIFIED is the single edge that turns operating a computer into saying a computer was operated -- a build carrying it satisfies every other rule in the corpus."
+
+# ---------------------------------------------------------- the node fabric
+# Added 2026-08-19 with SR-016. This is a NEW check id rather than an
+# implementation of a PENDING one, because no declared check named the fabric:
+# SR-016's own depth_note recorded exactly that, and treated it as the reason
+# NOT to write the contract yet. The order it implies is mechanism first,
+# contract second, and that is the order this landed in.
+
+[checks.CI-055]
+name = "fabric-segment-declared"
+enforces = ["INV-NET-1", "INV-NET-2", "INV-NET-3"]
+kind = "structural"
+impl = "tools/ci/checks.py fabric-segment-declared"
+blocking = "pr"
+self_test = "Set unlisted_segment_disposition to REACHABLE; give a non-vesper_controlled segment a Z0 ceiling; set administrative_control_scope to all_nodes; make control traffic starvable; set attested = true while a segment carries the control plane on an uncontrolled path."
+self_test_evidence = "tools/ci/self_test.py fabric-segment-declared -- 8 cases, red then green"
+subject = "contracts/policy/network_fabric.toml"
+note = "Refuses the four ways this contract can be made to lie: a fail-open disposition, a ceiling that ELEVATES trust on a path VESPER does not control, an administrative scope that reaches user-owned nodes, and a control class that media traffic may starve. The elevation case is the one worth naming -- INV-NET-2 makes the segment a CEILING, and a check that only verified the ceiling EXISTS would pass a contract where the weakest path granted the strongest zone."

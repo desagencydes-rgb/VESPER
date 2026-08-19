@@ -434,6 +434,102 @@ and says so explicitly when it cannot tell.
 > button again, and the day it goes red for a real reason that habit throws the
 > finding away.
 
+## 4e. 2026-08-19 — the node fabric, and two traps that cost real time
+
+### A third node joined, and it could not run anything
+
+The M1 Pro MacBook arrived (16 GB, 10-core CPU / **16-core GPU** — the 16"
+`MacBookPro18,1` bin, which is the procurement doc's row 3, not the row 1 it
+recommended). It shipped with **only Apple's Python 3.9.6**: no Homebrew, no
+3.11+, and therefore no `tomllib`. **Not one tool in `tools/` or
+`verification/` could run.** Fixed with `uv python install 3.13` (user-local,
+2.6 s, system Python untouched) plus a `.venv` carrying `numpy`, `sounddevice`
+and `psutil` — the only three third-party imports in the tree, all of them
+function-local or `try/except` guarded, which is why the repo is stdlib-only
+right up until an audio path is actually called.
+
+Measured on it, same code as node 1: F5 gate **6.8 s** against the ≈15 s
+`CLAUDE.md` quotes, placement stress **12.0 s** against ≈20 s. Roughly 2× on
+iteration speed.
+
+**`HANDOFF_TO_MACBOOK.md` §2's throughput table is superseded, not merely
+unmet.** It predicted the 24B dense and the 30B MoE becoming usable "if 32 GB".
+`docs/planning/MACBOOK_PROCUREMENT_BENCHMARK.md` §2 had already settled it
+*before purchase*: macOS caps GPU-wired memory near 75% (~12 GB on 16 GB), the
+dense 24B is 13.35 GB and the MoE 17.35 GB read off disk, so **the strong tier
+stays on the desktop or the API whichever machine was bought.** RAM is
+soldered, recorded there as a conscious accept.
+
+### `CI-007` was scanning one directory of six, and five had never existed
+
+`PRODUCT_NAME_SCOPES` named `routing/`, `resources/`, `policy/`, `world/`,
+`models/` and `core/`. **Only `core/` exists in this tree, and the other five
+never have.** So `INV-HW-1` — whose own statement is about "routing, resource or
+**policy** paths" — was not scanning `contracts/policy/`, where every shipped
+policy contract actually lives.
+
+`_vacuous_checks()` did not catch it: it excludes `CI-007` only when *no* scope
+exists, and `core/` kept the check looking healthy at 33 files while 5/6 of its
+scope list was fiction. **This is the `CI-016` string-prefix bug in a new
+place** — and the same shape as `CI-016` pointing at `autonomy/triggers/`, a
+directory that had never existed. *A scope list is not coverage until something
+confirms the scopes resolve.*
+
+Widened to `contracts/` and `spec/` (33 → **75 files**) and it went red on the
+first run: `contracts/entities/node_capability_profile.schema.json` explained
+its own design using **"the iPhone"**. Corrected in profile terms — *"a node
+with hardware-backed key storage but `availability_class = foreground_only`"* —
+which is the identical move `ARCH-13` already made in `REM-011` §3.6.
+
+### A byte-exact restore does not undo a mutation. The bytecode survives it
+
+**Found by a negative control, and it cost twenty minutes of believing a correct
+file was wrong.** CPython validates a cached `.pyc` against the source's
+**(mtime, size)**. A mutation that preserves *length* changes neither — and both
+real cases here preserve it exactly: `max` → `min`, and inverting the values in
+`TRUST_ZONE_RANK`. When mutate-and-restore complete inside one filesystem mtime
+tick, the interpreter keeps executing **bytecode compiled from the mutated
+source** while the file on disk is provably correct: `sha256` matched, `diff`
+was empty, and the module still computed the violation.
+
+It is the `spd-say` lesson in a new place — **the restore's own report of
+success is not the state of the world.** It silently arms any harness that
+*imports* a mutated module rather than reading it as text, which is every
+acceptance runner under `verification/`, since `self_test.py` mutates
+`core/autonomy.py`, `core/bus.py`, `core/interlock.py` and `core/fabric.py`.
+`restore()` now deletes the matching `__pycache__/*.pyc` and says why.
+
+### `SR-016` DESIGNED → SPECIFIED, and the order that made it honest
+
+Its `depth_note` refused the work for a good reason: *"no CI check or invariant
+currently names this mechanism, so building one now would be ceremony written to
+move a linter."* **The answer is the order that objection implies** — mechanism
+first, contract second. `INV-NET-1/2/3`, `DF-FABRIC-ADMIT` and `core/fabric.py`
+landed, and the contract is what they read.
+
+**What it changes, which is why it is not ceremony:** trust zone was derived
+from the **node alone** (`ADR-007` D2, key storage class). A node with
+hardware-backed non-exportable keys therefore earned `Z0` — and with it
+top-ranked **full host** status for continuity-critical capability — *no matter
+what path it was reached over*. `INV-NET-2` makes the segment a **ceiling**, so
+the same node caps at `Z2` on any path VESPER does not control, which is below
+`HOST_ZONES` and correctly ineligible. **Same shape as the `DF-PLACE` gap
+already recorded above**: one axis doing work that needs two.
+
+**The contract ships `attested = false`, and that is the finding.** No dedicated
+VESPER segment has been stood up, so every node today admits at most at the
+`shared_household` ceiling of `Z2` and **VESPER has no full host at all**. That
+is the fail-closed truth about the current deployment, not a gap — promotion of
+`attested` is a separate reviewed act, exactly as `measured` is for
+`capability_profiles.toml`.
+
+`CI-055` landed with **8 executed red runs**, and `verification/stress_fabric.py`
+adds **180k property assertions** over randomised fabrics. The property that
+earns its keep is non-elevation: a `max` that quietly becomes a `min` grants the
+strongest trust over the least controlled path, **passes any test that only
+checks a ceiling was applied**, and looks identical in a diff. Its negative
+control produced 698 failures, as required.
+
 ## 5. Open questions, recorded rather than resolved
 
 1. **What window must `C1` run for?** `AT-03` calls it the most important run in the

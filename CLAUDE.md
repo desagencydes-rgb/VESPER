@@ -59,16 +59,19 @@ renders it.
 ## Verification, in the order that fails fastest
 
 ```sh
-python tools/ci/checks.py all           # 26 checks
-python tools/ci/self_test.py            # red-then-green, ~58 cases
+python tools/ci/checks.py all           # 28 checks
+python tools/ci/self_test.py            # red-then-green, 66 cases
 python tools/traceability_lint.py
 python tools/reference_lint.py
 python verification/run_f0_acceptance.py   # ... f1 .. f6
 python verification/stress_placement.py    # 320k property assertions
+python verification/stress_fabric.py        # 180k property assertions
 ```
 
-`--profile release` on the traceability lint is **expected to fail** on three
-DEPTH errors (`SR-016`, `SR-017`, `SR-034`). All three are deliberate.
+`--profile release` on the traceability lint is **expected to fail** on **two**
+DEPTH errors (`SR-017`, `SR-034`). `SR-016` was raised to `SPECIFIED` on
+2026-08-19 when the network fabric landed; `SR-017` depends on its contract and
+is next; `SR-034` is held below `SPECIFIED` deliberately and permanently.
 
 ## Conventions worth matching
 

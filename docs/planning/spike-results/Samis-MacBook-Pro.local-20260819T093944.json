@@ -1,0 +1,19 @@
+{
+  "schema_version": 4,
+  "generated_at_utc": "2026-08-19T09:39:44Z",
+  "spike": "SPIKE-001",
+  "quick_mode": false,
+  "system": {
+    "os_family": "Darwin",
+    "os_version": "Darwin Kernel Version 25.5.0: Mon Apr 27 20:38:56 PDT 2026; root:xnu-12377.121.6~2/RELEASE_ARM64_T6000",
+    "hostname_hint": "Samis-MacBook-Pro.local",
+    "cpu_cores_logical": 10,
+    "ram_gb": 16.0,
+    "ram_gb_error": null,
+    "disk_total_gb": 460.4,
+    "disk_free_gb": 414.4,
+    "gpu_name_hint": null,
+    "gpu_name_error": "unsupported platform: Darwin",
+    "python_version": "3.13.15"
+  }
+}

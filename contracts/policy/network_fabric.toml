@@ -1,0 +1,129 @@
+##############################################################################
+# VESPER NETWORK FABRIC CONTRACT
+#
+# Authority: SR-016 (immutable source requirement) --
+#   "Dedicated network hosted on portable modem/router; devices remain usable
+#    normally by the user."
+# Engineering interpretation, quoted from the COC because all three of its
+# clauses are load-bearing and each one becomes an invariant below:
+#   "Vesper's network is a dedicated control/data plane hosted on the portable
+#    router/modem. Vesper-owned nodes may receive full administrative control
+#    within that dedicated Vesper environment, while the user's ordinary device
+#    use remains intact and user-owned systems remain subject to their
+#    authorization boundary."
+#
+# Enforced by CI-055. Invariants INV-NET-1, INV-NET-2, INV-NET-3. Owner REM-011
+# (world model, perception AND NODE FABRIC). Decision function DF-FABRIC-ADMIT.
+#
+# ---------------------------------------------------------------------------
+# WHY THIS FILE DECLARES CLASSES AND NOT A NETWORK
+#
+# It declares SEGMENT CLASSES and the rules that bind them. It does NOT declare
+# which segment any particular node is on, and it never will: that is an
+# enrollment-time fact about a deployment, and a policy contract that carries
+# deployment data becomes stale the first time anything moves. This is the same
+# split capability_profiles.toml already makes -- it states what a capability
+# REQUIRES, never what a machine achieved.
+#
+# THE DEDICATED SEGMENT DOES NOT EXIST YET, AND THIS FILE SAYS SO.
+# `attested = false` below is the network-side twin of capability_profiles.toml's
+# `measured = false`. Every node today is reached over an ordinary shared
+# network with no VESPER-controlled router in the path. Under INV-NET-1 that
+# means NO node is currently admissible to a vesper_controlled segment, and the
+# fabric is fail-closed until a real segment is stood up and attested. That is
+# the correct state, not a defect: the alternative -- assuming the segment is
+# dedicated because the requirement says it should be -- is precisely the
+# hardware-assumption-presented-as-fact that INV-HW-2 exists to refuse.
+##############################################################################
+
+schema_version = 1
+
+# Whether a VESPER-controlled dedicated segment has been stood up AND attested.
+# Promotion of this flag is a separate reviewed act, exactly as CI-034 makes
+# `measured` a separate act for capability_profiles.toml. No tool may set it.
+attested = false
+
+# What an unlisted or unknown segment means. FAIL-CLOSED, and this is the whole
+# safety property: a node whose segment cannot be established is UNREACHABLE,
+# not "reachable at some default trust". INV-HW-2 established the doctrine on
+# the hardware axis -- UNKNOWN means UNAVAILABLE -- and the network axis has the
+# identical failure mode with a worse blast radius, because an unknown network
+# path is what an attacker's path looks like.
+unlisted_segment_disposition = "UNREACHABLE"
+
+# ---------------------------------------------------------------------------
+# NON-INTERFERENCE -- SR-016's second half, "devices remain usable normally by
+# the user". This is an acceptance property (A-045) and a policy constraint at
+# once, so it is stated here in the form a check can refuse.
+# ---------------------------------------------------------------------------
+[non_interference]
+required = true
+
+# VESPER never administers a node it does not own, on any segment, ever. The
+# source requirement is explicit that "user-owned systems remain subject to
+# their authorization boundary" -- being on VESPER's network is not consent to
+# be managed by it. This is the clause that keeps a dedicated network from
+# quietly becoming a claim on everything attached to it.
+administrative_control_scope = "vesper_owned_only"
+
+# Control traffic gets a reservation media traffic cannot consume. A-045
+# asserts "media traffic does not starve control traffic under load"; without a
+# reserved class that assertion has no mechanism behind it, and the failure is
+# silent -- placement and survival decisions stop arriving exactly when load is
+# highest, which is when they matter.
+control_traffic_reserved = true
+
+# A user-owned node is never preempted for VESPER's own work. "Usable normally"
+# is not "usable when VESPER is idle".
+user_owned_preemptible = false
+
+# ---------------------------------------------------------------------------
+# SEGMENT CLASSES
+#
+# `trust_zone_ceiling` is a CEILING and never a floor. A segment can only
+# WEAKEN a node's trust zone, never raise it (INV-NET-2). A node earns its own
+# zone from its key storage under ADR-007 D2; the segment it is reached over
+# can lower that, because a node whose traffic crosses an untrusted path is not
+# as trustworthy as the same node on a controlled one -- but no network can
+# make a file-based-key node into a hardware-backed one.
+#
+# Zone ranks follow core/placement.py: Z0 strongest .. Z3 weakest.
+# ---------------------------------------------------------------------------
+
+[segment.vesper_dedicated]
+description = "The dedicated control/data plane SR-016 requires: a VESPER-controlled router with no unmanaged path in or out."
+trust_zone_ceiling = "Z0"
+vesper_controlled = true
+admits_ownership = ["vesper_owned", "user_owned"]
+carries_control_plane = true
+
+[segment.shared_household]
+description = "An ordinary network VESPER does not control. Nodes are reachable and usable; none may be relied on for continuity."
+# Z2 is limited_trust: MAY render and observe, MAY NOT hold state, issue
+# commands or receive secrets (REM-011 3.7). That is exactly right for a path
+# VESPER does not control -- and because HOST_ZONES is (Z0, Z1), a Z2 ceiling
+# makes every node on this segment structurally ineligible to host, which is
+# the property INV-TRUST-1 wants and the reason the ceiling is set here.
+trust_zone_ceiling = "Z2"
+vesper_controlled = false
+admits_ownership = ["vesper_owned", "user_owned"]
+carries_control_plane = false
+
+[segment.untrusted_external]
+description = "Any path VESPER neither controls nor can characterise, including a segment that failed attestation."
+trust_zone_ceiling = "Z3"
+vesper_controlled = false
+admits_ownership = []
+carries_control_plane = false
+
+# ---------------------------------------------------------------------------
+# TRAFFIC CLASSES -- the mechanism behind control_traffic_reserved.
+# `reserved_share` is a floor on the control class, not a cap on media.
+# ---------------------------------------------------------------------------
+[traffic.control]
+reserved_share = 0.2
+starvable = false
+
+[traffic.media]
+reserved_share = 0.0
+starvable = true

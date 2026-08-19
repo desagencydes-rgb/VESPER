@@ -207,9 +207,13 @@ status = "SPECIFIED"
 arch = ["ARCH-02"]
 ic = ["IC-004", "IC-009"]
 tests = ["A-045"]
-status = "DESIGNED"
-depth_disposition = "network fabric contract"
-depth_note = "A dedicated-network contract declaring segments, the trust zone per segment, and the NON-INTERFERENCE constraint that keeps the owner's devices normally usable. No CI check or invariant currently names this mechanism, so building one now would be ceremony written to move a linter. F6 work; A-045 already names the assertions."
+contracts = ["contracts/policy/network_fabric.toml"]
+decision_functions = ["DF-FABRIC-ADMIT"]
+invariants = ["INV-NET-1", "INV-NET-2", "INV-NET-3"]
+ci = ["CI-055"]
+status = "SPECIFIED"
+raised = "2026-08-19, DESIGNED -> SPECIFIED. The previous depth_note refused to write the contract because 'no CI check or invariant currently names this mechanism, so building one now would be ceremony written to move a linter'. That objection was correct and it is answered in the order it implies: the MECHANISM landed first -- INV-NET-1/2/3, DF-FABRIC-ADMIT and core/fabric.py -- and the contract is what they read. CI-055 lands with eight executed red runs. The mechanism is not ceremony: core/placement.py derived trust zone from the node alone, so a node with hardware-backed key storage earned Z0 and top-ranked FULL HOST status regardless of the path it was reached over; INV-NET-2 caps it at the segment ceiling, which puts it below HOST_ZONES on any path VESPER does not control."
+note = "The contract ships with attested = false and no vesper_controlled segment stood up, so today every node admits at most at the shared_household ceiling of Z2 and NO node is a full host. That is the fail-closed truth about the current deployment rather than a gap: promotion of `attested` is a separate reviewed act, exactly as `measured` is in capability_profiles.toml. A-045's remaining half -- that the owner's devices stay normally usable while enrolled -- needs ordinary use over real time and cannot be closed by writing."
 
 [requirements.SR-017]
 arch = ["ARCH-02", "ARCH-08"]

@@ -443,6 +443,64 @@ DF-IDENTITY-RESOLVE(evidence, known_persons, threshold) -> owner | known(id) | u
 
 ---
 
+## DF-FABRIC-ADMIT — network fabric admission · REM-011 / SR-016
+
+```
+DF-FABRIC-ADMIT(node_zone, ownership, segment_binding, fabric_contract)
+    -> UNREACHABLE(reason) | ADMIT(effective_trust_zone, administrable)
+
+  # INV-NET-1. Fail-closed, and both arms are the same refusal.
+  if fabric.unlisted_segment_disposition != UNREACHABLE:  raise    # not a weaker
+  if segment_binding is None:            return UNREACHABLE("no segment binding")
+  if segment_binding not in fabric.segments: return UNREACHABLE("undeclared segment")
+
+  seg = fabric.segments[segment_binding]
+
+  # A dedicated segment nobody has stood up is a plan, not a path. This is what
+  # keeps `attested = false` honest.
+  if seg.vesper_controlled and not fabric.attested:
+      return UNREACHABLE("vesper_controlled but fabric unattested")
+
+  if ownership not in seg.admits_ownership:  return UNREACHABLE("ownership not admitted")
+
+  # INV-NET-2. The WEAKER of the two -- a segment is a CEILING and never a floor.
+  # Weaker is the higher rank, so this is a max over ranks, not a min.
+  effective = weaker_of(node_zone, seg.trust_zone_ceiling)
+
+  # INV-NET-3. BOTH conditions. Ownership alone would permit administering
+  # VESPER's own node over a path it cannot vouch for.
+  administrable = (ownership == vesper_owned) and seg.vesper_controlled
+
+  return ADMIT(effective, administrable)
+```
+
+**Why the return type has two arms.** Refusal is not encoded as a weak zone. If
+it were, every caller would have to remember that one particular zone means
+"not actually reachable", and callers do not remember — `INV-HW-2` had to make
+`UNKNOWN` *mean* `UNAVAILABLE` for the same reason. `effective_trust_zone` is
+`None` exactly when the node is not admitted, so a caller that ignores the flag
+raises rather than silently admitting at the weakest zone.
+
+**Why admission runs upstream of `DF-PLACE` and not inside it.** Placement
+answers *where should VESPER run among nodes it may use*; the fabric answers
+*which nodes may it use, and how far*. `core/placement.py` already consumes
+`reachable` and `trust_zone`, and the fabric sets both. Folding the segment
+rule into `is_full_host` would put two different questions behind one
+predicate — the defect that predicate's own docstring already records for trust
+zone and availability class.
+
+**What it changes that nothing else did.** Trust zone was derived from the node
+alone (`ADR-007` D2, key storage class). A node with hardware-backed
+non-exportable keys therefore earned `Z0` — and with it top-ranked **full host**
+status for continuity-critical capability — no matter what path it was reached
+over. Under `INV-NET-2` that node caps at the segment ceiling, which on any path
+VESPER does not control is `Z2`: below `HOST_ZONES` and correctly ineligible.
+
+Implemented in `core/fabric.py`. Enforced by `CI-055` (eight red runs) and
+`A-045`.
+
+---
+
 ## DF-PLACE — opportunistic placement · REM-014 / SR-060
 
 ```
