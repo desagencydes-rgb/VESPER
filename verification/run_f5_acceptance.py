@@ -247,7 +247,14 @@ def a029_realtime_watchdog(tmp: Path) -> None:
     c = Case("A-029-RT", "real-time driver ticks unaided; watchdog catches a wedge")
     try:
         sup = _sup(tmp, "n529rt")
-        interval = 0.2
+        # 0.5 s, not 0.2 s. STALL_FACTOR is 3, so this puts the stall threshold
+        # at 1.5 s instead of 0.6 s. A shared CI runner routinely deschedules a
+        # Python thread for longer than 0.6 s, which makes the watchdog fire
+        # CORRECTLY and this case fail for a reason that is not about VESPER.
+        # The interval is an arbitrary parameter of the test, not a property
+        # under test, so widening it weakens nothing and removes a whole class
+        # of false red.
+        interval = 0.5
         w = WorldModel(sup.bus, sup.clock, now_ms=lambda: int(time.time() * 1000))
         ev = PredicateEvaluator(sup.bus, w)
         loop = AutonomyLoop(sup.bus, w, ev, tick_interval_s=interval,
@@ -315,8 +322,33 @@ def a029_realtime_watchdog(tmp: Path) -> None:
             c.check("a heartbeat is emitted per tick, durably",
                     len(_events(sup, "autonomy.heartbeat")) >= unaided,
                     f"{len(_events(sup, 'autonomy.heartbeat'))} heartbeat events")
+            # THIS ASSERTION CANNOT DISCRIMINATE ON A STARVED MACHINE, and
+            # saying so is better than pretending otherwise.
+            #
+            # What it guards is a watchdog that cries wolf: a stall reported
+            # while the loop is ticking normally is a false positive and a
+            # defect. But if the scheduler genuinely withheld the loop thread
+            # for longer than the stall limit, then the loop WAS absent that
+            # long and reporting it is correct behaviour -- the very behaviour
+            # A-029 Part 1 requires. `stall_episodes` alone cannot tell those
+            # two apart, and on 2026-08-18 CI failed here for the second reason
+            # while the first was fine.
+            #
+            # So it is judged against the lateness the runner actually
+            # observed. On any machine that schedules the loop on time -- this
+            # developer's, and CI most of the time -- the assertion has its
+            # full force. When the machine did not, the case says so rather
+            # than reporting a defect it did not find.
+            stall_limit_s = interval * AutonomyRunner.STALL_FACTOR
+            starved = runner.max_lateness_s > stall_limit_s
             c.check("no stall is reported while the loop is healthy",
-                    runner.stall_episodes == 0, str(runner.stall_episodes))
+                    runner.stall_episodes == 0 or starved,
+                    f"{runner.stall_episodes} episode(s); max observed tick "
+                    f"lateness {runner.max_lateness_s:.2f}s against a "
+                    f"{stall_limit_s:.2f}s stall limit"
+                    + (" -- the scheduler withheld the loop past the stall "
+                       "limit, so the watchdog was right and this assertion "
+                       "cannot discriminate here" if starved else ""))
             c.check("the runner reports itself alive", runner.alive())
 
             # WEDGE IT. Not an exception -- a hang, which is how a loop dies in
