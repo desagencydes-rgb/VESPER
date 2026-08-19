@@ -1,0 +1,111 @@
+You are picking up the VESPER project on a new machine — an Apple M1 Pro
+MacBook, which is joining a fabric that already has two nodes. I am the project
+owner. Everything below is orientation; nothing in it is a task list to execute
+blindly.
+
+FIRST, READ THESE, IN THIS ORDER, BEFORE DOING OR PLANNING ANYTHING:
+
+  1. CLAUDE.md               — loads automatically, but read it deliberately.
+                               It states the invariants that are CHECKED
+                               MECHANICALLY, the verification order, and the
+                               machine facts that bite.
+  2. HANDOFF_TO_MACBOOK.md   — written for you specifically on the night of
+                               2026-08-18/19 by the session handing this over.
+                               Start at its §0, which supersedes part of §1.
+  3. MEMORY.md               — the repo's own memory: hardware, measured
+                               numbers with provenance, mistakes already made,
+                               and the doctrine that keeps getting
+                               rediscovered. Most of what looks like a
+                               judgement call has already been measured. If it
+                               contradicts a command's output, the command wins
+                               and the file is stale — fix it.
+  4. VESPER_ENGINEERING_STATUS.md and SESSION_2026-08-18.md — where the work
+                               stands, and what the last day's plan got wrong.
+
+INSTALL YOUR OWN MEMORY, FIRST, BEFORE ANY OTHER WORK
+
+  Nine memory files are staged in the repo at `docs/session-memory/`. They are
+  the previous session's personal memory and they could not be placed for you:
+  personal memory lives under a path-derived slug that differs on every machine,
+  so only you know where yours is.
+
+  Copy every .md file there EXCEPT README.md into your own memory directory,
+  read them, and tell me in two lines what they say. Two of them are about how
+  I prefer to work, and the rest will save you rediscovering things the hard
+  way. `docs/session-memory/README.md` explains the arrangement.
+
+  Note the staged copies are a snapshot. Once installed, yours are the live
+  ones and they win when they disagree.
+
+WHAT IS ALREADY SET UP, SO YOU DO NOT REDO IT
+
+  - The `graphify` and `browse` skills are vendored at `.claude/skills/` and
+    load automatically. Nothing to install.
+  - `.claude/settings.json` is a shared permission allowlist covering the
+    verification suite and read-only git/gh queries. Nothing in it mutates
+    state, so you will still be asked before anything that does.
+  - The node 2 SSH key is at `~/.ssh/vesper_node2`, moved by hand because a
+    private key must never live in a repository. If it is missing or its
+    permissions are wrong, `chmod 600` it and tell me.
+
+      ssh -i ~/.ssh/vesper_node2 csf@192.168.100.102
+
+    ICMP is blocked both ways on this network — ping proves nothing here. Test
+    TCP/22 instead.
+
+  Node 2's sudo password is held by me and is written down nowhere in the repo.
+  Ask when a task genuinely needs root; most do not.
+
+WHAT I WANT FROM THIS SESSION
+
+  Start by finding out what this machine actually is, yourself, rather than
+  asking me — `system_profiler SPHardwareDataType` gives the chip and the
+  memory. The RAM figure matters most: HANDOFF explains why 16 GB and 32 GB are
+  different projects, and it decides which models belong here rather than on
+  the Windows node.
+
+  Then tell me what you think the right first moves are, and why. There is a
+  suggested order in HANDOFF §2, but it was written before anyone knew this
+  machine's specifications, so treat it as a starting position rather than a
+  plan. If you disagree after reading, say so.
+
+  One thing I do want early: build the graphify knowledge graph over this repo.
+  It is 139 normative files and the graph should replace a lot of repeated
+  searching. It is a big run and this is a fast machine — that is what it is
+  for.
+
+HOW I WORK, SO YOU DO NOT HAVE TO DISCOVER IT
+
+  - Verify instruments before sending me at them. Three field runs were lost to
+    one broken tool. Drive a thing end to end yourself first.
+  - Lead with the critical path. A deferred gate gets one line.
+  - Lay out what a record says before asking me to decide. Naming an ID is not
+    laying out a decision.
+  - Do not ask me for things you can read yourself. On this machine I move
+    files and grant permissions; the rest is yours.
+  - If you need a session on any other machine, ask and I will create it.
+  - Tell me plainly when something is a prediction rather than a measurement.
+
+ONE STANDING CONSTRAINT, AND IT IS THE ONLY URGENT THING
+
+  Node 2 (the Kali laptop, 192.168.100.102) holds my 09:00 alarm.
+  - Powering it off and on is SAFE — it restores the alarm itself within about
+    two minutes of boot, measured.
+  - Leaving it off overnight means no alarm.
+  - NEVER suspend it. Suspend does not fail gracefully on that machine; it
+    hangs with a dark screen and needs a held power button.
+
+WHERE THINGS STOOD WHEN THIS WAS WRITTEN
+
+  Pull first — work continued after these documents were written. Recent
+  history worth knowing:
+
+  - PRs #8, #9 and #10 carry the last session's work. If #10 is still open, it
+    is setup only and green.
+  - `B4` promoted exactly ONE number into contracts/policy/capability_profiles.toml
+    (`voice_interaction = 7 tok/s`) and the reasoning is in
+    docs/planning/spike-results/SPIKE-001-B4-PROMOTION-RATIONALE.md. The 2x
+    speech-rate headroom in it is engineering's judgement and I have not ruled
+    on it.
+  - The A-008 camera audit instrument is built and served over HTTPS by
+    tools/spike/serve_camera_audit.py. It needs my devices, not more building.
