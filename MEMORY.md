@@ -354,6 +354,86 @@ entitlement, and what every alarm app on the platform already does.
 Full record: `docs/planning/spike-results/SPIKE-003-ACK-CHANNEL-PARTIAL.md`
 and `ALARM-SPOF-OWNER-ACTIONS.md`.
 
+## 4d. The night of 2026-08-18/19 — CI, and what a minimum means
+
+### `capability_profiles.toml` is no longer entirely UNKNOWN, and it gained ONE number
+
+**`voice_interaction.sustained_tokens_per_sec_min = 7`.** Everything else is
+still `UNKNOWN`, deliberately.
+
+**The rule this established, and it is the useful part:**
+`sustained_tokens_per_sec_min` is **what a capability needs**, not what a
+machine achieved. Copying `SPIKE-001` throughput into it would pass `CI-034`,
+look measured, and encode nothing but "whatever this desktop did in August" —
+with the minimum *rising when you buy better hardware*, which is backwards.
+
+The 7 comes from a requirement: generation must outpace speech delivery or the
+voice stalls mid-sentence. ~150 wpm × ~1.3 tokens/word ≈ **3.25 tok/s
+break-even**, doubled for jitter. It discriminates against the measured tiers —
+the 24B dense at 3.05 **cannot** host voice, the 30B MoE at 7.12 barely can, the
+8B at 45.8 does comfortably — and that agrees with the bandwidth law.
+
+Full rationale, including what was deliberately not promoted:
+`docs/planning/spike-results/SPIKE-001-B4-PROMOTION-RATIONALE.md`.
+
+### All twelve v3 throughput reports are on ONE checkpoint
+
+`b10405-e79e4bf66`, read from the **server's own `build_info`**, not from the
+string passed to the harness. `SPIKE-001` §3.1 forbids comparing across
+checkpoints and three published MoE figures had come from three. Fixed.
+
+| Tier | idle | concurrent |
+|---|---|---|
+| `draft` Qwen3-1.7B | 148.2 | 153.0 |
+| `small` Llama-3.2-3B | 100.2 | 101.0 |
+| `standard` Qwen3-8B | 45.8 | 47.0 |
+| `strong` MoE 30B-A3B | 7.45 | 7.12 |
+| `strong` dense 24B | 3.07 | 3.05 |
+
+The corrected sampler did **not** move the numbers — it made them comparable.
+
+### The audit record rounded the number it is judged by
+
+`autonomy.loop_stalled` is `INV-AUTO-1`'s evidence. The watchdog decided
+`since > limit` on raw floats and published `round(since, 3)` beside a raw
+`limit`. **`3 * 0.2 = 0.6000000000000001`**, so any gap in (0.6, 0.6005) was
+recorded as `0.6` — not greater than the limit. The record contradicted the
+decision that produced it, and anyone checking the arithmetic on a real stall
+would have found a report saying the limit was never exceeded.
+
+Half a millisecond wide, so it passed here and went red on a differently
+scheduled runner. **Rounding is presentation; a payload is evidence. Record what
+was compared.**
+
+### A red gate that lists what is always owed has not said what broke
+
+`checks.py` printed the last six lines of an acceptance runner's stdout. Every
+runner ends with the same closing block, so a failure showed the standing "owed"
+notes — the 24 h endurance run, the alarm hardware cases — and never the
+assertion that broke. Three separate CI failures were unreadable because of it.
+
+It now surfaces `[FAIL]` case lines and `MISS` assertions first. `expected-fail`
+lines are excluded: those are negative controls behaving correctly, and a
+control that **passes** is the defect.
+
+### One case, three failures, one cause
+
+`A-029-RT` failed in CI three times on three *different* assertions. Patching
+them individually was treating symptoms. The cause was a **0.2 s tick interval**,
+putting `INV-AUTO-1`'s stall threshold at 0.6 s — inside the range a shared
+runner deschedules a Python thread. Now 0.5 s / 1.5 s.
+
+Its healthy-phase assertion also could not discriminate: a stall reported while
+the loop ticks normally is a defect, but when the scheduler genuinely withholds
+the thread past the limit, reporting it is **correct**. It is now judged against
+observed lateness, so it keeps full force on a machine that schedules on time
+and says so explicitly when it cannot tell.
+
+> **The standing lesson:** a required check that fails one run in three is worse
+> than one that fails every time. It teaches whoever is waiting to press the
+> button again, and the day it goes red for a real reason that habit throws the
+> finding away.
+
 ## 5. Open questions, recorded rather than resolved
 
 1. **What window must `C1` run for?** `AT-03` calls it the most important run in the
