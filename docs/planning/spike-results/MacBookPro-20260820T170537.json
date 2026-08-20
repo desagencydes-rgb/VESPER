@@ -1,0 +1,210 @@
+{
+  "schema_version": 4,
+  "generated_at_utc": "2026-08-20T17:05:12Z",
+  "spike": "SPIKE-001",
+  "quick_mode": false,
+  "system": {
+    "os_family": "Darwin",
+    "os_version": "Darwin Kernel Version 25.5.0: Mon Apr 27 20:38:56 PDT 2026; root:xnu-12377.121.6~2/RELEASE_ARM64_T6000",
+    "hostname_hint": "MacBookPro",
+    "cpu_cores_logical": 10,
+    "ram_gb": 16.0,
+    "ram_gb_error": null,
+    "disk_total_gb": 460.4,
+    "disk_free_gb": 410.2,
+    "gpu_name_hint": "Apple M1 Pro (16 GPU cores)",
+    "gpu_name_error": null,
+    "python_version": "3.13.15"
+  },
+  "memory": {
+    "label": "owner-working-set-baseline",
+    "total_gb": 16.0,
+    "total_gb_error": null,
+    "sampling": {
+      "window_seconds": 24.0,
+      "interval_seconds": 3.0,
+      "n_samples": 8
+    },
+    "available_gb_min": 6.81,
+    "available_gb_median": 6.82,
+    "available_gb_max": 6.82,
+    "available_gb_range": 0.01,
+    "headroom_definition": "available_gb_min -- the WORST sample in the window, not the mean. Headroom that exists only on average is not headroom; the moment that decides whether a resident model survives is the worst moment.",
+    "in_use_gb_max": 9.19,
+    "process_inventory_at_start": [
+      {
+        "ProcessName": "com.apple.WebKit.WebContent",
+        "mb": 969.3
+      },
+      {
+        "ProcessName": "claude",
+        "mb": 493.5
+      },
+      {
+        "ProcessName": "WhatsApp",
+        "mb": 410.0
+      },
+      {
+        "ProcessName": "com.apple.WebKit.WebContent",
+        "mb": 319.9
+      },
+      {
+        "ProcessName": "Safari",
+        "mb": 313.4
+      },
+      {
+        "ProcessName": "Terminal",
+        "mb": 252.8
+      },
+      {
+        "ProcessName": "AppleSpell",
+        "mb": 219.4
+      },
+      {
+        "ProcessName": "com.apple.WebKit.WebContent",
+        "mb": 191.4
+      },
+      {
+        "ProcessName": "com.apple.WebKit.GPU",
+        "mb": 185.8
+      },
+      {
+        "ProcessName": "com.apple.WebKit.WebContent",
+        "mb": 161.8
+      },
+      {
+        "ProcessName": "System Settings",
+        "mb": 153.6
+      },
+      {
+        "ProcessName": "WindowServer",
+        "mb": 145.6
+      },
+      {
+        "ProcessName": "Spotlight",
+        "mb": 136.8
+      },
+      {
+        "ProcessName": "com.apple.WebKit.WebContent",
+        "mb": 134.0
+      },
+      {
+        "ProcessName": "photoanalysisd",
+        "mb": 127.3
+      },
+      {
+        "ProcessName": "Notes",
+        "mb": 122.9
+      },
+      {
+        "ProcessName": "com.apple.WebKit.WebContent",
+        "mb": 118.1
+      },
+      {
+        "ProcessName": "com.apple.WebKit.WebContent",
+        "mb": 117.5
+      },
+      {
+        "ProcessName": "mediaanalysisd",
+        "mb": 116.0
+      },
+      {
+        "ProcessName": "loginwindow",
+        "mb": 108.6
+      }
+    ],
+    "process_inventory_at_end": [
+      {
+        "ProcessName": "com.apple.WebKit.WebContent",
+        "mb": 969.2
+      },
+      {
+        "ProcessName": "claude",
+        "mb": 496.2
+      },
+      {
+        "ProcessName": "WhatsApp",
+        "mb": 409.8
+      },
+      {
+        "ProcessName": "com.apple.WebKit.WebContent",
+        "mb": 319.9
+      },
+      {
+        "ProcessName": "Safari",
+        "mb": 313.4
+      },
+      {
+        "ProcessName": "Terminal",
+        "mb": 252.8
+      },
+      {
+        "ProcessName": "AppleSpell",
+        "mb": 219.4
+      },
+      {
+        "ProcessName": "com.apple.WebKit.WebContent",
+        "mb": 192.8
+      },
+      {
+        "ProcessName": "com.apple.WebKit.GPU",
+        "mb": 185.6
+      },
+      {
+        "ProcessName": "com.apple.WebKit.WebContent",
+        "mb": 161.8
+      },
+      {
+        "ProcessName": "System Settings",
+        "mb": 153.6
+      },
+      {
+        "ProcessName": "WindowServer",
+        "mb": 145.6
+      },
+      {
+        "ProcessName": "Spotlight",
+        "mb": 136.8
+      },
+      {
+        "ProcessName": "com.apple.WebKit.WebContent",
+        "mb": 134.0
+      },
+      {
+        "ProcessName": "photoanalysisd",
+        "mb": 127.3
+      },
+      {
+        "ProcessName": "Notes",
+        "mb": 123.0
+      },
+      {
+        "ProcessName": "com.apple.WebKit.WebContent",
+        "mb": 118.1
+      },
+      {
+        "ProcessName": "com.apple.WebKit.WebContent",
+        "mb": 117.5
+      },
+      {
+        "ProcessName": "mediaanalysisd",
+        "mb": 116.0
+      },
+      {
+        "ProcessName": "loginwindow",
+        "mb": 108.6
+      }
+    ],
+    "process_inventory_error": null,
+    "samples_gb": [
+      6.81,
+      6.81,
+      6.81,
+      6.82,
+      6.82,
+      6.82,
+      6.82,
+      6.82
+    ]
+  }
+}

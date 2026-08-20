@@ -40,6 +40,7 @@ import ctypes
 import json
 import os
 import platform
+import re
 import shutil
 import statistics
 import subprocess
@@ -129,6 +130,52 @@ def _ram_gb() -> tuple[float | None, str | None]:
     return None, f"unsupported platform: {system}"
 
 
+def _vm_stat_pages() -> tuple[dict[str, int] | None, int, str | None]:
+    """Darwin page accounting, shared by the memory probes.
+
+    Returns (pages_by_category, page_size_bytes, error). Page size is READ, not
+    assumed: Apple silicon uses 16 KB pages where x86 used 4 KB, and hardcoding
+    4096 understates every figure here by 4x on this hardware.
+    """
+    try:
+        out = subprocess.run(["vm_stat"], capture_output=True, text=True,
+                             timeout=10, check=True).stdout
+    except Exception as e:  # noqa: BLE001
+        return None, 0, f"vm_stat unavailable: {e}"
+    m = re.search(r"page size of (\d+) bytes", out)
+    page = int(m.group(1)) if m else 0
+    if not page:
+        return None, 0, "vm_stat did not report a page size"
+    pages = {}
+    for line in out.splitlines():
+        m = re.match(r'"?Pages? ([^:"]+)"?:\s+(\d+)', line.strip())
+        if m:
+            pages[m.group(1).strip().lower()] = int(m.group(2))
+    if not pages:
+        return None, page, "vm_stat produced no page counts"
+    return pages, page, None
+
+
+def _memory_pressure_band() -> tuple[int | None, str | None]:
+    """macOS's own pressure indicator, recorded as a BAND and never as a size.
+
+    MEASURED 2026-08-20, and it is the trap this function exists to prevent:
+    against a real 1.5 GB incompressible allocation this value moved by the
+    equivalent of 0.16 GB. It does NOT measure available memory. Read as a
+    quantity it claimed 11.2 GB free while the honest reclaimable figure was
+    ~7 GB -- an overstatement that would let a model be placed on a node that
+    cannot hold it. It is a pressure signal; keep it, but never multiply it by
+    total RAM.
+    """
+    try:
+        out = subprocess.run(["sysctl", "-n", "kern.memorystatus_level"],
+                             capture_output=True, text=True, timeout=5, check=True)
+        v = out.stdout.strip()
+        return (int(v) if v.lstrip("-").isdigit() else None), None
+    except Exception as e:  # noqa: BLE001
+        return None, f"kern.memorystatus_level unavailable: {e}"
+
+
 def _ram_available_gb() -> tuple[float | None, str | None]:
     system = platform.system()
     if system == "Windows":
@@ -166,6 +213,45 @@ def _ram_available_gb() -> tuple[float | None, str | None]:
             return None, "MemAvailable not present (old kernel)"
         except Exception as e:  # noqa: BLE001
             return None, f"/proc/meminfo read failed: {e}"
+    elif system == "Darwin":
+        # THE macOS TRANSLATION, AND WHY IT IS NOT THE OBVIOUS READING.
+        #
+        # There is no MemAvailable here, and the three plausible substitutes
+        # disagree by more than a factor of two. Settled by CALIBRATION on
+        # 2026-08-20 -- allocate a known incompressible block, see which
+        # candidate moves by its size:
+        #
+        #   free alone                    tracked, but UNDERSTATES badly. It
+        #                                 read 2.08 GB immediately before the
+        #                                 machine absorbed 1.5 GB without
+        #                                 swapping. macOS deliberately holds
+        #                                 almost nothing "free"; a reader who
+        #                                 takes this as headroom concludes a
+        #                                 perfectly healthy node is full.
+        #   free+inactive+speculative     TRACKED and is honest about what a
+        #                                 new allocation can actually reclaim.
+        #                                 This is the MemAvailable analogue.
+        #   + purgeable                   also tracks, but purgeable pages are
+        #                                 a SUBSET of active/inactive, so
+        #                                 adding them double-counts.
+        #   kern.memorystatus_level       did NOT track -- see
+        #                                 _memory_pressure_band().
+        #
+        # Second finding from the same calibration, recorded because it breaks
+        # the intuition every other platform teaches: on macOS the memory cost
+        # of an allocation depends on COMPRESSIBILITY, not size. The first
+        # calibration attempt allocated 2 GB of zeros and the compressor
+        # absorbed it for 0.14 GB of real memory. Model weights are effectively
+        # random and pay full price; do not size a model from a test that
+        # allocated anything cheaper.
+        pages, page, err = _vm_stat_pages()
+        if err:
+            return None, err
+        try:
+            avail = sum(pages.get(k, 0) for k in ("free", "inactive", "speculative"))
+            return round(avail * page / (1024**3), 2), None
+        except Exception as e:  # noqa: BLE001
+            return None, f"vm_stat page arithmetic failed: {e}"
     return None, f"unsupported platform: {system}"
 
 
@@ -194,6 +280,25 @@ def _swap_active() -> tuple[bool | None, str | None]:
             return (pct > 5.0), None
         except Exception as e:  # noqa: BLE001
             return None, f"Get-Counter paging file unavailable: {e}"
+    if system == "Darwin":
+        # A LEVEL, NOT A RATE, and the difference matters for how it is read.
+        # vm.swapusage reports how much swap currently HOLDS, not whether the
+        # machine is paging right now. Non-zero means swap has been needed at
+        # some point and has not been fully reclaimed -- which for our purpose
+        # (is this node writing to its SSD to stay afloat?) is the question
+        # actually worth asking, since SSD wear is cumulative and a rate
+        # sampled at the wrong instant reads zero on a machine that swapped
+        # heavily an hour ago.
+        try:
+            out = subprocess.run(["sysctl", "-n", "vm.swapusage"],
+                                 capture_output=True, text=True, timeout=5, check=True)
+            m = re.search(r"used\s*=\s*([\d.]+)([MGK])", out.stdout)
+            if not m:
+                return None, f"could not parse vm.swapusage: {out.stdout.strip()!r}"
+            used = float(m.group(1)) * {"K": 1 / 1024, "M": 1.0, "G": 1024.0}[m.group(2)]
+            return (used > 0.0), None
+        except Exception as e:  # noqa: BLE001
+            return None, f"vm.swapusage unavailable: {e}"
     return None, f"unsupported platform: {system}"
 
 
@@ -217,6 +322,23 @@ def _gpu_name() -> tuple[str | None, str | None]:
                 if "VGA" in line or "3D controller" in line:
                     return line.split(":", 2)[-1].strip(), None
             return None, "no VGA/3D controller line in lspci"
+        elif system == "Darwin":
+            out = subprocess.run(["system_profiler", "SPDisplaysDataType"],
+                                 capture_output=True, text=True, timeout=30, check=True)
+            name = cores = None
+            for line in out.stdout.splitlines():
+                k, _, v = line.strip().partition(":")
+                if k == "Chipset Model" and name is None:
+                    name = v.strip()
+                elif k == "Total Number of Cores" and cores is None:
+                    cores = v.strip()
+            if not name:
+                return None, "no Chipset Model line in SPDisplaysDataType"
+            # Integrated GPU on unified memory: the core count is the only part
+            # that carries capability meaning, so keep it with the name. Still a
+            # REPORT field only -- INV-HW-1 keeps every product name out of the
+            # contracts, and this one is no exception.
+            return (f"{name} ({cores} GPU cores)" if cores else name), None
     except Exception as e:  # noqa: BLE001
         return None, f"GPU query failed: {e}"
     return None, f"unsupported platform: {system}"
@@ -721,6 +843,25 @@ def _process_inventory(top: int = 20) -> tuple[list[dict] | None, str | None]:
                             rows.append({"ProcessName": name, "mb": round(rss, 1)})
                 except (OSError, ValueError):
                     continue
+            rows.sort(key=lambda r: r["mb"], reverse=True)
+            return rows[:top], None
+        if system == "Darwin":
+            out = subprocess.run(["ps", "-Ao", "rss=,comm="],
+                                 capture_output=True, text=True, timeout=30, check=True)
+            rows = []
+            for line in out.stdout.splitlines():
+                parts = line.strip().split(None, 1)
+                if len(parts) != 2 or not parts[0].isdigit():
+                    continue
+                mb = int(parts[0]) / 1024.0
+                if mb > 20:
+                    # RSS here is what the process has RESIDENT. On macOS that
+                    # is not the same as what it has allocated -- the compressor
+                    # may be holding a large slice of it elsewhere -- so this
+                    # inventory says who is occupying physical memory, which is
+                    # the question headroom depends on.
+                    rows.append({"ProcessName": parts[1].rsplit("/", 1)[-1],
+                                 "mb": round(mb, 1)})
             rows.sort(key=lambda r: r["mb"], reverse=True)
             return rows[:top], None
     except Exception as e:  # noqa: BLE001
