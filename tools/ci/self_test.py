@@ -736,6 +736,7 @@ def main() -> int:
 # EDIT rather than an obvious sabotage: every mutation below reads like a
 # reasonable relaxation in a diff, which is the only kind that actually ships.
 # --------------------------------------------------------------------------
+HOST_ACTIONS = "contracts/policy/host_actions.toml"
 FABRIC = "contracts/policy/network_fabric.toml"
 FABRIC_IMPL = "core/fabric.py"
 
@@ -753,6 +754,66 @@ def _elevate_uncontrolled(text: str) -> str:
     return head + sep + tail.replace('trust_zone_ceiling = "Z2"',
                                      'trust_zone_ceiling = "Z0"', 1)
 
+
+
+# ---------------------------------------------------------------------- CI-056
+#
+# The first case is the one this check exists for. Enabling an above-the-line
+# row is a single word in a diff, reads as configuration, and hands VESPER the
+# ability to change a machine the owner said it may only report on. Everything
+# else here is a way the vocabulary can claim a safety property it does not
+# have.
+CASES += [
+    ("host-action-vocabulary", HOST_ACTIONS,
+     _sub('tier = "adjust_reversible"\nenabled = false', 'tier = "adjust_reversible"\nenabled = true', 1),
+     "an above-the-read-line action enabled -- owner policy is that VESPER "
+     "reports a change and the owner applies it; this is the one-word edit that "
+     "silently reverses that and looks like configuration"),
+
+    ("host-action-vocabulary", HOST_ACTIONS,
+     _sub("fail_closed = true", "fail_closed = false", 1),
+     "the vocabulary made permit-unless-forbidden -- the permitted set becomes "
+     "unbounded and no audit can enumerate what the system may do"),
+
+    ("host-action-vocabulary", HOST_ACTIONS,
+     _sub('action_provenance_required = "verified_local"',
+          'action_provenance_required = "model_generated"', 1),
+     "host actions allowed to run on model-generated belief -- VESPER reads "
+     "somewhere that stopping some process is safe, believes it, and does it here"),
+
+    ("host-action-vocabulary", HOST_ACTIONS,
+     _sub('inverse = "restore_process_scheduling"', 'inverse = "unpin_process"', 1),
+     "a claimed undo that is not in the vocabulary -- the row advertises "
+     "reversibility the system cannot deliver, discovered mid-incident"),
+
+    ("host-action-vocabulary", HOST_ACTIONS,
+     _sub("restores_baseline = true\ntier = \"adjust_reversible\"",
+          "tier = \"adjust_reversible\"", 1),
+     "the undo flag dropped from a restore row -- the cap rule loses its "
+     "direction and stops noticing an undo scarcer than what it undoes"),
+
+    ("host-action-vocabulary", HOST_ACTIONS,
+     _sub('max_targets_per_window = 32', 'max_targets_per_window = 1', 1),
+     "the undo capped below the action it reverses -- both rows look "
+     "responsibly bounded and the system can enter a state it cannot leave"),
+
+    ("host-action-vocabulary", HOST_ACTIONS,
+     _sub('reversible = false\ninverse = ""\nrequires_owner_consent = "per_instance"',
+          'reversible = false\ninverse = ""\nrequires_owner_consent = "per_rule"', 1),
+     "the only irreversible action downgraded from per-instance to per-rule "
+     "consent -- one approval then covers every future firing"),
+
+    ("host-action-vocabulary", HOST_ACTIONS,
+     _sub('non_mutating_tiers = ["observe", "advise"]', 'non_mutating_tiers = []', 1),
+     "the non-mutating tier list emptied -- every read is then treated as a "
+     "mutation and asked for an undo it cannot have"),
+
+    ("host-action-vocabulary", HOST_ACTIONS,
+     _sub('source = "SR-060 · placement needs the node\'s live condition, not its declared one"',
+          'source = ""', 1),
+     "an action with no source -- a row invented to keep the check green is "
+     "visible only by having nothing that asked for it"),
+]
 
 CASES += [
     ("fabric-segment-declared", FABRIC,

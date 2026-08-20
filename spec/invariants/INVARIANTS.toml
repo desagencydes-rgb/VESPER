@@ -587,6 +587,20 @@ owner_rem = "REM-012"
 enforced_by = ["A-038"]
 kind = "runtime"
 
+[invariants.INV-HOST-1]
+statement = "VESPER acts upon the host it runs on only through a closed, declared action vocabulary. An action absent from the vocabulary is refused, and an action's risk class is declared in the contract rather than determined at runtime."
+owner_rem = "REM-012"
+enforced_by = ["CI-056"]
+kind = "structural"
+raised = "2026-08-20, while building the host collaboration layer. The host exposes no negotiation interface -- there is no call that asks the platform for permission and gets an answer -- so VESPER's only way to influence its own running conditions is to act and then re-read the world. That makes the action vocabulary the entire safety boundary, with no second gate behind it, and it is why risk class must be DECLARED rather than judged: a system that classifies its own actions will eventually classify a destructive one as safe, and will be most confident exactly when it is most wrong. Raised because CI-056 was first written claiming enforces = [INV-HW-1, INV-SELF-1] and enforced neither -- INV-HW-1 is product names (CI-007), INV-SELF-1 is the runtime never self-merging (CI-015, A-030). That is the same defect INV-GOV-1's own raised note describes: a real property with no invariant ID, so the check points at the nearest available one. CI-041 refused the asymmetric claim, which is the mechanism working."
+
+[invariants.INV-HOST-2]
+statement = "No host action that changes state outside VESPER's own process is enabled without a recorded owner authorisation. An irreversible host action requires per-instance consent and is never pre-authorisable; a reversible one names an inverse that is at least as available as itself."
+owner_rem = "REM-012"
+enforced_by = ["CI-056"]
+kind = "structural"
+raised = "2026-08-20, recording owner policy of the same date: VESPER reads freely and changes nothing on its own; where a change is warranted it reports the change and the owner applies it after review. The clause about the inverse's availability is not symmetry for its own sake -- an action capped at 3 per hour whose undo is capped at 1 per hour is bounded in both directions and still lets the system enter a state it has no budget to leave. The per-instance clause was added after the self-test showed the check passing while the only irreversible action was downgraded from per-instance to per-rule consent, which would have let one approval cover every future firing of an action that destroys unsaved work."
+
 [invariants.INV-LIMIT-1]
 statement = "Any SR judged infeasible carries a limitation record and an R&D path per COC Part XIV.3, and may never be marked IMPLEMENTED."
 owner_rem = "REM-012"

@@ -581,3 +581,14 @@ self_test = "Set unlisted_segment_disposition to REACHABLE; give a non-vesper_co
 self_test_evidence = "tools/ci/self_test.py fabric-segment-declared -- 8 cases, red then green"
 subject = "contracts/policy/network_fabric.toml"
 note = "Refuses the four ways this contract can be made to lie: a fail-open disposition, a ceiling that ELEVATES trust on a path VESPER does not control, an administrative scope that reaches user-owned nodes, and a control class that media traffic may starve. The elevation case is the one worth naming -- INV-NET-2 makes the segment a CEILING, and a check that only verified the ceiling EXISTS would pass a contract where the weakest path granted the strongest zone."
+
+[checks.CI-056]
+name = "host-action-vocabulary"
+enforces = ["INV-HOST-1", "INV-HOST-2"]
+kind = "structural"
+impl = "tools/ci/checks.py host-action-vocabulary"
+blocking = "pr"
+self_test = "Enable an above-the-read-line action; set fail_closed = false; allow model_generated provenance; point an inverse at an action that does not exist; drop restores_baseline from a restore row; cap an undo below the action it reverses; downgrade the irreversible action from per_instance to per_rule consent; empty non_mutating_tiers; blank an action's source."
+self_test_evidence = "tools/ci/self_test.py host-action-vocabulary -- 9 cases, red then green"
+subject = "contracts/policy/host_actions.toml"
+note = """The host offers no negotiation interface, so VESPER's only way to influence its own conditions is to act and re-read the world -- which makes this vocabulary the entire safety boundary, with no second gate behind it. Owner policy 2026-08-20 is that VESPER reads freely and changes nothing on its own; every row above `read_line` therefore ships disabled. That is asserted directly, because the breach is a one-word `enabled` flip that reads as configuration in a diff. Two of the nine cases were written after the check already passed and both found real defects: the check had no consent assertions at all, so the only irreversible action could be downgraded to per-rule consent -- one approval covering every future firing -- with every gate green."""

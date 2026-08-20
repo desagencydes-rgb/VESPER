@@ -43,6 +43,7 @@ TUNABLES = REPO / "contracts" / "policy" / "tunables.toml"
 CAPPROFILES = REPO / "contracts" / "policy" / "capability_profiles.toml"
 LATENCY = REPO / "contracts" / "policy" / "latency_budgets.toml"
 FABRIC = REPO / "contracts" / "policy" / "network_fabric.toml"
+HOST_ACTIONS = REPO / "contracts" / "policy" / "host_actions.toml"
 FABRIC_IMPL = REPO / "core" / "fabric.py"
 PLACEMENT = REPO / "core" / "placement.py"
 MODEL_PROFILE = REPO / "contracts" / "entities" / "model_profile.schema.json"
@@ -2019,6 +2020,186 @@ def check_fabric_segments() -> Result:
     return r
 
 
+
+
+# --------------------------------------------------------------------------
+# CI-056 -- INV-HW-1 / INV-SELF-1: the host action vocabulary is closed,
+# tiered, reversible where it claims to be, and cannot quietly cross the line
+# between reading the machine and changing it.
+#
+# WHAT THIS CHECK IS ACTUALLY DEFENDING.
+#
+# The host exposes no negotiation interface, so VESPER's only way to influence
+# its own running conditions is to act and then re-read the world. That makes
+# the action set the entire safety boundary -- there is no second gate behind
+# it. And because the boundary is a list, the failure mode is not a dramatic
+# one: it is a row quietly flipping `enabled` from false to true, which looks
+# like configuration and reads like nothing in a diff.
+#
+# The owner's policy (2026-08-20) is that VESPER reads freely and changes
+# nothing on its own; where a change is warranted it reports it and the owner
+# applies it. Everything above `read_line` therefore ships disabled. THAT is
+# the property with teeth here, and it is asserted directly rather than
+# inferred from the tiers being present.
+#
+# THREE ASSERTIONS THAT LOOK REDUNDANT AND ARE NOT.
+#
+# 1. `reversible = true` with an inverse that does not exist. The row claims
+#    undoability, the vocabulary cannot deliver it, and nothing notices until
+#    an incident is under way and the undo is missing.
+# 2. An undo capped BELOW the action it undoes. Both rows have caps, both look
+#    responsibly bounded, and the system can enter a state it lacks the budget
+#    to leave. A bounded action whose undo is more tightly bounded is not
+#    reversible in any sense that helps.
+# 3. `reversible = false` outside the destructive tier. Irreversibility is the
+#    definition of destructive; a row that is irreversible and filed lower has
+#    been misfiled, and misfiling is how a destructive action inherits a
+#    permissive consent rule.
+# --------------------------------------------------------------------------
+def check_host_actions() -> Result:
+    r = Result("host-action-vocabulary")
+    if not HOST_ACTIONS.is_file():
+        r.err("contracts/policy/host_actions.toml is missing -- the action "
+              "vocabulary is the whole safety boundary and its absence is not "
+              "an empty vocabulary, it is an unbounded one")
+        return r
+    doc = _load(HOST_ACTIONS)
+    pol = doc.get("policy", {})
+    actions = doc.get("action", {})
+
+    if pol.get("fail_closed") is not True:
+        r.err("policy.fail_closed must be true -- permit-unless-forbidden "
+              "leaves the permitted set unbounded and unauditable")
+    if pol.get("action_provenance_required") != "verified_local":
+        r.err("policy.action_provenance_required must be 'verified_local': an "
+              "action driven by model-generated or retrieved belief is the "
+              "failure that actually causes harm on a live machine")
+
+    tiers = pol.get("tiers") or []
+    read_line = pol.get("read_line")
+    if not tiers:
+        r.err("policy.tiers is empty -- no ordering means no read line")
+        return r
+    if read_line not in tiers:
+        r.err(f"policy.read_line {read_line!r} is not one of the declared tiers {tiers}")
+        return r
+    line = tiers.index(read_line)
+
+    if not actions:
+        r.err("no actions declared. An empty vocabulary under fail_closed is "
+              "vacuously safe, so this is reported rather than passed: the "
+              "check would be green while enforcing nothing")
+        return r
+
+    non_mutating = set(pol.get("non_mutating_tiers") or [])
+    if not non_mutating:
+        r.err("policy.non_mutating_tiers is empty -- without it every row is "
+              "treated as mutating and a read is asked for an undo it cannot have")
+    for t in non_mutating:
+        if t not in tiers:
+            r.err(f"non_mutating_tiers names {t!r}, which is not a declared tier")
+
+    CONSENT_LEVELS = ("never", "per_rule", "per_instance")
+    REQUIRED = ("tier", "enabled", "description", "reversible", "inverse",
+                "requires_owner_consent", "provenance_required", "source")
+    above = []
+    for name, a in sorted(actions.items()):
+        missing = [f for f in REQUIRED if f not in a]
+        if missing:
+            r.err(f"action {name!r} is missing {', '.join(missing)}")
+            continue
+        if a["tier"] not in tiers:
+            r.err(f"action {name!r} has tier {a['tier']!r}, not in {tiers}")
+            continue
+        if not str(a.get("source", "")).strip():
+            r.err(f"action {name!r} names no source -- a row invented to keep "
+                  f"this check green is visible as a row nothing asked for")
+        if a["provenance_required"] != "verified_local":
+            r.err(f"action {name!r} accepts provenance {a['provenance_required']!r}; "
+                  f"only 'verified_local' may drive a host action")
+
+        # CONSENT. Added after the self-test caught its absence: downgrading
+        # the only irreversible row from per-instance to per-rule consent left
+        # every check green. One approval would then have covered every future
+        # firing of an action that destroys unsaved work, which is precisely
+        # the difference the two words exist to express.
+        consent = a["requires_owner_consent"]
+        if consent not in CONSENT_LEVELS:
+            r.err(f"action {name!r} declares consent {consent!r}, not one of "
+                  f"{CONSENT_LEVELS}")
+        elif a["tier"] == "destructive" and consent != "per_instance":
+            r.err(f"action {name!r} is destructive but asks only for {consent!r} "
+                  f"consent. A destructive action approved once is approved "
+                  f"forever, which is not what the owner agreed to")
+        elif not a["reversible"] and consent != "per_instance":
+            r.err(f"action {name!r} is irreversible but asks only for {consent!r} "
+                  f"consent -- nothing can undo it, so nothing may pre-authorise it")
+
+        mutating = a["tier"] not in non_mutating
+        if not mutating:
+            for f in ("inverse", "max_targets_per_window", "window_seconds"):
+                if a.get(f):
+                    r.err(f"action {name!r} is in non-mutating tier {a['tier']!r} "
+                          f"but declares {f} -- a row that changes nothing needs "
+                          f"no undo and no blast radius, and carrying them hides "
+                          f"a mutating row filed in the wrong tier")
+
+        idx = tiers.index(a["tier"])
+        # THE OWNER-POLICY ASSERTION. Everything that changes the machine ships
+        # disabled until an owner authorisation is recorded against it.
+        if idx > line and a["enabled"]:
+            r.err(f"action {name!r} is above the read line ({a['tier']!r} > "
+                  f"{read_line!r}) and enabled. Owner policy 2026-08-20: VESPER "
+                  f"reports a change and the owner applies it. Enabling this is "
+                  f"a governed act, not a config edit")
+        if idx > line:
+            above.append(name)
+            if consent == "never":
+                r.err(f"action {name!r} changes the machine and asks for no "
+                      f"consent at all")
+            for f in ("max_targets_per_window", "window_seconds"):
+                if f not in a:
+                    r.err(f"action {name!r} is above the read line and declares "
+                          f"no {f} -- individually safe actions are collectively "
+                          f"unsafe without a blast radius")
+
+        inv = a.get("inverse", "")
+        if mutating and a["reversible"]:
+            if not inv:
+                r.err(f"action {name!r} mutates, claims reversible = true, and names no inverse")
+            elif inv not in actions:
+                r.err(f"action {name!r} names inverse {inv!r}, which is not in "
+                      f"the vocabulary. A claimed undo that does not exist is "
+                      f"worse than an admitted one-way action")
+        elif mutating:
+            if inv:
+                r.err(f"action {name!r} is irreversible but names inverse {inv!r}")
+            if a["tier"] != "destructive":
+                r.err(f"action {name!r} is irreversible but filed under "
+                      f"{a['tier']!r}. Irreversibility IS the destructive tier; "
+                      f"filing it lower lets it inherit a weaker consent rule")
+
+    # An undo must never be scarcer than the thing it undoes.
+    for name, a in sorted(actions.items()):
+        inv = a.get("inverse", "")
+        if not inv or inv == name or inv not in actions:
+            continue
+        if a.get("restores_baseline"):
+            continue          # this row IS the undo; the rule applies to its partner
+        cap, icap = a.get("max_targets_per_window"), actions[inv].get("max_targets_per_window")
+        if isinstance(cap, int) and isinstance(icap, int) and icap < cap:
+            r.err(f"action {name!r} allows {cap} per window but its inverse "
+                  f"{inv!r} allows only {icap}. The system can enter a state it "
+                  f"has no budget to leave")
+
+    enabled = sorted(n for n, a in actions.items()
+                     if a.get("enabled") and a.get("tier") in tiers)
+    r.note(f"{len(actions)} actions declared, {len(enabled)} enabled, "
+           f"{len(above)} above the read line ({read_line!r})")
+    r.note("above-the-line rows disabled pending owner authorisation: "
+           + (", ".join(above) if above else "none declared"))
+    return r
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -2047,6 +2228,7 @@ CHECK_FNS = {
     "evaluator-no-model-capability": check_evaluator_no_model_capability,
     "no-wall-clock-ordering": check_no_wall_clock_ordering,
     "fabric-segment-declared": check_fabric_segments,
+    "host-action-vocabulary": check_host_actions,
     "fabric-stress": check_fabric_stress,
 }
 

@@ -155,12 +155,13 @@ raised = "2026-08-12: the Context Budget Manager is DF-CONTEXT-ASSEMBLE plus its
 arch = ["ARCH-13", "ARCH-25"]
 ic = ["IC-001"]
 tests = ["A-005", "A-020", "A-033", "A-043"]
-contracts = ["contracts/events/event_envelope.schema.json", "contracts/entities/telemetry_record.schema.json"]
+contracts = ["contracts/events/event_envelope.schema.json", "contracts/entities/telemetry_record.schema.json", "contracts/policy/host_actions.toml"]
 decision_functions = ["DF-GOVERNOR-LEVEL"]
-invariants = ["INV-COORD-4", "INV-OBS-1", "INV-PERF-1", "INV-GOV-1"]
-ci = ["CI-005", "CI-039", "CI-040"]
+invariants = ["INV-COORD-4", "INV-OBS-1", "INV-PERF-1", "INV-GOV-1", "INV-HOST-1", "INV-HOST-2"]
+ci = ["CI-005", "CI-039", "CI-040", "CI-056"]
 status = "SPECIFIED"
 raised = "2026-08-12: SR-011 requires telemetry VISIBLE TO THE MODEL AND ACTIONABLE, which is a hazard as well as a requirement. CI-039 (governor-damping-present) already existed and named the mechanism; it had no artifact. `decided_by` is a one-member enum, so a governor level attributed to a model is unrecordable."
+note = """Host actions were added here 2026-08-20 rather than to a new SR, because this row already carries the hazard they instantiate: its own raised note calls model-visible ACTIONABLE telemetry a hazard as well as a requirement, and a host action is what happens when something acts on it. INV-GOV-1's shape carries over exactly -- the model may request, the governor decides -- with one addition the host forces. The platform offers no negotiation interface, so there is no call that asks permission and gets an answer; VESPER can only act and re-read the world. That makes contracts/policy/host_actions.toml the whole boundary, and INV-HOST-1/2 the properties CI-056 holds it to."""
 
 [requirements.SR-012]
 arch = ["ARCH-09", "ARCH-24"]

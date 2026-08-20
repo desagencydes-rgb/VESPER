@@ -1,0 +1,280 @@
+##############################################################################
+# VESPER HOST ACTION VOCABULARY
+#
+# The closed set of things VESPER may do TO the machine it is running on.
+#
+# WHY THIS FILE EXISTS AT ALL, AND WHY IT IS A FILE RATHER THAN A JUDGEMENT.
+#
+# The host offers no negotiation interface. There is no call that asks the
+# operating system "may I run this now" and gets an answer. Traffic is
+# one-directional: the platform emits signals, and anything that cares reads
+# them. So the only way VESPER can influence its own conditions is to ACT and
+# then observe what changed -- acting IS the sentence, and the reply is a
+# sensor reading.
+#
+# That makes the action set the entire safety boundary, and it is why risk
+# class is DECLARED HERE rather than decided at runtime. A system that
+# classifies its own actions will eventually classify a destructive one as
+# safe, and it will be most confident exactly when it is most wrong. The list
+# below is the whole vocabulary. Anything not on it is refused -- not warned
+# about, refused -- which is the same fail-closed posture INV-HW-2 takes toward
+# UNKNOWN.
+#
+# OWNER POLICY, 2026-08-20, recorded because it constrains every row: VESPER
+# reads freely and changes nothing on its own. Where a change is warranted it
+# reports the change and the owner applies it after review. Rows above the
+# read line therefore ship `enabled = false` and stay that way until an owner
+# authorisation is recorded against them. Enabling one is a governed act, not
+# a configuration tweak.
+#
+# NO PLATFORM COMMANDS APPEAR IN THIS FILE. Rows name an abstract effect; the
+# platform adapter owns the translation to whatever local mechanism achieves
+# it. INV-HW-1 is exactly this rule applied to hardware, and the reasoning
+# carries: a policy path that names one platform's tool cannot be honoured on
+# a node that does not have it, and a node that cannot honour the policy is a
+# node the policy silently does not cover.
+#
+# Enforced by CI-056. Namespace authority: docs/AUTHORITY_AND_PRECEDENCE.md §5.
+##############################################################################
+
+schema_version = 1
+authority = "REM-014 · INV-HW-1, INV-HW-2, INV-SELF-1 · owner policy 2026-08-20"
+
+[policy]
+# Anything absent from this file is refused. The alternative -- permit unless
+# forbidden -- cannot be audited, because the permitted set is then unbounded
+# and nobody can enumerate what the system may do.
+fail_closed = true
+
+# Every row above the read line must be driven by knowledge MEASURED on this
+# node. Not model-generated belief, not something retrieved from a document.
+# This is the failure that would actually cause harm: VESPER reads somewhere
+# that some daemon is safe to stop, believes it, and stops it here. Advice may
+# come from anywhere; ACTION may not.
+action_provenance_required = "verified_local"
+
+# Tiers, weakest to strongest. The read line sits between `advise` and
+# `adjust_reversible`: everything at or below `advise` changes nothing about
+# the machine, everything above it does.
+tiers = ["observe", "self", "advise", "adjust_reversible", "destructive"]
+read_line = "advise"
+
+# Tiers that change NOTHING. Declared rather than inferred from position,
+# because the read line does not mean what it looks like it means: `self` sits
+# BELOW the line and still mutates -- it changes VESPER's own scheduling and
+# residency. The line separates "changes the machine" from "changes only
+# VESPER", not "changes something" from "changes nothing". A first draft of
+# CI-056 required every reversible row to name an inverse and duly flagged all
+# three read rows, because a read is not reversible, it is inert. Reversibility
+# is the wrong axis for a row that never altered anything.
+non_mutating_tiers = ["observe", "advise"]
+
+##############################################################################
+# TIER: observe -- reads. Change nothing, need no consent.
+#
+# Not automatically harmless, and the distinction will matter later: process
+# names disclose what the owner is working on, and screen or document reading
+# discloses content. Today's rows are inventory and counters only. Anything
+# that reads CONTENT is a new row and a new decision, not an extension of
+# these.
+##############################################################################
+
+[action.read_host_pressure]
+tier = "observe"
+enabled = true
+description = "Thermal pressure level, memory pressure band, power source and charge state"
+reversible = true
+inverse = ""
+requires_owner_consent = "never"
+provenance_required = "verified_local"
+source = "SR-060 · placement needs the node's live condition, not its declared one"
+
+[action.read_process_inventory]
+tier = "observe"
+enabled = true
+description = "Resident set and identity of processes above a size floor"
+reversible = true
+inverse = ""
+requires_owner_consent = "never"
+provenance_required = "verified_local"
+source = "SPIKE-001 §3.2 · headroom is uninterpretable without the working set that produced it"
+
+[action.read_power_assertions]
+tier = "observe"
+enabled = true
+description = "Which processes are holding the machine awake, and for how long"
+reversible = true
+inverse = ""
+requires_owner_consent = "never"
+provenance_required = "verified_local"
+source = """Measured 2026-08-20: the compute subsystem draws 0.51 W mean at idle
+against ~6.5 W at the battery -- 8% of drain. Wake assertions dominate what
+compute does not, and one was found held for 4h10m on first inspection. This
+row exists because the largest available lifetime win is visible only here."""
+
+##############################################################################
+# TIER: self -- VESPER acting on VESPER. Full freedom, zero blast radius.
+##############################################################################
+
+[action.set_own_execution_class]
+tier = "self"
+enabled = true
+description = "Place VESPER's own work at a declared execution class, yielding the fast cores"
+reversible = true
+inverse = "set_own_execution_class"
+requires_owner_consent = "never"
+provenance_required = "verified_local"
+source = """Measured 2026-08-20 on this node: an identical fixed workload takes
+0.755 s unclamped and 3.962 s at the background class -- a 5.25x clamp, which
+is the efficiency-core confinement made visible. Yielding voluntarily is
+cheaper than being throttled involuntarily, because the throttle arrives after
+the contention rather than before it."""
+
+[action.set_own_io_tier]
+tier = "self"
+enabled = true
+description = "Lower the priority of VESPER's own storage I/O"
+reversible = true
+inverse = "set_own_io_tier"
+requires_owner_consent = "never"
+provenance_required = "verified_local"
+source = "INV-PERF-1 · background I/O must not contend with foreground work"
+
+[action.release_own_resident_model]
+tier = "self"
+enabled = true
+description = "Unload VESPER's own resident model to return memory to the host"
+reversible = true
+inverse = "load_own_resident_model"
+requires_owner_consent = "never"
+provenance_required = "verified_local"
+source = """SPIKE-001 §3.4 · the human-present degradation mode must UNLOAD
+rather than deprioritise. A scheduler that merely lowers the model's priority
+pages the owner's working set instead, which is the opposite of the intent."""
+
+[action.load_own_resident_model]
+tier = "self"
+enabled = true
+description = "Return a model to residency once headroom allows"
+reversible = true
+inverse = "release_own_resident_model"
+requires_owner_consent = "never"
+provenance_required = "verified_local"
+source = "SPIKE-001 §3.4 · the restoring half of the degradation mode"
+
+##############################################################################
+# TIER: advise -- says something, changes nothing. The last tier below the line.
+##############################################################################
+
+[action.report_host_finding]
+tier = "advise"
+enabled = true
+description = "Report a host condition and the change that would address it, for the owner to apply"
+reversible = true
+inverse = ""
+requires_owner_consent = "never"
+provenance_required = "verified_local"
+source = "owner policy 2026-08-20 · VESPER reports, the owner applies after review"
+
+##############################################################################
+# TIER: adjust_reversible -- ABOVE THE READ LINE. Ships disabled.
+#
+# These change how the host treats a process that is not VESPER. They are
+# reversible by construction and destroy nothing: the target keeps running,
+# keeps its memory, and loses only its claim on the fast cores. That property
+# is what makes this tier the useful one -- it is a real lever with no
+# casualties, which is rare enough to be worth naming.
+#
+# They are nonetheless disabled, because "reversible" is not "authorised".
+##############################################################################
+
+[action.demote_process_scheduling]
+tier = "adjust_reversible"
+enabled = false
+description = "Move another process to the efficiency cores without stopping it"
+reversible = true
+inverse = "restore_process_scheduling"
+requires_owner_consent = "per_rule"
+provenance_required = "verified_local"
+max_targets_per_window = 3
+window_seconds = 3600
+source = """Individually safe, collectively not: demoting one process is
+nothing, demoting forty is an unusable machine. The cap is the blast radius,
+and it is declared rather than left to judgement for the same reason the tier
+is."""
+
+[action.restore_process_scheduling]
+# Declares itself the undo half of the pair. CI-056 requires an undo to be
+# at least as generous as the action it reverses, and without this flag the
+# rule fires in both directions and flags the healthy direction too.
+restores_baseline = true
+tier = "adjust_reversible"
+enabled = false
+description = "Return a previously demoted process to its original scheduling"
+reversible = true
+inverse = "demote_process_scheduling"
+requires_owner_consent = "per_rule"
+provenance_required = "verified_local"
+max_targets_per_window = 32
+window_seconds = 3600
+source = """Deliberately a far higher cap than its inverse. Undoing must never
+be rate-limited to the point where the system cannot get back to where it
+started -- a bounded action with an equally bounded undo is not reversible in
+any sense that helps during an incident."""
+
+##############################################################################
+# TIER: destructive -- ABOVE THE READ LINE. Ships disabled, per-instance only.
+#
+# Declared rather than omitted, deliberately. Leaving a dangerous capability
+# undeclared does not prevent it; it prevents it being GOVERNED, and the first
+# person to need it adds it ad hoc with no tier, no cap and no record. Naming
+# it here puts it inside the vocabulary, inside CI-056, and inside the rule
+# that no destructive row may be enabled without a recorded owner
+# authorisation.
+##############################################################################
+
+[action.suspend_process]
+tier = "destructive"
+enabled = false
+description = "Halt a process without terminating it"
+reversible = true
+inverse = "resume_process"
+requires_owner_consent = "per_instance"
+provenance_required = "verified_local"
+max_targets_per_window = 1
+window_seconds = 3600
+source = """Classified destructive despite being nominally reversible, on
+recorded evidence: suspending the interim control-plane node hangs that machine
+and needs a held power button to recover. A suspend that cannot be resumed is
+a termination with extra steps, and the tier reflects the observed outcome
+rather than the intended one."""
+
+[action.resume_process]
+# Declares itself the undo half of the pair. CI-056 requires an undo to be
+# at least as generous as the action it reverses, and without this flag the
+# rule fires in both directions and flags the healthy direction too.
+restores_baseline = true
+tier = "destructive"
+enabled = false
+description = "Resume a previously suspended process"
+reversible = true
+inverse = "suspend_process"
+requires_owner_consent = "per_instance"
+provenance_required = "verified_local"
+max_targets_per_window = 8
+window_seconds = 3600
+source = "The undo half of suspend_process; capped higher for the reason given on restore_process_scheduling"
+
+[action.terminate_process]
+tier = "destructive"
+enabled = false
+description = "End another process"
+reversible = false
+inverse = ""
+requires_owner_consent = "per_instance"
+provenance_required = "verified_local"
+max_targets_per_window = 1
+window_seconds = 3600
+source = """The only irreversible row in the vocabulary. It exists to be
+governed and refused, not to be used: unsaved work in the target is destroyed
+and no inverse can recover it."""
