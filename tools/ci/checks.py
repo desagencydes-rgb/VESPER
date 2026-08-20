@@ -1924,6 +1924,27 @@ def check_fabric_stress() -> Result:
                            "fabric property/stress")
 
 
+def check_host_stress() -> Result:
+    """The host action boundary over randomised vocabularies, not just the one.
+
+    CI-056 reads the single reviewed vocabulary in the tree. This exercises the
+    enforcement code over the space of vocabularies it meets as rows are added
+    and enabled -- which is where a boundary erodes: not in the file that was
+    reviewed, but in the tenth edit nobody read as carefully as the first.
+
+    Its load-bearing property is the read line's DIRECTION. Inverting one
+    comparison makes `changes_host` ask permission for reads and grant host
+    mutations freely. Authorisation is still consulted on every call, so any
+    test asserting "authorisation is checked" stays green while the owner
+    policy is exactly reversed. The harness ships with that inversion as a
+    negative control and fails if the control passes.
+    """
+    return _run_acceptance("host-stress",
+                           "verification/stress_host.py",
+                           "host action boundary property/stress")
+
+
+
 # --------------------------------------------------------------------------
 # CI-055 -- INV-NET-1/2/3: the network fabric contract cannot be made to lie.
 #
@@ -2230,6 +2251,7 @@ CHECK_FNS = {
     "fabric-segment-declared": check_fabric_segments,
     "host-action-vocabulary": check_host_actions,
     "fabric-stress": check_fabric_stress,
+    "host-stress": check_host_stress,
 }
 
 
