@@ -165,10 +165,29 @@ rather than as working.
 sits in: it survives VESPER not running, which is the entire point of it. It was
 requested explicitly by the owner.
 
-**Ad-hoc signature is a real limitation, recorded rather than hidden.** System
-Settings shows "Item from unidentified developer", and TCC grants may be
-re-prompted when the binary changes. A Developer ID certificate is what fixes
-both; nothing in the code can.
+**Signed with a stable local identity**, created by
+`tools/make_signing_cert.sh`: a self-signed code-signing certificate, trusted for
+code signing only, in the login keychain. TCC keys its grants to a signature's
+designated requirement, and ad-hoc signing has no stable one — so without this,
+macOS can re-ask for every permission each time the binary changes. The app now
+reports `valid on disk` and `satisfies its Designated Requirement`, with the
+hardened runtime on.
+
+**What that does not buy.** System Settings will still say "Item from unidentified
+developer". Gatekeeper wants a **Developer ID** certificate — the paid Apple
+Developer Program, $99/year — plus notarisation, and no local certificate
+substitutes for it. That only matters for running VESPER on a Mac that is not the
+owner's; for permissions persisting on this one, the self-signed identity is
+sufficient and free. Ad-hoc remains the build's fallback so a fresh clone still
+builds without the certificate.
+
+Two traps worth recording, both of which present as something else. An
+empty-password PKCS#12 fails to import as *"MAC verification failed (wrong
+password?)"*, which sends you hunting for an algorithm mismatch that is not there
+— macOS's `openssl` is LibreSSL and its defaults are already compatible. And
+importing the certificate is not enough: `security find-identity -v -p
+codesigning` still reports **zero**, because `-v` lists *valid* identities and an
+untrusted self-signed certificate is not one.
 
 ## 3. The state machine
 

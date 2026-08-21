@@ -78,12 +78,27 @@ cat > "$APP/Contents/Library/LaunchAgents/$ID.plist" <<PLIST
 </dict></plist>
 PLIST
 
-# Ad-hoc signature: enough for a stable local identity. A Developer ID cert
-# would keep TCC grants across rebuilds; ad-hoc may re-prompt when the binary
-# changes, which is the known cost of not having one.
-codesign --force --sign - --identifier "$ID" "$APP" 2>/dev/null \
-  && echo "signed (ad-hoc) as $ID" \
-  || echo "WARNING: codesign failed -- macOS will treat this as unidentified"
+# Sign with the stable local identity when there is one. TCC grants are keyed to
+# the signature's designated requirement, so ad-hoc -- which has no stable identity
+# -- can make macOS re-ask for every permission whenever the binary changes.
+# `tools/make_signing_cert.sh` creates the identity; ad-hoc remains the fallback so
+# a fresh clone still builds.
+CERT="VESPER Local Signing"
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "$CERT"; then
+  # `A && B || C && D` is not if/else -- it ran the fallback AND printed both
+  # messages, so the build reported two contradictory things about one signature.
+  if codesign --force --sign "$CERT" --identifier "$ID" --options runtime "$APP" 2>/dev/null; then
+    echo "signed as '$CERT' ($ID), hardened runtime"
+  elif codesign --force --sign "$CERT" --identifier "$ID" "$APP" 2>/dev/null; then
+    echo "signed as '$CERT' ($ID), without hardened runtime"
+  else
+    echo "WARNING: signing with '$CERT' failed"
+  fi
+else
+  codesign --force --sign - --identifier "$ID" "$APP" 2>/dev/null \
+    && echo "signed ad-hoc as $ID -- run tools/make_signing_cert.sh for a stable identity" \
+    || echo "WARNING: codesign failed -- macOS will treat this as unidentified"
+fi
 
 echo "built: $APP"
 echo
