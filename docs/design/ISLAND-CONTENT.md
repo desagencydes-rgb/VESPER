@@ -33,13 +33,32 @@ with the camera between them; **nothing may enter x ∈ [771, 956] above y = 32*
 | Pause / resume | owner-routed **to island, "everywhere"** | READY — needs an autonomy control surface |
 | One live meter | see *the meter question* below | BLOCKED |
 
-**The meter question.** The reference draws three ring gauges on the right
-shoulder. They were built, then removed: three hardcoded fractions are shape
-wearing the costume of data. Before they come back, three real 0–1 quantities
-have to be named. Candidates that genuinely exist: memory headroom
-(`HostPressure.memory_available_gb`), battery (`charge_percent`), interruption
-budget consumed (`core/interruption.py`). All three are READY. **The choice of
-which three is the owner's, not a default.**
+### The three gauges — decided 2026-08-21
+
+Owner: *"show something needed more and that can't be found easily … it's just at
+the top, easily accessible to me."* The island holds the most valuable strip of
+screen on the machine, so a gauge spent on something the menu bar already shows is
+a gauge wasted. Battery and the clock stay where they are.
+
+These are the **three budgets VESPER spends on the owner's behalf**, and none of
+them is visible anywhere else on this Mac.
+
+| # | Gauge | Reads | Source | Status |
+|---|---|---|---|---|
+| 1 | **Attention** | interruption allowance consumed this hour | `core/interruption.py` + `contracts/policy/interruption_budget.toml` (8/hr focused, 24/hr available) | BLOCKED — no budget instance running to record spend |
+| 2 | **Spend** | cost accrued against `[ceilings]` | `core/cost.py` + `contracts/policy/cost_policy.toml` | BLOCKED — no gateway running to accrue |
+| 3 | **Machine** | memory pressure band | `core/host.py` `DarwinAdapter` | **LIVE** — reading 65% |
+
+Attention, money, machine: what VESPER will cost you in each.
+
+**The band is shown as pressure, which is what it is.** `MEMORY.md` records that
+this platform's `memory_pressure_band` is a band and never a size, and that
+multiplying it by total memory overstates headroom by gigabytes. Rendered as a
+pressure gauge it is exactly itself, and needs no translation to be honest.
+
+**Two of three render as absent, not as zero.** A ring resting at 0% because
+nothing is tracking it is indistinguishable from a ring at 0% because nothing has
+been spent, and those are opposite facts. So the shoulder shows one gauge today.
 
 ## Hanging — 624 × 192 pt, on hover
 
@@ -51,7 +70,7 @@ Status row over an instrument panel on the `#03141f` ground.
 |---|---|---|---|
 | 1 | Fabric — segments | `contracts/policy/network_fabric.toml` | **LIVE** — 3 segments |
 | 1a | Fabric — node count | no enrolment registry exists | BLOCKED — "3 nodes" in the reference is not producible |
-| 1b | Fabric — temperature | `HostPressure.thermal` | **BLOCKED as degrees.** This platform reports a *level* (`nominal`/`fair`/`serious`), never °C. The reference's "41 °C" is an absent instrument, not a missing wire. Available as a level: READY |
+| 1b | Fabric — temperature | `core/host.py` `DarwinAdapter` | **BLOCKED as degrees, LIVE as a level.** The adapter works and reports `thermal='nominal'`, plus swap, battery and charge. It does not report °C and no backend work will make it — the reference's "41 °C" is an absent instrument, not an unwired one |
 | 2 | Verification | `verification/stress_placement.py` | **LIVE** — 160,000 assertions, with its age and a 24 h TTL |
 | 3 | Today | host clock | **LIVE** (date). Agenda BLOCKED — no calendar binding |
 | 4 | Thinking / autonomy | `core/autonomy.py` `AutonomyLoop` | READY — loop is not running |
@@ -140,3 +159,39 @@ Only three things block everything else:
    amplitude-driven by decision, so it stays still until real audio exists.
 
 None of them blocks *designing* any of the above.
+
+## When each thing appears — decided 2026-08-21
+
+**ALWAYS** = unconditional in that state. **WHEN** = a trigger, and a trigger
+belongs in `contracts/policy/trigger_registry.toml`, never in a rendering rule.
+
+| Content | Dormant | Shoulders | Hanging | Expanded | Appears |
+|---|:--:|:--:|:--:|:--:|---|
+| The mark | — | ● | ● | ● | **ALWAYS** — §9, every state |
+| Three gauges | — | ● | ● | ● | **ALWAYS** (each gauge individually absent without a producer) |
+| Current task / mission | — | ● | ● | ● | WHEN a task is running |
+| Six status columns | — | — | ● | ● | **ALWAYS** in Hanging and Expanded |
+| Instrument panel | — | — | ● | — | **ALWAYS** in Hanging |
+| The face | — | — | — | ● | **ALWAYS** in Expanded |
+| Hologram panels | — | — | — | ● | WHEN the thing each describes is live |
+| Caption line | — | — | — | ● | WHEN speaking — BLOCKED, no audio path |
+| Thinking trace | — | — | — | ● | WHEN autonomy is reasoning |
+| Self-modification suggestion | — | — | — | ● | WHEN a proposal is unreviewed |
+| **Alert** | ◐ | ◐ | ◐ | ◐ | WHEN one approval waits. Interrupts **any** state and returns to it. Never two |
+| Deadline | — | ◐ | ● | ● | WHEN "getting close" — threshold undefined |
+| Study progress | — | ◐ | ● | ● | WHEN on an actual course |
+| Alarm readiness | — | ◐ | ● | ● | WHEN an alarm is armed |
+| Partition state | — | — | ● | ● | WHEN the fabric is partitioned |
+| Pause / resume | — | ● | ● | ● | **ALWAYS** — owner: "island dock, everywhere" |
+
+● shown · ◐ can pull the island into that state
+
+**Two consequences worth stating.** *Pause/resume* being "everywhere" means it
+cannot be an Expanded-only control; on Shoulders the mark itself is the target.
+And *Alert* interrupts from **Dormant** too — an approval arriving while the
+island is a bare notch must still surface, or Dormant becomes the place things go
+missing.
+
+**Three thresholds are the owner's and are not invented here:** how close is
+"getting close" for a deadline, what counts as "on an actual course", and whether
+Alert may interrupt during a Focus mode.

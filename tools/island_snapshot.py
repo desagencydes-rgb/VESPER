@@ -29,6 +29,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from core.hlc import HLC                                    # noqa: E402
+from core.host import adapter_for_host                           # noqa: E402
 from core.projection import ISLAND_COLUMNS, Projection, Reading   # noqa: E402
 
 CACHE = REPO / ".island-stress-cache.json"
@@ -83,6 +84,53 @@ def placement_stress(measure: bool) -> Reading:
                    ttl_ms=24 * 60 * 60 * 1000)
 
 
+def gauges() -> list[Reading]:
+    """The three shoulder gauges: attention, spend, machine.
+
+    CHOSEN FOR WHAT macOS DOES NOT ALREADY SHOW. Owner, 2026-08-21: the island is
+    "just at the top, easily accessible", so a gauge spent on battery or the clock
+    is a gauge wasted -- the menu bar has those. These are the three budgets VESPER
+    spends on the owner's behalf, and none of them is visible anywhere else on the
+    machine.
+
+    Two of the three have no producer yet, and are therefore ABSENT rather than
+    zero. A gauge sitting at 0% because nothing is tracking it looks exactly like a
+    gauge sitting at 0% because nothing has been spent, and those are opposite
+    facts.
+    """
+    out: list[Reading] = []
+
+    # 1. ATTENTION -- how much of this hour's interruption allowance is gone.
+    out.append(Reading.unavailable(
+        "gauge.attention", "core/interruption.py",
+        "ceilings are in the contract, but no InterruptionBudget is running to "
+        "record what has been spent against them"))
+
+    # 2. SPEND -- cost against the ceiling.
+    out.append(Reading.unavailable(
+        "gauge.spend", "core/cost.py",
+        "ceilings are in the contract, but no gateway is running to accrue spend"))
+
+    # 3. MACHINE -- memory pressure. Reported as the BAND, which is what the
+    # platform actually measures. MEMORY.md: the band is a band and never a size,
+    # and multiplying it by total memory overstates headroom by gigabytes. Shown as
+    # pressure, it is exactly itself.
+    try:
+        pressure = adapter_for_host().read_pressure()
+    except Exception as exc:                                  # noqa: BLE001
+        out.append(Reading.unavailable("gauge.machine", "core/host.py", f"adapter raised {exc!r}"))
+        return out
+    if pressure.errors or pressure.memory_pressure_band is None:
+        out.append(Reading.unavailable(
+            "gauge.machine", "core/host.py",
+            "; ".join(pressure.errors) or "platform reports no memory pressure band"))
+    else:
+        out.append(Reading(key="gauge.machine", source="core/host.py",
+                           value=round(pressure.memory_pressure_band / 100.0, 3),
+                           unit="fraction", observed_at=now_hlc(), ttl_ms=30_000))
+    return out
+
+
 def today() -> Reading:
     d = datetime.now()
     return Reading(key="day.agenda", source="host clock",
@@ -95,6 +143,7 @@ def build(measure: bool) -> Projection:
         fabric_summary(),
         placement_stress(measure),
         today(),
+        *gauges(),
         # The three the reference draws that have no producer here. Written as
         # explicit unavailables rather than omitted from the dict, so `--explain`
         # can say WHY a column is missing instead of leaving a silent gap.
@@ -107,6 +156,10 @@ def build(measure: bool) -> Projection:
     )}
     return Projection(version=v, readings=readings)
 
+
+GAUGE_LABELS = {"gauge.attention": "Attention", "gauge.spend": "Spend",
+                "gauge.machine": "Machine"}
+GAUGES = tuple(GAUGE_LABELS)
 
 LABELS = {
     "fabric.summary": "Fabric", "verification.placement_stress": "Verified",
@@ -124,17 +177,29 @@ def main() -> int:
     scene = proj.to_scene("island", columns=ISLAND_COLUMNS)
     cols = [{"label": LABELS.get(e.element_id, e.element_id),
              "value": str(e.content["value"])} for e in scene.elements]
-    out.write_text(json.dumps({"version": proj.version.to_dict(), "columns": cols}, indent=1))
+    gs = []
+    for k in GAUGES:
+        r = proj.readings.get(k)
+        if r is None: continue
+        r = r.at(proj.version)
+        if not r.known: continue
+        gs.append({"label": GAUGE_LABELS[k], "value": float(r.value)})
+    out.write_text(json.dumps({"version": proj.version.to_dict(),
+                               "columns": cols, "gauges": gs}, indent=1))
 
-    print(f"{len(cols)} of {len(ISLAND_COLUMNS)} columns have a producer -> {out}")
+    print(f"{len(cols)} of {len(ISLAND_COLUMNS)} columns and {len(gs)} of {len(GAUGES)} "
+          f"gauges have a producer -> {out}")
+    for g in gs:
+        print(f"  gauge {g['label']:<10} {g['value']*100:.0f}%")
     for c in cols:
         print(f"  {c['label']:<10} {c['value']}")
     if "--explain" in sys.argv:
         print("\nabsent, and why:")
-        for k in ISLAND_COLUMNS:
+        for k in ISLAND_COLUMNS + GAUGES:
             r = proj.readings.get(k)
             if r is not None and not r.at(proj.version).known:
-                print(f"  {LABELS.get(k, k):<10} {r.at(proj.version).unavailable_reason}")
+                name = LABELS.get(k) or GAUGE_LABELS.get(k, k)
+                print(f"  {name:<10} {r.at(proj.version).unavailable_reason}")
     return 0
 
 

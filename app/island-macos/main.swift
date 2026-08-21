@@ -185,6 +185,18 @@ struct Column {
     let value: String
 }
 
+struct GaugeReading { let label: String; let value: CGFloat }
+
+func loadGauges(_ path: String) -> [GaugeReading] {
+    guard let data = FileManager.default.contents(atPath: path),
+          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let items = obj["gauges"] as? [[String: Any]] else { return [] }
+    return items.compactMap { d in
+        guard let l = d["label"] as? String, let v = d["value"] as? Double else { return nil }
+        return GaugeReading(label: l, value: CGFloat(max(0, min(1, v))))
+    }
+}
+
 func loadColumns(_ path: String) -> [Column] {
     guard let data = FileManager.default.contents(atPath: path),
           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -205,8 +217,10 @@ final class IslandView: NSView {
     var markScale: CGFloat = 1
     var markBrightness: CGFloat = 1
     // Empty until something real produces them. The three fixed fractions that
-    // used to be drawn here were shape wearing the costume of data.
-    var gauges: [CGFloat] = []
+    // used to be drawn here were shape wearing the costume of data. A gauge that
+    // has no producer is ABSENT, never a ring resting at zero -- zero-because-
+    // untracked and zero-because-unspent look identical and are opposite facts.
+    var gauges: [GaugeReading] = []
 
     // The shell is #000000, NOT our black. #03141f is a very dark blue-teal and,
     // welded to the true-black camera housing beside it, reads as a lighter
@@ -261,24 +275,42 @@ final class IslandView: NSView {
             m.draw(in: NSRect(x: pad + (markSize - s) / 2, y: (h - s) / 2, width: s, height: s),
                    from: .zero, operation: .sourceOver, fraction: markBrightness)
         }
+        drawGauges(ctx, w: w, h: h, cy: h / 2, ring: 15, showValue: false)
+    }
+
+    /// The three budgets VESPER spends on the owner's behalf: attention, spend,
+    /// machine. Chosen because macOS shows none of them anywhere -- the menu bar
+    /// already has the battery and the clock, so a gauge spent on those is wasted.
+    private func drawGauges(_ ctx: CGContext, w: CGFloat, h: CGFloat,
+                            cy: CGFloat, ring: CGFloat, showValue: Bool) {
         guard !gauges.isEmpty else { return }
-        let gw: CGFloat = 15, gap: CGFloat = 9
-        var x = w - metrics.fillet - 14 - (gw * CGFloat(gauges.count) + gap * CGFloat(gauges.count - 1))
-        for frac in gauges {
-            let rect = NSRect(x: x, y: (h - gw) / 2, width: gw, height: gw)
-            ctx.setLineWidth(2)
+        let gap: CGFloat = showValue ? 16 : 9
+        let n = CGFloat(gauges.count)
+        var x = w - metrics.fillet - 14 - (ring * n + gap * (n - 1))
+        for g in gauges {
+            let rect = NSRect(x: x, y: cy - ring / 2, width: ring, height: ring)
+            ctx.setLineWidth(showValue ? 2.4 : 2)
             ctx.setStrokeColor(NSColor(white: 1, alpha: 0.16).cgColor)
             ctx.addEllipse(in: rect.insetBy(dx: 1, dy: 1)); ctx.strokePath()
             ctx.setStrokeColor(IslandView.ember.cgColor)
-            ctx.addArc(center: NSPoint(x: rect.midX, y: rect.midY), radius: gw / 2 - 1,
-                       startAngle: .pi / 2, endAngle: .pi / 2 - 2 * .pi * frac, clockwise: true)
+            // Clockwise from twelve, so a fuller ring reads as more spent.
+            ctx.addArc(center: NSPoint(x: rect.midX, y: rect.midY), radius: ring / 2 - 1,
+                       startAngle: .pi / 2, endAngle: .pi / 2 - 2 * .pi * g.value,
+                       clockwise: true)
             ctx.strokePath()
-            x += gw + gap
+            if showValue {
+                let v = text("\(Int((g.value * 100).rounded()))", 9, IslandView.ink, weight: .medium)
+                v.draw(at: NSPoint(x: rect.midX - v.size().width / 2, y: rect.midY - 5))
+                let l = text(g.label, 8, IslandView.dim)
+                l.draw(at: NSPoint(x: rect.midX - l.size().width / 2, y: rect.minY - 12))
+            }
+            x += ring + gap
         }
     }
 
     private func drawExpanded(_ ctx: CGContext, w: CGFloat, h: CGFloat) {
         let inset = metrics.fillet
+        drawGauges(ctx, w: w, h: h, cy: h - safeInset / 2, ring: 15, showValue: false)
         // §9: the mark is on the left shoulder in EVERY island state, and the
         // shoulder band is y ∈ [0, inset] -- the one band that must clear the
         // camera. The mark sits far left, so it does; nothing else goes here.
@@ -429,6 +461,7 @@ final class Controller: NSObject {
             view.layer?.addSublayer(faceLayer)
         }
         view.onClick = { [weak self] in self?.toggleExpanded() }
+        view.gauges = loadGauges(snapshotPath)
         applyFrame(width: m.width, height: m.height)
         panel.orderFrontRegardless()
         // A Space change can drop the panel behind, even with .canJoinAllSpaces.
@@ -526,6 +559,7 @@ final class Controller: NSObject {
 
     func reload() {
         view.columns = loadColumns(snapshotPath)
+        view.gauges = loadGauges(snapshotPath)
         view.needsDisplay = true
     }
 
