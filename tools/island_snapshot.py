@@ -32,7 +32,11 @@ from core.hlc import HLC                                    # noqa: E402
 from core.host import adapter_for_host                           # noqa: E402
 from core.projection import ISLAND_COLUMNS, Projection, Reading   # noqa: E402
 
-CACHE = REPO / ".island-stress-cache.json"
+# Application Support, not /tmp: /tmp is cleared on reboot, and an island that
+# comes back after a restart with no columns looks broken rather than empty.
+STATE = Path.home() / "Library" / "Application Support" / "VESPER"
+DEFAULT_OUT = STATE / "island.json"
+CACHE = STATE / "stress-cache.json"
 
 
 def now_hlc() -> HLC:
@@ -170,8 +174,18 @@ LABELS = {
 
 def main() -> int:
     measure = "--measure" in sys.argv
-    out = Path(sys.argv[sys.argv.index("--out") + 1]) if "--out" in sys.argv \
-        else Path("/tmp/vesper-island.json")
+    if "--auto" in sys.argv:
+        # Agent mode. Refresh every run, but re-run the 12 s stress only when the
+        # cached result is going stale -- measuring on every tick would burn the
+        # host to keep one column fresh, on a machine whose stated goal is to stay
+        # alive longer.
+        try:
+            age = time.time() * 1000 - json.loads(CACHE.read_text())["at_ms"]
+            measure = age > 12 * 60 * 60 * 1000
+        except Exception:                                   # noqa: BLE001
+            measure = True
+    out = Path(sys.argv[sys.argv.index("--out") + 1]) if "--out" in sys.argv else DEFAULT_OUT
+    out.parent.mkdir(parents=True, exist_ok=True)
     proj = build(measure)
 
     scene = proj.to_scene("island", columns=ISLAND_COLUMNS)

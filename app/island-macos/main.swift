@@ -16,6 +16,7 @@
 
 import AppKit
 import QuartzCore
+import ServiceManagement
 
 // MARK: - Geometry, from docs/design/ANNEX-island-geometry.md
 
@@ -310,7 +311,7 @@ final class IslandView: NSView {
 
     private func drawExpanded(_ ctx: CGContext, w: CGFloat, h: CGFloat) {
         let inset = metrics.fillet
-        drawGauges(ctx, w: w, h: h, cy: h - safeInset / 2, ring: 15, showValue: false)
+        drawGauges(ctx, w: w, h: h, cy: h - safeInset / 2 - 3, ring: 19, showValue: true)
         // §9: the mark is on the left shoulder in EVERY island state, and the
         // shoulder band is y ∈ [0, inset] -- the one band that must clear the
         // camera. The mark sits far left, so it does; nothing else goes here.
@@ -364,6 +365,20 @@ final class IslandView: NSView {
     var markSize: CGFloat = 26
 }
 
+/// Resources live in the bundle once VESPER is an app, and in the repo when the
+/// binary is run bare during development. Both paths are supported deliberately:
+/// the bundle is what the owner's Mac must see -- TCC grants are keyed to app
+/// identity, so a permission granted to a loose binary is granted to the TERMINAL
+/// and does not transfer -- while the bare path keeps the edit-build-look loop
+/// short.
+func resourcePath(_ name: String, devFallback: String) -> String {
+    if let r = Bundle.main.resourcePath {
+        let p = (r as NSString).appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: p) { return p }
+    }
+    return FileManager.default.currentDirectoryPath + "/" + devFallback
+}
+
 // MARK: - The panel
 
 final class IslandPanel: NSPanel {
@@ -405,8 +420,8 @@ final class Controller: NSObject {
         sw = Spring(m.width); sh = Spring(m.height)
         view = IslandView()
         view.safeInset = geo.inset
-        view.mark = NSImage(contentsOfFile:
-            FileManager.default.currentDirectoryPath + "/docs/design/assets/vesper-icon.png")
+        view.mark = NSImage(contentsOfFile: resourcePath("vesper-icon.png",
+                            devFallback: "docs/design/assets/vesper-icon.png"))
 
         panel = IslandPanel(contentRect: NSRect(x: 0, y: 0, width: m.width, height: m.height),
                             styleMask: [.borderless, .nonactivatingPanel],
@@ -446,8 +461,8 @@ final class Controller: NSObject {
         panel.contentView = view
         view.wantsLayer = true
         view.layer?.mask = shellMask
-        face = FaceRenderer(cloudPath: FileManager.default.currentDirectoryPath
-                            + "/app/island-macos/face.bin")
+        face = FaceRenderer(cloudPath: resourcePath("face.bin",
+                            devFallback: "app/island-macos/face.bin"))
         if face == nil {
             FileHandle.standardError.write("face: RENDERER FAILED to init\n".data(using: .utf8)!)
         }
@@ -472,6 +487,11 @@ final class Controller: NSObject {
         ) { [weak self] _ in self?.panel.orderFrontRegardless() }
         retrack()
         reload()
+        // The projection is produced by a separate agent; re-read it slowly so a
+        // running island stays current without the owner having to touch it. 20 s
+        // is far below any column's TTL and costs one small file read.
+        let rt = Timer(timeInterval: 20, repeats: true) { [weak self] _ in self?.reload() }
+        RunLoop.main.add(rt, forMode: .common)
     }
 
     // Welded: the panel's TOP edge is the screen's top edge. Every state grows
@@ -597,8 +617,70 @@ final class Controller: NSObject {
         reload()
         go(state == .expanded ? .shoulders : .expanded)
     }
-    @objc func mouseEntered(with event: NSEvent) { reload(); if state == .shoulders { go(.hanging) } }
-    @objc func mouseExited(with event: NSEvent)  { if state == .hanging { go(.shoulders) } }
+    // THE SELECTOR MUST BE SPELLED OUT. NSTrackingArea messages its owner with
+    // `mouseEntered:`, and NSResponder gets that Swift renaming for free -- but
+    // Controller is a plain NSObject, where `@objc func mouseEntered(with:)`
+    // generates `mouseEnteredWith:` instead. The tracking area then fires into
+    // nothing: no error, no warning, hover simply never happened.
+    @objc(mouseEntered:) func mouseEntered(with event: NSEvent) {
+        reload(); if state == .shoulders { go(.hanging) }
+    }
+    @objc(mouseExited:) func mouseExited(with event: NSEvent) {
+        if state == .hanging { go(.shoulders) }
+    }
+}
+
+// MARK: - staying alive
+
+/// Register the login item from INSIDE the bundle.
+///
+/// A LaunchAgent written into ~/Library/LaunchAgents pointing at the executable
+/// works, but macOS then registers the EXECUTABLE: Login Items showed a generic
+/// `exec` icon named VESPER, and the projection producer appeared beside it as a
+/// second, separate entry called "python3.13". SMAppService reads its plist from
+/// Contents/Library/LaunchAgents, so the agent belongs to the app -- one entry,
+/// VESPER's own name and mark, and `unregister()` to undo it.
+func installLoginItem() {
+    guard #available(macOS 13.0, *) else { return }
+    let svc = SMAppService.agent(plistName: "ai.vesper.island.plist")
+    switch svc.status {
+    case .enabled:
+        return
+    case .requiresApproval:
+        // The owner has to allow it in Login Items. Say so rather than retrying,
+        // which would never succeed and would look like a hang.
+        FileHandle.standardError.write(
+            "login item needs approval in System Settings > General > Login Items\n"
+                .data(using: .utf8)!)
+    default:
+        do { try svc.register() } catch {
+            FileHandle.standardError.write("login item registration failed: \(error)\n"
+                .data(using: .utf8)!)
+        }
+    }
+}
+
+/// Refresh the projection from inside the app, rather than from a second agent.
+/// One background item instead of two, and the owner sees VESPER rather than a
+/// stray interpreter. `--auto` re-measures only when a reading is going stale.
+func startSnapshotRefresh(repo: String) {
+    let py = ["/Users/macbook/.local/bin/python3.13", "/usr/bin/python3", "/usr/local/bin/python3"]
+        .first { FileManager.default.isExecutableFile(atPath: $0) }
+    guard let py else { return }
+    let script = (repo as NSString).appendingPathComponent("tools/island_snapshot.py")
+    guard FileManager.default.fileExists(atPath: script) else { return }
+    func run() {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: py)
+        p.arguments = [script, "--auto"]
+        p.currentDirectoryURL = URL(fileURLWithPath: repo)
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        try? p.run()
+    }
+    run()
+    let t = Timer(timeInterval: 3600, repeats: true) { _ in run() }
+    RunLoop.main.add(t, forMode: .common)
 }
 
 // MARK: - main
@@ -609,7 +691,37 @@ let seconds = args.firstIndex(of: "--seconds").flatMap { i -> Double? in
 }
 let snapshot = args.firstIndex(of: "--snapshot").flatMap { i -> String? in
     i + 1 < args.count ? args[i + 1] : nil
-} ?? "/tmp/vesper-island.json"
+} ?? ((FileManager.default.homeDirectoryForCurrentUser.path as NSString)
+      .appendingPathComponent("Library/Application Support/VESPER/island.json"))
+
+// Undo path, before the install path -- a login item you cannot remove is not a
+// convenience. `VESPER.app/Contents/MacOS/VESPER --uninstall-login-item`.
+// Ask the system what it thinks, rather than inferring it from launchctl -- an
+// SMAppService agent does not appear under its own label there, so its absence
+// proves nothing either way.
+if args.contains("--login-item-status") {
+    if #available(macOS 13.0, *) {
+        let st = SMAppService.agent(plistName: "ai.vesper.island.plist").status
+        let name: String
+        switch st {
+        case .enabled: name = "enabled"
+        case .requiresApproval: name = "requiresApproval -- allow VESPER in System Settings > General > Login Items"
+        case .notRegistered: name = "notRegistered"
+        case .notFound: name = "notFound -- the plist is not in the bundle"
+        @unknown default: name = "unknown(\(st.rawValue))"
+        }
+        print("login item: \(name)")
+    }
+    exit(0)
+}
+
+if args.contains("--uninstall-login-item") {
+    if #available(macOS 13.0, *) {
+        try? SMAppService.agent(plistName: "ai.vesper.island.plist").unregister()
+        print("login item unregistered")
+    }
+    exit(0)
+}
 
 let app = NSApplication.shared
 // .accessory: no Dock tile, no menu bar of our own. The island is presence.
@@ -624,6 +736,10 @@ guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) 
 let levelKey: CGWindowLevelKey = args.contains("--level-status") ? .statusWindow
     : args.contains("--level-max") ? .maximumWindow : .screenSaverWindow
 let controller = Controller(screen: screen, snapshotPath: snapshot, levelKey: levelKey)
+if Bundle.main.bundleIdentifier != nil, !args.contains("--no-install") {
+    installLoginItem()
+    startSnapshotRefresh(repo: FileManager.default.currentDirectoryPath)
+}
 let g = controller.geo
 print("island: notch \(g.notch) pt, inset \(g.inset) pt, hasNotch \(g.hasNotch)")
 print("        screen \(screen.frame.width)x\(screen.frame.height) pt")

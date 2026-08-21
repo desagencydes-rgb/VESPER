@@ -42,3 +42,4 @@ graphify-out/
 .island-stress-cache.json
 app/island-macos/island
 app/island-macos/face.bin
+app/VESPER.app/

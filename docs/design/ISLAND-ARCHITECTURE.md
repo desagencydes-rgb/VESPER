@@ -107,6 +107,69 @@ Anything that changes the host is `adjust_reversible` or `destructive` and takes
 the owner's approval per instance. The Dock swap is the one exception already
 argued in §2, and it is `self` because VESPER is changing only itself.
 
+## 2c. Staying alive — bundle, agents, persistence
+
+Owner, 2026-08-21: it must run all the time, not stop suddenly, and start again
+after a reboot.
+
+**VESPER is an app bundle, and that is not cosmetic.** `app/VESPER.app`,
+identifier `ai.vesper.island`, `LSUIElement` so it takes no Dock slot.
+**TCC permission grants are keyed to app identity**: every permission granted
+while this ran as a loose binary was granted to the *Terminal* that launched it,
+appeared in System Settings as "Terminal", and would not have transferred when
+the bundle arrived. Bundling early means grants accumulate against VESPER from
+the first one rather than being re-asked for later.
+
+Signed ad-hoc, which is a real limitation and is recorded rather than hidden: a
+Developer ID certificate would hold TCC grants across rebuilds, and ad-hoc may
+re-prompt when the binary changes.
+
+**The login item lives inside the bundle, registered with `SMAppService`.**
+`Contents/Library/LaunchAgents/ai.vesper.island.plist`, `RunAtLoad` +
+`KeepAlive`, registered by the app itself on first launch.
+
+The first attempt wrote LaunchAgents into `~/Library/LaunchAgents` pointing at
+executables. It worked, and it looked wrong: macOS registers the **executable**,
+so Login Items showed a generic `exec` icon labelled VESPER, and the projection
+producer appeared beside it as a second, unrelated entry called `python3.13`.
+From inside the bundle it is one entry, carrying the app's own name and mark.
+
+For the same reason the projection is refreshed **by the island itself**, hourly,
+rather than by a second agent — one background item instead of two, and no stray
+interpreter in the owner's settings. It re-runs the 12 s placement stress only
+when that reading is going stale; burning the host hourly to keep one column
+fresh would be a strange way to treat a machine whose stated goal is to last
+longer.
+
+`--login-item-status` asks the system what it thinks, because an SMAppService
+agent does not appear under its own label in `launchctl list` and its absence
+there proves nothing. `--uninstall-login-item` removes it: an undo path, written
+before the install path, because a login item you cannot remove is not a
+convenience.
+
+**State lives in `~/Library/Application Support/VESPER/`, not `/tmp`.** `/tmp` is
+cleared on reboot, and an island that comes back from a restart with no columns
+looks broken rather than empty.
+
+**Verified, not assumed.** `launchctl` printing "loaded" is not evidence of
+anything, and neither is `register()` returning without throwing. The status was
+read back from the system (`login item: enabled`), and the island was killed with
+`-9` and returned by launchd under a new pid with the panel back on screen.
+
+Restart-after-reboot rests on `RunAtLoad` and has **not** been observed here. It
+is the documented mechanism and the login item reports enabled, but nothing in
+this session has actually rebooted this machine — so it is recorded as untested
+rather than as working.
+
+**This is a host mutation.** A login item is not the `self` tier the Dock swap
+sits in: it survives VESPER not running, which is the entire point of it. It was
+requested explicitly by the owner.
+
+**Ad-hoc signature is a real limitation, recorded rather than hidden.** System
+Settings shows "Item from unidentified developer", and TCC grants may be
+re-prompted when the binary changes. A Developer ID certificate is what fixes
+both; nothing in the code can.
+
 ## 3. The state machine
 
 Five states, from `ANNEX-island-geometry.md`. Transitions are the existing motion
