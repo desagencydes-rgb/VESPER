@@ -173,15 +173,21 @@ setTimeout(()=>{ if(!visible) drawFace(.016,performance.now()); },60);
 
 /* ---------- island + dock swap ---------- */
 const screen=document.getElementById("screen"), hot=document.getElementById("hot"),
-      isl=document.getElementById("isl"), islt=document.getElementById("islt"),
-      tgl=document.getElementById("tglisland");
+      isl=document.getElementById("isl"), islt=document.getElementById("islt");
 hot.onmouseenter=()=>screen.classList.add("summon");
 screen.onmouseleave=()=>screen.classList.remove("summon");
 hot.onclick=()=>screen.classList.toggle("summon");
-tgl.onclick=()=>{
-  const on=isl.classList.toggle("big");
-  tgl.setAttribute("aria-pressed",on); tgl.textContent=on?"Collapse island":"Expand island";
-  islt.textContent = on ? "Island dock — the face, and everything it is doing"
-                        : "Placement stress · 184k / 320k";
-};
+/* Three welded states, not an open/closed toggle: the island never leaves the
+   bezel, it only changes how far down it hangs. */
+const SEG=[...document.querySelectorAll(".seg")],
+      SHOULDER_TEXT={"":"Placement stress · 184k / 320k",
+                     "hang":"Fabric quiet · 3 nodes",
+                     "exp":"Island dock"};
+SEG.forEach(btn=>btn.onclick=()=>{
+  const s=btn.dataset.s;
+  isl.classList.remove("hang","exp");
+  if(s) isl.classList.add(s);
+  SEG.forEach(b=>b.setAttribute("aria-pressed", b===btn));
+  islt.textContent=SHOULDER_TEXT[s];
+});
 </script>

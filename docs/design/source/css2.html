@@ -80,21 +80,70 @@ td b{color:var(--ink);font-weight:500;}
 .screen{position:relative;border-radius:var(--r-sheet);overflow:hidden;border:1px solid var(--line);
   aspect-ratio:1728/1117;background:#0a1a24;min-height:290px;}
 .screen .wall{position:absolute;inset:0;object-fit:cover;width:100%;height:100%;opacity:.62;}
-.menubar{position:absolute;top:0;left:0;right:0;height:5.5%;background:rgba(3,20,31,.42);
+.menubar{position:absolute;top:0;left:0;right:0;height:2.865%;background:rgba(3,20,31,.42);
   -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);z-index:2;}
-.notch{position:absolute;top:0;left:44.62%;width:10.71%;height:5.5%;background:#000;z-index:4;border-radius:0 0 9px 9px;}
-.island{position:absolute;top:6.6%;left:50%;transform:translateX(-50%);z-index:5;
-  border-radius:99px;padding:6px 14px;display:flex;align-items:center;gap:8px;
-  background:rgba(6,26,38,.72);border:1px solid rgba(255,234,227,.20);
-  -webkit-backdrop-filter:blur(22px) saturate(190%);backdrop-filter:blur(22px) saturate(190%);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.24),0 10px 26px -12px #000;
-  transition:width var(--d-snappy) var(--snappy),height var(--d-snappy) var(--snappy),border-radius var(--d-snappy) var(--snappy),padding var(--d-snappy) var(--snappy);}
-.island img{width:15px;height:15px;border-radius:50%;flex:none;}
-.island .t{font-size:10.5px;color:#ffeae3;white-space:nowrap;font-weight:300;}
-.island .eq{display:flex;gap:2px;align-items:flex-end;height:11px;}
+/* The camera housing. Drawn ABOVE the panel (z 6) so the panel reads as growing
+   around the hardware, not sliding under it. 185/1728 = 10.71%, 32/1117 = 2.865%
+   -- to scale now, where the bar height used to be fudged to 5.5% for legibility. */
+.notch{position:absolute;top:0;left:44.62%;width:10.71%;height:2.865%;background:#000;z-index:6;border-radius:0 0 9px 9px;}
+.notch::after{content:"";position:absolute;top:50%;left:50%;width:5px;height:5px;margin:-2.5px 0 0 -2.5px;
+  border-radius:50%;background:#101c22;box-shadow:0 0 0 1px rgba(255,234,227,.07);}
+
+/* The island is WELDED to the notch -- top:0, no gap, no top radius, opaque black.
+   It was drawn as a pill floating under the menu bar until 2026-08-21; that was
+   wrong, and the gap was the whole error: the illusion is that the hardware got
+   bigger. Two-row grid, because y 0..32 is the one band the camera is in the way
+   of: a shoulder row split by a spacer the width of the housing, over a body row
+   that spans the lot. --cam is the same 185 pt in every state, expressed against
+   that state's own width; --bar likewise keeps the shoulder row at exactly 32 pt.
+   Radii here are preview pixels at ~0.5 scale -- the real points are in the table. */
+.island{--shell:#000;--isl-r:11px;--isl-f:5px;--cam:33%;--bar:100%;
+  position:absolute;top:0;left:50%;transform:translateX(-50%);z-index:5;
+  width:32.4%;height:2.865%;background:var(--shell);
+  border-radius:0 0 var(--isl-r) var(--isl-r);
+  display:grid;grid-template-columns:1fr var(--cam) 1fr;grid-template-rows:var(--bar) 1fr;
+  box-shadow:0 14px 34px -16px #000;
+  transition:width var(--d-snappy) var(--snappy),height var(--d-snappy) var(--snappy),
+             border-radius var(--d-snappy) var(--snappy);}
+/* Inverted fillets: a circle tangent to the top edge and to the panel's side,
+   everything outside it filled. Makes the panel flow out of the bezel line
+   rather than butt into it. Absolutely positioned, so not grid items. */
+.island::before,.island::after{content:"";position:absolute;top:0;width:var(--isl-f);height:var(--isl-f);pointer-events:none;}
+.island::before{left:calc(var(--isl-f) * -1);background:radial-gradient(circle at 0 100%,transparent calc(var(--isl-f) - .5px),var(--shell) var(--isl-f));}
+.island::after{right:calc(var(--isl-f) * -1);background:radial-gradient(circle at 100% 100%,transparent calc(var(--isl-f) - .5px),var(--shell) var(--isl-f));}
+.island .sh{display:flex;align-items:center;gap:5px;min-width:0;padding:0 8px;overflow:hidden;}
+.island .sh.r{justify-content:flex-end;}
+.island img{width:13px;height:13px;border-radius:50%;flex:none;}
+.island .t{font-size:9.5px;color:#ffeae3;white-space:nowrap;font-weight:300;overflow:hidden;text-overflow:ellipsis;}
+.island .eq{display:flex;gap:2px;align-items:flex-end;height:10px;flex:none;}
 .island .eq i{width:2px;background:var(--orange);border-radius:1px;animation:eq 1.1s var(--smooth) infinite;}
-@keyframes eq{0%,100%{height:3px}50%{height:11px}}
-.island.big{width:58%;height:52%;border-radius:26px;padding:12px;flex-direction:column;align-items:stretch;gap:7px;}
+@keyframes eq{0%,100%{height:3px}50%{height:10px}}
+/* Body row. No bottom padding until it actually opens, so nothing bleeds out of
+   the shoulder state -- the island cannot use overflow:hidden without clipping
+   its own fillets. */
+.island .ibody{grid-column:1/-1;min-height:0;overflow:hidden;display:flex;gap:6px;
+  padding:0 9px;opacity:0;transition:opacity var(--d-snappy) var(--snappy);}
+.island .ibody>div{flex:1;border-radius:8px;padding:6px 7px;min-width:0;
+  background:rgba(255,234,227,.055);border:1px solid rgba(255,234,227,.14);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.16);}
+.island .ibody b{display:block;font-size:9px;color:#ffeae3;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.island .ibody span{display:block;font-size:8px;color:rgba(255,234,227,.55);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.island.hang .ibody,.island.exp .ibody{opacity:1;padding-bottom:9px;}
+/* hanging -- the state in the owner's reference. 720 x 190 pt */
+.island.hang{width:41.7%;height:17.0%;--cam:25.7%;--bar:16.85%;--isl-r:14px;--isl-f:7px;}
+.island.hang .ibody>div:nth-child(n+4){display:none;}
+/* expanded -- the island dock menu. 1000 x 580 pt. Opaque for the first 120 pt
+   below the bezel, because glass at the weld has nothing to refract; real
+   Dock-tier glass below that line. */
+.island.exp{width:57.9%;height:51.9%;--cam:18.5%;--bar:5.52%;--isl-r:17px;--isl-f:7px;
+  background:linear-gradient(180deg,var(--shell) 0,var(--shell) 21%,rgba(3,20,31,.60) 42%,rgba(3,20,31,.48) 100%);
+  -webkit-backdrop-filter:blur(42px) saturate(200%);backdrop-filter:blur(42px) saturate(200%);}
+.island.exp .ibody{flex-wrap:wrap;align-content:flex-start;padding-top:8px;}
+.island.exp .ibody>div{flex:1 1 28%;}
+/* the void under the cards is not a gap in the demo -- it is where the face goes */
+.island .ibody .facehint{display:none;}
+.island.exp .ibody .facehint{display:block;flex:1 0 100%;text-align:center;margin:30px 0 0;
+  font-family:"Dancing Script","Learning Curve",cursive;font-size:14px;color:rgba(255,234,227,.40);}
 .dock{position:absolute;left:50%;transform:translateX(-50%);bottom:2.4%;z-index:3;
   display:flex;gap:7px;padding:7px 11px;border-radius:19px;
   background:rgba(6,26,38,.62);border:1px solid rgba(255,234,227,.17);

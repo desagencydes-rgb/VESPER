@@ -4,21 +4,21 @@
   <p class="lede" style="margin:14px 0 22px">You said it should appear everywhere, then said that if the extra places are not better, leave them out. So this is a decision, not a menu.</p>
   <div class="grid g2">
     <div class="g card">
-      <h3 class="yes">Yes — four places</h3>
+      <h3 class="yes">Yes — three places</h3>
       <dl class="spec" style="margin-top:12px">
-        <dt>Island cap</dt><dd>24 pt, left cap of the collapsed pill. Your stated primary, and the only mark on screen most of the time.</dd>
-        <dt>Island head</dt><dd>44 pt, top of the expanded island dock.</dd>
+        <dt>Left shoulder</dt><dd>24 pt, in <em>every</em> island state. Your stated primary, and the only mark on screen most of the time.</dd>
         <dt>App icon</dt><dd>Dock, ⌘-Tab, Finder, About. Mandatory the moment there is an app at all.</dd>
         <dt>Wake</dt><dd>Alone on the ground while VESPER comes up. Nothing else is on screen yet, so it carries the whole moment.</dd>
       </dl>
     </div>
     <div class="g card">
-      <h3 class="no">No — two places</h3>
+      <h3 class="no">No — three places</h3>
       <dl class="spec" style="margin-top:12px">
         <dt>Main menu</dt><dd>It would sit roughly 40 pt from the island's copy and add nothing. The main menu is a tool rail; you do not sign a tool rail.</dd>
         <dt>Menu-bar extra</dt><dd>The island already owns top-centre. A second mark in the same band is noise, and it competes with the notch for the only scarce space on this display.</dd>
+        <dt>Island head</dt><dd>A <em>yes</em> until the weld correction below took it away. On the floating model the expanded panel had 44 pt of top edge of its own to sign; welded, the top of the expanded panel <em>is</em> the shoulder row, so a second mark would land ~40 pt under the first — killed by the same argument that killed the main menu.</dd>
       </dl>
-      <p style="font-size:13.5px;color:var(--ink-3);margin:14px 0 0">A mark that appears in six places stops being a mark. Four is already generous.</p>
+      <p style="font-size:13.5px;color:var(--ink-3);margin:14px 0 0">A mark that appears in six places stops being a mark. Three is already generous.</p>
     </div>
   </div>
 </section>
@@ -32,9 +32,18 @@
     <img class="wall" src="__EMBER__" alt="">
     <div class="menubar"></div><div class="notch"></div>
     <div class="island" id="isl">
-      <img src="__ICON__" alt="">
-      <span class="t" id="islt">Placement stress · 184k / 320k</span>
-      <span class="eq"><i style="animation-delay:0s"></i><i style="animation-delay:.15s"></i><i style="animation-delay:.3s"></i></span>
+      <div class="sh l"><img src="__ICON__" alt=""><span class="t" id="islt">Placement stress · 184k / 320k</span></div>
+      <div class="cam"></div>
+      <div class="sh r"><span class="eq"><i style="animation-delay:0s"></i><i style="animation-delay:.15s"></i><i style="animation-delay:.3s"></i></span></div>
+      <div class="ibody">
+        <div><b>Fabric quiet</b><span>3 nodes · 41 °C</span></div>
+        <div><b>320k assertions</b><span>placement stress</span></div>
+        <div><b>Thu 21</b><span>nothing for today</span></div>
+        <div><b>Thinking</b><span>gaze up-left</span></div>
+        <div><b>2 approvals</b><span>waiting on you</span></div>
+        <div><b>Rest at 23:40</b><span>ambience shifts</span></div>
+        <p class="facehint">the face sits here, with the hologram panels around it</p>
+      </div>
     </div>
     <div class="dock vdock">
       <i style="background:linear-gradient(150deg,#ffaf95,#B96645)"></i><i style="background:linear-gradient(150deg,#D99A52,#C5A35A)"></i>
@@ -49,7 +58,9 @@
     <div class="hotzone" id="hot"></div>
   </div>
   <div class="ctrl">
-    <button class="btn" id="tglisland" aria-pressed="false">Expand island</button>
+    <button class="btn seg" data-s="" aria-pressed="true">Shoulders</button>
+    <button class="btn seg" data-s="hang" aria-pressed="false">Hanging</button>
+    <button class="btn seg" data-s="exp" aria-pressed="false">Expanded</button>
     <span class="pill" style="align-self:center">Hover the bottom edge to summon the system Dock</span>
   </div>
 
@@ -66,20 +77,39 @@
     </div>
   </div>
 
-  <h3 style="margin:38px 0 12px">The island, and the notch</h3>
-  <p>Measured on this display rather than assumed: logical <strong>1728 × 1117 pt</strong>, safe-area top inset <strong>32 pt</strong>, and the notch occupying <strong>x 771 → 956</strong> — 185 pt wide, dead centre. The island is glued to top-centre as you asked, which means it and the notch want the same 185 pt.</p>
+  <h3 style="margin:38px 0 12px">The island is welded to the notch</h3>
+  <p><span class="pill wait" style="vertical-align:2px">Corrected 21 Aug</span> &nbsp;It was drawn as a pill floating under the menu bar. Your reference says otherwise, and the gap was the whole error: the island's top edge <em>is</em> y&nbsp;=&nbsp;0, and every state grows downward and outward from the notch's own silhouette. What the component rests on is the illusion that the hardware got bigger — one point of air kills it.</p>
+  <p>Measured on this display rather than assumed: logical <strong>1728 × 1117 pt</strong>, safe-area top inset <strong>32 pt</strong>, notch <strong>x 771 → 956</strong> — 185 pt wide, dead centre.</p>
+  <div class="grid g3" style="margin-top:18px">
+    <div class="g card">
+      <h3 style="font-size:17px">The shell is #000000</h3>
+      <p style="font-size:14px;margin-bottom:0">Not our black. <span class="mono">#03141f</span> is a very dark blue-teal, and welded to the true-black camera housing beside it, it would read as a lighter patch. Our black is used one step in, as the ground the contents sit on.</p>
+    </div>
+    <div class="g card">
+      <h3 style="font-size:17px">Dark in every theme</h3>
+      <p style="font-size:14px;margin-bottom:0">The housing is black in light mode because it is a physical object. This is <em>not</em> an exception to the adaptive rule — it is what the rule already outputs when the surrounding ground is <span class="mono">#000</span>. The engine needs no special case, and gets none.</p>
+    </div>
+    <div class="g card">
+      <h3 style="font-size:17px">Glass at the weld is edge, not blur</h3>
+      <p style="font-size:14px;margin-bottom:0">For the first 120 pt below the bezel the panel is opaque, so a <span class="mono">backdrop-filter</span> there has nothing to refract. Glass is carried by the specular edge, the hairline and the shadow alone. Below that line it becomes real Dock-tier glass.</p>
+    </div>
+  </div>
+  <p style="margin-top:22px"><strong>The camera is a hole in the layout, not an obstacle to dodge.</strong> Anything in the band y&nbsp;∈&nbsp;[0,&nbsp;32] must clear x&nbsp;∈&nbsp;[771,&nbsp;956]; below y&nbsp;=&nbsp;32 the full width is free. So the island is a two-row grid — a shoulder row split by a 185 pt spacer, over a body row spanning the whole width.</p>
   <div class="tscroll" style="margin-top:16px">
     <table>
-      <thead><tr><th>State</th><th>Where</th><th>Size</th><th>Shows</th></tr></thead>
+      <thead><tr><th>State</th><th>Size</th><th>Shoulder row · y 0–32</th><th>Body row · y &gt; 32</th></tr></thead>
       <tbody>
-        <tr><td><b>Collapsed</b><br><span class="k">outside home</span></td><td>centre x&nbsp;=&nbsp;864, top y&nbsp;=&nbsp;38 — six points clear of the 32 pt inset, so it never enters the notch band</td><td class="num">≤ 520 × 30 pt</td><td>Mark, then current task / song / action / mission. One line, truncating.</td></tr>
-        <tr><td><b>Flanked</b><br><span class="k">when content needs width</span></td><td>two lozenges in the auxiliary areas: <span class="num">0–771</span> and <span class="num">956–1728</span></td><td class="num">2 × ≤ 340 pt</td><td>Status left, live activity right. The notch sits between them untouched.</td></tr>
-        <tr><td><b>Expanded</b><br><span class="k">on demand, or in home</span></td><td>grows downward from the collapsed pill on <span class="mono">--snappy</span></td><td class="num">≤ 1000 × 580 pt</td><td>The island dock menu: blurred cards with coloured borders, the face at centre, hologram panels around it.</td></tr>
-        <tr><td><b>Alert</b></td><td>collapsed position, <span class="mono">--bouncy</span> arrival</td><td class="num">≤ 620 × 44 pt</td><td>One approval request, or one thing that needs you. Never two.</td></tr>
+        <tr><td><b>Dormant</b></td><td class="num">185 × 32 pt</td><td>nothing — it <em>is</em> the notch</td><td>none</td></tr>
+        <tr><td><b>Shoulders</b><br><span class="k">ambient</span></td><td class="num">560 × 32 pt</td><td>mark + current task / song / mission left, live meter right</td><td>none</td></tr>
+        <tr><td><b>Hanging</b><br><span class="k">a glance</span></td><td class="num">720 × 190 pt</td><td>mark, room buttons, date strip</td><td>one live thing: what is playing, what is running, what is today</td></tr>
+        <tr><td><b>Expanded</b><br><span class="k">on demand, or in home</span></td><td class="num">1000 × 580 pt</td><td>as Hanging</td><td>the island dock menu — face at centre, hologram panels around it, cards with coloured borders</td></tr>
+        <tr><td><b>Alert</b></td><td class="num">620 × 96 pt</td><td>mark left, dismiss right</td><td>one approval, or one thing that needs you. Never two</td></tr>
       </tbody>
     </table>
   </div>
-  <p style="font-size:14px;color:var(--ink-3);margin-top:14px">In fullscreen the menu bar hides and the notch region goes black. The island still refuses to cross y&nbsp;=&nbsp;32, so nothing has to change.</p>
+  <p style="font-size:14px;color:var(--ink-3);margin-top:14px">Growth and retreat on <span class="mono">--snappy</span>; <b>Alert</b> arrives on <span class="mono">--bouncy</span>. Bottom radii 22 / 28 / 34 pt by state, <strong>always 0 on top</strong>, plus an inverted fillet of half the bottom radius where each side meets the bezel line.</p>
+  <p style="font-size:14px;color:var(--ink-3);margin-top:10px"><strong>Superseded:</strong> <em>Collapsed</em> (“top y = 38, six points clear of the inset”) and <em>Flanked</em> (two separate lozenges either side of the notch). Both were built on the floating model. The shoulder row is what <em>Flanked</em> was reaching for, done with one panel instead of two.</p>
+  <p style="font-size:14px;color:var(--ink-3);margin-top:10px">In fullscreen the menu bar hides and the notch region goes black — which is now free rather than a problem. The island is already black and already welded, so it simply keeps going.</p>
 </section>
 
 <section id="dialogs">
@@ -150,13 +180,13 @@
     </div>
   </div>
   <div class="note">
-    <b>Nothing here stops work.</b> Palette, type, motion, glass, themes, the adaptive rule, the dock swap, the island states and the face are all decided and buildable now. Send the references when you have them and the composition follows; until then this page is the contract.
+    <b>Nothing here stops work.</b> Palette, type, motion, glass, themes, the adaptive rule, the dock swap, the welded island and the face are all decided and buildable now. Send the references when you have them and the composition follows; until then this page is the contract.
   </div>
 </section>
 
 </div>
 
 <footer><div class="col">
-  <p class="mono" style="font-size:11.5px;color:var(--ink-3);max-width:70ch">VESPER Design Foundation v0.1 · 2026-08-21 · Measured on this machine: macOS 26.5 (25F71), 1728 × 1117 pt @2x, notch 185 × 32 pt. Springs sampled from SwiftUI <span class="mono">Spring(duration:bounce:)</span>. Palettes k-means in OKLab from the eleven source images. Substitute typefaces in this preview; real stack bundled in the Tauri build.</p>
+  <p class="mono" style="font-size:11.5px;color:var(--ink-3);max-width:70ch">VESPER Design Foundation v0.1 · 2026-08-21 · Measured on this machine: macOS 26.5 (25F71), 1728 × 1117 pt @2x, notch 185 × 32 pt. Springs sampled from SwiftUI <span class="mono">Spring(duration:bounce:)</span>. Grounds k-means in OKLab from the eleven source images; accents from each frame’s light source. Substitute typefaces in this preview; real stack bundled in the Tauri build.</p>
 </div></footer>
 </div>

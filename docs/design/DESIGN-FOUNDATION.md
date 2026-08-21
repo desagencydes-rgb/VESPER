@@ -80,7 +80,7 @@ glass language; matching it is native, not pastiche.
 |---|---|---|---|---|---|
 | Chip | 13px | 160% | .055 | 11px | Buttons, pills, tags |
 | Sheet | 24px | 180% | .055 | 22px | Cards, panels, the 70% expandable card |
-| Dock | 42px | 200% | .085 | 34px | Main menu, island dock, floating dialogs |
+| Dock | 42px | 200% | .085 | 34px | Main menu, island dock *below the weld line*, floating dialogs |
 | Scrim | 8px | 100% | .50 | 0 | Behind a modal |
 
 Every tier carries a specular top edge (`inset 0 1px 0`), a 1px border, and a
@@ -206,15 +206,20 @@ Owner: *"should show up everywhere … for the stuff i mentioned along with it, 
 don't know if it's better to add them in those spaces if so, don't add them."*
 Taken as a decision, not a menu.
 
-**Yes — four places.** Island cap (24 pt, left of the collapsed pill — the
-stated primary and the only mark on screen most of the time); island head
-(44 pt, top of the expanded dock); app icon (Dock, ⌘-Tab, Finder, About); wake
-(alone on the ground while VESPER comes up).
+**Yes — three places.** Left shoulder of the island (24 pt, in *every* island
+state — the stated primary and the only mark on screen most of the time); app
+icon (Dock, ⌘-Tab, Finder, About); wake (alone on the ground while VESPER comes
+up).
 
-**No — two places.** Main menu: it would sit ~40 pt from the island's copy and
+**No — three places.** Main menu: it would sit ~40 pt from the island's copy and
 add nothing; a tool rail is not signed. Menu-bar extra: the island already owns
 top-centre, and a second mark competes with the notch for the only scarce space
-on this display.
+on this display. Island head: this one was a *yes* until the weld correction
+below removed it. On the floating model the expanded panel had a top edge of its
+own to sign, 44 pt tall; welded, the top of the expanded panel **is** the
+shoulder row, so a second mark would land ~40 pt under the first — killed by the
+same argument that killed the main menu, and it would be inconsistent to spare
+it.
 
 A mark in six places stops being a mark.
 
@@ -247,18 +252,57 @@ a stack.
 
 Measured on this display rather than assumed: logical **1728 × 1117 pt**
 (3456 × 2234 @2x), safe-area top inset **32 pt**, notch **x 771 → 956** —
-185 pt wide, dead centre. The island is glued top-centre, so it and the notch
-want the same 185 pt.
+185 pt wide, dead centre.
 
-| State | Where | Size | Shows |
+**The island is welded to the notch.** Corrected 2026-08-21 against the owner's
+reference photograph. It is not a pill floating below the menu bar with air
+above it — its top edge *is* y = 0, and every state grows downward and outward
+from the notch's own silhouette. The illusion the entire component rests on is
+that the hardware got bigger; a gap of even one point kills it.
+
+Three consequences fall straight out of the weld. None of them are style
+choices — they are forced by what the panel is pretending to be.
+
+- **The shell is `#000000`, not our black.** `#03141f` is a very dark blue-teal
+  and, welded to the true-black camera housing beside it, would read as a
+  lighter patch. Our black is used one step in, as the ground the contents sit
+  on.
+- **The island is dark in every theme, light included.** The housing is black in
+  light mode because it is a physical object. This is *not* an exception to the
+  adaptive rule (§3): it is what the rule already outputs when the surrounding
+  ground is `#000`. The engine needs no special case, and gets none.
+- **Glass at the weld is edge, not blur.** For the first 120 pt below the bezel
+  the panel is opaque, so a `backdrop-filter` there has nothing to refract —
+  glass is carried by the specular top edge, the hairline and the cast shadow
+  alone. Below that line the panel becomes real Dock-tier glass and the
+  wallpaper comes through.
+
+**The camera is a hole in the layout, not an obstacle to dodge.** Anything in
+the band y ∈ [0, 32] must clear x ∈ [771, 956]; below y = 32 the full width is
+free. So the island is a two-row grid: a shoulder row split by a 185 pt spacer,
+over a body row spanning the whole width.
+
+| State | Size | Shoulder row (y 0–32) | Body row (y > 32) |
 |---|---|---|---|
-| **Collapsed** (outside home) | centre x = 864, top y = 38 — six points clear of the inset, never entering the notch band | ≤ 520 × 30 pt | Mark, then current task / song / action / mission. One line, truncating |
-| **Flanked** (when content needs width) | two lozenges in the auxiliary areas, `0–771` and `956–1728` | 2 × ≤ 340 pt | Status left, live activity right; notch untouched between them |
-| **Expanded** (on demand, or in home) | grows downward from the collapsed pill on `--snappy` | ≤ 1000 × 580 pt | The island dock menu: blurred cards with coloured borders, the face at centre, hologram panels around it |
-| **Alert** | collapsed position, `--bouncy` arrival | ≤ 620 × 44 pt | One approval request, or one thing that needs the owner. Never two |
+| **Dormant** | 185 × 32 pt | nothing — it *is* the notch | none |
+| **Shoulders** | 560 × 32 pt | mark + current task / song / mission left, live meter right | none |
+| **Hanging** | 720 × 190 pt | mark, room buttons, date strip | one live thing: what is playing, what is running, what is today |
+| **Expanded** | 1000 × 580 pt | as Hanging | the island dock menu — face at centre, hologram panels around it, cards with coloured borders |
+| **Alert** | 620 × 96 pt | mark left, dismiss right | one approval, or one thing that needs the owner. Never two |
 
-In fullscreen the menu bar hides and the notch region goes black; the island
-still refuses to cross y = 32, so nothing changes.
+Growth and retreat are `--snappy`; **Alert** arrives on `--bouncy`. Bottom
+corner radii 22 / 28 / 34 pt by state, **always 0 on top**, plus an inverted
+fillet of half the bottom radius where each side meets the bezel line — so the
+panel flows out of the bezel rather than butting into it.
+
+**Superseded by this correction:** *Collapsed* (“top y = 38, six points clear of
+the inset, never entering the notch band”) and *Flanked* (two separate lozenges
+in the auxiliary areas). Both were built on the floating model. The shoulder row
+is what *Flanked* was reaching for, done with one panel instead of two.
+
+In fullscreen the menu bar hides and the notch region goes black — which is now
+free rather than a problem. The island is already black and already welded, so
+it simply keeps going.
 
 ### Floating dialogs — split, per owner instruction
 
