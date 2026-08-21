@@ -187,6 +187,18 @@ struct Column {
 }
 
 struct GaugeReading { let label: String; let value: CGFloat }
+struct PanelItem { let label: String; let value: String; let ratio: CGFloat? }
+
+func loadPanel(_ path: String) -> [PanelItem] {
+    guard let data = FileManager.default.contents(atPath: path),
+          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let items = obj["panel"] as? [[String: Any]] else { return [] }
+    return items.compactMap { d in
+        guard let l = d["label"] as? String, let v = d["value"] as? String else { return nil }
+        let r = d["ratio"] as? Double
+        return PanelItem(label: l, value: v, ratio: r.map { CGFloat(max(0, min(1, $0))) })
+    }
+}
 
 func loadGauges(_ path: String) -> [GaugeReading] {
     guard let data = FileManager.default.contents(atPath: path),
@@ -222,6 +234,7 @@ final class IslandView: NSView {
     // has no producer is ABSENT, never a ring resting at zero -- zero-because-
     // untracked and zero-because-unspent look identical and are opposite facts.
     var gauges: [GaugeReading] = []
+    var panel: [PanelItem] = []
 
     // The shell is #000000, NOT our black. #03141f is a very dark blue-teal and,
     // welded to the true-black camera housing beside it, reads as a lighter
@@ -348,13 +361,46 @@ final class IslandView: NSView {
             ctx.addPath(rr)
             ctx.setFillColor(IslandView.ground.cgColor)
             ctx.fillPath()
-            if columns.isEmpty {
+            if !panel.isEmpty {
+                drawPanel(ctx, in: body)
+            } else if columns.isEmpty {
                 // Nothing is wired yet, and an empty body says so rather than
                 // showing a plausible instrument panel. INV-HW-2: UNKNOWN means
                 // UNAVAILABLE, and a surface that renders stale or invented state
                 // is worse than one that renders none.
                 let msg = text("no projection — backend not running", 10, IslandView.dim)
                 msg.draw(at: NSPoint(x: body.midX - msg.size().width / 2, y: body.midY - 6))
+            }
+        }
+    }
+
+    /// The instrument panel: what the host is actually doing, on the #03141f
+    /// ground. One row of readings, because the reference's bar list is horizontal
+    /// and a grid at this height would put four labels in 54 pt of space.
+    ///
+    /// ONLY GENUINE RATIOS GET A BAR. `Thermal` is a level -- nominal, fair,
+    /// serious -- and a bar under it would invent an ordering with a magnitude the
+    /// platform never claimed.
+    private func drawPanel(_ ctx: CGContext, in body: NSRect) {
+        let n = CGFloat(panel.count)
+        let cell = body.width / n
+        for (i, item) in panel.enumerated() {
+            let x = body.minX + CGFloat(i) * cell
+            let mid = x + cell / 2
+            let l = text(item.label, 9, IslandView.dim)
+            l.draw(at: NSPoint(x: mid - l.size().width / 2, y: body.maxY - 26))
+            let v = text(item.value, 13, IslandView.ink, weight: .medium)
+            v.draw(at: NSPoint(x: mid - v.size().width / 2, y: body.maxY - 46))
+            if let r = item.ratio {
+                let bw = cell - 44, bx = mid - bw / 2, by = body.maxY - 58
+                ctx.setFillColor(NSColor(white: 1, alpha: 0.12).cgColor)
+                ctx.fill(NSRect(x: bx, y: by, width: bw, height: 3))
+                ctx.setFillColor(IslandView.ember.cgColor)
+                ctx.fill(NSRect(x: bx, y: by, width: bw * r, height: 3))
+            }
+            if i > 0 {   // hairline between readings, as the reference divides them
+                ctx.setFillColor(NSColor(white: 1, alpha: 0.07).cgColor)
+                ctx.fill(NSRect(x: x, y: body.minY + 14, width: 1, height: body.height - 34))
             }
         }
     }
@@ -477,6 +523,7 @@ final class Controller: NSObject {
         }
         view.onClick = { [weak self] in self?.toggleExpanded() }
         view.gauges = loadGauges(snapshotPath)
+        view.panel = loadPanel(snapshotPath)
         applyFrame(width: m.width, height: m.height)
         panel.orderFrontRegardless()
         // A Space change can drop the panel behind, even with .canJoinAllSpaces.
@@ -580,6 +627,7 @@ final class Controller: NSObject {
     func reload() {
         view.columns = loadColumns(snapshotPath)
         view.gauges = loadGauges(snapshotPath)
+        view.panel = loadPanel(snapshotPath)
         view.needsDisplay = true
     }
 

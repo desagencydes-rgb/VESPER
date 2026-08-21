@@ -135,6 +135,44 @@ def gauges() -> list[Reading]:
     return out
 
 
+def panel_host() -> list[Reading]:
+    """The Hanging instrument panel: what the host is actually doing.
+
+    The reference draws a bar list here. The obvious candidate was per-path
+    latency, and it cannot be used: `contracts/policy/latency_budgets.toml` carries
+    `measured = false` and `measured_ms = "UNKNOWN"` on every path, so the only
+    honest thing it could render is its own declared budgets -- static contract
+    values dressed as live instruments.
+
+    Host pressure is live, changes while you watch it, and is the thing that
+    actually governs whether VESPER backs off. `thermal` is a LEVEL and is rendered
+    as one; only the two genuine ratios get bars.
+    """
+    try:
+        p = adapter_for_host().read_pressure()
+    except Exception as exc:                                  # noqa: BLE001
+        return [Reading.unavailable("panel.host", "core/host.py", f"adapter raised {exc!r}")]
+    if p.errors:
+        return [Reading.unavailable("panel.host", "core/host.py", "; ".join(p.errors))]
+
+    at = now_hlc()
+    out: list[Reading] = []
+
+    def add(key: str, value, unit: str | None = None) -> None:
+        if value is None:
+            out.append(Reading.unavailable(key, "core/host.py", "platform did not report it"))
+        else:
+            out.append(Reading(key=key, source="core/host.py", value=value,
+                               unit=unit, observed_at=at, ttl_ms=30_000))
+
+    add("panel.thermal", p.thermal)                       # a level, never degrees
+    add("panel.memory_gb", p.memory_available_gb, "GB")
+    add("panel.swap", "in use" if p.swap_in_use else "none" if p.swap_in_use is not None else None)
+    add("panel.power", (f"{p.charge_percent}% battery" if p.on_battery else f"{p.charge_percent}% charging")
+        if p.charge_percent is not None else None)
+    return out
+
+
 def today() -> Reading:
     d = datetime.now()
     return Reading(key="day.agenda", source="host clock",
@@ -148,6 +186,7 @@ def build(measure: bool) -> Projection:
         placement_stress(measure),
         today(),
         *gauges(),
+        *panel_host(),
         # The three the reference draws that have no producer here. Written as
         # explicit unavailables rather than omitted from the dict, so `--explain`
         # can say WHY a column is missing instead of leaving a silent gap.
@@ -160,6 +199,13 @@ def build(measure: bool) -> Projection:
     )}
     return Projection(version=v, readings=readings)
 
+
+PANEL_LABELS = {"panel.thermal": "Thermal", "panel.memory_gb": "Memory free",
+                "panel.swap": "Swap", "panel.power": "Power"}
+PANEL = tuple(PANEL_LABELS)
+# Only genuine 0-1 ratios get a bar. A level with a bar under it invents an
+# ordering the platform never claimed.
+PANEL_RATIO = {"panel.memory_gb": lambda v: min(1.0, float(v) / 16.0)}
 
 GAUGE_LABELS = {"gauge.attention": "Attention", "gauge.spend": "Spend",
                 "gauge.machine": "Machine"}
@@ -198,21 +244,35 @@ def main() -> int:
         r = r.at(proj.version)
         if not r.known: continue
         gs.append({"label": GAUGE_LABELS[k], "value": float(r.value)})
-    out.write_text(json.dumps({"version": proj.version.to_dict(),
-                               "columns": cols, "gauges": gs}, indent=1))
+    panel = []
+    for k in PANEL:
+        r = proj.readings.get(k)
+        if r is None: continue
+        r = r.at(proj.version)
+        if not r.known: continue
+        item = {"label": PANEL_LABELS[k],
+                "value": f"{r.value}{' ' + r.unit if r.unit else ''}"}
+        if k in PANEL_RATIO:
+            try: item["ratio"] = round(PANEL_RATIO[k](r.value), 3)
+            except Exception: pass                            # noqa: BLE001
+        panel.append(item)
+    out.write_text(json.dumps({"version": proj.version.to_dict(), "columns": cols,
+                               "gauges": gs, "panel": panel}, indent=1))
 
     print(f"{len(cols)} of {len(ISLAND_COLUMNS)} columns and {len(gs)} of {len(GAUGES)} "
           f"gauges have a producer -> {out}")
     for g in gs:
-        print(f"  gauge {g['label']:<10} {g['value']*100:.0f}%")
+        print(f"  gauge {g['label']:<12} {g['value']*100:.0f}%")
+    for it in panel:
+        print(f"  panel {it['label']:<12} {it['value']}")
     for c in cols:
         print(f"  {c['label']:<10} {c['value']}")
     if "--explain" in sys.argv:
         print("\nabsent, and why:")
-        for k in ISLAND_COLUMNS + GAUGES:
+        for k in ISLAND_COLUMNS + GAUGES + PANEL:
             r = proj.readings.get(k)
             if r is not None and not r.at(proj.version).known:
-                name = LABELS.get(k) or GAUGE_LABELS.get(k, k)
+                name = LABELS.get(k) or GAUGE_LABELS.get(k) or PANEL_LABELS.get(k, k)
                 print(f"  {name:<10} {r.at(proj.version).unavailable_reason}")
     return 0
 
