@@ -7,6 +7,9 @@ otherwise lose.
 | Path | What it holds |
 |---|---|
 | `DESIGN-FOUNDATION.md` | **The spec.** Palette, themes, adaptive-colour rule, glass tiers, type, motion, the eleven ambience modes, the face, the mark, the dock swap, island geometry. Read this first |
+| `ISLAND-ARCHITECTURE.md` | The island's behaviour and wiring: its seat as an endpoint, the state machine, what backs each column, how it behaves everywhere on the Mac, and the build order |
+| `ANNEX-island-geometry.md` | **Build from this.** The measured proportions landed on a clean system anchored to the two hardware facts |
+| `ISLAND-CONTENT.md` | Everything each island state can carry, each marked LIVE / READY / BLOCKED, so designing and wiring do not wait on each other |
 | `ui-refs/` | **The owner's UI reference set** — what a screen is actually composed of, with the geometry measured out of it. The island only; every other surface is still unreferenced. Has its own README |
 | `routing/` | The owner's own placement decisions for 237 catalogue items — `spec_raw.txt` is the export as pasted, `routed.json` the parse, `data.json` the full catalogue including unrouted suggestions |
 | `source/` | The generator for the interactive version. `build_artifact.py` reassembles it from the HTML fragments and inlines `refs/` as data URIs |

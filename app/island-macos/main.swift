@@ -555,10 +555,13 @@ final class Controller: NSObject {
     // Expanded is CLICK-triggered, per the owner 2026-08-21. Hover no longer
     // expands: a panel that opens because the cursor crossed the top of the screen
     // on its way somewhere else is a panel that opens by accident all day.
-    // Hover opens Hanging; a click opens Expanded. Owner, 2026-08-21.
+    // Hover opens Hanging; a click opens Expanded; a click while Expanded closes
+    // all the way to Shoulders. Owner, 2026-08-21 -- collapsing to Hanging left
+    // the island open behind a cursor that had already left, so the click that
+    // meant "done" read as "half done".
     func toggleExpanded() {
         reload()
-        go(state == .expanded ? .hanging : .expanded)
+        go(state == .expanded ? .shoulders : .expanded)
     }
     @objc func mouseEntered(with event: NSEvent) { reload(); if state == .shoulders { go(.hanging) } }
     @objc func mouseExited(with event: NSEvent)  { if state == .hanging { go(.shoulders) } }
