@@ -244,6 +244,9 @@ final class IslandView: NSView {
     static let ground = NSColor(srgbRed: 0x03/255.0, green: 0x14/255.0, blue: 0x1f/255.0, alpha: 1)
     static let ink    = NSColor(srgbRed: 0.93, green: 0.92, blue: 0.90, alpha: 1)
     static let dim    = NSColor(srgbRed: 0.62, green: 0.60, blue: 0.58, alpha: 1)
+    // Row labels sit against the shell rather than the lighter ground, so `dim`
+    // reads as almost-absent there. This is the same grey a step brighter.
+    static let label  = NSColor(srgbRed: 0.78, green: 0.76, blue: 0.73, alpha: 1)
     static let ember  = NSColor(srgbRed: 0xB9/255.0, green: 0x66/255.0, blue: 0x45/255.0, alpha: 1)
 
     override var isFlipped: Bool { false }
@@ -324,7 +327,12 @@ final class IslandView: NSView {
 
     private func drawExpanded(_ ctx: CGContext, w: CGFloat, h: CGFloat) {
         let inset = metrics.fillet
-        drawGauges(ctx, w: w, h: h, cy: h - safeInset / 2 - 3, ring: 19, showValue: true)
+        // Gauges sit in the shoulder band for Hanging, and move into the body's
+        // right cluster for Expanded -- which is where the owner's reference draws
+        // them, larger and numbered, beside the face rather than above it.
+        if state == .hanging {
+            drawGauges(ctx, w: w, h: h, cy: h - safeInset / 2 - 3, ring: 19, showValue: true)
+        }
         // §9: the mark is on the left shoulder in EVERY island state, and the
         // shoulder band is y ∈ [0, inset] -- the one band that must clear the
         // camera. The mark sits far left, so it does; nothing else goes here.
@@ -354,35 +362,41 @@ final class IslandView: NSView {
         // The ground, one step in.
         let bodyTop = rowTop - 38
         let body = NSRect(x: inset + 8, y: 14, width: w - (inset + 8) * 2, height: bodyTop - 14)
-        // Expanded puts its content on the shell; only Hanging has the inner
-        // ground panel. Measured from the two references, not assumed alike.
-        if state == .hanging, body.height > 20 {
-            let rr = CGPath(roundedRect: body, cornerWidth: 18, cornerHeight: 18, transform: nil)
-            ctx.addPath(rr)
-            ctx.setFillColor(IslandView.ground.cgColor)
-            ctx.fillPath()
-            if !panel.isEmpty {
-                drawPanel(ctx, in: body)
-            } else if columns.isEmpty {
-                // Nothing is wired yet, and an empty body says so rather than
-                // showing a plausible instrument panel. INV-HW-2: UNKNOWN means
-                // UNAVAILABLE, and a surface that renders stale or invented state
-                // is worse than one that renders none.
-                let msg = text("no projection — backend not running", 10, IslandView.dim)
-                msg.draw(at: NSPoint(x: body.midX - msg.size().width / 2, y: body.midY - 6))
-            }
+        // Expanded puts its content on the shell; only Hanging has the inner ground
+        // panel. Measured from the two references, not assumed alike -- so these are
+        // two branches, not one branch with the panel painted conditionally. Nesting
+        // Expanded's cluster inside the Hanging block is exactly how it silently
+        // never drew.
+        guard body.height > 20 else { return }
+        if state == .expanded {
+            drawRightCluster(ctx, in: body)
+            return
+        }
+        let rr = CGPath(roundedRect: body, cornerWidth: 18, cornerHeight: 18, transform: nil)
+        ctx.addPath(rr)
+        ctx.setFillColor(IslandView.ground.cgColor)
+        ctx.fillPath()
+        if !panel.isEmpty {
+            drawPanel(ctx, in: body)
+        } else if columns.isEmpty {
+            // Nothing is wired yet, and an empty body says so rather than showing a
+            // plausible instrument panel. INV-HW-2: UNKNOWN means UNAVAILABLE, and a
+            // surface that renders invented state is worse than one that renders none.
+            let msg = text("no projection — backend not running", 10, IslandView.dim)
+            msg.draw(at: NSPoint(x: body.midX - msg.size().width / 2, y: body.midY - 6))
         }
     }
 
-    /// The instrument panel: what the host is actually doing, on the #03141f
-    /// ground. One row of readings, because the reference's bar list is horizontal
-    /// and a grid at this height would put four labels in 54 pt of space.
+    /// The Hanging instrument panel: what the host is actually doing, on the
+    /// #03141f ground. One row of readings, because the reference's bar list is
+    /// horizontal and a grid at this height would put four labels in 54 pt.
     ///
     /// ONLY GENUINE RATIOS GET A BAR. `Thermal` is a level -- nominal, fair,
-    /// serious -- and a bar under it would invent an ordering with a magnitude the
-    /// platform never claimed.
+    /// serious -- and a bar beneath it would invent an ordering with a magnitude
+    /// the platform never claimed.
     private func drawPanel(_ ctx: CGContext, in body: NSRect) {
         let n = CGFloat(panel.count)
+        guard n > 0 else { return }
         let cell = body.width / n
         for (i, item) in panel.enumerated() {
             let x = body.minX + CGFloat(i) * cell
@@ -398,10 +412,64 @@ final class IslandView: NSView {
                 ctx.setFillColor(IslandView.ember.cgColor)
                 ctx.fill(NSRect(x: bx, y: by, width: bw * r, height: 3))
             }
-            if i > 0 {   // hairline between readings, as the reference divides them
+            if i > 0 {
                 ctx.setFillColor(NSColor(white: 1, alpha: 0.07).cgColor)
                 ctx.fill(NSRect(x: x, y: body.minY + 14, width: 1, height: body.height - 34))
             }
+        }
+    }
+
+    /// Expanded's right cluster: the numbered rings over the host readings, in the
+    /// arrangement the reference draws. Everything here is absent-if-unproduced,
+    /// so the cluster shrinks rather than filling with placeholders.
+    private func drawRightCluster(_ ctx: CGContext, in body: NSRect) {
+        // THE FACE IS AN OPAQUE SUBLAYER AND IT WINS. CAMetalLayer draws over the
+        // view's own drawRect content, so anything painted under it is simply gone
+        // -- the row labels were rendering correctly at x = 366 and being covered,
+        // while the right-aligned values beside it showed fine. The cluster starts
+        // clear of the face's right edge rather than assuming a fixed width.
+        let faceRight = (bounds.width + min(230, bounds.width * 0.38)) / 2
+        let x0 = max(body.minX, faceRight + 14)
+        let cw = body.maxX - x0
+        guard cw > 90 else { return }
+        var y = body.maxY - 20
+
+        if !gauges.isEmpty {
+            let ring: CGFloat = 34, gap: CGFloat = 18
+            let n = CGFloat(gauges.count)
+            var gx = x0 + (cw - (ring * n + gap * (n - 1))) / 2
+            for g in gauges {
+                let r = NSRect(x: gx, y: y - ring, width: ring, height: ring)
+                ctx.setLineWidth(2.6)
+                ctx.setStrokeColor(NSColor(white: 1, alpha: 0.15).cgColor)
+                ctx.addEllipse(in: r.insetBy(dx: 1.3, dy: 1.3)); ctx.strokePath()
+                ctx.setStrokeColor(IslandView.ember.cgColor)
+                ctx.addArc(center: NSPoint(x: r.midX, y: r.midY), radius: ring / 2 - 1.3,
+                           startAngle: .pi / 2, endAngle: .pi / 2 - 2 * .pi * g.value, clockwise: true)
+                ctx.strokePath()
+                let v = text("\(Int((g.value * 100).rounded()))", 12, IslandView.ink, weight: .medium)
+                v.draw(at: NSPoint(x: r.midX - v.size().width / 2, y: r.midY - 6))
+                let l = text(g.label, 8, IslandView.dim)
+                l.draw(at: NSPoint(x: r.midX - l.size().width / 2, y: r.minY - 12))
+                gx += ring + gap
+            }
+            y -= ring + 26
+        }
+
+        // The host readings as labelled rows, which is the reference's bar list.
+        for item in panel.prefix(4) {
+            guard y > body.minY + 8 else { break }
+            let l = text(item.label, 9.5, IslandView.label)
+            l.draw(at: NSPoint(x: x0, y: y - 11))
+            let v = text(item.value, 10, IslandView.ink, weight: .medium)
+            v.draw(at: NSPoint(x: body.maxX - v.size().width, y: y - 11))
+            if let r = item.ratio {
+                ctx.setFillColor(NSColor(white: 1, alpha: 0.10).cgColor)
+                ctx.fill(NSRect(x: x0, y: y - 16, width: cw, height: 2))
+                ctx.setFillColor(IslandView.ember.cgColor)
+                ctx.fill(NSRect(x: x0, y: y - 16, width: cw * r, height: 2))
+            }
+            y -= 22
         }
     }
 
@@ -609,9 +677,12 @@ final class Controller: NSObject {
 
     private func layoutFace(width: CGFloat, height: CGFloat) {
         guard face != nil else { return }
-        let inset = geo.metrics(.expanded).fillet
         let top = height - geo.inset - 38
-        let r = NSRect(x: inset + 8, y: 14, width: width - (inset + 8) * 2, height: max(0, top - 14))
+        // Centre third only. The reference flanks the face with instruments; a face
+        // spanning the whole body leaves nowhere for them and reads as a portrait
+        // rather than as one element among several.
+        let fw = min(230, width * 0.38)
+        let r = NSRect(x: (width - fw) / 2, y: 14, width: fw, height: max(0, top - 14))
         faceLayer.frame = r
         faceLayer.contentsScale = screen.backingScaleFactor
         faceLayer.drawableSize = CGSize(width: r.width * screen.backingScaleFactor,
