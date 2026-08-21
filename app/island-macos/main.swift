@@ -763,6 +763,22 @@ if args.contains("--login-item-status") {
     exit(0)
 }
 
+// Rebuilding replaces the bundle, and the registration macOS is holding still
+// refers to the OLD signature. `installLoginItem()` sees status .enabled and
+// returns early, so the stale record survives and launchd kills every spawn with
+// OS_REASON_CODESIGNING while the same binary runs fine by hand. The build calls
+// this after signing, so the record always matches what is on disk.
+if args.contains("--reinstall-login-item") {
+    if #available(macOS 13.0, *) {
+        let svc = SMAppService.agent(plistName: "ai.vesper.island.plist")
+        try? svc.unregister()
+        Thread.sleep(forTimeInterval: 1.0)
+        do { try svc.register(); print("login item re-registered") }
+        catch { print("re-registration failed: \(error)") }
+    }
+    exit(0)
+}
+
 if args.contains("--uninstall-login-item") {
     if #available(macOS 13.0, *) {
         try? SMAppService.agent(plistName: "ai.vesper.island.plist").unregister()
@@ -784,8 +800,13 @@ guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) 
 let levelKey: CGWindowLevelKey = args.contains("--level-status") ? .statusWindow
     : args.contains("--level-max") ? .maximumWindow : .screenSaverWindow
 let controller = Controller(screen: screen, snapshotPath: snapshot, levelKey: levelKey)
-if Bundle.main.bundleIdentifier != nil, !args.contains("--no-install") {
-    installLoginItem()
+// installLoginItem() is NOT called. SMAppService could not be made to spawn this
+// app -- launchd killed every attempt with OS_REASON_CODESIGNING -- so persistence
+// is a plain LaunchAgent from tools/install_island_agent.sh. The function and its
+// --login-item-status / --uninstall-login-item flags stay for diagnosis and for
+// the day a Developer ID certificate makes SMAppService viable; registering here
+// as well would leave two jobs fighting over one label.
+if Bundle.main.bundleIdentifier != nil {
     startSnapshotRefresh(repo: FileManager.default.currentDirectoryPath)
 }
 let g = controller.geo

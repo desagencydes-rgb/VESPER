@@ -50,11 +50,41 @@ struct Uniforms {
 
 struct VOut { float4 pos [[position]]; float psize [[point_size]]; half4 colour; };
 
+// The irises, MEASURED off the reference rather than placed by eye.
+//
+// The first measurement was wrong and looked convincing: thresholding near-white
+// pixels across the whole eye BAND caught the bright mesh on the ears and temples,
+// putting the irises at +/-0.44 -- nearly double. The glow rendered on the temples
+// and the face looked possessed. Constraining to the central 62% and taking the
+// radius that contains 85% of the cluster rather than its maximum gives
+// (-0.252, +0.062) and (+0.224, +0.062), stable across three thresholds.
+//
+// The cloud carries no eye grouping and does not need one -- the shader already
+// has every point's model position, so it can tell an eye point from a head point
+// without a second attribute or a wider vertex format.
+constant float2 EYE_L = float2(-0.252, 0.062);
+constant float2 EYE_R = float2( 0.224, 0.062);
+constant float  IRIS  = 0.030;      // hot core; measured r85 = 0.028
+constant float  LID   = 0.072;      // what the lid closes over
+
 vertex VOut vmain(uint vid [[vertex_id]],
                   const device float4 *pts [[buffer(0)]],
                   constant Uniforms &u [[buffer(1)]]) {
     float4 p = pts[vid];
     float3 v = float3(p.xyz);
+
+    float2 eye = (v.x < 0.0) ? EYE_L : EYE_R;
+    float dEye = distance(v.xy, eye);
+    float iris = 1.0 - smoothstep(IRIS, LID, dEye);          // 1 at the pupil, 0 past the lid
+
+    // The eyes move BEYOND the head, and they carry the head's own rotation with
+    // them -- so this is a small displacement in model space applied before the
+    // head turns, not a second rotation fought against the first.
+    v.xy += float2(u.eyeYaw, u.eyePitch) * 0.22 * iris;
+
+    // Blink: the lid closes over the eye, so eye points collapse toward the eye's
+    // own centre line rather than the head's. 120 ms, driven from the CPU.
+    v.y = mix(v.y, eye.y, u.blink * iris);
 
     // Yaw about Y, then pitch about X. Order matters: pitch-then-yaw tilts the
     // head off its own axis and reads as a lolling head rather than a look.
@@ -88,6 +118,12 @@ vertex VOut vmain(uint vid [[vertex_id]],
     // ramp is physics rather than palette.
     float3 base = float3(u.tintR, u.tintG, u.tintB);
     float3 warm = mix(base, mix(base, float3(1.0), 0.38), smoothstep(0.62, 1.0, i));
+
+    // The irises are the focal point of the reference -- hot, near-white, and the
+    // one place the ramp is allowed to run all the way out. Everything else stays
+    // ember; if the whole face could reach white it would read as sandstone again.
+    warm = mix(warm, float3(1.0, 0.94, 0.86), iris * 0.85);
+    i = clamp(i + iris * 0.55, 0.0, 1.6);
 
     o.psize = max(1.0, u.pointSize * persp);
     o.colour = half4(half3(warm * i), half(i * u.alpha));

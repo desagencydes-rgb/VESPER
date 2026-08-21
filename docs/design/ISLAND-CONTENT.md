@@ -87,7 +87,7 @@ named before it is drawn.
 | Three ring gauges | host pressure / battery / interruption budget | READY, unassigned |
 | Horizontal bar list | `core/telemetry.py` `BudgetStat` per path | READY |
 | Donut + stacked bars | `core/placement.py` — capability distribution across nodes | READY |
-| World map with points | `core/fabric.py` segments + `core/devices.py` registry | READY — meaningful only once a second node enrols |
+| World map with points | `core/fabric.py` segments + `core/devices.py` registry | **READY — build it now.** The owner has the phone, the Samsung J3 and a Linux box available on request (`MEMORY.md` §1). Build and connect on enrolment; do not defer for want of a node that is one message away |
 
 ## Expanded — 624 × 280 pt, on click
 
@@ -153,8 +153,12 @@ Only three things block everything else:
 1. **No running backend.** Five of the six columns are READY rather than LIVE for
    one reason — nothing is running to produce them. The island reads a file
    snapshot today; §7 of the architecture calls for a socket.
-2. **No second node enrolled.** The fabric widgets are honest but dull with one
-   node, and the world map is meaningless.
+2. **No second node enrolled — and this is not really a blocker.** The owner has
+   the phone, the Samsung J3 and a Linux box available on request, recorded in
+   `MEMORY.md` §1. The fabric widgets and the world map should be built now and
+   connected on enrolment. It is also the only way to exercise `INV-PLACE-3` for
+   real: a new node joining and winning placement on merit has never been tested
+   against an actual second node.
 3. **No audio path.** Speaking — for the mark and for the face's caption — is
    amplitude-driven by decision, so it stays still until real audio exists.
 

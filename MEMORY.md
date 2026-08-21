@@ -124,6 +124,22 @@ setting is absent from Settings. Setting it to 0 changed nothing.
 Node 2 has none of these: analog speakers, no display in the path, and a session lock that
 gates neither audio nor input.
 
+### Nodes available for enrolment ON REQUEST -- 2026-08-21
+
+**The owner has said these can be brought up whenever they are needed: the phone,
+the Samsung J3, and a Linux box.** They are not enrolled yet. Say the word and
+they are available -- this is not a blocker to be worked around, it is a resource
+to be asked for.
+
+This unblocks anything that is currently "meaningless with one node": the island's
+world map and its node-distribution widgets, the fabric column's node count
+(which today can only honestly report *segments*), and the second half of every
+placement decision -- `INV-PLACE-3` says a new node joins and wins placement on
+merit, and that has never actually been exercised against a real second node here.
+
+Build those features now and connect them on enrolment; do not defer the build for
+want of a node that is one message away.
+
 ### Other devices
 Owner's phone (always on) · iPhone · Samsung Galaxy J3 (2016, 360×640 @ dpr 2, Android 5.1.1)
 · MacBook (expected 2026-08-20) · several old tablets, camera usability to be audited.

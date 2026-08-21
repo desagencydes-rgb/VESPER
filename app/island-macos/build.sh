@@ -78,26 +78,40 @@ cat > "$APP/Contents/Library/LaunchAgents/$ID.plist" <<PLIST
 </dict></plist>
 PLIST
 
-# Sign with the stable local identity when there is one. TCC grants are keyed to
-# the signature's designated requirement, so ad-hoc -- which has no stable identity
-# -- can make macOS re-ask for every permission whenever the binary changes.
-# `tools/make_signing_cert.sh` creates the identity; ad-hoc remains the fallback so
-# a fresh clone still builds.
-CERT="VESPER Local Signing"
-if security find-identity -v -p codesigning 2>/dev/null | grep -q "$CERT"; then
-  # `A && B || C && D` is not if/else -- it ran the fallback AND printed both
-  # messages, so the build reported two contradictory things about one signature.
-  if codesign --force --sign "$CERT" --identifier "$ID" --options runtime "$APP" 2>/dev/null; then
-    echo "signed as '$CERT' ($ID), hardened runtime"
-  elif codesign --force --sign "$CERT" --identifier "$ID" "$APP" 2>/dev/null; then
-    echo "signed as '$CERT' ($ID), without hardened runtime"
-  else
-    echo "WARNING: signing with '$CERT' failed"
-  fi
-else
-  codesign --force --sign - --identifier "$ID" "$APP" 2>/dev/null \
-    && echo "signed ad-hoc as $ID -- run tools/make_signing_cert.sh for a stable identity" \
-    || echo "WARNING: codesign failed -- macOS will treat this as unidentified"
+# AD-HOC, AND THAT IS A MEASURED DECISION, NOT A DEFAULT.
+#
+# A self-signed certificate gives a stable identity so TCC grants survive rebuilds.
+# It also makes launchd REFUSE to spawn the login item: the job dies instantly with
+# OS_REASON_CODESIGNING, verified with and without the hardened runtime, and with
+# the LaunchServices registration freshly refreshed. Ad-hoc spawns and stays up --
+# killed with -9, back under a new pid.
+#
+# So the two wants are in conflict and only one can be had here:
+#   ad-hoc       login item works. TCC may re-ask when the binary changes.
+#   self-signed  stable TCC identity. Login item never starts.
+#
+# The owner's requirement is that VESPER runs all the time and comes back after a
+# reboot, so persistence wins and re-prompts are the price.
+#
+# A DEVELOPER ID certificate is what buys both, and this is the concrete reason to
+# want one -- not the cosmetic "unidentified developer" label.
+codesign --force --sign - --identifier "$ID" "$APP" 2>/dev/null \
+  && echo "signed ad-hoc as $ID (see the note above before changing this)" \
+  || echo "WARNING: codesign failed -- macOS will treat this as unidentified"
+
+# RE-SIGNING INVALIDATES THE CACHED LAUNCH REQUIREMENT. macOS remembers the app's
+# code requirement in its LaunchServices / Background Task Management records, so
+# after a re-sign launchd refuses to spawn the login item and kills it with
+# OS_REASON_CODESIGNING -- 181 failed spawns before this was noticed, while the
+# same binary launched by hand ran perfectly. Refreshing the registration is what
+# clears it, and it must happen on EVERY build that changes the signature.
+LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+[ -x "$LSREG" ] && "$LSREG" -f "$APP" && echo "LaunchServices registration refreshed"
+
+# Reload the LaunchAgent if it is installed, so a rebuild does not leave launchd
+# supervising a binary that no longer exists.
+if [ -f "$HOME/Library/LaunchAgents/$ID.plist" ]; then
+  "$REPO/tools/install_island_agent.sh" >/dev/null 2>&1 && echo "LaunchAgent reloaded"
 fi
 
 echo "built: $APP"

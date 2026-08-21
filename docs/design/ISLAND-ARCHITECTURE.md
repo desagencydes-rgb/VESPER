@@ -124,28 +124,44 @@ Signed ad-hoc, which is a real limitation and is recorded rather than hidden: a
 Developer ID certificate would hold TCC grants across rebuilds, and ad-hoc may
 re-prompt when the binary changes.
 
-**The login item lives inside the bundle, registered with `SMAppService`.**
-`Contents/Library/LaunchAgents/ai.vesper.island.plist`, `RunAtLoad` +
-`KeepAlive`, registered by the app itself on first launch.
+**Persistence is a plain LaunchAgent**, installed by
+`tools/install_island_agent.sh`: `RunAtLoad` + `KeepAlive`, so VESPER starts at
+login and returns after a crash or a kill.
 
-The first attempt wrote LaunchAgents into `~/Library/LaunchAgents` pointing at
-executables. It worked, and it looked wrong: macOS registers the **executable**,
-so Login Items showed a generic `exec` icon labelled VESPER, and the projection
-producer appeared beside it as a second, unrelated entry called `python3.13`.
-From inside the bundle it is one entry, carrying the app's own name and mark.
+**SMAppService was tried first and abandoned, and the reason is worth keeping.**
+It is the modern API and gives a better Login Items entry — the app's own name and
+mark rather than a generic `exec` icon. It could not be made to spawn this app.
+launchd killed every attempt with `OS_REASON_CODESIGNING`, and the same binary
+launched by hand ran perfectly. What was ruled out, one at a time: the hardened
+runtime (fails with and without), the certificate (fails ad-hoc *and* self-signed),
+a stale LaunchServices record (`lsregister -f` refreshed, still fails), and a
+registration pinning an old signature (unregistered and re-registered after every
+signing change, still fails). A plain LaunchAgent spawns it and keeps it alive,
+verified by `kill -9` and watching launchd return it under a new pid. Working beats
+tidy, and the cost is a generic icon in one settings pane.
 
-For the same reason the projection is refreshed **by the island itself**, hourly,
-rather than by a second agent — one background item instead of two, and no stray
-interpreter in the owner's settings. It re-runs the 12 s placement stress only
-when that reading is going stale; burning the host hourly to keep one column
-fresh would be a strange way to treat a machine whose stated goal is to last
-longer.
+The `--login-item-status` and `--uninstall-login-item` flags stay for diagnosis and
+for the day a Developer ID certificate makes SMAppService viable. The app does
+**not** register itself: two jobs fighting over one label is worse than either.
 
-`--login-item-status` asks the system what it thinks, because an SMAppService
-agent does not appear under its own label in `launchctl list` and its absence
-there proves nothing. `--uninstall-login-item` removes it: an undo path, written
-before the install path, because a login item you cannot remove is not a
-convenience.
+**Signing is ad-hoc, and that is a measured decision.** A self-signed certificate
+gives a stable identity so TCC grants survive rebuilds — and makes launchd refuse
+to spawn the login item at all. The two wants are in direct conflict here:
+
+| | login item | TCC grants |
+|---|---|---|
+| ad-hoc | **works** | may re-ask when the binary changes |
+| self-signed | never starts | stable |
+
+The owner's requirement is that VESPER runs all the time and comes back after a
+reboot, so persistence wins and re-prompts are the price. **A Developer ID
+certificate is what buys both** — that, and not the cosmetic "unidentified
+developer" label, is the concrete reason to want one.
+
+**The projection is refreshed by the island itself**, hourly, rather than by a
+second agent — one background item instead of two, and no stray interpreter in the
+owner's settings. It re-runs the 12 s placement stress only when that reading is
+going stale.
 
 **State lives in `~/Library/Application Support/VESPER/`, not `/tmp`.** `/tmp` is
 cleared on reboot, and an island that comes back from a restart with no columns
