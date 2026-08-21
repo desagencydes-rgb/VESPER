@@ -1,0 +1,237 @@
+01|Say something|INCLUDE|home|just a text input bar
+01|Current attention|INCLUDE|home|
+01|Needs you|INCLUDE|home|
+01|Emergency stop|INCLUDE|home|
+01|Degradation banner|INCLUDE|summon|
+01|Window composition|INCLUDE|summon|
+01|Space switching|MAYBE|backend|yes
+01|Global summon|INCLUDE|backend|
+01|Command palette|INCLUDE|menu|
+01|What changed since I looked|INCLUDE|home|
+01|Undo VESPER|INCLUDE|summon|
+01|Thinking trace|INCLUDE|summon|
+01|Focus mode|INCLUDE|backend|shortcut that activates it; need a list of all shortcuts somewhere
+01|Pin a panel|INCLUDE|backend|
+01|Global search|INCLUDE|summon|
+01|Density control|INCLUDE|home|
+01|Multi-monitor behaviour|INCLUDE|summon|
+01|Shortcut map|INCLUDE|home|
+01|Boot state|INCLUDE|summon|
+01|Island dock|INCLUDE|float|OWNER-ADDED. Most-used frontend access; editable in settings
+02|Memory headroom|INCLUDE|menu|
+02|Memory pressure band|INCLUDE|menu|
+02|Compressor & swap|INCLUDE|menu|
+02|Battery health|INCLUDE|menu|with life calculation; simple algorithms that don't cost much
+02|Charge policy|INCLUDE|menu|
+02|Power draw|INCLUDE|menu|
+02|Wake assertions|INCLUDE|summon|
+02|Process energy|INCLUDE|menu|
+02|Owner working set|INCLUDE|menu|
+02|Storage & SSD|INCLUDE|menu|
+02|Thermal history|INCLUDE|menu|
+02|Lifetime projection|INCLUDE|summon|this is what I mentioned earlier
+02|Stewardship advice|INCLUDE|summon|surfaced by VOICE; if I defer or ignore it, it sits there
+02|Node calibration|INCLUDE|summon|
+02|Fan & acoustics|INCLUDE|menu|
+02|Display power|INCLUDE|menu|
+02|Radio state|INCLUDE|menu|
+02|Disk I/O rate|INCLUDE|menu|
+02|Sleep & wake log|INCLUDE|menu|
+02|Throttle events|INCLUDE|menu|
+02|Ambient estimate|INCLUDE|menu|
+02|Charging schedule|INCLUDE|menu|
+02|Costing me now|INCLUDE|menu|
+02|Maintenance actions|INCLUDE|menu|
+02|Peripherals|INCLUDE|menu|
+02|Before/after|INCLUDE|menu|
+03|Node profiles|INCLUDE|menu|
+03|Trust zones|INCLUDE|menu|
+03|Network segments|INCLUDE|menu|
+03|Attestation state|INCLUDE|menu|
+03|Placement decisions|INCLUDE|menu|
+03|Relocation history|INCLUDE|menu|
+03|Survival profile|INCLUDE|menu|
+03|Enrollment|INCLUDE|menu|has its own summoned panel when clicked
+03|Endpoints|INCLUDE|menu|
+03|Control-plane lease|INCLUDE|menu|
+03|Link quality|INCLUDE|menu|
+03|Partition state|INCLUDE|island|more important: island dock or main menu, your call
+03|Node comparison|INCLUDE|menu|
+03|Blast radius|INCLUDE|menu|
+03|Migration dry-run|INCLUDE|menu|
+03|Clock skew|INCLUDE|menu|
+03|Key & identity state|INCLUDE|menu|
+03|Onboarding wizard|INCLUDE|menu|
+03|Node roles|INCLUDE|menu|
+03|Failover drill|INCLUDE|menu|
+04|Autonomy queue|INCLUDE|main|
+04|Triggers|INCLUDE|summon|
+04|Action outbox|INCLUDE|main|you decide which menu
+04|Compensation|INCLUDE|menu|
+04|Emergency stop|INCLUDE|main|
+04|Model calls|INCLUDE|home|
+04|Cost & period|INCLUDE|home|
+04|Verification state|INCLUDE|main|
+04|Interruption budget|INCLUDE|home|everything in home gets a dedicated CARD; overflow uses expandable
+04|Live activity stream|INCLUDE|main|
+04|Interject|INCLUDE|home|
+04|Pause / resume|INCLUDE|island|island dock, everywhere
+04|Reprioritise|INCLUDE|home|
+04|Lookahead|INCLUDE|home|
+04|Dry run|INCLUDE|home|the Jarvis simulation feature from Iron Man
+04|Estimated completion|INCLUDE|summon|
+04|Retry policy|INCLUDE|menu|
+04|Work rate|INCLUDE|main|
+04|Stall detection|INCLUDE|home|
+04|Scheduled work|INCLUDE|home|
+05|Enable / disable actions|INCLUDE|settings|
+05|Rule authoring|INCLUDE|settings|automated night work can be independent of me
+05|Capability registry|INCLUDE|menu|
+05|Authorization|INCLUDE|settings|
+05|Grants|INCLUDE|main|
+05|Self-modification boundary|INCLUDE|summon|also island when suggesting; list of unverified suggestions in expandable; core changes in settings
+05|Governed surfaces|INCLUDE|menu|
+05|Taint & context ceiling|INCLUDE|home|home items are CARDS, never menu entries
+05|Hardware access|INCLUDE|main|
+05|macOS permissions|INCLUDE|main|
+05|Behaviour on / off this Mac|INCLUDE|menu|
+05|Consent channel policy|INCLUDE|menu|
+05|Refusal log|INCLUDE|home|
+05|Permission inbox|INCLUDE|home|
+05|Time-limited grants|INCLUDE|home|
+05|What could you do now?|INCLUDE|home|
+05|Panic revoke|INCLUDE|main|
+05|Per-app rules|INCLUDE|main|
+05|Grant templates|INCLUDE|main|
+05|Quiet-hours restrictions|INCLUDE|main|
+05|Approval history|INCLUDE|menu|
+05|Escalation alerts|INCLUDE|summon|
+06|Provenance|INCLUDE|home|
+06|Learning kinds|INCLUDE|home|
+06|Lifetime lessons|INCLUDE|home|
+06|OS practice|INCLUDE|home|
+06|Owner model|INCLUDE|home|
+06|Personality|INCLUDE|home|
+06|World model|INCLUDE|home|
+06|Conflicts|INCLUDE|home|
+06|Evidence & claims|INCLUDE|home|
+06|Knowledge maps|INCLUDE|home|
+06|Promotion review|INCLUDE|home|
+06|Rollback|INCLUDE|home|
+06|Record loss|INCLUDE|home|
+06|Forget this|INCLUDE|home|also menu
+06|Why do you think that?|INCLUDE|home|
+06|Pinned facts|INCLUDE|home|
+06|Contradiction inbox|INCLUDE|home|VESPER speaks when it finds one; summoned panel anywhere
+06|Confidence & decay|INCLUDE|home|
+06|Memory diff|INCLUDE|home|
+06|Import / export|INCLUDE|main|
+06|Redaction|INCLUDE|home|
+06|Correct me|INCLUDE|home|
+07|Interactive session|INCLUDE|float|
+07|Annotation layer|INCLUDE|float|
+07|Window choreography|INCLUDE|float|
+07|Research|INCLUDE|home|mainly home; shows wherever I am when I ask
+07|Coursework|INCLUDE|home|also main menu and island
+07|Coding|INCLUDE|home|also island and main menu
+07|AI / ML workbench|INCLUDE|home|also island and main menu
+07|Local models|INCLUDE|home|
+07|Files|INCLUDE|home|
+07|Context budget|INCLUDE|home|
+07|Improvement backlog|INCLUDE|home|surfaced by voice; summoned panel anywhere; stored in its home card
+07|Experiments|INCLUDE|home|also main menu
+07|Driving other AIs|INCLUDE|home|
+07|Session replay|INCLUDE|home|
+07|Layout templates|INCLUDE|home|
+07|Freeform canvas|INCLUDE|home|
+07|Spaced repetition|INCLUDE|home|also main menu and island
+07|Deadline tracker|INCLUDE|home|also main menu; island when getting close
+07|Reading queue|INCLUDE|home|
+07|Citation manager|INCLUDE|home|
+07|Notebook|INCLUDE|home|
+07|Dataset browser|INCLUDE|home|also main menu
+07|Run comparison|INCLUDE|home|
+07|Prompt library|INCLUDE|home|
+07|Code review|INCLUDE|home|
+07|Study progress|INCLUDE|home|also main menu; island when on an actual course
+07|Explain this|INCLUDE|float|an everywhere feature
+07|Lab notebook|INCLUDE|home|VESPER can record there too
+08|Capability profiles|INCLUDE|settings|
+08|Host actions|INCLUDE|settings|
+08|Network fabric|INCLUDE|settings|
+08|Cost policy|INCLUDE|settings|
+08|Latency budgets|INCLUDE|settings|
+08|Degradation ladder|INCLUDE|menu|
+08|Interruption budget|INCLUDE|settings|
+08|Trigger registry|INCLUDE|settings|
+08|Persona policy|INCLUDE|settings|
+08|Execution classes|INCLUDE|settings|
+08|Operating periods|INCLUDE|settings|
+08|Model routing|INCLUDE|settings|
+08|Backup & restore|INCLUDE|settings|
+08|Modes|INCLUDE|main|
+08|Config diff|INCLUDE|settings|
+08|Impact preview|INCLUDE|float|wherever the change would occur
+08|Explain this setting|INCLUDE|settings|in each dialog, on hover
+08|Scheduled changes|INCLUDE|settings|
+08|Reset to measured|INCLUDE|settings|
+08|Validate config|INCLUDE|settings|just like GitHub
+09|Action log|INCLUDE|history|
+09|Decision log|INCLUDE|history|
+09|Authorisation history|INCLUDE|history|
+09|Telemetry|INCLUDE|history|
+09|Tombstones|INCLUDE|history|
+09|Incidents|INCLUDE|history|
+09|Cost history|INCLUDE|history|
+09|Host timeline|INCLUDE|history|
+09|Replay|INCLUDE|history|
+09|Timeline scrubber|INCLUDE|history|on top, a timeline graph
+09|Weekly digest|INCLUDE|history|
+09|Anomalies|INCLUDE|history|
+09|Export audit|INCLUDE|history|
+09|Session bookmarks|INCLUDE|history|
+09|What did you change?|INCLUDE|history|
+10|Voice in|INCLUDE|float|everywhere
+10|Voice out|INCLUDE|float|everywhere
+10|Scene rendering|INCLUDE|float|available everywhere
+10|Scene element types|INCLUDE|settings|
+10|Endpoint selection|INCLUDE|settings|
+10|Privacy routing|INCLUDE|settings|
+10|Menu bar|INCLUDE|home|as specified
+10|Notifications|INCLUDE|float|
+10|Alarms|INCLUDE|float|floating summoned card or island dock
+10|Quiet hours|INCLUDE|settings|
+10|Handoff|INCLUDE|float|
+10|Do not disturb|INCLUDE|settings|tied to macOS DND; VESPER works in its workspace; only critical cases reach me
+10|Voice & speed|INCLUDE|settings|
+10|Wake word|INCLUDE|settings|
+10|Language|INCLUDE|settings|
+10|Transcripts|INCLUDE|home|
+10|Notification rules|INCLUDE|settings|
+10|Barge-in|INCLUDE|float|literally everywhere; tied to conversation
+10|Ambient status|INCLUDE|float|tied to conversation
+10|Overlay HUD|INCLUDE|float|tied to conversation
+11|Gate status|MAYBE|settings|
+11|Self-test evidence|MAYBE|settings|
+11|Traceability|MAYBE|settings|
+11|Spikes|MAYBE|settings|
+11|Decisions (ADRs)|MAYBE|settings|
+11|Limitation records|INCLUDE|settings|
+11|Open proposals|INCLUDE|float|surfaces with voice; stored in home
+11|Build state|INCLUDE|home|
+11|Explain yourself|INCLUDE|float|everywhere; VESPER always talking unless stopped in settings or by the shutdown button
+11|What are you unsure about?|INCLUDE|float|surfaces with talking; stored in home
+11|Module map|INCLUDE|home|
+11|VESPER's own performance|INCLUDE|home|
+11|Coverage map|INCLUDE|home|
+11|Changelog|INCLUDE|history|
+11|Red-run archive|INCLUDE|history|
+12|Platform adapters|INCLUDE|menu|
+12|Remote surfaces|INCLUDE|main|
+12|Follow-me|INCLUDE|main|could be requested from conversation
+12|Offline|INCLUDE|home|
+12|External world|INCLUDE|home|also expandable menu
+12|Sync status|INCLUDE|home|
+12|Phone companion|INCLUDE|home|
+12|Travel mode|INCLUDE|home|expandable menu as well
+12|Guest safety|INCLUDE|home|settings, expandable menu, and home

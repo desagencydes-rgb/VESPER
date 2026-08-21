@@ -1,0 +1,104 @@
+<script>
+const MODES = __MODES__;
+const PALETTE = [
+  ["cream","#f0e0c0",84.6,.046,"Lit surfaces, warm ground, the light theme's paper"],
+  ["ember","#B96645",42.0,.117,"Warning, and the light theme's accent — the only colour legible on both grounds"],
+  ["solar","#D99A52",67.9,.116,"Speaking, sustained warmth, the ember on the horizon"],
+  ["blush","#e8829d",3.8,.128,"Thinking and milestone. The rarest, spend it carefully"],
+  ["purple","#59348a",300.3,.138,"Watching and listening. Deepest chroma in the set"],
+  ["gold","#C5A35A",84.9,.100,"Work that is holding. Home lamplight"],
+  ["botanical","#64745B",134.4,.043,"Rest, quiet hours, the host protecting itself"],
+  ["orange","#ffaf95",38.8,.101,"The dark theme's accent. Light, never ink"],
+  ["paper","#ffeae3",39.4,.025,"Ground — light theme. Never an accent"],
+  ["pitch","#03141f",237.6,.033,"Ground — dark theme. Never an accent"]
+];
+
+/* ---------- theme ---------- */
+const root = document.documentElement;
+function setTheme(t){
+  if(t==="auto") root.removeAttribute("data-theme"); else root.setAttribute("data-theme",t);
+  try{ localStorage.setItem("vesper-theme",t); }catch(e){}
+  document.querySelectorAll(".tt button").forEach(b=>b.setAttribute("aria-pressed", b.dataset.t===t));
+  requestAnimationFrame(drawSky);
+}
+document.querySelectorAll(".tt button").forEach(b=>b.onclick=()=>setTheme(b.dataset.t));
+let saved="auto"; try{ saved=localStorage.getItem("vesper-theme")||"auto"; }catch(e){}
+setTheme(saved);
+
+/* ---------- colour helpers ---------- */
+function hex2rgb(h){h=h.replace("#","");return [0,2,4].map(i=>parseInt(h.slice(i,i+2),16));}
+function lin(c){c/=255;return c<=.04045?c/12.92:Math.pow((c+.055)/1.055,2.4);}
+function lum(h){const[r,g,b]=hex2rgb(h).map(lin);return .2126*r+.7152*g+.0722*b;}
+function contrast(a,b){const x=lum(a),y=lum(b);const hi=Math.max(x,y),lo=Math.min(x,y);return (hi+.05)/(lo+.05);}
+function hsl2hex(h,s,l){
+  s/=100;l/=100;const k=n=>(n+h/30)%12,a=s*Math.min(l,1-l);
+  const f=n=>l-a*Math.max(-1,Math.min(Math.min(k(n)-3,9-k(n)),1));
+  return "#"+[f(0),f(8),f(4)].map(v=>Math.round(v*255).toString(16).padStart(2,"0")).join("");
+}
+function dHue(a,b){const d=Math.abs(a-b)%360;return Math.min(d,360-d);}
+
+/* ---------- starfield: drawn once, not animated. This project is about battery. ---------- */
+const sky=document.getElementById("sky");
+function drawSky(){
+  const dpr=Math.min(devicePixelRatio||1,2), w=innerWidth, h=innerHeight;
+  sky.width=w*dpr; sky.height=h*dpr; sky.style.width=w+"px"; sky.style.height=h+"px";
+  const c=sky.getContext("2d"); c.scale(dpr,dpr); c.clearRect(0,0,w,h);
+  let s=20260821;
+  const rnd=()=>{s=(s*1664525+1013904223)&0x7fffffff;return s/0x7fffffff;};
+  const n=Math.min(1000,Math.round(w*h/2600));
+  for(let i=0;i<n;i++){
+    const x=rnd()*w, y=rnd()*h, r=rnd(), rad=r<.86?.55:r<.98?1.05:1.7;
+    c.globalAlpha=.10+rnd()*.42;
+    c.fillStyle = r>.985 ? "#ffaf95" : r>.95 ? "#f0e0c0" : "#ffeae3";
+    c.beginPath(); c.arc(x,y,rad,0,6.284); c.fill();
+  }
+}
+drawSky(); addEventListener("resize",drawSky);
+
+/* ---------- swatches ---------- */
+document.getElementById("swatches").innerHTML = PALETTE.map(([n,hex,h,c,role])=>{
+  const onDark=contrast(hex,"#03141f"), onLight=contrast(hex,"#ffeae3");
+  const ink = onLight>onDark ? "#ffeae3" : "#03141f";
+  return `<div class="sw"><div class="swtop" style="background:${hex}"><b style="color:${ink}">${n}</b></div>
+    <div class="swbot"><span class="mono">${hex}</span>
+    <span class="mono" style="color:var(--ink-3);font-size:10px">oklch ${c.toFixed(3)}C ${h.toFixed(0)}°</span>
+    <span class="mono" style="color:var(--ink-3);font-size:10px">${onDark.toFixed(2)}:1 dark · ${onLight.toFixed(2)}:1 light</span>
+    <span class="role">${role}</span></div></div>`;
+}).join("");
+
+/* ---------- adaptive demo ---------- */
+const ar=document.getElementById("adaptr"), abg=document.getElementById("adaptbg"),
+      ac=document.getElementById("adaptcard"), ak=document.getElementById("adaptk"),
+      ah=document.getElementById("adapth"), ao=document.getElementById("adaptout");
+let lastPick=null, lastHue=null;
+function adapt(){
+  const h=+ar.value;
+  abg.style.background=`linear-gradient(135deg, ${hsl2hex(h,52,26)}, ${hsl2hex((h+42)%360,44,44)})`;
+  const mid=hsl2hex((h+21)%360,48,35);
+  // score the eight chromatic colours: hue separation, then contrast, then stickiness
+  const cand=PALETTE.slice(0,8).map(([n,hex,ph])=>{
+    const sep=dHue(ph,h), ct=contrast(hex,mid);
+    let score = Math.min(sep,120)/120*100 + Math.min(ct,7)/7*70;
+    if(ct<2.4) score-=95;                       // cannot carry text: heavy penalty
+    if(n===lastPick) score+=18;                 // hysteresis, so it does not flicker
+    return {n,hex,sep,ct,score};
+  }).sort((a,b)=>b.score-a.score);
+  const pick=cand[0];
+  if(lastHue===null || dHue(lastHue,h)>25 || lastPick!==pick.n){
+    lastPick=pick.n; lastHue=h;
+    ac.style.borderColor=pick.hex; ac.style.boxShadow=`inset 0 1px 0 rgba(255,255,255,.3), 0 0 0 1px ${pick.hex}55, 0 20px 46px -22px rgba(0,0,0,.6)`;
+    ak.style.color=pick.hex; ah.style.color=pick.hex;
+  }
+  ao.textContent=`backdrop ${mid} · hue ${h}° → picked ${lastPick} (${dHue(PALETTE.find(p=>p[0]===lastPick)[2],h).toFixed(0)}° away, ${pick.ct.toFixed(2)}:1) · runner-up ${cand[1].n}`;
+}
+ar.oninput=adapt; adapt();
+
+/* ---------- motion demo ---------- */
+const track=document.getElementById("track");
+document.getElementById("runmotion").onclick=()=>{
+  const d=Math.max(120, track.clientWidth-140);
+  track.style.setProperty("--dist", d+"px");
+  track.classList.remove("go"); void track.offsetWidth; track.classList.add("go");
+  setTimeout(()=>track.classList.remove("go"),1500);
+};
+</script>

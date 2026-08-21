@@ -1,0 +1,187 @@
+<script>
+/* ---------- ambience ---------- */
+const IMGS = __IMGMAP__;
+const modesEl=document.getElementById("modes");
+modesEl.innerHTML = MODES.map((m,i)=>`
+ <button class="mode" data-i="${i}" aria-pressed="false">
+   <img src="${IMGS[m.img]}" alt="">
+   <div class="modeb">
+     <h4>${m.mode}</h4>
+     <p class="when">${m.when}</p>
+     <div class="dots">${m.dots.map(d=>`<i style="background:${d}"></i>`).join("")}</div>
+     <p class="mono" style="font-size:9.5px;color:var(--ink-3);margin:9px 0 0;line-height:1.5">
+       ${m.accentName} · ${m.contrast}:1 · ${m.prov==="measured"?`${m.hue}° measured`:"curated"}</p>
+   </div>
+ </button>`).join("");
+
+let active=null;
+function applyMode(i){
+  const m=MODES[i], r=root.style;
+  if(active===i){ // toggle off, back to the page's own theme
+    ["--ground","--ground-2","--ink","--ink-2","--accent","--accent-ink","--halo","--star",
+     "--line","--line-2","--glass","--glass-2","--cast"].forEach(p=>r.removeProperty(p));
+    active=null;
+  } else {
+    r.setProperty("--ground",m.ground); r.setProperty("--ground-2",m.ground2);
+    r.setProperty("--ink",m.ink); r.setProperty("--ink-2",m.ink2);
+    r.setProperty("--accent",m.accent); r.setProperty("--accent-ink",m.light?"#ffeae3":"#03141f");
+    r.setProperty("--star",m.light?0:1);
+    r.setProperty("--line",   m.light?"rgba(27,37,48,.16)":"rgba(255,234,227,.14)");
+    r.setProperty("--line-2", m.light?"rgba(27,37,48,.08)":"rgba(255,234,227,.07)");
+    r.setProperty("--glass",  m.light?"rgba(255,255,255,.42)":"rgba(255,234,227,.055)");
+    r.setProperty("--glass-2",m.light?"rgba(255,255,255,.62)":"rgba(255,234,227,.085)");
+    r.setProperty("--cast",   m.light?"rgba(100,116,91,.20)":"rgba(3,20,31,.55)");
+    const a=hex2rgb(m.accent).join(",");
+    r.setProperty("--halo",`radial-gradient(120% 90% at 50% 108%, rgba(${a},.20) 0%, rgba(${a},.07) 36%, transparent 70%)`);
+    active=i;
+  }
+  document.querySelectorAll(".mode").forEach(b=>b.setAttribute("aria-pressed", +b.dataset.i===active));
+  requestAnimationFrame(drawSky); adapt();
+}
+document.querySelectorAll(".mode").forEach(b=>b.onclick=()=>applyMode(+b.dataset.i));
+
+/* ---------- the face ---------- */
+const cv=document.getElementById("facecv"), cx=cv.getContext("2d");
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+function headW(y){ const t=(y-.18)/.94; if(Math.abs(t)>=1) return 0;
+  let w=.615*Math.sqrt(1-t*t); if(y<-.28){ const u=(-y-.28)/.72; w*=(1-.52*Math.pow(u,1.35)); } return w; }
+function headD(y){ return headW(y)*1.20; }
+function frontZ(x,y){ const w=headW(y); if(w<=0||Math.abs(x)>=w) return null; return headD(y)*Math.sqrt(1-(x/w)*(x/w)); }
+
+// volume cloud
+const cloud=[];
+for(let ry=-0.76; ry<=1.12; ry+=0.031){
+  const w=headW(ry), d=headD(ry); if(w<=0.02) continue;
+  const n=Math.max(6,Math.round(w*74));
+  for(let k=0;k<n;k++){
+    const th=(k/n)*Math.PI*2 + ry*3.1;
+    cloud.push({x:w*Math.sin(th), y:ry, z:d*Math.cos(th), f:0});
+  }
+}
+// features, drawn brighter — these are what make a cloud read as a face
+const feat=[];
+function addFeat(x,y,tag,push){ const z=frontZ(x,y); if(z===null) return; feat.push({x,y,z:z+(push||0),f:1,tag}); }
+for(let t=0;t<=1;t+=.045){                                  // brows
+  const x=.10+t*.31, yy=.315+Math.sin(t*Math.PI)*.045;
+  addFeat(x,yy,"brow",.01); addFeat(-x,yy,"brow",.01);
+}
+for(let a=0;a<Math.PI*2;a+=.20){                            // eye rings
+  const ex=.086*Math.cos(a), ey=.050*Math.sin(a);
+  addFeat(.255+ex,.165+ey,"eyeL",.004); addFeat(-.255+ex,.165+ey,"eyeR",.004);
+}
+addFeat(.255,.165,"pupilL",.02); addFeat(-.255,.165,"pupilR",.02);
+for(let y=.20;y>=-.155;y-=.026) addFeat(0,y,"nose",.055*Math.exp(-Math.pow((y-.02)*3.1,2))+.028);
+for(let t=-1;t<=1;t+=.135) addFeat(t*.088,-.175+Math.abs(t)*.030,"nose",.030);
+for(let t=-1;t<=1;t+=.075){                                 // mouth
+  addFeat(t*.205,-.395-Math.pow(Math.abs(t),1.7)*.045,"mouth",.012);
+}
+const all=cloud.concat(feat);
+// constellation edges, like the reference's triangulation
+const edges=[];
+for(let i=0;i<cloud.length;i+=7){
+  let best=-1,bd=9;
+  for(let j=0;j<cloud.length;j+=5){ if(j===i) continue;
+    const a=cloud[i],b=cloud[j], dd=(a.x-b.x)**2+(a.y-b.y)**2+(a.z-b.z)**2;
+    if(dd<bd && dd>0.006){bd=dd;best=j;} }
+  if(best>=0 && bd<0.055) edges.push([i,best]);
+}
+
+let headYaw=0,headPit=0,hvY=0,hvP=0, eyeYaw=0,eyePit=0,evY=0,evP=0;
+let tgtYaw=0,tgtPit=0, headTgtYaw=0,headTgtPit=0, blink=1, nextBlink=performance.now()+3000;
+const GAZE={ "h-think":[-18,10], "h-task":[18,10], "h-plan":[16,-9], "h-note":[-16,-9], "":[0,0] };
+let activePanel="";
+function setGaze(id){
+  activePanel=id;
+  document.querySelectorAll(".holo").forEach(h=>h.classList.toggle("on", h.id===id));
+  document.querySelectorAll("[data-gaze]").forEach(b=>b.setAttribute("aria-pressed", b.dataset.gaze===id));
+  const g=GAZE[id]||[0,0]; tgtYaw=g[0]; tgtPit=g[1];
+  setTimeout(()=>{ headTgtYaw=tgtYaw; headTgtPit=tgtPit; }, 80);   // eyes lead the head by 80ms
+}
+document.querySelectorAll("[data-gaze]").forEach(b=>b.onclick=()=>setGaze(b.dataset.gaze));
+
+function spring(x,v,t,wn,dt){ const a=-wn*wn*(x-t)-2*wn*v; v+=a*dt; return [x+v*dt, v]; }
+
+function drawFace(dt,now){
+  const w=cv.clientWidth, h=cv.clientHeight, dpr=Math.min(devicePixelRatio||1,2);
+  if(cv.width!==w*dpr){ cv.width=w*dpr; cv.height=h*dpr; }
+  cx.setTransform(dpr,0,0,dpr,0,0); cx.clearRect(0,0,w,h);
+  const acc=getComputedStyle(root).getPropertyValue("--accent").trim()||"#ffaf95";
+  const [R,G,B]=hex2rgb(acc.startsWith("#")?acc:"#ffaf95");
+
+  [headYaw,hvY]=spring(headYaw,hvY,headTgtYaw,12.57,dt);
+  [headPit,hvP]=spring(headPit,hvP,headTgtPit,12.57,dt);
+  [eyeYaw,evY]=spring(eyeYaw,evY,tgtYaw*1.55,22.4,dt);
+  [eyePit,evP]=spring(eyePit,evP,tgtPit*1.55,22.4,dt);
+  if(now>nextBlink){ blink=0; nextBlink=now+3000+Math.random()*4000; }
+  blink=Math.min(1,blink+dt*9);
+  const bl = blink<1 ? Math.abs(Math.sin(blink*Math.PI)) : 1;
+
+  const yr=headYaw*Math.PI/180, pr=headPit*Math.PI/180;
+  const cy=Math.cos(yr),sy=Math.sin(yr),cp=Math.cos(pr),sp=Math.sin(pr);
+  const S=Math.min(w,h)*0.40, ox=w/2, oy=h/2+S*0.10, CAM=3.4, F=2.7;
+
+  const pts=[];
+  for(const p of all){
+    let x=p.x, y=p.y, z=p.z;
+    if(p.tag==="eyeL"||p.tag==="eyeR"||p.tag==="pupilL"||p.tag==="pupilR"){
+      y = .165 + (y-.165)*bl;                          // blink squashes the eye rings
+      const ey=eyeYaw*.0019, ep=eyePit*.0019;
+      if(p.tag[0]==="p"){ x+=ey*1.8; y+=ep*1.8; }      // pupils travel further than the ring
+      else { x+=ey*.5; y+=ep*.5; }
+    }
+    let x1=x*cy+z*sy, z1=-x*sy+z*cy;
+    let y1=y*cp-z1*sp, z2=y*sp+z1*cp;
+    const k=F/(CAM-z2);
+    pts.push({X:ox+x1*S*k, Y:oy-y1*S*k, z:z2, f:p.f, tag:p.tag, k});
+  }
+  cx.lineWidth=.6;
+  for(const [i,j] of edges){
+    const a=pts[i],b=pts[j]; const dz=(a.z+b.z)/2;
+    if(dz<-0.1) continue;
+    cx.strokeStyle=`rgba(${R},${G},${B},${.055+Math.max(0,dz)*.10})`;
+    cx.beginPath(); cx.moveTo(a.X,a.Y); cx.lineTo(b.X,b.Y); cx.stroke();
+  }
+  pts.sort((a,b)=>a.z-b.z);
+  for(const p of pts){
+    const d=(p.z+0.9)/1.9;                              // 0 back .. 1 front
+    if(p.f){
+      const bright = p.tag&&p.tag[0]==="p" ? 1 : .82;
+      cx.fillStyle=`rgba(${R},${G},${B},${(.30+d*.68)*bright})`;
+      const rr = p.tag&&p.tag[0]==="p" ? 2.6*p.k : 1.45*p.k;
+      if(p.tag&&p.tag[0]==="p"){ cx.shadowColor=`rgba(${R},${G},${B},.9)`; cx.shadowBlur=12; }
+      cx.beginPath(); cx.arc(p.X,p.Y,rr,0,6.284); cx.fill(); cx.shadowBlur=0;
+    } else {
+      cx.fillStyle=`rgba(${R},${G},${B},${.05+Math.pow(Math.max(0,d),2.1)*.50})`;
+      cx.beginPath(); cx.arc(p.X,p.Y,.75+d*.85,0,6.284); cx.fill();
+    }
+  }
+}
+
+let last=performance.now(), visible=false, running=false;
+new IntersectionObserver(es=>{ visible=es[0].isIntersecting;
+    if(visible && !running){ running=true; last=performance.now(); loop(); } },
+  {threshold:.05}).observe(document.getElementById("stage"));
+function loop(){
+  if(!visible){ running=false; return; }                // no frames while off-screen
+  const now=performance.now(); const dt=Math.min(.05,(now-last)/1000); last=now;
+  drawFace(reduce?.05:dt, now);
+  if(!reduce) requestAnimationFrame(loop);
+}
+setGaze("h-think");
+setTimeout(()=>{ if(!visible) drawFace(.016,performance.now()); },60);
+
+/* ---------- island + dock swap ---------- */
+const screen=document.getElementById("screen"), hot=document.getElementById("hot"),
+      isl=document.getElementById("isl"), islt=document.getElementById("islt"),
+      tgl=document.getElementById("tglisland");
+hot.onmouseenter=()=>screen.classList.add("summon");
+screen.onmouseleave=()=>screen.classList.remove("summon");
+hot.onclick=()=>screen.classList.toggle("summon");
+tgl.onclick=()=>{
+  const on=isl.classList.toggle("big");
+  tgl.setAttribute("aria-pressed",on); tgl.textContent=on?"Collapse island":"Expand island";
+  islt.textContent = on ? "Island dock — the face, and everything it is doing"
+                        : "Placement stress · 184k / 320k";
+};
+</script>

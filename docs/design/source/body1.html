@@ -1,0 +1,91 @@
+<canvas id="sky"></canvas><div id="glow"></div>
+
+<nav>
+  <div class="navin">
+    <img class="navmark" src="__ICON__" alt="">
+    <div class="navlinks">
+      <a href="#palette">Palette</a><a href="#adaptive">Adaptive</a><a href="#glass">Glass</a>
+      <a href="#type">Type</a><a href="#motion">Motion</a><a href="#ambience">Ambience</a>
+      <a href="#face">Face</a><a href="#mark">Mark</a><a href="#structure">Structure</a><a href="#open">Open</a>
+    </div>
+    <div class="tt" role="group" aria-label="Theme">
+      <button data-t="light" aria-pressed="false">Light</button>
+      <button data-t="dark" aria-pressed="false">Dark</button>
+      <button data-t="auto" aria-pressed="true">Auto</button>
+    </div>
+  </div>
+</nav>
+
+<div class="wrap"><div class="col">
+
+<header class="hero">
+  <div>
+    <p class="eyebrow">VESPER · Design Foundation · v0.1 · 2026-08-21</p>
+    <h1>Lit matter,<br>on a dark ground.</h1>
+    <p class="lede" style="margin-top:20px">Everything decided so far about how VESPER looks, moves and feels — the ten colours, the three faces, the glass, the springs, and eleven ambience modes drawn one-for-one from the images you sent. Written down so none of it is lost between sessions.</p>
+    <div class="statusrow">
+      <span class="pill on">Palette · specified</span>
+      <span class="pill on">Type · specified</span>
+      <span class="pill on">Motion · measured</span>
+      <span class="pill on">Glass · specified</span>
+      <span class="pill on">Ambience · derived</span>
+      <span class="pill wait">UI references · pending</span>
+      <span class="pill wait">Density · undecided</span>
+    </div>
+  </div>
+  <img class="heroicon" src="__ICON__" alt="The VESPER mark: a classical figure wrapped in orbiting filaments of light">
+</header>
+
+<section id="what">
+  <p class="eyebrow">What this is, and what it is not</p>
+  <div class="grid g3">
+    <div class="g card">
+      <h3>Settled</h3>
+      <p style="font-size:14.5px">The ten colours, the three typefaces, glassmorphism per iOS&nbsp;26, three themes, macOS-native motion, the adaptive-colour rule, and the structural behaviour of the dock, the island and the face. You specified these outright.</p>
+    </div>
+    <div class="g card">
+      <h3>Derived</h3>
+      <p style="font-size:14.5px">The eleven ambience modes. You sent eleven images and said to extract the feel; each one became exactly one mode, with its palette pulled from the actual pixels rather than described from memory.</p>
+    </div>
+    <div class="g card" style="border-color:color-mix(in oklab,var(--blush) 40%,transparent)">
+      <h3>Waiting</h3>
+      <p style="font-size:14.5px">The <strong>UI references</strong>. The images here are feel, mark and face — not interface references. Nothing below commits the actual look of a screen; the primitives are set, the composition is not.</p>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:26px">
+    <b>One thing taken out of the face reference.</b> It carries invented telemetry — <span class="mono">REASONING&nbsp;110%</span>, <span class="mono">MEMORY ARCHIVE 241-F8-J-1000&nbsp;PB</span>, panels of lorem. VESPER's own <span class="mono">INV-HW-2</span> says a number is measured or it is <span class="mono">UNKNOWN</span>, and <span class="mono">UNKNOWN</span> means unavailable. So the form is taken and the fiction is refused: the panels around the face show real thinking, real tasks and real numbers, or they show nothing at all.
+  </div>
+</section>
+
+<section id="sources">
+  <p class="eyebrow">The eleven sources</p>
+  <h2>Feel, mark, face.</h2>
+  <p class="lede" style="margin:14px 0 26px">Ten of the eleven are night. The one interior and the one daylight frame are what the light theme is built from.</p>
+  <div class="refwall">
+    <figure><img src="__ICON__" alt=""><figcaption>The mark — identity</figcaption></figure>
+    <figure><img src="__FACE__" alt=""><figcaption>The face — form only</figcaption></figure>
+    <figure><img src="__HALL__" alt=""><figcaption>Home</figcaption></figure>
+    <figure><img src="__EMBER__" alt=""><figcaption>Idle</figcaption></figure>
+    <figure><img src="__LIGHT__" alt=""><figcaption>Watch</figcaption></figure>
+    <figure><img src="__VEIN__" alt=""><figcaption>Listening</figcaption></figure>
+    <figure><img src="__VIOLET__" alt=""><figcaption>Thinking</figcaption></figure>
+    <figure><img src="__GOLD__" alt=""><figcaption>Working</figcaption></figure>
+    <figure><img src="__WAVE__" alt=""><figcaption>Flow</figcaption></figure>
+    <figure><img src="__SEPIA__" alt=""><figcaption>Speaking</figcaption></figure>
+    <figure><img src="__MATTE__" alt=""><figcaption>Alert</figcaption></figure>
+    <figure><img src="__LEAF__" alt=""><figcaption>Rest</figcaption></figure>
+    <figure><img src="__ARCH__" alt=""><figcaption>Milestone</figcaption></figure>
+  </div>
+</section>
+
+<section id="palette">
+  <p class="eyebrow">01 · Palette</p>
+  <h2>Ten colours.</h2>
+  <p class="lede" style="margin:14px 0 8px">Your ten, with the OKLCH coordinates they will actually be manipulated in — because the adaptive rule moves lightness while holding hue, and that is only safe in a perceptual space.</p>
+  <p style="font-size:14px;color:var(--ink-3)">Contrast figures are WCAG ratios against the two grounds. They decide which colours may carry text and which may only carry light.</p>
+  <div class="grid g4" style="margin-top:24px" id="swatches"></div>
+  <div class="note">
+    <b>Two colours are grounds, not accents.</b> <span class="mono">#03141f</span> and <span class="mono">#ffeae3</span> sit at 16.1:1 against each other and never appear as an accent on their own ground. <b>Cream and orange cannot carry body text on light</b> — 1.12:1 and 1.53:1. They are light sources, not ink. Ember is the only colour that reads on both grounds (4.49 / 3.59), which is why it is the light theme's accent.
+  </div>
+</section>

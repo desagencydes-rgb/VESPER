@@ -1,0 +1,506 @@
+{
+ "hall": {
+  "mode": "Home",
+  "meanL": 0.617,
+  "meanC": 0.033,
+  "clusters": [
+   {
+    "hex": "#a49c8f",
+    "share": 37,
+    "L": 0.697,
+    "C": 0.021,
+    "near": "gold"
+   },
+   {
+    "hex": "#8b7e6d",
+    "share": 27,
+    "L": 0.6,
+    "C": 0.03,
+    "near": "botanical"
+   },
+   {
+    "hex": "#6e614f",
+    "share": 21,
+    "L": 0.499,
+    "C": 0.032,
+    "near": "botanical"
+   },
+   {
+    "hex": "#d3bf9a",
+    "share": 9,
+    "L": 0.813,
+    "C": 0.054,
+    "near": "cream"
+   },
+   {
+    "hex": "#403e2f",
+    "share": 7,
+    "L": 0.361,
+    "C": 0.025,
+    "near": "botanical"
+   }
+  ]
+ },
+ "ember": {
+  "mode": "Idle",
+  "meanL": 0.153,
+  "meanC": 0.021,
+  "clusters": [
+   {
+    "hex": "#000000",
+    "share": 27,
+    "L": 0.0,
+    "C": 0.0,
+    "near": "black"
+   },
+   {
+    "hex": "#030406",
+    "share": 27,
+    "L": 0.103,
+    "C": 0.011,
+    "near": "black"
+   },
+   {
+    "hex": "#08151d",
+    "share": 21,
+    "L": 0.19,
+    "C": 0.024,
+    "near": "black"
+   },
+   {
+    "hex": "#183041",
+    "share": 16,
+    "L": 0.297,
+    "C": 0.044,
+    "near": "black"
+   },
+   {
+    "hex": "#3e5875",
+    "share": 8,
+    "L": 0.451,
+    "C": 0.058,
+    "near": "botanical"
+   }
+  ]
+ },
+ "light": {
+  "mode": "Watch",
+  "meanL": 0.496,
+  "meanC": 0.088,
+  "clusters": [
+   {
+    "hex": "#2c242c",
+    "share": 25,
+    "L": 0.274,
+    "C": 0.018,
+    "near": "black"
+   },
+   {
+    "hex": "#5669b9",
+    "share": 25,
+    "L": 0.543,
+    "C": 0.127,
+    "near": "purple"
+   },
+   {
+    "hex": "#46508a",
+    "share": 23,
+    "L": 0.452,
+    "C": 0.095,
+    "near": "purple"
+   },
+   {
+    "hex": "#868fd8",
+    "share": 19,
+    "L": 0.672,
+    "C": 0.108,
+    "near": "purple"
+   },
+   {
+    "hex": "#b0b2f1",
+    "share": 7,
+    "L": 0.785,
+    "C": 0.088,
+    "near": "white"
+   }
+  ]
+ },
+ "vein": {
+  "mode": "Listening",
+  "meanL": 0.185,
+  "meanC": 0.034,
+  "clusters": [
+   {
+    "hex": "#1b2742",
+    "share": 26,
+    "L": 0.275,
+    "C": 0.054,
+    "near": "black"
+   },
+   {
+    "hex": "#10111c",
+    "share": 24,
+    "L": 0.183,
+    "C": 0.022,
+    "near": "black"
+   },
+   {
+    "hex": "#000000",
+    "share": 21,
+    "L": 0.007,
+    "C": 0.005,
+    "near": "black"
+   },
+   {
+    "hex": "#040408",
+    "share": 15,
+    "L": 0.109,
+    "C": 0.015,
+    "near": "black"
+   },
+   {
+    "hex": "#2d4160",
+    "share": 14,
+    "L": 0.374,
+    "C": 0.058,
+    "near": "black"
+   }
+  ]
+ },
+ "violet": {
+  "mode": "Thinking",
+  "meanL": 0.352,
+  "meanC": 0.047,
+  "clusters": [
+   {
+    "hex": "#1f2545",
+    "share": 28,
+    "L": 0.276,
+    "C": 0.06,
+    "near": "black"
+   },
+   {
+    "hex": "#45456a",
+    "share": 27,
+    "L": 0.408,
+    "C": 0.062,
+    "near": "purple"
+   },
+   {
+    "hex": "#050712",
+    "share": 24,
+    "L": 0.135,
+    "C": 0.025,
+    "near": "black"
+   },
+   {
+    "hex": "#787185",
+    "share": 13,
+    "L": 0.563,
+    "C": 0.031,
+    "near": "botanical"
+   },
+   {
+    "hex": "#b09da0",
+    "share": 8,
+    "L": 0.714,
+    "C": 0.022,
+    "near": "gold"
+   }
+  ]
+ },
+ "gold": {
+  "mode": "Working",
+  "meanL": 0.294,
+  "meanC": 0.021,
+  "clusters": [
+   {
+    "hex": "#13161e",
+    "share": 36,
+    "L": 0.201,
+    "C": 0.017,
+    "near": "black"
+   },
+   {
+    "hex": "#20262f",
+    "share": 34,
+    "L": 0.266,
+    "C": 0.02,
+    "near": "black"
+   },
+   {
+    "hex": "#373a3f",
+    "share": 17,
+    "L": 0.349,
+    "C": 0.009,
+    "near": "black"
+   },
+   {
+    "hex": "#675d4f",
+    "share": 9,
+    "L": 0.483,
+    "C": 0.026,
+    "near": "botanical"
+   },
+   {
+    "hex": "#a3885e",
+    "share": 5,
+    "L": 0.641,
+    "C": 0.066,
+    "near": "gold"
+   }
+  ]
+ },
+ "wave": {
+  "mode": "Flow",
+  "meanL": 0.678,
+  "meanC": 0.044,
+  "clusters": [
+   {
+    "hex": "#ebcfb3",
+    "share": 29,
+    "L": 0.871,
+    "C": 0.049,
+    "near": "cream"
+   },
+   {
+    "hex": "#88949e",
+    "share": 25,
+    "L": 0.66,
+    "C": 0.021,
+    "near": "botanical"
+   },
+   {
+    "hex": "#597992",
+    "share": 25,
+    "L": 0.561,
+    "C": 0.053,
+    "near": "botanical"
+   },
+   {
+    "hex": "#37566f",
+    "share": 11,
+    "L": 0.441,
+    "C": 0.056,
+    "near": "botanical"
+   },
+   {
+    "hex": "#afa9a5",
+    "share": 10,
+    "L": 0.739,
+    "C": 0.009,
+    "near": "gold"
+   }
+  ]
+ },
+ "sepia": {
+  "mode": "Speaking",
+  "meanL": 0.38,
+  "meanC": 0.033,
+  "clusters": [
+   {
+    "hex": "#2d2620",
+    "share": 29,
+    "L": 0.276,
+    "C": 0.015,
+    "near": "black"
+   },
+   {
+    "hex": "#5d4733",
+    "share": 27,
+    "L": 0.416,
+    "C": 0.044,
+    "near": "botanical"
+   },
+   {
+    "hex": "#453629",
+    "share": 26,
+    "L": 0.345,
+    "C": 0.03,
+    "near": "black"
+   },
+   {
+    "hex": "#7a6045",
+    "share": 12,
+    "L": 0.508,
+    "C": 0.053,
+    "near": "botanical"
+   },
+   {
+    "hex": "#937d61",
+    "share": 6,
+    "L": 0.604,
+    "C": 0.049,
+    "near": "botanical"
+   }
+  ]
+ },
+ "matte": {
+  "mode": "Alert",
+  "meanL": 0.291,
+  "meanC": 0.009,
+  "clusters": [
+   {
+    "hex": "#0a0b0b",
+    "share": 25,
+    "L": 0.148,
+    "C": 0.003,
+    "near": "black"
+   },
+   {
+    "hex": "#191e1d",
+    "share": 22,
+    "L": 0.229,
+    "C": 0.007,
+    "near": "black"
+   },
+   {
+    "hex": "#404641",
+    "share": 19,
+    "L": 0.386,
+    "C": 0.011,
+    "near": "botanical"
+   },
+   {
+    "hex": "#2b3331",
+    "share": 18,
+    "L": 0.313,
+    "C": 0.011,
+    "near": "black"
+   },
+   {
+    "hex": "#5a5e59",
+    "share": 15,
+    "L": 0.476,
+    "C": 0.008,
+    "near": "botanical"
+   }
+  ]
+ },
+ "leaf": {
+  "mode": "Rest",
+  "meanL": 0.43,
+  "meanC": 0.025,
+  "clusters": [
+   {
+    "hex": "#585348",
+    "share": 27,
+    "L": 0.444,
+    "C": 0.019,
+    "near": "botanical"
+   },
+   {
+    "hex": "#383928",
+    "share": 21,
+    "L": 0.337,
+    "C": 0.028,
+    "near": "black"
+   },
+   {
+    "hex": "#151708",
+    "share": 19,
+    "L": 0.198,
+    "C": 0.028,
+    "near": "black"
+   },
+   {
+    "hex": "#9a8c7d",
+    "share": 17,
+    "L": 0.648,
+    "C": 0.028,
+    "near": "botanical"
+   },
+   {
+    "hex": "#807568",
+    "share": 15,
+    "L": 0.568,
+    "C": 0.023,
+    "near": "botanical"
+   }
+  ]
+ },
+ "arch": {
+  "mode": "Milestone",
+  "meanL": 0.344,
+  "meanC": 0.073,
+  "clusters": [
+   {
+    "hex": "#38284c",
+    "share": 46,
+    "L": 0.312,
+    "C": 0.065,
+    "near": "black"
+   },
+   {
+    "hex": "#584975",
+    "share": 20,
+    "L": 0.439,
+    "C": 0.074,
+    "near": "purple"
+   },
+   {
+    "hex": "#692e4c",
+    "share": 17,
+    "L": 0.392,
+    "C": 0.092,
+    "near": "purple"
+   },
+   {
+    "hex": "#130608",
+    "share": 12,
+    "L": 0.145,
+    "C": 0.026,
+    "near": "black"
+   },
+   {
+    "hex": "#8d779a",
+    "share": 4,
+    "L": 0.601,
+    "C": 0.058,
+    "near": "botanical"
+   }
+  ]
+ },
+ "face": {
+  "mode": "(face ref)",
+  "meanL": 0.182,
+  "meanC": 0.038,
+  "clusters": [
+   {
+    "hex": "#030a12",
+    "share": 35,
+    "L": 0.139,
+    "C": 0.024,
+    "near": "black"
+   },
+   {
+    "hex": "#010205",
+    "share": 31,
+    "L": 0.083,
+    "C": 0.018,
+    "near": "black"
+   },
+   {
+    "hex": "#071e35",
+    "share": 17,
+    "L": 0.232,
+    "C": 0.053,
+    "near": "black"
+   },
+   {
+    "hex": "#103d62",
+    "share": 11,
+    "L": 0.35,
+    "C": 0.081,
+    "near": "black"
+   },
+   {
+    "hex": "#1e6a9e",
+    "share": 6,
+    "L": 0.505,
+    "C": 0.109,
+    "near": "purple"
+   }
+  ]
+ }
+}

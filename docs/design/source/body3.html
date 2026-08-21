@@ -1,0 +1,97 @@
+<section id="motion">
+  <p class="eyebrow">05 · Motion</p>
+  <h2>This machine's springs, exactly.</h2>
+  <p class="lede" style="margin:14px 0 20px">You said VESPER moves the way this MacBook moves. That is not a vibe — macOS animates on documented springs, so I sampled their step responses and turned each into a CSS <span class="mono">linear()</span> easing. These curves <em>are</em> the system's, not an approximation of them.</p>
+
+  <div class="tscroll">
+    <table>
+      <thead><tr><th>Name</th><th>Duration</th><th>Bounce</th><th>ζ damping</th><th>Settles</th><th>Overshoot</th><th>Used for</th></tr></thead>
+      <tbody>
+        <tr><td><b>smooth</b></td><td class="num">0.50 s</td><td class="num">0.00</td><td class="num">1.000</td><td class="num">735 ms</td><td class="num">none</td><td>Anything that must not draw attention: theme change, ambience cross-fade, dock reveal, gaze return.</td></tr>
+        <tr><td><b>snappy</b></td><td class="num">0.50 s</td><td class="num">0.15</td><td class="num">0.850</td><td class="num">697 ms</td><td class="num">0.6%</td><td>The default. Island expand/collapse, card open, button press, panel arrival.</td></tr>
+        <tr><td><b>bouncy</b></td><td class="num">0.50 s</td><td class="num">0.30</td><td class="num">0.700</td><td class="num">819 ms</td><td class="num">4.6%</td><td>Rare and earned. Milestone, task completed, a thing arriving that you will be glad about.</td></tr>
+        <tr><td><b>legacy</b></td><td class="num">0.55 s</td><td class="num">0.175</td><td class="num">0.825</td><td class="num">758 ms</td><td class="num">1.0%</td><td>The old <span class="mono">.spring()</span> default. Kept only for parity with system controls that still use it.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="margin-top:22px">
+    <p class="k" style="margin-bottom:11px">Live — same distance, three springs</p>
+    <div class="g" style="padding:22px 24px">
+      <div id="track" style="position:relative;height:112px">
+        <div class="mrow" data-e="smooth"><span class="k" style="position:absolute;left:0;top:2px">smooth</span><i></i></div>
+        <div class="mrow" data-e="snappy"><span class="k" style="position:absolute;left:0;top:2px">snappy</span><i></i></div>
+        <div class="mrow" data-e="bouncy"><span class="k" style="position:absolute;left:0;top:2px">bouncy</span><i></i></div>
+      </div>
+      <button class="btn" id="runmotion" style="margin-top:6px">Run</button>
+    </div>
+    <style>
+      .mrow{position:relative;height:34px;}
+      .mrow i{position:absolute;left:74px;top:6px;width:22px;height:22px;border-radius:7px;display:block;
+        background:var(--accent);box-shadow:0 0 18px -4px var(--accent);}
+      .mrow[data-e="smooth"] i{transition:transform var(--d-smooth) var(--smooth);}
+      .mrow[data-e="snappy"] i{transition:transform var(--d-snappy) var(--snappy);background:var(--solar);box-shadow:0 0 18px -4px var(--solar);}
+      .mrow[data-e="bouncy"] i{transition:transform var(--d-bouncy) var(--bouncy);background:var(--blush);box-shadow:0 0 18px -4px var(--blush);}
+      #track.go .mrow i{transform:translateX(calc(100% + 0px));transform:translateX(var(--dist,240px));}
+    </style>
+  </div>
+
+  <div class="note">
+    <b>Dock magnification is not a spring.</b> It is a distance falloff — scale <span class="mono">1 + 0.8·cos²(π·d ⁄ 2W)</span> for a cursor <span class="mono">d</span> from an icon, out to <span class="mono">W ≈ 2.5</span> icon widths, recomputed every mouse move with no easing at all. VESPER's main menu uses the same curve, because sitting in the Dock's position while magnifying differently is exactly the kind of near-miss that reads as cheap.
+  </div>
+  <p style="font-size:14px;color:var(--ink-3)">New animations only on your say-so — that was your instruction and it is recorded. The four springs above plus the Dock falloff are the entire motion vocabulary until you add to it.</p>
+</section>
+
+<section id="ambience">
+  <p class="eyebrow">06 · Ambience</p>
+  <h2>Eleven modes, eleven images.</h2>
+  <p class="lede" style="margin:14px 0 8px">You sent eleven images and said to extract the feel and curate a theme per mode. Each image became exactly one mode. The palettes below are k-means clusters taken from the actual pixels in OKLab, then snapped to the nearest of your ten.</p>
+  <p style="font-size:14px;color:var(--ink-3);margin-bottom:24px">Click any mode to apply its ground and accent to this whole page — that is what a mode change does in VESPER, cross-fading on <span class="mono">--smooth</span>.</p>
+  <div class="modes" id="modes"></div>
+
+  <div class="note">
+    <b>The images agree on something I did not expect.</b> Mean chroma across all eleven is <span class="mono">0.04</span> — almost neutral. What makes them feel like anything is one small saturated thing against a large desaturated field: a single ember on a black horizon, one orange reflector on a black car, one gold band under a cold sky. So the ambience ground is always muted, and the accent is always the rare bright point. A mode that colours the whole screen has misread its own source.
+  </div>
+</section>
+
+<section id="face">
+  <p class="eyebrow">07 · The face</p>
+  <h2>It looks at what it is doing.</h2>
+  <p class="lede" style="margin:14px 0 22px">Point-cloud head from your reference, at the centre of the home. Not blue — the colour is whatever the adaptive rule picked for the space it is in, and the hologram panels take the same colour, as you specified.</p>
+
+  <div class="stage" id="stage">
+    <canvas id="facecv"></canvas>
+    <div class="holo" id="h-think"  style="left:5%;top:9%"><p class="k">Thinking</p><p>Checking whether the 09:00 trigger survives a suspend. It does not — the alarm node must never sleep.</p></div>
+    <div class="holo" id="h-task"   style="right:5%;top:14%"><p class="k">Task · 3 running</p><p>F6 fabric acceptance · placement stress · reference lint</p></div>
+    <div class="holo" id="h-plan"   style="right:6%;bottom:15%"><p class="k">Plan</p><p>Promote SR-016 → SPECIFIED, then SR-017 which depends on its contract.</p></div>
+    <div class="holo" id="h-note"   style="left:6%;bottom:13%"><p class="hand">you've been at this four hours — the battery is at 41%</p></div>
+  </div>
+
+  <div class="ctrl">
+    <button class="btn" data-gaze="h-think">Thinking ↖</button>
+    <button class="btn" data-gaze="h-task">Task ↗</button>
+    <button class="btn" data-gaze="h-plan">Plan ↘</button>
+    <button class="btn" data-gaze="h-note">Aside ↙</button>
+    <button class="btn" data-gaze="">Centre</button>
+  </div>
+
+  <div class="grid g2" style="margin-top:26px">
+    <div class="g card">
+      <h3>Gaze</h3>
+      <dl class="spec" style="margin-top:10px">
+        <dt>Eyes lead</dt><dd>80 ms before the head starts</dd>
+        <dt>Head yaw</dt><dd>±18° max, on <span class="mono">--smooth</span></dd>
+        <dt>Head pitch</dt><dd>±12° max</dd>
+        <dt>Eye range</dt><dd>±25° beyond the head</dd>
+        <dt>Return</dt><dd>to centre after 1.2 s idle</dd>
+        <dt>Blink</dt><dd>every 3–7 s, 120 ms, never mid-sentence</dd>
+      </dl>
+      <p style="font-size:13.5px;margin-top:12px;color:var(--ink-3)">Eyes arriving before the head is the whole trick. Move them together and it reads as a turret.</p>
+    </div>
+    <div class="g card">
+      <h3>Panels</h3>
+      <p style="font-size:14.5px">Eight anchor positions around the head, clock-wise from twelve. A panel fades in on <span class="mono">--snappy</span>, the face turns to it, and it holds until the thing it describes is done. Panel border, label and text all take the face's current colour.</p>
+      <p style="font-size:14.5px;margin-bottom:0"><strong>Every panel is backed by something real</strong> — a live reasoning stream, the actual task graph, a real plan, a measured number. There is no filler panel and no decorative readout.</p>
+    </div>
+  </div>
+</section>

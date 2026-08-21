@@ -1,0 +1,162 @@
+<section id="mark">
+  <p class="eyebrow">08 · The mark</p>
+  <h2>Where it goes, and where it does not.</h2>
+  <p class="lede" style="margin:14px 0 22px">You said it should appear everywhere, then said that if the extra places are not better, leave them out. So this is a decision, not a menu.</p>
+  <div class="grid g2">
+    <div class="g card">
+      <h3 class="yes">Yes — four places</h3>
+      <dl class="spec" style="margin-top:12px">
+        <dt>Island cap</dt><dd>24 pt, left cap of the collapsed pill. Your stated primary, and the only mark on screen most of the time.</dd>
+        <dt>Island head</dt><dd>44 pt, top of the expanded island dock.</dd>
+        <dt>App icon</dt><dd>Dock, ⌘-Tab, Finder, About. Mandatory the moment there is an app at all.</dd>
+        <dt>Wake</dt><dd>Alone on the ground while VESPER comes up. Nothing else is on screen yet, so it carries the whole moment.</dd>
+      </dl>
+    </div>
+    <div class="g card">
+      <h3 class="no">No — two places</h3>
+      <dl class="spec" style="margin-top:12px">
+        <dt>Main menu</dt><dd>It would sit roughly 40 pt from the island's copy and add nothing. The main menu is a tool rail; you do not sign a tool rail.</dd>
+        <dt>Menu-bar extra</dt><dd>The island already owns top-centre. A second mark in the same band is noise, and it competes with the notch for the only scarce space on this display.</dd>
+      </dl>
+      <p style="font-size:13.5px;color:var(--ink-3);margin:14px 0 0">A mark that appears in six places stops being a mark. Four is already generous.</p>
+    </div>
+  </div>
+</section>
+
+<section id="structure">
+  <p class="eyebrow">09 · Structure</p>
+  <h2>The dock swap.</h2>
+  <p class="lede" style="margin:14px 0 22px">Inside VESPER's workspace the system Dock goes under the screen and VESPER's main menu takes its position — a long glass bar, bottom-centre. Push the cursor to the bottom edge and the system Dock rises <em>in front of</em> the main menu, exactly as it does inside any fullscreen app. Try it.</p>
+
+  <div class="screen" id="screen">
+    <img class="wall" src="__EMBER__" alt="">
+    <div class="menubar"></div><div class="notch"></div>
+    <div class="island" id="isl">
+      <img src="__ICON__" alt="">
+      <span class="t" id="islt">Placement stress · 184k / 320k</span>
+      <span class="eq"><i style="animation-delay:0s"></i><i style="animation-delay:.15s"></i><i style="animation-delay:.3s"></i></span>
+    </div>
+    <div class="dock vdock">
+      <i style="background:linear-gradient(150deg,#ffaf95,#B96645)"></i><i style="background:linear-gradient(150deg,#D99A52,#C5A35A)"></i>
+      <i style="background:linear-gradient(150deg,#e8829d,#59348a)"></i><i style="background:linear-gradient(150deg,#64745B,#0a2333)"></i>
+      <i style="background:linear-gradient(150deg,#f0e0c0,#D99A52)"></i><i style="background:linear-gradient(150deg,#59348a,#03141f)"></i>
+      <i style="background:linear-gradient(150deg,#ffeae3,#ffaf95)"></i>
+    </div>
+    <div class="dock osdock">
+      <i style="background:#4b8ef7"></i><i style="background:#7ac555"></i><i style="background:#f7c94b"></i>
+      <i style="background:#ef6a6a"></i><i style="background:#9b7ef7"></i><i style="background:#4bc9d4"></i>
+    </div>
+    <div class="hotzone" id="hot"></div>
+  </div>
+  <div class="ctrl">
+    <button class="btn" id="tglisland" aria-pressed="false">Expand island</button>
+    <span class="pill" style="align-self:center">Hover the bottom edge to summon the system Dock</span>
+  </div>
+
+  <div class="grid g2" style="margin-top:28px">
+    <div class="g card">
+      <h3>How the swap is actually done</h3>
+      <p style="font-size:14.5px">Not by fighting the Dock. VESPER sets <span class="mono">NSApplicationPresentationAutoHideDock</span> while its window is frontmost — the same API a fullscreen app uses. macOS reverts it the instant VESPER stops being frontmost, and the cursor-to-edge reveal is the system's own behaviour, free.</p>
+      <p style="font-size:14.5px;margin-bottom:0">Which matters for permissions: this is VESPER changing <em>its own</em> presentation, so it belongs in the <span class="mono">self</span> tier of <span class="mono">host_actions.toml</span>, alongside setting its own QoS class. It is not a host mutation and does not need your approval each time.</p>
+    </div>
+    <div class="g card">
+      <h3>Occlusion, not evacuation</h3>
+      <p style="font-size:14.5px">When the system Dock rises, VESPER's main menu <strong>stays exactly where it is</strong> and is covered. It does not slide away, shrink or re-flow. Two bars trading places would be a fight; one bar passing in front of another is a stack.</p>
+      <p style="font-size:14.5px;margin-bottom:0">The main menu dims to 30% while occluded, so it is visibly still there rather than apparently gone.</p>
+    </div>
+  </div>
+
+  <h3 style="margin:38px 0 12px">The island, and the notch</h3>
+  <p>Measured on this display rather than assumed: logical <strong>1728 × 1117 pt</strong>, safe-area top inset <strong>32 pt</strong>, and the notch occupying <strong>x 771 → 956</strong> — 185 pt wide, dead centre. The island is glued to top-centre as you asked, which means it and the notch want the same 185 pt.</p>
+  <div class="tscroll" style="margin-top:16px">
+    <table>
+      <thead><tr><th>State</th><th>Where</th><th>Size</th><th>Shows</th></tr></thead>
+      <tbody>
+        <tr><td><b>Collapsed</b><br><span class="k">outside home</span></td><td>centre x&nbsp;=&nbsp;864, top y&nbsp;=&nbsp;38 — six points clear of the 32 pt inset, so it never enters the notch band</td><td class="num">≤ 520 × 30 pt</td><td>Mark, then current task / song / action / mission. One line, truncating.</td></tr>
+        <tr><td><b>Flanked</b><br><span class="k">when content needs width</span></td><td>two lozenges in the auxiliary areas: <span class="num">0–771</span> and <span class="num">956–1728</span></td><td class="num">2 × ≤ 340 pt</td><td>Status left, live activity right. The notch sits between them untouched.</td></tr>
+        <tr><td><b>Expanded</b><br><span class="k">on demand, or in home</span></td><td>grows downward from the collapsed pill on <span class="mono">--snappy</span></td><td class="num">≤ 1000 × 580 pt</td><td>The island dock menu: blurred cards with coloured borders, the face at centre, hologram panels around it.</td></tr>
+        <tr><td><b>Alert</b></td><td>collapsed position, <span class="mono">--bouncy</span> arrival</td><td class="num">≤ 620 × 44 pt</td><td>One approval request, or one thing that needs you. Never two.</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="font-size:14px;color:var(--ink-3);margin-top:14px">In fullscreen the menu bar hides and the notch region goes black. The island still refuses to cross y&nbsp;=&nbsp;32, so nothing has to change.</p>
+</section>
+
+<section id="dialogs">
+  <p class="eyebrow">10 · Floating dialogs</p>
+  <h2>Split, as you asked.</h2>
+  <p class="lede" style="margin:14px 0 22px">It was one catalogue row doing two jobs. Here is the cut: what genuinely needs to float, and what was only ever a card pretending to.</p>
+  <div class="grid g2">
+    <div class="g card">
+      <h3>Stays a dialog</h3>
+      <p style="font-size:14.5px;margin-bottom:9px">Things that interrupt because they are addressed to you and are worthless later:</p>
+      <dl class="spec">
+        <dt>Approval</dt><dd>a risky action waiting on you — the only kind that blocks</dd>
+        <dt>Clarify</dt><dd>VESPER cannot proceed without one answer</dd>
+        <dt>Alert</dt><dd>thermal, battery, a deadline arriving</dd>
+        <dt>Capture</dt><dd>quick input, summoned from anywhere</dd>
+      </dl>
+    </div>
+    <div class="g card">
+      <h3>Becomes a card</h3>
+      <p style="font-size:14.5px;margin-bottom:9px">Things you go and look at, which were only floating because they lived in the same row:</p>
+      <dl class="spec">
+        <dt>Surfaces</dt><dd>which messages may float, where they anchor, how long they hold, what may interrupt</dd>
+        <dt>Backlog</dt><dd>everything that floated while you were away</dd>
+        <dt>History</dt><dd>what you approved and refused, and when</dd>
+      </dl>
+      <p style="font-size:13.5px;color:var(--ink-3);margin:12px 0 0">The floating layer itself stays a mechanism — it has a card that configures it, not a card that is it.</p>
+    </div>
+  </div>
+</section>
+
+<section id="home">
+  <p class="eyebrow">11 · The home</p>
+  <h2>Ninety cards, six rooms.</h2>
+  <p class="lede" style="margin:14px 0 20px">The twelve that were hidden behind my own sticky-header bug are now home cards, as you asked. That took the home from 78 to 90 — which is past what one surface holds, so they are grouped rather than listed.</p>
+  <div class="grid g3">
+    <div class="g card"><p class="k">Room</p><h3>Memory</h3><p style="font-size:13.5px;margin:6px 0 0">22 cards · what VESPER knows, and how it knows it</p></div>
+    <div class="g card"><p class="k">Room</p><h3>Work</h3><p style="font-size:13.5px;margin:6px 0 0">25 cards · projects, coursework, coding, the AI/ML bench</p></div>
+    <div class="g card"><p class="k">Room</p><h3>Doing</h3><p style="font-size:13.5px;margin:6px 0 0">10 cards · the task graph and everything running now</p></div>
+    <div class="g card"><p class="k">Room</p><h3>Beyond</h3><p style="font-size:13.5px;margin:6px 0 0">7 cards · the other nodes, and how VESPER moves between them</p></div>
+    <div class="g card"><p class="k">Room</p><h3>Permissions</h3><p style="font-size:13.5px;margin:6px 0 0">6 cards · what it may do, and what it must ask about first</p></div>
+    <div class="g card"><p class="k">Room</p><h3>Presence</h3><p style="font-size:13.5px;margin:6px 0 0">Frame, floating surfaces, and the face itself</p></div>
+  </div>
+  <p style="font-size:14px;color:var(--ink-3);margin-top:18px">Plus Settings (35) and History (17) as their own spaces, and four cards that are front doors into rooms rather than rooms themselves — Tunables, Conversation history, Presence indicator, Floating surfaces.</p>
+</section>
+
+<section id="open">
+  <p class="eyebrow">12 · Still open</p>
+  <h2>What I do not have yet.</h2>
+  <p class="lede" style="margin:14px 0 22px">You asked whether you missed anything. These are the gaps — none of them block the build, and most of them are five-second answers.</p>
+  <div class="grid g2">
+    <div class="g card" style="border-color:color-mix(in oklab,var(--blush) 40%,transparent)">
+      <h3>Blocking the visual language</h3>
+      <dl class="spec" style="margin-top:11px">
+        <dt>References</dt><dd>the UI reference set you said was coming</dd>
+        <dt>Density</dt><dd>compact or comfortable by default — the only one of my six questions still unanswered</dd>
+      </dl>
+    </div>
+    <div class="g card">
+      <h3>Not specified anywhere yet</h3>
+      <dl class="spec" style="margin-top:11px">
+        <dt>Icons</dt><dd>line or filled, and at what weight — the dock needs a set</dd>
+        <dt>Sound</dt><dd>does the interface make any, beyond VESPER's voice</dd>
+        <dt>Corners</dt><dd>I assumed 11 / 22 / 28 / 34 pt; say if that is wrong</dd>
+        <dt>Language</dt><dd>Arabic or French anywhere? RTL changes the island and the rail</dd>
+        <dt>External display</dt><dd>no notch, different size — does the island keep its geometry</dd>
+        <dt>Empty & error</dt><dd>what a room looks like with nothing in it</dd>
+      </dl>
+    </div>
+  </div>
+  <div class="note">
+    <b>Nothing here stops work.</b> Palette, type, motion, glass, themes, the adaptive rule, the dock swap, the island states and the face are all decided and buildable now. Send the references when you have them and the composition follows; until then this page is the contract.
+  </div>
+</section>
+
+</div>
+
+<footer><div class="col">
+  <p class="mono" style="font-size:11.5px;color:var(--ink-3);max-width:70ch">VESPER Design Foundation v0.1 · 2026-08-21 · Measured on this machine: macOS 26.5 (25F71), 1728 × 1117 pt @2x, notch 185 × 32 pt. Springs sampled from SwiftUI <span class="mono">Spring(duration:bounce:)</span>. Palettes k-means in OKLab from the eleven source images. Substitute typefaces in this preview; real stack bundled in the Tauri build.</p>
+</div></footer>
+</div>

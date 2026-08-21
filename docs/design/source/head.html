@@ -1,0 +1,123 @@
+<title>VESPER Design Foundation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Outfit:wght@200;300;400;500;600&family=Dancing+Script:wght@400;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* ============================================================ TOKENS
+   DARK-FIRST. VESPER's ground is night: ten of the eleven feel images
+   are dark, and the icon is lit matter on black. So :root carries the
+   dark set and light is the redefinition -- the inverse of the usual
+   pattern, applied consistently through all three theme states.     */
+:root{
+  --cream:#f0e0c0; --ember:#B96645; --solar:#D99A52; --blush:#e8829d;
+  --purple:#59348a; --gold:#C5A35A; --botanical:#64745B; --orange:#ffaf95;
+  --paper:#ffeae3;  --pitch:#03141f;
+
+  --ground:#03141f; --ground-2:#061c2b; --veil:#0a2333;
+  --ink:#ffeae3; --ink-2:#c3cdd4; --ink-3:#8798a4;
+  --line:rgba(255,234,227,.14); --line-2:rgba(255,234,227,.07);
+  --glass:rgba(255,234,227,.055); --glass-2:rgba(255,234,227,.085);
+  --spec:rgba(255,255,255,.30); --cast:rgba(3,20,31,.55);
+  --accent:#ffaf95; --accent-2:#D99A52; --accent-ink:#03141f;
+  --halo:radial-gradient(120% 90% at 50% 108%, rgba(255,175,149,.16) 0%, rgba(217,154,82,.07) 34%, transparent 68%);
+  --star:1; --ok:#9db98c;
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --ground:#ffeae3; --ground-2:#fdf3ec; --veil:#f7e6da;
+    --ink:#1b2530; --ink-2:#4c5c66; --ink-3:#77878f;
+    --line:rgba(27,37,48,.16); --line-2:rgba(27,37,48,.08);
+    --glass:rgba(255,255,255,.42); --glass-2:rgba(255,255,255,.62);
+    --spec:rgba(255,255,255,.85); --cast:rgba(100,116,91,.20);
+    --accent:#B96645; --accent-2:#59348a; --accent-ink:#ffeae3;
+    --halo:radial-gradient(120% 90% at 50% 108%, rgba(185,102,69,.10) 0%, rgba(100,116,91,.06) 36%, transparent 70%);
+    --star:0; --ok:#64745B;
+  }
+}
+:root[data-theme="light"]{
+  --ground:#ffeae3; --ground-2:#fdf3ec; --veil:#f7e6da;
+  --ink:#1b2530; --ink-2:#4c5c66; --ink-3:#77878f;
+  --line:rgba(27,37,48,.16); --line-2:rgba(27,37,48,.08);
+  --glass:rgba(255,255,255,.42); --glass-2:rgba(255,255,255,.62);
+  --spec:rgba(255,255,255,.85); --cast:rgba(100,116,91,.20);
+  --accent:#B96645; --accent-2:#59348a; --accent-ink:#ffeae3;
+  --halo:radial-gradient(120% 90% at 50% 108%, rgba(185,102,69,.10) 0%, rgba(100,116,91,.06) 36%, transparent 70%);
+  --star:0; --ok:#64745B;
+}
+
+/* Motion: sampled from the real SwiftUI springs, not eyeballed. */
+:root{
+  --smooth: linear(0,.0575,.1804,.3209,.4553,.5731,.6712,.7502,.8123,.8602,.8967,.9241,.9445,.9597,.9708,.9789,.9848,.9891,.9922,.9945,.996,.9972,.998,.9986,1);
+  --snappy: linear(0,.0541,.1761,.3225,.4678,.5981,.7076,.7952,.8624,.9121,.9474,.9715,.9873,.9971,1.0026,1.0053,1.0062,1.0061,1.0055,1.0046,1.0037,1.0028,1.0021,1.0015,1);
+  --bouncy: linear(0,.0749,.242,.4368,.6204,.7728,.8874,.9656,1.0131,1.0375,1.0457,1.044,1.0371,1.0282,1.0195,1.0121,1.0064,1.0024,.9998,.9985,.9979,.9979,.9982,.9986,1);
+  --d-smooth:735ms; --d-snappy:697ms; --d-bouncy:819ms;
+  --r-chip:11px; --r-card:22px; --r-sheet:28px; --r-dock:34px;
+}
+
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;scroll-padding-top:70px;}
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:"Outfit",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  font-weight:300; font-size:16.5px; line-height:1.68;
+  -webkit-font-smoothing:antialiased; overflow-x:hidden;
+}
+#sky{position:fixed;inset:0;z-index:0;pointer-events:none;opacity:var(--star);transition:opacity .5s;}
+#glow{position:fixed;inset:0;z-index:0;pointer-events:none;background:var(--halo);transition:background .8s var(--smooth);}
+.wrap{position:relative;z-index:1;}
+.col{max-width:1080px;margin:0 auto;padding:0 32px;}
+@media(max-width:640px){.col{padding:0 20px}}
+
+h1,h2,h3,h4{font-family:"Instrument Serif",Canela,Georgia,serif;font-weight:400;text-wrap:balance;margin:0;letter-spacing:.005em;}
+h1{font-size:clamp(46px,7.4vw,88px);line-height:1.02;}
+h2{font-size:clamp(30px,4.2vw,46px);line-height:1.1;}
+h3{font-size:clamp(21px,2.4vw,27px);line-height:1.22;}
+p{margin:0 0 1.05em;max-width:66ch;color:var(--ink-2);}
+strong{font-weight:500;color:var(--ink);}
+a{color:var(--accent);text-underline-offset:3px;}
+code,.mono{font-family:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.855em;font-weight:400;}
+code{background:var(--glass);border:1px solid var(--line-2);padding:.1em .42em;border-radius:6px;color:var(--ink);}
+.hand{font-family:"Dancing Script","Learning Curve",cursive;font-weight:400;}
+
+.eyebrow{font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--ink-3);font-weight:500;margin:0 0 14px;display:flex;align-items:center;gap:11px;}
+.eyebrow::after{content:"";flex:1;height:1px;background:var(--line-2);}
+
+section{padding:78px 0 12px;}
+section+section{border-top:1px solid var(--line-2);}
+.lede{font-size:19px;color:var(--ink-2);max-width:62ch;font-weight:200;}
+
+/* ---- glass tiers ---- */
+.g{position:relative;background:var(--glass);border:1px solid var(--line);
+   -webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);
+   box-shadow:inset 0 1px 0 var(--spec), 0 18px 44px -20px var(--cast);border-radius:var(--r-card);}
+.g::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+   background:linear-gradient(160deg,rgba(255,255,255,.13),transparent 42%);}
+.g-dock{-webkit-backdrop-filter:blur(42px) saturate(200%);backdrop-filter:blur(42px) saturate(200%);
+   background:var(--glass-2);border-radius:var(--r-dock);}
+.g-chip{-webkit-backdrop-filter:blur(13px) saturate(160%);backdrop-filter:blur(13px) saturate(160%);border-radius:var(--r-chip);}
+@media (prefers-reduced-transparency:reduce){
+  .g,.g-dock,.g-chip{backdrop-filter:none;-webkit-backdrop-filter:none;background:var(--veil);}
+}
+@media (prefers-reduced-motion:reduce){
+  *{animation-duration:.001ms!important;transition-duration:.001ms!important;}
+  html{scroll-behavior:auto;}
+}
+
+/* ---- nav ---- */
+nav{position:sticky;top:0;z-index:60;background:color-mix(in oklab,var(--ground) 82%,transparent);
+  -webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);
+  border-bottom:1px solid var(--line-2);}
+.navin{max-width:1080px;margin:0 auto;padding:0 32px;height:54px;display:flex;align-items:center;gap:8px;}
+.navmark{width:22px;height:22px;border-radius:50%;flex:none;object-fit:cover;
+  box-shadow:0 0 0 1px var(--line),0 0 16px -2px var(--accent);}
+.navlinks{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;margin-left:6px;}
+.navlinks::-webkit-scrollbar{display:none}
+.navlinks a{font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--ink-3);text-decoration:none;padding:7px 9px;border-radius:8px;white-space:nowrap;transition:color .2s,background .2s;}
+.navlinks a:hover{color:var(--ink);background:var(--glass);}
+.tt{margin-left:auto;display:flex;gap:3px;background:var(--glass);border:1px solid var(--line-2);border-radius:9px;padding:3px;flex:none;}
+.tt button{font-family:"JetBrains Mono",monospace;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;
+  background:none;border:0;color:var(--ink-3);padding:4px 8px;border-radius:6px;cursor:pointer;transition:.2s;}
+.tt button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);}
+</style>
