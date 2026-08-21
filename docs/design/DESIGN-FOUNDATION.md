@@ -233,6 +233,44 @@ Eight panel anchors around the head, clockwise from twelve. A panel fades in on
 `--snappy`, the face turns to it, and it holds until the thing it describes is
 done.
 
+### The behaviours — owner addition, 2026-08-21
+
+The face is animated continuously while VESPER is working, and what it is doing
+is legible from across the room. Fourteen behaviours, owner-given:
+
+| | |
+|---|---|
+| **looking** | scanning, deliberate, wide yaw |
+| **thinking** | up and off-axis — the classic tell |
+| **wondering** | thinking, but wandering wider |
+| **imagining** | unfocused, drifting up and around |
+| **working** | head down, steady, small movements |
+| **acting** | decisive, quick settles |
+| **listening** | attentive, slight tilt toward the owner |
+| **talking** | small constant motion around centre |
+| **laughing** | head back, fast bounce |
+| **joking** | cocked to one side, playful |
+| **angry** | low, tight, fast |
+| **happy** | open and light |
+| **resting** | barely there, long slow drift |
+| **aura** | still; only the breath moves |
+
+**These are motion fields, not clips.** Each is sampled forever from sums of
+incommensurable periods, so nothing ever loops visibly. A face on a four-second
+loop is a screensaver, and this one is on screen all day.
+
+**A behaviour chooses where to look and how urgently. It may not change the
+envelope.** The numbers in the table above this section — yaw ±18°, pitch ±12°,
+eyes ±25° beyond the head, the 80 ms lead, the 3–7 s blink — are decided and
+apply to all fourteen. The clamp lives in one place so no behaviour can exceed
+it, and *urgency* is what distinguishes `acting` from `resting`, not amplitude.
+
+**Continuous means continuous while visible.** The face renders only in Expanded.
+A collapsed island draws no face and runs no timer — same reasoning as the mark's
+idle state. Measured on this machine at 39,805 points and 60 fps: **5–7% CPU**,
+59 MB resident. That is the number to beat, and it is why the point count is a
+measurement rather than a preference.
+
 **The fiction is refused.** The reference image carries invented telemetry —
 `REASONING 110%`, `MEMORY ARCHIVE 241-F8-J-1000 PB`, lorem-filled panels.
 `INV-HW-2` says a number is measured or it is `UNKNOWN`, and `UNKNOWN` means

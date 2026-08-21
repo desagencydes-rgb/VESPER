@@ -15,10 +15,16 @@
 // laptop, which is exactly what INV-PLACE-3 refuses.
 
 import AppKit
+import QuartzCore
 
 // MARK: - Geometry, from docs/design/ANNEX-island-geometry.md
 
-enum State: Int { case dormant, shoulders, expandedRest, expandedSpeaking }
+// Renamed 2026-08-21 on the owner's reading of the two expanded references: the
+// instrument-panel one IS Hanging, reached on hover, and Expanded is the one with
+// the face, reached on click. That also settles the §10 incoherence where Hanging
+// was specced at 720 wide -- WIDER than the measured Expanded at 624. It is the
+// same width; only the body and the height differ.
+enum State: Int { case dormant, shoulders, hanging, expanded }
 
 struct Metrics {
     var width: CGFloat, height: CGFloat, fillet: CGFloat, radius: CGFloat
@@ -53,8 +59,8 @@ final class Geometry {
         // different notch this follows it, and 370 was never the point.
         case .shoulders: return Metrics(width: notch * 2, height: inset + 16, fillet: 12, radius: 16)
         // One width across both expanded bodies; it grows downward only.
-        case .expandedRest:     return Metrics(width: 624, height: 192, fillet: 24, radius: 24)
-        case .expandedSpeaking: return Metrics(width: 624, height: 280, fillet: 24, radius: 48)
+        case .hanging:  return Metrics(width: 624, height: 192, fillet: 24, radius: 24)
+        case .expanded: return Metrics(width: 624, height: 280, fillet: 24, radius: 48)
         }
     }
 }
@@ -213,6 +219,8 @@ final class IslandView: NSView {
     static let ember  = NSColor(srgbRed: 0xB9/255.0, green: 0x66/255.0, blue: 0x45/255.0, alpha: 1)
 
     override var isFlipped: Bool { false }
+    var onClick: (() -> Void)?
+    override func mouseDown(with event: NSEvent) { onClick?() }
 
     override func draw(_ dirtyRect: NSRect) {
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
@@ -227,7 +235,7 @@ final class IslandView: NSView {
         switch state {
         case .dormant:   break                       // it IS the notch. Nothing to say.
         case .shoulders: drawShoulders(ctx, w: w, h: h)
-        case .expandedRest, .expandedSpeaking: drawExpanded(ctx, w: w, h: h)
+        case .hanging, .expanded: drawExpanded(ctx, w: w, h: h)
         }
         ctx.restoreGState()
     }
@@ -249,8 +257,8 @@ final class IslandView: NSView {
         if let m = mark {
             // The mark carries VESPER's state in every island state -- it is the
             // only mark on screen most of the time, so presence lives here.
-            let s: CGFloat = 20 * markScale
-            m.draw(in: NSRect(x: pad + (20 - s) / 2, y: (h - s) / 2, width: s, height: s),
+            let s: CGFloat = markSize * markScale
+            m.draw(in: NSRect(x: pad + (markSize - s) / 2, y: (h - s) / 2, width: s, height: s),
                    from: .zero, operation: .sourceOver, fraction: markBrightness)
         }
         guard !gauges.isEmpty else { return }
@@ -275,8 +283,8 @@ final class IslandView: NSView {
         // shoulder band is y ∈ [0, inset] -- the one band that must clear the
         // camera. The mark sits far left, so it does; nothing else goes here.
         if let m = mark {
-            let s: CGFloat = 20 * markScale
-            m.draw(in: NSRect(x: inset + 14 + (20 - s) / 2,
+            let s: CGFloat = markSize * markScale
+            m.draw(in: NSRect(x: inset + 14 + (markSize - s) / 2,
                               y: h - safeInset + (safeInset - s) / 2, width: s, height: s),
                    from: .zero, operation: .sourceOver, fraction: markBrightness)
         }
@@ -290,7 +298,9 @@ final class IslandView: NSView {
         for (i, c) in columns.enumerated() {
             let x = inset + CGFloat(i) * colW
             let label = text(c.label, 10.5, IslandView.ink, weight: .medium)
-            let value = text(c.value, 9, IslandView.dim)
+            // The reference's second line is ember, not grey. It is the line that
+            // carries the actual reading, and it is coloured like the mark.
+            let value = text(c.value, 9, IslandView.ember)
             label.draw(at: NSPoint(x: x + (colW - label.size().width) / 2, y: rowTop - 15))
             value.draw(at: NSPoint(x: x + (colW - value.size().width) / 2, y: rowTop - 28))
         }
@@ -298,7 +308,9 @@ final class IslandView: NSView {
         // The ground, one step in.
         let bodyTop = rowTop - 38
         let body = NSRect(x: inset + 8, y: 14, width: w - (inset + 8) * 2, height: bodyTop - 14)
-        if body.height > 20 {
+        // Expanded puts its content on the shell; only Hanging has the inner
+        // ground panel. Measured from the two references, not assumed alike.
+        if state == .hanging, body.height > 20 {
             let rr = CGPath(roundedRect: body, cornerWidth: 18, cornerHeight: 18, transform: nil)
             ctx.addPath(rr)
             ctx.setFillColor(IslandView.ground.cgColor)
@@ -315,6 +327,9 @@ final class IslandView: NSView {
     }
 
     var safeInset: CGFloat = 32
+    // Raised from 20 pt on the owner's note that it read too small. The mark is
+    // the only thing on screen most of the time, so it carries more than a glyph.
+    var markSize: CGFloat = 26
 }
 
 // MARK: - The panel
@@ -337,9 +352,20 @@ final class Controller: NSObject {
     private var markTimer: Timer?
     private var tracking: NSTrackingArea?
     let anim = MarkAnimator()
+    let driver = FaceDriver()
+    private var face: FaceRenderer?
+    private let faceLayer = CAMetalLayer()
+    // The island's own silhouette, as a mask on the whole view. The Metal layer is
+    // a rectangle and its corners were poking out past the shell's rounded bottom
+    // -- reported by the owner 2026-08-21 as "a black rectangle with sharp edges".
+    // Rounding the sublayer's own corners would only hide it at one size; masking
+    // the view to the real path means NOTHING can escape the shell, at any state,
+    // at any point mid-animation.
+    private let shellMask = CAShapeLayer()
+    private var faceTimer: Timer?
     private let snapshotPath: String
 
-    init(screen: NSScreen, snapshotPath: String) {
+    init(screen: NSScreen, snapshotPath: String, levelKey: CGWindowLevelKey = .statusWindow) {
         self.screen = screen
         self.snapshotPath = snapshotPath
         geo = Geometry(screen: screen)
@@ -371,13 +397,46 @@ final class Controller: NSObject {
         panel.ignoresMouseEvents = false
         // Above the menu bar, and it stays there. Documented level, not a magic
         // number: the same one every menu-bar utility uses.
-        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.statusWindow)) + 1)
-        // Present on every Space and over fullscreen apps -- in fullscreen the
-        // notch region goes black anyway, so the weld is free there.
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        panel.level = NSWindow.Level(rawValue: Int(CGWindowLevelForKey(levelKey)) + 1)
+        // .canJoinAllSpaces puts the panel on EVERY Space. .stationary keeps it
+        // from being swept up in Exposé and Space transitions.
+        //
+        // .fullScreenAuxiliary is deliberately NOT here by default. It means "this
+        // window may appear on the same Space as a full-screen window" -- it makes
+        // the panel AUXILIARY TO THAT WINDOW, joining its Space rather than
+        // floating above all of them. Reported by the owner 2026-08-21: switching
+        // between full-screen windows, the island "is sticked to the top of the
+        // window, so it moves". That is a panel that belongs to a Space instead of
+        // to the screen. `--fsaux` puts it back for comparison.
+        var behaviour: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .stationary, .ignoresCycle]
+        if CommandLine.arguments.contains("--fsaux") { behaviour.insert(.fullScreenAuxiliary) }
+        panel.collectionBehavior = behaviour
         panel.contentView = view
+        view.wantsLayer = true
+        view.layer?.mask = shellMask
+        face = FaceRenderer(cloudPath: FileManager.default.currentDirectoryPath
+                            + "/app/island-macos/face.bin")
+        if face == nil {
+            FileHandle.standardError.write("face: RENDERER FAILED to init\n".data(using: .utf8)!)
+        }
+        if let f = face {
+            faceLayer.device = f.device
+            faceLayer.pixelFormat = .bgra8Unorm
+            faceLayer.framebufferOnly = true
+            faceLayer.isOpaque = false
+            faceLayer.cornerRadius = 18
+            faceLayer.isHidden = true
+            view.layer?.addSublayer(faceLayer)
+        }
+        view.onClick = { [weak self] in self?.toggleExpanded() }
         applyFrame(width: m.width, height: m.height)
         panel.orderFrontRegardless()
+        // A Space change can drop the panel behind, even with .canJoinAllSpaces.
+        // Re-ordering on the workspace's own notification is the supported way to
+        // reassert it -- no private API, and it costs nothing while nothing changes.
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in self?.panel.orderFrontRegardless() }
         retrack()
         reload()
     }
@@ -392,6 +451,14 @@ final class Controller: NSObject {
         view.metrics = geo.metrics(state)
         view.metrics.width = width; view.metrics.height = height
         view.state = state
+        // Rebuilt every frame: the shape changes with the spring, so a mask set
+        // once at the target size clips wrongly for the whole transition.
+        let m = geo.metrics(state)
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        shellMask.frame = CGRect(x: 0, y: 0, width: width, height: height)
+        shellMask.path = islandPath(w: width, h: height, fillet: m.fillet, radius: m.radius)
+        CATransaction.commit()
+        layoutFace(width: width, height: height)
         view.needsDisplay = true
     }
 
@@ -406,6 +473,7 @@ final class Controller: NSObject {
     func go(_ s: State) {
         guard s != state else { return }
         state = s
+        faceRunning(s == .expanded)
         let m = geo.metrics(s)
         sw.target = m.width; sh.target = m.height
         view.metrics = m
@@ -413,6 +481,41 @@ final class Controller: NSObject {
             let t = Timer(timeInterval: 1.0 / 120.0, repeats: true) { [weak self] _ in self?.tick() }
             RunLoop.main.add(t, forMode: .common); timer = t
         }
+    }
+
+    /// The face runs only while it is on screen. §7 of the architecture: this
+    /// thing is continuous while VESPER works, on a laptop we are trying to keep
+    /// alive -- so "continuous" means continuous WHEN VISIBLE, and a collapsed
+    /// island renders nothing at all.
+    private func faceRunning(_ on: Bool) {
+        faceLayer.isHidden = !on
+        if on, faceTimer == nil, face != nil {
+            let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+                guard let self, let f = self.face else { return }
+                self.driver.step(1.0 / 60.0)
+                f.uniforms.yaw = self.driver.headYaw
+                f.uniforms.pitch = self.driver.headPitch
+                f.uniforms.eyeYaw = self.driver.eyeYaw
+                f.uniforms.eyePitch = self.driver.eyePitch
+                f.uniforms.blink = self.driver.blink
+                f.uniforms.scale = 0.96 * self.driver.breath
+                f.draw(in: self.faceLayer)
+            }
+            RunLoop.main.add(t, forMode: .common); faceTimer = t
+        } else if !on {
+            faceTimer?.invalidate(); faceTimer = nil
+        }
+    }
+
+    private func layoutFace(width: CGFloat, height: CGFloat) {
+        guard face != nil else { return }
+        let inset = geo.metrics(.expanded).fillet
+        let top = height - geo.inset - 38
+        let r = NSRect(x: inset + 8, y: 14, width: width - (inset + 8) * 2, height: max(0, top - 14))
+        faceLayer.frame = r
+        faceLayer.contentsScale = screen.backingScaleFactor
+        faceLayer.drawableSize = CGSize(width: r.width * screen.backingScaleFactor,
+                                        height: r.height * screen.backingScaleFactor)
     }
 
     private func tick() {
@@ -449,8 +552,16 @@ final class Controller: NSObject {
         }
     }
 
-    @objc func mouseEntered(with event: NSEvent) { reload(); go(.expandedRest) }
-    @objc func mouseExited(with event: NSEvent)  { go(.shoulders) }
+    // Expanded is CLICK-triggered, per the owner 2026-08-21. Hover no longer
+    // expands: a panel that opens because the cursor crossed the top of the screen
+    // on its way somewhere else is a panel that opens by accident all day.
+    // Hover opens Hanging; a click opens Expanded. Owner, 2026-08-21.
+    func toggleExpanded() {
+        reload()
+        go(state == .expanded ? .hanging : .expanded)
+    }
+    @objc func mouseEntered(with event: NSEvent) { reload(); if state == .shoulders { go(.hanging) } }
+    @objc func mouseExited(with event: NSEvent)  { if state == .hanging { go(.shoulders) } }
 }
 
 // MARK: - main
@@ -470,7 +581,12 @@ app.setActivationPolicy(.accessory)
 guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main else {
     FileHandle.standardError.write("no screen\n".data(using: .utf8)!); exit(1)
 }
-let controller = Controller(screen: screen, snapshotPath: snapshot)
+// Window level is a flag so the Space behaviour can be tested without a rebuild.
+// Default raised to .screenSaverWindow: at .statusWindow the island still went
+// missing across full-screen Space transitions. `--level-status` goes back.
+let levelKey: CGWindowLevelKey = args.contains("--level-status") ? .statusWindow
+    : args.contains("--level-max") ? .maximumWindow : .screenSaverWindow
+let controller = Controller(screen: screen, snapshotPath: snapshot, levelKey: levelKey)
 let g = controller.geo
 print("island: notch \(g.notch) pt, inset \(g.inset) pt, hasNotch \(g.hasNotch)")
 print("        screen \(screen.frame.width)x\(screen.frame.height) pt")
@@ -485,7 +601,7 @@ controller.go(.shoulders)
 // changes, because a demonstration that is not announced becomes a claim.
 // Verification only: start expanded so the body can be inspected without moving
 // the owner's cursor onto the island to trigger hover.
-if args.contains("--expand") { controller.reload(); controller.go(.expandedRest) }
+if args.contains("--expand") { controller.reload(); controller.go(.expanded) }
 
 if args.contains("--demo") {
     controller.anim.synthetic = true
