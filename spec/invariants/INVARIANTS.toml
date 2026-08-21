@@ -486,7 +486,7 @@ kind = "structural"
 [invariants.INV-HW-2]
 statement = "sustained_tokens_per_sec is measured at enrollment, never declared."
 owner_rem = "REM-011"
-enforced_by = ["CI-034", "CI-034b", "A-042"]
+enforced_by = ["CI-034", "CI-034b", "CI-057", "A-042"]
 kind = "structural"
 
 [invariants.INV-TRUST-1]

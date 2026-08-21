@@ -592,3 +592,16 @@ self_test = "Enable an above-the-read-line action; set fail_closed = false; allo
 self_test_evidence = "tools/ci/self_test.py host-action-vocabulary -- 9 cases, red then green"
 subject = "contracts/policy/host_actions.toml"
 note = """The host offers no negotiation interface, so VESPER's only way to influence its own conditions is to act and re-read the world -- which makes this vocabulary the entire safety boundary, with no second gate behind it. Owner policy 2026-08-20 is that VESPER reads freely and changes nothing on its own; every row above `read_line` therefore ships disabled. That is asserted directly, because the breach is a one-word `enabled` flip that reads as configuration in a diff. Two of the nine cases were written after the check already passed and both found real defects: the check had no consent assertions at all, so the only irreversible action could be downgraded to per-rule consent -- one approval covering every future firing -- with every gate green."""
+
+[checks.CI-057]
+name = "projection-unknown-is-absent"
+enforces = ["INV-HW-2"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py projection-unknown-absent"
+blocking = "pr"
+self_test = "Remove the provenance guard so a value may be built with no observation time; replace an `is None` test with truthiness so a genuine reading of 0 reports UNKNOWN; fill an unavailable reading with 0 at the render boundary rather than omitting it; invert `supersedes` so an older projection wins."
+self_test_evidence = "tools/ci/self_test.py projection-unknown-absent -- 4 cases, red then green, 2026-08-21."
+subject = "core/projection.py"
+traces_to = "SR-002. The check's INVARIANT lineage is INV-HW-2 via CI-034, whose note defers the runtime half; its SUBJECT lineage is SR-002, presenting VESPER through a screen. Those are two different questions and the registry asks the second one -- so it is listed under SR-002 rather than under SR-006, whose subject is local model selection and which would have been the lazy answer because it already carries INV-HW-2."
+coord_note = "This check also asserts that Projection.supersedes orders by HLC, and one self-test case inverts it. That is a REGRESSION GUARD on this module, not enforcement of INV-COORD-4 -- CI-005 enforces ordering across the codebase, and claiming it here would be the asymmetric enforcement claim CI-043 exists to catch. The assertion stays; the claim does not."
+note = "THE RUNTIME HALF CI-034's note defers. CI-034 covers the policy table; this covers the first runtime surface that renders to a person. Deliberately a runtime fixture rather than a structural grep: a grep for the guards passes on a guard that has been INVERTED, and inverting one comparison is a mistake already made in this codebase. The third self-test case is the exact failure drawn in the owner's UI reference -- an empty status column filled with a plausible number because it looked wrong empty."

@@ -59,14 +59,22 @@ renders it.
 ## Verification, in the order that fails fastest
 
 ```sh
-python tools/ci/checks.py all           # 28 checks
-python tools/ci/self_test.py            # red-then-green, 66 cases
+python tools/ci/checks.py all           # 31 checks
+python tools/ci/self_test.py            # red-then-green, 79 cases
 python tools/traceability_lint.py
 python tools/reference_lint.py
 python verification/run_f0_acceptance.py   # ... f1 .. f6
-python verification/stress_placement.py    # 320k property assertions
+python verification/stress_placement.py    # 160k property assertions
 python verification/stress_fabric.py        # 180k property assertions
 ```
+
+**Corrected 2026-08-21:** this file said `stress_placement` ran 320k assertions.
+The runner's own headline is `20000 random fabrics, 8 properties each = 160,000
+assertions`, and no section of its output reaches 320k. `stress_fabric`'s 180k
+was right. The wrong number had already travelled: the owner's island UI
+reference draws a status column reading "320k assertions", taken from here. A
+number repeated without re-reading its source is exactly what `INV-HW-2` exists
+to refuse, and this file is not exempt from it.
 
 `--profile release` on the traceability lint is **expected to fail** on **two**
 DEPTH errors (`SR-017`, `SR-034`). `SR-016` was raised to `SPECIFIED` on

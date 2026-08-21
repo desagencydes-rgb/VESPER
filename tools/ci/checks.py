@@ -2221,6 +2221,105 @@ def check_host_actions() -> Result:
            + (", ".join(above) if above else "none declared"))
     return r
 
+
+# --------------------------------------------------------------------------
+# CI-057 -- a surface may not render a number nobody measured
+#
+# CI-034 covers the POLICY half of INV-HW-2 and its note is explicit that the
+# runtime half "needs source code". This is the first runtime surface to exist,
+# so this is the first place that half can be enforced rather than deferred.
+#
+# A RUNTIME FIXTURE, not a grep. Checking that the guards are *present* in the
+# text would pass on a guard that had been inverted, and inverting one
+# comparison is precisely how this codebase has been bitten before. So the
+# contract is exercised: the bad readings are constructed and must raise.
+# --------------------------------------------------------------------------
+def check_projection_unknown_absent() -> Result:
+    r = Result("projection-unknown-is-absent")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.hlc import HLC
+        from core.projection import (ISLAND_COLUMNS, Projection,
+                                     ProjectionContractViolation, Reading)
+    except Exception as exc:                       # noqa: BLE001 -- any import failure is a red
+        r.err(f"core.projection did not import: {exc!r}")
+        return r
+
+    now = HLC(physical_ms=1_000_000, logical=0, node_id="ci")
+    older = HLC(physical_ms=900_000, logical=0, node_id="ci")
+
+    def refuses(desc: str, **kw) -> None:
+        try:
+            Reading(**kw)
+        except ProjectionContractViolation:
+            return
+        except Exception as exc:                   # noqa: BLE001
+            r.err(f"{desc}: raised {exc!r} rather than ProjectionContractViolation")
+            return
+        r.err(f"{desc}: was ACCEPTED. INV-HW-2 -- a value nobody measured must not "
+              "be constructible.")
+
+    refuses("a value with no observation time (the '41 degrees C' failure)",
+            key="host.temp", source="host", value=41, unit="C")
+    refuses("neither a value nor a reason",
+            key="host.temp", source="host")
+    refuses("a value AND an unavailable reason",
+            key="host.temp", source="host", value=41, observed_at=now,
+            unavailable_reason="not exposed")
+    refuses("an unavailable reading carrying an observation time",
+            key="host.temp", source="host", unavailable_reason="not exposed",
+            observed_at=now)
+    refuses("a TTL that expires on arrival",
+            key="host.temp", source="host", value=41, observed_at=now, ttl_ms=0)
+
+    # Zero is a value. This is the assertion that catches a truthiness test
+    # replacing an `is None` test -- MEMORY.md records that zeros compress to
+    # nothing on this platform, so a genuine zero and an unmeasured field must
+    # stay structurally apart.
+    try:
+        if not Reading(key="authorize.pending", source="authorize",
+                       value=0, observed_at=now).known:
+            r.err("a reading of 0 reported itself UNKNOWN. Zero is a real answer; "
+                  "only None is absent.")
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"a reading of 0 was refused: {exc!r}")
+
+    # An expired reading goes unavailable rather than continuing to render.
+    stale = Reading(key="verification.placement_stress", source="verification",
+                    value=320_000, observed_at=older, ttl_ms=1_000)
+    if stale.at(now).known:
+        r.err("an expired reading still reported a value. A measurement without a "
+              "usable age renders identically to a fresh one.")
+
+    # The render boundary: unavailable readings are OMITTED, never placeheld.
+    proj = Projection(version=now, readings={
+        "authorize.pending": Reading(key="authorize.pending", source="authorize",
+                                     value=0, observed_at=now),
+        "host.temp": Reading.unavailable("host.temp", "host", "not exposed on this platform"),
+        "verification.placement_stress": stale,
+    })
+    scene = proj.to_scene("ci-fixture")
+    ids = {e.element_id for e in scene.elements}
+    if "host.temp" in ids:
+        r.err("to_scene rendered an UNAVAILABLE reading. INV-HW-2: an absent column "
+              "must not be styled into looking like a present one.")
+    if "verification.placement_stress" in ids:
+        r.err("to_scene rendered an EXPIRED reading.")
+    if "authorize.pending" not in ids:
+        r.err("to_scene dropped a known reading whose value is 0.")
+
+    # INV-COORD-4: ordering is the HLC's job.
+    if Projection(version=older, readings={}).supersedes(Projection(version=now, readings={})):
+        r.err("an older projection superseded a newer one. INV-COORD-4: only the "
+              "HLC orders.")
+
+    if r.ok:
+        r.note(f"{len(ISLAND_COLUMNS)} island columns declared; "
+               "5 refusals, expiry, omission and HLC ordering all exercised")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -2252,6 +2351,7 @@ CHECK_FNS = {
     "host-action-vocabulary": check_host_actions,
     "fabric-stress": check_fabric_stress,
     "host-stress": check_host_stress,
+    "projection-unknown-absent": check_projection_unknown_absent,
 }
 
 

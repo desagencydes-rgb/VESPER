@@ -1,0 +1,74 @@
+{
+ "shoulders": {
+  "height_pt": 49.6,
+  "width_bezel_pt": 370.5,
+  "width_body_pt": 346.1,
+  "fillet_pt": 12.2,
+  "width_over_notch": 2.003,
+  "corner_rx_pt": 14.4,
+  "corner_ry_pt": 11.7,
+  "x_left_pt": 677.9,
+  "x_right_pt": 1047.4,
+  "centre_offset_pt": -1.4,
+  "first_ink_pt": 8.1,
+  "notch_collision_px": 0,
+  "interior_tone": {
+   "rgb": [
+    4,
+    2,
+    3
+   ],
+   "hex": "#040203",
+   "px": 3
+  },
+  "mask_px": 20053
+ },
+ "expanded_instruments": {
+  "height_pt": 191.3,
+  "width_bezel_pt": 627.1,
+  "width_body_pt": 582.0,
+  "fillet_pt": 22.6,
+  "width_over_notch": 3.39,
+  "corner_rx_pt": 20.8,
+  "corner_ry_pt": 18.9,
+  "x_left_pt": 547.7,
+  "x_right_pt": 1174.0,
+  "centre_offset_pt": -3.2,
+  "first_ink_pt": 23.5,
+  "notch_collision_px": 267,
+  "interior_tone": {
+   "rgb": [
+    3,
+    20,
+    31
+   ],
+   "hex": "#03141f",
+   "px": 16129
+  },
+  "mask_px": 127351
+ },
+ "expanded_presence": {
+  "height_pt": 278.8,
+  "width_bezel_pt": 627.1,
+  "width_body_pt": 581.1,
+  "fillet_pt": 23.0,
+  "width_over_notch": 3.39,
+  "corner_rx_pt": 55.9,
+  "corner_ry_pt": 52.3,
+  "x_left_pt": 547.7,
+  "x_right_pt": 1174.0,
+  "centre_offset_pt": -3.2,
+  "first_ink_pt": 23.5,
+  "notch_collision_px": 267,
+  "interior_tone": {
+   "rgb": [
+    33,
+    33,
+    33
+   ],
+   "hex": "#212121",
+   "px": 93
+  },
+  "mask_px": 167324
+ }
+}

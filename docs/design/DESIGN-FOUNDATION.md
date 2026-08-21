@@ -127,6 +127,39 @@ than an approximation.
 | `bouncy` | 0.50 s | 0.30 | 0.700 | 819 ms | 4.6% | Rare and earned: milestone, task completed |
 | `legacy` | 0.55 s | 0.175 | 0.825 | 758 ms | 1.0% | Old `.spring()` default; parity with system controls only |
 
+### The mark is alive — owner addition, 2026-08-21
+
+The standing correction in `docs/design/README.md` says the four springs plus the
+Dock falloff are the entire motion vocabulary *until the owner adds to it*. This
+is the owner adding to it, and it is the first addition.
+
+The mark on the left shoulder is not a static glyph. It carries VESPER's state
+continuously, in **every** island state — it is the only mark on screen most of
+the time, so this is where presence lives when nothing is expanded.
+
+| State | Motion | Character |
+|---|---|---|
+| **Speaking** | scale tracks the voice — **fast**, amplitude- and frequency-driven | bigger and smaller quickly, following what is actually being said |
+| **Thinking** | slow clean zoom in and out | unhurried and even; no bounce, no jitter |
+| **Working** | lightness rises and falls, **slowly and consistently** | the size holds still; only the brightness breathes |
+| **Idle** | nothing at all | a still mark, and **no timer running** |
+
+Three things this table is deciding, not describing:
+
+**Speaking is driven, not looped.** "Depending on voice, frequency and all that"
+means the amplitude is the input. A sine wave pretending to be speech is the same
+failure as a status column reading `41 °C` on a host with no thermometer — it
+looks like data and is not. Until the audio path exists the mark does not speak;
+it idles.
+
+**Working modulates lightness only, and thinking modulates scale only.** Keeping
+each state on its own channel is what makes them distinguishable at 20 pt across
+a room. A state that both pulsed and brightened would read as a third thing.
+
+**Idle runs no timer.** VESPER's stated goal is to stretch this host's lifetime,
+and a mark that animates continuously while nothing is happening spends the
+battery to say nothing. Animation starts when there is a state to show.
+
 **Dock magnification is not a spring.** It is a distance falloff —
 `scale = 1 + 0.8·cos²(π·d / 2W)` for cursor distance `d`, out to `W ≈ 2.5` icon
 widths, recomputed per mouse-move with no easing. VESPER's main menu uses the
@@ -174,8 +207,15 @@ its own source.*
 ## 8. The face
 
 Point-cloud head at the centre of the home, form taken from the owner's
-reference. **Not blue** — the colour is whatever the adaptive rule picked for
-the space, and the hologram panels take the same colour.
+reference — `ui-refs/face-and-hologram-panels.jpg`. **Not blue** — the colour is
+whatever the adaptive rule picked for the space, and the hologram panels take the
+same colour. The blue image that sat in `assets/` until 2026-08-21 was never the
+reference; this section was right and the asset was wrong.
+
+**The face is not an image.** Owner, 2026-08-21: *"the face should not be at all
+a simple image, but a whole interactive fast 3d design, actively moving all the
+time non stop, so this is very big."* The JPEG is the target it must look like,
+never an asset to composite. How it is built is not decided here.
 
 | | |
 |---|---|
@@ -282,18 +322,48 @@ the band y ∈ [0, 32] must clear x ∈ [771, 956]; below y = 32 the full width 
 free. So the island is a two-row grid: a shoulder row split by a 185 pt spacer,
 over a body row spanning the whole width.
 
-| State | Size | Shoulder row (y 0–32) | Body row (y > 32) |
+| State | Size | Shoulder row | Body row |
 |---|---|---|---|
-| **Dormant** | 185 × 32 pt | nothing — it *is* the notch | none |
-| **Shoulders** | 560 × 32 pt | mark + current task / song / mission left, live meter right | none |
-| **Hanging** | 720 × 190 pt | mark, room buttons, date strip | one live thing: what is playing, what is running, what is today |
-| **Expanded** | 1000 × 580 pt | as Hanging | the island dock menu — face at centre, hologram panels around it, cards with coloured borders |
-| **Alert** | 620 × 96 pt | mark left, dismiss right | one approval, or one thing that needs the owner. Never two |
+| **Dormant** | 185 × 32 pt · *unreferenced* | nothing — it *is* the notch | none |
+| **Shoulders** | **370.5 × 49.6 pt** · measured | mark left, three micro-gauges right | none |
+| **Hanging** | 720 × 190 pt · *unreferenced* | mark, room buttons, date strip | one live thing: what is playing, what is running, what is today |
+| **Expanded** | **627.1 pt wide** · measured · body **191.3 pt** at rest, **278.8 pt** speaking | six status columns | at rest, an instrument panel on a `#03141f` ground; speaking, the face at centre with hologram panels and one caption line |
+| **Alert** | 620 × 96 pt · *unreferenced* | mark left, dismiss right | one approval, or one thing that needs the owner. Never two |
+
+**Sizes marked *measured* come out of `ui-refs/`, via
+`source/island_geom.py`.** They replace this table's previous figures, which were
+guesses and were wrong by a lot — Shoulders was given as 560 × 32 against a
+measured 370.5 × 49.6, and Expanded as 1000 × 580 against a measured 627.1 × 278.8.
+Hanging's *height* of 190 pt was very nearly right (191.3 measured on the state
+that shares its proportions), which is the reason to trust the reasoning in this
+section while replacing its numbers. The three rows still marked *unreferenced*
+have no reference and are still guesses; do not read them as decided.
+
+Two relationships worth building as relationships rather than as numbers:
+Shoulders is **2.003 × the notch** — build `2 × notch`, not `370` — and Expanded
+holds **one width across both bodies**, growing only downward. Width never
+animates between expanded contents; the references show no such behaviour.
+
+**The expanded references collide with the camera and must not be built as
+drawn.** Both put their first ink at y = 23.5 pt, and 267 px of it lands inside
+x ∈ [771, 956] above the 32 pt inset — three of six status columns under the
+housing, invisible on this display. The mockup tool has no camera; this one does.
+The status row starts at **y = 32**, costing ~9 pt of height. Note that the
+Shoulders reference has 0 px in that band: it keeps to the two shoulders and
+leaves the middle alone, exactly as the rule below asks. The reference set is
+internally inconsistent and the state that got it right shows the fix.
 
 Growth and retreat are `--snappy`; **Alert** arrives on `--bouncy`. Bottom
-corner radii 22 / 28 / 34 pt by state, **always 0 on top**, plus an inverted
-fillet of half the bottom radius where each side meets the bezel line — so the
-panel flows out of the bezel rather than butting into it.
+corners are **elliptical and measured**: rx/ry of 14.4/11.7 pt at Shoulders,
+20.8/18.9 pt expanded at rest, 55.9/52.3 pt expanded speaking — slightly wider
+than tall in every state, **always 0 on top**. The previously assumed
+22 / 28 / 34 pt was the wrong spread and the wrong values.
+
+The bezel fillet stays — the panel flows out of the bezel rather than butting
+into it — but **not as "half the bottom radius"**, which does not survive
+measurement: 12.2 pt against a 14.4 pt radius, 22.6 against 20.8, 23.0 against
+55.9. It is a constant of the size class, ~22–23 pt expanded and ~12 pt at
+Shoulders, and is built as its own value.
 
 **Superseded by this correction:** *Collapsed* (“top y = 38, six points clear of
 the inset, never entering the notch band”) and *Flanked* (two separate lozenges
@@ -331,8 +401,10 @@ surfaces.
 
 ## 11. Open — not yet specified
 
-**Blocking the visual language:** the owner's UI reference set; and density
-(compact or comfortable by default).
+**Blocking the visual language:** the owner's UI reference set — **arrived
+2026-08-21 for the island only** (`ui-refs/`), still absent for the main menu,
+the home and its 90 cards, the rooms, floating dialogs, Settings and History; and
+density (compact or comfortable by default).
 
 **Not specified anywhere yet:** icon style (line or filled, and at what weight);
 whether the interface makes any sound beyond VESPER's voice; corner radii

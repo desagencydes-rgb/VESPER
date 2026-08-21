@@ -39,3 +39,5 @@ tools/spike/_certs/
 # the shared allowlist is .claude/settings.json, which is tracked.
 .claude/settings.local.json
 graphify-out/
+.island-stress-cache.json
+app/island-macos/island

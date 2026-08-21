@@ -1,0 +1,44 @@
+# Provenance for the owner's UI reference set, received 2026-08-21.
+#
+# The committed files are lossless crops of the island out of full-desktop composites.
+# The composites are not committed: their wallpaper does not compress, and three of them
+# cost more than this entire repository (.git was 9.1 MB). What is committed is the part
+# that is actually the reference, at native resolution, plus one context frame.
+#
+# `scale` is the composite's px per logical point (authored width / 1728 pt) and `crop_x`
+# the crop origin, so island_geom.py can still report x in screen coordinates from a
+# cropped file. `sha256` is of the ORIGINAL as delivered, not of the committed crop.
+
+[reference.shoulders]
+file      = "island-shoulders.png"
+original  = "Add a little bit of body text-2.png"
+sha256    = "0305366f9d71091979a0d99b4ab255fa8e2d57f1c0b5a4f6f34ffb4dde814adb"
+source_px = [1917, 1248]
+scale     = 1.10938
+crop_x    = 728
+
+[reference.expanded_instruments]
+file      = "island-expanded-instruments.png"
+original  = "Add a little bit of body text-3.png"
+sha256    = "db53b00612455642a7fd8183a4350003d247fa5d80dfa84d50f6359fadb03ef4"
+source_px = [1915, 1241]
+scale     = 1.10822
+crop_x    = 583
+
+[reference.expanded_presence]
+file      = "island-expanded-presence.png"
+original  = "Add a little bit of body text.png"
+sha256    = "31ca6604206d3e0c2307561af6bf5bc691811d20bf1e407119619c0cb7e6debb"
+source_px = [1915, 1241]
+scale     = 1.10822
+crop_x    = 583
+
+[reference.face]
+file      = "face-and-hologram-panels.jpg"
+original  = "vesper's-face.png"
+sha256    = "ad29a56d22ac9083f92ae7014ca20acc421b164f862810f01d5e33d46b6054df"
+source_px = [1254, 1254]
+scale     = 1.0
+crop_x    = 0
+# Supersedes the blue face. The owner, 2026-08-21: the blue one is not the real
+# reference. DESIGN-FOUNDATION §8 already said "Not blue" -- spec right, asset wrong.

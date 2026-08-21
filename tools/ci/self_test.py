@@ -39,6 +39,9 @@ Stdlib only. Python >= 3.11.
 from __future__ import annotations
 
 import hashlib
+import itertools
+import os
+import time
 import subprocess
 import sys
 from pathlib import Path
@@ -57,12 +60,38 @@ def read(path: Path) -> tuple[str, bytes, bool]:
     return raw.decode("utf-8").replace("\r\n", "\n"), raw, b"\r\n" in raw
 
 
+# A counter, not a clock. See _bump_mtime.
+_MTIME_TICK = itertools.count(1)
+
+
+def _bump_mtime(path: Path) -> None:
+    """Force the source's mtime to a value no .pyc can already be holding.
+
+    FOUND 2026-08-21, landing CI-057. CPython validates cached bytecode against
+    the source's (mtime, size) and stores that mtime WITH ONE-SECOND GRANULARITY.
+    A mutation that preserves byte length -- inverting a comparison, say, which is
+    exactly what a self-test case wants to do -- and lands in the same second as
+    the preceding restore is therefore INVISIBLE: the subprocess revalidates the
+    stale .pyc and imports the UNMUTATED module. The check goes green on a real
+    violation and the harness reports "not evidence" against a check that is fine.
+
+    This bit only runtime-fixture checks, which import repo modules; the file-
+    reading checks that make up most of this suite never noticed. It would have
+    bitten every future runtime-fixture check silently.
+
+    Stepping the mtime by a whole second per write is enough and is cheaper than
+    deleting bytecode trees or recompiling the world with PYTHONPYCACHEPREFIX.
+    """
+    t = time.time() + next(_MTIME_TICK)
+    os.utime(path, (t, t))
+
+
 def write_mutated(path: Path, text: str, crlf: bool) -> None:
     """Write the transient mutated state in the file's own newline convention."""
     if crlf:
         text = text.replace("\n", "\r\n")
     path.write_bytes(text.encode("utf-8"))
-
+    _bump_mtime(path)
 
 def restore(path: Path, raw: bytes) -> None:
     """Restore the ORIGINAL BYTES. Never write_text -- see BYTE SAFETY above.
@@ -90,7 +119,7 @@ def restore(path: Path, raw: bytes) -> None:
     if cache.is_dir():
         for stale in cache.glob(f"{path.stem}.*.pyc"):
             stale.unlink(missing_ok=True)
-
+    _bump_mtime(path)
 
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -543,6 +572,36 @@ import reference_lint  # noqa: E402
 LINT_CASES += [
     (["tools/reference_lint.py"], rel, _sub(old, new, 1), f"CI-050: {desc}")
     for rel, old, new, desc in reference_lint.SELF_TEST_CASES
+]
+
+
+# ---------------------------------------------------------------- CI-057
+# The runtime half of INV-HW-2. Each case is a way a surface starts showing a
+# number nobody measured -- and the third is the one drawn in the owner's own
+# reference: an empty column filled with a plausible value because it looked
+# wrong empty.
+PROJECTION = "core/projection.py"
+
+CASES += [
+    ("projection-unknown-absent", PROJECTION,
+     _sub("        if has_value and self.observed_at is None:", "        if False:", 1),
+     "the provenance guard removed: a value may be constructed with no observation time"),
+
+    ("projection-unknown-absent", PROJECTION,
+     _sub("        has_value = self.value is not None", "        has_value = bool(self.value)", 1),
+     "an `is None` test replaced by truthiness: a genuine reading of 0 becomes UNKNOWN"),
+
+    ("projection-unknown-absent", PROJECTION,
+     _sub("            if not r.known:\n                continue\n",
+          "            if not r.known:\n"
+          "                r = Reading(key=r.key, source=r.source, value=0,\n"
+          "                            observed_at=self.version)\n", 1),
+     "the empty column filled in: an unavailable reading rendered as 0 rather than omitted"),
+
+    ("projection-unknown-absent", PROJECTION,
+     _sub("        return other.version < self.version",
+          "        return self.version < other.version", 1),
+     "supersedes inverted: an older projection wins, and INV-COORD-4's ordering is lost"),
 ]
 
 

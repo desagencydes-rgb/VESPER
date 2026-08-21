@@ -7,6 +7,7 @@ otherwise lose.
 | Path | What it holds |
 |---|---|
 | `DESIGN-FOUNDATION.md` | **The spec.** Palette, themes, adaptive-colour rule, glass tiers, type, motion, the eleven ambience modes, the face, the mark, the dock swap, island geometry. Read this first |
+| `ui-refs/` | **The owner's UI reference set** — what a screen is actually composed of, with the geometry measured out of it. The island only; every other surface is still unreferenced. Has its own README |
 | `routing/` | The owner's own placement decisions for 237 catalogue items — `spec_raw.txt` is the export as pasted, `routed.json` the parse, `data.json` the full catalogue including unrouted suggestions |
 | `source/` | The generator for the interactive version. `build_artifact.py` reassembles it from the HTML fragments and inlines `refs/` as data URIs |
 | `source/*.py` | The derivations, so no number here is a claim without a method — see below |
@@ -26,6 +27,7 @@ python3 docs/design/source/springs.py   # SwiftUI Spring(duration:bounce:) -> CS
 python3 docs/design/source/extract.py   # k-means over each source image, in OKLab
 python3 docs/design/source/modes2.py    # the LIGHT SOURCE in each image, not its mean
 python3 docs/design/source/final.py     # -> modes.json, the eleven ambience themes
+python3 docs/design/source/island_geom.py  # the island, measured out of ui-refs/
 ```
 
 `extract.py` decodes PNG with `zlib` + manual defiltering rather than pulling a
@@ -41,10 +43,16 @@ judgement call that looks like a measurement is worse than either one.
 
 ## Two standing corrections
 
-- **The eleven images are feel sources, the mark, and the face. They are not UI
-  references.** The owner was explicit about this. The primitives are decided;
-  the composition of an actual screen is not, and waits on a reference set that
-  had not arrived as of 2026-08-21.
+- **The eleven images in `source/refs/` are feel sources, the mark, and the face.
+  They are not UI references.** The owner was explicit about this. The UI
+  reference set is a separate thing and lives in `ui-refs/`; it arrived
+  2026-08-21 and covers **the island only**. The composition of every other
+  screen — the main menu, the home, the rooms, Settings, History — is still
+  undecided and still waiting.
+- **The blue face was never the reference.** Replaced 2026-08-21 on the owner's
+  correction; §8 had said "Not blue" all along, so the spec was right and the
+  asset was wrong. `build_artifact.py` inlines `source/refs/face.jpg`, so the
+  interactive version had been rendering the wrong face until then.
 - **New animations require owner approval.** The four springs plus the Dock
   magnification falloff are the entire motion vocabulary until the owner adds to
   it.
