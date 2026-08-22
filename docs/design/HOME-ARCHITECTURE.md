@@ -142,10 +142,16 @@ The ground also **does not animate into existence** (`animationBehavior = .none`
 decided here rather than in the motion vocabulary because it is a fact about
 what this window *is*: a desktop that springs in from 99% is imitating a dialog.
 
-*Still owed:* `residency_probe --negative`, the red run — it gives the ground the
-island's `[.canJoinAllSpaces, .stationary]` so it follows to every Desktop and
-must be reported as FAIL. Until that has been watched, the PASS above is
-evidence that the probe reports PASS.
+**The red run was executed, 2026-08-23.** `residency_probe --negative` gives the
+ground the island's `[.canJoinAllSpaces, .stationary]` instead of `[.managed]`,
+and it went red for the right reason rather than merely going red: 152 samples,
+ground on screen in **all 152** with the Desktop switch independently confirmed
+at overlap 0.00, reported as *"a Desktop switch WAS observed and the ground was
+on screen in every one of 152 samples — it followed."* That is the branch added
+after the ambiguity defect was found; before it, this run would have been
+reported as INCONCLUSIVE "no switch observed", which is a negative control
+passing. **F1 is closed:** both halves verified, both with an executed red
+control.
 
 **What F1 cost, and it is the finding worth keeping.** The probes went red four
 times before they measured anything, and every one was the instrument rather
