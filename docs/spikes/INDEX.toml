@@ -310,3 +310,30 @@ time_box = "4 working days"
 owner_role = "Core Systems Engineer"
 requires_hardware = true
 raised_by = "Owner, 2026-08-13. VESPER needs multiple models, multiple tasks and multiple agents concurrently -- which invalidated an earlier assumption that the node serves one request at a time. Design recorded in docs/planning/INFERENCE_ARCHITECTURE.md: residency states (ACTIVE/WARM/DORMANT/COLD), selectable residency modes (SOLO_MAX, LEAD_SCOUT, COUNCIL, SWARM, ELASTIC, DORMANT_ALL) over a fixed VRAM budget, and concurrency served by parallel slots on a resident model rather than by duplicating models. This spike is the LAST orchestration spike by owner direction -- it deliberately absorbs headroom monitoring, task tracking, priority and swap policy so that no further spike needs opening before the build proceeds."
+
+[spikes.SPIKE-013]
+title = "The home's ground: composite cost, and whether dispersal is affordable"
+protocol = "docs/spikes/SPIKE-013-home-ground-composite.md"
+status = "NOT_STARTED"
+question = "What does VESPER's home ground actually cost -- a Metal ambience/face layer beneath a full-screen transparent webview -- and is the DISPERSED face tier cheaper than CENTRE, as the presence law requires?"
+pass_criteria = "Six measured configurations (baseline, Metal alone, composite, attendant, dispersed, absent) plus occlusion, each with CPU, GPU, package power and battery drain read from the system rather than from the renderer's own frame counter. DISPERSED <= CENTRE on every axis. ABSENT and occluded both draw zero frames with no timer, proven by counter. A decided idle cadence with its measured power difference from 60 fps, and the resulting hours of home-open battery runtime."
+on_fail = "If the composite cannot hold its budget, exactly one of three named fallbacks is taken with its cost stated: the webview loses transparency, the field moves into the webview and Metal is dropped, or the ground renders at a lower cadence. If DISPERSED costs more than CENTRE, the dissolve is not shipped as specified -- it becomes a cut to a still field and the owner is told the particle dispersal is not affordable on this host. THE REQUIREMENT IS NOT RELAXED TO 'ABOUT THE SAME'. Not permitted: a figure measured on mains reported as the battery figure; Metal-alone reported as the composite's cost; a point count chosen before the power is measured; a mean reported where the worst sample governs."
+blocks = ["HOME-ARCHITECTURE.md build steps F1-F3", "the four face presence tiers", "the dissolve as a motion-vocabulary addition"]
+depends_on = ["SPIKE-002"]
+time_box = "2 working days"
+owner_role = "Platform Engineer"
+requires_hardware = true
+raised_by = "docs/design/HOME-ARCHITECTURE.md SS8 and SS11, 2026-08-22. ISLAND-ARCHITECTURE.md SS6 already set the rule for the island's face -- its power draw is measured before its point count is chosen. The home makes that rule bigger: full screen rather than 627 pt, a webview composited over the same renderer, and a fourth tier whose cost is ASSUMED to be lower than the head it replaces and could easily be higher."
+
+[spikes.SPIKE-014]
+title = "A WidgetKit extension without Xcode, and its real refresh budget"
+protocol = "docs/spikes/SPIKE-014-widget-extension-without-xcode.md"
+status = "NOT_STARTED"
+question = "Can a WidgetKit extension be built and registered by hand -- swiftc plus an assembled .appex, the way app/island-macos/build.sh assembles VESPER.app -- and what reload cadence does macOS actually grant it?"
+pass_criteria = "A hand-assembled .appex appears in the widget gallery and renders on the desktop; it survives a rebuild, a re-sign and a reboot; the observed reload cadence is reported as a distribution over at least 12 hours with its worst gap, not as the policy requested; an expired reading renders the absent state ON SCREEN with freshness evaluated at render time rather than at timeline-build time; and the accessory-app question is answered either way, since VESPER.app is LSUIElement today."
+on_fail = "If a hand-assembled extension cannot register, that is recorded as a limitation with its cause and the system widget is deferred until Xcode or a Developer ID makes it buildable. THE IN-HOME WIDGET IS NOT REDEFINED AS 'THE WIDGET' to make the requirement met -- the owner asked for widgets that leave the home. If the granted cadence is too slow for a candidate reading, that reading does not become a system widget: a number the OS holds on screen for hours must carry its age or not appear. Not permitted: a reload triggered by hand or by WidgetCenter.reloadAllTimelines() reported as the system's cadence; the policy requested reported instead of the cadence observed; shipping a widget whose freshness is decided when the timeline is built."
+blocks = ["the system-widget half of VESPER's widgets leaving the home", "INV-HOME-2 promotion from candidate to invariant"]
+time_box = "2 working days"
+owner_role = "Platform Engineer"
+requires_hardware = true
+raised_by = "docs/design/HOME-ARCHITECTURE.md SS4, 2026-08-22. Verified 2026-08-22 by swiftc -parse against the macOS 26.5 SDK: WidgetKit, SwiftUI, AppIntents and WebKit all resolve under Command Line Tools with no Xcode on this machine. That settles the compiler and settles nothing else. The island already produced the cautionary case -- SMAppService compiled, registered without throwing, reported enabled, and launchd refused to spawn the app every time."

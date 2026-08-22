@@ -10,6 +10,8 @@ otherwise lose.
 | `ISLAND-ARCHITECTURE.md` | The island's behaviour and wiring: its seat as an endpoint, the state machine, what backs each column, how it behaves everywhere on the Mac, and the build order |
 | `ANNEX-island-geometry.md` | **Build from this.** The measured proportions landed on a clean system anchored to the two hardware facts |
 | `ISLAND-CONTENT.md` | Everything each island state can carry, each marked LIVE / READY / BLOCKED, so designing and wiring do not wait on each other |
+| `HOME-ARCHITECTURE.md` | **VESPER's home.** What a workspace is on this OS and what it provably is not, the five surface classes, stages, the face's presence law, and the build order that puts the frontend first |
+| `HOME-CONTENT.md` | All 90 home cards, the widgets, the windows and the twelve stages, each marked FRONTEND / READY / BLOCKED. **56 of 90 are buildable before a producer runs** |
 | `ui-refs/` | **The owner's UI reference set** — what a screen is actually composed of, with the geometry measured out of it. The island only; every other surface is still unreferenced. Has its own README |
 | `routing/` | The owner's own placement decisions for 237 catalogue items — `spec_raw.txt` is the export as pasted, `routed.json` the parse, `data.json` the full catalogue including unrouted suggestions |
 | `source/` | The generator for the interactive version. `build_artifact.py` reassembles it from the HTML fragments and inlines `refs/` as data URIs |
@@ -31,6 +33,7 @@ python3 docs/design/source/extract.py   # k-means over each source image, in OKL
 python3 docs/design/source/modes2.py    # the LIGHT SOURCE in each image, not its mean
 python3 docs/design/source/final.py     # -> modes.json, the eleven ambience themes
 python3 docs/design/source/island_geom.py  # the island, measured out of ui-refs/
+python3 docs/design/source/home_rooms.py   # the home's nine rooms, out of the owner's own routing
 ```
 
 `extract.py` decodes PNG with `zlib` + manual defiltering rather than pulling a
@@ -44,7 +47,7 @@ pixels by brightness x chroma fixed eight of eleven outright. The remaining
 three are marked `curated` in `modes.json` with the reason recorded, because a
 judgement call that looks like a measurement is worse than either one.
 
-## Two standing corrections
+## Four standing corrections
 
 - **The eleven images in `source/refs/` are feel sources, the mark, and the face.
   They are not UI references.** The owner was explicit about this. The UI
@@ -57,8 +60,16 @@ judgement call that looks like a measurement is worse than either one.
   asset was wrong. `build_artifact.py` inlines `source/refs/face.jpg`, so the
   interactive version had been rendering the wrong face until then.
 - **New animations require owner approval.** The four springs plus the Dock
-  magnification falloff are the entire motion vocabulary until the owner adds to
-  it.
+  magnification falloff were the entire motion vocabulary until the owner added
+  to it. **Two additions so far:** the mark's four state motions (2026-08-21) and
+  the face's **dissolve** (2026-08-22) — the point cloud's attractor released, not
+  a fade. Nothing else is in the vocabulary.
+- **The home is not a window.** `HOME-ARCHITECTURE.md` §2 checked the SDK
+  directly: there is no public API to create, name or enumerate a Space, and
+  Accessibility cannot move a foreign window between Desktops. The home is a
+  ground window at `normal − 1` on a Desktop the owner creates once, and the
+  owner's "move it to his workspace and put it back" is implemented as re-open
+  from a ledger, never as teleport.
 
 ## Rebuilding the interactive version
 

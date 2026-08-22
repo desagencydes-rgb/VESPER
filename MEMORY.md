@@ -546,6 +546,70 @@ strongest trust over the least controlled path, **passes any test that only
 checks a ceiling was applied**, and looks identical in a diff. Its negative
 control produced 698 failures, as required.
 
+## 4f. 2026-08-22 — what this Mac will and will not give a workspace
+
+### There is no Xcode on this machine, and it does not matter as much as expected
+
+Command Line Tools only, `swiftc` 6.3.3 against the macOS 26.5 SDK. Checked
+2026-08-22 with `swiftc -parse`: **`WidgetKit`, `SwiftUI`, `AppIntents` and
+`WebKit` all resolve** without it. So the toolchain is not the blocker for a
+widget extension; whether a **hand-assembled `.appex`** registers with the widget
+system is a different question and is `SPIKE-014`.
+
+That distinction is the `SMAppService` lesson again, one framework over: it
+compiled, it registered without throwing, it reported `enabled`, and launchd
+refused to spawn the app every time. **A thing that builds is not a thing that
+runs.**
+
+### Two negative results about Spaces, checked in the SDK rather than assumed
+
+| Question | How | Answer |
+|---|---|---|
+| Public API to create, name or enumerate a Space? | `grep CGSSpace / SpaceID / ManagedDisplay` across public CoreGraphics headers | **none. Zero hits** |
+| Can Accessibility read or set a window's Space? | `grep` in `AXAttributeConstants.h` | **no such attribute.** Position, size, minimised, fullscreen — no space |
+
+**The consequence, and it decided the home's whole construction.** The owner
+asked for VESPER to *"move [app windows] to his workspace until I come back,
+then put them back to their old places."* There is no public way to move a
+foreign window between Desktops, and reaching for SkyLight is the one thing
+`ISLAND-ARCHITECTURE.md` §2 forbids because the failure arrives silently after
+an OS update.
+
+So the home is **a ground window at level `normal − 1`, `Managed`, on a Desktop
+the owner creates once**, and carrying work is **re-open from a ledger, never
+teleport** — app, document, frame, position-in-document; never a window id,
+because window ids do not survive the relaunch the ledger exists to survive.
+`relocate_window` is declared as a capability with **no adapter**, fail-closed
+and reported, exactly as `INV-PLACE-3` requires an excluded capability to be.
+
+**Not native fullscreen**, which was the obvious answer and is wrong: a
+fullscreen Space admits only `FullScreenAuxiliary` panels and one Split View
+tile, so the home would have been a room with no doors.
+
+### The catalogue carries two stale counts, and the fix is structural
+
+`docs/design/routing/data.json` says *"All 138 [invariants] across 37 families"*
+and *"the 34 runtime modules"*. Measured 2026-08-22: **123** invariant ids (37
+families is right), and **35** modules — `core/projection.py` landed 2026-08-21,
+after the catalogue was written.
+
+Neither is worth patching in the catalogue. **The Introspection cards read the
+registry at render time and never render a figure copied into a document**,
+which is the same correction `CLAUDE.md` made on itself over "320k assertions".
+
+### 56 of the home's 90 cards need no backend, not 26
+
+The catalogue's own `st` field suggested 26. Reading the modules instead of the
+field found **17 FRONTEND + 39 READY**: eleven of the "suggestions" turn out to
+be walks over structures that already exist — `evidence.SpanIndex`,
+`store`'s append-only `log` and `tombstones`, `Fact.confidence` /
+`valid_until_ms`, `Grant.expiry_ms`. Full accounting in
+`docs/design/HOME-CONTENT.md`; the room arithmetic is derived by
+`docs/design/source/home_rooms.py` rather than asserted.
+
+**`DESIGN-FOUNDATION.md` §10's room list accounted for 81 of the 90.** The home
+has **nine** rooms, not six.
+
 ## 5. Open questions, recorded rather than resolved
 
 1. **What window must `C1` run for?** `AT-03` calls it the most important run in the
