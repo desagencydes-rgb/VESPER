@@ -1,0 +1,3 @@
+# Compiled probes are derived from the .swift beside them in one swiftc call.
+ground_probe
+residency_probe
