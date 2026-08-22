@@ -220,6 +220,33 @@ different Desktops share almost no windows. That instrument becomes production
 code. Posting the shortcut and assuming it landed would be the same error as
 trusting `spd-say`'s exit code.
 
+**Which shortcut, exactly.** The Mission Control one from System Settings —
+**not** a Shortcuts.app shortcut. Read off this machine 2026-08-22 from
+`com.apple.symbolichotkeys`, which is where macOS keeps them:
+
+| Symbolic hotkey | Enabled here | Key | Modifier |
+|---|---|---|---|
+| `118` Switch to Desktop 1 | `1` | keycode `18` — the *1* key | `262144` = Control |
+| `119` Switch to Desktop 2 | `1` | keycode `19` — the *2* key | `262144` = Control |
+
+So the post is a `CGEvent` key-down/key-up for **keycode 19 with
+`.maskControl`**, consumed by the WindowServer's own hotkey handler. The
+character field is `65535`, meaning the binding is by keycode rather than by
+character, so it does not move with the keyboard layout.
+
+**And this is why it is the symbolic hotkey rather than Shortcuts.app.** Not
+because of what either can do — because this one is *readable*. The table above
+was produced by reading a plist, which means VESPER can **preflight** onboarding
+step 2 rather than discover at runtime that the shortcut was never enabled, and
+fail closed with the specific reason. A Shortcuts.app shortcut is a
+user-editable document that VESPER can neither verify exists, nor verify was not
+edited, nor confirm did anything — and a mechanism whose success cannot be read
+back is exactly the shape this repo refuses.
+
+*Preflight, stated so it gets built:* read `AppleSymbolicHotKeys` key `119`;
+`enabled = 1` and `parameters[1] = 19` means the route is available. Anything
+else is `UNAVAILABLE`, reported, with the setting to change named.
+
 **What this costs, stated rather than hidden.** The Desktop number becomes a
 setting the owner confirms once, because VESPER can verify *that* a switch
 happened but never *which* Desktop it arrived on. If the owner reorders their
