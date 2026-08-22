@@ -184,6 +184,61 @@ After that, `Global summon` and `Space switching` (both routed to `backend`)
 post a `CGEvent` for the shortcut. That is the "some additions to it" the owner
 asked for: macOS provides the Space, VESPER provides everything in it.
 
+### 2.3a "Just tell it to always use Desktop 2" — why there is nothing to tell
+
+The obvious question, asked 2026-08-22 after F1b's ground was born on Desktop 1.
+The answer is not that the API for it is awkward. It is that **Desktop 2 is not
+addressable**: it has no name, no number and no identifier that any public API
+can see. The number in Mission Control is a position in a list the app cannot
+read.
+
+Checked against the macOS 26.5 SDK rather than recalled:
+
+| Question | Reading |
+|---|---|
+| Any public symbol naming or identifying a Space? | `grep` for `SpaceID` / `CGSSpace` / `NSWindowSpace` / `spaceIdentifier` across the whole of AppKit's and CoreGraphics' public headers — **zero hits** |
+| Does `NSWorkspace` expose Spaces? | **No.** Nothing in `NSWorkspace.h` |
+| What *can* a window say about where it lives? | 16 `NSWindowCollectionBehavior` flags, and **every one is a bit flag with no argument** |
+
+The entire vocabulary an app has for placing a window is three phrases:
+
+- `CanJoinAllSpaces` — *all of them*
+- `MoveToActiveSpace` — *the one in front of me now*
+- `Managed` — *the one I was born on*
+
+There is no *that one*. So the placement problem cannot be solved by declaring a
+destination, and **the effect has to be produced by ordering instead**:
+
+> **Switch first, then create.** A window is born on the active Space. If VESPER
+> posts the Desktop-2 shortcut, confirms the switch actually happened, and only
+> then orders the ground front, the ground is born in the right room by
+> construction — at every launch, not just the first.
+
+The confirmation step is not optional and is already built: `residency_probe`
+detects a Space change from the *foreign* window set, since two samples taken on
+different Desktops share almost no windows. That instrument becomes production
+code. Posting the shortcut and assuming it landed would be the same error as
+trusting `spd-say`'s exit code.
+
+**What this costs, stated rather than hidden.** The Desktop number becomes a
+setting the owner confirms once, because VESPER can verify *that* a switch
+happened but never *which* Desktop it arrived on. If the owner reorders their
+Desktops the number goes stale, and VESPER cannot detect it — so this is a
+`fail-closed and report` case, not a silent one.
+
+**Why not the Dock's own "Assign To → Desktop 2",** which macOS does offer and
+which really does pin an app to a Desktop:
+
+- `VESPER.app` is `LSUIElement` and has **no Dock tile to right-click**.
+- It is **app-wide**, and the island panel is `[.canJoinAllSpaces, .stationary]`
+  precisely so it appears everywhere. One setting cannot serve both.
+- It is a **user setting with no API**. VESPER can neither set it, read it, nor
+  repair it — so it cannot participate in a fail-closed design at all.
+
+`adopt_probe` (F1c) tests the third route, `MoveToActiveSpace`, which is not a
+substitute for the ordering above but is its **repair path**: what to do when the
+ground is already alive in the wrong room.
+
 ### 2.4 The one thing that cannot be done, and what replaces it
 
 The owner: *"vesper can still act, see, read in any other workspace when I ask
