@@ -124,7 +124,11 @@ var t0 = Date()
 
 // Everything printed also lands in a file, so the run can be read after the
 // fact instead of being retyped out of a terminal.
-let LOG = FileManager.default.currentDirectoryPath + "/f1b_last_run.log"
+// Next to the binary, not next to wherever you happened to be standing. The
+// owner's PASS run wrote to the repo root and the self-test wrote to
+// app/home-macos/, which is two logs with one name and no way to tell them apart.
+let LOG = URL(fileURLWithPath: CommandLine.arguments[0])
+    .deletingLastPathComponent().appendingPathComponent("f1b_last_run.log").path
 var logBuf = ""
 func say(_ line: String = "") {
     print(line)

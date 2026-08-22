@@ -10,9 +10,10 @@ island is a separate surface with its own file, `ISLAND-ARCHITECTURE.md`; this
 one is its sibling, not its parent. Card-by-card content lives in
 `HOME-CONTENT.md`.
 
-**Status.** The mechanisms below are decided and buildable. Three of them are
+**Status.** The mechanisms below are decided and buildable. Two of them are
 recorded as *documented but unverified on this machine* and say so where they
-appear — the repo's standing rule is that a mechanism's own documentation is not
+appear — the third, the ground plane and its Desktop residency, was verified on
+2026-08-22 and §2.2 now carries the readings — the repo's standing rule is that a mechanism's own documentation is not
 a reading from the world. Two are open spikes (`SPIKE-013`, `SPIKE-014`). The
 owner's UI reference set still covers **the island only**; nothing here decides
 what a card looks like, only what one is.
@@ -125,10 +126,35 @@ So clicking the home's background raises VESPER without burying the owner's
 work, which is the behaviour a *place* has and a window does not. `Managed`
 keeps it on one Desktop, participating in Mission Control like anything else.
 
-*Documented, unverified here.* `Managed` is documented as the default at
-`.normal` rather than as exclusive to it. The pairing of `Managed` with a
-below-normal level is build step 1 and is verified by watching it, not by
-reading this table.
+**Verified on this machine, 2026-08-22.** `Managed` is documented as the default
+at `.normal` rather than as exclusive to it, so the pairing with a below-normal
+level was build step F1 rather than a table to be read. Two probes in
+`app/home-macos/`, both reading the *window server* rather than the window —
+`CGWindowList` reports the layer that was assigned and the front-to-back index
+it landed at; `NSWindow.level` only reports what was asked for.
+
+| Probe | Claim | Result |
+|---|---|---|
+| `ground_probe` | level `normal − 1` cannot rise above a foreign normal window | **PASS**, 6 checks, twice — as opened, and again after `activate` + `makeKeyAndOrderFront` + `orderFrontRegardless`. Its negative control, the same window one integer higher, *does* get in front |
+| `residency_probe` | `Managed` keeps it on one Desktop | **PASS** — 151 samples, ground off screen in 54 and back in 97, Desktop switch independently evidenced at foreign-window overlap 0.00. Its negative control, a `.canJoinAllSpaces` panel, was on screen in 54 of 54 |
+
+The ground also **does not animate into existence** (`animationBehavior = .none`),
+decided here rather than in the motion vocabulary because it is a fact about
+what this window *is*: a desktop that springs in from 99% is imitating a dialog.
+
+*Still owed:* `residency_probe --negative`, the red run — it gives the ground the
+island's `[.canJoinAllSpaces, .stationary]` so it follows to every Desktop and
+must be reported as FAIL. Until that has been watched, the PASS above is
+evidence that the probe reports PASS.
+
+**What F1 cost, and it is the finding worth keeping.** The probes went red four
+times before they measured anything, and every one was the instrument rather
+than the mechanism: a window read before it was composited (twice, in two
+different probes), a window read mid appearance-spring at its undershoot and
+then at its overshoot, and a verdict that reported "the ground followed you
+everywhere" as "you never switched". `orderFrontRegardless` returning is not a
+window appearing — the same shape as the repo's standing example that a launcher
+returning 0 is not a running process.
 
 **The ground behaves like the wallpaper, because that is what it is.** It spans
 the whole screen frame — not `visibleFrame` — so it runs to `y = 0` and the

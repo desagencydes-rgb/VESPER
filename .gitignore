@@ -48,3 +48,4 @@ app/VESPER.app/
 # NOT byte-identical to the set the committed palettes.json was measured from.
 docs/design/source/refs/tiny/
 docs/design/source/artifacts/home-previews.built.html
+f1b_last_run.log
