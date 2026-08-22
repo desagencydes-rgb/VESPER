@@ -117,7 +117,7 @@ So:
 | **Ground** | the home itself — ambience field, the face, widgets, the main menu | one window, screen-sized, `Managed`, level `normal − 1` |
 | **Work** | app windows: VESPER's own, and the owner's | ordinary windows at `.normal` |
 | **Float** | cards, dialogs, the annotation layer | `NSPanel`, `.floating`, non-activating |
-| **Presence** | the island | `.statusBar + 1`, `canJoinAllSpaces` — above everything, already built |
+| **Presence** | the island — **everywhere except here**, see §2.6 | `.statusBar + 1`, `canJoinAllSpaces`, already built |
 
 **Level `normal − 1` is the whole trick and it is one integer.** A window below
 the normal level can never rise above a normal window, even when it is clicked.
@@ -129,6 +129,19 @@ keeps it on one Desktop, participating in Mission Control like anything else.
 `.normal` rather than as exclusive to it. The pairing of `Managed` with a
 below-normal level is build step 1 and is verified by watching it, not by
 reading this table.
+
+**The ground behaves like the wallpaper, because that is what it is.** It spans
+the whole screen frame — not `visibleFrame` — so it runs to `y = 0` and the
+translucent menu bar sits over it, tinted by whatever ambience is running. That
+is exactly what the desktop picture already does on this machine.
+
+**There is no black bar at the top, and this is where fullscreen would have put
+one.** A fullscreen app hides the menu bar and fills the notch band with black;
+`ISLAND-ARCHITECTURE.md` §5 records that behaviour and *uses* it. The home is a
+Desktop, so none of it applies: the menu bar stays, the ground shows through it,
+and the notch is what it always was — a hole in the hardware, not a rectangle
+someone drew. **Drawing a black band across the top of the home would be
+imitating a state the home is never in.**
 
 ### 2.3 What the owner does once, and why it cannot be automated
 
@@ -186,9 +199,45 @@ argument against using it.
 ### 2.5 The z-order law
 
 One sentence, because everything above reduces to it: **ground never rises,
-float never sinks, presence is always on top.** A card that can end up behind an
-app window is a card the owner will lose; an app window that can end up behind
-the ground is work the owner will think VESPER closed.
+float never sinks, presence is on top everywhere it appears.** A card that can
+end up behind an app window is a card the owner will lose; an app window that
+can end up behind the ground is work the owner will think VESPER closed.
+
+### 2.6 The island is not in the home — owner decision, 2026-08-22
+
+Owner: *"the island dock is better to not show up inside vesper's home."*
+
+Taken as a decision, and it is the right one for a reason worth writing down:
+**the island exists because VESPER is not on screen.** It is a strip of presence
+for every moment the owner is somewhere else — in Xcode, in a browser, in
+another Desktop entirely. Inside the home, VESPER is *fully* present: the face,
+the ground, the main menu, ninety cards. An island there is the same entity
+saying the same thing twice, in a smaller voice, thirty points above its own
+face. §8's *"one face at a time"* rule is the same rule; this is its other half.
+
+**The signal is one the home already needs.** The ground is `Managed` and lives
+on one Desktop, so its `NSWindowOcclusionState` is exactly "is the owner looking
+at the home". §10 already stops rendering when that goes occluded. So:
+
+> **the island's visibility is the inverse of the ground's occlusion state.**
+
+One signal, two rules, no new mechanism. `NSWorkspaceActiveSpaceDidChange`
+(public since 10.6) is available as a corroborating edge, but occlusion is the
+authority because it answers the question actually being asked — the island must
+hide when the home is *visible*, not when a space merely changed.
+
+**The retreat is `--smooth`, not a cut.** The island goes to Dormant and then
+out; arriving on the home Desktop should feel like presence consolidating into
+one place, not like a component being switched off.
+
+**One consequence, and it is the owner's call.**
+`DESIGN-FOUNDATION.md` §9 refused a mark on the main menu with a specific
+argument: *"it would sit ~40 pt from the island's copy and add nothing."*
+**Inside the home there is no island copy, so that argument does not hold
+here.** The main menu may carry the mark in the home without the collision that
+killed it — and the mark is the only thing that would still say "VESPER" while
+the face is Dispersed or Absent. Recorded, not decided: §9 was an owner decision
+and only the owner reopens it.
 
 ---
 
@@ -490,10 +539,10 @@ wrong: the owner's screen is not VESPER's own presentation.
 
 | Situation | Behaviour | Why |
 |---|---|---|
-| Home Desktop active, VESPER frontmost | full home. Dock auto-hidden, main menu in its position | the foundation's dock swap, `self` tier |
-| Home Desktop active, a work window frontmost | ground stays put and stays behind. Cards remain on the Float plane | ground never rises (§2.5) |
-| Another Desktop active | **the home renders nothing** — `NSWindowOcclusionState` says it is not visible | a full-screen 60 fps surface nobody can see is the clearest possible waste of the host's life |
-| A fullscreen app on another Desktop | unchanged. The island rides along; the home does not follow | the home is a place, and a place does not chase you |
+| Home Desktop active, VESPER frontmost | full home. **Island hidden** (§2.6). Menu bar stays and is tinted by the ground; **no black band**. Dock auto-hidden, main menu in its position | the foundation's dock swap, `self` tier |
+| Home Desktop active, a work window frontmost | ground stays put and stays behind. Cards remain on the Float plane. Island still hidden — the owner is still *in* the home | ground never rises (§2.5) |
+| Another Desktop active | **the home renders nothing**, and **the island returns** on `--smooth` | one signal, two rules: `NSWindowOcclusionState` on the ground (§2.6). A full-screen 60 fps surface nobody can see is the clearest possible waste of the host's life |
+| A fullscreen app on another Desktop | the island rides along and the home does not follow | the home is a place, and a place does not chase you. This is the one context where the notch band *is* black, and it belongs to the island |
 | Display sleep, then wake | the stage it held, the tier it held | same rule the island uses: dormant-on-wake reads as a crash |
 | Screen locked | not drawn | privacy decision, same as the island |
 | External display attached | the home moves to the display the owner puts it on; the island stays built-in | there is no notch elsewhere; the ground has no such constraint |

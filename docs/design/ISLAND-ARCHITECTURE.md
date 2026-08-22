@@ -284,7 +284,7 @@ The island is not an app window and does not behave like one.
 | External display attached | island is on the **built-in** display only | no notch elsewhere; a floating pill on an external monitor is a different component and is not designed |
 | Clamshell, external only | no island | same reason; the shoulders content moves nowhere and simply is not shown |
 | Screen recording / screenshot | island is captured normally | hiding it would be the surprising behaviour |
-| Inside VESPER's own workspace | Dock swap applies (§10) | `NSApplicationPresentationAutoHideDock`, `self` tier |
+| Inside VESPER's own workspace | **the island is not drawn at all** — it retreats to Dormant and orders out on `--smooth`, and returns when the home's ground goes occluded. Dock swap applies (§10) | owner decision, 2026-08-22: the island exists because VESPER is *not* on screen, and in the home it is fully on screen. See `HOME-ARCHITECTURE.md` §2.6. `NSApplicationPresentationAutoHideDock`, `self` tier |
 | VESPER backend not running | island shows Dormant, and nothing else | a surface that renders stale state is worse than one that renders none |
 
 That last row is the one most likely to be got wrong. The island is a view of a
