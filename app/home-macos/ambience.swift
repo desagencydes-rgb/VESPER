@@ -105,10 +105,16 @@ func drawScene(_ m: Mode, in rect: NSRect, index: Int, total: Int) -> String {
         let path = wpDir + m.wallpaper + "." + ext
         if FileManager.default.fileExists(atPath: path), let img = NSImage(contentsOfFile: path) {
             let (kept, axis) = drawWallpaper(img, in: rect)
-            report = String(format: "%-11s %-6s %4.0fx%-4.0f  keeps %3.0f%% of %s",
+            var lightNote = "light: ?"
+            if let c = lightCentroid(img) {
+                let ok = lightSurvives(c, kept: kept, axis: axis)
+                lightNote = String(format: "light at (%.2f, %.2f) %@",
+                                   c.x, c.y, ok ? "kept" : "*** CROPPED OUT ***")
+            }
+            report = String(format: "%-11s %-6s %4.0fx%-4.0f  keeps %3.0f%% of %-6s  %@",
                             (m.name as NSString).utf8String!, (ext as NSString).utf8String!,
                             img.size.width, img.size.height, kept * 100,
-                            (axis as NSString).utf8String!)
+                            (axis as NSString).utf8String!, lightNote)
             loaded = true
             break
         }
@@ -168,6 +174,59 @@ func drawScene(_ m: Mode, in rect: NSRect, index: Int, total: Int) -> String {
             ink.withAlphaComponent(0.6))
     }
     return report
+}
+
+// ---------------------------------------------------------------------------
+// Where is the light, and does filling the screen throw it away?
+//
+// The owner's rule for the wallpapers is aspect-FILL: no empty space, no
+// reshaping. That is what drawWallpaper does, and it costs 13% of the width on
+// eight of the eleven. The question that actually matters is not how much is
+// lost but WHAT: each mode's accent was taken from its picture's light source
+// (modes2.py, top 4% of pixels by brightness x chroma), so a centre crop that
+// cut the light out would leave a mode whose colour has no visible source
+// behind it. That would not look wrong so much as look arbitrary.
+//
+// Same selection rule as modes2.py, but this asks for the light's POSITION,
+// which that derivation never needed and does not compute.
+// ---------------------------------------------------------------------------
+
+func lightCentroid(_ img: NSImage) -> (x: Double, y: Double)? {
+    let w = 96
+    let h = max(1, Int(96.0 * img.size.height / img.size.width))
+    guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+    img.draw(in: NSRect(x: 0, y: 0, width: w, height: h))
+    NSGraphicsContext.restoreGraphicsState()
+
+    var scored: [(s: Double, x: Int, y: Int)] = []
+    for y in 0..<h {
+        for x in 0..<w {
+            guard let c = rep.colorAt(x: x, y: y) else { continue }
+            let r = Double(c.redComponent), g = Double(c.greenComponent), b = Double(c.blueComponent)
+            let luma = 0.2126 * r + 0.7152 * g + 0.0722 * b
+            let chroma = Swift.max(r, g, b) - Swift.min(r, g, b)
+            scored.append((luma * chroma, x, y))
+        }
+    }
+    guard !scored.isEmpty else { return nil }
+    scored.sort { $0.s > $1.s }
+    let top = scored.prefix(Swift.max(1, scored.count * 4 / 100))
+    let cx = top.reduce(0.0) { $0 + Double($1.x) } / Double(top.count) / Double(w)
+    // NSBitmapImageRep's colorAt is top-left origin, so y is already from the top.
+    let cy = top.reduce(0.0) { $0 + Double($1.y) } / Double(top.count) / Double(h)
+    return (cx, cy)
+}
+
+/// Does the centre crop keep it? `kept` is the surviving fraction of the axis
+/// that lost, so the visible band is centred and `kept` wide.
+func lightSurvives(_ c: (x: Double, y: Double), kept: Double, axis: String) -> Bool {
+    let lo = (1 - kept) / 2, hi = 1 - lo
+    let v = axis == "width" ? c.x : c.y
+    return v >= lo && v <= hi
 }
 
 // ---------------------------------------------------------------------------
