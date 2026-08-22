@@ -16,6 +16,7 @@ otherwise lose.
 | `routing/` | The owner's own placement decisions for 237 catalogue items — `spec_raw.txt` is the export as pasted, `routed.json` the parse, `data.json` the full catalogue including unrouted suggestions |
 | `source/` | The generator for the interactive version. `build_artifact.py` reassembles it from the HTML fragments and inlines `refs/` as data URIs |
 | `source/*.py` | The derivations, so no number here is a claim without a method — see below |
+| `source/artifacts/` | The two published pages and their sources. The architecture page is **built from the markdown**; the previews page is hand-authored and carries a DOM-stub test with executed negative controls. Has its own README |
 | `assets/` | The mark and the face reference at working resolution |
 
 Interactive version:
