@@ -18,6 +18,7 @@ otherwise lose.
 | `source/*.py` | The derivations, so no number here is a claim without a method — see below |
 | `source/artifacts/` | The two published pages and their sources. The architecture page is **built from the markdown**; the previews page is hand-authored and carries a DOM-stub test with executed negative controls. Has its own README |
 | `assets/` | The mark and the face reference at working resolution |
+| `assets/wallpapers/` | **The owner's eleven mode wallpapers and four videos.** Authored, irreplaceable, and committed for that reason — they existed only in one Downloads folder on one laptop |
 
 Interactive version:
 <https://claude.ai/code/artifact/aec78c48-24ad-4e69-a2a2-e27b9a67308c>
@@ -35,6 +36,8 @@ python3 docs/design/source/modes2.py    # the LIGHT SOURCE in each image, not it
 python3 docs/design/source/final.py     # -> modes.json, the eleven ambience themes
 python3 docs/design/source/island_geom.py  # the island, measured out of ui-refs/
 python3 docs/design/source/home_rooms.py   # the home's nine rooms, out of the owner's own routing
+python3 docs/design/source/tiny.py         # regenerate refs/tiny/ -- extract.py and modes2.py need it
+python3 docs/design/source/home_wallpapers.py  # do the wallpapers agree with the ambience they carry?
 ```
 
 `extract.py` decodes PNG with `zlib` + manual defiltering rather than pulling a
@@ -52,10 +55,14 @@ judgement call that looks like a measurement is worse than either one.
 
 - **The eleven images in `source/refs/` are feel sources, the mark, and the face.
   They are not UI references.** The owner was explicit about this. The UI
-  reference set is a separate thing and lives in `ui-refs/`; it arrived
-  2026-08-21 and covers **the island only**. The composition of every other
-  screen — the main menu, the home, the rooms, Settings, History — is still
-  undecided and still waiting.
+  reference set is a separate thing and lives in `ui-refs/`: the island arrived
+  2026-08-21, **the home arrived 2026-08-22**. The rooms, Settings and History
+  are still undecided and still waiting.
+  **Amended 2026-08-22:** the eleven are now also the **wallpapers**, one per
+  ambience mode, in `assets/wallpapers/`. That does not make them UI references —
+  they still say nothing about composition — but it does mean each mode's accent
+  was derived from the very picture that sits behind it. `source/home_wallpapers.py`
+  measures the agreement: **all 8 measured modes within 30°, none diverging.**
 - **The blue face was never the reference.** Replaced 2026-08-21 on the owner's
   correction; §8 had said "Not blue" all along, so the spec was right and the
   asset was wrong. `build_artifact.py` inlines `source/refs/face.jpg`, so the

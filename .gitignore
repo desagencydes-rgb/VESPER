@@ -43,3 +43,8 @@ graphify-out/
 app/island-macos/island
 app/island-macos/face.bin
 app/VESPER.app/
+
+# Derived from refs/*.jpg by docs/design/source/tiny.py. Regenerable, and
+# NOT byte-identical to the set the committed palettes.json was measured from.
+docs/design/source/refs/tiny/
+docs/design/source/artifacts/home-previews.built.html

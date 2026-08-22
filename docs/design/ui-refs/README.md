@@ -4,7 +4,9 @@ Received **2026-08-21**. These are the references `DESIGN-FOUNDATION.md` §11 wa
 blocked on, and they lift the first of the two standing corrections in
 `docs/design/README.md`: *"the composition of an actual screen is not [decided],
 and waits on a reference set that had not arrived as of 2026-08-21."* It has now
-arrived, for the island. **Only for the island** — see *Still not decided* below.
+arrived, for the island. **A second reference arrived 2026-08-22, for the home** —
+`home-reference-1.jpg`, read in `HOME-ARCHITECTURE.md` §14. Everything else is
+still unreferenced; see *Still not decided* below.
 
 Keep the distinction that `source/refs/` exists for: those eleven images are
 **feel sources**, the mark and the face. These are **UI references** — they say
@@ -17,6 +19,7 @@ what a screen is actually composed of. Different job, different directory.
 | `island-expanded-presence.png` | Expanded, speaking — status row, the face at centre, a spoken caption |
 | `face-and-hologram-panels.jpg` | The face, and the hologram panel language around it |
 | `island-in-situ.jpg` | One full composite, kept for scale against the menu bar, widgets and Dock |
+| `home-reference-1.jpg` | **The home, 2026-08-22.** One full composition: the face as a bust at the centre, work VESPER made scattered around it each with a caption in its own voice, a four-button rail at the right edge, the transcript line, and the main menu at the Dock's position. Confirms the menu bar is present, there is no black band and there is no island. Read in `HOME-ARCHITECTURE.md` §14 |
 | `manifest.toml` | Provenance: original filename, sha256, authored size, crop origin, scale |
 
 The committed island files are **lossless crops at native resolution**, not
@@ -165,7 +168,7 @@ and `UNKNOWN` means unavailable. Take the form, refuse the numbers.
 
 ## Still not decided
 
-These references cover **the island only**. Everything §11 lists as blocking the
+These references cover **the island, and one composition of the home**. Everything §11 lists as blocking the
 visual language stays blocked for every other surface: the main menu, the home
 and its 90 cards, the rooms, floating dialogs, Settings and History have no
 reference set. Density (compact or comfortable) is not answered here either.

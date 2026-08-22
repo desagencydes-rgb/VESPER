@@ -298,6 +298,90 @@ footer .fin{border-top:1px solid var(--line-2);padding-top:24px;display:flex;fle
     -webkit-backdrop-filter:none;backdrop-filter:none;background:var(--raised)}
 }
 </style>
+<style>
+/* ══ Corrections from docs/design/ui-refs/home-reference-1.jpg, 2026-08-22 ══ */
+
+/* the wallpaper IS the ground. modes.json's accent was derived from this
+   picture's own light source, which is why the UI on top of it agrees. */
+.screen{background-size:cover;background-position:center;
+  transition:background-image var(--dur-smooth) var(--smooth), background-color var(--dur-smooth) var(--smooth)}
+.screen::before{
+  background:radial-gradient(140% 100% at 50% 42%, transparent 0%, color-mix(in oklab,var(--amb2) 62%,transparent) 78%),
+             linear-gradient(180deg, color-mix(in oklab,var(--amb2) 34%,transparent) 0%, transparent 22%,
+                             transparent 62%, color-mix(in oklab,var(--amb2) 66%,transparent) 100%)}
+
+/* the rail — four circular glass buttons at the right edge, labels outside */
+.rail{position:absolute;right:1.4%;top:50%;transform:translateY(-50%);z-index:8;
+  display:flex;flex-direction:column;gap:.62em;align-items:flex-end;
+  transition:opacity var(--dur-smooth) var(--smooth)}
+.rail a{display:flex;align-items:center;gap:.6em;text-decoration:none;color:var(--amb-ink)}
+.rail i{width:2.5em;height:2.5em;border-radius:50%;display:grid;place-items:center;flex:none;
+  background:var(--glass-fill);-webkit-backdrop-filter:var(--chip-blur);backdrop-filter:var(--chip-blur);
+  border:1px solid rgba(255,255,255,.2);box-shadow:var(--spec);font-size:.9em;font-style:normal;
+  color:var(--amb-ink);opacity:.92}
+.rail span{font-size:.82em;color:var(--amb-ink);opacity:.86;letter-spacing:.01em;white-space:nowrap;
+  order:-1}
+
+/* the transcript — VESPER's answer as text, wide and quiet, above the menu */
+.transcript{position:absolute;left:50%;transform:translateX(-50%);bottom:11%;z-index:4;
+  width:62%;text-align:center;color:var(--amb-ink);opacity:.9;font-size:1.55em;font-weight:200;
+  letter-spacing:.005em;line-height:1.3;text-shadow:0 .06em .5em color-mix(in oklab,var(--amb2) 75%,transparent)}
+
+/* main menu: icons + the owner's avatar, and a separate expandable tile */
+.dockwrap{position:absolute;left:0;right:0;bottom:1.6%;z-index:8;display:flex;justify-content:center;
+  align-items:center;gap:.7em;padding:0 2.5%}
+.dockbar{position:static;transform:none;bottom:auto;left:auto;flex:1;justify-content:center;max-width:82%}
+.dockbar .avatar{width:2.45em;height:2.45em;border-radius:50%;flex:none;
+  background:radial-gradient(circle at 40% 32%,var(--cream),var(--ember) 62%,#5a2418);
+  border:1px solid rgba(255,255,255,.3);box-shadow:var(--spec)}
+.expand{flex:none;width:3.3em;height:3.3em;border-radius:var(--r-chip);display:grid;place-items:center;
+  background:var(--glass-dock);-webkit-backdrop-filter:var(--dock-blur);backdrop-filter:var(--dock-blur);
+  border:1px solid rgba(255,255,255,.16);box-shadow:var(--spec);color:var(--amb-ink2);font-size:.9em}
+
+/* an artifact VESPER made, with its offer underneath. The reference's real subject. */
+.art{position:absolute;z-index:3;display:flex;flex-direction:column;gap:.55em;align-items:center;
+  text-align:center}
+.art .obj{width:100%;border-radius:.8em;overflow:hidden;border:1px solid rgba(255,255,255,.18);
+  box-shadow:var(--spec),0 1em 2.4em -.9em rgba(0,0,0,.6);background:rgba(255,255,255,.08);
+  -webkit-backdrop-filter:var(--sheet-blur);backdrop-filter:var(--sheet-blur)}
+.art .cap{font-size:.8em;line-height:1.4;color:var(--amb-ink);opacity:.92;max-width:15em;
+  text-shadow:0 .05em .4em color-mix(in oklab,var(--amb2) 70%,transparent)}
+.art.hand .cap{font-family:"Dancing Script",cursive;font-size:1.05em}
+
+/* the metrics card the owner labelled in the reference itself */
+.metrics{position:absolute;z-index:3;border-radius:1em;padding:1em 1.1em;
+  background:color-mix(in oklab,var(--solar) 26%, rgba(255,255,255,.10));
+  -webkit-backdrop-filter:var(--sheet-blur);backdrop-filter:var(--sheet-blur);
+  border:1.5px solid color-mix(in oklab,var(--amb-accent) 55%, transparent);
+  box-shadow:var(--spec),0 1em 2.4em -1em rgba(0,0,0,.5);color:var(--amb-ink);font-size:.8em}
+.metrics b{display:block;font-family:"IBM Plex Mono",monospace;font-size:.72em;letter-spacing:.15em;
+  text-transform:uppercase;opacity:.72;margin-bottom:.55em;font-weight:500}
+.metrics .row{display:flex;justify-content:space-between;gap:1.2em;line-height:1.75;
+  font-variant-numeric:tabular-nums}
+.metrics .row span:last-child{opacity:.78}
+
+/* gauges: filled dark circles carrying one number — the reference corrects rings */
+.gauge{position:absolute;z-index:3;width:3.9em;height:3.9em;border-radius:50%;display:grid;
+  place-items:center;background:rgba(6,10,14,.82);border:1px solid rgba(255,255,255,.13);
+  box-shadow:var(--spec),0 .8em 1.8em -.8em rgba(0,0,0,.7);
+  color:var(--amb-ink);font-size:.9em;font-weight:300;font-variant-numeric:tabular-nums}
+
+/* sticky notes */
+.sticky{position:absolute;z-index:3;width:4.6em;height:4.2em;background:#f6e9a8;color:#3a3420;
+  font-size:.72em;display:grid;place-items:center;text-align:center;line-height:1.3;
+  box-shadow:0 .7em 1.6em -.7em rgba(0,0,0,.55);transform:rotate(-3deg)}
+
+/* a phase roadmap along a curve, top band */
+.road{position:absolute;z-index:3;display:flex;align-items:flex-start;gap:1.1em}
+.road .ph{background:rgba(6,10,14,.8);border:1px solid rgba(255,255,255,.12);border-radius:.65em;
+  padding:.5em .8em;color:var(--amb-ink);font-size:.76em;line-height:1.35;text-align:center;
+  box-shadow:var(--spec)}
+.road .ph b{display:block;font-weight:500}
+.road .ph span{opacity:.62;font-size:.88em}
+
+.screen[data-desk="owner"] .rail,
+.screen[data-desk="owner"] .transcript{opacity:0;pointer-events:none}
+</style>
 <div class="wrap">
 <header style="padding:clamp(56px,9vw,110px) 0 0">
   <p class="eyebrow">docs/design · proposals · 2026-08-22</p>
@@ -326,10 +410,14 @@ footer .fin{border-top:1px solid var(--line-2);padding-top:24px;display:flex;fle
   <h2>A Desktop, not a fullscreen window</h2>
   <p>macOS has no public API to create a Space, so VESPER's home is a ground window at
     level <code>normal − 1</code> on a Desktop you make once in Mission Control. Three
-    things follow, and they are all visible below: the menu bar <strong>stays</strong> and
-    is tinted by the ground, there is <strong>no black band</strong> across the top, and
+    things follow, and your reference confirms all three: the menu bar <strong>stays</strong>
+    and is tinted by the ground, there is <strong>no black band</strong> across the top, and
     <strong>the island is not drawn here at all</strong> — it exists because VESPER is not
     on screen, and in the home it is.</p>
+  <p>The ground is your own wallpaper for that mode. Each mode's accent was derived from
+    the <em>light source in this very picture</em>, so the interface and the photograph
+    behind it are the same colour by construction rather than by taste — measured, all
+    eight modes within 30°, none diverging.</p>
 
   <div class="frame">
     <div class="frame-cap">
@@ -347,10 +435,15 @@ footer .fin{border-top:1px solid var(--line-2);padding-top:24px;display:flex;fle
         <span class="mk"></span>
         <span class="gauges"><i class="g"></i><i class="g"></i><i class="g on"></i></span>
       </div>
+      <div class="plane" id="planeDeco"></div>
       <div class="plane" id="planeWork"></div>
       <div class="plane float" id="planeFloat"></div>
-      <div class="saybar" id="saybar">Say something</div>
-      <div class="dockbar" id="dockbar"></div>
+      <div class="transcript" id="transcript"></div>
+      <nav class="rail" id="rail"></nav>
+      <div class="dockwrap" id="dockwrap">
+        <div class="dockbar" id="dockbar"></div>
+        <div class="expand" id="expand" title="expandable menu">⋯</div>
+      </div>
       <div id="pins"></div>
     </div>
   </div>
@@ -383,7 +476,9 @@ footer .fin{border-top:1px solid var(--line-2);padding-top:24px;display:flex;fle
     <div><b>4</b><span><strong>Ground plane</strong>, level <code>normal − 1</code>. Clicking it never buries your work.</span></div>
     <div><b>5</b><span><strong>Work plane.</strong> App windows sit above the ground — VESPER's own, and yours.</span></div>
     <div><b>6</b><span><strong>Float plane.</strong> Cards and dialogs, above everything on this Desktop.</span></div>
-    <div><b>7</b><span><strong>Main menu</strong> in the Dock's position, Dock-tier glass. Cursor to the bottom edge raises the system Dock <em>in front of</em> it.</span></div>
+    <div><b>7</b><span><strong>Main menu</strong> in the Dock's position, Dock-tier glass, with your avatar — and the <strong>expandable menu</strong> tile at its right end. Cursor to the bottom edge raises the system Dock <em>in front of</em> it.</span></div>
+    <div><b>8</b><span><strong>The rail</strong> — projects, research, history, settings. Persistent, four slots, chosen by frequency rather than by taxonomy.</span></div>
+    <div><b>9</b><span><strong>The transcript.</strong> What VESPER just said, as text. Wide and quiet, never a window.</span></div>
   </div>
 </section>
 
@@ -542,6 +637,7 @@ footer .fin{border-top:1px solid var(--line-2);padding-top:24px;display:flex;fle
 </div></div></footer>
 </div>
 <button class="themebtn" id="tb" aria-label="Switch between light and dark">◐</button>
+<!--WALLPAPERS-->
 <script>
 (function(){
 "use strict";
@@ -570,48 +666,63 @@ function C(x,y,w,k,h,p,hand){return{x:x,y:y,w:w,k:k,h:h,p:p,hand:hand};}
 /* ── the stages. Positions are % of the 1728 x 1117 pt screen ── */
 var STAGES={
  home:{label:"Home",face:"centre",amb:"Home",say:true,
-   note:"No work. The face is the subject and the frame's eight cards are all that is mounted.",
-   win:[], wg:[
-     G(3.2,9,17,"Machine","65%","memory pressure · nominal"),
-     G(3.2,30,17,"Needs you","0","nothing waiting"),
-     G(79.8,9,17,"Next","09:00","alarm armed on node 2"),
-     G(79.8,30,17,"Fabric","3","segments · 0 nodes enrolled")],
-   card:[]},
+   note:"Composed from your reference: the face is the axis, and what VESPER made while you were away is laid out around it, each piece with an offer attached.",
+   tr:"I finished the placement review while you were out. Two of the three findings are worth your time.",
+   win:[], wg:[], card:[],
+   deco:[
+    {t:"road",x:26,y:3,items:[["phase 1","scope"],["phase 2","measure"],["phase 3","land"],["phase 4","verify"]]},
+    {t:"metrics",x:3.5,y:9,w:19,rows:[["thinking","4.2 s"],["context","18.4k / 32k"],["cache","62%"],["tokens today","214k"],["power","6.1 W"]]},
+    {t:"art",x:24.5,y:9,w:11,kind:"logo",cap:"I made this logo for the project X you're working on, tell me what you think of it"},
+    {t:"art",x:63,y:7,w:22,kind:"gantt",cap:"I made this diagram for your feature X that you asked for"},
+    {t:"art",x:62,y:34,w:12,kind:"cal",cap:"prepared a calendar for the next critical days"},
+    {t:"art",x:76,y:33,w:10,kind:"paper",cap:"got an interesting research paper you might want to look at, tell me if you'd like me to break it down to you",hand:true},
+    {t:"gauge",x:26.5,y:38,v:"80"},{t:"gauge",x:26.5,y:47,v:"40"},{t:"gauge",x:26.5,y:56,v:"65"},
+    {t:"sticky",x:20,y:52,v:"call back"},{t:"sticky",x:20.5,y:61,v:"lecture 9"},
+    {t:"art",x:64,y:57,w:14,kind:"term",cap:""},
+    {t:"art",x:80,y:58,w:13,kind:"donut",cap:""}
+   ]},
  research:{label:"Research",face:"dispersed",amb:"Working",say:false,
    note:"Subject right, freeform left. Both halves are the same canvas, which is why an arrow can cross the middle.",
+   tr:'The encoder stack is the part your project actually needs — I have marked four spans and kept two contradictions.',
    win:[W(2.5,5,47,80,"Freeform — notes, diagrams, sources","","fm"),
         W(51.5,5,46,80,"Attention Is All You Need.pdf","","pdf")],
    wg:[], card:[C(4.5,63,24,null,null,"the encoder stack is the part your project actually needs",true)]},
  coding:{label:"Coding / building",face:"attendant",amb:"Working",say:false,
    note:"Editor, terminal, review. The foreign window is arranged, never adopted — VESPER cannot pull it across Desktops.",
+   tr:'31 of 31 checks pass. The placement change is ready for you to look at.',
    win:[W(20,5,45,56,"placement.py — VESPER","","code"),
         W(20,63,45,26,"VESPER's terminal","","term"),
         W(67,5,30,84,"Xcode","","foreign")],
    wg:[G(2.5,9,15,"Checks","31/31","last run 4 min ago")], card:[]},
  analysis:{label:"Analysis",face:"dispersed",amb:"Thinking",say:false,
    note:"Data centre, notebook right. The face disperses: reading work gets the screen.",
+   tr:"Three models fit in VRAM and land at the card's bandwidth. The fourth does not, and that is the whole cliff.",
    win:[W(2.5,6,52,78,"throughput_b10405.csv","","data"),
         W(56.5,6,41,78,"Notebook — bandwidth law","","nb")],
    wg:[], card:[]},
  watching:{label:"Watching",face:"absent",amb:"Idle",say:false,
    note:"One window, full bleed. No face, no timer, no widgets — the island would carry presence if you left this Desktop.",
+   tr:'',
    win:[W(0,0,100,100,"","","video")], wg:[], card:[]},
  improving:{label:"Improving itself",face:"attendant",amb:"Working",say:false,
    note:"Proposals right, diff left, checks below. The only stage where every card it holds is already true today.",
+   tr:'Three proposals open. None of them merge themselves.',
    win:[W(2.5,6,52,56,"selfmod — proposed diff","","code"),
         W(2.5,64,52,20,"31/31 checks · 79/79 self-tests","","checks"),
         W(56.5,6,41,78,"Open proposals","","props")],
    wg:[], card:[]},
  rest:{label:"Resting",face:"centre",amb:"Rest",say:false,
    note:"Ambience only. Nothing mounted that could interrupt you.",
+   tr:'',
    win:[], wg:[], card:[]}
 };
 
 var scr=document.getElementById('scr'), pw=document.getElementById('planeWork'),
-    pf=document.getElementById('planeFloat'), say=document.getElementById('saybar'),
+    pf=document.getElementById('planeFloat'), pd=document.getElementById('planeDeco'),
     dock=document.getElementById('dockbar'), pins=document.getElementById('pins'),
     cap=document.getElementById('capstate'), readout=document.getElementById('readout'),
-    mbapp=document.getElementById('mbapp');
+    mbapp=document.getElementById('mbapp'), rail=document.getElementById('rail'),
+    tr=document.getElementById('transcript'), dockwrap=document.getElementById('dockwrap');
 var state={desk:"vesper",stage:"home",mode:"Home",ann:true};
 
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');}
@@ -626,6 +737,16 @@ var BODIES={
  data:'<div style="font-family:\'IBM Plex Mono\',monospace;font-size:.72em;line-height:2"><span style="opacity:.5">model                  fits   tok/s</span><br>Qwen3-1.7B  Q4_K_M     yes    148.2<br>Llama-3.2-3B Q4_K_M    yes    100.2<br>Qwen3-8B    Q4_K_M     yes     45.8<br>MoE 30B-A3B Q4_K_M     <span style="color:var(--ember)">no</span>       7.45<br>Mistral 24B Q4_K_M     <span style="color:var(--ember)">no</span>       3.07</div>',
  nb:'<div style="font-size:.88em;line-height:1.7">tok/s ≈ bandwidth ÷ bytes-per-token<br><br><span style="opacity:.6">Three that fit land at 176–214 GB/s. The one that does not lands at 42 — dual-channel DDR4. A ~5× cliff at the moment a model stops fitting.</span></div>',
  video:'<div style="position:absolute;inset:0;background:radial-gradient(120% 100% at 50% 45%,#12303f,#020a10);display:grid;place-items:center"><span style="opacity:.28;font-size:2.4em">▶</span></div>',
+ logo:'<div style="aspect-ratio:1;display:grid;place-items:center;background:linear-gradient(150deg,#2a1b4d,#120a24)"><span style="font-size:2.1em">🖐</span></div>',
+ gantt:'<div style="aspect-ratio:16/7;background:#f6cdb8;padding:.5em .6em;display:flex;flex-direction:column;gap:.22em">'+
+   [72,55,84,40,63,48].map(function(w,i){return '<div style="height:.32em;width:'+w+'%;margin-left:'+(i*6)+'%;background:rgba(30,14,8,.42);border-radius:.2em"></div>';}).join('')+'</div>',
+ cal:'<div style="aspect-ratio:4/5;background:#fbf7f2;color:#2a2622;padding:.5em;font-size:.62em"><b style="display:block;text-align:center;margin-bottom:.35em">April</b><div style="display:grid;grid-template-columns:repeat(7,1fr);gap:.14em">'+
+   Array.from({length:35},function(_,i){var d=i-2;var hot=[12,17,24].indexOf(d)>-1;return '<span style="text-align:center;border-radius:.2em;'+(hot?'background:#e8829d;color:#fff':'opacity:.6')+'">'+(d>0&&d<31?d:'')+'</span>';}).join('')+'</div></div>',
+ paper:'<div style="aspect-ratio:3/4;background:#fdfbf7;padding:.6em .5em;display:flex;flex-direction:column;gap:.2em">'+
+   '<div style="height:.3em;width:60%;background:#c9c2b8;margin:0 auto .3em"></div>'+
+   Array.from({length:14},function(_,i){return '<div style="height:.16em;width:'+(70+((i*37)%28))+'%;background:#ddd7cd"></div>';}).join('')+'</div>',
+ term:'<div style="aspect-ratio:16/9;background:#0a0d10;padding:.55em .6em;font-family:\'IBM Plex Mono\',monospace;font-size:.6em;line-height:1.7;color:#9db2be">$ vesper status<br><span style="color:#8fa383">31/31 checks</span><br>$ <span style="opacity:.5">▍</span></div>',
+ donut:'<div style="aspect-ratio:1;display:grid;place-items:center;background:rgba(6,10,14,.55)"><div style="width:74%;aspect-ratio:1;border-radius:50%;background:conic-gradient(var(--amb-accent) 0 32%, #8fa383 32% 55%, #81609f 55% 78%, rgba(255,255,255,.16) 78% 100%);-webkit-mask:radial-gradient(circle,transparent 46%,#000 47%);mask:radial-gradient(circle,transparent 46%,#000 47%)"></div></div>',
  foreign:'<div style="font-size:.85em;opacity:.55;line-height:1.7">Your window, on your Desktop.<br><br>VESPER can position it, resize it and raise it. It cannot move it here — no public API does that.</div>'
 };
 
@@ -641,7 +762,10 @@ function render(){
  scr.setAttribute('data-desk',state.desk);
  scr.setAttribute('data-stage',state.stage);
  scr.classList.toggle('noannot',!state.ann);
- paintMode(MODEBY[owner?"Idle":state.mode]);
+ var mk = owner ? "Idle" : state.mode;
+ paintMode(MODEBY[mk]);
+ var wp = (window.WP||{})[mk.toLowerCase()];
+ scr.style.backgroundImage = (!owner && wp) ? 'url("'+wp+'")' : 'none';
  mbapp.textContent = owner ? "Finder" : "VESPER";
 
  var wins = owner
@@ -655,6 +779,23 @@ function render(){
      + chrome + (w.c==="video"? body : '<div class="bd">'+body+'</div>') + '</div>';
  }).join('');
 
+ pd.innerHTML = owner ? '' : (S.deco||[]).map(function(d){
+   if(d.t==='road') return '<div class="road" style="left:'+d.x+'%;top:'+d.y+'%">'+
+     d.items.map(function(it,i){return '<div class="ph" style="margin-top:'+(i%2?1.6:0)+'em"><b>'+esc(it[0])+'</b><span>'+esc(it[1])+'</span></div>';}).join('')+'</div>';
+   if(d.t==='metrics') return '<div class="metrics" style="left:'+d.x+'%;top:'+d.y+'%;width:'+d.w+'%"><b>thinking</b>'+
+     d.rows.map(function(r){return '<div class="row"><span>'+esc(r[0])+'</span><span>'+esc(r[1])+'</span></div>';}).join('')+'</div>';
+   if(d.t==='gauge') return '<div class="gauge" style="left:'+d.x+'%;top:'+d.y+'%">'+esc(d.v)+'</div>';
+   if(d.t==='sticky') return '<div class="sticky" style="left:'+d.x+'%;top:'+d.y+'%">'+esc(d.v)+'</div>';
+   if(d.t==='art') return '<div class="art'+(d.hand?' hand':'')+'" style="left:'+d.x+'%;top:'+d.y+'%;width:'+d.w+'%">'+
+     '<div class="obj">'+(BODIES[d.kind]||'')+'</div>'+(d.cap?'<div class="cap">'+esc(d.cap)+'</div>':'')+'</div>';
+   return '';
+ }).join('');
+
+ rail.innerHTML = ['projects','research','history','settings'].map(function(n,i){
+   return '<a href="#screen" tabindex="-1"><span>'+n+'</span><i>'+['◈','◎','◔','⚙'][i]+'</i></a>';
+ }).join('');
+ tr.textContent = owner ? '' : (S.tr||'');
+
  pf.innerHTML = owner ? '' : (S.card||[]).map(function(c){
    if(c.hand) return '<div class="card" style="left:'+c.x+'%;top:'+c.y+'%;width:'+c.w+'%;font-family:\'Dancing Script\',cursive;font-size:1.15em;line-height:1.35">'+esc(c.p)+'</div>';
    return '<div class="card" style="left:'+c.x+'%;top:'+c.y+'%;width:'+c.w+'%"><span class="k">'+esc(c.k)+'</span><h5>'+esc(c.h)+'</h5><p>'+esc(c.p)+'</p></div>';
@@ -662,11 +803,10 @@ function render(){
    return '<div class="wg" style="left:'+g.x+'%;top:'+g.y+'%;width:'+g.w+'%"><span class="k">'+esc(g.k)+'</span><span class="v">'+esc(g.v)+'</span><span class="n">'+esc(g.n)+'</span></div>';
  }).join(''));
 
- say.style.display = (!owner && S.say) ? '' : 'none';
-
  dock.innerHTML = owner
    ? '<i></i><i></i><i></i><i></i><i></i><span class="sep"></span><i></i>'
-   : '<i class="mk"></i><span class="sep"></span><i></i><i></i><i></i><i></i><span class="sep"></span><span class="lbl">'+esc(S.label)+'</span>';
+   : '<i class="mk"></i><span class="sep"></span><i></i><i></i><span class="avatar"></span><i></i><i></i><span class="sep"></span><span class="lbl">'+esc(S.label)+'</span>';
+ document.getElementById('expand').style.display = owner ? 'none' : '';
 
  pins.innerHTML = owner
    ? '<div class="pin" style="left:63%;top:1.2%"><s></s><b>3</b></div>'
@@ -676,7 +816,9 @@ function render(){
       '<div class="pin" style="left:2%;top:92%"><b>4</b><s></s></div>',
       '<div class="pin" style="left:50%;top:47%"><b>5</b><s></s></div>',
       '<div class="pin" style="left:78%;top:88%"><s></s><b>6</b></div>',
-      '<div class="pin" style="left:36.5%;top:95.5%"><b>7</b><s></s></div>'].join('');
+      '<div class="pin" style="left:36.5%;top:95.5%"><b>7</b><s></s></div>',
+      '<div class="pin" style="left:84%;top:44%"><b>8</b><s></s></div>',
+      '<div class="pin" style="left:26%;top:88%"><b>9</b><s></s></div>'].join('');
 
  cap.innerHTML = owner
    ? '<b>Your Desktop</b> · island at Shoulders'
@@ -688,6 +830,7 @@ function render(){
    '<div><b>Island</b><strong>'+(owner?'Shoulders · 370.5 × 49.6 pt':'hidden — VESPER is on screen')+'</strong></div>'+
    '<div><b>Ambience</b><strong>'+esc(m.k)+' · '+esc(m.an)+' · '+esc(m.p)+'</strong></div>'+
    '<div><b>Top of screen</b><strong>menu bar present · no black band</strong></div>'+
+   '<div><b>Wallpaper</b><strong>'+(owner?'yours':esc(mk.toLowerCase())+' · light source '+esc(m.an))+'</strong></div>'+
    '<div style="grid-column:1/-1;color:var(--ink3);padding-top:4px">'+(owner?'Your Desktop is unchanged. VESPER can see and act here when you ask it to — it just does not live here.':esc(S.note))+'</div>';
 
  if(field) field.setTier(owner?'absent':S.face);
@@ -698,20 +841,37 @@ var field=null;
 function makeField(canvas,cfg){
   var ctx=canvas.getContext('2d'), N=cfg.n||900, pts=[], w=0,h=0,dpr=1,
       tier=cfg.tier||'centre', raf=null, t=0, alpha=1, targetAlpha=1;
+  /* A BUST, NOT A HEAD. The owner's reference (ui-refs/home-reference-1.jpg)
+     shows head, neck and shoulders, front-facing, ember, with lit eyes. The
+     earlier previews drew a floating head at the same scale as the widgets
+     around it; the reference makes the bust the axis the composition rings. */
   function head(){
     pts=[];
-    var eyes=Math.round(N*0.07);
-    for(var i=0;i<N-eyes;i++){
-      var k=i+0.5, phi=Math.acos(1-2*k/(N-eyes)), th=Math.PI*(1+Math.sqrt(5))*k;
+    var nEye=Math.round(N*0.06), nNeck=Math.round(N*0.07),
+        nSh=Math.round(N*0.26), nHead=N-nEye-nNeck-nSh;
+    var HY=0.86;                                   // head centre, local units
+    for(var i=0;i<nHead;i++){
+      var k=i+0.5, phi=Math.acos(1-2*k/nHead), th=Math.PI*(1+Math.sqrt(5))*k;
       var x=Math.sin(phi)*Math.cos(th), y=Math.cos(phi), z=Math.sin(phi)*Math.sin(th);
-      var a=0.74,b=1.0,c=0.70;
-      if(y<0){ var tp=1-0.40*Math.pow(-y,1.55); a*=tp; c*=tp; }
-      if(y>0.55){ var cr=1-0.22*(y-0.55)/0.45; a*=cr; c*=cr; }
-      pts.push(mk(x*a,y*b,z*c,0));
+      var a=0.42,b=0.57,c=0.40;                    // 1.36 tall/wide reads as a head
+      if(y<0){ var tp=1-0.34*Math.pow(-y,1.5); a*=tp; c*=tp; }      // jaw
+      if(y>0.55){ var cr=1-0.20*(y-0.55)/0.45; a*=cr; c*=cr; }      // crown
+      pts.push(mk(x*a, HY+y*b, z*c, 0));
     }
-    for(var e=0;e<eyes;e++){
-      var side=(e%2)?1:-1, ang=(e/eyes)*Math.PI*2, rr=0.055+Math.random()*0.055;
-      pts.push(mk(side*0.26+Math.cos(ang)*rr, 0.17+Math.sin(ang)*rr*0.8, 0.60+Math.random()*0.05, 1));
+    for(var e=0;e<nEye;e++){                        // the lit eyes
+      var side=(e%2)?1:-1, ang=(e/nEye)*Math.PI*2, rr=0.030+Math.random()*0.030;
+      pts.push(mk(side*0.145+Math.cos(ang)*rr, HY+0.10+Math.sin(ang)*rr*0.8,
+                  0.345+Math.random()*0.03, 1));
+    }
+    for(var n2=0;n2<nNeck;n2++){                    // neck
+      var t2=Math.random(), an=Math.random()*6.283, r2=0.155*(1+0.18*t2);
+      pts.push(mk(Math.cos(an)*r2, HY-0.42-t2*0.30, Math.sin(an)*r2*0.85, 0));
+    }
+    for(var sIdx=0;sIdx<nSh;sIdx++){                // shoulders, ramping outward
+      var t3=Math.random(), half=0.28+0.32*Math.pow(t3,0.65);
+      var xx=(Math.random()*2-1)*half;
+      var drop=Math.pow(Math.abs(xx)/Math.max(half,1e-6),1.9)*0.14;
+      pts.push(mk(xx, HY-0.72-t3*0.30-drop, (Math.random()*2-1)*0.24, 0));
     }
   }
   function mk(x,y,z,hot){
@@ -733,9 +893,11 @@ function makeField(canvas,cfg){
   }
   function frame(){
     t+=0.016;
-    var R=Math.min(w,h), cx, cy0, S;
-    if(tier==='attendant'){ S=R*0.19; cx=w*0.17; cy0=h*0.70; }
-    else { S=R*0.34; cx=w*0.5; cy0=h*0.45; }
+    /* Sized off HEIGHT, not the min axis: the bust is ~1.8x taller than wide and
+       the reference puts it at a bit over half the screen height. */
+    var cx, cy0, S;
+    if(tier==='attendant'){ S=h*0.19; cx=w*0.155; cy0=h*0.80; }
+    else { S=h*0.30; cx=w*0.5; cy0=h*0.70; }
     targetAlpha = (tier==='absent')?0:1;
     alpha += (targetAlpha-alpha)*0.08;
 
@@ -751,8 +913,8 @@ function makeField(canvas,cfg){
     for(var i=0;i<pts.length;i++){
       var p=pts[i], tx,ty,tz;
       if(disp){
-        tx = p.dx*1.55 + Math.sin(t*0.13*p.sp+p.ph)*0.16;
-        ty = p.dy*0.78 + Math.cos(t*0.11*p.sp+p.ph*1.3)*0.12;
+        tx = p.dx*2.30 + Math.sin(t*0.13*p.sp+p.ph)*0.20;
+        ty = 0.55 + p.dy*1.15 + Math.cos(t*0.11*p.sp+p.ph*1.3)*0.15;
         tz = p.dz*0.55;
       } else {
         tx=p.hx; ty=p.hy; tz=p.hz;

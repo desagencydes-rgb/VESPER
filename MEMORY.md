@@ -610,6 +610,107 @@ be walks over structures that already exist — `evidence.SpanIndex`,
 **`DESIGN-FOUNDATION.md` §10's room list accounted for 81 of the 90.** The home
 has **nine** rooms, not six.
 
+## 4g. 2026-08-22, later — the wallpapers, the first home reference, and two dead instruments
+
+### The eleven feel images are now the eleven wallpapers, and that is measurable
+
+The owner supplied one background per ambience mode plus four videos.
+`docs/design/source/home_wallpapers.py` measures each with the same light-source
+method `modes2.py` used on the references and compares it to the hue
+`modes.json` already records:
+
+> **8 measured modes, 0 diverging by more than 30 degrees.** Home 6, Watch 2,
+> Listening 2, Thinking 17, Working 3, Flow 17, Speaking 4, Milestone 20.
+
+So **each mode's accent was derived from the light source in the very picture
+that now sits behind the interface**. The adaptive rule is not going to fight
+the wallpaper, and that is a measurement rather than a hope.
+
+**The three that cannot be judged are the three already marked `curated`, and the
+check refuses to call them wrong.** Alert has chroma 0.006 -- no hue signal at
+all. Idle's brightest thing is the galaxy at ~295 degrees while the frame is
+about the one ember on the horizon, so solar was taken instead; reporting that
+42 degree gap as divergence would read a recorded decision as an error. The
+first version of the check did exactly that, and correcting the instrument
+rather than the finding is the whole point.
+
+**Play once, then settle -- never loop.** Only three of eleven modes have an
+animated version. A looping video wallpaper is the most expensive thing that
+could run on a host whose stated purpose is to last longer, so play-once is both
+what the owner asked for and the only affordable reading of it. Entry is the
+same `NSWindowOcclusionState` edge that hides the island and stops rendering:
+**one signal now drives three rules.**
+
+**Two things for the owner, not for engineering.** The stills are 1672x941
+against a 3456x2234 panel -- **0.48x, so ~2x upscale and a ~13% crop**, and they
+will read soft; regenerating at panel resolution and the screen's own 1.547
+aspect fixes both. And `intro.mp4` carries an AAC track, while whether the
+interface makes any sound beyond VESPER's voice is listed in
+`DESIGN-FOUNDATION.md` §11 as not specified. It is muted until told otherwise.
+
+### The home has a UI reference now. Every document saying otherwise was corrected
+
+`docs/design/ui-refs/home-reference-1.jpg`. It confirms three things
+`HOME-ARCHITECTURE.md` argued for *before* it existed -- menu bar present, no
+black band, no island in the home -- and adds four surfaces that were not
+guessed: a **right-edge rail** (projects, research, history, settings), the
+**transcript line**, the **expandable-menu tile** beside the main menu, and the
+**face as a bust** rather than a floating head, at the scale that makes it the
+axis the whole composition rings.
+
+**The most important thing in it is not a component.** Four artifacts each carry
+a line of VESPER speaking in the first person about something it made unprompted
+-- *"I made this logo for the project X you're working on"*, *"prepared a
+calendar for the next critical days"*. The home is not a dashboard of readings;
+it is **work VESPER did while the owner was away, laid out with an offer
+attached**. The fourth caption is the research stage's entry condition, written
+by the owner months before the stage was specified, word for word.
+
+It is a composition, **not a geometry**: 1317x852, which is 0.76 px per logical
+point, so nothing in it can be measured and `island_geom.py` cannot be pointed
+at it.
+
+### Two of the six documented derivations could not run at all
+
+`docs/design/README.md` says the derivations are runnable and print what they
+found. `extract.py` and `modes2.py` both read `refs/tiny/{key}.png`; **that
+directory was never committed and nothing generated it.** A derivation nobody
+can re-run is an assertion with a footnote.
+
+Fixed by `tiny.py`, plus a `__main__` guard on `extract.py` so it can be
+imported without reading twelve files and rewriting `palettes.json` as a side
+effect. `modes2.py` used to obtain the same functions by
+`open("extract.py").read().split("MODE={")[0]` and `exec` -- a string split
+against another file's source, which broke the instant that file gained a line
+above the marker. It now imports.
+
+**The size does not matter, which is a better answer than finding the size.**
+Sweeping 48..512 px: seven of eight measured modes reproduce within 0-5 degrees
+**at every size**. The eighth is `arch`/Milestone -- recorded 330, measured
+347-353 at every size, and the gap does not close. Both land on blush so nothing
+downstream moves, but the recorded number cannot be reproduced from the
+committed reference. Recorded, not overwritten.
+
+**Re-running the derivations rewrites `palettes.json` and `lightsrc.json` --
+304 lines when tried. That diff is the reproduction gap between the original run
+and a reconstruction, not a correction, and it was reverted.**
+
+**And `final.py` rewrites `modes.json`, which is the one that matters** -- the
+file every surface reads for its ambience. Running the chain end to end moved
+its grounds by a few units and its chroma by 0.001: invisible in a preview, and
+a silent redefinition of the design system. Caught in `git diff --cached` on the
+way to a commit, and reverted. `tiny -> extract -> modes2 -> final` regenerates
+four committed files from a reconstruction, so **only a decision should let any
+of them land**. Invariant candidate: the derivation outputs are unchanged unless
+the commit says why.
+
+### The assets are in git because they existed in one Downloads folder
+
+44 MB under `docs/design/assets/wallpapers/`. Authored and irreplaceable, unlike
+`face.bin` which is derived. §4c of this file already records that four commits
+on one laptop are not a backup; eleven wallpapers in `~/Downloads` are less than
+that.
+
 ## 5. Open questions, recorded rather than resolved
 
 1. **What window must `C1` run for?** `AT-03` calls it the most important run in the

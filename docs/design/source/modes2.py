@@ -1,10 +1,10 @@
 """Accent = the LIGHT SOURCE, not the mean. The mean of a night photograph is the night."""
-import json, math, importlib.util
-spec = importlib.util.spec_from_file_location("ex","extract.py")
-# reuse the decoder without re-running its __main__ prints
-src = open("extract.py").read().split("MODE={")[0]
-ns = {}; exec(compile(src,"extract","exec"), ns)
-read_png, to_oklab, to_rgb = ns["read_png"], ns["to_oklab"], ns["to_rgb"]
+import json, math
+# extract.py's script body now sits under a __main__ guard, so this is a plain
+# import. It used to be `open(...).read().split("MODE={")[0]` and an exec -- a
+# string split against another file's source, which broke the moment that file
+# gained a line above the marker. Reusing a decoder should not be textual.
+from extract import read_png, to_oklab, to_rgb
 
 PAL={"cream":"#f0e0c0","ember":"#B96645","solar":"#D99A52","blush":"#e8829d","purple":"#59348a",
      "gold":"#C5A35A","botanical":"#64745B","orange":"#ffaf95"}

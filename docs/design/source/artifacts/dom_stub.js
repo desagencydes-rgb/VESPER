@@ -4,7 +4,7 @@ const els = {};
 function mkEl(id){
   const e = {
     id, _html:'', _attrs:{}, _children:[], _listeners:{},
-    style:{ setProperty(k,v){ this[k]=v; }, removeProperty(){}, },
+    style:{ setProperty(k,v){ this[k]=v; }, removeProperty(){}, backgroundImage:'', display:'' },
     classList:{ toggle(){}, add(){}, remove(){}, contains(){return false} },
     set innerHTML(v){ this._html=v; }, get innerHTML(){ return this._html; },
     set textContent(v){ this._text=v; }, get textContent(){ return this._text||''; },

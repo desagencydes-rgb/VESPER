@@ -1,0 +1,123 @@
+{
+ "Home": {
+  "H": 77.58989249071341,
+  "C": 0.09602981465724614,
+  "meanL": 0.5572756526727622,
+  "hex": "#eabf7e",
+  "recorded_hue": 84,
+  "delta": 6.41010750928659,
+  "prov": "measured",
+  "light": true,
+  "file": "home.png"
+ },
+ "Idle": {
+  "H": 295.0520833705625,
+  "C": 0.024936732102732905,
+  "meanL": 0.19963482448354344,
+  "hex": "#7e7b8b",
+  "recorded_hue": 255,
+  "delta": 40.052083370562514,
+  "prov": "curated",
+  "light": false,
+  "file": "idle.png"
+ },
+ "Watch": {
+  "H": 281.06947429216007,
+  "C": 0.10500154503168199,
+  "meanL": 0.4017038880812768,
+  "hex": "#8f93da",
+  "recorded_hue": 283,
+  "delta": 1.9305257078399336,
+  "prov": "measured",
+  "light": false,
+  "file": "watch.png"
+ },
+ "Listening": {
+  "H": 262.26443472139243,
+  "C": 0.14274947484438794,
+  "meanL": 0.18320070686720172,
+  "hex": "#2650a3",
+  "recorded_hue": 262,
+  "delta": 0.2644347213924334,
+  "prov": "measured",
+  "light": false,
+  "file": "listening.avif"
+ },
+ "Thinking": {
+  "H": 0.9609524282793462,
+  "C": 0.029276361498318835,
+  "meanL": 0.2312222946336038,
+  "hex": "#b49ca2",
+  "recorded_hue": 20,
+  "delta": 19.039047571720655,
+  "prov": "measured",
+  "light": false,
+  "file": "thinking.png"
+ },
+ "Working": {
+  "H": 75.18382557681676,
+  "C": 0.09826739612868511,
+  "meanL": 0.2628616776549509,
+  "hex": "#c59857",
+  "recorded_hue": 78,
+  "delta": 2.8161744231832415,
+  "prov": "measured",
+  "light": false,
+  "file": "working.png"
+ },
+ "Flow": {
+  "H": 83.16877365767459,
+  "C": 0.1138882578846151,
+  "meanL": 0.6247299826664302,
+  "hex": "#fed37e",
+  "recorded_hue": 69,
+  "delta": 14.168773657674592,
+  "prov": "measured",
+  "light": true,
+  "file": "flow.png"
+ },
+ "Speaking": {
+  "H": 72.5793653861824,
+  "C": 0.11535134046957893,
+  "meanL": 0.4337577687585234,
+  "hex": "#f2b86c",
+  "recorded_hue": 77,
+  "delta": 4.420634613817597,
+  "prov": "measured",
+  "light": false,
+  "file": "speaking.png"
+ },
+ "Alert": {
+  "H": 99.68358603206374,
+  "C": 0.00799975811767009,
+  "meanL": 0.24734787263807473,
+  "hex": "#71706b",
+  "recorded_hue": 119,
+  "delta": 19.316413967936256,
+  "prov": "curated",
+  "light": false,
+  "file": "alert.png"
+ },
+ "Rest": {
+  "H": 67.4048016910173,
+  "C": 0.04024147543436858,
+  "meanL": 0.5680724825390562,
+  "hex": "#d8c1aa",
+  "recorded_hue": 76,
+  "delta": 8.595198308982702,
+  "prov": "curated",
+  "light": true,
+  "file": "rest.png"
+ },
+ "Milestone": {
+  "H": 350.0120632453882,
+  "C": 0.060635584155702534,
+  "meanL": 0.3402412886329575,
+  "hex": "#a67a8e",
+  "recorded_hue": 347,
+  "delta": 3.0120632453882195,
+  "prov": "measured",
+  "light": false,
+  "file": "milestone.jpg"
+ }
+}

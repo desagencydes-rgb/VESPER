@@ -69,21 +69,25 @@ PAL_LAB={n:to_oklab(tuple(int(h.lstrip('#')[i:i+2],16) for i in (0,2,4))) for n,
 def nearest(lab):
     return min(PAL_LAB, key=lambda n: (lab[0]-PAL_LAB[n][0])**2 + 4*((lab[1]-PAL_LAB[n][1])**2+(lab[2]-PAL_LAB[n][2])**2))
 
-MODE={"hall":"Home","ember":"Idle","light":"Watch","vein":"Listening","violet":"Thinking",
-      "gold":"Working","wave":"Flow","sepia":"Speaking","matte":"Alert","leaf":"Rest",
-      "arch":"Milestone","face":"(face ref)"}
-out={}
-for key in ["hall","ember","light","vein","violet","gold","wave","sepia","matte","leaf","arch","face"]:
-    px=read_png(f"refs/tiny/{key}.png"); labs=[to_oklab(p) for p in px]
-    cl=kmeans(labs,5); tot=sum(s for _,s in cl)
-    ent=[]
-    for lab,s in cl:
-        ent.append({"hex":to_rgb(*lab),"share":round(100*s/tot),
-                    "L":round(lab[0],3),"C":round(math.hypot(lab[1],lab[2]),3),
-                    "near":nearest(lab)})
-    meanL=sum(l[0] for l in labs)/len(labs)
-    meanC=sum(math.hypot(l[1],l[2]) for l in labs)/len(labs)
-    out[key]={"mode":MODE[key],"meanL":round(meanL,3),"meanC":round(meanC,3),"clusters":ent}
-    names=" ".join(f"{e['hex']}({e['share']:>2}%→{e['near']})" for e in ent)
-    print(f"{MODE[key]:<11} {key:<7} L={meanL:.2f} C={meanC:.3f}  {names}")
-json.dump(out, open("palettes.json","w"), indent=1)
+# The script body runs under a guard so the decoder and the OKLab helpers can be
+# imported by home_wallpapers.py. Importing a module should not read twelve files
+# off disk and rewrite palettes.json as a side effect.
+if __name__ == "__main__":
+    MODE={"hall":"Home","ember":"Idle","light":"Watch","vein":"Listening","violet":"Thinking",
+          "gold":"Working","wave":"Flow","sepia":"Speaking","matte":"Alert","leaf":"Rest",
+          "arch":"Milestone","face":"(face ref)"}
+    out={}
+    for key in ["hall","ember","light","vein","violet","gold","wave","sepia","matte","leaf","arch","face"]:
+        px=read_png(f"refs/tiny/{key}.png"); labs=[to_oklab(p) for p in px]
+        cl=kmeans(labs,5); tot=sum(s for _,s in cl)
+        ent=[]
+        for lab,s in cl:
+            ent.append({"hex":to_rgb(*lab),"share":round(100*s/tot),
+                        "L":round(lab[0],3),"C":round(math.hypot(lab[1],lab[2]),3),
+                        "near":nearest(lab)})
+        meanL=sum(l[0] for l in labs)/len(labs)
+        meanC=sum(math.hypot(l[1],l[2]) for l in labs)/len(labs)
+        out[key]={"mode":MODE[key],"meanL":round(meanL,3),"meanC":round(meanC,3),"clusters":ent}
+        names=" ".join(f"{e['hex']}({e['share']:>2}%→{e['near']})" for e in ent)
+        print(f"{MODE[key]:<11} {key:<7} L={meanL:.2f} C={meanC:.3f}  {names}")
+    json.dump(out, open("palettes.json","w"), indent=1)

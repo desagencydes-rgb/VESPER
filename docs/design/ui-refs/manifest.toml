@@ -42,3 +42,23 @@ scale     = 1.0
 crop_x    = 0
 # Supersedes the blue face. The owner, 2026-08-21: the blue one is not the real
 # reference. DESIGN-FOUNDATION §8 already said "Not blue" -- spec right, asset wrong.
+
+# The home's first reference, 2026-08-22. Committed WHOLE rather than cropped:
+# unlike the island files this is not a detail inside a composite -- it IS the
+# composition, and a crop would remove the only thing it says. So `scale` is the
+# composite's px per logical point and `crop_x` is 0.
+[reference.home_1]
+file      = "home-reference-1.jpg"
+original  = "vesper's-home-reference1.jpg"
+sha256    = "4fb6144224eae08e10410769f895a133d4d6dd4dd2df64dd4dcebcf4c6ba589a"
+source_px = [1317, 852]
+scale     = 0.76215
+crop_x    = 0
+note      = """Confirms three things HOME-ARCHITECTURE.md argued for before it
+existed: the menu bar is present, there is no black band across the top, and the
+island is not drawn inside the home. Adds the right-edge rail (projects,
+research, history, settings), the transcript line, the expandable-menu tile, the
+face as a bust rather than a head, and the artifact caption in VESPER's own
+voice. Read in SS14. It is a composition, NOT a geometry -- there is no bezel to
+anchor to, so island_geom.py cannot be pointed at it and no dimension here is
+measured."""

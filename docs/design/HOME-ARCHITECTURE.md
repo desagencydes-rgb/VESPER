@@ -624,12 +624,181 @@ invariant candidate. It belongs to surfaces, not to the island.
 
 ---
 
-## 13. Open — not specified here
+## 13. The wallpaper layer
 
-**Blocking the visual language, and unchanged since the foundation:** there is
-no UI reference set for the home. `ui-refs/` covers the island only. Nothing in
-this file decides what a card *looks* like — only what one is, what backs it,
-and where it may appear.
+Owner, 2026-08-22: eleven background images, one per ambience mode, plus four
+videos. *"They become wallpapers on VESPER's home… I would like them to show up
+when I just enter the screen, then settle as image, depending on the active
+mode."*
+
+### 13.1 They are the eleven feel images, and that is verifiable
+
+`docs/design/source/home_wallpapers.py` measures each wallpaper with the same
+method `modes2.py` used on the references — the light source, meaning the top 4%
+of pixels by brightness × chroma — and compares it to the hue `modes.json`
+already records:
+
+```
+11 wallpapers; 8 are MEASURED modes with a hue signal and can be judged.
+0 of those diverge by more than 30 degrees.
+```
+
+Home 6°, Watch 2°, Listening 2°, Thinking 17°, Working 3°, Flow 17°,
+Speaking 4°, Milestone 20°. **The accent each mode paints its interface in was
+derived from the very picture that will sit behind it.** That coherence was not
+designed in; it is what happens when the feel sources become the wallpapers, and
+it is why the adaptive rule (§3 of the foundation) will not spend every frame
+fighting the picture.
+
+**The three that cannot be judged are the three already marked `curated`, and
+the check refuses to call them wrong.** Alert measures chroma 0.006 — no hue
+signal at all, which is precisely why ember was chosen for being legible on both
+grounds. Idle's brightest thing is the galaxy at ~295°, but the frame is about
+the one ember on the horizon and solar was taken instead; measuring that 42° gap
+and reporting divergence would read a recorded decision as an error. Rest took
+the foliage over the cream wall for the same kind of reason.
+
+### 13.2 Animated, then settled — and it must never loop
+
+Four videos: `intro`, and animated versions of `milestone`, `rest` and
+`speaking`. So **three of the eleven modes have motion; the other eight go
+straight to the still**, and the design must not imply otherwise.
+
+The rule, which is what the owner asked for and also what the host requires:
+
+> **The animation plays once on entry and settles into the still. It never
+> loops.**
+
+A looping video wallpaper is the single most expensive thing that could run on
+this machine — continuous decode, continuous compositing, for a surface nobody
+is looking at directly. VESPER's stated purpose is to stretch this host's
+lifetime. Play-once is not a compromise against the owner's request; it *is* the
+request, and it happens to be the only affordable reading of it.
+
+**Entry means the ground becoming visible** — the same `NSWindowOcclusionState`
+edge that hides the island (§2.6) and stops rendering (§10). One signal now
+drives three things.
+
+**A mode change while you are already in the home does not replay the video.**
+It cross-fades still→still on `--smooth`. Otherwise every ambience shift would
+restart a five-second animation under your work.
+
+### 13.3 Two findings that need the owner, not engineering
+
+**Resolution.** The panel is 3456 × 2234 px. Measured off the files:
+
+| Asset | Pixels | Fraction of the panel | Aspect |
+|---|---|---|---|
+| Eight stills | 1672 × 941 | **0.48×** | 1.777 |
+| `idle.png` | 1536 × 1024 | 0.44× | 1.500 |
+| `milestone.jpg` | 1920 × 1195 | 0.56× | 1.607 |
+| `listening.avif` | 3000 × 2002 | 0.87× | 1.498 |
+| Three animated | 1280 × 720 | **0.37×** | 1.778 |
+| `intro.mp4` | 1920 × 1080 | 0.56× | 1.778 |
+
+Full-bleed, most of these are upscaled about **2×** and cropped **~13%**
+horizontally, because the screen is 1.547 and the assets are 1.777. They will
+read soft. That is a regeneration decision, not something to fix in code:
+**3456 × 2234 at the screen's own aspect** removes both problems at once.
+Meanwhile they ship as delivered, with the softness stated rather than hidden
+behind a sharpen filter that would only add crunch.
+
+**`intro.mp4` carries an audio track** — AAC, 128 kbps, 10.4 s. Whether the
+interface makes any sound beyond VESPER's voice is listed in
+`DESIGN-FOUNDATION.md` §11 as **not specified**, and a wallpaper that speaks
+when you switch Desktops is a decision nobody has made. **It is muted until the
+owner says otherwise.** Its 10.4 s also makes it read as a launch or wake
+sequence rather than a per-entry animation, and it is treated as such until told
+different.
+
+## 14. The composition — the home's first reference
+
+`docs/design/ui-refs/home-reference-1.jpg`, owner, 2026-08-22. **Every previous
+document in this directory says the home's composition is undecided and
+unreferenced. That is no longer true**, and the standing note in
+`docs/design/README.md` and `ui-refs/README.md` is corrected accordingly.
+
+Three things the reference confirms that were argued for rather than seen:
+the **menu bar is present and ordinary**, there is **no black band**, and there
+is **no island**. §2.2 and §2.6 were right, and now they are referenced.
+
+### 14.1 The face is a bust, and it is the axis
+
+Not a floating head. **Head, neck and shoulders**, front-facing, an ember
+wireframe with lit eyes, centred, occupying roughly the middle fifth of the
+width from just under the menu bar to about two-thirds down. Everything else is
+arranged *around* it in a ring — top band, left cluster, right cluster, bottom
+line.
+
+This replaces the layout drawn in the previews before the reference existed,
+which put the face at the same scale as its surroundings and pushed widgets into
+the corners. **The face is the composition's centre, not one element in it** —
+which is exactly why §8's presence law matters: when the work needs the screen,
+the thing that gets out of the way is the largest thing on it.
+
+### 14.2 The surfaces the reference adds
+
+| Surface | What the reference shows | Status |
+|---|---|---|
+| **The rail** | four circular glass buttons at the right edge, labelled outside them: **projects · research · history · settings** | new — a sixth class, see below |
+| **The transcript** | *"Vesper's Transcript (response)"* — a wide, low-contrast line of VESPER's spoken answer, bottom centre, above the dock | new |
+| **The main menu** | a wide glassmorphism bar at the Dock's position, *"similar in design to the apps dock"*, icons plus the owner's avatar, and a **separate `expandable menu` tile** at its right end | confirms §10 of the foundation, adds the tile |
+| **Artifact cards with a caption** | an artifact VESPER made — a logo, a diagram, a calendar, a paper — each with a line under it in VESPER's own voice: *"I made this logo for the project X you're working on, tell me what you think of it"* | new, and it is the most characteristic thing in the frame |
+| **The metrics card** | the owner labelled it in the reference itself: *"thinking, context size, cache size, tokens, usage (computing, power, size) blur card, with border"* | specified by the reference |
+| **Gauges** | filled dark circles carrying one large number, not rings | corrects the previews |
+| **Sticky notes** | small opaque yellow notes overlapping a window | new |
+
+**The rail is a sixth surface class and it should be named as one.** It is not a
+widget (it holds no reading), not a card (it is never dismissed), and not the
+main menu (which is horizontal, at the Dock's position, and holds actions). It
+is **persistent navigation into four destinations**, and two of those —
+`history` and `settings` — are the separate spaces §11 already treats as their
+own. Four slots, at the right edge, vertically centred.
+
+That the owner chose exactly four, and that two of them are Work-room cards
+(`projects`, `research`) while two are whole spaces, says the rail is about
+*frequency*, not about the taxonomy. It is the four things reached most often.
+
+### 14.3 The caption is the product
+
+The single most important thing in the reference is not a component. It is that
+**four separate artifacts each carry a line of VESPER speaking in the first
+person about something it made unprompted**:
+
+- *"I made this logo for the project X you're working on, tell me what you think of it"*
+- *"I made this diagram for your feature X that you asked for"*
+- *"prepared a calendar for the next critical days"*
+- *"got an interesting research paper you might want to look at, tell me if you'd like me to break it down to you"*
+
+That is the home's actual subject. The cards are not a dashboard of readings —
+they are **work VESPER did while the owner was away, laid out with an offer
+attached**. The fourth caption is the entry condition for the research stage
+(§7.1), written by the owner months before the stage was specified, and it is
+the same sentence.
+
+**This is what `Learning Curve` was reserved for** — §5 of the foundation says
+the hand is VESPER writing in the first person, unprompted, never a system
+message, never a number, never more than about two lines. Every caption above
+fits that description exactly. The reference sets them in a plain sans, so this
+is recorded as a question rather than a decision: **the captions are the clearest
+case the hand will ever get, and they are currently not in it.**
+
+### 14.4 What the reference does not settle
+
+Grid units and margins — the reference is a composition, not a measured layout,
+and `source/island_geom.py` cannot be pointed at it because there is no bezel to
+anchor to. The card sizes are illustrative. Nothing here decides type sizes,
+icon weight, or density. And it shows **one** stage — the Home stage with work
+scattered around it. The other eleven stages in §7 remain unreferenced.
+
+## 15. Open — not specified here
+
+**Corrected 2026-08-22:** this section previously said there was no UI reference
+set for the home and that nothing here decides what a card looks like. The
+owner supplied `ui-refs/home-reference-1.jpg` and §14 reads it. What is still
+unreferenced: the eleven stages other than Home, the rooms, Settings, History,
+floating dialogs, and every measured dimension — the reference is a composition,
+not a geometry.
 
 **Open questions this document raises and does not answer:**
 
@@ -641,6 +810,11 @@ and where it may appear.
 - What a widget does when its card is open — mirror, defer, or dim.
 - Multi-monitor: which display the ground claims when two are attached, and
   whether stages are per-display.
+- Whether the artifact captions (§14.3) are set in VESPER's hand.
+- Whether `intro.mp4` plays on launch, on wake, or on every entry — and whether
+  it is allowed to make a sound (§13.3).
+- Whether the eight modes without an animated version get one, and whether the
+  wallpapers are regenerated at panel resolution.
 - The main menu's contents. 51 items routed to `menu` and this file does not
   lay them out.
 
