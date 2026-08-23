@@ -91,6 +91,13 @@ read, which is indistinguishable from success. Three controls run first, and
 `B1` (a page painted edge to edge in `#FF00FF` must read back `#FF00FF`) is the
 one both earlier instruments would have failed.
 
+**And the glass reaches the ground once it is transparent** (`SPIKE-013` §0.5).
+A card blurring across a hard edge in the ground smears it over **41–42 pt**
+inside the card and leaves it **0 pt** outside — on both routes, and over a real
+`CAMetalLayer` as readily as a `CALayer`. It could have gone the other way: a
+backdrop filter samples the page's own backdrop, and the field is not in the
+page. So the §1.1 look is achievable; only the transparency is missing.
+
 ### WHAT THE OWNER HAS TO DECIDE
 
 The card work is **held** until this is answered — that is what the precondition
@@ -98,8 +105,8 @@ was run to protect.
 
 | | Option | Cost |
 |---|---|---|
-| 1 | opaque panels over the ground | the field shows only where nothing is mounted. Cheaper than it looks now: the wallpaper is the real desktop picture, so the ground is not the only thing behind a panel |
-| 2 | field moves into the webview, Metal dropped | throws away `FaceRenderer`'s measured 5–7 % and gives the face a second power profile |
+| 1 | opaque panels over the ground | **worse than it looked.** With no transparency there is no backdrop, so the glass becomes a flat panel — the design's central material is gone, not reduced |
+| 2 | field moves into the webview, Metal dropped | still gives the look (a WebGL field is inside the page, so the blur reaches it) but costs a second face implementation and an unmeasured second power profile |
 | 3 | lower ground cadence | **does not apply** — cadence is not why the webview is opaque |
 | 4 | accept a non-public route | `_setDrawsBackground:` breaks `ISLAND-ARCHITECTURE.md` §2 (silent failure on an OS update). WebKit1 is public but deprecated and forecloses Tauri |
 

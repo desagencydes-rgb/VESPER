@@ -101,6 +101,42 @@ same instrument, in the same run, two configurations *did* read the ground
 through the webview. The reader can tell transparent from opaque. The public
 knobs on `WKWebView` cannot produce it.
 
+### 0.5 And once it *is* transparent, the glass reaches the ground
+
+This was measured on the same instrument, in the same runs, because it decides
+what the transparency is *worth*. A card carrying
+`backdrop-filter: blur(26px)` is placed to straddle a hard blue/red edge in the
+ground. Two columns are read out of one capture: one inside the card, one
+outside it. The outside column is the sharp reference — same capture, same
+machine state, no second run to argue with.
+
+| | Route to transparency | Ground | Edge inside the card | Edge outside |
+|---|---|---|---|---|
+| `F1` | private `_setDrawsBackground:` | `CALayer` | **41 pt** | 0 pt |
+| `F2` | legacy `WebView` (public) | `CALayer` | **41 pt** | 0 pt |
+| `F3` | private `_setDrawsBackground:` | **`CAMetalLayer`** | **42 pt** | 0 pt |
+| `F4` | legacy `WebView` (public) | **`CAMetalLayer`** | **42 pt** | 0 pt |
+
+It could easily have gone the other way, which is why it was measured: a
+backdrop filter samples the page's own backdrop, and the Metal field is not in
+the page. It reaches anyway, and it reaches a `CAMetalLayer` as readily as a
+`CALayer`.
+
+**So §1.1's look is achievable.** The glass really does blur the live field.
+What is missing is only the transparency, and only on `WKWebView`. That changes
+what the options are worth:
+
+- **Option 1 loses more than it looked.** With an opaque webview there is no
+  backdrop to blur — a card's backdrop filter would sample the page's own
+  opaque background. The glass becomes a flat panel and the design's central
+  material is gone, not merely reduced.
+- **Option 2 still delivers the look** — a WebGL field is *inside* the page, so
+  the blur reaches it trivially — but it is now one route among several rather
+  than the only one, and it still costs a second face implementation and an
+  unmeasured second power profile.
+- **Option 4 buys the whole look** on either route, at exactly the cost
+  `ISLAND-ARCHITECTURE.md` §2 named.
+
 ### 0.3 What the finding does and does not say
 
 `E1` narrows the sentence. `drawsBackground` **is** public — on the legacy

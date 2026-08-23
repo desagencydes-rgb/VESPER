@@ -173,16 +173,52 @@ win.orderFrontRegardless()
 // The grounds
 // ---------------------------------------------------------------------------
 
-enum GroundKind { case split, blue, clear, metalBlue }
+enum GroundKind { case split, blue, clear, metalBlue, metalSplit }
 
 var splitTop: CALayer?
 var splitBottom: CALayer?
 var metalLayer: CAMetalLayer?
+var metalLayer2: CAMetalLayer?
+
+/// A CAMetalLayer cleared to one colour, presented once. Two of these stacked
+/// give a Metal ground with a real edge in it -- and no shaders, because a
+/// clear colour is the whole drawing. Blur is measured against the EDGE, so
+/// what draws it does not matter; that it is genuinely a CAMetalLayer does.
+func makeMetalLayer(frame: CGRect, r: Double, g: Double, b: Double) -> CAMetalLayer? {
+    guard let dev = MTLCreateSystemDefaultDevice(),
+          let q = dev.makeCommandQueue() else {
+        say("       metal: NO DEVICE — case skipped"); return nil
+    }
+    let m = CAMetalLayer()
+    m.device = dev
+    m.pixelFormat = .bgra8Unorm
+    m.framebufferOnly = false
+    m.isOpaque = true
+    m.contentsScale = screen.backingScaleFactor
+    m.frame = frame
+    m.drawableSize = CGSize(width: frame.width * screen.backingScaleFactor,
+                            height: frame.height * screen.backingScaleFactor)
+    guard let d = m.nextDrawable(), let cb = q.makeCommandBuffer() else {
+        say("       metal: NO DRAWABLE — the layer would have drawn nothing")
+        return m
+    }
+    let rp = MTLRenderPassDescriptor()
+    rp.colorAttachments[0].texture = d.texture
+    rp.colorAttachments[0].loadAction = .clear
+    rp.colorAttachments[0].storeAction = .store
+    rp.colorAttachments[0].clearColor = MTLClearColor(red: r, green: g, blue: b, alpha: 1)
+    cb.makeRenderCommandEncoder(descriptor: rp)?.endEncoding()
+    cb.present(d)
+    cb.commit()
+    cb.waitUntilCompleted()
+    return m
+}
 
 func setGround(_ kind: GroundKind) {
     splitTop?.removeFromSuperlayer(); splitTop = nil
     splitBottom?.removeFromSuperlayer(); splitBottom = nil
     metalLayer?.removeFromSuperlayer(); metalLayer = nil
+    metalLayer2?.removeFromSuperlayer(); metalLayer2 = nil
     ground.layer?.backgroundColor = CGColor(gray: 0, alpha: 0)
 
     switch kind {
@@ -202,37 +238,21 @@ func setGround(_ kind: GroundKind) {
         // IS a Metal layer, and "a webview over a Metal layer" is not proven by
         // "a webview over a coloured layer" -- different layer type, different
         // path through the compositor.
-        guard let dev = MTLCreateSystemDefaultDevice(),
-              let q = dev.makeCommandQueue() else {
-            say("  metal: NO DEVICE — case skipped"); return
-        }
-        let m = CAMetalLayer()
-        m.device = dev
-        m.pixelFormat = .bgra8Unorm
-        m.framebufferOnly = false
-        m.isOpaque = true
-        m.contentsScale = screen.backingScaleFactor
-        m.frame = CGRect(origin: .zero, size: VIEW)
-        m.drawableSize = CGSize(width: VIEW.width * screen.backingScaleFactor,
-                                height: VIEW.height * screen.backingScaleFactor)
-        ground.layer?.addSublayer(m)
-        metalLayer = m
-        // One frame of flat blue. Enough: the question is whether the webview
-        // paints OVER it, not what it paints.
-        if let d = m.nextDrawable(), let cb = q.makeCommandBuffer() {
-            let rp = MTLRenderPassDescriptor()
-            rp.colorAttachments[0].texture = d.texture
-            rp.colorAttachments[0].loadAction = .clear
-            rp.colorAttachments[0].storeAction = .store
-            rp.colorAttachments[0].clearColor = MTLClearColor(red: 0.063, green: 0.188,
-                                                              blue: 0.753, alpha: 1)
-            cb.makeRenderCommandEncoder(descriptor: rp)?.endEncoding()
-            cb.present(d)
-            cb.commit()
-            cb.waitUntilCompleted()
-        } else {
-            say("  metal: NO DRAWABLE — the layer would have drawn nothing")
-        }
+        metalLayer = makeMetalLayer(frame: CGRect(origin: .zero, size: VIEW),
+                                    r: 0.063, g: 0.188, b: 0.753)
+        if let m = metalLayer { ground.layer?.addSublayer(m) }
+    case .metalSplit:
+        // The same edge as .split, but drawn by Metal on both sides. This is
+        // the home's actual ground, and it is the backdrop the glass has to
+        // reach for §1.1's look to exist at all.
+        metalLayer = makeMetalLayer(
+            frame: CGRect(x: 0, y: 0, width: VIEW.width, height: VIEW.height / 2),
+            r: 0.063, g: 0.188, b: 0.753)
+        metalLayer2 = makeMetalLayer(
+            frame: CGRect(x: 0, y: VIEW.height / 2, width: VIEW.width, height: VIEW.height / 2),
+            r: 0.753, g: 0.188, b: 0.063)
+        if let m = metalLayer { ground.layer?.addSublayer(m) }
+        if let m = metalLayer2 { ground.layer?.addSublayer(m) }
     }
     CATransaction.flush()
 }
@@ -273,6 +293,25 @@ let PAGE_GLASS = """
   .v{font-size:30px;font-weight:200;margin-top:8px}
 </style>
 <div class="card"><div class="k">context</div><div class="v">UNAVAILABLE</div></div>
+"""
+
+/// The card sits ACROSS the ground's blue/red edge at y=210. A backdrop-filter
+/// that reaches the ground will smear that edge over ~26 px inside the card and
+/// leave it one pixel wide outside. Two columns in one capture: the outside one
+/// is the sharp reference, so the comparison needs no second run and no second
+/// machine state.
+let PAGE_GLASS_STRADDLE = """
+<!doctype html><meta charset="utf-8">
+<style>
+  html,body{margin:0;height:100%;background:transparent;overflow:hidden}
+  .card{position:absolute;left:60px;top:120px;width:400px;height:180px;
+        box-sizing:border-box;border-radius:22px;
+        background:rgba(255,255,255,.10);
+        -webkit-backdrop-filter:blur(26px) saturate(160%);
+        backdrop-filter:blur(26px) saturate(160%);
+        border:1px solid rgba(255,255,255,.16)}
+</style>
+<div class="card"></div>
 """
 
 // ---------------------------------------------------------------------------
@@ -319,6 +358,21 @@ func samples(_ img: CGImage, _ pts: [CGPoint]) -> [Px] {
     }
 }
 
+/// How many view-points wide the blue-to-red transition is, down one column.
+/// Returns nil when the column never crosses -- which is itself a reading, and
+/// means the webview painted over the edge rather than blurring it.
+func transitionWidth(_ img: CGImage, x: CGFloat, from y0: CGFloat, to y1: CGFloat) -> Int? {
+    let pts = stride(from: y0, through: y1, by: 1).map { CGPoint(x: x, y: $0) }
+    let px = samples(img, pts)
+    guard px.count == pts.count else { return nil }
+    // Blue channel: high on the blue half, low on the red half, and the white
+    // veil of the card raises both without inverting the order.
+    let vals = px.map { $0.b }
+    guard let lo = vals.min(), let hi = vals.max(), hi - lo > 0.05 else { return nil }
+    let a = lo + (hi - lo) * 0.2, b = lo + (hi - lo) * 0.8
+    return vals.filter { $0 > a && $0 < b }.count
+}
+
 // ---------------------------------------------------------------------------
 // The matrix
 // ---------------------------------------------------------------------------
@@ -335,6 +389,8 @@ struct Case {
     /// The legacy WebKit1 `WebView` instead of `WKWebView`. Declared last with a
     /// default so every row above is unchanged.
     var legacy: Bool = false
+    /// Read the blue/red edge down two columns instead of three points.
+    var columns: Bool = false
 }
 
 func noKnobs(_ w: WKWebView) {}
@@ -406,6 +462,42 @@ let CASES: [Case] = [
     Case(id: "E1", what: "LEGACY WebView.drawsBackground = false — public, deprecated",
          ground: .blue, page: PAGE_EMPTY, knobs: noKnobs, control: false, check: nil,
          legacy: true),
+
+    // DOES THE GLASS REACH THE FIELD? A transparent webview is only worth
+    // having if `backdrop-filter` can blur what is BEHIND the webview. It may
+    // not be able to: a backdrop filter samples the page's own backdrop, and
+    // the Metal field is not in the page. If it cannot, transparency buys a
+    // hole rather than glass, and the whole §1.1 look changes -- so this is
+    // measured before the owner is asked to choose a fallback.
+    //
+    // F1 uses the PRIVATE setter as a measurement vehicle, not as a ship route:
+    // it is the only way to get a transparent WKWebView at all, and the
+    // question here is what glass does once it is transparent.
+    Case(id: "F1", what: "glass card straddling the ground edge, WKWebView made transparent",
+         ground: .split, page: PAGE_GLASS_STRADDLE,
+         knobs: { w in
+             if w.responds(to: NSSelectorFromString("_setDrawsBackground:")) {
+                 w.setValue(false, forKey: "drawsBackground")
+             }
+         }, control: false, check: nil, legacy: false, columns: true),
+    Case(id: "F2", what: "the same card on the LEGACY WebView — the public route",
+         ground: .split, page: PAGE_GLASS_STRADDLE, knobs: noKnobs,
+         control: false, check: nil, legacy: true, columns: true),
+
+    // THE REAL CONFIGURATION: the same card, the same edge, but the ground is
+    // two CAMetalLayers rather than two CALayers. If the blur reaches a
+    // CALayer and not a CAMetalLayer, §1.1's look does not exist and F1/F2
+    // would have said it did.
+    Case(id: "F3", what: "the same card over a METAL ground — §1.1's actual stack",
+         ground: .metalSplit, page: PAGE_GLASS_STRADDLE,
+         knobs: { w in
+             if w.responds(to: NSSelectorFromString("_setDrawsBackground:")) {
+                 w.setValue(false, forKey: "drawsBackground")
+             }
+         }, control: false, check: nil, legacy: false, columns: true),
+    Case(id: "F4", what: "the same, on the LEGACY WebView — the public route over Metal",
+         ground: .metalSplit, page: PAGE_GLASS_STRADDLE, knobs: noKnobs,
+         control: false, check: nil, legacy: true, columns: true),
 ]
 
 // ---------------------------------------------------------------------------
@@ -520,6 +612,17 @@ func read(_ c: Case) {
     say("       empty \(pad(px[0].label, 20))lower \(pad(px[1].label, 20))"
         + "card \(pad(px[2].label, 20))"
         + "\(visible ? "visible" : "OCCLUDED") \(img.width)x\(img.height)")
+
+    if c.columns {
+        let inside = transitionWidth(img, x: 200, from: 150, to: 270)
+        let outside = transitionWidth(img, x: 560, from: 150, to: 270)
+        func w(_ v: Int?) -> String { v.map { "\($0) pt" } ?? "no edge found" }
+        say("       edge inside the card \(pad(w(inside), 16))"
+            + "edge outside it \(pad(w(outside), 16))"
+            + ((inside ?? 0) > (outside ?? 0) + 6
+               ? "the blur REACHES the ground"
+               : "the blur does NOT reach the ground"))
+    }
 
     if let fail = c.check?(px[0], px[1], px[2]), c.control {
         say("")

@@ -85,6 +85,12 @@ made by whoever is holding the failing figure.
 > forecloses Tauri. So the finding is not "no public route exists" but **"no
 > public route exists on `WKWebView`"**.
 >
+> **What does work, measured the same day (`SPIKE-013` §0.5):** once the webview
+> is transparent by *any* route, `backdrop-filter` **does** blur the ground
+> behind it — 41–42 pt of smeared edge inside a card against 0 pt outside, over
+> a real `CAMetalLayer` as readily as a `CALayer`. The look in this table is
+> achievable. Only the transparency is missing.
+>
 > The three fallbacks below are now live and a fourth — accept a non-public
 > route, with its cost stated — has joined them. **The choice is the owner's and
 > the 90 cards are held until it is made.** Nothing above this note has been

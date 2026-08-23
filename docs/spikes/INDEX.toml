@@ -360,6 +360,15 @@ public route exists", it is "no public route exists ON WKWebView", and the route
 that does exist costs a deprecated in-process engine and forecloses Tauri, whose
 macOS backend is a WKWebView.
 
+AND ONCE IT IS TRANSPARENT, THE GLASS REACHES THE GROUND. Measured on the same
+instrument: a card blurring across a hard edge in the ground smears that edge
+over 41-42 pt inside the card and leaves it 0 pt outside, on both routes and
+over a real CAMetalLayer as readily as a CALayer. It could have gone the other
+way -- a backdrop filter samples the page's own backdrop and the field is not in
+the page. So SS1.1's look is achievable and only the transparency is missing,
+which makes fallback 1 (opaque panels) worse than it looked: with no backdrop
+the glass becomes a flat panel and the design's central material is gone.
+
 BLOCKED ON AN OWNER DECISION: which of the three on_fail fallbacks is taken, or
 whether a fourth -- the private setter, or WebKit1 -- is accepted with its cost
 stated. The 90 home cards stay held until then. Protecting that work from being
