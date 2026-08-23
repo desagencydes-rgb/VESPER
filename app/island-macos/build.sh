@@ -17,7 +17,16 @@ ID="ai.vesper.island"
 # face.bin is derived, not authored -- regenerate rather than commit 600 KB.
 [ -f face.bin ] || (cd "$REPO" && python3 docs/design/source/face_cloud.py)
 
-swiftc -O -swift-version 5 main.swift FaceRenderer.swift Behaviour.swift -o island
+# ONE BINARY, ISLAND AND HOME. Not a convenience: a second executable dropped
+# into Contents/MacOS/ is signed as a RESOURCE of the bundle rather than as code
+# with an identity of its own, which re-opens exactly the TCC question the
+# bundle was built to close. See Home.swift's header for the other two reasons.
+HOME_SRC=../home-macos
+swiftc -O -swift-version 5 \
+  main.swift FaceRenderer.swift Behaviour.swift \
+  "$HOME_SRC/Home.swift" "$HOME_SRC/HomeAmbience.swift" "$HOME_SRC/SpaceWatch.swift" \
+  "$HOME_SRC/HomeVerify.swift" \
+  -o island
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Library/LaunchAgents"
@@ -121,6 +130,12 @@ echo "  python3 tools/island_snapshot.py --measure   # produce the projection"
 echo "  open app/VESPER.app                          # as VESPER"
 echo "  ./app/island-macos/island --demo             # bare binary, dev loop"
 echo "  --expand / --seconds N / --level-status / --fsaux"
+echo
+echo "the home (one process, same bundle, same identity):"
+echo "  ./app/island-macos/island --home --mode Rest --seconds 30"
+echo "  --home        ground at normal-1 on the ACTIVE Desktop, face on it"
+echo "  --mode NAME   sets the DESKTOP PICTURE of the active Space to that mode"
+echo "  --home-verify identity + the occlusion<->Desktop measurement"
 echo
 echo "the app registers its own login item on first launch."
 echo "to remove it:  app/VESPER.app/Contents/MacOS/VESPER --uninstall-login-item"

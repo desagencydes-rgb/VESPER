@@ -599,7 +599,15 @@ final class Controller: NSObject {
         // reassert it -- no private API, and it costs nothing while nothing changes.
         NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in self?.panel.orderFrontRegardless() }
+        ) { [weak self] _ in
+            // GATED ON THE RETREAT, and this guard is the whole reason §2.6 works.
+            // Arriving on the home's Desktop IS a Space change, so an unconditional
+            // re-order here would put the island back the instant it stepped away --
+            // the one case the rule exists for, undone by the line that protects
+            // every other case.
+            guard let self, !self.retreated else { return }
+            self.panel.orderFrontRegardless()
+        }
         retrack()
         reload()
         // The projection is produced by a separate agent; re-read it slowly so a
@@ -648,6 +656,36 @@ final class Controller: NSObject {
         if timer == nil {
             let t = Timer(timeInterval: 1.0 / 120.0, repeats: true) { [weak self] _ in self?.tick() }
             RunLoop.main.add(t, forMode: .common); timer = t
+        }
+    }
+
+    /// §2.6 -- the island's visibility is the INVERSE of the ground's occlusion
+    /// state. One signal, two rules, no new mechanism.
+    ///
+    /// The island exists because VESPER is not on screen. Inside the home VESPER
+    /// is fully present -- the face, the ground, ninety cards -- and an island
+    /// there is the same entity saying the same thing twice, in a smaller voice,
+    /// thirty points above its own face.
+    ///
+    /// A RETREAT, NOT A CUT. Dormant first, then out, so arriving on the home
+    /// reads as presence consolidating into one place rather than as a component
+    /// being switched off. Coming back is the same move reversed: on screen at
+    /// dormant, then out to shoulders, so it grows rather than appears.
+    private(set) var retreated = false
+    func retreat(_ on: Bool) {
+        guard on != retreated else { return }
+        retreated = on
+        if on {
+            go(.dormant)
+            // Long enough for the dormant spring to land. Ordering out mid-spring
+            // is the cut this method exists to avoid.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+                guard let self, self.retreated else { return }
+                self.panel.orderOut(nil)
+            }
+        } else {
+            panel.orderFrontRegardless()
+            go(.shoulders)
         }
     }
 
@@ -909,8 +947,66 @@ if args.contains("--demo") {
     }
 }
 
+// MARK: - The home
+//
+// ONE PROCESS, and the reasons are in Home.swift's header. The short version:
+// TCC grants key to app identity, §2.6 needs one signal rather than a transport,
+// and "one face at a time" becomes structurally true when the same object
+// decides which host is drawing.
+//
+// THE GROUND IS NOT PLACED HERE. It is `.managed`, so it lands on whichever
+// Desktop is active at the moment it is created, and there is no public API
+// that names a Space to put it on instead (§2.3a). Switch first, then create --
+// so `--home` creates the ground on the Desktop the owner is looking at, and
+// the switch that puts them there is a separate mechanism that needs an
+// Accessibility grant this build has not asked for yet.
+if args.contains("--home-verify") {
+    HomeVerify.identity()
+    let secs = args.firstIndex(of: "--seconds").flatMap { i -> Double? in
+        i + 1 < args.count ? Double(args[i + 1]) : nil
+    } ?? 30
+    let after = args.firstIndex(of: "--after").flatMap { i -> Double? in
+        i + 1 < args.count ? Double(args[i + 1]) : nil
+    } ?? 10
+    // The control is the island's own panel -- the very window §2.6 proposes to
+    // move. A control that is the claim beats a control that stands in for it.
+    HomeVerify.occlusion(secs: secs, after: after, control: controller.panel,
+        log: (Ambience.repoRoot() ?? NSTemporaryDirectory())
+             + "/app/home-macos/home_verify_last_run.log")
+    app.run()
+}
+
+var home: HomeController?
+if args.contains("--home") {
+    guard let h = HomeController(screen: NSScreen.main ?? screen) else {
+        FileHandle.standardError.write("home: could not start\n".data(using: .utf8)!)
+        exit(2)
+    }
+    home = h
+    // §2.6, wired. The ground's occlusion state is the ONLY signal, and it is
+    // read from the notification rather than polled, so the island moves on the
+    // same edge the owner sees.
+    h.onVisibilityChange = { [weak controller] visible in
+        controller?.retreat(visible)
+        print("home: \(visible ? "visible  → island retreats" : "covered  → island returns")")
+    }
+    if let i = args.firstIndex(of: "--mode"), i + 1 < args.count {
+        h.setMode(args[i + 1])
+    }
+    let fp = SpaceWatch.fingerprint()
+    h.present()
+    print("home: ground on the ACTIVE Desktop — \(fp.count) foreign windows here")
+    print("      \(Ambience.modes().count) modes loaded from modes.json")
+    if Ambience.repoRoot() == nil {
+        print("      *** no repo found: wallpapers and modes are UNAVAILABLE ***")
+    }
+}
+
 if let s = seconds {
     // A spike must not be able to leave a panel stuck over the menu bar.
-    Timer.scheduledTimer(withTimeInterval: s, repeats: false) { _ in NSApp.terminate(nil) }
+    Timer.scheduledTimer(withTimeInterval: s, repeats: false) { _ in
+        home?.stopRendering()
+        NSApp.terminate(nil)
+    }
 }
 app.run()
