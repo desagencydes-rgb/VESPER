@@ -58,14 +58,19 @@ renders it.
 
 ## Verification, in the order that fails fastest
 
+**On this Mac, `python3` is 3.9 and every gate below fails on it** with
+`ModuleNotFoundError: No module named 'tomllib'` — and `checks.py` still exits
+0 while doing it, so a session that trusts the exit code records a pass it never
+had. Use `python3.13` (`~/.local/bin/python3.13`). Verified 2026-08-23.
+
 ```sh
-python tools/ci/checks.py all           # 31 checks
-python tools/ci/self_test.py            # red-then-green, 79 cases
-python tools/traceability_lint.py
-python tools/reference_lint.py
-python verification/run_f0_acceptance.py   # ... f1 .. f6
-python verification/stress_placement.py    # 160k property assertions
-python verification/stress_fabric.py        # 180k property assertions
+python3.13 tools/ci/checks.py all       # 31 checks
+python3.13 tools/ci/self_test.py        # red-then-green, 79 cases
+python3.13 tools/traceability_lint.py
+python3.13 tools/reference_lint.py
+python3.13 verification/run_f0_acceptance.py   # ... f1 .. f6
+python3.13 verification/stress_placement.py    # 160k property assertions
+python3.13 verification/stress_fabric.py        # 180k property assertions
 ```
 
 **Corrected 2026-08-21:** this file said `stress_placement` ran 320k assertions.
