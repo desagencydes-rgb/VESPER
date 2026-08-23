@@ -120,6 +120,10 @@ final class HomeController: NSObject {
 
         face.uniforms.aspect = 1
         face.uniforms.alpha = 1
+        // Derived from THIS layer, not inherited from the island's. See
+        // FaceUniforms.pointSize -- the same cloud over a 3x wider layer is a
+        // third of the density, and a face that renders and cannot be seen.
+        face.uniforms.pointSize = FaceUniforms.pointSize(forLayerWidth: side)
         // Nothing of VESPER's is between the face and the desktop picture, so
         // the pass clears to nothing. At the island's default of 1 this paints
         // a black square the size of the layer, which is what the owner saw.
@@ -133,6 +137,33 @@ final class HomeController: NSObject {
     }
 
     var isVisible: Bool { ground.occlusionState.contains(.visible) }
+
+    /// Where the face's layer sits, for whoever needs to READ that region
+    /// rather than trust that something was drawn into it.
+    var faceRect: CGRect { metal.frame }
+
+    /// Re-lay the face at a different width, point size derived to match.
+    ///
+    /// This exists for the DENSITY BENCH and not for the product. The claim
+    /// that point size should scale with the layer is a claim about two
+    /// surfaces, and the island cannot be used as the second one: its panel is
+    /// opaque, so a reader that measures paint measures the panel and returns
+    /// 100% whatever the face does. Rendering both widths in THIS window --
+    /// transparent, one reader, one run -- is what makes the comparison mean
+    /// something.
+    func setFaceWidth(_ w: CGFloat) {
+        let side = max(1, w)
+        metal.frame = CGRect(x: screen.frame.midX - side / 2,
+                             y: screen.frame.midY - side / 2,
+                             width: side, height: side)
+        metal.drawableSize = CGSize(width: side * screen.backingScaleFactor,
+                                    height: side * screen.backingScaleFactor)
+        face.uniforms.pointSize = FaceUniforms.pointSize(forLayerWidth: side)
+    }
+    var groundWindow: NSWindow { ground }
+    var faceTint: (Float, Float, Float) {
+        (face.uniforms.tintR, face.uniforms.tintG, face.uniforms.tintB)
+    }
 
     // MARK: - Presence
 

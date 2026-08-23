@@ -713,6 +713,12 @@ final class Controller: NSObject {
         }
     }
 
+    /// The face's layer rect, for whoever needs to READ that region rather than
+    /// trust something was drawn into it. The home's face density is derived
+    /// from this one's, so this one has to be measurable too -- otherwise the
+    /// reference is a number in a comment.
+    var faceLayerRect: CGRect { faceLayer.frame }
+
     private func layoutFace(width: CGFloat, height: CGFloat) {
         guard face != nil else { return }
         let top = height - geo.inset - 38
@@ -934,6 +940,29 @@ controller.go(.shoulders)
 // the owner's cursor onto the island to trigger hover.
 if args.contains("--expand") { controller.reload(); controller.go(.expanded) }
 
+// THE REFERENCE THE HOME'S FACE IS TUNED AGAINST. FaceUniforms.pointSize scales
+// the cloud's point size with the layer, on the claim that it preserves
+// density. A claim about two surfaces has to be read on both of them, with one
+// instrument, or it is arithmetic rather than a measurement.
+if args.contains("--island-face-check") {
+    controller.reload(); controller.go(.expanded)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+        let r = controller.faceLayerRect
+        guard let img = GlassGuard.windowImage(controller.panel) else {
+            print("  *** no window server image of the island panel ***"); exit(2)
+        }
+        let size = controller.panel.frame.size
+        let cov = GlassGuard.coverage(img, viewSize: size, rect: r)
+        let pct = cov.total > 0 ? Double(cov.painted) / Double(cov.total) * 100 : 0
+        print("")
+        print("  island face — the density the home is tuned against")
+        print(String(format: "  face rect     %.0fx%.0f", r.width, r.height))
+        print(String(format: "  painted in it %d / %d px  (%.2f%%)  mean α %.3f",
+                     cov.painted, cov.total, pct, cov.meanAlpha))
+        exit(0)
+    }
+}
+
 if args.contains("--demo") {
     controller.anim.synthetic = true
     let order: [Presence] = [.thinking, .working, .speaking, .idle]
@@ -966,6 +995,15 @@ if args.contains("--demo") {
 // it. This is where the silence is removed on demand; GlassGuard.verify carries
 // its own controls, so a reader that has gone blind reports UNREADABLE rather
 // than passing an opaque chrome.
+// Reversibility that cannot be reached is not reversibility. Ambience.restore
+// existed from the day the wallpaper became the real desktop picture, and until
+// now nothing on the command line called it -- so the promise in the design doc
+// was true of the code and false of the owner's machine.
+if args.contains("--mode-restore") {
+    Ambience.restore(on: NSScreen.main ?? screen)
+    exit(0)
+}
+
 if args.contains("--glass-verify") {
     // --no-hatch is the NEGATIVE CONTROL: run the same alarm with the hatch
     // withheld, and require it to go RED. A negative control that passes is a
@@ -1033,6 +1071,46 @@ if args.contains("--home") {
         print("      the ground is created THERE, on whichever Desktop is active.")
         Thread.sleep(forTimeInterval: homeAfter)
     }
+
+    // --on-empty-desktop turns a deadline into a CONDITION, and that is the
+    // difference between a command the owner has to be standing over and one
+    // that can be left running.
+    //
+    // §2.3a: the ground is `.managed`, so it is created on whichever Desktop is
+    // active, and no public API names a Space to put it on instead. --after
+    // handles that with a stopwatch: switch within N seconds or the ground
+    // lands on top of your work. This waits for the room to be EMPTY instead --
+    // SpaceWatch.fingerprint() already excludes our own windows and counts only
+    // ordinary ones, so "no foreign windows here" is exactly "this Desktop is
+    // not the one you are working on".
+    //
+    // It fails CLOSED. No empty Desktop, no ground: taking the owner's Desktop
+    // is worse than not starting.
+    if args.contains("--on-empty-desktop") {
+        let limit = args.firstIndex(of: "--wait").flatMap { i -> Double? in
+            i + 1 < args.count ? Double(args[i + 1]) : nil
+        } ?? 900
+        print("home: waiting for an EMPTY Desktop — switch to VESPER's whenever you like.")
+        print("      it refuses to create the ground on a Desktop with your windows on it.")
+        let deadline = Date().addingTimeInterval(limit)
+        var fp = SpaceWatch.fingerprint()
+        var announced = false
+        while !fp.isEmpty && Date() < deadline {
+            if !announced {
+                print("      here now: \(fp.count) foreign window(s) — not VESPER's Desktop.")
+                announced = true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
+            fp = SpaceWatch.fingerprint()
+        }
+        guard fp.isEmpty else {
+            let msg = "home: no empty Desktop within \(Int(limit)) s — refusing to take one "
+                    + "that is not VESPER's. Nothing was changed.\n"
+            FileHandle.standardError.write(msg.data(using: .utf8)!)
+            exit(3)
+        }
+        print("home: empty Desktop — the ground is created HERE.")
+    }
     guard let h = HomeController(screen: NSScreen.main ?? screen) else {
         FileHandle.standardError.write("home: could not start\n".data(using: .utf8)!)
         exit(2)
@@ -1048,6 +1126,76 @@ if args.contains("--home") {
     if let i = args.firstIndex(of: "--mode"), i + 1 < args.count {
         h.setMode(args[i + 1])
     }
+    // --face-check reads the region the face occupies out of the WINDOW SERVER
+    // rather than asking the renderer whether it rendered. `framesDrawn` counts
+    // ATTEMPTS: a renderer that attempts 120 times a second and paints nothing
+    // reports the same number as one that works, which is why the owner can see
+    // an empty screen while the log looks healthy.
+    if args.contains("--face-check") {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            print("")
+            print("  face check — read from the window server, not from the renderer")
+            print("  ────────────────────────────────────────────────────────────")
+            let t = h.faceTint
+            print(String(format: "  frames attempted %d   tint r%.2f g%.2f b%.2f",
+                         h.framesDrawn, t.0, t.1, t.2))
+            print("  repo root        \(Ambience.repoRoot() ?? "*** NOT FOUND ***")")
+            print("  modes loaded     \(Ambience.modes().count)")
+            guard let img = GlassGuard.windowImage(h.groundWindow) else {
+                print("  *** the window server returned no image of the ground ***")
+                return
+            }
+            let size = h.groundWindow.frame.size
+            let face = GlassGuard.coverage(img, viewSize: size, rect: h.faceRect)
+            // The control. Outside the face's layer the ground paints NOTHING,
+            // so this must be ~0. If it is not, the reader is picking up
+            // something other than our window and the face figure means nothing.
+            let outside = GlassGuard.coverage(img, viewSize: size,
+                                              rect: CGRect(x: 0, y: 0, width: 80, height: 80))
+            let pct = face.total > 0 ? Double(face.painted) / Double(face.total) * 100 : 0
+            print(String(format: "  face rect        %.0fx%.0f at (%.0f, %.0f)",
+                         h.faceRect.width, h.faceRect.height,
+                         h.faceRect.origin.x, h.faceRect.origin.y))
+            print(String(format: "  painted in it    %d / %d px  (%.2f%%)  mean α %.3f",
+                         face.painted, face.total, pct, face.meanAlpha))
+            print(String(format: "  control, corner  %d / %d px  (must be ~0)",
+                         outside.painted, outside.total))
+            print(face.painted == 0
+                  ? "  VERDICT: the face is drawing NOTHING. The owner sees an empty ground."
+                  : "  VERDICT: the face is painting.")
+
+            // THE DENSITY BENCH. Same window, same reader, same run: render the
+            // cloud at the width the point size was tuned at, and at the home's
+            // width, and require the coverage to agree. If it does, point size
+            // scaling with the layer preserves density and the home's face is
+            // as dense as the island's by construction rather than by hope.
+            let tuned = FaceUniforms.tunedAtPoints
+            let homeWidth = h.faceRect.width
+            h.setFaceWidth(tuned)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                defer { h.setFaceWidth(min(screen.frame.width, screen.frame.height) * 0.62) }
+                guard let img2 = GlassGuard.windowImage(h.groundWindow) else { return }
+                let small = GlassGuard.coverage(img2, viewSize: size, rect: h.faceRect)
+                let spct = small.total > 0
+                    ? Double(small.painted) / Double(small.total) * 100 : 0
+                print("")
+                print("  density bench — the same cloud at two widths, one reader")
+                print(String(format: "  at %.0f pt (tuned)  %.2f%%  mean α %.3f",
+                             tuned, spct, small.meanAlpha))
+                print(String(format: "  at %.0f pt (home)   %.2f%%  mean α %.3f",
+                             homeWidth, pct, face.meanAlpha))
+                let ratio = spct > 0 ? pct / spct : 0
+                print(String(format: "  home / tuned       %.2fx  (1.00 would be density preserved)",
+                             ratio))
+                if ratio < 0.75 {
+                    print("  the home's face is SPARSER than the size its point count was")
+                    print("  chosen at. Scaling point size with the layer does not fully")
+                    print("  recover density, and the shortfall is stated rather than rounded.")
+                }
+            }
+        }
+    }
+
     let fp = SpaceWatch.fingerprint()
     h.present()
     print("home: ground on the ACTIVE Desktop — \(fp.count) foreign windows here")

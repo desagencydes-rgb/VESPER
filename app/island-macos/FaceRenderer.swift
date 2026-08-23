@@ -39,6 +39,25 @@ struct FaceUniforms {
     var aspect: Float = 1
 }
 
+extension FaceUniforms {
+    /// The width the 1.6 px default was tuned at: the island's own face layer,
+    /// `min(230, width * 0.38)`.
+    static let tunedAtPoints: CGFloat = 230
+
+    /// A cloud is a FIXED number of points. Spread over a layer three times
+    /// wider without growing the points, a bust becomes dust -- measured on the
+    /// home's 693 pt face on 2026-08-23: 3.46% of the rect painted at mean
+    /// alpha 0.003. It rendered 367 frames and the owner saw an empty ground,
+    /// which is exactly why `framesDrawn` counts attempts and cannot be the
+    /// instrument.
+    ///
+    /// So point size is DERIVED from the layer rather than carried as a
+    /// constant that happens to suit one host. Two hosts, one density.
+    static func pointSize(forLayerWidth w: CGFloat) -> Float {
+        Float(1.6 * max(1, w / tunedAtPoints))
+    }
+}
+
 private let SHADER = """
 #include <metal_stdlib>
 using namespace metal;

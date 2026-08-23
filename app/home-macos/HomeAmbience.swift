@@ -176,7 +176,22 @@ enum Ambience {
             if !quiet { print("  FAILED: \(error.localizedDescription)") }
             return false
         }
-        let confirmed = currentPicture(screen)?.path == url.path
+        // THE READ-BACK IS NOT INSTANT, and reading it as though it were is
+        // how a working change reported itself as broken. On 2026-08-23 this
+        // printed "*** NOT confirmed: reads back as .../rest.png ***" -- naming
+        // as the disagreeing value the exact path it had just set. The single
+        // read happened before the window server had swapped, and the SECOND
+        // read, in the message that reports the failure, happened after.
+        //
+        // "Re-read the world after acting" does not mean re-read it in the same
+        // breath. Poll to a deadline, and let the deadline be the failure.
+        var confirmed = false
+        let deadline = Date().addingTimeInterval(2.0)
+        repeat {
+            confirmed = currentPicture(screen)?.path == url.path
+            if confirmed { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        } while Date() < deadline
         if !quiet {
             print(confirmed
                   ? "  \(mode.name) → \(url.lastPathComponent)   CONFIRMED by reading it back"

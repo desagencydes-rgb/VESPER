@@ -280,10 +280,66 @@ enum GlassGuard {
     // `cacheDisplay` sees a placeholder and `takeSnapshot` flattens onto an
     // opaque bitmap. Both were tried, and both reported confidently.
 
+    /// The window server's image of one of OUR OWN windows.
+    ///
+    /// Exposed rather than private because the face check needs exactly this
+    /// reader for exactly the same reason: the face is drawn by Metal into a
+    /// CAMetalLayer, and asking the view tree whether it drew gets an answer
+    /// from the side that is being questioned. `framesDrawn` counts ATTEMPTS,
+    /// and a renderer that attempts 120 times a second and paints nothing
+    /// reports the same number as one that works.
+    static func windowImage(_ win: NSWindow) -> CGImage? {
+        CGWindowListCreateImage(.null, [.optionIncludingWindow],
+                                CGWindowID(win.windowNumber),
+                                [.boundsIgnoreFraming, .bestResolution])
+    }
+
+    /// How much of `rect` the window actually paints. `rect` is in view points
+    /// with a BOTTOM-LEFT origin, the way AppKit and `CALayer.frame` give it;
+    /// the captured buffer is top-left, and reconciling the two here is what
+    /// stops an orientation slip from being reported as an empty face.
+    static func coverage(_ img: CGImage, viewSize: CGSize, rect: CGRect)
+        -> (painted: Int, total: Int, meanAlpha: Double) {
+        let w = img.width, h = img.height
+        guard w > 0, h > 0 else { return (0, 0, 0) }
+        let n = w * h * 4
+        let data = UnsafeMutablePointer<UInt8>.allocate(capacity: n)
+        defer { data.deallocate() }
+        data.initialize(repeating: 0, count: n)
+        guard let ctx = CGContext(data: data, width: w, height: h, bitsPerComponent: 8,
+                                  bytesPerRow: w * 4,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                                            | CGBitmapInfo.byteOrder32Big.rawValue)
+        else { return (0, 0, 0) }
+        ctx.clear(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+
+        let sx = Double(w) / Double(viewSize.width)
+        let sy = Double(h) / Double(viewSize.height)
+        let topY = viewSize.height - (rect.origin.y + rect.height)
+        let x0 = max(0, Int(Double(rect.origin.x) * sx))
+        let x1 = min(w, Int(Double(rect.origin.x + rect.width) * sx))
+        let y0 = max(0, Int(Double(topY) * sy))
+        let y1 = min(h, Int(Double(topY + rect.height) * sy))
+        var painted = 0, total = 0, alphaSum = 0.0
+        var y = y0
+        while y < y1 {
+            var x = x0
+            while x < x1 {
+                let a = Double(data[(y * w + x) * 4 + 3]) / 255
+                total += 1
+                alphaSum += a
+                if a > 0.02 { painted += 1 }
+                x += 1
+            }
+            y += 1
+        }
+        return (painted, total, total > 0 ? alphaSum / Double(total) : 0)
+    }
+
     private static func sample(_ win: NSWindow, _ side: CGFloat) -> Px? {
-        guard let img = CGWindowListCreateImage(
-                .null, [.optionIncludingWindow], CGWindowID(win.windowNumber),
-                [.boundsIgnoreFraming, .bestResolution]) else { return nil }
+        guard let img = windowImage(win) else { return nil }
         let w = img.width, h = img.height
         guard w > 0, h > 0 else { return nil }
         let n = w * h * 4
