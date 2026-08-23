@@ -18,6 +18,15 @@ import AppKit
 import QuartzCore
 import ServiceManagement
 
+// LINE-BUFFER STDOUT. VESPER's normal life is as a LaunchAgent with its output
+// redirected to a file, and a redirected stream is block-buffered: the process
+// runs for hours and the log stays empty until 4 KB accumulates or it exits.
+// A long-running process whose log does not appear is a process that cannot be
+// observed, and this repo's whole position on instruments is that the thing
+// being questioned does not get to be the only witness. Cheap here, and it is
+// the difference between a hung run and a quiet one.
+setvbuf(stdout, nil, _IOLBF, 0)
+
 // MARK: - Geometry, from docs/design/ANNEX-island-geometry.md
 
 // Renamed 2026-08-21 on the owner's reading of the two expanded references: the
