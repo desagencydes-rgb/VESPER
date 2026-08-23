@@ -314,7 +314,56 @@ raised_by = "Owner, 2026-08-13. VESPER needs multiple models, multiple tasks and
 [spikes.SPIKE-013]
 title = "The home's ground: composite cost, and whether dispersal is affordable"
 protocol = "docs/spikes/SPIKE-013-home-ground-composite.md"
-status = "NOT_STARTED"
+status = "RUNNING"
+status_note = """RUNNING since 2026-08-23. The PRECONDITION is answered and it is
+a NO. The spike's own question -- what the composite COSTS -- still has no
+numbers, and cannot get honest ones until the fallback is chosen, because a
+configuration that cannot ship is not a configuration worth measuring.
+
+CAN A WKWebView BE TRANSPARENT OVER THE FACE WITH PUBLIC API ONLY?  NO.
+
+Measured by app/home-macos/glass_probe.swift on macOS 26.5 build 25F71, run
+twice at two window levels (the ground's own normal-1, occluded; and floating,
+visible) with identical readings. The reader is the WINDOW SERVER'S composite of
+our own window -- the only reader that sees layers WebKit draws out of process.
+Three controls ran first and all passed:
+
+  A1  our window came back at all: blue over red, right way up, 1280x840
+  A2  a window with nothing in it came back alpha 0 -- transparency IS readable
+  B1  a page painted edge to edge in #FF00FF came back #FF00FF -- the reader
+      SEES WebKit content. This is the control both earlier instruments failed.
+
+  C1  default WKWebView, page background: transparent        #FFFFFF opaque
+  C2  + underPageBackgroundColor = .clear                    #FFFFFF opaque
+  C3  + layer.isOpaque = false                               #FFFFFF opaque
+  C4  the same over a CLEAR ground -- the whole stack        #FFFFFF opaque
+  C5  the same with the real glass chrome                    #FFFFFF opaque
+  C6  the same over a CAMetalLayer, the home's own ground    #FFFFFF opaque
+  D1  PRIVATE _setDrawsBackground:false                      ground shows through
+  E1  LEGACY WebView.drawsBackground = false  (PUBLIC)       ground shows through
+
+underPageBackgroundColor is not being ignored. It is set, held, and reads back
+as alpha 0.00 -- and the webview still paints white. It is the scroll-bounce
+colour its own SDK header says it is. It is also the entire public surface on
+WKWebView: grepping this machine's SDK for macos(26) additions turns up Screen
+Time, instant back, obscured content insets and data restore, and nothing about
+background.
+
+D1 and E1 are what make this a finding rather than a blind spot. On the same
+instrument, in the same run, two configurations DID read the ground through the
+webview. The reader can tell transparent from opaque; the public knobs on
+WKWebView cannot produce it.
+
+E1 also narrows the sentence. drawsBackground IS public -- on the LEGACY WebKit1
+WebView (WebView.h:504), deprecated since 10.14. So the finding is not "no
+public route exists", it is "no public route exists ON WKWebView", and the route
+that does exist costs a deprecated in-process engine and forecloses Tauri, whose
+macOS backend is a WKWebView.
+
+BLOCKED ON AN OWNER DECISION: which of the three on_fail fallbacks is taken, or
+whether a fourth -- the private setter, or WebKit1 -- is accepted with its cost
+stated. The 90 home cards stay held until then. Protecting that work from being
+thrown away is what this precondition was run for."""
 question = "What does VESPER's home ground actually cost -- a Metal ambience/face layer beneath a full-screen transparent webview -- and is the DISPERSED face tier cheaper than CENTRE, as the presence law requires?"
 pass_criteria = "Six measured configurations (baseline, Metal alone, composite, attendant, dispersed, absent) plus occlusion, each with CPU, GPU, package power and battery drain read from the system rather than from the renderer's own frame counter. DISPERSED <= CENTRE on every axis. ABSENT and occluded both draw zero frames with no timer, proven by counter. A decided idle cadence with its measured power difference from 60 fps, and the resulting hours of home-open battery runtime."
 on_fail = "If the composite cannot hold its budget, exactly one of three named fallbacks is taken with its cost stated: the webview loses transparency, the field moves into the webview and Metal is dropped, or the ground renders at a lower cadence. If DISPERSED costs more than CENTRE, the dissolve is not shipped as specified -- it becomes a cut to a still field and the owner is told the particle dispersal is not affordable on this host. THE REQUIREMENT IS NOT RELAXED TO 'ABOUT THE SAME'. Not permitted: a figure measured on mains reported as the battery figure; Metal-alone reported as the composite's cost; a point count chosen before the power is measured; a mean reported where the worst sample governs."

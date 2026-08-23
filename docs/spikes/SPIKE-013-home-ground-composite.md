@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Status** | NOT_STARTED |
+| **Status** | RUNNING |
 | **Question** | What does VESPER's home ground actually cost — a Metal ambience/face layer beneath a full-screen transparent webview — and is the **dispersed** face tier cheaper than **centre**, as the presence law requires? |
 | **Time box** | 2 working days |
 | **Owner** | Platform Engineer |
@@ -23,6 +23,118 @@
 > **The pre-registration is the point.** The reading below is fixed before the
 > result exists, for the reason `A-029-E1` records: a rule written after the
 > number is a rule fitted to the number.
+
+---
+
+## 0. The precondition, answered 2026-08-23 — and it is a NO
+
+Everything in §1 assumes a **transparent** webview over the Metal layer. That
+assumption was never tested, and it is false with public API.
+
+**Can a `WKWebView` be transparent over the face, with public API only? No.**
+
+Instrument: `app/home-macos/glass_probe.swift`. macOS 26.5 build 25F71. Run
+twice — once at the ground's own level (`normal − 1`, window occluded) and once
+floating and visible — with identical readings at both.
+
+### 0.1 Why a third instrument was needed
+
+Two earlier ones failed, in opposite directions, and both failed *silently*:
+
+| Instrument | What it actually does | What it reported |
+|---|---|---|
+| `takeSnapshot` | composites onto an **opaque** bitmap | alpha 1.00 for a page that may have been perfectly transparent |
+| `cacheDisplay(in:)` | draws the view tree **this process** owns | `OPAQUE (Δ 2.992)` — a delta of nearly the maximum possible 3.0, which is the WKWebView placeholder, not the page |
+
+Both are in-process. The content is not: WebKit renders in
+`com.apple.WebKit.WebContent`. So this instrument asks the **window server** for
+the composite of our own window, which is the only reader that sees every layer
+regardless of which process drew it.
+
+That reader is not trusted on its word either. `CGWindow.h:264`: *"if the
+windows can't be read, then a transparent black image will be returned"* — and
+transparent black is exactly what success looks like. A blocked capture and a
+perfect pass are the same pixel. Hence three controls, run first, all passed:
+
+| | Control | Read |
+|---|---|---|
+| `A1` | ground only, blue over red — does the capture reach our window, and which way up | `#1249CC` over `#CD4412`, α 1.00, 1280×840 |
+| `A2` | clear ground, no webview — is alpha preserved | transparent |
+| `B1` | a page painted edge to edge `#FF00FF` — **does the capture see WebKit at all** | `#FF00FF` |
+
+`B1` is the one both earlier instruments would have failed.
+
+**`A1` also failed on its first run, and the reason is kept.** It *declared*
+that a `CGColor(red: 0.063, …)` ground would read back as `#1030C0`. It read
+`#1249CC`. Nothing was wrong with the capture — the window server composites in
+the display's space and the reader converts to sRGB, so an authored colour and a
+captured one are two different numbers for the same paint. The fix was not a
+wider tolerance. `A1` now **measures** the reference and every later case is
+compared against that measurement. `INV-HW-2` in a colour space.
+
+### 0.2 The readings
+
+Ground reads `#1249CC`. A reading of `#1249CC` at a point where the page draws
+nothing means the webview painted nothing there.
+
+| | Configuration | Empty point | |
+|---|---|---|---|
+| `C1` | default `WKWebView`, page `background: transparent` | `#FFFFFF` α1.00 | webview painted over it |
+| `C2` | `+ underPageBackgroundColor = .clear` | `#FFFFFF` α1.00 | webview painted over it |
+| `C3` | `+ layer.isOpaque = false` | `#FFFFFF` α1.00 | webview painted over it |
+| `C4` | the same over a **clear** ground — the whole stack | `#FFFFFF` α1.00 | webview painted over it |
+| `C5` | the same with the real glass chrome | `#FFFFFF` α1.00 | webview painted over it |
+| `C6` | the same over a **`CAMetalLayer`** — the home's own ground | `#FFFFFF` α1.00 | webview painted over it |
+| `D1` | **private** `_setDrawsBackground:false` | `#1249CC` α1.00 | **ground shows through** |
+| `E1` | **legacy** `WebView.drawsBackground = false` | `#1249CC` α1.00 | **ground shows through** |
+
+`underPageBackgroundColor` is not being ignored. It is set, held, and **reads
+back as α 0.00** — and the webview still paints white. It is the scroll-bounce
+colour its own header says it is (`WKWebView.h:607`, *"the background color
+under the page's content, such as for scroll bouncing areas"*), and it is the
+whole public surface on `WKWebView`: grepping this machine's SDK for
+`macos(26)` additions across WebKit turns up Screen Time, instant back,
+obscured content insets and data restore, and nothing about background.
+
+**`D1` and `E1` are what make this a finding rather than a blind spot.** On the
+same instrument, in the same run, two configurations *did* read the ground
+through the webview. The reader can tell transparent from opaque. The public
+knobs on `WKWebView` cannot produce it.
+
+### 0.3 What the finding does and does not say
+
+`E1` narrows the sentence. `drawsBackground` **is** public — on the legacy
+WebKit1 `WebView` (`WebView.h:504`), deprecated since 10.14 and still present
+and working on macOS 26.5. So the finding is not *"no public route exists"*. It
+is:
+
+> **No public route exists on `WKWebView`.**
+
+and the route that does exist costs a deprecated, in-process, frozen engine and
+**forecloses Tauri**, whose macOS backend is a `WKWebView`.
+
+### 0.4 What is now blocked, and on whom
+
+The composite cost in §1 cannot be measured honestly until the fallback is
+chosen, because measuring a configuration that cannot ship measures nothing.
+§3's three named options are now live, plus a fourth that §3 did not anticipate:
+
+| | Option | What it costs |
+|---|---|---|
+| 1 | the webview loses transparency — opaque panels over the ground | the field shows only where nothing is mounted. The wallpaper is the real desktop picture now, so this is less severe than when §3 was written |
+| 2 | the field moves into the webview, Metal dropped | a second face in WebGL, a second power profile, and `FaceRenderer`'s measured 5–7 % is thrown away |
+| 3 | the ground renders at a lower cadence | does not help — cadence is not why the webview is opaque |
+| 4 | *(new)* accept a non-public route | `_setDrawsBackground:` is KVC onto a private property, which `ISLAND-ARCHITECTURE.md` §2 rules out because the failure is silent and arrives with an OS update. WebKit1 is public but deprecated and forecloses Tauri |
+
+**This is an owner decision and the 90 home cards are held until it is made** —
+which is exactly what running the precondition first was for.
+
+**Unverified, and it decides how much option 4 really costs:** Tauri's macOS
+backend must obtain window transparency somehow, and `wry` is not installed on
+this machine yet, so which route it takes has not been read. If it uses the
+private setter, then choosing Tauri already accepts option 4 inside a
+dependency, one step further from where it can be seen. Check it the day `wry`
+lands.
 
 ---
 

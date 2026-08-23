@@ -73,6 +73,24 @@ stated goal is to stretch its own life, "not free" needs a number before it need
 a design. The spike names the three fallbacks in advance so the choice is not
 made by whoever is holding the failing figure.
 
+> **2026-08-23 — "the webview, transparent background" is not available.**
+> `SPIKE-013` §0 measured it before measuring the cost, and the row above is
+> currently a want rather than a mechanism. A `WKWebView` on macOS 26.5 paints
+> `#FFFFFF` over the ground in every public configuration, including
+> `underPageBackgroundColor = .clear`, which is set, held, reads back at α 0.00
+> and changes nothing — it is the scroll-bounce colour, and it is the entire
+> public surface. Two configurations *did* let the ground through on the same
+> instrument in the same run: the private `_setDrawsBackground:`, and the legacy
+> WebKit1 `WebView`, whose `drawsBackground` is public but deprecated and
+> forecloses Tauri. So the finding is not "no public route exists" but **"no
+> public route exists on `WKWebView`"**.
+>
+> The three fallbacks below are now live and a fourth — accept a non-public
+> route, with its cost stated — has joined them. **The choice is the owner's and
+> the 90 cards are held until it is made.** Nothing above this note has been
+> changed to match, deliberately: the table still says what the design wants,
+> and this note says what the machine gives.
+
 ---
 
 ## 2. The Space — what macOS actually provides, checked rather than assumed
