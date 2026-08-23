@@ -788,10 +788,33 @@ a wish."* Enacting one is a separate reviewed act.
 | `INV-HOME-2` | A widget renders its reading's age, or renders nothing | WidgetKit showing a four-hour-old number confidently (§4) | a render test at `now + ttl + 1` |
 | `INV-HOME-3` | The stage owns the face's presence tier; no behaviour may raise its own | `acting` re-materialising the face over the owner's work | property test over behaviour × stage |
 | `INV-HOME-4` | The home renders nothing while occluded | a 60 fps surface nobody can see, on a host whose lifetime is the product | occlusion transition test with a frame counter |
-| `INV-HOME-5` | No surface uses private API | the island's silent failure mode, on a bigger surface | a symbol scan of the built binary |
+| `INV-HOME-5` | No surface uses private API, **with one named exception and its alarm** | the island's silent failure mode, on a bigger surface | `CI-058`, and `GlassGuard.verify` at runtime |
 
 `INV-HOME-5` generalises what `ISLAND-ARCHITECTURE.md` §2 already calls an
 invariant candidate. It belongs to surfaces, not to the island.
+
+**Promoted from candidate to invariant on 2026-08-23**, with an exception, which
+is the only reason it could be promoted at all. `SPIKE-013` §0 measured that no
+public route to a transparent `WKWebView` exists on macOS 26.5 — so the flat
+form of this rule would have forbidden the home's chrome outright rather than
+constrained it, and an invariant nothing can satisfy gets quietly ignored rather
+than obeyed.
+
+The exception is granted **against the silence, not against the selector**. §2's
+own reason for the ban is that *"the failure mode is silent"*. So:
+
+- the hatch lives in exactly one file, `app/home-macos/GlassGuard.swift`;
+- that file must also contain the reader that sees the real composite, and the
+  negative control that proves the reader can go red — `CI-058` fails if either
+  is removed, and fails on any second copy of the selector anywhere under
+  `app/`;
+- `VESPER --glass-verify` answers `TRANSPARENT` / `OPAQUE` / `UNREADABLE` with
+  exit codes 0/1/2, and `--glass-verify --no-hatch` is the standing negative
+  control. Measured 2026-08-23: green with the hatch, `#FFFFFF` red without it.
+
+**`UNREADABLE` is not a pass.** A reader that cannot see WebKit content reports
+a transparent chrome and an opaque one identically, so the verdict has three
+values rather than two, and only one of them mounts a chrome.
 
 ---
 

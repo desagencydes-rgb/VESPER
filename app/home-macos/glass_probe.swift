@@ -1,5 +1,12 @@
 // VESPER — SPIKE-013, restarted at its precondition.
 //
+// glass-hatch-ok — MEASUREMENT INSTRUMENT, NOT SHIPPED CODE. `CI-058` requires
+// this marker on any file that names the private WKWebView background selector,
+// so that no second copy of the hatch drifts in unreviewed. This file names it
+// on purpose: case `D1` exists to prove the reader can tell a transparent
+// webview from an opaque one, and a finding of "no public route" that could not
+// distinguish the two would be a blind spot reported as a result.
+//
 // THE QUESTION. HOME-ARCHITECTURE §1.1 puts the home in one window with two
 // layers: Metal below carrying the ambience and the face, a WKWebView above
 // carrying the cards. That only works if the webview is TRANSPARENT where no

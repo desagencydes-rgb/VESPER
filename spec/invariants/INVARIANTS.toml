@@ -814,3 +814,10 @@ statement = "An endpoint action with an irreversible external effect writes an o
 owner_rem = "REM-012"
 enforced_by = ["CI-037", "CI-054", "A-051"]
 kind = "runtime"
+
+[invariants.INV-HOME-5]
+statement = "No home surface uses private API, with exactly one named exception: the WKWebView background hatch in app/home-macos/GlassGuard.swift, which may ship only alongside a runtime reader that makes its failure loud. SPIKE-013 SS0 measured that no public route to a transparent WKWebView exists on macOS 26.5; ISLAND-ARCHITECTURE SS2 forbids private API because the failure is SILENT, and the exception is granted against the silence rather than against the selector."
+owner_rem = "REM-009"
+enforced_by = ["CI-058"]
+kind = "structural"
+exception_granted = "Owner decision 2026-08-23, on the reading in SPIKE-013 SS0 and SS0.5. The alarm is GlassGuard.verify, which carries three controls and a permanent negative control (--glass-verify --no-hatch) because an alarm that has only ever been green has not been shown to key on the thing it claims to key on."

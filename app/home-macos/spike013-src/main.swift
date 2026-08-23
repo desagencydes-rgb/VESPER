@@ -1,5 +1,10 @@
 // VESPER — SPIKE-013: what does the two-layer home cost?
 //
+// glass-hatch-ok — this file MENTIONS the private background selector in a
+// comment, to say it is ruled out. `CI-058` greps rather than parses, so the
+// mention needs the marker; the marker means "this reference is deliberate and
+// reviewed", not "this file uses the hatch". It does not.
+//
 // HOME-ARCHITECTURE.md §1.1 puts the home in ONE window with TWO layers: a
 // Metal field below carrying the ambience and the face, a transparent webview
 // above carrying the cards. It then says, in the same section:

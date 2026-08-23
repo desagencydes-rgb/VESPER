@@ -22,10 +22,14 @@ ID="ai.vesper.island"
 # with an identity of its own, which re-opens exactly the TCC question the
 # bundle was built to close. See Home.swift's header for the other two reasons.
 HOME_SRC=../home-macos
-swiftc -O -swift-version 5 \
+# -target ...13.0 matches the LSMinimumSystemVersion this bundle already
+# declares, and it is what makes GlassGuard's reader compile: the SDK marks
+# CGWindowListCreateImage obsoleted=15.0. Every call above 13.0 in these
+# sources is already behind #available, so the floor costs nothing.
+swiftc -O -swift-version 5 -target arm64-apple-macosx13.0 \
   main.swift FaceRenderer.swift Behaviour.swift \
   "$HOME_SRC/Home.swift" "$HOME_SRC/HomeAmbience.swift" "$HOME_SRC/SpaceWatch.swift" \
-  "$HOME_SRC/HomeVerify.swift" \
+  "$HOME_SRC/HomeVerify.swift" "$HOME_SRC/GlassGuard.swift" \
   -o island
 
 rm -rf "$APP"
@@ -136,6 +140,7 @@ echo "  ./app/island-macos/island --home --mode Rest --seconds 30"
 echo "  --home        ground at normal-1 on the ACTIVE Desktop, face on it"
 echo "  --mode NAME   sets the DESKTOP PICTURE of the active Space to that mode"
 echo "  --home-verify identity + the occlusion<->Desktop measurement"
+echo "  --glass-verify the glass hatch's alarm: 0 transparent, 1 opaque, 2 unreadable"
 echo
 echo "the app registers its own login item on first launch."
 echo "to remove it:  app/VESPER.app/Contents/MacOS/VESPER --uninstall-login-item"

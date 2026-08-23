@@ -303,6 +303,12 @@ CREATE_CASES: list[tuple[str, str, str, str]] = [
     ("no-product-names", "routing/_selftest_probe.py",
      "# deliberate violation for tools/ci/self_test.py\nPREFERRED_NODE = 'MacBook Neo'\n",
      "a product name inside routing/ (INV-HW-1)"),
+    ("glass-hatch-contained", "app/home-macos/_selftest_glass_hatch.swift",
+     "// deliberate violation for tools/ci/self_test.py -- no glass-hatch marker\n"
+     "func selftestHatch(_ web: AnyObject) {\n"
+     "    web.setValue(false, forKey: \"drawsBackground\")\n"
+     "}\n",
+     "a second copy of the private WKWebView background hatch, unmarked (INV-HOME-5)"),
 ]
 
 # --------------------------------------------------------------------------

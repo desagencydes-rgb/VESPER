@@ -960,6 +960,47 @@ if args.contains("--demo") {
 // so `--home` creates the ground on the Desktop the owner is looking at, and
 // the switch that puts them there is a separate mechanism that needs an
 // Accessibility grant this build has not asked for yet.
+// THE GLASS HATCH'S ALARM. SPIKE-013 §0 measured that a WKWebView cannot be
+// made transparent with public API, and the owner's decision was to take the
+// private route and remove the SILENCE that made ISLAND-ARCHITECTURE §2 forbid
+// it. This is where the silence is removed on demand; GlassGuard.verify carries
+// its own controls, so a reader that has gone blind reports UNREADABLE rather
+// than passing an opaque chrome.
+if args.contains("--glass-verify") {
+    // --no-hatch is the NEGATIVE CONTROL: run the same alarm with the hatch
+    // withheld, and require it to go RED. A negative control that passes is a
+    // defect, not a relief -- it would mean the alarm cannot detect the fault
+    // it exists for.
+    let negative = args.contains("--no-hatch")
+    GlassGuard.verify(applyHatch: !negative) { v in
+        print(v.line)
+        if negative {
+            switch v {
+            case .opaque:
+                print("negative control: PASS — the alarm detects a chrome that paints")
+                exit(0)
+            default:
+                let m = "negative control: FAILED — the hatch was withheld and the alarm "
+                      + "still said \(v). It is not reading the hatch, so every green it "
+                      + "has given was free.\n"
+                FileHandle.standardError.write(m.data(using: .utf8)!)
+                exit(3)
+            }
+        }
+        if !v.mayMountChrome {
+            FileHandle.standardError.write((v.line + "\n").data(using: .utf8)!)
+        }
+        // 0 transparent, 1 opaque, 2 unreadable. An unanswered question exits
+        // differently from an answered no, because they need different repairs.
+        switch v {
+        case .transparent:  exit(0)
+        case .opaque:       exit(1)
+        case .unreadable:   exit(2)
+        }
+    }
+    app.run()
+}
+
 if args.contains("--home-verify") {
     HomeVerify.identity()
     let secs = args.firstIndex(of: "--seconds").flatMap { i -> Double? in

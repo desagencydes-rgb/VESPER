@@ -2320,6 +2320,91 @@ def check_projection_unknown_absent() -> Result:
     return r
 
 
+# --------------------------------------------------------------------------
+# CI-058 -- INV-HOME-5: the glass hatch ships in one place, with its alarm.
+#
+# SPIKE-013 SS0 measured, on macOS 26.5, that a WKWebView cannot be made
+# transparent with public API: every public configuration paints #FFFFFF over
+# the ground, and `underPageBackgroundColor = .clear` is set, held, reads back
+# at alpha 0.00 and changes nothing. The owner took the private selector on one
+# condition.
+#
+# THE CONDITION IS NOT "use it carefully". ISLAND-ARCHITECTURE SS2 forbids
+# private API and says why: "the failure mode is SILENT". So the exception is
+# granted against the SILENCE. The hatch may exist in exactly one shipped file,
+# and only while that file also contains the runtime reader that turns the
+# silent failure into a loud one.
+#
+# Two things are therefore checked, and the second is the one that matters:
+#   1. the selector appears only in files that carry the `glass-hatch-ok`
+#      marker, so no second copy can drift in unreviewed;
+#   2. the shipped file still contains its reader AND its negative control. A
+#      hatch whose alarm has been deleted is worse than no hatch, because the
+#      architecture now records a risk that is being managed and it is not.
+# --------------------------------------------------------------------------
+GLASS_HATCH_MARK = "glass-hatch-ok"
+GLASS_HATCH_PATTERNS = ("_setDrawsBackground", 'forKey: "drawsBackground"')
+GLASS_HATCH_HOME = "app/home-macos/GlassGuard.swift"
+
+
+def check_glass_hatch() -> Result:
+    r = Result("glass-hatch-contained")
+    app_dir = REPO / "app"
+    if not app_dir.is_dir():
+        r.note("not yet applicable: no app/ directory on this tree")
+        return r
+
+    scanned = 0
+    carriers: list[str] = []
+    for f in sorted(app_dir.rglob("*.swift")):
+        if not f.is_file():
+            continue
+        scanned += 1
+        text = f.read_text(encoding="utf-8", errors="replace")
+        if not any(pat in text for pat in GLASS_HATCH_PATTERNS):
+            continue
+        rel = f.relative_to(REPO).as_posix()
+        carriers.append(rel)
+        if GLASS_HATCH_MARK not in text:
+            r.err(
+                f"{rel} reaches for the private WKWebView background selector without the "
+                f"{GLASS_HATCH_MARK!r} marker. SPIKE-013 SS0 bought this hatch on one condition: "
+                f"it lives in one reviewed place, with the alarm that makes its failure loud. "
+                f"A second copy is a second silent failure."
+            )
+
+    shipped = REPO / GLASS_HATCH_HOME
+    if shipped.is_file():
+        t = shipped.read_text(encoding="utf-8", errors="replace")
+        has_hatch = any(pat in t for pat in GLASS_HATCH_PATTERNS)
+        if has_hatch and "CGWindowListCreateImage" not in t:
+            r.err(
+                f"{GLASS_HATCH_HOME} ships the hatch but no longer contains the reader "
+                f"(CGWindowListCreateImage). In-process readers cannot answer this question -- "
+                f"takeSnapshot flattens onto an opaque bitmap and cacheDisplay cannot see "
+                f"out-of-process WebKit content -- so removing this one leaves the hatch with "
+                f"no alarm at all."
+            )
+        if has_hatch and "applyHatch" not in t:
+            r.err(
+                f"{GLASS_HATCH_HOME} ships the hatch but no longer offers the negative control "
+                f"(applyHatch: false). An alarm that has only ever been green has not been shown "
+                f"to key on the thing it claims to key on."
+            )
+    elif carriers:
+        r.err(
+            f"the hatch appears in {carriers} but {GLASS_HATCH_HOME} is gone -- the one place it "
+            f"is allowed to live, and the only file the alarm is checked in."
+        )
+
+    if not carriers:
+        r.note("no Swift file under app/ reaches for the private background selector")
+    else:
+        r.note(f"scanned {scanned} Swift files under app/; hatch carried by {len(carriers)}: "
+               + ", ".join(carriers))
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -2352,6 +2437,7 @@ CHECK_FNS = {
     "fabric-stress": check_fabric_stress,
     "host-stress": check_host_stress,
     "projection-unknown-absent": check_projection_unknown_absent,
+    "glass-hatch-contained": check_glass_hatch,
 }
 
 
