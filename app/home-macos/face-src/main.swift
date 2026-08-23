@@ -196,20 +196,36 @@ func isVisible() -> Bool { win.occlusionState.contains(.visible) }
 var visibleWall = 0.0, visibleCPU = 0.0
 var lastMark = Date(), lastCPU = selfCPUSeconds()
 
-// A class in top-level code cannot close over top-level values, so the renderer
-// and layer are passed in rather than captured.
+// THE MOTION IS NOT WRITTEN HERE. The owner, on seeing this probe: "the one in
+// the expanded island is already good, you can just use it, or maybe copy it if
+// it's different?" -- and it is neither used nor copied, because Behaviour.swift
+// is compiled into this binary exactly as FaceRenderer.swift already was.
+//
+// What this file had before was `sinf(angle) * 0.35` for yaw and a cosine for
+// pitch, invented on the spot to make something move. FaceDriver is the real
+// thing: fourteen behaviours, a breath, blink timing gated on speech, and an
+// 80 ms delay line so THE EYES ARRIVE BEFORE THE HEAD -- move them together and
+// it reads as a turret. None of that would have survived being reinvented here,
+// and a second face with its own motion would have been a second face.
+//
+// Behaviour.swift imports Foundation and nothing else, so there was never
+// anything to port. The face is one renderer and one behaviour, hosted twice.
 final class Driver: NSObject {
     let face: FaceRenderer
     let layer: CAMetalLayer
-    var angle: Float = 0
+    let motion = FaceDriver()
     var drawn = 0
     init(face: FaceRenderer, layer: CAMetalLayer) {
         self.face = face; self.layer = layer
     }
     @objc func frame() {
-        angle += 0.012
-        face.uniforms.yaw = sinf(angle) * 0.35
-        face.uniforms.pitch = cosf(angle * 0.7) * 0.12
+        motion.step(1.0 / 60.0)
+        face.uniforms.yaw      = motion.headYaw
+        face.uniforms.pitch    = motion.headPitch
+        face.uniforms.eyeYaw   = motion.eyeYaw
+        face.uniforms.eyePitch = motion.eyePitch
+        face.uniforms.blink    = motion.blink
+        face.uniforms.scale    = 0.96 * motion.breath
         face.draw(in: layer)
         drawn += 1
     }
@@ -230,7 +246,7 @@ func sampleState() {
 
 win.orderFrontRegardless()
 
-let SECS = 15.0
+let SECS = CommandLine.arguments.contains("--long") ? 40.0 : 15.0
 print("""
 
   VESPER — the face on the ground
@@ -253,11 +269,22 @@ let t0 = Date(), c0 = selfCPUSeconds()
 lastMark = t0; lastCPU = c0
 let link = host.displayLink(target: driver, selector: #selector(Driver.frame))
 link.add(to: .main, forMode: .common)
+// Cycle the fourteen so they can be watched rather than described.
+var behaviourIndex = 0
+let all = Behaviour.allCases
+driver.motion.behaviour = all[0]
+print("  behaviour: \(all[0].rawValue)")
+let cycler = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { _ in
+    behaviourIndex = (behaviourIndex + 1) % all.count
+    driver.motion.behaviour = all[behaviourIndex]
+    print("  behaviour: \(all[behaviourIndex].rawValue)")
+}
+RunLoop.main.add(cycler, forMode: .common)
 let sampler = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in sampleState() }
 RunLoop.main.add(sampler, forMode: .common)
 
 DispatchQueue.main.asyncAfter(deadline: .now() + SECS) {
-    link.invalidate(); sampler.invalidate()
+    link.invalidate(); sampler.invalidate(); cycler.invalidate()
     let wall = Date().timeIntervalSince(t0)
     let cpu = (selfCPUSeconds() - c0) / wall * 100
     let drawn = driver.drawn
@@ -272,16 +299,18 @@ DispatchQueue.main.asyncAfter(deadline: .now() + SECS) {
     }
     print(String(format: "  CPU overall         %5.1f%%", cpu))
     print("")
+    // Occlusion is REPORTED, never a verdict. It was guessed twice as the cause
+    // of a low frame rate and disproven twice -- most conclusively by the run
+    // that reported occluded in 15 of 15 samples and still held 119.7 fps, the
+    // display's full rate. macOS does not throttle this layer for being covered,
+    // whatever seemed obvious. The frame rate is the signal; occlusion is
+    // context, and the architecture's plan to stop rendering when covered is
+    // therefore something VESPER must do deliberately, not something the system
+    // will do for it.
     if occludedFrames > visibleFrames {
-        print("  THE WINDOW WAS COVERED FOR MOST OF THIS RUN, so most of what was")
-        print("  measured is macOS throttling a ground it can see nobody is looking")
-        print("  at. That throttle is real and is the behaviour the architecture")
-        print("  wants -- it is NOT the cost of the face.")
+        print("  (the window was covered for most of this run — reported, not held")
+        print("   against the numbers: covered runs have measured the same fps)")
         print("")
-        print("  Re-run with the ground actually on screen: launch it, then get the")
-        print("  terminal out of the way (switch Desktops, or minimise it) within")
-        print("  the first second. The log keeps the numbers.")
-        exit(1)
     }
     if drawn == 0 {
         print("  ZERO FRAMES. Nothing was measured. This is the failure the first")
