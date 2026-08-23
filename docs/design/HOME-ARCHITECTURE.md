@@ -162,10 +162,43 @@ everywhere" as "you never switched". `orderFrontRegardless` returning is not a
 window appearing — the same shape as the repo's standing example that a launcher
 returning 0 is not a running process.
 
-**The ground behaves like the wallpaper, because that is what it is.** It spans
-the whole screen frame — not `visibleFrame` — so it runs to `y = 0` and the
-translucent menu bar sits over it, tinted by whatever ambience is running. That
-is exactly what the desktop picture already does on this machine.
+**Corrected 2026-08-23 — the ground does not carry the wallpaper.** This section
+used to say the ground *behaves like* the wallpaper because that is what it is,
+spanning the whole frame to `y = 0` so the translucent menu bar would be tinted
+by the running ambience. The geometry half is verified and stands: F1 measured
+the window at 1728×1117 at `y = 0`. **The menu bar half is false.** The owner
+looked at it and reported the menu bar still showing the system picture — because
+**the menu bar samples the desktop picture, not the windows beneath it.** It is
+also why the ground read as "not taking full screen": it does reach `y = 0`, but
+the band under the menu bar keeps rendering the old picture.
+
+The last sentence of the old paragraph was the clue and nobody followed it. It
+*is* what the desktop picture already does — because it is the desktop picture
+that does it.
+
+**So the wallpaper leaves the window entirely and becomes the actual desktop
+picture**, set per mode with `NSWorkspace.setDesktopImageURL(_:for:options:)` —
+public since macOS 10.6, applying to the **current Space**, and readable back
+with `desktopImageURL(for:)` so the change can be confirmed rather than assumed.
+The owner proposed this directly: *"why not just assign the wallpapers in desktop
+2 normally according to modes just like how the normal pc's wallpaper is set
+up?"*
+
+| | Wallpaper in the field layer | Wallpaper as the desktop picture |
+|---|---|---|
+| Menu bar tint | **wrong** — samples the old picture | correct, for free |
+| Mission Control | shows a grey Desktop | shows the mode |
+| Fill / crop | our own code, 87 % of width on eight modes | the window server's, at any size |
+| Compositing | a full-screen opaque window in the path | **not in the path at all** |
+
+That last row changes `SPIKE-013`'s question rather than its answer: the
+composite under test is now a transparent webview over a Metal face over the
+*system* desktop, with no opaque full-screen layer of ours between them.
+
+The change touches the owner's machine, so `app/home-macos/wallpaper.swift`
+records the existing picture before its first change and `--restore` puts it
+back. Recording it is not a courtesy — it is the difference between a setting
+and a loss.
 
 **There is no black bar at the top, and this is where fullscreen would have put
 one.** A fullscreen app hides the menu bar and fills the notch band with black;
