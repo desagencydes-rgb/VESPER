@@ -138,6 +138,7 @@ echo
 echo "the home (one process, same bundle, same identity):"
 echo "  ./app/island-macos/island --home --mode Rest --seconds 30"
 echo "  --home        ground at normal-1 on the ACTIVE Desktop, face on it"
+echo "  --after N     wait N s first, so you can switch to VESPER's Desktop"
 echo "  --mode NAME   sets the DESKTOP PICTURE of the active Space to that mode"
 echo "  --home-verify identity + the occlusion<->Desktop measurement"
 echo "  --glass-verify the glass hatch's alarm: 0 transparent, 1 opaque, 2 unreadable"

@@ -1019,6 +1019,20 @@ if args.contains("--home-verify") {
 
 var home: HomeController?
 if args.contains("--home") {
+    // --after N delays creation by N seconds, and it exists for one reason:
+    // the ground is `.managed`, so it lands on whichever Desktop is ACTIVE when
+    // it is created, and there is no public API that names a Space to put it on
+    // instead (§2.3a). The command is typed in a terminal, and the terminal is
+    // not on VESPER's Desktop. Without this the ground appears on top of
+    // whatever the owner was typing in, which is the opposite of the point.
+    let homeAfter = args.firstIndex(of: "--after").flatMap { i -> Double? in
+        i + 1 < args.count ? Double(args[i + 1]) : nil
+    } ?? 0
+    if homeAfter > 0 {
+        print("home: waiting \(Int(homeAfter)) s — switch to VESPER's Desktop now.")
+        print("      the ground is created THERE, on whichever Desktop is active.")
+        Thread.sleep(forTimeInterval: homeAfter)
+    }
     guard let h = HomeController(screen: NSScreen.main ?? screen) else {
         FileHandle.standardError.write("home: could not start\n".data(using: .utf8)!)
         exit(2)
