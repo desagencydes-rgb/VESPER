@@ -183,29 +183,52 @@ final class FaceRenderer {
         FileHandle.standardError.write("face: \(n) points loaded\n".data(using: .utf8)!)
     }
 
+    /// Alpha the pass clears to. **1 for the island, 0 for the home**, and the
+    /// difference is not a preference — it is what is underneath.
+    ///
+    /// The island paints its own opaque black shell, so clearing to opaque black
+    /// makes the face sit ON that ground rather than inside a black rectangle of
+    /// its own. The home has no such ground: since 2026-08-23 the mode picture is
+    /// the real desktop picture, and there is nothing of VESPER's between the
+    /// face and it. Clearing to alpha 1 there paints exactly the black square the
+    /// owner reported — a correct decision for one surface applied to another
+    /// where its premise does not hold.
+    ///
+    /// Default stays 1 so the island is untouched.
+    public var clearAlpha: Double = 1
+
     func draw(in layer: CAMetalLayer) {
-        guard let drawable = layer.nextDrawable(),
-              let cmd = queue.makeCommandBuffer() else { return }
+        guard let drawable = layer.nextDrawable() else { return }
+        encode(to: drawable.texture, present: drawable)
+    }
+
+    /// Same pass, into a texture nobody presents — so the result can be read
+    /// back and checked. Without this, "the background is transparent now" is a
+    /// claim about a line of code rather than a reading of a pixel.
+    func render(to texture: MTLTexture) { encode(to: texture, present: nil) }
+
+    private func encode(to texture: MTLTexture, present drawable: CAMetalDrawable?) {
+        guard let cmd = queue.makeCommandBuffer() else { return }
         let rp = MTLRenderPassDescriptor()
-        rp.colorAttachments[0].texture = drawable.texture
+        rp.colorAttachments[0].texture = texture
         rp.colorAttachments[0].loadAction = .clear
-        // Clears to the ground the island already paints, so the face sits ON our
-        // black rather than in a black rectangle of its own.
         // Black, not #03141f. The presence reference puts its content straight on
         // the shell -- the inner ground panel belongs to Hanging. Measured: the
         // instruments reference carries 16,129 px of #03141f, the presence one
         // carries none.
-        rp.colorAttachments[0].clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        rp.colorAttachments[0].clearColor =
+            MTLClearColor(red: 0, green: 0, blue: 0, alpha: clearAlpha)
         rp.colorAttachments[0].storeAction = .store
         guard let enc = cmd.makeRenderCommandEncoder(descriptor: rp) else { return }
         var u = uniforms
-        u.aspect = Float(layer.drawableSize.width / max(1, layer.drawableSize.height))
+        u.aspect = Float(texture.width) / Float(max(1, texture.height))
         enc.setRenderPipelineState(pipeline)
         enc.setVertexBuffer(points, offset: 0, index: 0)
         enc.setVertexBytes(&u, length: MemoryLayout<FaceUniforms>.stride, index: 1)
         enc.drawPrimitives(type: .point, vertexStart: 0, vertexCount: count)
         enc.endEncoding()
-        cmd.present(drawable)
+        if let drawable { cmd.present(drawable) }
         cmd.commit()
+        if drawable == nil { cmd.waitUntilCompleted() }
     }
 }

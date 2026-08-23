@@ -103,6 +103,54 @@ host.layer?.addSublayer(metal)
 face.uniforms.aspect = 1
 face.uniforms.scale = 1
 face.uniforms.alpha = 1
+// Nothing of VESPER's sits between the face and the desktop picture, so the pass
+// must clear to nothing. At the island's default of 1 this paints a black square
+// the size of the layer — which is what the owner saw.
+face.clearAlpha = 0
+
+// --verify renders one frame into a texture nobody presents and reads the pixels
+// back. "The background is transparent now" should be a reading, not a claim
+// about a line of code — this file has already produced five confident wrong
+// explanations and does not need a sixth.
+if CommandLine.arguments.contains("--verify") {
+    let d = MTLTextureDescriptor.texture2DDescriptor(
+        pixelFormat: .bgra8Unorm, width: 256, height: 256, mipmapped: false)
+    d.usage = [.renderTarget, .shaderRead]
+    d.storageMode = .shared
+    guard let tex = face.device.makeTexture(descriptor: d) else {
+        print("cannot make texture"); exit(2)
+    }
+    face.uniforms.yaw = 0; face.uniforms.pitch = 0
+    face.render(to: tex)
+
+    var px = [UInt8](repeating: 0, count: 256 * 256 * 4)
+    px.withUnsafeMutableBytes { raw in
+        tex.getBytes(raw.baseAddress!, bytesPerRow: 256 * 4,
+                     from: MTLRegionMake2D(0, 0, 256, 256), mipmapLevel: 0)
+    }
+    func alpha(_ x: Int, _ y: Int) -> Int { Int(px[(y * 256 + x) * 4 + 3]) }
+    func lum(_ x: Int, _ y: Int) -> Int {
+        let o = (y * 256 + x) * 4
+        return (Int(px[o]) + Int(px[o+1]) + Int(px[o+2])) / 3
+    }
+    let corners = [alpha(2,2), alpha(253,2), alpha(2,253), alpha(253,253)]
+    var lit = 0
+    for y in stride(from: 0, to: 256, by: 2) {
+        for x in stride(from: 0, to: 256, by: 2) where lum(x, y) > 8 { lit += 1 }
+    }
+    print("")
+    print("  corner alpha (0 = transparent) : \(corners)")
+    print("  lit samples out of \(128*128)          : \(lit)")
+    let bgClear = corners.allSatisfy { $0 == 0 }
+    let hasFace = lit > 200
+    print("")
+    print(bgClear ? "  PASS  background is transparent — no black square"
+                  : "  FAIL  background is opaque — the square is still there")
+    print(hasFace ? "  PASS  the face is actually in the texture, so the check above is not"
+                  + "\n        passing simply because nothing rendered at all"
+                  : "  FAIL  nothing rendered — a transparent empty texture proves nothing")
+    exit(bgClear && hasFace ? 0 : 1)
+}
 
 var angle: Float = 0
 // OCCLUSION -- kept, but it was NOT the answer, and the wrong guess is left
