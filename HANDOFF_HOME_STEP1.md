@@ -98,23 +98,43 @@ inside the card and leaves it **0 pt** outside — on both routes, and over a re
 backdrop filter samples the page's own backdrop, and the field is not in the
 page. So the §1.1 look is achievable; only the transparency is missing.
 
-### WHAT THE OWNER HAS TO DECIDE
+### DECIDED 2026-08-23 — the hatch, with an alarm
 
-The card work is **held** until this is answered — that is what the precondition
-was run to protect.
+Owner chose: **take the private route, and make its failure loud.** Landed in
+`bdc70ac`.
 
-| | Option | Cost |
-|---|---|---|
-| 1 | opaque panels over the ground | **worse than it looked.** With no transparency there is no backdrop, so the glass becomes a flat panel — the design's central material is gone, not reduced |
-| 2 | field moves into the webview, Metal dropped | still gives the look (a WebGL field is inside the page, so the blur reaches it) but costs a second face implementation and an unmeasured second power profile |
-| 3 | lower ground cadence | **does not apply** — cadence is not why the webview is opaque |
-| 4 | accept a non-public route | `_setDrawsBackground:` breaks `ISLAND-ARCHITECTURE.md` §2 (silent failure on an OS update). WebKit1 is public but deprecated and forecloses Tauri |
+| | |
+|---|---|
+| `app/home-macos/GlassGuard.swift` | the ONLY file that may name `_setDrawsBackground:`. Carries the hatch, the reader, and three controls it runs every time |
+| `VESPER --glass-verify` | `TRANSPARENT` / `OPAQUE` / `UNREADABLE`, exit `0` / `1` / `2`. **`UNREADABLE` is not a pass** |
+| `VESPER --glass-verify --no-hatch` | the standing negative control. Measured: `#FFFFFF` red without the hatch, green with it |
+| `CI-058` `glass-hatch-contained` | refuses the selector in any unmarked file, and refuses it in `GlassGuard.swift` if the reader or the negative control is removed. Found two files on its first run |
+| `INV-HOME-5` | promoted from candidate **with the exception written into it**, traced to `SR-002` |
 
-**Not yet read, and it changes what option 4 costs:** Tauri gets window
-transparency on macOS somehow, and `wry` is not installed here yet. If it uses
-the private setter, then choosing Tauri already accepts option 4 — inside a
-dependency, one step further from where anyone would see it break. Read `wry`
-the day it lands.
+**Why the exception is coherent rather than a climbdown.** `ISLAND-ARCHITECTURE`
+§2's own reason for banning private API is that *"the failure mode is silent"*.
+The ban is against the silence. `SPIKE-013` produced a reader that sees the real
+composite, so the silence is gone and the risk is one VESPER can see.
+
+**The alarm's own first run reported `UNREADABLE`,** and the fault was the
+alarm's: `navigationDelegate` is weak and nothing held the delegate between
+steps. It refused to answer rather than guessing — which is what the three steps
+are for, and why `UNREADABLE` is a separate verdict from `OPAQUE`.
+
+### What is unblocked, and what is still not
+
+**The 90 cards are unblocked.** Nothing about them is throwaway now: the chrome
+can be transparent, and the glass blurs the live field behind it.
+
+Still not done, and not blocked on the owner:
+
+- **`SPIKE-013`'s actual question — the composite's COST — has no numbers.**
+  That is the six-configuration table in §1, and it can now be measured against
+  a configuration that ships. Its `on_fail` fallbacks stand unchanged.
+- **`wry` is still unread.** If Tauri's macOS backend uses the same selector,
+  the chrome inherits this hatch whether or not VESPER writes it — and
+  `GlassGuard.verify` is the right alarm for that too, but `CI-058` cannot see
+  inside a dependency. Read it the day it lands.
 
 ## Still open, carried forward
 

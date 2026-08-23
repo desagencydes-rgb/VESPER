@@ -162,8 +162,24 @@ chosen, because measuring a configuration that cannot ship measures nothing.
 | 3 | the ground renders at a lower cadence | does not help — cadence is not why the webview is opaque |
 | 4 | *(new)* accept a non-public route | `_setDrawsBackground:` is KVC onto a private property, which `ISLAND-ARCHITECTURE.md` §2 rules out because the failure is silent and arrives with an OS update. WebKit1 is public but deprecated and forecloses Tauri |
 
-**This is an owner decision and the 90 home cards are held until it is made** —
-which is exactly what running the precondition first was for.
+**DECIDED 2026-08-23: option 4, and the cards are unblocked.** The owner took
+the private route on the condition that its failure stops being silent, which is
+the condition `ISLAND-ARCHITECTURE.md` §2's own reasoning asks for — §2 bans
+private API *because* "the failure mode is silent", so a route whose failure is
+detected at runtime is not the thing §2 was written against.
+
+What landed with it (`bdc70ac`): `app/home-macos/GlassGuard.swift` as the single
+place the selector may appear, carrying the reader and three controls it runs
+every time; `VESPER --glass-verify` answering `TRANSPARENT`/`OPAQUE`/
+`UNREADABLE` at exit `0`/`1`/`2`, where **`UNREADABLE` is not a pass**;
+`--glass-verify --no-hatch` as a permanent negative control, measured red at
+`#FFFFFF` without the hatch and green with it; `CI-058` refusing the selector
+anywhere unmarked and refusing it in `GlassGuard.swift` if the reader or the
+negative control is removed; and `INV-HOME-5` promoted from candidate with the
+exception written into it, traced to `SR-002`.
+
+**§1 is now measurable.** The composite's cost can be read against a
+configuration that ships, which is what this precondition existed to secure.
 
 **Unverified, and it decides how much option 4 really costs:** Tauri's macOS
 backend must obtain window transparency somehow, and `wry` is not installed on

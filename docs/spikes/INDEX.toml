@@ -369,10 +369,21 @@ the page. So SS1.1's look is achievable and only the transparency is missing,
 which makes fallback 1 (opaque panels) worse than it looked: with no backdrop
 the glass becomes a flat panel and the design's central material is gone.
 
-BLOCKED ON AN OWNER DECISION: which of the three on_fail fallbacks is taken, or
-whether a fourth -- the private setter, or WebKit1 -- is accepted with its cost
-stated. The 90 home cards stay held until then. Protecting that work from being
-thrown away is what this precondition was run for."""
+DECIDED 2026-08-23: the fourth option, the private setter, on the condition that
+its failure stops being silent -- which is the condition ISLAND-ARCHITECTURE SS2's
+own reasoning asks for, since SS2 bans private API BECAUSE the failure is silent.
+Landed in bdc70ac: GlassGuard.swift as the one place the selector may appear,
+carrying the reader and three controls it runs every time; --glass-verify
+answering TRANSPARENT/OPAQUE/UNREADABLE at exit 0/1/2, where UNREADABLE is NOT a
+pass; --glass-verify --no-hatch as a permanent negative control, measured red at
+#FFFFFF without the hatch and green with it; CI-058 refusing the selector in any
+unmarked file and refusing it in GlassGuard.swift if the reader or the negative
+control is removed; INV-HOME-5 promoted from candidate with the exception written
+into it, traced to SR-002.
+
+The 90 home cards are UNBLOCKED. SS1's six-configuration cost table is now
+measurable against a configuration that ships, which is what this precondition
+existed to secure, and its on_fail fallbacks stand unchanged."""
 question = "What does VESPER's home ground actually cost -- a Metal ambience/face layer beneath a full-screen transparent webview -- and is the DISPERSED face tier cheaper than CENTRE, as the presence law requires?"
 pass_criteria = "Six measured configurations (baseline, Metal alone, composite, attendant, dispersed, absent) plus occlusion, each with CPU, GPU, package power and battery drain read from the system rather than from the renderer's own frame counter. DISPERSED <= CENTRE on every axis. ABSENT and occluded both draw zero frames with no timer, proven by counter. A decided idle cadence with its measured power difference from 60 fps, and the resulting hours of home-open battery runtime."
 on_fail = "If the composite cannot hold its budget, exactly one of three named fallbacks is taken with its cost stated: the webview loses transparency, the field moves into the webview and Metal is dropped, or the ground renders at a lower cadence. If DISPERSED costs more than CENTRE, the dissolve is not shipped as specified -- it becomes a cut to a still field and the owner is told the particle dispersal is not affordable on this host. THE REQUIREMENT IS NOT RELAXED TO 'ABOUT THE SAME'. Not permitted: a figure measured on mains reported as the battery figure; Metal-alone reported as the composite's cost; a point count chosen before the power is measured; a mean reported where the worst sample governs."
