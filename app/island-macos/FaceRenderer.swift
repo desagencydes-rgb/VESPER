@@ -37,6 +37,16 @@ struct FaceUniforms {
     // which is what makes it read as light instead of as paint.
     var tintR: Float = 1.00, tintG: Float = 0.46, tintB: Float = 0.29
     var aspect: Float = 1
+    /// §8's fourth tier. 0 is the head; 1 is the attractor fully released and
+    /// the cloud settled into the ambience field the widgets sit in. APPENDED
+    /// at the end of the struct, and appended in the same order in the MSL one:
+    /// this layout has already cost a bug where `aspect` was read out of Swift's
+    /// padding, got 0, and sent every point to infinity.
+    var disperse: Float = 0
+    /// Seconds. Only the dispersed field uses it -- §8 says the points "drift to
+    /// a low-energy field and stay there, ALIVE", and a field that is merely
+    /// stopped is not that.
+    var time: Float = 0
 }
 
 extension FaceUniforms {
@@ -65,6 +75,7 @@ using namespace metal;
 struct Uniforms {
     float yaw, pitch, eyeYaw, eyePitch, scale, pointSize, blink, alpha;
     float tintR, tintG, tintB, aspect;
+    float disperse, time;
 };
 
 struct VOut { float4 pos [[position]]; float psize [[point_size]]; half4 colour; };
@@ -112,6 +123,30 @@ vertex VOut vmain(uint vid [[vertex_id]],
     float cp = cos(u.pitch), sp = sin(u.pitch);
     v = float3(v.x, v.y * cp - v.z * sp, v.y * sp + v.z * cp);
 
+    // §8 DISPERSAL. "The point cloud with the head's attractor released. The
+    // points become the ambience field the widgets sit in."
+    //
+    // A RELEASE, NOT A FADE, and not a second asset: the same 39,805 points,
+    // each drifting to its own resting place in a wider, flatter volume. The
+    // target is derived from the vertex id, so it is stable frame to frame --
+    // a target re-randomised per frame would be static, not a field.
+    //
+    // Applied AFTER the rotation. Dispersed, there is no head to turn, and a
+    // field that yaws with a head nobody can see reads as a bug.
+    if (u.disperse > 0.0) {
+        float f = float(vid);
+        float h1 = fract(sin(f * 12.9898) * 43758.5453);
+        float h2 = fract(sin(f * 78.2330) * 43758.5453);
+        float h3 = fract(sin(f * 39.4250) * 43758.5453);
+        float3 rest = float3((h1 - 0.5) * 2.70, (h2 - 0.5) * 1.75, (h3 - 0.5) * 0.55);
+        // Alive rather than merely stopped. Slow, per-point phase, small
+        // amplitude: at this scale it is drift, not motion.
+        rest += 0.045 * float3(sin(u.time * 0.21 + h1 * 6.2832),
+                               cos(u.time * 0.17 + h2 * 6.2832),
+                               sin(u.time * 0.13 + h3 * 6.2832));
+        v = mix(v, rest, u.disperse);
+    }
+
     // Weak perspective. A full projection at this scale buys nothing visible and
     // costs a matrix upload per frame.
     float persp = 1.0 / (1.0 + 0.22 * (1.0 - v.z));
@@ -141,8 +176,16 @@ vertex VOut vmain(uint vid [[vertex_id]],
     // The irises are the focal point of the reference -- hot, near-white, and the
     // one place the ramp is allowed to run all the way out. Everything else stays
     // ember; if the whole face could reach white it would read as sandstone again.
-    warm = mix(warm, float3(1.0, 0.94, 0.86), iris * 0.85);
-    i = clamp(i + iris * 0.55, 0.0, 1.6);
+    // Dispersed, the irises go with the head -- there are no eyes in an
+    // ambience field, and a pair of hot points floating in one reads as the
+    // face failing to dissolve rather than as a field.
+    float lit = iris * (1.0 - u.disperse);
+    warm = mix(warm, float3(1.0, 0.94, 0.86), lit * 0.85);
+    i = clamp(i + lit * 0.55, 0.0, 1.6);
+    // A field is quieter than a face. This is what makes DISPERSED plausibly
+    // cheaper than CENTRE on the axes that are not point count -- and §8
+    // pre-registered that it must be, so it is measured, not assumed.
+    i *= mix(1.0, 0.62, u.disperse);
 
     o.psize = max(1.0, u.pointSize * persp);
     o.colour = half4(half3(warm * i), half(i * u.alpha));

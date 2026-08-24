@@ -1414,80 +1414,11 @@ if args.contains("--home") {
         HomeCost.baselinePids()
         let frames: () -> Int = { h.framesDrawn }
 
-        func report() {
-            let r = HomeCost.readings
-            func f(_ n: String) -> HomeCost.Reading? { r.first { $0.name == n } }
-            print("")
-            print("  SPIKE-013 §1 — the composite's cost, CPU column only")
-            print("  " + String(repeating: "─", count: 68))
-            print("  power source   \(HomeCost.powerSource())")
-            print("  reading        our process tree (this pid + WebKit helpers"
-                + " that appeared after us)")
-            print(String(format: "  phase length   %.0f s each — NOT the protocol's 10 min,"
-                       + " which is a POWER duration", per))
-            print("")
-            print("  phase          CPU %    fps     frames")
-            for x in r {
-                print(String(format: "  %-13s %6.1f  %6.1f  %8d   %@",
-                             (x.name as NSString).utf8String!, x.cpu, x.fps, x.frames,
-                             x.note))
-            }
-            print("")
-            if let a = f("field"), let b = f("composite") {
-                print(String(format: "  THE COMPOSITE'S COST   %+.1f%% CPU  (composite − field)",
-                             b.cpu - a.cpu))
-                print("  That is the single number this spike exists to produce, on the one")
-                print("  axis available without sudo. GPU and package power are NOT in it.")
-            }
-            print("")
-            // Criteria 3 and 4 are the two this run can close outright.
-            if let ab = f("absent") {
-                print(ab.frames == 0
-                      ? "  criterion 3  ABSENT draws zero — PASS, 0 frames attempted"
-                      : "  criterion 3  ABSENT draws zero — FAIL, \(ab.frames) frames attempted")
-            }
-            if let oc = f("occluded") {
-                print(oc.frames == 0
-                      ? "  criterion 4  occluded draws zero — PASS, 0 frames attempted"
-                      : "  criterion 4  occluded draws zero — FAIL, \(oc.frames) frames attempted")
-            }
-            print("")
-            print("  NOT DELIVERED, and named rather than rounded:")
-            print("   · criterion 1 needs GPU and package power — powermetrics needs sudo")
-            print("   · criterion 2 needs ATTENDANT and DISPERSED, which are design and")
-            print("     not code. HomeController has one tier: the face draws or it does")
-            print("     not. Measuring tiers invented for the measurement is worse than")
-            print("     a gap, because a gap is visible")
-            print("   · criteria 5 and 6 need power and battery drain — sudo again")
-            print("  " + String(repeating: "═", count: 68))
-            exit(0)
-        }
-
-        // An opaque window over the ground is a REAL occlusion, not a simulated
-        // one: the window server marks the ground covered and the deliberate
-        // stop fires on its own notification. Nothing here calls stopRendering.
         var cover: NSWindow?
-
-        /// TURNING THE OWNER'S SCREEN BLACK IS A THING THIS DOES, so it asks
-        /// first -- of the room, not of them.
-        ///
-        /// The only way to occlude a window is to put an opaque one over it,
-        /// and the ground is full screen, so the cover is too. Run on the
-        /// Desktop the owner is working on, that is their screen going black
-        /// for the length of a phase, with no explanation on it. It happened
-        /// once, on 2026-08-24, and they asked what was doing it.
-        ///
-        /// SpaceWatch.fingerprint() already excludes our own windows, so an
-        /// empty answer means no foreign window is here to be covered. The
-        /// phase is SKIPPED rather than run anywhere else: an unmeasured
-        /// criterion is a gap, and a gap is visible.
         func canOcclude() -> Bool { SpaceWatch.fingerprint().isEmpty }
-
         func occlude() {
             let w = NSWindow(contentRect: (NSScreen.main ?? screen).frame,
                              styleMask: [.borderless], backing: .buffered, defer: false)
-            // Managed, so it lands on THIS Desktop and cannot follow the owner
-            // to another one.
             w.collectionBehavior = [.managed]
             w.level = .normal
             w.isOpaque = true
@@ -1497,73 +1428,157 @@ if args.contains("--home") {
             cover = w
         }
 
-        // The chain. Each step changes one thing.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            // present() has already started the renderer by now, so a "baseline"
-            // taken here would be the field measured twice -- which is exactly
-            // what the first run reported: baseline 115 fps, 1812 frames, for a
-            // phase whose note said "ground not rendering".
-            h.stopRendering()
-            HomeCost.phase("baseline", seconds: per,
-                           note: "island only, ground not rendering", frames: frames) {
-                h.startRendering()
-                HomeCost.phase("field", seconds: per,
-                               note: "face on the ground, no chrome", frames: frames) {
-                    h.chrome.mount(over: h.hostView, faceRect: h.faceRect,
-                                   screen: NSScreen.main ?? screen, backdrop: nil) { v in
-                        guard v.mayMountChrome else {
-                            print("  cost run ABORTED — \(v.line)")
-                            print("  A composite that could not be mounted has no cost to report.")
-                            exit(2)
-                        }
-                        HomeCost.phase("composite", seconds: per,
-                                       note: "+ transparent chrome over it", frames: frames) {
-                            h.stopRendering()
-                            HomeCost.phase("absent", seconds: per,
-                                           note: "face not drawn, chrome up", frames: frames) {
-                                h.startRendering()
-                                guard canOcclude() else {
-                                    print("")
-                                    print("  occluded phase SKIPPED — this Desktop has the owner's")
-                                    print("  windows on it, and forcing occlusion means covering the")
-                                    print("  whole screen in black. Criterion 4 is NOT measured on")
-                                    print("  this run. Re-run it on VESPER's own Desktop.")
-                                    report()
-                                    return
-                                }
-                                print("  occluding — this Desktop goes black for the phase")
-                                occlude()
-                                // Read the window server's own answer, not ours.
-                                // If it says the ground is still visible then
-                                // the cover is not covering and the criterion
-                                // was never exercised; if it says invisible and
-                                // frames still climb, the deliberate stop is
-                                // broken. Those are different faults with
-                                // different repairs.
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                                    let vis = h.groundWindow.occlusionState.contains(.visible)
-                                    print("  occlusion: window server says the ground is "
-                                        + (vis ? "VISIBLE" : "covered")
-                                        + "; renderer is \(h.rendering ? "running" : "stopped")"
-                                        + "; notifications delivered so far: "
-                                        + "\(h.occlusionNotifications)")
-                                }
-                                HomeCost.phase("occluded", seconds: per,
-                                               note: "covered — the deliberate stop",
-                                               frames: frames) {
-                                    let vis = h.groundWindow.occlusionState.contains(.visible)
-                                    print("  occlusion at end: ground "
-                                        + (vis ? "VISIBLE" : "covered")
-                                        + ", renderer \(h.rendering ? "running" : "stopped")")
-                                    cover?.orderOut(nil)
-                                    report()
-                                }
-                            }
-                        }
+        func report() {
+            cover?.orderOut(nil)
+            let r = HomeCost.readings
+            func f(_ n: String) -> HomeCost.Reading? { r.first { $0.name == n } }
+            print("")
+            print("  SPIKE-013 §1 — the composite's cost and the presence law")
+            print("  " + String(repeating: "─", count: 68))
+            print("  power source   \(HomeCost.powerSource())")
+            print("  reading        our process tree (this pid + WebKit helpers"
+                + " that appeared after us)")
+            print("  phase length   \(Int(per)) s each — NOT the protocol's 10 min,"
+                + " which is a POWER duration")
+            print("")
+            // EVERY RUN, before any aggregate. A mean hides the run that did
+            // nothing, and a run that did nothing is a bug rather than a low
+            // number -- SPIKE-001 §3.2 already recorded that the mean of a
+            // coexistence test hides the moment it fails.
+            print("  every phase, in order taken")
+            for x in r {
+                print("  " + HomeCost.pad(x.name, 14)
+                    + HomeCost.pad(String(format: "%.3f", x.cpu), 9)
+                    + HomeCost.pad(String(format: "%.1f fps", x.fps), 12)
+                    + "\(x.frames) frames")
+            }
+            print("")
+            print("  phase          CPU % mean [lo … hi]        fps    runs")
+            var seen: [String] = []
+            for x in r where !seen.contains(x.name) {
+                seen.append(x.name)
+                guard let a = HomeCost.aggregate(x.name) else { continue }
+                let fps = r.filter { $0.name == x.name }.map(\.fps)
+                let fmean = fps.reduce(0, +) / Double(fps.count)
+                print("  " + HomeCost.pad(x.name, 14)
+                    + HomeCost.pad(String(format: "%.3f [%.3f … %.3f]", a.mean, a.lo, a.hi), 24)
+                    + HomeCost.pad(String(format: "%.1f", fmean), 7)
+                    + HomeCost.pad("\(a.n)", 6) + x.note)
+            }
+            print("")
+            if let a = HomeCost.aggregate("centre"), let b = HomeCost.aggregate("composite") {
+                // The MEAN of centre, not its first sample. Differencing one
+                // reading against a three-run mean mixes the units of the answer.
+                print("  THE COMPOSITE'S COST   "
+                    + String(format: "%+.3f", b.mean - a.mean)
+                    + "% CPU  (composite − centre, means)")
+                print("  One axis. GPU and package power are NOT in it.")
+            }
+            print("")
+            // §8 pre-registered this BEFORE the reading existed, which is the
+            // only reason it can be read as a result rather than a description.
+            if let c = HomeCost.aggregate("centre"), let d = HomeCost.aggregate("dispersed") {
+                print("  criterion 2  DISPERSED ≤ CENTRE, pre-registered in §8")
+                print("               CPU over \(c.n) run(s) each, % of one core")
+                print("               centre     "
+                    + String(format: "%.3f  [%.3f … %.3f]", c.mean, c.lo, c.hi))
+                print("               dispersed  "
+                    + String(format: "%.3f  [%.3f … %.3f]", d.mean, d.lo, d.hi))
+                // Ranges that overlap mean the axis cannot tell them apart. That
+                // is neither a pass nor a fail; calling it either would be
+                // reading a result out of noise.
+                let separated = d.hi < c.lo || d.lo > c.hi
+                if !separated {
+                    print("               INCONCLUSIVE on CPU — the two ranges OVERLAP, so")
+                    print("               this axis cannot separate the tiers at all. §3 says")
+                    print("               the requirement is not relaxed to 'about the same',")
+                    print("               and it is equally not MET by 'about the same'.")
+                } else if d.hi < c.lo {
+                    print("               PASS on CPU — dispersed is strictly below centre")
+                } else {
+                    print("               FAIL on CPU — dispersed is strictly above centre")
+                }
+                print("               GPU and package power are the axes that would settle")
+                print("               it, and they need sudo. §3: every axis.")
+            }
+            print("")
+            if let ab = f("absent") {
+                print(ab.frames == 0
+                      ? "  criterion 3  ABSENT draws zero — PASS, 0 frames attempted"
+                      : "  criterion 3  ABSENT draws zero — FAIL, \(ab.frames) frames")
+            }
+            if let oc = f("occluded") {
+                print(oc.frames == 0
+                      ? "  criterion 4  occluded draws zero — PASS, 0 frames attempted"
+                      : "  criterion 4  occluded draws zero — FAIL, \(oc.frames) frames")
+                print("               \(h.occlusionProvenance)")
+            } else {
+                print("  criterion 4  NOT RUN — needs a Desktop with none of the owner's")
+                print("               windows on it, because forcing occlusion means")
+                print("               covering the whole display in black.")
+            }
+            print("")
+            print("  STILL BLOCKED: criteria 1, 5 and 6 need GPU, package power and")
+            print("  battery drain. powermetrics needs sudo.")
+            print("  " + String(repeating: "═", count: 68))
+            exit(0)
+        }
+
+        // Each step differs from the one before by exactly one thing.
+        typealias Step = (String, String, () -> Void)
+        let repeats = args.firstIndex(of: "--cost-repeats").flatMap { i -> Int? in
+            i + 1 < args.count ? Int(args[i + 1]) : nil
+        } ?? 3
+        let tiers: [Step] = [
+            ("centre",    "§8 Centre — head, full amplitude",  { h.setTier(.centre) }),
+            ("attendant", "§8 Attendant — corner, 0.45 amp",   { h.setTier(.attendant) }),
+            ("dispersed", "§8 Dispersed — attractor released", { h.setTier(.dispersed) }),
+            ("absent",    "§8 Absent — no face, NO TIMER",     { h.setTier(.absent) }),
+        ]
+        // INTERLEAVED, not blocked. Three centres then three dispersals would
+        // put any drift in the machine's own load straight into the difference
+        // being measured.
+        var steps: [Step] = [
+            ("baseline",  "island only, ground not rendering", { h.stopRendering() })
+        ]
+        for _ in 0..<max(1, repeats) { steps.append(contentsOf: tiers) }
+        var i = 0
+        func step() {
+            guard i < steps.count else { composite(); return }
+            let (name, note, setup) = steps[i]; i += 1
+            setup()
+            // Dispersal is a 1.1 s motion; measuring across it would measure the
+            // transition rather than the tier.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+                HomeCost.phase(name, seconds: per, note: note, frames: frames, then: step)
+            }
+        }
+        func composite() {
+            h.setTier(.centre)
+            h.chrome.mount(over: h.hostView, faceRect: h.faceRect,
+                           screen: NSScreen.main ?? screen, backdrop: nil) { v in
+                guard v.mayMountChrome else {
+                    print("  cost run ABORTED — \(v.line)")
+                    print("  A composite that could not be mounted has no cost to report.")
+                    exit(2)
+                }
+                HomeCost.phase("composite", seconds: per,
+                               note: "+ transparent chrome over Centre", frames: frames) {
+                    guard canOcclude() else {
+                        print("")
+                        print("  occluded phase SKIPPED — this Desktop has the owner's windows")
+                        print("  on it, and forcing occlusion means covering the whole screen.")
+                        report(); return
                     }
+                    print("  occluding — this Desktop goes black for one phase")
+                    occlude()
+                    HomeCost.phase("occluded", seconds: per,
+                                   note: "covered — the deliberate stop",
+                                   frames: frames, then: report)
                 }
             }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { step() }
     }
 
     // FIRST LIGHT. The chrome mounts over the field, and only if GlassGuard
@@ -1584,6 +1599,12 @@ if args.contains("--home") {
                 FileHandle.standardError.write(m.data(using: .utf8)!)
             } else {
                 print("  chrome: mounted over the field")
+                // §10: the main menu dims while the system Dock is over it.
+                h.onDockVisibilityChange = { [weak h] up in
+                    h?.chrome.setDockUp(up)
+                    print("  system dock \(up ? "up — main menu dims to 30%" : "down")")
+                }
+                h.watchSystemDock()
                 let c = h.chrome
                 print(c.cardAdapted
                       ? String(format: "  card: backdrop luma %.3f → fill %.3f → ground %.3f "

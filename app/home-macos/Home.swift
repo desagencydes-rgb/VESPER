@@ -280,10 +280,162 @@ final class HomeController: NSObject {
             // this for us, and a home rendering at 120 fps behind a full-screen
             // editor is the exact failure the host-lifetime goal exists to
             // prevent -- measured at 116.8 fps on 2026-08-24, while covered.
-            if visible { self.startRendering() } else { self.stopRendering() }
+            // OCCLUSION MAY LOWER THE FACE'S CLAIM, NEVER RAISE IT.
+            //
+            // `if visible { startRendering() }` was wrong in a way a frame
+            // counter caught: with the tier at ABSENT, becoming visible put the
+            // renderer back and §8's "Absent runs NO TIMER" quietly stopped
+            // being true. The cost run measured 12 frames in a phase whose setup
+            // had just stopped the renderer.
+            //
+            // That is INV-HOME-3 exactly -- "the stage owns the face's presence
+            // tier; no behaviour may raise its own". Occlusion is a behaviour.
+            // It can take the face away, because a covered surface must not
+            // draw; it cannot give the face back to a stage that has dismissed
+            // it.
+            if visible {
+                if self.tier != .absent { self.startRendering() }
+            } else {
+                self.stopRendering()
+            }
+            self.dockSwap(visible)
             self.onVisibilityChange?(visible)
         }
         watch?.start()
+    }
+
+    // MARK: - §8, the presence law
+    //
+    // "The face's claim is inverse to the work's claim." Four tiers, and the
+    // STAGE owns which one is current -- a behaviour may not raise its own.
+    enum FaceTier: String, CaseIterable {
+        case centre, attendant, dispersed, absent
+    }
+    private(set) var tier: FaceTier = .centre
+    /// Where `disperse` is heading. The uniform eases toward it in the frame
+    /// loop, because §8 calls the dissolve a MOTION and a cut is not one.
+    private var disperseTarget: Float = 0
+    /// §8: Attendant is "the head at a corner anchor, SAME ENVELOPE, reduced
+    /// amplitude" -- so the driver is untouched and its output is scaled here.
+    /// Changing the envelope would make it a different behaviour rather than
+    /// the same one, quieter.
+    private var amplitude: Float = 1
+
+    /// Lay the face out at a width and a centre, with everything that depends
+    /// on either recomputed rather than left at its old value.
+    private func layoutFace(width: CGFloat, centre: CGPoint) {
+        let side = max(1, width)
+        metal.frame = CGRect(x: centre.x - side / 2, y: centre.y - side / 2,
+                             width: side, height: side)
+        metal.drawableSize = CGSize(width: side * screen.backingScaleFactor,
+                                    height: side * screen.backingScaleFactor)
+        // Derived, never inherited: the same cloud over a different width is a
+        // different density, which is how the face once rendered invisibly.
+        face.uniforms.pointSize = FaceUniforms.pointSize(forLayerWidth: side)
+
+        let pw = side * 1.16
+        plateShadow.frame = CGRect(x: centre.x - pw / 2, y: centre.y - pw / 2,
+                                   width: pw, height: pw)
+        fill.frame = CGRect(origin: .zero, size: CGSize(width: pw, height: pw))
+        fill.locations = [0, NSNumber(value: Double((side / 2) / (pw / 2))), 1]
+    }
+
+    /// §8. The stage sets this; nothing else may.
+    func setTier(_ t: FaceTier) {
+        tier = t
+        let full = min(screen.frame.width, screen.frame.height) * 0.62
+        let mid = CGPoint(x: screen.frame.midX, y: screen.frame.midY)
+        switch t {
+        case .centre:
+            metal.isHidden = false
+            plateShadow.isHidden = false
+            layoutFace(width: full, centre: mid)
+            amplitude = 1
+            disperseTarget = 0
+            startRendering()
+        case .attendant:
+            // A corner anchor. Bottom-right, inset by the plate's own margin so
+            // the glass does not run off the screen.
+            metal.isHidden = false
+            plateShadow.isHidden = false
+            let w = full * 0.42
+            let inset = w * 0.58 + 40
+            layoutFace(width: w, centre: CGPoint(x: screen.frame.maxX - inset,
+                                                 y: screen.frame.minY + inset))
+            amplitude = 0.45
+            disperseTarget = 0
+            startRendering()
+        case .dispersed:
+            // No plate. §8: "the points become the ambience field the widgets
+            // sit in" -- a field with a panel behind it is a face on a panel
+            // that has lost its head.
+            metal.isHidden = false
+            plateShadow.isHidden = true
+            layoutFace(width: min(screen.frame.width, screen.frame.height) * 0.98,
+                       centre: mid)
+            amplitude = 0.25
+            disperseTarget = 1
+            startRendering()
+        case .absent:
+            // "Absent runs NO TIMER, for the same reason the mark's idle state
+            // runs none: a cloud that animates to say nothing spends the
+            // battery to say nothing."
+            //
+            // THE FACE'S timer. Two others keep running and are named rather
+            // than hidden: the 0.5 s occlusion poll and the 0.4 s dock poll.
+            // Measured on 2026-08-24, ABSENT costs 0.002-0.055% of one core
+            // against CENTRE's 0.222% -- not zero, and the residue is the
+            // machinery that makes the stop possible at all. §8's claim is
+            // about the cloud, and the cloud draws nothing: 0 frames, three
+            // runs out of three.
+            stopRendering()
+            metal.isHidden = true
+            plateShadow.isHidden = true
+            disperseTarget = 0
+            face.uniforms.disperse = 0
+        }
+    }
+
+    /// §10's dock swap. "Not by fighting the Dock": VESPER sets
+    /// `NSApplicationPresentationAutoHideDock` while its window is frontmost --
+    /// the same API a fullscreen app uses -- and macOS reverts it the moment
+    /// VESPER stops being frontmost. The cursor-to-edge reveal is then the
+    /// system's own behaviour, free.
+    ///
+    /// It has to ACTIVATE first. `presentationOptions` may only be set by the
+    /// active app, and VESPER is LSUIElement, so on an empty Desktop nothing of
+    /// ours is frontmost until it says so. Guarded rather than attempted:
+    /// setting it while inactive raises, and a raise here would take down the
+    /// whole home for a Dock.
+    private func dockSwap(_ visible: Bool) {
+        if visible {
+            NSApp.activate(ignoringOtherApps: true)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                guard NSApp.isActive else { return }
+                NSApp.presentationOptions.insert(.autoHideDock)
+            }
+        } else if NSApp.isActive {
+            NSApp.presentationOptions.remove(.autoHideDock)
+        }
+    }
+
+    /// Polled alongside occlusion, and for the same reason: §10 wants the main
+    /// menu to dim while the Dock is over it, and nothing notifies us of that.
+    private var dockTimer: Timer?
+    var onDockVisibilityChange: ((Bool) -> Void)?
+    private var lastDockVisible: Bool?
+
+    func watchSystemDock() {
+        guard dockTimer == nil else { return }
+        let t = Timer(timeInterval: 0.4, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let up = SpaceWatch.systemDockVisible(on: self.screen)
+            guard up != self.lastDockVisible else { return }
+            self.lastDockVisible = up
+            self.onDockVisibilityChange?(up)
+        }
+        RunLoop.main.add(t, forMode: .common)
+        dockTimer = t
     }
 
     private var watch: OcclusionWatch?
@@ -409,12 +561,23 @@ final class HomeController: NSObject {
         let dt = min(now.timeIntervalSince(lastFrame), 0.1)
         lastFrame = now
         motion.step(dt)
-        face.uniforms.yaw      = motion.headYaw
-        face.uniforms.pitch    = motion.headPitch
-        face.uniforms.eyeYaw   = motion.eyeYaw
-        face.uniforms.eyePitch = motion.eyePitch
+        // Same envelope, scaled. §8's Attendant is the same behaviour quieter,
+        // not a quieter behaviour.
+        face.uniforms.yaw      = motion.headYaw * amplitude
+        face.uniforms.pitch    = motion.headPitch * amplitude
+        face.uniforms.eyeYaw   = motion.eyeYaw * amplitude
+        face.uniforms.eyePitch = motion.eyePitch * amplitude
         face.uniforms.blink    = motion.blink
         face.uniforms.scale    = 0.96 * motion.breath
+        face.uniforms.time    += Float(dt)
+        // The dissolve is a motion, so it eases. 1.1 s, which is the four
+        // springs' own territory rather than a number invented here.
+        let d = face.uniforms.disperse
+        if abs(disperseTarget - d) > 0.0005 {
+            face.uniforms.disperse = d + (disperseTarget - d) * Float(min(dt / 1.1 * 3.0, 1))
+        } else {
+            face.uniforms.disperse = disperseTarget
+        }
         face.draw(in: metal)
         framesDrawn += 1
     }

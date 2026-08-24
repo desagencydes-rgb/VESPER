@@ -9,17 +9,23 @@
 // read as more than it is.
 //
 //   pass criterion 3  ABSENT draws zero, proven by counter        DELIVERED
-//   pass criterion 4  occluded draws zero, proven by counter      DELIVERED
+//   pass criterion 4  occluded draws zero, proven by counter      DELIVERED, on
+//                                                                 VESPER's own Desktop
 //   pass criterion 1  the composite's cost                        CPU COLUMN ONLY
-//   pass criterion 2  DISPERSED <= CENTRE on every axis           NOT MEASURABLE
+//   pass criterion 2  DISPERSED <= CENTRE on every axis           CPU AND FPS ONLY
 //   pass criterion 5  a decided idle cadence and its power        NOT MEASURED
 //   pass criterion 6  battery drain as hours of runtime           NOT MEASURED
 //
-// Criteria 5 and 6 need `powermetrics`, which needs sudo. Criterion 2 needs the
-// four presence tiers of §8, and `HomeController` has one: the face draws or it
-// does not. ATTENDANT and DISPERSED are design, not code, so measuring them
-// would mean measuring something invented for the measurement -- which is worse
-// than a gap, because a gap is visible.
+// Criteria 1, 5 and 6 need `powermetrics`, which needs sudo.
+//
+// Criterion 2 said NOT MEASURABLE here until 2026-08-24, on the grounds that
+// ATTENDANT and DISPERSED were design and not code and that measuring tiers
+// invented for the measurement is worse than a gap. That was true when it was
+// written. §8's four tiers are now built -- Attendant is the same envelope at a
+// corner anchor with 0.45 amplitude, Dispersed releases the attractor in the
+// shader -- so the comparison is between shipping configurations. It is still
+// only two of the axes §3 demands, and §3 says EVERY axis, so a pass here is
+// not the criterion met.
 //
 // §3 of the protocol: "Not permitted: reporting a figure measured on mains as
 // the battery figure." The power source is read from the system and printed on
@@ -46,6 +52,13 @@
 import AppKit
 
 enum HomeCost {
+
+    /// Column padding. Here rather than at the call site because
+    /// `String(format:)` with `%s` and a bridged pointer has already crashed one
+    /// run of this file with SIGTRAP and no message.
+    static func pad(_ s: String, _ n: Int) -> String {
+        s.count >= n ? s + " " : s + String(repeating: " ", count: n - s.count)
+    }
 
     // MARK: - The tree
 
@@ -125,6 +138,21 @@ enum HomeCost {
     }
 
     private(set) static var readings: [Reading] = []
+
+    /// Every reading taken under one name, folded into a range.
+    ///
+    /// A SINGLE sample per configuration cannot support "DISPERSED ≤ CENTRE".
+    /// The first run of this comparison printed "CPU 0.3 vs 0.2  ok" -- a verdict
+    /// computed at full precision next to a display rounded to one decimal, so
+    /// the numbers shown contradicted the answer given. That is the defect this
+    /// repo already records as "the stall record rounded the number it is judged
+    /// by", and the fix is not more decimals. It is to measure the SPREAD and
+    /// let it decide whether the axis can separate the two at all.
+    static func aggregate(_ name: String) -> (mean: Double, lo: Double, hi: Double, n: Int)? {
+        let xs = readings.filter { $0.name == name }.map(\.cpu)
+        guard let lo = xs.min(), let hi = xs.max(), !xs.isEmpty else { return nil }
+        return (xs.reduce(0, +) / Double(xs.count), lo, hi, xs.count)
+    }
 
     /// Measure one phase, then hand control on. Frames come from the controller's
     /// own counter, which counts ATTEMPTS -- so a zero here is strong (nothing

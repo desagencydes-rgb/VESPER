@@ -52,6 +52,33 @@ enum SpaceWatch {
         }
     }
 
+    /// Is the system Dock occupying screen space right now?
+    ///
+    /// HOME-ARCHITECTURE §10 wants VESPER's main menu to dim to 30% "while
+    /// occluded" by the system Dock. The obvious route -- find the Dock's window
+    /// in `CGWindowListCopyWindowInfo` and look at its bounds -- does not work,
+    /// and the way it fails is silent. Measured 2026-08-24: the Dock process
+    /// owns exactly two on-screen windows and both are 1728x1117, the whole
+    /// display. The bar is drawn INSIDE one of them, so its bounds say nothing
+    /// about whether it is showing, and a height filter over that list returns
+    /// false forever while looking like a working check.
+    ///
+    /// `NSScreen.visibleFrame` is a real reading of the same fact: the window
+    /// server insets it by whatever the Dock reserves.
+    ///
+    /// WHAT THIS CANNOT SEE, and it is the case §10 actually describes. With
+    /// autohide on -- which is precisely what VESPER sets while it is frontmost
+    /// -- the Dock's cursor-to-edge reveal reserves NO space, so `visibleFrame`
+    /// does not move and this returns false while the Dock is visibly over the
+    /// main menu. There is no public API for the transient reveal. The
+    /// alternative is to watch the cursor near the bottom edge, which is
+    /// watching the CAUSE and reporting it as the effect, and this file is not
+    /// going to do that quietly. So the dim covers the persistent Dock and the
+    /// transient reveal is a named gap.
+    static func systemDockVisible(on screen: NSScreen) -> Bool {
+        screen.visibleFrame.minY > screen.frame.minY + 1
+    }
+
     /// The fingerprint of the Desktop that is active right now: the numbers of
     /// every ordinary window that is not ours.
     static func fingerprint() -> Set<Int> {
