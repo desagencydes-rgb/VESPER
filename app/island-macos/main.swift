@@ -1052,17 +1052,28 @@ if args.contains("--dock-check") {
             print("  NOT ACTIVE — presentationOptions may only be set by the active app,")
             print("  and setting it anyway raises. This is where the swap stops.")
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+        // POLL TO A DEADLINE, do not sample once. A fixed 0.8 s wait passed
+        // twice and then failed, for a swap that had worked both times: the
+        // window server had simply not re-laid the screen yet. That is the same
+        // read-too-soon this session already fixed on the desktop picture, which
+        // reported "NOT confirmed" while naming the exact value it had just set.
+        let deadline = Date().addingTimeInterval(3.0)
+        func settle() {
+            let cur = NSScreen.main
+            let won = (cur?.visibleFrame.minY ?? 1) <= (cur?.frame.minY ?? 0) + 1
+            if !won && Date() < deadline {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { settle() }
+                return
+            }
             spaceLine("after ")
-            let cur = NSScreen.main ?? sc
-            let won = cur.visibleFrame.minY <= cur.frame.minY + 1
             print("")
             print(won ? "  PASS — the Dock went under."
-                      : "  FAIL — the Dock still reserves its space.")
+                      : "  FAIL — the Dock still reserves its space after 3 s.")
             NSApp.presentationOptions.remove(.autoHideDock)
             print("  " + String(repeating: "═", count: 58))
             exit(won ? 0 : 1)
         }
+        settle()
     }
     app.run()
 }
