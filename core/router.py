@@ -94,6 +94,13 @@ class MeasuredProfile:
     vram_gb: float | None = None
     measured: bool = False
     source: str = ""
+    # WHICH NODE THESE NUMBERS DESCRIBE. A throughput figure is a fact about a
+    # particular machine, and a profile that does not say which one can be
+    # served by any machine at all -- which is how a call answered here came to
+    # be attributed to a rate measured somewhere else on 2026-08-24. `None`
+    # means the profile describes a node CLASS rather than an enrolled node;
+    # `select` records that rather than treating it as a clean bill.
+    node_id: str | None = None
 
     def available(self) -> bool:
         """INV-HW-2: unmeasured is UNAVAILABLE, never available."""
@@ -146,9 +153,20 @@ class Router:
     with, and a router nobody can argue with is one that quietly gets worse.
     """
 
-    def __init__(self, bus: EventBus, profiles: list[MeasuredProfile]) -> None:
+    def __init__(self, bus: EventBus, profiles: list[MeasuredProfile],
+                 *, enrollment: Any = None) -> None:
         self._bus = bus
         self._profiles = list(profiles)
+        # A-042.4: "a node with no measured profile is NEVER ROUTED TO." The
+        # predicate has existed in `core/enrollment.py` since F4 as
+        # `EnrolledNode.routable()`, and no routing decision has ever called
+        # it: `MeasuredProfile` had no node to ask about. The invariant was
+        # testable in isolation and inapplicable in practice, which is the same
+        # gap the gateway had -- a rule with no seam to the thing it governs.
+        #
+        # Optional because a profile describing a node CLASS has no node to
+        # check. It is NOT optional for a profile that names one: see `select`.
+        self._enrollment = enrollment
 
     def add(self, profile: MeasuredProfile) -> None:
         self._profiles.append(profile)
@@ -208,6 +226,27 @@ class Router:
                                "system RAM, not only VRAM; measured 660 pages/sec "
                                "when this was ignored")})
                 continue
+            if p.node_id is not None:
+                # A-042.4, applied to an actual decision. Fail-closed in BOTH
+                # directions: an unroutable node is refused, and so is a
+                # profile naming a node we have no registry to ask about --
+                # unverifiable is UNAVAILABLE, exactly as UNKNOWN is.
+                if self._enrollment is None:
+                    rejected.append({
+                        "profile_id": p.profile_id,
+                        "reason": (f"profile is bound to node {p.node_id!r} but "
+                                   "no enrollment registry is attached, so its "
+                                   "routability cannot be checked (A-042.4)")})
+                    continue
+                n = self._enrollment.get(p.node_id)
+                if n is None or not n.routable():
+                    rejected.append({
+                        "profile_id": p.profile_id,
+                        "reason": (f"node {p.node_id!r} is not routable: "
+                                   f"{'not enrolled' if n is None else n.state}"
+                                   " -- a node with no measured profile is "
+                                   "never routed to (A-042.4)")})
+                    continue
             rate = p.rate_at_context(context_tokens)
             if rate is None or rate <= 0:
                 rejected.append({"profile_id": p.profile_id,
@@ -292,6 +331,28 @@ class Router:
                 f"rate adjusted for context: {best.context_slowdown_us_per_token} us "
                 "per token of context (KV-cache growth, measured)")
         factors.append(f"measured_source={best.source}")
+        if best.node_id is None:
+            # RECORD WHAT WAS COMPARED. This profile names no node, so nothing
+            # ties the rate above to the machine that will serve the call. It
+            # is a class-level figure being used as if it were a node-level
+            # one, which is defensible only while it is SAID.
+            factors.append(
+                "UNBOUND: this profile names no node, so its measured rate "
+                "describes a node CLASS and not whatever answers (A-042.4 "
+                "cannot be applied)")
+        else:
+            # READ BACK, NOT ASSERTED. An earlier version of this line printed
+            # "(routable, A-042.4 checked)" from the fact that `node_id` was
+            # set. A build with the check disabled emitted that string over an
+            # unroutable node -- a decision testifying to an inspection it had
+            # not performed, which is worse than silence because it reads as
+            # evidence. The state is now re-read from the registry at the
+            # moment it is recorded.
+            n = self._enrollment.get(best.node_id) if self._enrollment else None
+            factors.append(
+                f"node_id={best.node_id} state="
+                f"{n.state if n is not None else 'NOT_ENROLLED'} "
+                f"routable={n.routable() if n is not None else False}")
         if host_ram_free_gb is not None and best.host_ram_gb is None:
             # RECORD WHAT WAS COMPARED. A RAM constraint was in force and this
             # profile was not weighed against it, because nothing has measured

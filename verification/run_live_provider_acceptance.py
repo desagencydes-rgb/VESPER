@@ -18,6 +18,16 @@ endpoint reports it, but a rate measured by this runner is a single ad-hoc
 request under whatever load the machine happens to carry. SPIKE-001 measures
 throughput, over ten-minute runs, at a stated context, with a build tag.
 INV-HW-2 is about exactly that distinction and nothing here is a substitute.
+
+AND IT DOES NOT CLAIM THE RATE BELONGS TO THIS MACHINE. The profiles come from
+`Router.from_spike_results`, which reads SPIKE-001 reports measured on ANOTHER
+node. This host has no measured profile of its own yet, so the endpoint here is
+served under a figure that describes different hardware. That is tolerable for
+exercising the choke point and intolerable as a measurement, so L-001 asserts
+the decision carries its `UNBOUND` marker: the profile names no node, nothing
+ties its rate to whatever answers, and the decision says so out loud. When this
+host is measured and enrolled, that marker becomes a `node_id` and A-042.4
+starts applying here too.
 """
 
 from __future__ import annotations
@@ -134,6 +144,10 @@ def l001_routed_live_call(tmp: Path, ident) -> None:
                 str(res["endpoint"]))
         c.check("no paid attempt on a free-credential call",
                 gw.paid_attempts() == 0, str(gw.attempts_by_class))
+        # The rate that decided this route was measured on other hardware.
+        # That is survivable only while it is stated, so it is asserted.
+        c.check("the decision admits its profile is not bound to this node",
+                any("UNBOUND" in f for f in d.factors), str(d.factors))
         c.finish()
     except Exception:
         c.finish(error=traceback.format_exc(limit=6))
@@ -387,6 +401,11 @@ def main() -> int:
     print(f"  build:    {ident.build_info}")
     print(f"  model:    {ident.model_path}")
     print(f"  n_ctx:    {ident.n_ctx}")
+    print()
+    print("  NOTE: this host has no measured profile of its own. The route is")
+    print("  decided on SPIKE-001 figures from another node, so the rate that")
+    print("  chose it does not describe what answers. The gate exercises the")
+    print("  choke point; it measures nothing.")
     print()
 
     t0 = time.time()

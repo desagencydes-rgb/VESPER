@@ -43,6 +43,7 @@ from core.cost import (CostPolicy, CostPolicyViolation,  # noqa: E402
                        CredentialRefused)
 from core.gateway import (AllProvidersExhausted, ModelGateway,  # noqa: E402
                           NoProviderForProfile, Provider)
+from core.enrollment import EnrollmentRegistry  # noqa: E402
 from core.router import (MeasuredProfile, NoRouteAvailable,  # noqa: E402
                          Router)
 from core.supervisor import Supervisor  # noqa: E402
@@ -442,6 +443,67 @@ def a022_routing(tmp: Path) -> None:
         gw22.complete("hi", task_id="seam3")
         c.check("a call that bypassed routing is recorded, not silent",
                 len(_events(sup, "gateway.unrouted")) >= 1)
+
+        # ---------------------------------------------------------------
+        # A-042.4 APPLIED TO A DECISION, not merely stated.
+        #
+        # "A node with no measured profile is NEVER ROUTED TO." The predicate
+        # has existed as `EnrolledNode.routable()` since F4 and no routing
+        # decision ever called it, because `MeasuredProfile` named no node.
+        # The rule was testable in isolation and inapplicable in practice --
+        # the same shape as the gateway seam above.
+        #
+        # It is not academic: on 2026-08-24 a call served by THIS machine was
+        # routed under a profile measured on a different node, and nothing in
+        # the decision could notice.
+        reg = EnrollmentRegistry(sup.bus)
+        reg.discover("node-good")
+        reg.admit("node-good", capability_floor_passed=True,
+                  security_baseline_passed=True, measured_tokens_per_sec=82.0)
+        reg.discover("node-unpatched")
+        # Fast and capable but failing the security baseline: A-042.2 puts it
+        # in LIMITED_TRUST however much throughput it offers.
+        reg.admit("node-unpatched", capability_floor_passed=True,
+                  security_baseline_passed=False,
+                  measured_tokens_per_sec=999.0)
+
+        bound = [
+            MeasuredProfile("draft-on-good", "draft", "accelerated", 82.0,
+                            142.0, measured=True, node_id="node-good",
+                            source="bound"),
+            MeasuredProfile("draft-on-unpatched", "draft", "accelerated",
+                            999.0, 999.0, measured=True,
+                            node_id="node-unpatched", source="bound"),
+        ]
+        r_bound = Router(sup.bus, bound, enrollment=reg)
+        db = r_bound.select("trivial", task_id="a0424")
+        c.check("A-042.4: the unroutable node is not selected, however fast",
+                db.profile_id == "draft-on-good", db.profile_id)
+        c.check("A-042.4: the rejection NAMES the node and why",
+                any("node-unpatched" in x["reason"] and "A-042.4" in x["reason"]
+                    for x in db.rejected), str(db.rejected))
+        c.check("the decision records which node served it",
+                any("node_id=node-good" in f and "routable=True" in f
+                    for f in db.factors), str(db.factors))
+
+        # Fail-closed the other way: a profile that NAMES a node, with no
+        # registry to ask. Unverifiable is UNAVAILABLE, exactly as UNKNOWN is.
+        r_noreg = Router(sup.bus, [bound[0]])
+        unverifiable = False
+        try:
+            r_noreg.select("trivial")
+        except NoRouteAvailable:
+            unverifiable = True
+        c.check("a node-bound profile with no registry fails closed",
+                unverifiable)
+
+        # And an UNBOUND profile still routes -- it describes a node class --
+        # but the decision says so rather than implying a node was checked.
+        d_unbound = r.select("trivial", host_ram_free_gb=14.0)
+        c.check("an unbound profile is RECORDED as unbound, not silently "
+                "treated as checked",
+                any("UNBOUND" in f for f in d_unbound.factors),
+                str(d_unbound.factors))
         sup.stop()
         c.finish()
     except Exception:
