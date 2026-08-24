@@ -57,6 +57,14 @@ from routing.http_completion import (EndpointError,  # noqa: E402
                                      identify)
 
 BASE_URL = os.environ.get("VESPER_LLAMA_SERVER", "http://127.0.0.1:8080")
+# SR-003's route. Absent -> the remote cases report themselves as not run
+# rather than passing quietly, for the same reason the whole runner exits 2
+# with no endpoint.
+REMOTE_URL = os.environ.get(
+    "VESPER_REMOTE_URL",
+    "https://generativelanguage.googleapis.com/v1beta/openai")
+REMOTE_MODEL = os.environ.get("VESPER_REMOTE_MODEL", "models/gemini-3.6-flash")
+REMOTE_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 RESULTS: list[dict] = []
 
 
@@ -431,6 +439,80 @@ def l006_credential_containment(tmp: Path, ident) -> None:
         c.finish(error=traceback.format_exc(limit=6))
 
 
+# ===========================================================================
+# L-007 — the API route, and what INV-COST-5 does to a free-tier key
+# ===========================================================================
+def l007_remote_api(tmp: Path) -> None:
+    c = Case("L-007", "A remote API provider, under the real cost policy")
+    try:
+        ident = identify(REMOTE_URL, timeout=30.0, api_key=REMOTE_KEY,
+                         model=REMOTE_MODEL)
+        c.check("a remote endpoint with no build tag is attributed by model id",
+                ident.attribution() == REMOTE_MODEL, str(ident.attribution()))
+
+        # 1. DECLARED HONESTLY: metered_free_tier with no PROVABLE hard cap.
+        #    INV-COST-5 makes that `paid`, and cold start is FREE_TIME, so the
+        #    request must not leave the machine. This is the case an owner is
+        #    most likely to be surprised by, so it is asserted first.
+        bus, clock, store = _bus(tmp, "l7a")
+        cost = CostPolicy(bus, clock)
+        cost.register_credential("remote", "metered_free_tier")
+        gw = ModelGateway(bus, cost)
+        reached: list = []
+        gw.register(_counting(
+            build_provider("remote", "remote-flash-api", REMOTE_URL,
+                           identity=ident, api_key=REMOTE_KEY,
+                           model=REMOTE_MODEL, timeout=90.0), reached))
+        cred = cost.credential("remote")
+        c.check("metered_free_tier with no provable cap is effectively PAID",
+                cred.effective_class() == "paid", cred.effective_class())
+        blocked = False
+        try:
+            gw.complete("hello", task_id="L-007a", profile_id="remote-flash-api",
+                        options={"n_predict": 16})
+        except AllProvidersExhausted:
+            blocked = True
+        c.check("so in FREE_TIME the API call is refused", blocked)
+        c.check("and the remote endpoint was never reached",
+                len(reached) == 0, f"{len(reached)} call(s) escaped")
+        c.check("zero paid attempts at the boundary",
+                gw.paid_attempts() == 0, str(gw.attempts_by_class))
+
+        # 2. WITH A PROVABLE HARD CAP the same credential is free, and the
+        #    call goes through. The difference between these two blocks is one
+        #    boolean and it is the owner's to assert, not engineering's:
+        #    INV-COST-5 says a dashboard limit is not proof.
+        bus2, clock2, store2 = _bus(tmp, "l7b")
+        cost2 = CostPolicy(bus2, clock2)
+        cost2.register_credential("remote", "metered_free_tier",
+                                  provable_hard_cap=True)
+        gw2 = ModelGateway(bus2, cost2)
+        gw2.register(build_provider("remote", "remote-flash-api", REMOTE_URL,
+                                    identity=ident, api_key=REMOTE_KEY,
+                                    model=REMOTE_MODEL, timeout=90.0))
+        out = gw2.complete("Reply with exactly: VESPER online.",
+                           task_id="L-007b", profile_id="remote-flash-api",
+                           options={"n_predict": 100, "temperature": 0.0})
+        c.check("with a provable cap the API answers",
+                "vesper online" in out["result"]["text"].strip().lower(),
+                repr(out["result"]["text"])[:80])
+        c.check("the result is attributable to the model that produced it",
+                out["result"]["endpoint"]["model"] == REMOTE_MODEL,
+                str(out["result"]["endpoint"]))
+        c.check("it counted as free, not paid",
+                gw2.paid_attempts() == 0, str(gw2.attempts_by_class))
+
+        # 3. The credential must not be anywhere durable, remote edition.
+        leaked = [f.name for f in (tmp / "l7b").rglob("*")
+                  if f.is_file() and REMOTE_KEY in
+                  f.read_text(encoding="utf-8", errors="ignore")]
+        c.check("the API key is in no file the remote run wrote",
+                not leaked, str(leaked))
+        c.finish()
+    except Exception:
+        c.finish(error=traceback.format_exc(limit=6))
+
+
 def main() -> int:
     print("VESPER live-provider acceptance -- a real model behind the choke point")
     print(f"  endpoint: {BASE_URL}")
@@ -466,6 +548,11 @@ def main() -> int:
         l003_exhaustion_not_escalation(tmp, ident)
         l004_classification(tmp, ident)
         l006_credential_containment(tmp, ident)
+        if REMOTE_KEY:
+            l007_remote_api(tmp)
+        else:
+            print("[skip] L-007           no GEMINI_API_KEY/GOOGLE_API_KEY set; "
+                  "the API route is SR-003's primary one and is untested")
         binary = Path.home() / "VESPER-runtime" / "llama.cpp" / "llama-server"
         model = Path(ident.model_path or "")
         if not model.is_absolute():
