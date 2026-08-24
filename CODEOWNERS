@@ -19,6 +19,7 @@
 # --- Governed: owner or an explicitly delegated human reviewer --------------
 /security/                      @desagencydes-rgb
 /core/                          @desagencydes-rgb
+/routing/                       @desagencydes-rgb
 /policy/                        @desagencydes-rgb
 /verification/                  @desagencydes-rgb
 /tools/                         @desagencydes-rgb
