@@ -272,14 +272,14 @@ def a022_routing(tmp: Path) -> None:
                             82.00, 142.01, measured=True, host_ram_gb=None,
                             source="SPIKE-001-3.1-v3-draft-qwen1.7B-concurrent"),
             MeasuredProfile("small-accelerated", "small", "accelerated",
-                            85.32, 97.64, measured=True, host_ram_gb=None,
+                            92.04, 99.08, measured=True, host_ram_gb=None,
                             source="SPIKE-001-3.1-v3-small-llama3B-concurrent"),
             MeasuredProfile("standard-accelerated", "standard", "accelerated",
                             46.56, 45.67, measured=True, host_ram_gb=3.72,
                             source="SPIKE-001-3.1-v3-standard-qwen8B-concurrent "
                                    "+ 3.2 headroom (6.57 - 2.85 GB measured)"),
             MeasuredProfile("strong-accelerated", "strong", "accelerated",
-                            7.33, 6.79, measured=True, host_ram_gb=6.30,
+                            7.12, 7.45, measured=True, host_ram_gb=6.30,
                             context_slowdown_us_per_token=17.6,
                             measured_at_context_tokens=4200,
                             source="SPIKE-001-3.1-v3-strong-moe30B-concurrent "
@@ -288,6 +288,48 @@ def a022_routing(tmp: Path) -> None:
                             None, None, measured=False,
                             source="never measured"),
         ]
+        # THE FIXTURES MUST AGREE WITH THE REPORTS THEY CITE.
+        #
+        # Checked 2026-08-24 and two of the four did not. `small` carried
+        # 85.32/97.64 against a cited report reading 92.04/99.08, and `strong`
+        # carried 7.33/6.79 against 7.12/7.45 -- numbers from an earlier data
+        # revision, with the citation never re-read after the v4 reports
+        # landed. The `strong` pair was the worse one: 7.33 concurrent against
+        # 6.79 idle says the node got FASTER under load, which is the exact
+        # artefact this file's own module docstring warns about, encoded into
+        # the fixture written to avoid it.
+        #
+        # A double is evidence about the code, never about the hardware. But a
+        # double that NAMES a measurement and then disagrees with it is worse
+        # than an anonymous one: it looks traceable. So the citation is now
+        # mechanically checked and cannot drift again in silence.
+        import re as _re
+        results_dir = REPO / "docs/planning/spike-results"
+        drift = []
+        for _p in profiles:
+            m = _re.match(r"(SPIKE-001-3\.1-v3-[A-Za-z0-9.\-]+-concurrent)",
+                          _p.source or "")
+            if not m:
+                continue
+            conc = results_dir / (m.group(1) + ".json")
+            idle = results_dir / (m.group(1).replace("concurrent", "idle") + ".json")
+            if not conc.exists():
+                drift.append(f"{_p.profile_id}: cited report {conc.name} missing")
+                continue
+            key = "median_effective_tokens_per_sec"
+            cw = json.loads(conc.read_text(encoding="utf-8"))["throughput"][key]
+            if abs(cw - (_p.wall_tokens_per_sec or 0)) > 0.005:
+                drift.append(f"{_p.profile_id}: wall {_p.wall_tokens_per_sec} "
+                             f"but {conc.name} says {cw}")
+            if idle.exists():
+                ci = json.loads(idle.read_text(encoding="utf-8"))["throughput"][key]
+                if abs(ci - (_p.wall_tokens_per_sec_idle or 0)) > 0.005:
+                    drift.append(f"{_p.profile_id}: idle "
+                                 f"{_p.wall_tokens_per_sec_idle} but "
+                                 f"{idle.name} says {ci}")
+        c.check("every double matches the SPIKE-001 report it cites as source",
+                not drift, "; ".join(drift))
+
         r = Router(sup.bus, profiles)
 
         # Graded corpus. Each difficulty must land at or above its floor, and
