@@ -851,6 +851,83 @@ rate-limited model, spending two of that day's twenty requests to learn nothing.
 
 ---
 
+## 4j. 2026-08-24, evening — the runtime got a model path, and the card got a producer
+
+### A running VESPER had no router, no gateway and no cost policy
+
+They existed only where an acceptance test constructed them. **A subsystem that
+only exists inside its own test is not deployed**, whatever the test says about
+it. `Supervisor` now owns one of each plus a `CompletionService`, and emits
+`runtime.model_path` at startup with the profile count, provider count and
+declared credentials.
+
+**Zero providers is the default and is fail-closed WITHOUT being unroutable:**
+the router selects, the gateway finds nothing serving the profile, the task
+queues. Registering an endpoint is a deployment act with a URL and a credential
+behind it; a default one in the supervisor would put a model call in every node
+that ever starts.
+
+### The home's metrics card has a producer — all five rows
+
+`tools/home_snapshot.py`, from ONE real routed call through the router and the
+cost choke point:
+
+```
+thinking  no        context  15 tok        cache  14 tok cached
+tokens    103.2 tok/s        power  battery
+```
+
+**The adapter was throwing the rate away.** `_call_chat` read the OpenAI schema
+and nothing else; llama.cpp returns a `timings` block *outside* that schema
+carrying `predicted_per_second` and `cache_n`. The tool's first run reported
+"this endpoint reports no timings" while the endpoint was reporting them. Read
+where present, absent on a remote implementing only the spec, and **never timed
+from this side** — a rate measured here includes the network and the client.
+
+Every reading carries a TTL and the card returns to blank. Verified by ageing
+the evidence to 11 minutes: four rows drop to `expired`.
+
+### The entity schemas had never validated an instance
+
+`tools/ci/checks.py` inspects schema DOCUMENTS — that `cost_class` appears in a
+`required` list. That checks the rule was *written*, never that anything obeys
+it. `node_capability_profile.schema.json` has encoded `INV-TRUST-1`, the
+control-plane awakeness rule and `INV-HW-2` in an `allOf` block since
+2026-08-20 with nothing enforcing them.
+
+`tools/schema_validate.py` is a stdlib subset validator. **An unimplemented
+keyword RAISES rather than being skipped** — silently passing over a `oneOf`
+would report valid on a document whose central constraint was never read.
+`--self-test` is 11 cases; deleting `allOf` evaluation gives 6/11 and the five
+that fail are exactly the invariant cases.
+
+### Why that schema was never instantiated
+
+**Most of a node capability profile is not measurable by a throughput harness.**
+`SPIKE-001` measures what a node DOES. The schema also asks what it may be
+TRUSTED with and how reliably it is AWAKE, and neither is a property the machine
+can report about itself. `tools/spike/build_node_profile.py` derives the measured
+half and **refuses** six fields, each with its reason. No default — defaulting
+`trust_zone` to `Z2` looks conservative and is still a decision nobody made.
+No write path, like `profile_node.py`.
+
+### A route decision now declares its assumptions
+
+```
+FLAT-ASSUMED  no context slope measured, rate treated as constant
+UNBOUND       no node binding, so A-042.4 cannot be applied
+UNWEIGHED     residency cost unmeasured, so the RAM constraint was not applied
+```
+
+None is a defect. Each is a measurement not taken, and the difference between a
+system that knows that and one that does not is whether it says so.
+
+`rate_at_context`'s docstring claimed it returns `None` rather than assuming
+flat; the code assumes flat and **the code is right** — returning `None` would
+make draft, small and standard unroutable at every context length.
+
+---
+
 ## 5. Open questions, recorded rather than resolved
 
 1. **What window must `C1` run for?** `AT-03` calls it the most important run in the

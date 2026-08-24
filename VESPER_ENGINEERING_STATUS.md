@@ -42,8 +42,12 @@ verification/run_f6_acceptance.py             PASS   A-048 (9 cases) + A-017, 3 
 verification/stress_placement.py              PASS   160k property assertions
 verification/stress_fabric.py                 PASS   180k property assertions, DF-FABRIC-ADMIT
 verification/run_a029_endurance.py --self-test PASS  6/6 healthy, 3/3 controls fail as required
-verification/run_live_provider_acceptance.py  PASS   5/5 -- NOT hermetic, needs a live endpoint
+verification/run_live_provider_acceptance.py  PASS   9/9 -- NOT hermetic, needs a live endpoint
+tools/schema_validate.py --self-test          PASS   11/11 red-then-green
+tools/home_snapshot.py --probe                       5/5 card rows have a producer
 ```
+
+**The runtime carries a model path and registers no provider.** `Supervisor` owns one router, gateway, cost policy and completion service, and emits `runtime.model_path` at startup naming its profile count, provider count and declared credentials. Zero providers is fail-closed and still routable: the router selects, the gateway finds nothing serving the profile, the task queues. Registering an endpoint is a deployment act.
 
 **The live provider gate is deliberately outside `checks.py all`.** It needs a model
 server; with none it reports `NOT RUN` and **exits 2**, never 0. A gate that goes green
