@@ -40,6 +40,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from .bus import EventBus
+from .decision_path import ModelCallInDecisionPath as _ModelCallInDecisionPath
+from . import decision_path
 from .world import UNKNOWN, WorldModel
 
 # A predicate term is either a clock term or a world-state term. The
@@ -52,8 +54,11 @@ STATE_ROOTS = ("world", "tasks", "backlog", "memory", "devices", "proposals",
 PREDICATE_CLASSES = ("STATE", "EVENT", "COMPOSITE", "SCHEDULE")
 
 
-class ModelCallInDecisionPath(Exception):
-    """A model was reached from inside the evaluator. INV-AUTO-2."""
+# ONE CLASS, NOT A SUBCLASS. Defined in `decision_path` because the GATEWAY
+# raises it -- and an `except` clause here that named a subclass would silently
+# fail to catch the refusal the gateway actually raises. Re-exported so callers
+# keep importing it from where the rule lives.
+ModelCallInDecisionPath = _ModelCallInDecisionPath
 
 
 class CronDisguisedAsTrigger(Exception):
@@ -126,9 +131,16 @@ class PredicateEvaluator:
                 component="autonomy")
             return False
 
+        # THE PREDICATE IS ARBITRARY CALLER CODE. This class has no model path,
+        # but the callable it runs can close over one -- measured 2026-08-24, a
+        # predicate that asked a gateway "is there anything worth doing?" fired
+        # on the answer with nothing recorded. The flag is process-visible so
+        # the MODEL CAPABILITY can refuse, rather than relying on the decision
+        # path to police itself.
         self._in_decision_path.active = True
         try:
-            return bool(trigger.predicate(snapshot))
+            with decision_path.entered(self._bus, "evaluator"):
+                return bool(trigger.predicate(snapshot))
         finally:
             self._in_decision_path.active = False
 

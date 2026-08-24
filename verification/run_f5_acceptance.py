@@ -146,6 +146,58 @@ def a011_bounded_autonomy(tmp: Path) -> None:
         c.check("11.4 a model call in the decision path RAISES", raised)
         c.check("11.4 and autonomy.model_call_in_decision_path is emitted",
                 len(_events(sup, "autonomy.model_call_in_decision_path")) == 1)
+
+        # 11.4, THE HALF THAT WAS MISSING UNTIL 2026-08-24.
+        #
+        # The two checks above call `model_call_attempted` DIRECTLY. That proves
+        # the reporting mechanism emits and raises, and proves nothing about
+        # whether a real model call would ever reach it -- and it did not.
+        # `model_call_attempted` was called by nothing outside this file, and
+        # `in_decision_path()` by nothing at all. Measured before the fix, with a
+        # predicate that closed over a gateway and asked it whether to fire:
+        #
+        #     predicate fired             : True
+        #     model calls that got through: 1
+        #     violation events emitted    : 0
+        #
+        # A chatbot loop was constructible and left no trace. So the control is
+        # now a REAL gateway reached from a REAL predicate, not a call to the
+        # reporter. `PredicateEvaluator` still has no model path; the predicate
+        # it runs is arbitrary caller code and always could close over one.
+        from core.cost import CostPolicy as _CP
+        from core.gateway import ModelGateway as _GW, Provider as _P
+        cost114 = _CP(sup.bus, sup.clock)
+        cost114.register_credential("m", "free")
+        gw114 = _GW(sup.bus, cost114)
+        reached = []
+        gw114.register(_P("m", "p", lambda pr, o: (reached.append(1),
+                                                   {"text": "yes, act"})[1]))
+
+        def _chatbot(snapshot):
+            out = gw114.complete("is there anything worth doing?",
+                                 profile_id="p")
+            return "act" in out["result"]["text"]
+
+        t114 = Trigger(trigger_id="trg_chatbot", predicate=_chatbot,
+                       state_terms=("world.workshop_space.temperature",),
+                       clock_terms=(), predicate_class="COMPOSITE")
+        refused114 = False
+        try:
+            ev.evaluate(t114, ev.snapshot(t114.state_terms))
+        except ModelCallInDecisionPath:
+            refused114 = True
+        c.check("11.4 a predicate that ASKS A MODEL is refused, not merely "
+                "discouraged", refused114)
+        c.check("11.4 and the model was never REACHED, not merely uncounted",
+                not reached, f"{len(reached)} call(s) got through")
+        c.check("11.4 the refusal is recorded with the decision site",
+                any(e["payload"].get("decision_site") == "evaluator"
+                    for e in _events(sup, "autonomy.model_call_in_decision_path")))
+        # The flag must not be sticky: ordinary work outside a decision is not
+        # a violation, and a safety property that blocks it is a deadlock.
+        after = gw114.complete("ordinary work", profile_id="p")
+        c.check("11.4 a model call OUTSIDE a decision still succeeds",
+                after["result"]["text"] == "yes, act", str(after))
         sup.stop()
         c.finish()
     except Exception:

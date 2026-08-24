@@ -31,6 +31,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
+from . import decision_path
 from .bus import EventBus
 from .cost import CostPolicy, CostPolicyViolation
 
@@ -171,6 +172,17 @@ class ModelGateway:
         legitimate caller of the unrouted form. Recording it is what makes the
         eventual move to mandatory routing a measurement rather than a guess.
         """
+        # INV-AUTO-2, ENFORCED WHERE THE CAPABILITY IS rather than where the
+        # rule is written. `core/autonomy.py` may not import this module --
+        # CI-023 forbids it, and the ban is the point -- so the decision path
+        # cannot check itself against a model gateway it is not allowed to see.
+        # The gateway can check whether it has been reached from inside one.
+        #
+        # FIRST, before the cost check and before any provider is considered: a
+        # violation that got as far as being priced has already been treated as
+        # a legitimate request.
+        if decision_path.active():
+            decision_path.refuse("gateway.complete")
         options = options or {}
         with self._lock:
             providers = list(self._providers)
