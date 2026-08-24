@@ -89,6 +89,62 @@ final class HomeChrome {
     static let menuSlots = ["talk", "work", "make", "know",
                             "watch", "places", "time", "self"]
 
+    /// The metrics card's rows, from the projection snapshot on disk.
+    ///
+    /// WHAT CHANGED, AND WHY THE ROWS ARE NOT HARDCODED `UNAVAILABLE` ANY MORE.
+    /// This card carried five literal `UNAVAILABLE` rows since it was drawn, and
+    /// the header above explains why that was right: a number with no producer
+    /// behind it is not a reading. There is a producer now --
+    /// `tools/home_snapshot.py` -- and it writes exactly the rows that resolved
+    /// from a real routed call.
+    ///
+    /// OMISSION, NOT A PLACEHOLDER. `core/projection.py`'s `to_scene` already
+    /// drops an unavailable reading rather than rendering one, "so the absent
+    /// case cannot be styled into looking like the present case". Re-adding a
+    /// row here for a key the snapshot omitted would rebuild in the surface
+    /// exactly what the projection removed, and it would be this surface
+    /// deciding what unknown looks like -- which is the coupling that file
+    /// exists to prevent. So this renders what it is given and nothing else.
+    ///
+    /// WITH NOTHING TO SHOW IT SAYS SO ONCE. An empty card reads as broken and
+    /// a card full of `UNAVAILABLE` reads as five failures; neither is true.
+    /// One line naming the missing producer is a statement about the SYSTEM
+    /// rather than a fake reading about the model, and it is the same choice
+    /// `tools/island_snapshot.py` made when it wrote three columns instead of
+    /// six.
+    static func metricRows() -> String {
+        let url = FileManager.default
+            .homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/VESPER/home.json")
+        var rows: [(String, String)] = []
+        if let data = try? Data(contentsOf: url),
+           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let raw = obj["rows"] as? [[String: Any]] {
+            for r in raw {
+                if let k = r["label"] as? String, let v = r["value"] as? String {
+                    rows.append((k, v))
+                }
+            }
+        }
+        if rows.isEmpty {
+            return "<div class=\"row\"><span class=\"k\">no producer</span>"
+                 + "<span class=\"v\">run home_snapshot.py</span></div>"
+        }
+        return rows.map { k, v in
+            "<div class=\"row\"><span class=\"k\">\(esc(k))</span>"
+          + "<span class=\"v\">\(esc(v))</span></div>"
+        }.joined(separator: "\n          ")
+    }
+
+    /// The snapshot is data VESPER produced, but it is still interpolated into
+    /// a page. Escaped because a value is not markup, and the day one carries a
+    /// model's output is the day that stops being theoretical.
+    private static func esc(_ s: String) -> String {
+        s.replacingOccurrences(of: "&", with: "&amp;")
+         .replacingOccurrences(of: "<", with: "&lt;")
+         .replacingOccurrences(of: ">", with: "&gt;")
+    }
+
     static func page(cardWidth: Int, cardHeight: Int, left: Int, top: Int,
                      fill: Double) -> String {
         let slots = menuSlots.enumerated().map { i, name in
@@ -183,11 +239,7 @@ final class HomeChrome {
 
         <div class="card">
           <div class="t">host</div>
-          <div class="row"><span class="k">thinking</span><span class="v">UNAVAILABLE</span></div>
-          <div class="row"><span class="k">context</span><span class="v">UNAVAILABLE</span></div>
-          <div class="row"><span class="k">cache</span><span class="v">UNAVAILABLE</span></div>
-          <div class="row"><span class="k">tokens</span><span class="v">UNAVAILABLE</span></div>
-          <div class="row"><span class="k">power</span><span class="v">UNAVAILABLE</span></div>
+          \(metricRows())
         </div>
 
         <div class="dockrow">

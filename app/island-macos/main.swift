@@ -1220,6 +1220,16 @@ if args.contains("--occlusion-check") {
     app.run()
 }
 
+// THE CARD, READ BACK. A rebuilt binary that mounts a chrome is not a card
+// showing the right numbers, and the only way this was checkable before was by
+// looking at the screen -- which is not a check, and is unavailable on a
+// headless node or over ssh. Prints exactly the markup the card will carry, so
+// a producer change can be verified without a display and without a person.
+if args.contains("--card-rows") {
+    print(HomeChrome.metricRows())
+    exit(0)
+}
+
 if args.contains("--glass-verify") {
     // --no-hatch is the NEGATIVE CONTROL: run the same alarm with the hatch
     // withheld, and require it to go RED. A negative control that passes is a

@@ -144,7 +144,25 @@ LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchService
 # Reload the LaunchAgent if it is installed, so a rebuild does not leave launchd
 # supervising a binary that no longer exists.
 if [ -f "$HOME/Library/LaunchAgents/$ID.plist" ]; then
-  "$REPO/tools/install_island_agent.sh" >/dev/null 2>&1 && echo "LaunchAgent reloaded"
+  # NOT SILENCED. This was `>/dev/null 2>&1 && echo` until 2026-08-24, and on a
+  # rebuild it failed, printed nothing, and left VESPER DOWN -- the build
+  # reported "built:" and exited 0 with no supervised process anywhere. A build
+  # step that stops the thing it just built and says nothing is the same defect
+  # as a runner exiting 0 on a traceback.
+  if "$REPO/tools/install_island_agent.sh"; then
+    echo "LaunchAgent reloaded"
+  else
+    echo "WARNING: LaunchAgent reload FAILED -- VESPER is not supervised." >&2
+    echo "         run tools/install_island_agent.sh by hand." >&2
+  fi
+  # And re-read the world rather than trusting the exit code: launchctl
+  # accepting a bootstrap is not a running process.
+  sleep 2
+  if launchctl list 2>/dev/null | grep -q "$ID"; then
+    echo "VESPER is supervised (pid $(pgrep -f "VESPER.app/Contents/MacOS/VESPER" | head -1))"
+  else
+    echo "WARNING: $ID is not in launchctl after reload." >&2
+  fi
 fi
 
 echo "built: $APP"
