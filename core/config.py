@@ -56,6 +56,14 @@ class RuntimeConfig:
     # Trust zone of this node's key storage sets a CEILING on what it may hold
     # (ADR-007). Declared per node, never inferred from what happens to work.
     trust_zone: str = "Z2"
+    # WHERE THIS NODE'S MEASUREMENTS LIVE. The router builds its profiles from
+    # SPIKE-001 reports, and a deployed node points this at ITS OWN enrolment
+    # measurements rather than at another node's. The default is the repo's
+    # results directory because that is where the only measurements that exist
+    # today are; it is not a claim that they describe this host, and
+    # `MeasuredProfile.node_id` is what makes that difference visible in a
+    # routing decision rather than assumed away here.
+    measurements_dir: Path | None = None
 
     @classmethod
     def from_env(cls, **overrides: Any) -> "RuntimeConfig":
@@ -81,6 +89,8 @@ class RuntimeConfig:
             "checkpoint_budget_ms": self.checkpoint_budget_ms,
             "max_clock_regression_ms": self.max_clock_regression_ms,
             "trust_zone": self.trust_zone,
+            "measurements_dir": (str(self.measurements_dir)
+                                 if self.measurements_dir else None),
         }
 
 

@@ -28,10 +28,14 @@ from pathlib import Path
 from typing import Any
 
 from .bus import EventBus
+from .completion import CompletionService
 from .config import RuntimeConfig
+from .cost import CostPolicy
+from .gateway import ModelGateway
 from .hlc import HybridLogicalClock
 from .lease import LeaseManager
 from .policy import PolicySkeleton
+from .router import Router
 from .store import StoreSet
 from .tasks import Outbox, TaskStore
 from .telemetry import Telemetry
@@ -64,6 +68,29 @@ class Supervisor:
         self.outbox = Outbox(self.store, self.clock, self.bus, self.leases)
         self.policy = PolicySkeleton(self.bus, self.leases)
 
+        # ---------------------------------------------------------- the model path
+        #
+        # Constructed here so there is ONE of each in the runtime, for the same
+        # reason the gateway owns the provider handles: a second router with a
+        # different idea of what is measured, or a second cost policy with a
+        # different idea of the period, is a second answer to a question that
+        # must have one.
+        #
+        # NO PROVIDER IS REGISTERED. That is the fail-closed default and not an
+        # omission: a runtime with no provider still ROUTES -- the router picks a
+        # profile, the gateway finds nothing serving it, the task checkpoints and
+        # queues. What it will not do is answer. Registering an endpoint is a
+        # deployment act with a URL and a credential behind it, and burying one
+        # here would put a default model call in every node that ever starts.
+        self.cost = CostPolicy(self.bus, self.clock)
+        self.cost.load_declared_credentials()
+        self.gateway = ModelGateway(self.bus, self.cost)
+        measurements = (config.measurements_dir
+                        or Path(__file__).resolve().parents[1]
+                        / "docs" / "planning" / "spike-results")
+        self.router = Router.from_spike_results(measurements, self.bus)
+        self.completion = CompletionService(self.bus, self.router, self.gateway)
+
         self.clock._on_regression = self._on_clock_regression  # noqa: SLF001
         self.telemetry.declare_budget("checkpoint_commit",
                                       config.checkpoint_budget_ms)
@@ -95,6 +122,23 @@ class Supervisor:
         self._store_clean_flag(False)
         for d in domains:
             self.leases.acquire(d)
+
+        # SAY WHAT THE MODEL PATH CAN ACTUALLY DO, at the moment it starts.
+        # A runtime with measured profiles and zero providers looks identical to
+        # a healthy one from the outside and answers nothing -- the same shape as
+        # a status column that renders empty and a status column that renders a
+        # number nobody produced. Counted here rather than inferred later.
+        self.bus.publish(
+            "runtime.model_path", subject=self.config.node_id,
+            payload={"measured_profiles": len(self.router._profiles),  # noqa: SLF001
+                     "registered_providers": len(self.gateway._providers),  # noqa: SLF001
+                     "declared_credentials": sorted(
+                         self.cost.declared_credentials()),
+                     "note": ("zero providers is fail-closed and routable: the "
+                              "router still selects, the gateway finds nothing "
+                              "serving the profile, and the task queues rather "
+                              "than being answered")},
+            component="supervisor")
 
         self._thread = threading.Thread(target=self._heartbeat, daemon=True,
                                         name="vesper-heartbeat")

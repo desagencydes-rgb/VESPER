@@ -617,6 +617,43 @@ def a022_routing(tmp: Path) -> None:
             gave_up = True
         c.check("with nothing behind any tier it terminates, it does not spin",
                 gave_up)
+
+        # ---------------------------------------------------------------
+        # THE RUNTIME OWNS ONE MODEL PATH, and it is fail-closed on arrival.
+        #
+        # Until 2026-08-24 nothing in a running VESPER had a router, a gateway
+        # or a cost policy at all -- they existed only where an acceptance test
+        # constructed them. A subsystem that only exists inside its own test is
+        # not deployed, whatever the test says about it.
+        #
+        # ZERO PROVIDERS IS THE CORRECT DEFAULT and is asserted as behaviour
+        # rather than trusted as a comment: registering an endpoint is a
+        # deployment act with a URL and a credential behind it, and a default
+        # one buried in the supervisor would put a model call in every node that
+        # ever starts.
+        sup2 = _sup(tmp, "nrt")
+        c.check("the runtime carries one router, gateway, cost policy and "
+                "completion service",
+                all(getattr(sup2, a, None) is not None
+                    for a in ("router", "gateway", "cost", "completion")))
+        mp = _events(sup2, "runtime.model_path")
+        c.check("it declares what its model path can do at startup",
+                len(mp) == 1, str(len(mp)))
+        c.check("it starts with measured profiles and NO providers",
+                mp and mp[0]["payload"]["measured_profiles"] > 0
+                and mp[0]["payload"]["registered_providers"] == 0,
+                str(mp[0]["payload"]) if mp else "")
+        unanswered = False
+        try:
+            sup2.completion.complete("hello", difficulty="trivial", task_id="rt")
+        except CompletionUnavailable:
+            unanswered = True
+        c.check("a runtime with no provider still ROUTES, and queues rather "
+                "than answering", unanswered)
+        c.check("and it records WHICH profile it could not serve",
+                any(e["payload"]["profile_id"]
+                    for e in _events(sup2, "completion.profile_exhausted")))
+        sup2.stop()
         sup.stop()
         c.finish()
     except Exception:
