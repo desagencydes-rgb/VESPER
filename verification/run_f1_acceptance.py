@@ -304,6 +304,31 @@ def a022_routing(tmp: Path) -> None:
                     for i in range(len(got) - 1)), str(got))
         c.check("hard reaches the strong tier", got[-1] == "strong", str(got))
 
+        # SR-009, IN THE COC'S OWN WORDS: "Model router sends EASY tasks to
+        # SMALLER models and hard tasks to stronger models." The three checks
+        # above assert only the second half. On 2026-08-24 all three were green
+        # while `got` was ['strong','strong','strong','strong'] -- every
+        # difficulty routed to the 7 tok/s strong tier, 202 s of estimated work
+        # for a trivial task the draft tier answers in 25 s.
+        #
+        # The comment introducing this corpus already NAMED that failure mode --
+        # "would pass on a router that sent EVERYTHING to strong, which is not
+        # routing" -- and then none of the assertions detected it. A negative
+        # control that passes is a defect rather than a relief, and so is a
+        # positive case that names its fault and misses it.
+        #
+        # `len(set(got)) > 1` alone would pass on a router using two tiers of
+        # four, so the floor is asserted directly: a profile EXISTS at each
+        # floor in this corpus and fits at 14 GB free, so the router must land
+        # ON it. Going stronger than the floor is only free when the stronger
+        # tier costs nothing, and the measured rates say it never does.
+        c.check("SR-009: routing DISCRIMINATES -- easy work does not take the "
+                "strong tier", got[0] != "strong" and len(set(got)) > 1,
+                f"got={got}")
+        c.check("SR-009: each difficulty lands on its floor when a measured "
+                "profile exists there", got == floors,
+                f"got={got} floors={floors}")
+
         # INV-HW-2: an unmeasured profile is never selected
         d_hard = r.select("hard", host_ram_free_gb=14.0)
         c.check("unmeasured profile rejected (INV-HW-2)",

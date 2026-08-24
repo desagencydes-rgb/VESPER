@@ -45,6 +45,7 @@ numbers:
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -212,8 +213,29 @@ class Router:
                 rejected.append({"profile_id": p.profile_id,
                                  "reason": "no usable rate at this context length"})
                 continue
-            # Prefer the strongest tier that fits; break ties on throughput.
-            candidates.append((TIER_RANK[p.tier] * 1e6 + rate, p, rate))
+            # SR-009, VERBATIM: "Model router sends EASY tasks to SMALLER
+            # models and hard tasks to stronger models." The floor is the
+            # REQUIREMENT, not the minimum bid -- every tier above it is paid
+            # for in seconds, and the measured rates price that plainly: the
+            # strong tier answers a trivial task in 202 s that the draft tier
+            # answers in 25 s. So rank on DISTANCE ABOVE THE FLOOR ascending,
+            # and break ties on throughput.
+            #
+            # Until 2026-08-24 this read `TIER_RANK[p.tier] * 1e6 + rate`
+            # sorted descending -- "prefer the strongest tier that fits". The
+            # guard was "that fits", and nothing ever made a stronger tier not
+            # fit: `from_spike_results` left `host_ram_gb` None on every
+            # profile it built, so the one constraint that could reject strong
+            # was unreachable in production and present only in A-022's
+            # hand-built doubles. Result: EVERY difficulty routed to strong,
+            # with A-022 green the whole time.
+            #
+            # `idx` is a tiebreaker and not a preference. Without it, two
+            # profiles at equal distance and equal rate would fall through to
+            # comparing MeasuredProfile, which has slots and no ordering, and
+            # the router would raise TypeError instead of routing.
+            candidates.append((TIER_RANK[p.tier] - TIER_RANK[floor], -rate,
+                               len(candidates), p, rate))
 
         degraded_from = None
         if not candidates and allow_degraded:
@@ -229,7 +251,12 @@ class Router:
                     continue
                 rate = p.rate_at_context(context_tokens)
                 if rate and rate > 0:
-                    candidates.append((TIER_RANK[p.tier] * 1e6 + rate, p, rate))
+                    # Mirrored deliberately: distance from the floor, ascending,
+                    # measured downward. Below the floor the nearest profile is
+                    # the STRONGEST one available, which is what the docstring
+                    # above promises a degraded route returns.
+                    candidates.append((TIER_RANK[floor] - TIER_RANK[p.tier],
+                                       -rate, len(candidates), p, rate))
             if candidates:
                 degraded_from = floor
                 factors.append(
@@ -256,8 +283,8 @@ class Router:
                 "(measured -42% draft, -31% draft-3B, -13% small, unresolvable "
                 "at standard), so the fastest-looking tier loses the most")
 
-        candidates.sort(key=lambda c: c[0], reverse=True)
-        _, best, rate = candidates[0]
+        candidates.sort()
+        *_, best, rate = candidates[0]
         est = context_tokens / rate if rate else None
         factors.append(f"selected_rate_tokens_per_sec={rate:.2f}")
         if best.context_slowdown_us_per_token is not None:
@@ -265,6 +292,26 @@ class Router:
                 f"rate adjusted for context: {best.context_slowdown_us_per_token} us "
                 "per token of context (KV-cache growth, measured)")
         factors.append(f"measured_source={best.source}")
+        if host_ram_free_gb is not None and best.host_ram_gb is None:
+            # RECORD WHAT WAS COMPARED. A RAM constraint was in force and this
+            # profile was not weighed against it, because nothing has measured
+            # what it costs to keep resident -- the rejection test reads a
+            # missing figure as "no constraint recorded" and lets it through.
+            #
+            # That is permissive in the one direction INV-HW-2 is otherwise
+            # strict about, and it is load-bearing today: SPIKE-001 3.2 measured
+            # residency for exactly two models, so the strong tier's OTHER
+            # profile passes this gate unweighed while 3.2's own finding is
+            # "the strong tier and the owner's working set cannot coexist on
+            # this node". Making the gap fail-closed here would reject the
+            # draft and small tiers too -- 3.2 never measured those either --
+            # and leave trivial work with no route at all. So the honest move
+            # is to name it in the decision rather than to silently pass or
+            # bluntly refuse. The fix is a measurement, not a branch.
+            factors.append(
+                "UNWEIGHED: residency cost for this profile is UNMEASURED, so "
+                f"the {host_ram_free_gb} GB constraint could not be applied to "
+                "it (SPIKE-001 3.2 covers two models only)")
 
         d = RouteDecision(best.profile_id, best.tier, difficulty, est,
                           factors, rejected)
@@ -288,6 +335,62 @@ class Router:
     # ------------------------------------------------------------------ load
 
     @staticmethod
+    def _residency_costs(results_dir: Path) -> dict:
+        """Measured host-RAM cost of keeping a model resident, per model.
+
+        SPIKE-001 3.2 measured this and the router did not read it. That is the
+        half of the residency defect the selection logic could not fix on its
+        own: `select` has rejected on `host_ram_gb` since it was written, but
+        `from_spike_results` never set the field, so the constraint was live in
+        A-022's hand-built doubles and structurally unreachable in production.
+        Every profile the router actually ran with had `host_ram_gb = None`,
+        which the rejection test reads as "no constraint recorded".
+
+        The cost is a DIFFERENCE against the no-model baseline, not the
+        condition's own reading -- what the router needs to know is what
+        loading the model takes away, and 3.2's absolute figures include the
+        owner's working set. Both sides use `available_gb_min`, the worst
+        sample in the window, because headroom that exists only on average is
+        not headroom.
+
+        Returns {model_key: (cost_gb, provenance)}. A model 3.2 did not measure
+        is ABSENT rather than zero -- INV-HW-2, and a zero here would read as
+        "free to keep resident", which is the most expensive possible mistake.
+        """
+        f = Path(results_dir) / "SPIKE-001-3.2-headroom-summary.json"
+        if not f.exists():
+            return {}
+        d = json.loads(f.read_text(encoding="utf-8"))
+        conditions = d.get("conditions") or []
+        baseline = None
+        for c in conditions:
+            if "no model resident" in (c.get("label") or ""):
+                baseline = c.get("available_gb_min")
+                break
+        if baseline is None:
+            # Without the baseline the differences are not computable. Return
+            # nothing rather than fall back to the absolute readings, which
+            # would attribute the owner's whole working set to the model.
+            return {}
+        out: dict = {}
+        for c in conditions:
+            label = c.get("label") or ""
+            avail = c.get("available_gb_min")
+            if avail is None or "no model resident" in label:
+                continue
+            # 3.2 names the model inside the parentheses; 3.1 names it in
+            # `model_path`. The two documents spell it differently, so the key
+            # is the leading whitespace-delimited token of the parenthesised
+            # part -- "Qwen3-8B Q4_K_M, -ngl 99, ..." -> "Qwen3-8B".
+            m = re.search(r"\(([^),]+)", label)
+            if not m:
+                continue
+            key = m.group(1).strip().split()[0]
+            out[key] = (round(baseline - avail, 2),
+                        f"SPIKE-001-3.2 headroom ({baseline} - {avail} GB measured)")
+        return out
+
+    @staticmethod
     def from_spike_results(results_dir: Path, bus: EventBus) -> "Router":
         """Build profiles from SPIKE-001 3.1 v4 reports.
 
@@ -296,9 +399,20 @@ class Router:
         is the whole-run average -- 27% above the settled rate on a decaying
         model. Loading a v3 report here would put that error in the router.
 
-        No product names are constructed from filenames; the profile id is
-        tier + node class.
+        The rate taken is `median_effective_tokens_per_sec`, which is the field
+        each report's own `router_should_use` names: it is wall-clock and
+        therefore sees contention that the generation-time figure is blind to.
+
+        No DEVICE names are constructed from filenames (INV-HW-1). The profile
+        id is tier + node class + the report's own variant token, which is what
+        makes it UNIQUE: two draft reports and two strong reports exist, and
+        until 2026-08-24 all four collapsed onto two ids, so a decision naming
+        `strong-accelerated` could mean either the 7.12 tok/s MoE or the 3.05
+        tok/s dense model. An audit record that cannot say which model ran is
+        not an audit record. The variant token is read from data rather than
+        written into this file, so no product literal enters `core/`.
         """
+        residency = Router._residency_costs(Path(results_dir))
         profiles: list[MeasuredProfile] = []
         for f in sorted(Path(results_dir).glob("SPIKE-001-3.1-v3-*.json")):
             if "concurrent" not in f.name:
@@ -316,13 +430,27 @@ class Router:
                 di = json.loads(idle_f.read_text(encoding="utf-8"))
                 idle_rate = (di.get("throughput") or {}).get(
                     "median_effective_tokens_per_sec")
+            # SPIKE-001-3.1-v3-<tier>-<variant>-<condition>.json
+            parts = f.stem.split("-")
+            variant = parts[5] if len(parts) > 5 else str(len(profiles))
+            model_path = (t.get("model_path") or "").replace("\\", "/")
+            model_file = model_path.rsplit("/", 1)[-1]
+            host_ram = None
+            residency_src = ""
+            for key, (cost, prov) in residency.items():
+                # Anchored at the start and required to end on a separator, so
+                # a shorter key cannot claim a longer model's report.
+                if re.match(re.escape(key) + r"[-_.]", model_file):
+                    host_ram, residency_src = cost, " + " + prov
+                    break
             profiles.append(MeasuredProfile(
-                profile_id=f"{tier}-accelerated",
+                profile_id=f"{tier}-accelerated-{variant.lower()}",
                 tier=tier,
                 node_class="accelerated",
                 wall_tokens_per_sec=t.get("median_effective_tokens_per_sec"),
                 wall_tokens_per_sec_idle=idle_rate,
+                host_ram_gb=host_ram,
                 measured=True,
-                source=f.name,
+                source=f.name + residency_src,
             ))
         return Router(bus, profiles)
