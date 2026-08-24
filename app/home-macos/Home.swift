@@ -331,7 +331,7 @@ final class HomeController: NSObject {
             } else {
                 self.stopRendering()
             }
-            self.dockSwap(visible)
+            self.reconcileDock()
             self.onVisibilityChange?(visible)
         }
         watch?.start()
@@ -440,17 +440,33 @@ final class HomeController: NSObject {
     /// ours is frontmost until it says so. Guarded rather than attempted:
     /// setting it while inactive raises, and a raise here would take down the
     /// whole home for a Dock.
-    private func dockSwap(_ visible: Bool) {
-        if visible {
-            NSApp.activate(ignoringOtherApps: true)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                guard NSApp.isActive else { return }
-                NSApp.presentationOptions.insert(.autoHideDock)
-            }
-        } else if NSApp.isActive {
-            NSApp.presentationOptions.remove(.autoHideDock)
+    /// §10's dock swap. The mechanics live in `DockSwap`; what belongs here is
+    /// the ANSWER it reconciles toward, and the reason for the second half of
+    /// it: activation only happens when the Desktop has none of the owner's
+    /// windows on it. Put real work on VESPER's Desktop and VESPER stops
+    /// grabbing the front.
+    private lazy var dock = DockSwap { [weak self] in
+        guard let self else { return false }
+        // ON THIS SPACE, not "not occluded", and the difference is the flash.
+        //
+        // `isVisible` reads occlusionState, which settles AFTER the Space
+        // transition finishes -- so the reconciler's first tick on
+        // activeSpaceDidChange still answered "no" and the swap waited for
+        // occlusion to catch up. The window server already knows our ground is
+        // on the active Space the moment the switch lands, and SpaceWatch reads
+        // exactly that. `waitUntilComposited` uses the same question.
+        //
+        // The empty-Desktop half is unchanged and is what keeps this from
+        // stealing focus: on this Space, with none of the owner's windows here.
+        let here = SpaceWatch.onScreen().contains {
+            $0.number == Int(self.ground.windowNumber)
         }
+        return here && SpaceWatch.fingerprint().isEmpty
     }
+
+    func startDockReconciler() { dock.start() }
+    private func reconcileDock() { dock.tick() }
+    var dockRepairs: Int { dock.repairs }
 
     /// Polled alongside occlusion, and for the same reason: §10 wants the main
     /// menu to dim while the Dock is over it, and nothing notifies us of that.

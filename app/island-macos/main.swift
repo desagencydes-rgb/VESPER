@@ -1052,6 +1052,39 @@ if args.contains("--dock-check") {
             print("  NOT ACTIVE — presentationOptions may only be set by the active app,")
             print("  and setting it anyway raises. This is where the swap stops.")
         }
+        // HEALING, which is the property the owner's second bug was about.
+        // Take the option away behind the reconciler's back -- exactly what
+        // macOS does when VESPER stops being frontmost -- and see whether it
+        // comes back on its own. A self-healing mechanism observed only while
+        // nothing broke it is not evidence that it heals.
+        func healCheck() {
+            let swap = DockSwap(interval: 0.2) { true }
+            swap.start()
+            print("")
+            print("  healing: taking .autoHideDock away behind its back")
+            NSApp.presentationOptions.remove(.autoHideDock)
+            let hDeadline = Date().addingTimeInterval(3.0)
+            func check() {
+                if NSApp.presentationOptions.contains(.autoHideDock) {
+                    print("  healed — the reconciler put it back "
+                        + "(\(swap.repairs) repair(s))")
+                    swap.stop()
+                    NSApp.presentationOptions.remove(.autoHideDock)
+                    print("  " + String(repeating: "═", count: 58))
+                    exit(0)
+                }
+                if Date() > hDeadline {
+                    print("  NOT HEALED after 3 s — an aborted switch would leave the")
+                    print("  Dock up until something else happened to fire.")
+                    swap.stop()
+                    print("  " + String(repeating: "═", count: 58))
+                    exit(1)
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { check() }
+            }
+            check()
+        }
+
         // POLL TO A DEADLINE, do not sample once. A fixed 0.8 s wait passed
         // twice and then failed, for a swap that had worked both times: the
         // window server had simply not re-laid the screen yet. That is the same
@@ -1069,9 +1102,12 @@ if args.contains("--dock-check") {
             print("")
             print(won ? "  PASS — the Dock went under."
                       : "  FAIL — the Dock still reserves its space after 3 s.")
-            NSApp.presentationOptions.remove(.autoHideDock)
-            print("  " + String(repeating: "═", count: 58))
-            exit(won ? 0 : 1)
+            guard won else {
+                NSApp.presentationOptions.remove(.autoHideDock)
+                print("  " + String(repeating: "═", count: 58))
+                exit(1)
+            }
+            healCheck()
         }
         settle()
     }
@@ -1750,6 +1786,7 @@ func startHome() {
                     print("  system dock \(up ? "up — main menu dims to 30%" : "down")")
                 }
                 h.watchSystemDock()
+                h.startDockReconciler()
                 let c = h.chrome
                 print(c.cardAdapted
                       ? String(format: "  card: backdrop luma %.3f → fill %.3f → ground %.3f "
