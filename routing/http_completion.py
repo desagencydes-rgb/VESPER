@@ -13,7 +13,7 @@ THREE THINGS ARE DELIBERATE HERE.
    device. If a different runner speaks the same endpoint shape, it is
    configuration, not a patch.
 
-2. THE BUILD TAG IS FETCHED, NOT DECLARED. `MEMORY.md` §1: node 1 carries two
+2. IDENTITY IS FETCHED, NOT DECLARED. `MEMORY.md` §1: node 1 carries two
    `llama-server.exe` and only one is comparable, so a figure without its build
    tag is not a measurement. The adapter reads the server's OWN `/props` at
    construction and carries `build_info` into every result. A provider that
@@ -22,7 +22,27 @@ THREE THINGS ARE DELIBERATE HERE.
    liveness check: the instrument's self-report is not evidence, so we ask the
    server what it is rather than trusting the URL we were handed.
 
-3. FAILURES ARE CLASSIFIED INTO THE GATEWAY'S VOCABULARY, NOT INVENTED. SR-004
+   A REMOTE API HAS NO BUILD TAG, and the same discipline still applies: it is
+   attributed by MODEL ID, which the caller names and `/models` is consulted to
+   confirm. Asking the endpoint which model it would pick and then recording
+   that answer as provenance is circular, so the model is never chosen here.
+   `build_provider` refuses an endpoint that can offer neither -- fail-closed,
+   because a result nothing can be traced to is not evidence.
+
+   SR-003 is why the remote path exists at all: "automatic API switching when
+   quota/error occurs, with retry without stopping." APIs are the primary
+   route and SR-005's local model is the OFFLINE BACKUP -- not the other way
+   round, which is how this was first built.
+
+3. A CREDENTIAL REACHES THE REQUEST HEADER AND NOTHING ELSE. It is held in a
+   closure, never on `EndpointIdentity` -- which is copied verbatim into every
+   result and therefore into telemetry, the evidence chain and any checkpoint
+   carrying one. A key on that dataclass would be persisted by all three and
+   the leak would look exactly like correct provenance recording. `L-006`
+   asserts a canary key appears in no result, no published record and no file
+   the run wrote.
+
+4. FAILURES ARE CLASSIFIED INTO THE GATEWAY'S VOCABULARY, NOT INVENTED. SR-004
    asks for retry timing a human can act on, and `ModelGateway` decides that
    from `classification`. An exception without one is treated as
    `server_error` and retried -- so an auth failure that arrives unclassified
@@ -65,22 +85,47 @@ _STATUS_CLASS = {
 
 @dataclass(slots=True)
 class EndpointIdentity:
-    """What answered, recorded so a result can be attributed later."""
+    """What answered, recorded so a result can be attributed later.
+
+    NO CREDENTIAL IS EVER STORED HERE. This object is copied verbatim into
+    every result and therefore into telemetry, the evidence chain and any
+    checkpoint that carries a result. A key on this dataclass would be
+    persisted by every one of them, and the leak would look exactly like
+    correct provenance recording. The key lives in a closure in
+    `build_provider` and reaches only the request header.
+    """
 
     base_url: str
     build_info: str | None
     model_path: str | None
     n_ctx: int | None
+    # Remote endpoints have no build tag. Their attributable identity is the
+    # model id the API itself reports, which is the same discipline applied to
+    # a different kind of server.
+    model: str | None = None
+
+    def attribution(self) -> str | None:
+        """What this endpoint can be identified BY, or None if nothing can.
+
+        A local runner attributes by build; a remote API attributes by model
+        id. A result that can do neither is unattributable, and an
+        unattributable result is not evidence -- callers refuse it rather than
+        record a figure nobody can trace.
+        """
+        return self.build_info or self.model
 
     def to_dict(self) -> dict:
         return {"base_url": self.base_url, "build_info": self.build_info,
-                "model_path": self.model_path, "n_ctx": self.n_ctx}
+                "model_path": self.model_path, "n_ctx": self.n_ctx,
+                "model": self.model}
 
 
-def _post_json(url: str, payload: dict, timeout: float) -> dict:
+def _post_json(url: str, payload: dict, timeout: float,
+               headers: dict | None = None) -> dict:
     body = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url, data=body, headers={"Content-Type": "application/json"})
+    h = {"Content-Type": "application/json"}
+    h.update(headers or {})
+    req = urllib.request.Request(url, data=body, headers=h)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode("utf-8"))
@@ -101,9 +146,10 @@ def _post_json(url: str, payload: dict, timeout: float) -> dict:
                             "connection_error") from e
 
 
-def _get_json(url: str, timeout: float) -> dict:
+def _get_json(url: str, timeout: float, headers: dict | None = None) -> dict:
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as r:
+        req = urllib.request.Request(url, headers=headers or {})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         raise EndpointError(f"HTTP {e.code} from {url}",
@@ -118,7 +164,21 @@ def _get_json(url: str, timeout: float) -> dict:
                             "connection_error") from e
 
 
-def identify(base_url: str, *, timeout: float = 10.0) -> EndpointIdentity:
+def _auth_headers(api_key: str | None) -> dict:
+    """The ONLY place a credential is attached to anything.
+
+    Returned fresh each call and never stored on a dataclass, so there is no
+    object holding a key that some later `to_dict()` could serialise into
+    telemetry. INV-TRUST-1 forbids a Z2 node RECEIVING a secret; nothing
+    forbids a result carrying one into a log, which is why that has to be
+    prevented structurally rather than remembered.
+    """
+    return {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+
+def identify(base_url: str, *, timeout: float = 10.0,
+             api_key: str | None = None,
+             model: str | None = None) -> EndpointIdentity:
     """Ask the endpoint what it is. Raises rather than guessing.
 
     Called before a provider is built, so an endpoint that cannot attribute
@@ -128,18 +188,50 @@ def identify(base_url: str, *, timeout: float = 10.0) -> EndpointIdentity:
     build-tag discipline exists because that has already cost this project a
     day once.
     """
-    props = _get_json(base_url.rstrip("/") + "/props", timeout)
+    base = base_url.rstrip("/")
+    headers = _auth_headers(api_key)
+    try:
+        props = _get_json(base + "/props", timeout, headers)
+    except EndpointError:
+        # No `/props` -- a remote OpenAI-compatible API rather than a local
+        # runner. It has no build tag to give, so it is attributed by model id,
+        # and the model must be NAMED by the caller: asking the endpoint which
+        # model it would pick and then recording that answer as provenance is
+        # circular. `/v1/models` is consulted only to confirm the named model
+        # is actually served, never to choose one.
+        if not model:
+            raise EndpointError(
+                f"{base} exposes no /props and no model was named. A remote "
+                "endpoint is attributed by model id; without one, results "
+                "from it cannot be traced to what produced them.",
+                "bad_request") from None
+        try:
+            listed = _get_json(base + "/models", timeout, headers)
+            ids = {m.get("id") for m in (listed.get("data") or [])}
+            if ids and model not in ids:
+                raise EndpointError(
+                    f"model {model!r} is not served by {base}. Available: "
+                    f"{sorted(i for i in ids if i)[:8]}", "bad_request")
+        except EndpointError as e:
+            # A listing that is absent or forbidden is not proof of anything;
+            # only a listing that ANSWERS and omits the model is.
+            if getattr(e, "classification", "") == "bad_request" and \
+                    "is not served by" in str(e):
+                raise
+        return EndpointIdentity(base_url=base, build_info=None,
+                                model_path=None, n_ctx=None, model=model)
     dm = props.get("default_generation_settings") or {}
     return EndpointIdentity(
-        base_url=base_url.rstrip("/"),
+        base_url=base,
         build_info=props.get("build_info"),
         model_path=props.get("model_path") or dm.get("model"),
         n_ctx=dm.get("n_ctx") or props.get("n_ctx"),
+        model=model,
     )
 
 
 def _call_raw(ident: EndpointIdentity, prompt: str, options: dict,
-              timeout: float) -> dict:
+              timeout: float, headers: dict | None = None) -> dict:
     """The raw continuation endpoint. Used for MEASUREMENT.
 
     `tools/spike/profile_node.py` drives this same path, so a throughput figure
@@ -156,7 +248,7 @@ def _call_raw(ident: EndpointIdentity, prompt: str, options: dict,
     }
     if "stop" in options:
         payload["stop"] = options["stop"]
-    d = _post_json(ident.base_url + "/completion", payload, timeout)
+    d = _post_json(ident.base_url + "/completion", payload, timeout, headers)
     timings = d.get("timings") or {}
     return {
         "text": d.get("content", ""),
@@ -169,7 +261,7 @@ def _call_raw(ident: EndpointIdentity, prompt: str, options: dict,
 
 
 def _call_chat(ident: EndpointIdentity, prompt: str, options: dict,
-               timeout: float) -> dict:
+               timeout: float, headers: dict | None = None) -> dict:
     """The chat endpoint, which applies the model's own template.
 
     A TRAP MEASURED HERE ON 2026-08-24, AND THE REASON `finish_reason` AND
@@ -205,7 +297,17 @@ def _call_chat(ident: EndpointIdentity, prompt: str, options: dict,
     if "enable_thinking" in options:
         payload["chat_template_kwargs"] = {
             "enable_thinking": bool(options["enable_thinking"])}
-    d = _post_json(ident.base_url + "/v1/chat/completions", payload, timeout)
+    if ident.model:
+        # Required by every OpenAI-compatible remote; harmless to a local
+        # runner, which serves one model and ignores the field.
+        payload["model"] = ident.model
+    # A local runner exposes /v1/chat/completions at the root; a remote base
+    # url already ends in its own version segment. Doubling /v1 is the
+    # commonest way this integration fails, so it is decided from the url the
+    # caller gave rather than assumed.
+    suffix = ("/chat/completions" if ident.base_url.rstrip("/").endswith("/v1")
+              else "/v1/chat/completions")
+    d = _post_json(ident.base_url + suffix, payload, timeout, headers)
     choices = d.get("choices") or [{}]
     msg = choices[0].get("message") or {}
     usage = d.get("usage") or {}
@@ -222,6 +324,8 @@ def _call_chat(ident: EndpointIdentity, prompt: str, options: dict,
 def build_provider(provider_id: str, profile_id: str, base_url: str, *,
                    timeout: float = 300.0,
                    mode: str = "chat",
+                   api_key: str | None = None,
+                   model: str | None = None,
                    identity: EndpointIdentity | None = None) -> Provider:
     """Wrap an endpoint as a `Provider` the gateway can call.
 
@@ -261,11 +365,19 @@ def build_provider(provider_id: str, profile_id: str, base_url: str, *,
                 "name and label them correctly on arrival.")
         ident = identity
     else:
-        ident = identify(base_url, timeout=30.0)
+        ident = identify(base_url, timeout=30.0, api_key=api_key, model=model)
+    if ident.attribution() is None:
+        raise ValueError(
+            f"{base_url} cannot attribute its own output: no build tag and no "
+            "model id. A result nothing can be traced to is not evidence, and "
+            "this is the fail-closed direction -- see `identify`.")
     fn = _call_chat if mode == "chat" else _call_raw
+    # Built once, held in this closure, and never stored on `ident`. See
+    # `_auth_headers` and `EndpointIdentity`.
+    headers = _auth_headers(api_key)
 
     def call(prompt: str, options: dict) -> dict:
-        out = fn(ident, prompt, options, timeout)
+        out = fn(ident, prompt, options, timeout, headers)
         # EVIDENCE, not decoration. A result that cannot say which build, which
         # model and which calling mode produced it cannot be compared with
         # another -- and comparability is the entire point of the build tag.

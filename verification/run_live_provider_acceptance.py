@@ -32,6 +32,7 @@ starts applying here too.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -84,8 +85,8 @@ class Case:
 
 def _bus(tmp: Path, node: str):
     clock = HybridLogicalClock(node)
-    return EventBus(clock, StoreSet(tmp / node, node_id=node),
-                    component="live"), clock
+    store = StoreSet(tmp / node, node_id=node)
+    return EventBus(clock, store, component="live"), clock, store
 
 
 def _counting(provider, box: list):
@@ -113,7 +114,7 @@ def _counting(provider, box: list):
 def l001_routed_live_call(tmp: Path, ident) -> None:
     c = Case("L-001", "Router decides, gateway routes, a real model answers")
     try:
-        bus, clock = _bus(tmp, "l1")
+        bus, clock, store = _bus(tmp, "l1")
         r = Router.from_spike_results(REPO / "docs/planning/spike-results", bus)
         d = r.select("trivial", host_ram_free_gb=6.0, task_id="L-001")
 
@@ -159,7 +160,7 @@ def l001_routed_live_call(tmp: Path, ident) -> None:
 def l002_cost_choke_point(tmp: Path, ident) -> None:
     c = Case("L-002", "A paid credential in FREE_TIME never reaches the endpoint")
     try:
-        bus, clock = _bus(tmp, "l2")
+        bus, clock, store = _bus(tmp, "l2")
         cost = CostPolicy(bus, clock)
         # A-021.5: cold start is FREE_TIME, always. No period is set here on
         # purpose -- the default is the assertion.
@@ -197,7 +198,7 @@ def l002_cost_choke_point(tmp: Path, ident) -> None:
 def l003_exhaustion_not_escalation(tmp: Path, ident) -> None:
     c = Case("L-003", "Free revoked mid-task => zero paid attempts, both live")
     try:
-        bus, clock = _bus(tmp, "l3")
+        bus, clock, store = _bus(tmp, "l3")
         cost = CostPolicy(bus, clock)
         cost.register_credential("free-live", "free")
         cost.register_credential("paid-live", "paid")
@@ -246,7 +247,7 @@ def l003_exhaustion_not_escalation(tmp: Path, ident) -> None:
 def l004_classification(tmp: Path, ident) -> None:
     c = Case("L-004", "Real failures classify, and classification decides retry")
     try:
-        bus, clock = _bus(tmp, "l4")
+        bus, clock, store = _bus(tmp, "l4")
         cost = CostPolicy(bus, clock)
         cost.register_credential("dead", "free")
         gw = ModelGateway(bus, cost, sleep=lambda s: None)
@@ -280,7 +281,7 @@ def l004_classification(tmp: Path, ident) -> None:
                 str([a.retry_after_ms for a in att]))
 
         # TERMINAL: a live server, a request it will refuse outright.
-        bus2, clock2 = _bus(tmp, "l4b")
+        bus2, clock2, _store2 = _bus(tmp, "l4b")
         cost2 = CostPolicy(bus2, clock2)
         cost2.register_credential("bad", "free")
         gw2 = ModelGateway(bus2, cost2, sleep=lambda s: None)
@@ -335,7 +336,7 @@ def l005_mid_call_kill(tmp: Path, ident, binary: Path, model: Path) -> None:
             c.finish()
             return
 
-        bus, clock = _bus(tmp, "l5")
+        bus, clock, store = _bus(tmp, "l5")
         cost = CostPolicy(bus, clock)
         cost.register_credential("doomed", "free")
         delays: list = []
@@ -381,6 +382,55 @@ def l005_mid_call_kill(tmp: Path, ident, binary: Path, model: Path) -> None:
                 pass
 
 
+# ===========================================================================
+# L-006 — a credential reaches the request header and nothing else
+# ===========================================================================
+def l006_credential_containment(tmp: Path, ident) -> None:
+    c = Case("L-006", "The API key appears in no result, event or store")
+    try:
+        # A local endpoint ignores Authorization, which is exactly what makes
+        # it a safe place to test containment: the call succeeds, so the full
+        # evidence path is exercised with a credential present.
+        secret = "sk-CANARY-d3adbeef-must-not-appear-anywhere-0451"
+        bus, clock, store = _bus(tmp, "l6")
+        cost = CostPolicy(bus, clock)
+        cost.register_credential("keyed", "free")
+        gw = ModelGateway(bus, cost)
+        gw.register(build_provider("keyed", "draft-accelerated-qwen1.7b",
+                                   BASE_URL, identity=ident, api_key=secret))
+        out = gw.complete("Say OK.", task_id="L-006",
+                          profile_id="draft-accelerated-qwen1.7b",
+                          options={"n_predict": 120, "temperature": 0.0,
+                                   "enable_thinking": False})
+        c.check("the keyed call still succeeds", bool(out["result"]["text"]))
+        # The result is copied into telemetry, the evidence chain and any
+        # checkpoint carrying it. A key here would be persisted by all three,
+        # and the leak would look exactly like correct provenance recording.
+        c.check("the key is not in the result",
+                secret not in json.dumps(out, default=str))
+        c.check("the key is not in the endpoint identity",
+                secret not in json.dumps(out["result"]["endpoint"]))
+        # EVERY record, not a chosen list of kinds. Naming the events to
+        # check would only ever find a leak in an event someone thought of.
+        recs = [{"kind": r.kind, "body": r.body} for r in store.read("log")]
+        c.check("the key is in no published event",
+                secret not in json.dumps(recs, default=str),
+                f"{len(recs)} record(s) scanned")
+        # And the durable store, which is where a leak would outlive the run.
+        leaked = []
+        for f in (tmp / "l6").rglob("*"):
+            if f.is_file():
+                try:
+                    if secret in f.read_text(encoding="utf-8", errors="ignore"):
+                        leaked.append(f.name)
+                except Exception:  # noqa: BLE001
+                    pass
+        c.check("the key is in no file the run wrote", not leaked, str(leaked))
+        c.finish()
+    except Exception:
+        c.finish(error=traceback.format_exc(limit=6))
+
+
 def main() -> int:
     print("VESPER live-provider acceptance -- a real model behind the choke point")
     print(f"  endpoint: {BASE_URL}")
@@ -415,6 +465,7 @@ def main() -> int:
         l002_cost_choke_point(tmp, ident)
         l003_exhaustion_not_escalation(tmp, ident)
         l004_classification(tmp, ident)
+        l006_credential_containment(tmp, ident)
         binary = Path.home() / "VESPER-runtime" / "llama.cpp" / "llama-server"
         model = Path(ident.model_path or "")
         if not model.is_absolute():
