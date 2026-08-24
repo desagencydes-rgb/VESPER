@@ -40,7 +40,7 @@ buffered.
 | **The occlusion stop** | `--occlusion-check` → `0.02 s` by notification; `--poll-only` → `0.50 s` by poll |
 | **Icons and widgets hidden on VESPER's Desktop only** | **486/486** tiles of the ground read alpha >= 0.99 |
 | **The main menu** — §14.2's bar, avatar, separate expandable tile | `--face-check`: paints at the Dock's position |
-| **The dock swap** — §10 | mechanism wired; **not yet observed on Desktop 2** — watch the log for `system dock down` |
+| **The dock swap** — §10 | `--dock-check`: `visibleFrame.minY` 85 → 0, three runs, three passes |
 
 `SPIKE-013` §1a carries the cost table. The composite costs **+0.053%** of one
 core.
@@ -77,6 +77,7 @@ VESPER --glass-verify              # 0 transparent · 1 opaque · 2 unreadable
 VESPER --glass-verify --no-hatch   # must go RED
 VESPER --occlusion-check           # both directions
 VESPER --occlusion-check --poll-only
+VESPER --dock-check                # §10, one step at a time
 VESPER --home --mode Home --chrome --face-check --seconds 14
 VESPER --home --mode Home --cost-check --cost-seconds 6 --cost-repeats 3
 ```
@@ -96,3 +97,9 @@ VESPER --home --mode Home --cost-check --cost-seconds 6 --cost-repeats 3
   and it will happen after the measurement has completed.
 - **Two definitions of the same plist drift.** `launchctl` will happily report
   "reloaded" for a file that did not change.
+- **An `NSScreen` object caches its geometry.** A reference held across a change
+  reports the world as it was, and the Dock looks like it refused to move.
+- **When a reading says a mechanism did nothing, suspect the reading first.**
+  Four times this session: the scrim that was never created, the occlusion probe
+  that started already covered, the stale `NSScreen`, and three separate
+  read-too-soon races. Every one of them accused the thing it was measuring.
