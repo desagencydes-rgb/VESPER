@@ -787,6 +787,70 @@ planted product name in `routing/` goes red — **checked, not assumed.**
 
 ---
 
+## 4i. 2026-08-24, later — the API route, and what a free tier actually gives
+
+### The free tier is **20 requests per day, PER MODEL**
+
+Measured from the 429 itself, not read off a docs page:
+
+```
+quota: generate_content_free_tier_requests
+id:    GenerateRequestsPerDayPerProjectPerModel-FreeTier
+value: 20
+```
+
+Confirmed by exhausting `gemini-3.6-flash` and watching
+`gemini-3.5-flash-lite` answer immediately after. **Each model is its own daily
+bucket.**
+
+Two consequences, and the second is a planning fact:
+
+1. **`SR-003`'s "automatic API switching when quota occurs" is MODEL ROTATION**,
+   and the gateway's ordered provider list was already the mechanism. Register
+   several models at ONE profile — they are interchangeable, so it costs no
+   report. `L-009` exercises it against a genuinely exhausted quota.
+2. **The API cannot carry sustained work at 20/day/model.** The owner's stated
+   ordering is API-primary, local-backup (`SR-003`/`SR-005`, and that reading is
+   correct). In practice the local model will do the bulk and the API is worth
+   spending where quality decides the outcome. Recorded, not acted on.
+
+### Auth is not uniform across one vendor
+
+Google's native endpoint (`/v1beta/models`) takes `x-goog-api-key` and returns
+**401 for `Authorization: Bearer`**. Its OpenAI-compatible endpoint
+(`/v1beta/openai/...`) takes Bearer and works. **A 401 cannot tell you whether
+the key is dead or the header is wrong** — try both before concluding either.
+The key lives at `~/.config/vesper/secrets.env`, 0600, never in the repo.
+
+Model ids there carry a `models/` prefix, and `gemini-2.5-flash` **404s for new
+keys** with a message naming its successor.
+
+### Three defects a live endpoint found that a double never could
+
+1. **A zero retry hint turned the backoff into a hammer.** `retryDelay` varies
+   run to run — 36s, 19s, 26s, and sometimes **0s**. Taking 0 at face value
+   chose it over the exponential backoff, slept nothing, and retried instantly
+   against the endpoint that had just asked for less traffic. Absent and zero
+   are now the same thing.
+2. **A null answer that looked like a successful one.** HTTP 200, well-formed
+   body, `finish_reason` `"stop"` **or** `"length"`, and no content at all — at
+   `max_tokens` 100, nowhere near the budget. A reasoning model counts its
+   thinking against that budget and does not always report those tokens. Passed
+   through, it reaches the planner as a genuine empty answer. Now raised as
+   TRANSIENT: the model did not answer, and that is a failed attempt.
+3. **The chat URL doubled its version segment** — `.../v1beta/openai/v1/chat/
+   completions`. It **worked**; that vendor forgives it. It surfaced only
+   because a 429 printed the full url into an error message. A bug the server
+   forgives is one waiting for a server that does not.
+
+### A long server wait is not something to sit through
+
+Told `retryDelay: 26s` with another model available, the gateway makes ONE
+attempt, records the hint, and switches. Before: two immediate retries against a
+rate-limited model, spending two of that day's twenty requests to learn nothing.
+
+---
+
 ## 5. Open questions, recorded rather than resolved
 
 1. **What window must `C1` run for?** `AT-03` calls it the most important run in the
