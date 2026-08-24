@@ -175,6 +175,7 @@ class Router:
                host_ram_free_gb: float | None = None,
                node_busy: bool = False,
                allow_degraded: bool = False,
+               exclude: set | None = None,
                task_id: str | None = None) -> RouteDecision:
         """Pick a profile. Fail-closed by default.
 
@@ -206,7 +207,17 @@ class Router:
         rejected: list[dict] = []
         candidates: list[tuple[float, MeasuredProfile, float | None]] = []
 
+        excluded = set(exclude or ())
         for p in self._profiles:
+            if p.profile_id in excluded:
+                # Already tried and spent this run. Excluded rather than
+                # deprioritised: a profile whose providers are exhausted will
+                # be exhausted again a millisecond later, and re-selecting it
+                # would spin rather than degrade.
+                rejected.append({"profile_id": p.profile_id,
+                                 "reason": "already attempted and exhausted "
+                                           "for this request"})
+                continue
             if TIER_RANK[p.tier] < TIER_RANK[floor]:
                 rejected.append({"profile_id": p.profile_id,
                                  "reason": f"tier {p.tier} below floor {floor}"})
@@ -283,6 +294,8 @@ class Router:
             # returns a tier weaker than the difficulty demands, and it cannot
             # be taken without the caller asking for it by name.
             for p in self._profiles:
+                if p.profile_id in excluded:
+                    continue
                 if TIER_RANK[p.tier] >= TIER_RANK[floor] or not p.available():
                     continue
                 if (host_ram_free_gb is not None and p.host_ram_gb is not None

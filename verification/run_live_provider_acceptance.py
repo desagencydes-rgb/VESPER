@@ -46,11 +46,13 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 
 from core.bus import EventBus  # noqa: E402
+from core.completion import (CompletionService,  # noqa: E402
+                             CompletionUnavailable)
 from core.cost import CostPolicy, CostPolicyViolation  # noqa: E402
 from core.gateway import (AllProvidersExhausted, ModelGateway,  # noqa: E402
                           NoProviderForProfile, TERMINAL, TRANSIENT)
 from core.hlc import HybridLogicalClock  # noqa: E402
-from core.router import Router  # noqa: E402
+from core.router import MeasuredProfile, Router  # noqa: E402
 from core.store import StoreSet  # noqa: E402
 from routing.http_completion import (EndpointError,  # noqa: E402
                                      EndpointIdentity, build_provider,
@@ -76,6 +78,19 @@ class Case:
 
     def check(self, label: str, ok: bool, detail: str = "") -> None:
         self.assertions.append({"label": label, "ok": bool(ok), "detail": detail})
+
+    def not_run(self, reason: str) -> None:
+        """Neither a pass nor a failure: the environment refused to cooperate.
+
+        A free-tier quota is a fact about the account, not about the code, and
+        recording it as PASS would be the vacuity defect this runner exists to
+        avoid. Recording it as FAIL is just as wrong -- it sends the next
+        session hunting a bug that is not there. So it is its own outcome, it
+        is loud, and the gate does not go green on it.
+        """
+        RESULTS.append({"id": self.cid, "passed": False, "not_run": True})
+        print(f"[----] {self.cid:<16} NOT RUN  {self.title}")
+        print(f"           {reason}")
 
     def finish(self, error: str | None = None) -> None:
         self.error = error
@@ -501,9 +516,14 @@ def l007_remote_api(tmp: Path) -> None:
                                     REMOTE_URL, identity=ident,
                                     api_key=REMOTE_KEY,
                                     model=REMOTE_MODEL, timeout=90.0))
+        # A REASONING MODEL COUNTS ITS THINKING AGAINST max_tokens, and this
+        # endpoint does not always report those tokens back. At 100 the answer
+        # came back truncated to 'VES' with finish_reason "length" -- nowhere
+        # near the budget by the numbers reported. Budget for thinking AND
+        # answering, or measure a truncation rather than a model.
         out = gw2.complete("Reply with exactly: VESPER online.",
                            task_id="L-007b", profile_id="remote-flash-api",
-                           options={"n_predict": 100, "temperature": 0.0})
+                           options={"n_predict": 2000, "temperature": 0.0})
         c.check("with a provable cap the API answers",
                 "vesper online" in out["result"]["text"].strip().lower(),
                 repr(out["result"]["text"])[:80])
@@ -519,6 +539,98 @@ def l007_remote_api(tmp: Path) -> None:
                   f.read_text(encoding="utf-8", errors="ignore")]
         c.check("the API key is in no file the remote run wrote",
                 not leaked, str(leaked))
+        c.finish()
+    except AllProvidersExhausted as e:
+        # A free tier's rate limit is a fact about the ACCOUNT, not the code.
+        # Recording it as PASS would be the vacuity defect this runner exists
+        # to avoid; recording it as FAIL sends the next session hunting a bug
+        # that is not there. The gateway's own behaviour here -- classify
+        # TRANSIENT, retry, checkpoint -- is exactly right and is asserted by
+        # L-004 without needing a live quota.
+        if "429" in str(e):
+            c.not_run("upstream returned HTTP 429: the free tier's rate limit, "
+                      "reached by this session's own probing. The gateway "
+                      "classified it TRANSIENT, retried, then checkpointed. "
+                      "Re-run when the quota window resets.")
+            return
+        c.finish(error=traceback.format_exc(limit=6))
+    except Exception:
+        c.finish(error=traceback.format_exc(limit=6))
+
+
+# ===========================================================================
+# L-008 — SR-005: the API is gone, and the local model answers, loudly
+# ===========================================================================
+def l008_offline_backup(tmp: Path, ident) -> None:
+    c = Case("L-008", "API unreachable => local backup answers, degradation reported")
+    try:
+        bus, clock, store = _bus(tmp, "l8")
+        # The standard tier is what the work needs; the draft tier is what this
+        # machine can run offline. Fixtures, not measurements -- the point
+        # under test is the degradation path, and `source` says so.
+        profiles = [
+            MeasuredProfile("remote-standard", "standard", "remote", 60.0,
+                            60.0, measured=True, source="fixture: not a measurement"),
+            MeasuredProfile("local-draft", "draft", "accelerated", 82.0, 142.0,
+                            measured=True, source="fixture: not a measurement"),
+        ]
+        cost = CostPolicy(bus, clock)
+        cost.register_credential("remote-offline", "free")
+        cost.register_credential("local", "free")
+        gw = ModelGateway(bus, cost, sleep=lambda s: None)
+        # THE OFFLINE CASE, not a mocked one: a real adapter pointed at a port
+        # with nothing behind it. ICMP is blocked on this network, so this is
+        # what "no API" actually looks like from inside a call.
+        dead_ident = EndpointIdentity(base_url="http://127.0.0.1:1",
+                                      build_info=None, model_path=None,
+                                      n_ctx=None, model="unreachable")
+        gw.register(build_provider("remote-offline", "remote-standard",
+                                   "http://127.0.0.1:1", identity=dead_ident))
+        gw.register(build_provider("local", "local-draft", BASE_URL,
+                                   identity=ident))
+        svc = CompletionService(bus, Router(bus, profiles), gw)
+
+        # Default: the work QUEUES. A local draft model is present and would
+        # answer; being offline is not authority to answer differently.
+        queued = False
+        try:
+            svc.complete("Reply with exactly: VESPER online.",
+                         difficulty="moderate", task_id="L-008a",
+                         options={"n_predict": 120, "temperature": 0.0,
+                                  "enable_thinking": False})
+        except CompletionUnavailable:
+            queued = True
+        c.check("offline, the task QUEUES rather than quietly downgrading",
+                queued)
+
+        # Asked for: the local model really answers, and the loss is reported.
+        out = svc.complete("Reply with exactly: VESPER online.",
+                           difficulty="moderate", task_id="L-008b",
+                           allow_degraded=True,
+                           options={"n_predict": 200, "temperature": 0.0,
+                                    "enable_thinking": False})
+        c.check("the local backup produced a real answer",
+                "vesper online" in out["result"]["text"].strip().lower(),
+                repr(out["result"]["text"])[:80])
+        c.check("it is attributable to the build that produced it",
+                bool(out["result"]["endpoint"]["build_info"]),
+                str(out["result"]["endpoint"]))
+        c.check("the answer records the tier it fell FROM",
+                out["degraded_from"] == "remote-standard",
+                str(out["degraded_from"]))
+        deg = [r.body["payload"] for r in store.read("log")
+               if r.kind == "completion.degraded"]
+        c.check("RB-022: the degradation is reported, never silent",
+                len(deg) == 1, str(len(deg)))
+        c.check("the report names required and granted tiers",
+                deg and deg[0]["required_tier"] == "standard"
+                and deg[0]["granted_tier"] == "draft",
+                str(deg[0]) if deg else "")
+        # And the reason the remote was unusable is on the record, classified.
+        att = [a for a in gw.history if a.provider_id == "remote-offline"]
+        c.check("the API's failure classified rather than vanishing",
+                any(a.classification == "connection_error" for a in att),
+                str([a.classification for a in att]))
         c.finish()
     except Exception:
         c.finish(error=traceback.format_exc(limit=6))
@@ -559,6 +671,7 @@ def main() -> int:
         l003_exhaustion_not_escalation(tmp, ident)
         l004_classification(tmp, ident)
         l006_credential_containment(tmp, ident)
+        l008_offline_backup(tmp, ident)
         if REMOTE_KEY:
             l007_remote_api(tmp)
         else:
@@ -575,8 +688,11 @@ def main() -> int:
                   "and model to start a second endpoint")
 
     passed = sum(1 for r in RESULTS if r["passed"])
+    skipped = [r["id"] for r in RESULTS if r.get("not_run")]
     print()
     print(f"  cases {passed}/{len(RESULTS)} passed")
+    if skipped:
+        print(f"  NOT RUN: {', '.join(skipped)} -- the gate is not green")
     ok = passed == len(RESULTS)
     print(f"  LIVE PROVIDER GATE: {'PASS' if ok else 'FAIL'}   ({time.time()-t0:.1f}s)")
     return 0 if ok else 1

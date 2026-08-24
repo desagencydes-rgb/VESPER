@@ -52,6 +52,7 @@ THREE THINGS ARE DELIBERATE HERE.
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -230,6 +231,28 @@ def identify(base_url: str, *, timeout: float = 10.0,
     )
 
 
+_VERSIONED = re.compile(r"^(v\d+(alpha|beta)?\d*|openai)$", re.I)
+
+
+def _chat_suffix(base_url: str) -> str:
+    """Where chat/completions lives, decided from the url rather than assumed.
+
+    A local runner exposes it at `/v1/chat/completions` from the root. A remote
+    OpenAI-compatible base already carries its own version segment, so
+    appending `/v1` again doubles it.
+
+    THIS FILE GOT IT WRONG WHILE WARNING ABOUT IT. The first version tested
+    `endswith("/v1")`, which is false for `.../v1beta/openai`, and every remote
+    call went to `.../v1beta/openai/v1/chat/completions`. It WORKED -- that
+    vendor tolerates the doubled segment -- so nothing failed and the defect
+    surfaced only because a 429 printed the full url into an error message. A
+    bug that the server forgives is one that waits for a server that does not.
+    """
+    tail = base_url.rstrip("/").rsplit("/", 1)[-1]
+    return ("/chat/completions" if _VERSIONED.match(tail)
+            else "/v1/chat/completions")
+
+
 def _call_raw(ident: EndpointIdentity, prompt: str, options: dict,
               timeout: float, headers: dict | None = None) -> dict:
     """The raw continuation endpoint. Used for MEASUREMENT.
@@ -301,12 +324,7 @@ def _call_chat(ident: EndpointIdentity, prompt: str, options: dict,
         # Required by every OpenAI-compatible remote; harmless to a local
         # runner, which serves one model and ignores the field.
         payload["model"] = ident.model
-    # A local runner exposes /v1/chat/completions at the root; a remote base
-    # url already ends in its own version segment. Doubling /v1 is the
-    # commonest way this integration fails, so it is decided from the url the
-    # caller gave rather than assumed.
-    suffix = ("/chat/completions" if ident.base_url.rstrip("/").endswith("/v1")
-              else "/v1/chat/completions")
+    suffix = _chat_suffix(ident.base_url)
     d = _post_json(ident.base_url + suffix, payload, timeout, headers)
     choices = d.get("choices") or [{}]
     msg = choices[0].get("message") or {}
@@ -314,7 +332,7 @@ def _call_chat(ident: EndpointIdentity, prompt: str, options: dict,
     text = msg.get("content") or ""
     reasoning = msg.get("reasoning_content")
     finish = choices[0].get("finish_reason")
-    if not text.strip() and not (reasoning or "").strip() and finish == "stop":
+    if not text.strip() and not (reasoning or "").strip():
         # A NULL ANSWER THAT LOOKS LIKE A SUCCESSFUL ONE. Measured against a
         # real remote on 2026-08-24: HTTP 200, a well-formed body,
         # finish_reason "stop", and no content at all -- intermittently, on a
@@ -332,6 +350,17 @@ def _call_chat(ident: EndpointIdentity, prompt: str, options: dict,
         # honest reading -- the model did not answer, and "did not answer" is
         # a failed attempt -- and it puts the event in `gateway.attempt`
         # history where a rate can be seen, instead of nowhere.
+        #
+        # WIDENED THE SAME DAY IT WAS WRITTEN. This first tested
+        # `finish_reason == "stop"` only, on the reasoning that a `length`
+        # finish is self-explaining. It is not: measured on the remote,
+        # `finish_reason: "length"` arrives with completion_tokens 0, empty
+        # content and no reasoning, at max_tokens 100 -- nowhere near the
+        # budget. A reasoning model counts its thinking against that budget
+        # and the OpenAI-compatible layer does not always report it, so
+        # "length" can mean "spent it all before saying anything". Empty is
+        # empty whatever the label says, and the label is carried in the
+        # message rather than trusted as an explanation.
         raise EndpointError(
             "endpoint returned HTTP 200 with no content and no reasoning "
             f"(finish_reason={finish!r}, completion_tokens="

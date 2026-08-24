@@ -43,6 +43,8 @@ from core.cost import (CostPolicy, CostPolicyViolation,  # noqa: E402
                        CredentialRefused)
 from core.gateway import (AllProvidersExhausted, ModelGateway,  # noqa: E402
                           NoProviderForProfile, Provider)
+from core.completion import (CompletionService,  # noqa: E402
+                             CompletionUnavailable)
 from core.enrollment import EnrollmentRegistry  # noqa: E402
 from core.router import (MeasuredProfile, NoRouteAvailable,  # noqa: E402
                          Router)
@@ -546,6 +548,75 @@ def a022_routing(tmp: Path) -> None:
                 "treated as checked",
                 any("UNBOUND" in f for f in d_unbound.factors),
                 str(d_unbound.factors))
+
+        # ---------------------------------------------------------------
+        # SR-005: THE LOCAL MODEL IS A BACKUP, AND FALLING TO IT IS A LOSS.
+        #
+        # SR-003's API switching is PROVIDER-level and lives in the gateway:
+        # two keys serving one tier are interchangeable, so swapping them costs
+        # nothing and reports nothing. SR-005 is TIER-level and is not a swap.
+        # A remote flash model and a local 1.7B are not interchangeable, and
+        # substituting one for the other changes what the answer is worth.
+        # RB-022 requires that to be REPORTED; doing it inside the gateway
+        # under one profile id would make it silent.
+        prof2 = [
+            MeasuredProfile("remote-standard", "standard", "remote", 60.0,
+                            60.0, measured=True, source="fixture"),
+            MeasuredProfile("local-draft", "draft", "accelerated", 82.0,
+                            142.0, measured=True, source="fixture"),
+        ]
+        r2 = Router(sup.bus, prof2)
+        cost5 = CostPolicy(sup.bus, sup.clock)
+        cost5.register_credential("local", "free")
+        gw5 = ModelGateway(sup.bus, cost5, sleep=lambda s: None)
+        # Only the LOCAL tier has a provider. The remote tier is what the
+        # difficulty requires and it has nothing behind it -- the offline case.
+        gw5.register(Provider("local", "local-draft",
+                              lambda p, o: {"text": "from the local backup"}))
+        svc = CompletionService(sup.bus, r2, gw5)
+
+        # DEFAULT IS FAIL-CLOSED. `moderate` needs the standard tier; the draft
+        # tier is present and would answer. It must NOT be used unasked.
+        queued = False
+        try:
+            svc.complete("q", difficulty="moderate", task_id="deg1")
+        except CompletionUnavailable:
+            queued = True
+        c.check("an unavailable capability QUEUES rather than being answered "
+                "by a weaker one", queued)
+        c.check("the exhausted profile is named in telemetry",
+                any(e["payload"]["profile_id"] == "remote-standard"
+                    for e in _events(sup, "completion.profile_exhausted")))
+
+        # ASKED FOR: it degrades, and it says so.
+        out5 = svc.complete("q", difficulty="moderate", task_id="deg2",
+                            allow_degraded=True)
+        c.check("when degradation is asked for, the backup answers",
+                out5["result"]["text"] == "from the local backup",
+                str(out5["result"]))
+        c.check("the answer records that it came from a weaker tier",
+                out5["degraded_from"] == "remote-standard",
+                str(out5["degraded_from"]))
+        deg5 = _events(sup, "completion.degraded")
+        c.check("RB-022: the degradation is REPORTED, never silent",
+                len(deg5) == 1, str(len(deg5)))
+        c.check("the report names what was required AND what was given",
+                deg5 and deg5[0]["payload"]["required_tier"] == "standard"
+                and deg5[0]["payload"]["granted_tier"] == "draft",
+                str(deg5[0]["payload"]) if deg5 else "")
+
+        # And it does not spin: a profile already exhausted is excluded, so a
+        # fabric with nothing behind ANY tier terminates rather than looping.
+        gw6 = ModelGateway(sup.bus, cost5, sleep=lambda s: None)
+        svc6 = CompletionService(sup.bus, Router(sup.bus, prof2), gw6)
+        gave_up = False
+        try:
+            svc6.complete("q", difficulty="moderate", task_id="deg3",
+                          allow_degraded=True)
+        except CompletionUnavailable:
+            gave_up = True
+        c.check("with nothing behind any tier it terminates, it does not spin",
+                gave_up)
         sup.stop()
         c.finish()
     except Exception:
