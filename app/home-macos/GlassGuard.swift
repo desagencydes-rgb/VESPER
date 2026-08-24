@@ -338,6 +338,70 @@ enum GlassGuard {
         return (painted, total, total > 0 ? alphaSum / Double(total) : 0)
     }
 
+    /// Mean luminance, its variance, and how much of `rect` is brighter than a
+    /// stated reference.
+    ///
+    /// WHY THIS EXISTS AND `coverage` WAS NOT ENOUGH. `coverage` counts painted
+    /// alpha, and it answered the face question exactly twice before going
+    /// blind: on the island, whose panel is opaque, and again the moment a
+    /// glass plate went behind the home's face. Both times it returned 100% at
+    /// alpha 1.000 -- a true statement about the window and no statement at all
+    /// about the face. A face drawn on an opaque backing is a LUMINANCE
+    /// difference, not an alpha one.
+    ///
+    /// Variance is reported alongside because it separates the two things a
+    /// bright rect can be: a flat fill has near-zero variance, and a blurred
+    /// photograph does not. That is how "is this really glass" gets an answer
+    /// out of our own window instead of a screen recording.
+    static func luma(_ img: CGImage, viewSize: CGSize, rect: CGRect,
+                     brighterThan ref: Double = -1)
+        -> (mean: Double, variance: Double, brighter: Int, total: Int) {
+        let w = img.width, h = img.height
+        guard w > 0, h > 0 else { return (0, 0, 0, 0) }
+        let n = w * h * 4
+        let data = UnsafeMutablePointer<UInt8>.allocate(capacity: n)
+        defer { data.deallocate() }
+        data.initialize(repeating: 0, count: n)
+        guard let ctx = CGContext(data: data, width: w, height: h, bitsPerComponent: 8,
+                                  bytesPerRow: w * 4,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                                            | CGBitmapInfo.byteOrder32Big.rawValue)
+        else { return (0, 0, 0, 0) }
+        ctx.clear(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.draw(img, in: CGRect(x: 0, y: 0, width: w, height: h))
+
+        let sx = Double(w) / Double(viewSize.width)
+        let sy = Double(h) / Double(viewSize.height)
+        let topY = viewSize.height - (rect.origin.y + rect.height)
+        let x0 = max(0, Int(Double(rect.origin.x) * sx))
+        let x1 = min(w, Int(Double(rect.origin.x + rect.width) * sx))
+        let y0 = max(0, Int(Double(topY) * sy))
+        let y1 = min(h, Int(Double(topY + rect.height) * sy))
+        var sum = 0.0, sumSq = 0.0, count = 0, brighter = 0
+        var y = y0
+        while y < y1 {
+            var x = x0
+            while x < x1 {
+                let o = (y * w + x) * 4
+                let a = Double(data[o + 3]) / 255
+                // Un-premultiply so a translucent bright pixel is not counted
+                // as a dim one.
+                let r = a > 0 ? Double(data[o]) / 255 / a : 0
+                let g = a > 0 ? Double(data[o + 1]) / 255 / a : 0
+                let b = a > 0 ? Double(data[o + 2]) / 255 / a : 0
+                let l = (0.2126 * r + 0.7152 * g + 0.0722 * b) * a
+                sum += l; sumSq += l * l; count += 1
+                if ref >= 0 && l > ref { brighter += 1 }
+                x += 1
+            }
+            y += 1
+        }
+        guard count > 0 else { return (0, 0, 0, 0) }
+        let mean = sum / Double(count)
+        return (mean, max(0, sumSq / Double(count) - mean * mean), brighter, count)
+    }
+
     private static func sample(_ win: NSWindow, _ side: CGFloat) -> Px? {
         guard let img = windowImage(win) else { return nil }
         let w = img.width, h = img.height

@@ -125,6 +125,67 @@ enum Ambience {
                        blue:    CGFloat(v & 255) / 255, alpha: 1)
     }
 
+    // MARK: - Reading the backdrop
+
+    /// Mean luminance and variance of the desktop picture, inside one region of
+    /// the SCREEN, sampled from the image file.
+    ///
+    /// DESIGN-FOUNDATION §3 step 1 says to sample the backdrop before choosing
+    /// anything that sits on it. For a webview that means reading pixels behind
+    /// the glass, which on macOS means a screen recording and a TCC grant. It
+    /// does not mean that here: VESPER SET this wallpaper, so the backdrop is a
+    /// file we already own the path to. No permission, no capture, and the
+    /// answer is exact rather than sampled off a composite.
+    ///
+    /// The aspect-fill crop has to be reproduced or the samples come from the
+    /// wrong part of the picture. `apply` sets `scaleProportionallyUpOrDown`
+    /// with clipping, which is fill-and-centre-crop, and 13% of a 16:9 source is
+    /// thrown away on this display -- so a region taken at image coordinates
+    /// would be reading a part of the picture the owner cannot see.
+    static func backdropStats(url: URL, region: CGRect, screen: NSScreen)
+        -> (mean: Double, variance: Double)? {
+        guard let img = NSImage(contentsOf: url)?
+                .cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let iw = CGFloat(img.width), ih = CGFloat(img.height)
+        let sw = screen.frame.width, sh = screen.frame.height
+        guard iw > 0, ih > 0, sw > 0, sh > 0 else { return nil }
+
+        // Draw the picture into a small buffer the size of the REGION, with the
+        // same fill-and-centre-crop the window server used. Sampling a scaled
+        // draw rather than indexing the original is what keeps the crop honest.
+        let w = 64, h = 64
+        let n = w * h * 4
+        let data = UnsafeMutablePointer<UInt8>.allocate(capacity: n)
+        defer { data.deallocate() }
+        data.initialize(repeating: 0, count: n)
+        guard let ctx = CGContext(data: data, width: w, height: h, bitsPerComponent: 8,
+                                  bytesPerRow: w * 4,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                                            | CGBitmapInfo.byteOrder32Big.rawValue)
+        else { return nil }
+        let scale = max(sw / iw, sh / ih)
+        let dw = iw * scale, dh = ih * scale
+        // Where the whole picture lands in screen coordinates...
+        let ox = (sw - dw) / 2, oy = (sh - dh) / 2
+        // ...then move that so the requested region fills the buffer.
+        let k = CGFloat(w) / region.width
+        ctx.scaleBy(x: k, y: CGFloat(h) / region.height)
+        ctx.translateBy(x: -region.origin.x, y: -region.origin.y)
+        ctx.draw(img, in: CGRect(x: ox, y: oy, width: dw, height: dh))
+
+        var sum = 0.0, sumSq = 0.0
+        for i in 0..<(w * h) {
+            let o = i * 4
+            let l = 0.2126 * Double(data[o]) / 255
+                  + 0.7152 * Double(data[o + 1]) / 255
+                  + 0.0722 * Double(data[o + 2]) / 255
+            sum += l; sumSq += l * l
+        }
+        let mean = sum / Double(w * h)
+        return (mean, max(0, sumSq / Double(w * h) - mean * mean))
+    }
+
     // MARK: - The desktop picture
 
     /// Where the owner's own picture is recorded before VESPER first replaces

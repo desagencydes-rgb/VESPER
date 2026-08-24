@@ -1161,17 +1161,49 @@ if args.contains("--home") {
             // something other than our window and the face figure means nothing.
             let outside = GlassGuard.coverage(img, viewSize: size,
                                               rect: CGRect(x: 0, y: 0, width: 80, height: 80))
-            let pct = face.total > 0 ? Double(face.painted) / Double(face.total) * 100 : 0
-            print(String(format: "  face rect        %.0fx%.0f at (%.0f, %.0f)",
-                         h.faceRect.width, h.faceRect.height,
-                         h.faceRect.origin.x, h.faceRect.origin.y))
-            print(String(format: "  painted in it    %d / %d px  (%.2f%%)  mean α %.3f",
-                         face.painted, face.total, pct, face.meanAlpha))
-            print(String(format: "  control, corner  %d / %d px  (must be ~0)",
-                         outside.painted, outside.total))
-            print(face.painted == 0
-                  ? "  VERDICT: the face is drawing NOTHING. The owner sees an empty ground."
-                  : "  VERDICT: the face is painting.")
+            // THE PLATE AND THE FACE, read by LUMINANCE. Alpha stopped
+            // discriminating the moment a backing went behind the face -- the
+            // face rect returned 100% at alpha 1.000, which is true of the
+            // window and says nothing about the face.
+            let pr = h.plateRect
+            // A corner of the plate the face never reaches: this is the plate
+            // ALONE, and it is the reference every face number is read against.
+            let corner = CGRect(x: pr.minX + 20, y: pr.maxY - 90, width: 70, height: 70)
+            let plateOnly = GlassGuard.luma(img, viewSize: size, rect: corner)
+            // Outside the plate entirely: our window paints nothing there.
+            let off = GlassGuard.luma(img, viewSize: size,
+                                      rect: CGRect(x: 0, y: 0, width: 80, height: 80))
+            print(String(format: "  plate %.0fx%.0f     luma %.3f  variance %.5f",
+                         pr.width, pr.height, plateOnly.mean, plateOnly.variance))
+            print(String(format: "  off-plate control  luma %.3f  (our window paints nothing there)",
+                         off.mean))
+            // WHAT THIS READING CANNOT TELL YOU, said here rather than implied.
+            // The blur is an NSVisualEffectView with `.behindWindow`, and the
+            // window server does that compositing against the desktop at screen
+            // time -- our own window's buffer holds a flat stand-in for it. So a
+            // variance of zero here is a fact about where the blur happens and
+            // NOT evidence the glass is missing. What our buffer does hold, and
+            // what this number is therefore good for, is the SCRIM: the solved
+            // fill, which is the half that decides whether the face has a
+            // ground to be seen against.
+            print(String(format: "  scrim in our buffer  %.3f   predicted on screen  %.3f",
+                         plateOnly.mean, h.plateBackdropLuma * (1 - h.plateFill)))
+            print("  (the blur itself is composited by the window server and is not in")
+            print("   this buffer — only the owner's eyes settle that half)")
+
+            // The face, against the plate it sits on. A margin rather than any
+            // brightness: the plate is bright, and counting pixels brighter
+            // than zero would count the plate.
+            let margin = plateOnly.mean + 0.06
+            let faceL = GlassGuard.luma(img, viewSize: size, rect: h.faceRect,
+                                        brighterThan: margin)
+            let fpct = faceL.total > 0
+                ? Double(faceL.brighter) / Double(faceL.total) * 100 : 0
+            print(String(format: "  face over plate    %.2f%% of its rect is >%.3f luma  (plate is %.3f)",
+                         fpct, margin, plateOnly.mean))
+            print(fpct < 0.5
+                  ? "  VERDICT: the face is not reading against its own plate."
+                  : "  VERDICT: the face reads over the plate.")
 
             // THE DENSITY BENCH. Same window, same reader, same run: render the
             // cloud at the width the point size was tuned at, and at the home's
@@ -1184,16 +1216,17 @@ if args.contains("--home") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
                 defer { h.setFaceWidth(min(screen.frame.width, screen.frame.height) * 0.62) }
                 guard let img2 = GlassGuard.windowImage(h.groundWindow) else { return }
-                let small = GlassGuard.coverage(img2, viewSize: size, rect: h.faceRect)
+                let small = GlassGuard.luma(img2, viewSize: size, rect: h.faceRect,
+                                            brighterThan: margin)
                 let spct = small.total > 0
-                    ? Double(small.painted) / Double(small.total) * 100 : 0
+                    ? Double(small.brighter) / Double(small.total) * 100 : 0
                 print("")
                 print("  density bench — the same cloud at two widths, one reader")
-                print(String(format: "  at %.0f pt (tuned)  %.2f%%  mean α %.3f",
-                             tuned, spct, small.meanAlpha))
-                print(String(format: "  at %.0f pt (home)   %.2f%%  mean α %.3f",
-                             homeWidth, pct, face.meanAlpha))
-                let ratio = spct > 0 ? pct / spct : 0
+                print(String(format: "  at %.0f pt (tuned)  %.2f%% above plate  mean luma %.4f",
+                             tuned, spct, small.mean))
+                print(String(format: "  at %.0f pt (home)   %.2f%% above plate  mean luma %.4f",
+                             homeWidth, fpct, faceL.mean))
+                let ratio = spct > 0 ? fpct / spct : 0
                 print(String(format: "  home / tuned       %.2fx  (1.00 would be density preserved)",
                              ratio))
                 if ratio < 0.75 {

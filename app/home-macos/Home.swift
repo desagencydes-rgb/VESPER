@@ -39,6 +39,40 @@ final class HomeController: NSObject {
     let host: NSView
     let face: FaceRenderer
     let metal: CAMetalLayer
+    /// The plate the face sits on. Owner, 2026-08-24, looking at the face over
+    /// the `hall` wallpaper: "add a glass background behind the face... now
+    /// it's not well visible."
+    ///
+    /// NSVisualEffectView with `.behindWindow` is REAL glass and it is public
+    /// AppKit -- the window server blurs what is actually behind the window,
+    /// which here is the desktop picture itself. Worth saying plainly because
+    /// SPIKE-013 SS0 just established there is no public route to a transparent
+    /// WKWebView: the CARDS need the hatch, this plate does not.
+    let plate = NSVisualEffectView()
+    private let plateShadow = NSView()
+    /// The measured half of the glass. `NSVisualEffectView` supplies the blur;
+    /// this supplies the DARKNESS, and how dark is solved rather than styled.
+    /// A SIBLING ABOVE the effect view, not a sublayer inside it. Added to
+    /// `plate.layer` the scrim measured as having no effect at all: an
+    /// NSVisualEffectView composites its material over its own layer's
+    /// sublayers, so a black layer put inside it is painted over by the very
+    /// thing it was meant to darken. The reading that caught it was the plate
+    /// still measuring luma 0.512 after the fill was solved at 0.757.
+    private let scrim = NSView()
+
+    /// DESIGN-FOUNDATION §4, Dock tier. The floor, never the answer: §3 step 3
+    /// says solve until the contrast target is met, and a fill that cannot go
+    /// past its tier's nominal value cannot solve anything over a bright
+    /// photograph.
+    static let dockFill = 0.085
+    /// What the face needs behind it. The island's face reads because it sits
+    /// on a near-black panel; an ember wireframe over a sunlit limestone lobby
+    /// has almost no contrast at all, which is what the owner saw.
+    static let faceGroundTarget = 0.12
+
+    private(set) var plateAdapted = false
+    private(set) var plateBackdropLuma = 0.0
+    private(set) var plateFill = 0.0
     let motion = FaceDriver()
 
     /// §2.6, published for whoever owns the island. `true` means the owner is
@@ -116,7 +150,71 @@ final class HomeController: NSObject {
         // and the run reports 0.1% CPU for a renderer that never ran.
         metal.drawableSize = CGSize(width: side * screen.backingScaleFactor,
                                     height: side * screen.backingScaleFactor)
+        // THE PLATE GOES IN FIRST so the face draws over it. Two views rather
+        // than one because a corner radius needs `masksToBounds` and a cast
+        // shadow is clipped by it -- DESIGN-FOUNDATION SS4 asks for both on every
+        // glass tier, so the shadow lives on a container that does not clip.
+        let pw = side * 1.16, ph = side * 1.16
+        plateShadow.frame = CGRect(x: screen.frame.midX - pw / 2,
+                                   y: screen.frame.midY - ph / 2,
+                                   width: pw, height: ph)
+        plateShadow.wantsLayer = true
+        plateShadow.layer?.shadowColor = NSColor.black.cgColor
+        plateShadow.layer?.shadowOpacity = 0.28
+        plateShadow.layer?.shadowRadius = 34
+        plateShadow.layer?.shadowOffset = CGSize(width: 0, height: -8)
+
+        plate.frame = CGRect(origin: .zero, size: CGSize(width: pw, height: ph))
+        plate.autoresizingMask = [.width, .height]
+        // Dock tier: the heaviest glass in SS4, because this is the largest
+        // surface in the composition and the thing every other surface is
+        // arranged around (SS14.1). A Sheet-tier blur under a full-screen
+        // photograph leaves the photograph legible through it, which is the
+        // whole problem being fixed.
+        plate.material = .hudWindow
+        plate.blendingMode = .behindWindow
+        plate.state = .active
+        plate.appearance = NSAppearance(named: .darkAqua)
+        plate.wantsLayer = true
+        plate.layer?.cornerRadius = 34
+        plate.layer?.cornerCurve = .continuous
+        plate.layer?.masksToBounds = true
+        plate.layer?.borderWidth = 1
+        plate.layer?.borderColor = NSColor(white: 1, alpha: 0.16).cgColor
+        plateShadow.addSubview(plate)
+
+        // THE MEASURED HALF OF THE GLASS, and a SIBLING ABOVE the effect view
+        // rather than a sublayer inside it: NSVisualEffectView composites its
+        // material over its own layer's sublayers, so a scrim put inside is
+        // painted over by the very thing it exists to darken.
+        scrim.frame = CGRect(origin: .zero, size: CGSize(width: pw, height: ph))
+        scrim.autoresizingMask = [.width, .height]
+        scrim.wantsLayer = true
+        scrim.layer?.backgroundColor = NSColor.black.cgColor
+        scrim.layer?.cornerRadius = 34
+        scrim.layer?.cornerCurve = .continuous
+        scrim.layer?.masksToBounds = true
+        scrim.layer?.opacity = Float(Self.dockFill)
+        plateShadow.addSubview(scrim, positioned: .above, relativeTo: plate)
+
+        host.addSubview(plateShadow)
+
+        // The specular top edge SS4 asks for on every tier: one hairline of light
+        // along the top, which is what makes a panel read as a lit surface
+        // rather than as a hole cut in the wallpaper.
+        let specular = CALayer()
+        specular.frame = CGRect(x: 34, y: ph - 1, width: pw - 68, height: 1)
+        specular.backgroundColor = NSColor(white: 1, alpha: 0.30).cgColor
+        // On the scrim, which by now HAS a layer. Attached before
+        // `wantsLayer` was set, this call went to a nil layer and the hairline
+        // simply never existed -- silently, like the scrim itself did for three
+        // measurements.
+        scrim.layer?.addSublayer(specular)
+
         host.layer?.addSublayer(metal)
+        // Ordering across a subview's layer and a directly-added sublayer is not
+        // something to leave to insertion order.
+        metal.zPosition = 10
 
         face.uniforms.aspect = 1
         face.uniforms.alpha = 1
@@ -160,6 +258,7 @@ final class HomeController: NSObject {
                                     height: side * screen.backingScaleFactor)
         face.uniforms.pointSize = FaceUniforms.pointSize(forLayerWidth: side)
     }
+    var plateRect: CGRect { plateShadow.frame }
     var groundWindow: NSWindow { ground }
     var faceTint: (Float, Float, Float) {
         (face.uniforms.tintR, face.uniforms.tintG, face.uniforms.tintB)
@@ -258,6 +357,44 @@ final class HomeController: NSObject {
 
     // MARK: - Ambience
 
+    /// DESIGN-FOUNDATION §3, steps 1-3 and 5, on the plate behind the face.
+    ///
+    /// Step 1 samples the backdrop. The rule was written for a webview, where
+    /// sampling means reading the screen; here the backdrop is a file VESPER
+    /// set itself, so the sample is exact and needs no permission.
+    ///
+    /// Step 3 solves ONE degree of freedom -- how dark the plate is -- until
+    /// the face has a ground it can be seen against. Compositing black at
+    /// `a` over a backdrop of luminance `L` leaves `L * (1 - a)`, so the fill
+    /// that hits a target is `1 - target/L` and nothing about that is a taste
+    /// decision. A bright backdrop gets more scrim, a dark one gets less, and
+    /// on a wallpaper already darker than the target the tier's own .085 is
+    /// what remains.
+    ///
+    /// Step 5 fails closed: an unsampleable backdrop is UNKNOWN, and UNKNOWN
+    /// does not get treated as a good value. It takes the tier's nominal fill
+    /// and says it is unadapted, rather than guessing a number that would look
+    /// measured.
+    @discardableResult
+    func adaptPlate(toBackdrop url: URL?) -> Bool {
+        guard let url,
+              let st = Ambience.backdropStats(url: url, region: plateShadow.frame,
+                                              screen: screen) else {
+            scrim.layer?.opacity = Float(Self.dockFill)
+            plateAdapted = false
+            plateBackdropLuma = 0
+            plateFill = Self.dockFill
+            return false
+        }
+        let a = min(0.88, max(Self.dockFill,
+                              1 - Self.faceGroundTarget / max(st.mean, 0.001)))
+        scrim.layer?.opacity = Float(a)
+        plateAdapted = true
+        plateBackdropLuma = st.mean
+        plateFill = a
+        return true
+    }
+
     /// Set the mode. The picture is the Space's own desktop picture, so this
     /// changes whichever Desktop is active -- the caller owns residency.
     @discardableResult
@@ -273,6 +410,18 @@ final class HomeController: NSObject {
             face.uniforms.tintG = Float(c.greenComponent)
             face.uniforms.tintB = Float(c.blueComponent)
         }
-        return Ambience.apply(m, on: screen, quiet: quiet)
+        let ok = Ambience.apply(m, on: screen, quiet: quiet)
+        // The plate is adapted to the picture that is now behind it, not to the
+        // one that was there when the process started.
+        let url = Ambience.wallpaperDir().flatMap { m.wallpaper(in: $0) }
+        let adapted = adaptPlate(toBackdrop: url)
+        if !quiet {
+            print(adapted
+                  ? String(format: "  plate: backdrop luma %.3f → fill %.3f → face ground %.3f",
+                           plateBackdropLuma, plateFill,
+                           plateBackdropLuma * (1 - plateFill))
+                  : "  plate: backdrop UNSAMPLED — tier fill \(Self.dockFill), unadapted")
+        }
+        return ok
     }
 }
