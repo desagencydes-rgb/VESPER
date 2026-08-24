@@ -194,3 +194,19 @@ ISLAND_COLUMNS: tuple[str, ...] = (
     "authorize.pending",
     "scene.next_ambience",
 )
+
+# The home's metrics card, §14.2. FIVE keys, and today most of them have no
+# producer -- which is the point: `to_scene` omits an unavailable reading
+# rather than rendering a placeholder, so the card shows what is true and
+# leaves the rest blank. A plausible-looking figure here is the exact defect
+# `projection-unknown-is-absent` refuses.
+#
+# Keyed by what they MEAN rather than by the row label, because the same
+# reading feeds a voice endpoint that has no rows at all.
+HOME_METRIC_KEYS: tuple = (
+    "model.thinking",
+    "model.context_tokens",
+    "model.cache",
+    "model.tokens_per_sec",
+    "host.power_source",
+)

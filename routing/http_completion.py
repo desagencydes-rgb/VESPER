@@ -339,6 +339,7 @@ def _call_raw(ident: EndpointIdentity, prompt: str, options: dict,
         "text": d.get("content", ""),
         "tokens_predicted": d.get("tokens_predicted"),
         "tokens_evaluated": d.get("tokens_evaluated"),
+        "tokens_cached": d.get("tokens_cached"),
         "predicted_per_second": timings.get("predicted_per_second"),
         "stop_reason": d.get("stop_type") or d.get("stopped_reason"),
         "reasoning": None,
@@ -429,11 +430,23 @@ def _call_chat(ident: EndpointIdentity, prompt: str, options: dict,
             f"{usage.get('completion_tokens')}). The model did not answer; a "
             "null answer is not an answer.",
             "server_error")
+    # Cache evidence, where the endpoint reports it. A prompt served from
+    # cache costs a fraction of one that is not, so a rate quoted without
+    # saying which it was is two different numbers wearing one label.
+    cached = ((usage.get("prompt_tokens_details") or {}).get("cached_tokens"))
+    # `timings` is a llama.cpp extension, absent from the OpenAI schema and
+    # therefore absent from a remote that only implements the spec. Read it
+    # where it exists rather than timing the call from here: a rate measured on
+    # this side includes the network and the client, and would quietly become a
+    # different number the moment either changed.
+    timings = d.get("timings") or {}
+    rate = timings.get("predicted_per_second")
     return {
         "text": text,
         "tokens_predicted": usage.get("completion_tokens"),
         "tokens_evaluated": usage.get("prompt_tokens"),
-        "predicted_per_second": None,   # this endpoint does not report timings
+        "tokens_cached": cached,
+        "predicted_per_second": rate,   # None where the endpoint reports none
         "stop_reason": finish,
         "reasoning": reasoning,
     }
