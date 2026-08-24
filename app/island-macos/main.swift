@@ -1226,6 +1226,25 @@ if args.contains("--home") {
                                height: fr.height / 1.41421356)
             let faceL = GlassGuard.luma(img, viewSize: size, rect: inner,
                                         brighterThan: margin)
+            // THE CARD, if one is mounted. It sits in the left cluster, clear
+            // of the plate, over a region where the ground paints NOTHING -- so
+            // any paint there came from the chrome and from nowhere else. The
+            // off-plate control reads 0.000 in the same buffer, which is what
+            // makes this comparison worth anything.
+            if h.chrome.mounted, h.chrome.cardRect != .zero {
+                let cr = h.chrome.cardRect.insetBy(dx: 24, dy: 24)
+                let card = GlassGuard.luma(img, viewSize: size, rect: cr)
+                let cardA = GlassGuard.coverage(img, viewSize: size, rect: cr)
+                print(String(format: "  card %.0fx%.0f      luma %.3f  %.1f%% painted",
+                             h.chrome.cardRect.width, h.chrome.cardRect.height,
+                             card.mean,
+                             cardA.total > 0
+                                ? Double(cardA.painted) / Double(cardA.total) * 100 : 0))
+                print(cardA.painted == 0
+                      ? "  the card is NOT painting — mounted is not the same as visible"
+                      : "  the card paints where the ground paints nothing")
+            }
+
             let fpct = faceL.total > 0
                 ? Double(faceL.brighter) / Double(faceL.total) * 100 : 0
             print(String(format: "  face over plate    %.2f%% of its rect is >%.3f luma  (plate is %.3f)",
@@ -1268,6 +1287,22 @@ if args.contains("--home") {
                     print("  chosen at. Scaling point size with the layer does not fully")
                     print("  recover density, and the shortfall is stated rather than rounded.")
                 }
+            }
+        }
+    }
+
+    // FIRST LIGHT. The chrome mounts over the field, and only if GlassGuard
+    // says the glass is actually clear -- SPIKE-013 SS0 is why that is a
+    // question at all, and UNREADABLE is not a pass.
+    if args.contains("--chrome") {
+        h.chrome.mount(over: h.hostView, faceRect: h.faceRect) { v in
+            print("  \(v.line)")
+            if !v.mayMountChrome {
+                let m = "home: chrome REFUSED — \(v.line). The field is up and bare "
+                      + "rather than under a white rectangle.\n"
+                FileHandle.standardError.write(m.data(using: .utf8)!)
+            } else {
+                print("  chrome: mounted over the field")
             }
         }
     }

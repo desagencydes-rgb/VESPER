@@ -30,6 +30,7 @@ swiftc -O -swift-version 5 -target arm64-apple-macosx13.0 \
   main.swift FaceRenderer.swift Behaviour.swift \
   "$HOME_SRC/Home.swift" "$HOME_SRC/HomeAmbience.swift" "$HOME_SRC/SpaceWatch.swift" \
   "$HOME_SRC/HomeVerify.swift" "$HOME_SRC/GlassGuard.swift" \
+  "$HOME_SRC/HomeChrome.swift" \
   -o island
 
 rm -rf "$APP"
@@ -139,6 +140,7 @@ echo "the home (one process, same bundle, same identity):"
 echo "  ./app/island-macos/island --home --mode Rest --seconds 30"
 echo "  --home        ground at normal-1 on the ACTIVE Desktop, face on it"
 echo "  --after N     wait N s first, so you can switch to VESPER's Desktop"
+echo "  --chrome      mount the card layer over the field (first light)"
 echo "  --on-empty-desktop  wait for a Desktop with none of your windows on it,"
 echo "                and refuse to start rather than take one that has"
 echo "  --mode NAME   sets the DESKTOP PICTURE of the active Space to that mode"

@@ -298,6 +298,8 @@ final class HomeController: NSObject {
         face.uniforms.pointSize = FaceUniforms.pointSize(forLayerWidth: side)
     }
     var plateRect: CGRect { plateShadow.frame }
+    var hostView: NSView { host }
+    let chrome = HomeChrome()
     var groundWindow: NSWindow { ground }
     var faceTint: (Float, Float, Float) {
         (face.uniforms.tintR, face.uniforms.tintG, face.uniforms.tintB)
