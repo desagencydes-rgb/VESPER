@@ -43,6 +43,18 @@ class AllProvidersExhausted(Exception):
     """Every permitted provider failed or was refused. Task checkpoints."""
 
 
+class NoProviderForProfile(Exception):
+    """No registered provider serves the routed profile. Fail-closed.
+
+    Deliberately NOT a fallback to the other providers. Falling through to
+    whatever else is registered is the same shape as paid escalation: the
+    caller asked for a capability, that capability is unavailable, and quietly
+    substituting a different one returns an answer to a question nobody asked.
+    A-022 exists to decide WHICH model answers; honouring the decision only
+    when it happens to be satisfiable would make it advisory.
+    """
+
+
 @dataclass(slots=True)
 class Provider:
     provider_id: str
@@ -99,16 +111,70 @@ class ModelGateway:
 
     def complete(self, prompt: str, *, task_id: str | None = None,
                  options: dict | None = None,
-                 max_attempts_per_provider: int = 2) -> dict:
+                 max_attempts_per_provider: int = 2,
+                 profile_id: str | None = None) -> dict:
         """Call the first permitted, available provider that succeeds.
 
         Every provider passes the cost check IMMEDIATELY BEFORE invocation, not
         once at entry. A period can change mid-call chain, and a check done at
         entry would authorise a request made after the rule changed.
+
+        `profile_id` IS THE SEAM TO THE ROUTER, AND IT DID NOT EXIST UNTIL
+        2026-08-24. `Provider` has carried a `profile_id` field since F1, and
+        this method never read it -- it was echoed into the result dict and
+        nowhere else. So `Router.select` produced a decision, and the gateway
+        then called providers in REGISTRATION ORDER. Registration order was the
+        real routing rule, and A-022 could not see it: the router is asserted
+        against `RouteDecision`, the gateway against `attempts_by_class`, and
+        no test held the two ends of the same call.
+
+        That is what made "wire a real provider" dangerous rather than merely
+        premature. The danger was never that the router had nothing to offer --
+        it loads six measured profiles. It was that the decision had no way to
+        reach the call, so the first provider registered would have served
+        every request and looked correct while doing it.
+
+        Passing `profile_id` restricts the attempt set to providers serving
+        that profile, and refuses rather than substituting when none does.
+        Omitting it keeps the pre-existing behaviour and EMITS `gateway.unrouted`
+        -- a call that bypassed routing is a fact about the system, and the
+        F1 fallback chain (three providers at three different profiles) is a
+        legitimate caller of the unrouted form. Recording it is what makes the
+        eventual move to mandatory routing a measurement rather than a guess.
         """
         options = options or {}
         with self._lock:
             providers = list(self._providers)
+        if profile_id is None:
+            self._bus.publish(
+                "gateway.unrouted", subject=task_id or "unassigned",
+                payload={"task_id": task_id,
+                         "registered_providers": [p.provider_id for p in providers],
+                         "note": ("no routed profile supplied: provider order "
+                                  "decides, not A-022. Recorded rather than "
+                                  "assumed benign.")},
+                component="gateway")
+        else:
+            matching = [p for p in providers if p.profile_id == profile_id]
+            if not matching:
+                self._bus.publish(
+                    "gateway.no_provider_for_profile",
+                    subject=task_id or "unassigned",
+                    payload={"task_id": task_id, "profile_id": profile_id,
+                             "registered_profiles": sorted(
+                                 {p.profile_id for p in providers}),
+                             "note": ("fail-closed: the routed capability has "
+                                      "no provider. Substituting another "
+                                      "profile would answer a different "
+                                      "question.")},
+                    component="gateway")
+                raise NoProviderForProfile(
+                    f"no registered provider serves profile {profile_id!r}. "
+                    f"Registered profiles: "
+                    f"{sorted({p.profile_id for p in providers})}. The task "
+                    "defers rather than being answered by a capability it did "
+                    "not ask for.")
+            providers = matching
         last_error: Exception | None = None
 
         for p in providers:

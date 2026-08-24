@@ -41,7 +41,8 @@ from core.bus import EventBus  # noqa: E402
 from core.config import RuntimeConfig  # noqa: E402
 from core.cost import (CostPolicy, CostPolicyViolation,  # noqa: E402
                        CredentialRefused)
-from core.gateway import AllProvidersExhausted, ModelGateway, Provider  # noqa: E402
+from core.gateway import (AllProvidersExhausted, ModelGateway,  # noqa: E402
+                          NoProviderForProfile, Provider)
 from core.router import (MeasuredProfile, NoRouteAvailable,  # noqa: E402
                          Router)
 from core.supervisor import Supervisor  # noqa: E402
@@ -393,6 +394,54 @@ def a022_routing(tmp: Path) -> None:
             failed_closed = True
         c.check("fail-closed: no silent downgrade when nothing is measured",
                 failed_closed)
+
+        # ---------------------------------------------------------------
+        # SR-009's OTHER HALF: the decision has to reach the call.
+        #
+        # Until 2026-08-24 A-022 asserted `RouteDecision` and A-004 asserted
+        # `attempts_by_class`, and NO test held both ends of one call. It could
+        # not: `complete()` had no parameter for a profile, so `Provider`'s
+        # `profile_id` -- carried since F1 -- was echoed into the result dict
+        # and never read. Providers were tried in REGISTRATION ORDER. A router
+        # that picks perfectly and a gateway that ignores it is a router that
+        # does nothing, and both halves were green throughout.
+        #
+        # The wrong provider is registered FIRST on purpose. Under the old
+        # behaviour it answers, and it answers for every difficulty.
+        cost22 = CostPolicy(sup.bus, sup.clock)
+        gw22 = ModelGateway(sup.bus, cost22, sleep=lambda s: None)
+        cost22.register_credential("wrong-tier", "free")
+        cost22.register_credential("routed", "free")
+        gw22.register(Provider("wrong-tier", "strong-accelerated",
+                               lambda p, o: {"text": "WRONG TIER"}))
+        gw22.register(Provider("routed", "draft-accelerated",
+                               lambda p, o: {"text": "routed"}))
+        d_triv = r.select("trivial", host_ram_free_gb=14.0, task_id="seam")
+        out22 = gw22.complete("hi", task_id="seam",
+                              profile_id=d_triv.profile_id)
+        c.check("the routed profile is the one that is CALLED, not the one "
+                "registered first",
+                out22["profile_id"] == d_triv.profile_id,
+                f"routed={d_triv.profile_id} called={out22['profile_id']}")
+
+        # A routed capability with no provider DEFERS. Falling through to the
+        # other registered provider is the same shape as paid escalation --
+        # the caller asked for one capability and would be handed another.
+        no_prov = False
+        try:
+            gw22.complete("hi", task_id="seam2",
+                          profile_id="standard-accelerated")
+        except NoProviderForProfile:
+            no_prov = True
+        c.check("a routed profile with no provider fails closed, it does not "
+                "substitute another profile", no_prov)
+
+        # An unrouted call is still permitted -- A-004's fallback chain spans
+        # three profiles and is a legitimate caller -- but it is RECORDED, so
+        # the move to mandatory routing can be measured rather than guessed.
+        gw22.complete("hi", task_id="seam3")
+        c.check("a call that bypassed routing is recorded, not silent",
+                len(_events(sup, "gateway.unrouted")) >= 1)
         sup.stop()
         c.finish()
     except Exception:
