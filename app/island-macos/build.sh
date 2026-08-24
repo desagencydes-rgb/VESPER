@@ -30,7 +30,7 @@ swiftc -O -swift-version 5 -target arm64-apple-macosx13.0 \
   main.swift FaceRenderer.swift Behaviour.swift \
   "$HOME_SRC/Home.swift" "$HOME_SRC/HomeAmbience.swift" "$HOME_SRC/SpaceWatch.swift" \
   "$HOME_SRC/HomeVerify.swift" "$HOME_SRC/GlassGuard.swift" \
-  "$HOME_SRC/HomeChrome.swift" \
+  "$HOME_SRC/HomeChrome.swift" "$HOME_SRC/HomeCost.swift" \
   -o island
 
 rm -rf "$APP"

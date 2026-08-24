@@ -338,7 +338,13 @@ final class HomeController: NSObject {
         }
     }
 
+    /// Counts DELIVERIES, so "the notification never arrived" and "it arrived
+    /// and the handler did nothing" can be told apart. They are different
+    /// faults with different repairs, and INV-HOME-4 rests on this path.
+    private(set) var occlusionNotifications = 0
+
     @objc private func occlusionChanged() {
+        occlusionNotifications += 1
         let v = isVisible
         // The deliberate stop. See the file header: the system will not do
         // this, and a home rendering at 120 fps behind a full-screen editor is
