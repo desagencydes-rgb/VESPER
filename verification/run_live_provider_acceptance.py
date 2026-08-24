@@ -484,11 +484,22 @@ def l007_remote_api(tmp: Path) -> None:
         #    INV-COST-5 says a dashboard limit is not proof.
         bus2, clock2, store2 = _bus(tmp, "l7b")
         cost2 = CostPolicy(bus2, clock2)
-        cost2.register_credential("remote", "metered_free_tier",
-                                  provable_hard_cap=True)
+        # THE SWITCH AS IT ACTUALLY SHIPS: read from contracts/policy/
+        # cost_policy.toml, not asserted here. A test that hardcodes the
+        # boolean proves the code path and says nothing about the file the
+        # owner actually edits, which is the artefact that decides this at
+        # runtime.
+        declared = cost2.load_declared_credentials()
+        c.check("the policy file declares the credential, not this test",
+                any(d.provider_id == "remote-flash-api" for d in declared),
+                str([d.provider_id for d in declared]))
+        c.check("its hard cap carries recorded evidence, not a bare boolean",
+                bool(cost2.credential("remote-flash-api").hard_cap_evidence),
+                "provable_hard_cap with no evidence is refused at load")
         gw2 = ModelGateway(bus2, cost2)
-        gw2.register(build_provider("remote", "remote-flash-api", REMOTE_URL,
-                                    identity=ident, api_key=REMOTE_KEY,
+        gw2.register(build_provider("remote-flash-api", "remote-flash-api",
+                                    REMOTE_URL, identity=ident,
+                                    api_key=REMOTE_KEY,
                                     model=REMOTE_MODEL, timeout=90.0))
         out = gw2.complete("Reply with exactly: VESPER online.",
                            task_id="L-007b", profile_id="remote-flash-api",

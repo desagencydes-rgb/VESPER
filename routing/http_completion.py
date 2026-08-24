@@ -311,13 +311,40 @@ def _call_chat(ident: EndpointIdentity, prompt: str, options: dict,
     choices = d.get("choices") or [{}]
     msg = choices[0].get("message") or {}
     usage = d.get("usage") or {}
+    text = msg.get("content") or ""
+    reasoning = msg.get("reasoning_content")
+    finish = choices[0].get("finish_reason")
+    if not text.strip() and not (reasoning or "").strip() and finish == "stop":
+        # A NULL ANSWER THAT LOOKS LIKE A SUCCESSFUL ONE. Measured against a
+        # real remote on 2026-08-24: HTTP 200, a well-formed body,
+        # finish_reason "stop", and no content at all -- intermittently, on a
+        # prompt that answered correctly on the retry and on every direct
+        # probe. Nothing in the transport failed and nothing in the response
+        # says anything went wrong.
+        #
+        # Passed through, this reaches the planner or the verifier as a real
+        # empty answer, and they have no way to tell it from a model that
+        # genuinely had nothing to say. It is the same defect shape as the
+        # thinking-budget truncation above, minus the one field that made that
+        # one detectable.
+        #
+        # So it is raised as TRANSIENT rather than returned. That is the
+        # honest reading -- the model did not answer, and "did not answer" is
+        # a failed attempt -- and it puts the event in `gateway.attempt`
+        # history where a rate can be seen, instead of nowhere.
+        raise EndpointError(
+            "endpoint returned HTTP 200 with no content and no reasoning "
+            f"(finish_reason={finish!r}, completion_tokens="
+            f"{usage.get('completion_tokens')}). The model did not answer; a "
+            "null answer is not an answer.",
+            "server_error")
     return {
-        "text": msg.get("content") or "",
+        "text": text,
         "tokens_predicted": usage.get("completion_tokens"),
         "tokens_evaluated": usage.get("prompt_tokens"),
         "predicted_per_second": None,   # this endpoint does not report timings
-        "stop_reason": choices[0].get("finish_reason"),
-        "reasoning": msg.get("reasoning_content"),
+        "stop_reason": finish,
+        "reasoning": reasoning,
     }
 
 

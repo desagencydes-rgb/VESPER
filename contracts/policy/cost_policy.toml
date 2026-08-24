@@ -29,6 +29,36 @@ ACTIVE_SESSION  = ["free", "paid"]
 treat_as = "paid"
 override_requires = "provable_hard_cap"
 
+##############################################################################
+# DECLARED CREDENTIALS  --  the switch that overrides the line above
+#
+# THE BOOLEAN MUST CARRY ITS PROOF. `override_requires = "provable_hard_cap"`
+# is a rule about evidence, not about a flag, and a bare `true` is exactly the
+# "the dashboard says there is a limit" that INV-COST-5 refuses. So
+# `hard_cap_evidence` is MANDATORY whenever `provable_hard_cap = true`, and a
+# credential claiming the override without it is REFUSED at load rather than
+# quietly downgraded -- an unproven claim is not a weaker claim, it is the one
+# the invariant was written about.
+#
+# The evidence names a MECHANISM that makes spending impossible, not an
+# intention not to spend. "I will watch the usage page" is not a hard cap; a
+# project that cannot bill because no billing account is attached is.
+#
+# Owner-only, like every other number in this file. Engineering sets the rule
+# that the evidence exists and is recorded; the owner asserts whether it is
+# true of their account.
+##############################################################################
+
+[credentials.remote-flash-api]
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = """Owner assertion, 2026-08-24: the Google project behind
+this key has no billing account attached, so the API returns quota errors at
+the free-tier limit and cannot bill on overage. The owner states they hold free
+tier keys only and no paid API. Flip `provable_hard_cap` to false to restore
+the fail-closed default -- the effect is immediate and needs no code change,
+which is the point of declaring it here rather than at a call site."""
+
 # Owner sets the numbers. Engineering sets the rule that they exist, that they
 # are enforced at the choke point, and that crossing one queues and asks
 # rather than auto-approving.

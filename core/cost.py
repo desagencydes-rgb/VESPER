@@ -66,6 +66,12 @@ class Credential:
     # INV-COST-5. Only a PROVABLE hard cap downgrades metered_free_tier to
     # free; "the dashboard says there is a limit" is not provable.
     provable_hard_cap: bool = False
+    # THE PROOF TRAVELS WITH THE CLAIM. A boolean alone records that somebody
+    # asserted a cap, never what makes it one, so an auditor reading
+    # `provable_hard_cap = True` six months later has no way to check it and no
+    # way to notice when it stopped being true. Mandatory whenever the flag is
+    # set -- see `register_credential`.
+    hard_cap_evidence: str = ""
 
     def effective_class(self) -> str:
         if self.cost_class == "metered_free_tier" and not self.provable_hard_cap:
@@ -90,6 +96,7 @@ class CostPolicy:
         self._period_cause = "cold_start"
         self._clock_suspect = False
         self._credentials: dict[str, Credential] = {}
+        self._declared: dict = {}
         self._permitted, self._policy_loaded = self._load(policy_path)
 
     def _load(self, path: Path | None) -> tuple[dict[str, tuple[str, ...]], bool]:
@@ -97,6 +104,7 @@ class CostPolicy:
         if not p.exists():
             return dict(DEFAULT_PERMITTED), False
         raw = tomllib.loads(p.read_text(encoding="utf-8"))
+        self._declared = raw.get("credentials") or {}
         table = raw.get("permitted_cost_classes")
         if not table:
             return dict(DEFAULT_PERMITTED), False
@@ -192,7 +200,8 @@ class CostPolicy:
     # ----------------------------------------------------------- credentials
 
     def register_credential(self, provider_id: str, cost_class: str | None, *,
-                            provable_hard_cap: bool = False) -> Credential:
+                            provable_hard_cap: bool = False,
+                            hard_cap_evidence: str = "") -> Credential:
         """A-021.7: a credential with no cost_class is REFUSED, not defaulted.
 
         Defaulting it to `free` would be the same bug as defaulting it to
@@ -211,10 +220,55 @@ class CostPolicy:
         if cost_class not in COST_CLASSES:
             raise CredentialRefused(
                 f"cost_class {cost_class!r} not in {COST_CLASSES}")
-        cred = Credential(provider_id, cost_class, provable_hard_cap)
+        if provable_hard_cap and not (hard_cap_evidence or "").strip():
+            # INV-COST-5 is a rule about EVIDENCE, not about a flag.
+            # `override_requires = "provable_hard_cap"` in cost_policy.toml
+            # asks for a provable cap; a bare `True` proves nothing and is
+            # precisely the "the dashboard says there is a limit" the
+            # invariant was written about. Refused rather than downgraded: an
+            # unproven claim is not a weaker claim, it is the claim at issue.
+            self._bus.publish(
+                "cost.credential_refused", subject=provider_id,
+                payload={"provider_id": provider_id,
+                         "reason": "provable_hard_cap asserted without evidence"},
+                component="cost")
+            raise CredentialRefused(
+                f"credential {provider_id!r} sets provable_hard_cap without "
+                "hard_cap_evidence. INV-COST-5 requires a PROVABLE cap, and a "
+                "boolean proves nothing -- name the mechanism that makes "
+                "spending impossible, not the intention not to spend.")
+        cred = Credential(provider_id, cost_class, provable_hard_cap,
+                          (hard_cap_evidence or "").strip())
         with self._lock:
             self._credentials[provider_id] = cred
         return cred
+
+    def load_declared_credentials(self) -> list:
+        """Register every credential declared in the policy file.
+
+        THE SWITCH LIVES IN THE POLICY, NOT AT A CALL SITE. A cost class set
+        where a provider happens to be constructed is a decision buried in code
+        that the owner cannot review and CODEOWNERS does not govern --
+        `contracts/policy/` is owner-only precisely so that this kind of choice
+        is visible in one reviewable place. Flipping `provable_hard_cap` there
+        changes what leaves the machine, with no code change and no redeploy.
+
+        Refusals PROPAGATE. A declared credential that cannot be registered is
+        a policy file that says something the rule will not accept, and
+        starting anyway with that provider silently absent would be a fabric
+        quietly smaller than its own configuration says.
+        """
+        out = []
+        for provider_id, row in (self._declared or {}).items():
+            out.append(self.register_credential(
+                provider_id, row.get("cost_class"),
+                provable_hard_cap=bool(row.get("provable_hard_cap", False)),
+                hard_cap_evidence=row.get("hard_cap_evidence", "")))
+        return out
+
+    def declared_credentials(self) -> dict:
+        """What the policy file declares, before any of it is registered."""
+        return dict(self._declared or {})
 
     def credential(self, provider_id: str) -> Credential | None:
         return self._credentials.get(provider_id)
