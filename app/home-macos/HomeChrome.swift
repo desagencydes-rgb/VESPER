@@ -48,7 +48,38 @@ final class HomeChrome {
     /// The card is placed in the left cluster of §14.1's ring, clear of the
     /// face's own square, so first light shows the two layers COEXISTING rather
     /// than one covering the other.
-    static func page(cardWidth: Int, cardHeight: Int, left: Int, top: Int) -> String {
+    /// The ink the card writes in — `DESIGN-FOUNDATION`'s warm off-white.
+    static let inkLuma = 0.855      // relative luminance of #f4e6dc
+    /// What the card's composited surface has to come down to for that ink to
+    /// be readable on it. Solved from the ratio below, not chosen.
+    static let inkContrastTarget = 4.5
+
+    /// SOLVE THE CARD'S FILL, the same way the plate's was solved, for a
+    /// different reason.
+    ///
+    /// The plate is solved so the FACE has a ground. A card is solved so its
+    /// TEXT does. `DESIGN-FOUNDATION` §3 step 3 is explicit that lightness moves
+    /// until the contrast target is met and that the target is measured against
+    /// the COMPOSITED glass rather than the raw backdrop -- which is why a card
+    /// that simply carries §4's `.055` fill is unadapted by definition: .055 is
+    /// the tier's look, not an answer to what is behind it.
+    ///
+    /// NOT APCA, AND SAID SO. §3 names APCA `Lc ≥ 60` for text. This solves a
+    /// WCAG-style luminance ratio instead, because APCA's exponents and
+    /// coefficients are not something to reproduce from memory -- a contrast
+    /// figure that is confidently wrong is worse than one that is honestly
+    /// approximate. The ratio is a proxy, it is named as one here and in the
+    /// readout, and §3's real target needs APCA's constants from source before
+    /// this can claim to meet it.
+    static func solvedFill(backdrop L: Double) -> Double {
+        // (inkL + .05) / (groundL + .05) >= target  =>  groundL <= ...
+        let ground = (inkLuma + 0.05) / inkContrastTarget - 0.05
+        guard L > ground else { return 0 }
+        return min(0.90, max(0, 1 - ground / max(L, 0.001)))
+    }
+
+    static func page(cardWidth: Int, cardHeight: Int, left: Int, top: Int,
+                     fill: Double) -> String {
         """
         <!doctype html><meta charset="utf-8">
         <style>
@@ -58,7 +89,9 @@ final class HomeChrome {
           .card{position:absolute;left:\(left)px;top:\(top)px;
                 width:\(cardWidth)px;height:\(cardHeight)px;box-sizing:border-box;
                 padding:22px 24px;border-radius:22px;
-                background:rgba(255,255,255,.055);
+                background-color:rgba(255,255,255,.055);
+                background-image:linear-gradient(rgba(0,0,0,\(fill)),
+                                                 rgba(0,0,0,\(fill)));
                 -webkit-backdrop-filter:blur(24px) saturate(180%);
                 backdrop-filter:blur(24px) saturate(180%);
                 border:1px solid rgba(255,255,255,.14);
@@ -87,11 +120,21 @@ final class HomeChrome {
     ///
     /// `onVerdict` is called with the guard's answer either way, so a refusal is
     /// reported rather than being a chrome that quietly never appeared.
-    func mount(over host: NSView, faceRect: CGRect,
+    private(set) var cardBackdropLuma = 0.0
+    private(set) var cardFill = 0.0
+    private(set) var cardAdapted = false
+
+    func mount(over host: NSView, faceRect: CGRect, screen: NSScreen,
+               backdrop: URL?,
                onVerdict: @escaping (GlassGuard.Verdict) -> Void) {
         GlassGuard.verify { [weak self] verdict in
-            onVerdict(verdict)
-            guard let self, verdict.mayMountChrome else { return }
+            // ONVERDICT FIRES LAST ON THE SUCCESS PATH, and it has to. Called
+            // first, it ran before the card had been solved and reported the
+            // struct's defaults -- "backdrop UNSAMPLED, unadapted" -- for a
+            // card that was adapting correctly. The same shape as the phantom
+            // dropout §2.2 records: a sampler started before the thing it
+            // samples exists reads a world that does not contain it yet.
+            guard let self, verdict.mayMountChrome else { onVerdict(verdict); return }
 
             let w = WKWebView(frame: host.bounds)
             w.autoresizingMask = [.width, .height]
@@ -117,8 +160,30 @@ final class HomeChrome {
             self.cardRect = CGRect(x: CGFloat(left),
                                    y: host.bounds.height - CGFloat(t + ch),
                                    width: CGFloat(cw), height: CGFloat(ch))
+
+            // §3 step 1: sample what is behind THIS card, not the screen's
+            // average. A card in the left cluster sits over a different part of
+            // the picture than one on the right, and one fill for both is the
+            // "unadapted" the rule exists to refuse.
+            //
+            // §3 step 5: an unsampleable backdrop takes the tier's nominal fill
+            // and is reported unadapted rather than looking solved.
+            if let backdrop,
+               let st = Ambience.backdropStats(url: backdrop, region: self.cardRect,
+                                               screen: screen) {
+                self.cardBackdropLuma = st.mean
+                self.cardFill = Self.solvedFill(backdrop: st.mean)
+                self.cardAdapted = true
+            } else {
+                self.cardBackdropLuma = 0
+                self.cardFill = 0
+                self.cardAdapted = false
+            }
+
             w.loadHTMLString(Self.page(cardWidth: cw, cardHeight: ch,
-                                       left: left, top: t), baseURL: nil)
+                                       left: left, top: t, fill: self.cardFill),
+                             baseURL: nil)
+            onVerdict(verdict)
         }
     }
 

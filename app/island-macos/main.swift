@@ -1295,7 +1295,13 @@ if args.contains("--home") {
     // says the glass is actually clear -- SPIKE-013 SS0 is why that is a
     // question at all, and UNREADABLE is not a pass.
     if args.contains("--chrome") {
-        h.chrome.mount(over: h.hostView, faceRect: h.faceRect) { v in
+        let backdrop = args.firstIndex(of: "--mode").flatMap { i -> URL? in
+            guard i + 1 < args.count, let m = Ambience.mode(named: args[i + 1]),
+                  let dir = Ambience.wallpaperDir() else { return nil }
+            return m.wallpaper(in: dir)
+        }
+        h.chrome.mount(over: h.hostView, faceRect: h.faceRect,
+                       screen: NSScreen.main ?? screen, backdrop: backdrop) { v in
             print("  \(v.line)")
             if !v.mayMountChrome {
                 let m = "home: chrome REFUSED — \(v.line). The field is up and bare "
@@ -1303,6 +1309,13 @@ if args.contains("--home") {
                 FileHandle.standardError.write(m.data(using: .utf8)!)
             } else {
                 print("  chrome: mounted over the field")
+                let c = h.chrome
+                print(c.cardAdapted
+                      ? String(format: "  card: backdrop luma %.3f → fill %.3f → ground %.3f "
+                                     + "(ratio proxy, not APCA)",
+                               c.cardBackdropLuma, c.cardFill,
+                               c.cardBackdropLuma * (1 - c.cardFill))
+                      : "  card: backdrop UNSAMPLED — tier fill only, unadapted")
             }
         }
     }
