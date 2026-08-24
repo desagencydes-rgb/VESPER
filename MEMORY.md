@@ -911,6 +911,51 @@ half and **refuses** six fields, each with its reason. No default — defaulting
 `trust_zone` to `Z2` looks conservative and is still a decision nobody made.
 No write path, like `profile_node.py`.
 
+### A chatbot loop was constructible, and `A-011.4` could not have caught it
+
+`core/autonomy.py` opens by calling itself "the file the whole architecture
+exists to justify", and `INV-AUTO-2`'s first property is that the evaluator
+**CANNOT** call a model — *"not 'does not' — CANNOT."* Measured 2026-08-24 with
+a predicate that closed over a `ModelGateway` and asked it whether to fire:
+
+```
+predicate fired             : True
+model calls that got through: 1
+violation events emitted    : 0
+```
+
+**Why the control missed it.** `A-011.4` calls `model_call_attempted` DIRECTLY.
+That proves the reporting mechanism emits and raises, and proves nothing about
+whether a real model call reaches it — and nothing did.
+`model_call_attempted` was called by nothing outside the acceptance file;
+`in_decision_path()` by nothing at all. `CI-023` checks the diagnostic exists,
+publishes and raises, which is a check **on the diagnostic** rather than on what
+triggers it.
+
+**The docstring's claim is half true and the half matters.**
+`PredicateEvaluator` genuinely has no model path — "enforced by what this class
+is not given". But a **predicate is arbitrary caller-supplied code** and can
+close over anything in scope. The class was never the exposure.
+
+**Enforced where the capability is.** `core/autonomy.py` may not import the
+gateway (`CI-023` forbids it, and the ban is the point), so the decision path
+cannot check itself against a gateway it is not allowed to see. The gateway can
+check whether it was reached from inside a decision. `core/decision_path.py` is
+a leaf module both import and neither depends on. Checked FIRST in `complete`,
+before the cost check — a violation that got as far as being priced has already
+been treated as a legitimate request.
+
+Thread-local, not global (a background thread calling a model while a predicate
+evaluates elsewhere is not a violation) and depth-counted (a nested evaluation
+must not clear the flag on its way out).
+
+**The generalisable lesson, and it has now appeared four times today:** a test
+that exercises a MECHANISM directly proves the mechanism works and says nothing
+about whether anything reaches it. `A-022` asserted a route decision the gateway
+discarded. `A-042.4` was a predicate nothing called. The entity schemas were
+never applied to an instance. This one was the same shape in the highest-stakes
+file in the tree. **Ask what CALLS the thing, not whether the thing works.**
+
 ### A route decision now declares its assumptions
 
 ```
