@@ -64,11 +64,20 @@ from core.gateway import Provider
 
 
 class EndpointError(Exception):
-    """Carries `classification`, which is what decides retry timing."""
+    """Carries `classification`, which is what decides retry timing.
 
-    def __init__(self, message: str, classification: str) -> None:
+    `retry_after_ms` is the SERVER'S OWN answer to "when?", when it gave one.
+    A computed backoff is a guess about a quota whose shape we cannot see: a
+    500 ms retry against a per-DAY limit is not patience, it is a second
+    identical failure. SR-004 asks for a retry time a human can act on, and the
+    authoritative one is the number the server sent.
+    """
+
+    def __init__(self, message: str, classification: str,
+                 retry_after_ms: int | None = None) -> None:
         super().__init__(message)
         self.classification = classification
+        self.retry_after_ms = retry_after_ms
 
 
 # HTTP status -> the gateway's classification. Anything unlisted is
@@ -121,6 +130,58 @@ class EndpointIdentity:
                 "model": self.model}
 
 
+def _error_detail(err) -> tuple:
+    """Read an HTTP error body ONCE, for both its retry hint and its message.
+
+    Read once because `err.read()` is not repeatable -- a second caller gets
+    an empty string and silently concludes the server said nothing. Both facts
+    come from the same read for that reason.
+
+    RETURNS `retry_after_ms = None` FOR A NON-POSITIVE HINT, and that is the
+    fix rather than a tidy-up. Measured 2026-08-24: this endpoint's `retryDelay`
+    varies run to run -- 36s, 19s, and sometimes 0s -- and an earlier version
+    took 0 at face value. `if hint is not None` then chose it over the
+    exponential backoff, slept zero, and retried instantly. A server saying
+    "retry immediately" on a 429 is not an instruction worth obeying: it turns
+    a backoff into a hammer, against the exact endpoint that just asked for
+    less traffic. Absent and zero are treated the same, and the computed
+    backoff stands.
+    """
+    retry_ms = None
+    message = ""
+    hdr = None
+    try:
+        hdr = err.headers.get("Retry-After")
+    except Exception:  # noqa: BLE001
+        pass
+    if hdr:
+        try:
+            v = int(float(hdr) * 1000)
+            retry_ms = v if v > 0 else None
+        except (TypeError, ValueError):
+            pass
+    try:
+        d = json.loads(err.read().decode("utf-8", errors="replace"))
+        if isinstance(d, list):
+            d = d[0] if d else {}
+        e = d.get("error") or {}
+        message = (e.get("message") or "")[:300]
+        if retry_ms is None:
+            for det in (e.get("details") or []):
+                delay = det.get("retryDelay")
+                if isinstance(delay, str) and delay.endswith("s"):
+                    try:
+                        v = int(float(delay[:-1]) * 1000)
+                    except (TypeError, ValueError):
+                        continue
+                    if v > 0:
+                        retry_ms = v
+                    break
+    except Exception:  # noqa: BLE001
+        pass
+    return retry_ms, message
+
+
 def _post_json(url: str, payload: dict, timeout: float,
                headers: dict | None = None) -> dict:
     body = json.dumps(payload).encode("utf-8")
@@ -131,9 +192,10 @@ def _post_json(url: str, payload: dict, timeout: float,
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
+        retry_ms, message = _error_detail(e)
         raise EndpointError(
-            f"HTTP {e.code} from {url}",
-            _STATUS_CLASS.get(e.code, "server_error")) from e
+            f"HTTP {e.code} from {url}" + (f" -- {message}" if message else ""),
+            _STATUS_CLASS.get(e.code, "server_error"), retry_ms) from e
     except TimeoutError as e:
         raise EndpointError(f"timeout after {timeout}s", "timeout") from e
     except urllib.error.URLError as e:

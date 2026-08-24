@@ -71,6 +71,11 @@ class Attempt:
     classification: str | None
     retry_after_ms: int | None
     elapsed_ms: float
+    # What the SERVER said, kept separately from what we DID. When a provider
+    # says "retry in 33s" and we move to another provider instead, both facts
+    # matter: the wait we skipped is why the next provider was tried, and it is
+    # also how long this one stays unusable.
+    server_retry_after_ms: int | None = None
 
 
 class ModelGateway:
@@ -104,9 +109,33 @@ class ModelGateway:
                                    "available": available},
                           component="gateway")
 
-    def _retry_delay_ms(self, classification: str, attempt_index: int) -> int | None:
+    # A server-stated wait longer than this is not something to sit through
+    # while other providers exist. Five seconds is the point past which trying
+    # somebody else is plainly faster than waiting.
+    LONG_WAIT_MS = 5_000
+
+    def _retry_delay_ms(self, classification: str, attempt_index: int,
+                        server_hint_ms: int | None = None) -> int | None:
         if classification in TERMINAL:
             return None  # no point retrying; move to the next provider
+        if server_hint_ms:   # truthy: absent and zero are the same thing
+            # THE SERVER KNOWS AND WE DO NOT. A computed backoff is a guess
+            # about a quota whose shape is invisible from here: measured
+            # 2026-08-24, a free tier answered 429 with retryDelay 33s against
+            # a limit of 20 requests PER DAY. A 500 ms exponential retry
+            # against that is not patience, it is a second identical failure,
+            # and then a third. A NON-POSITIVE hint is discarded upstream in
+            # routing/http_completion.py for the same reason and is guarded
+            # again here: a server answering "retry immediately" to a 429 is
+            # not an instruction worth obeying.
+            if server_hint_ms > self.LONG_WAIT_MS:
+                # Move to the next provider NOW rather than sleeping. Returning
+                # None ends this provider's retry loop without claiming the
+                # failure was terminal -- the classification still says
+                # otherwise, and the hint is recorded so the caller can see how
+                # long this provider stays unusable.
+                return None
+            return int(server_hint_ms)
         return min(30_000, int(500 * (2 ** attempt_index)))
 
     def complete(self, prompt: str, *, task_id: str | None = None,
@@ -207,8 +236,10 @@ class ModelGateway:
                 except Exception as e:  # noqa: BLE001
                     ms = (time.perf_counter() - t0) * 1000.0
                     cls = getattr(e, "classification", "server_error")
-                    delay = self._retry_delay_ms(cls, i)
-                    self._record(p, "error", cls, delay, ms, cost_class=eff)
+                    hint = getattr(e, "retry_after_ms", None)
+                    delay = self._retry_delay_ms(cls, i, hint)
+                    self._record(p, "error", cls, delay, ms, cost_class=eff,
+                                 server_retry_after_ms=hint)
                     last_error = e
                     if delay is None:
                         break  # terminal for this provider
@@ -230,9 +261,10 @@ class ModelGateway:
 
     def _record(self, p: Provider, outcome: str, classification: str | None,
                 retry_after_ms: int | None, elapsed_ms: float,
-                cost_class: str = "unknown") -> None:
+                cost_class: str = "unknown",
+                server_retry_after_ms: int | None = None) -> None:
         a = Attempt(p.provider_id, cost_class, outcome, classification,
-                    retry_after_ms, elapsed_ms)
+                    retry_after_ms, elapsed_ms, server_retry_after_ms)
         with self._lock:
             self.history.append(a)
         self._bus.publish("gateway.attempt", subject=p.provider_id,
@@ -240,6 +272,7 @@ class ModelGateway:
                                    "cost_class": cost_class, "outcome": outcome,
                                    "classification": classification,
                                    "retry_after_ms": retry_after_ms,
+                                   "server_retry_after_ms": server_retry_after_ms,
                                    "elapsed_ms": round(elapsed_ms, 2)},
                           component="gateway")
 

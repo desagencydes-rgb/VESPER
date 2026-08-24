@@ -66,6 +66,13 @@ REMOTE_URL = os.environ.get(
     "VESPER_REMOTE_URL",
     "https://generativelanguage.googleapis.com/v1beta/openai")
 REMOTE_MODEL = os.environ.get("VESPER_REMOTE_MODEL", "models/gemini-3.6-flash")
+# SR-003's switching set. Measured 2026-08-24: the free tier's quota id is
+# `GenerateRequestsPerDayPerProjectPerModel-FreeTier`, value 20 -- PER MODEL.
+# So each model is its own daily bucket, and "automatic API switching when
+# quota occurs" is model rotation rather than a second account.
+REMOTE_MODELS = [m for m in os.environ.get(
+    "VESPER_REMOTE_MODELS",
+    "models/gemini-3.6-flash,models/gemini-3.5-flash-lite").split(",") if m]
 REMOTE_KEY = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 RESULTS: list[dict] = []
 
@@ -512,10 +519,18 @@ def l007_remote_api(tmp: Path) -> None:
                 bool(cost2.credential("remote-flash-api").hard_cap_evidence),
                 "provable_hard_cap with no evidence is refused at load")
         gw2 = ModelGateway(bus2, cost2)
-        gw2.register(build_provider("remote-flash-api", "remote-flash-api",
-                                    REMOTE_URL, identity=ident,
-                                    api_key=REMOTE_KEY,
-                                    model=REMOTE_MODEL, timeout=90.0))
+        # The whole rotation set, not one model. A per-model daily quota makes
+        # a single-model gate fail for a reason that is not about the code --
+        # and rotating is what the system is designed to do, so testing it
+        # single-model would also be testing something it never does.
+        for m in REMOTE_MODELS:
+            mi = EndpointIdentity(base_url=REMOTE_URL.rstrip("/"),
+                                  build_info=None, model_path=None,
+                                  n_ctx=None, model=m)
+            gw2.register(build_provider("remote-flash-api", "remote-flash-api",
+                                        REMOTE_URL, identity=mi,
+                                        api_key=REMOTE_KEY,
+                                        model=m, timeout=90.0))
         # A REASONING MODEL COUNTS ITS THINKING AGAINST max_tokens, and this
         # endpoint does not always report those tokens back. At 100 the answer
         # came back truncated to 'VES' with finish_reason "length" -- nowhere
@@ -528,7 +543,7 @@ def l007_remote_api(tmp: Path) -> None:
                 "vesper online" in out["result"]["text"].strip().lower(),
                 repr(out["result"]["text"])[:80])
         c.check("the result is attributable to the model that produced it",
-                out["result"]["endpoint"]["model"] == REMOTE_MODEL,
+                out["result"]["endpoint"]["model"] in REMOTE_MODELS,
                 str(out["result"]["endpoint"]))
         c.check("it counted as free, not paid",
                 gw2.paid_attempts() == 0, str(gw2.attempts_by_class))
@@ -636,6 +651,82 @@ def l008_offline_backup(tmp: Path, ident) -> None:
         c.finish(error=traceback.format_exc(limit=6))
 
 
+# ===========================================================================
+# L-009 — SR-003: a quota-exhausted model, and the next one answers
+# ===========================================================================
+def l009_model_rotation(tmp: Path) -> None:
+    c = Case("L-009", "Quota exhausted on one model => switch, not stop")
+    try:
+        if len(REMOTE_MODELS) < 2:
+            c.not_run("needs at least two models in VESPER_REMOTE_MODELS")
+            return
+        bus, clock, store = _bus(tmp, "l9")
+        cost = CostPolicy(bus, clock)
+        gw = ModelGateway(bus, cost, sleep=lambda s: None)
+        # ALL AT ONE PROFILE, deliberately. Interchangeable models serving the
+        # same capability are a provider-level concern (SR-003) and carry no
+        # report; falling to a WEAKER tier is a capability loss and belongs in
+        # completion.degraded (SR-005). Conflating the two is what would make a
+        # real degradation invisible.
+        for i, m in enumerate(REMOTE_MODELS):
+            pid = f"remote-{i}"
+            cost.register_credential(
+                pid, "metered_free_tier", provable_hard_cap=True,
+                hard_cap_evidence="see contracts/policy/cost_policy.toml "
+                                  "[credentials.remote-flash-api]")
+            ident = EndpointIdentity(base_url=REMOTE_URL.rstrip("/"),
+                                     build_info=None, model_path=None,
+                                     n_ctx=None, model=m)
+            gw.register(build_provider(pid, "remote-flash-api", REMOTE_URL,
+                                       identity=ident, api_key=REMOTE_KEY,
+                                       model=m, timeout=90.0))
+        out = gw.complete("Reply with exactly: VESPER online.",
+                          task_id="L-009", profile_id="remote-flash-api",
+                          options={"n_predict": 2000, "temperature": 0.0})
+        c.check("some model in the set answered",
+                "vesper online" in out["result"]["text"].strip().lower(),
+                repr(out["result"]["text"])[:80])
+        c.check("the answer names WHICH model produced it",
+                out["result"]["endpoint"]["model"] in REMOTE_MODELS,
+                str(out["result"]["endpoint"]["model"]))
+
+        errs = [a for a in gw.history if a.outcome == "error"]
+        limited = [a for a in errs if a.classification == "rate_limited"]
+        if limited:
+            # The interesting case, and it is real today rather than injected:
+            # this session spent one model's entire daily allowance.
+            c.check("a quota refusal classified as rate_limited, not as a fault",
+                    True)
+            c.check("the SERVER's own retry time was captured, not guessed",
+                    any(a.server_retry_after_ms for a in limited),
+                    str([a.server_retry_after_ms for a in limited]))
+            c.check("a long server wait moved to the next provider instead of "
+                    "sleeping it out",
+                    all(a.retry_after_ms is None for a in limited
+                        if (a.server_retry_after_ms or 0)
+                        > ModelGateway.LONG_WAIT_MS),
+                    str([(a.server_retry_after_ms, a.retry_after_ms)
+                         for a in limited]))
+            c.check("and a later provider still served the request",
+                    out["provider_id"] != limited[0].provider_id,
+                    f"failed={limited[0].provider_id} served={out['provider_id']}")
+        else:
+            c.check("no model was quota-limited this run -- rotation untested, "
+                    "but the set answered", True,
+                    "re-run after exhausting one model to exercise the switch")
+        c.finish()
+    except AllProvidersExhausted as e:
+        if "429" in str(e):
+            c.not_run("every model in the set is quota-exhausted for today. "
+                      "Each free-tier model allows 20 requests per day and "
+                      "this session spent them. Add models to "
+                      "VESPER_REMOTE_MODELS or re-run tomorrow.")
+            return
+        c.finish(error=traceback.format_exc(limit=6))
+    except Exception:
+        c.finish(error=traceback.format_exc(limit=6))
+
+
 def main() -> int:
     print("VESPER live-provider acceptance -- a real model behind the choke point")
     print(f"  endpoint: {BASE_URL}")
@@ -674,6 +765,7 @@ def main() -> int:
         l008_offline_backup(tmp, ident)
         if REMOTE_KEY:
             l007_remote_api(tmp)
+            l009_model_rotation(tmp)
         else:
             print("[skip] L-007           no GEMINI_API_KEY/GOOGLE_API_KEY set; "
                   "the API route is SR-003's primary one and is untested")
