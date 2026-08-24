@@ -1168,8 +1168,23 @@ if args.contains("--home") {
             let pr = h.plateRect
             // A corner of the plate the face never reaches: this is the plate
             // ALONE, and it is the reference every face number is read against.
-            let corner = CGRect(x: pr.minX + 20, y: pr.maxY - 90, width: 70, height: 70)
-            let plateOnly = GlassGuard.luma(img, viewSize: size, rect: corner)
+            // THE FACE'S OWN GROUND is the fill directly under it, and with a
+            // radial falloff that is no longer the same as the plate's rim. Read
+            // it at a corner of the FACE's square: inside the centre plateau,
+            // and far enough out that the head's points do not reach.
+            let fr = h.faceRect
+            // ABOVE the head, on the vertical axis. The first attempt read the
+            // face square's CORNER, which sits at 0.86 of the plate's half
+            // diagonal -- deep in the falloff, not on the plateau it was meant
+            // to sample. It reported centre and rim as identical and the
+            // gradient as broken; the gradient was fine and the probe was in
+            // the wrong place. A radial plateau is bounded by the square's
+            // INSCRIBED circle, never by its corners.
+            let underFace = CGRect(x: fr.midX - 20, y: fr.maxY - 58, width: 40, height: 40)
+            let plateOnly = GlassGuard.luma(img, viewSize: size, rect: underFace)
+            // The rim, where the falloff has let the glass back through.
+            let rim = CGRect(x: pr.minX + 16, y: pr.maxY - 76, width: 56, height: 56)
+            let rimL = GlassGuard.luma(img, viewSize: size, rect: rim)
             // Outside the plate entirely: our window paints nothing there.
             let off = GlassGuard.luma(img, viewSize: size,
                                       rect: CGRect(x: 0, y: 0, width: 80, height: 80))
@@ -1186,8 +1201,10 @@ if args.contains("--home") {
             // what this number is therefore good for, is the SCRIM: the solved
             // fill, which is the half that decides whether the face has a
             // ground to be seen against.
-            print(String(format: "  scrim in our buffer  %.3f   predicted on screen  %.3f",
+            print(String(format: "  under the face  %.3f   predicted on screen %.3f",
                          plateOnly.mean, h.plateBackdropLuma * (1 - h.plateFill)))
+            print(String(format: "  at the rim      %.3f   %.1fx the centre — the falloff",
+                         rimL.mean, plateOnly.mean > 0 ? rimL.mean / plateOnly.mean : 0))
             print("  (the blur itself is composited by the window server and is not in")
             print("   this buffer — only the owner's eyes settle that half)")
 
@@ -1195,7 +1212,19 @@ if args.contains("--home") {
             // brightness: the plate is bright, and counting pixels brighter
             // than zero would count the plate.
             let margin = plateOnly.mean + 0.06
-            let faceL = GlassGuard.luma(img, viewSize: size, rect: h.faceRect,
+            // ONLY WHERE THE FILL IS UNIFORM. Comparing a whole rect against a
+            // single reference stopped being valid the moment the plate got a
+            // falloff: the face square's corners sit at rim brightness, which
+            // is above any margin taken from the centre, so the plate's own
+            // gradient got counted as face and the figure jumped to 22% of a
+            // rect the head does not fill. The plateau is a circle; the largest
+            // square inside it is the face square over root two, and inside
+            // that one reference is true everywhere.
+            let inner = CGRect(x: fr.midX - fr.width / 2.82842712,
+                               y: fr.midY - fr.height / 2.82842712,
+                               width: fr.width / 1.41421356,
+                               height: fr.height / 1.41421356)
+            let faceL = GlassGuard.luma(img, viewSize: size, rect: inner,
                                         brighterThan: margin)
             let fpct = faceL.total > 0
                 ? Double(faceL.brighter) / Double(faceL.total) * 100 : 0
@@ -1216,7 +1245,12 @@ if args.contains("--home") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
                 defer { h.setFaceWidth(min(screen.frame.width, screen.frame.height) * 0.62) }
                 guard let img2 = GlassGuard.windowImage(h.groundWindow) else { return }
-                let small = GlassGuard.luma(img2, viewSize: size, rect: h.faceRect,
+                let f2 = h.faceRect
+                let inner2 = CGRect(x: f2.midX - f2.width / 2.82842712,
+                                    y: f2.midY - f2.height / 2.82842712,
+                                    width: f2.width / 1.41421356,
+                                    height: f2.height / 1.41421356)
+                let small = GlassGuard.luma(img2, viewSize: size, rect: inner2,
                                             brighterThan: margin)
                 let spct = small.total > 0
                     ? Double(small.brighter) / Double(small.total) * 100 : 0

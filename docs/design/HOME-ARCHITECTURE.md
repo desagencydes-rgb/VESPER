@@ -930,6 +930,47 @@ the corners. **The face is the composition's centre, not one element in it** —
 which is exactly why §8's presence law matters: when the work needs the screen,
 the thing that gets out of the way is the largest thing on it.
 
+### 14.1a The plate the face sits on
+
+Owner, 2026-08-24, looking at the face over the `hall` wallpaper: *"add a glass
+background behind the face... now it's not well visible."* Both halves of that
+are one surface.
+
+**It is real glass and it is public API.** `NSVisualEffectView` with
+`.behindWindow` blending: the window server blurs what is actually behind the
+window, which here is the desktop picture. Worth stating a day after
+`SPIKE-013` §0 found no public route to a transparent `WKWebView` — **the cards
+need the hatch, this plate does not.** Dock tier out of `DESIGN-FOUNDATION` §4:
+radius 34, 1 px border, specular top edge, cast shadow on a container that does
+not clip it.
+
+**The darkness is solved, not styled** — `DESIGN-FOUNDATION` §3 steps 1–3, with
+one change of instrument. §3 says sample the backdrop; for a webview that means
+reading the screen and therefore a TCC grant. It does not here, because VESPER
+*set* this wallpaper, so the backdrop is a file we own the path to. The window
+server's fill-and-centre-crop has to be reproduced or the sample comes from the
+13% of a 16:9 source that is off-screen on this display.
+
+Compositing black at `a` over luminance `L` leaves `L(1 − a)`, so the fill that
+hits a target is `1 − target/L`. Nothing in that is taste. On `hall`:
+
+| | |
+|---|---|
+| backdrop luma | `0.494` |
+| solved fill | `0.757` |
+| face ground | `0.120` predicted, `0.125` measured |
+| face contrast | `0.61%` → `9.98%` of its region brighter than its ground |
+
+§3 step 5 holds: an unsampleable backdrop is `UNKNOWN`, takes the tier's nominal
+`.085`, and is reported **unadapted** rather than looking measured.
+
+**The fill falls off, and where it starts is not chosen.** A flat scrim at
+`0.757` read as a slab rather than glass — almost no blurred wallpaper survived
+anywhere on it. But the contrast target only has to be met *where the face is*,
+so the fill holds its solved value across the face's own radius and decays to
+`0.42` of it at the rim, measured at **2.8×** the centre's luminance. The
+plateau's edge is the face's edge.
+
 ### 14.2 The surfaces the reference adds
 
 | Surface | What the reference shows | Status |

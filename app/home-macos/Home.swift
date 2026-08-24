@@ -59,6 +59,14 @@ final class HomeController: NSObject {
     /// thing it was meant to darken. The reading that caught it was the plate
     /// still measuring luma 0.512 after the fill was solved at 0.757.
     private let scrim = NSView()
+    /// The falloff. A FLAT scrim at the solved fill is what the owner saw on
+    /// 2026-08-24 and it read as a slab, not as glass -- at 0.757 there is
+    /// almost no blurred wallpaper left anywhere on the plate. But the contrast
+    /// target only has to be met WHERE THE FACE IS. Outside the face's own
+    /// layer the fill can fall away and let the glass be glass, and the point
+    /// the falloff starts at is not a taste decision: it is where the face
+    /// stops.
+    private let fill = CAGradientLayer()
 
     /// DESIGN-FOUNDATION §4, Dock tier. The floor, never the answer: §3 step 3
     /// says solve until the contrast target is met, and a fill that cannot go
@@ -69,6 +77,18 @@ final class HomeController: NSObject {
     /// on a near-black panel; an ember wireframe over a sunlit limestone lobby
     /// has almost no contrast at all, which is what the owner saw.
     static let faceGroundTarget = 0.12
+    /// How much of the centre's fill survives at the plate's rim. Chosen so the
+    /// glass is unmistakably glass out there while the panel still reads as one
+    /// surface rather than a vignette.
+    static let edgeFraction = 0.42
+
+    private func setFill(centre: Double, edge: Double) {
+        fill.colors = [
+            NSColor(white: 0, alpha: centre).cgColor,
+            NSColor(white: 0, alpha: centre).cgColor,
+            NSColor(white: 0, alpha: edge).cgColor,
+        ]
+    }
 
     private(set) var plateAdapted = false
     private(set) var plateBackdropLuma = 0.0
@@ -190,11 +210,30 @@ final class HomeController: NSObject {
         scrim.frame = CGRect(origin: .zero, size: CGSize(width: pw, height: ph))
         scrim.autoresizingMask = [.width, .height]
         scrim.wantsLayer = true
-        scrim.layer?.backgroundColor = NSColor.black.cgColor
+        scrim.layer?.backgroundColor = NSColor.clear.cgColor
         scrim.layer?.cornerRadius = 34
         scrim.layer?.cornerCurve = .continuous
         scrim.layer?.masksToBounds = true
-        scrim.layer?.opacity = Float(Self.dockFill)
+        scrim.layer?.opacity = 1
+        fill.frame = CGRect(origin: .zero, size: CGSize(width: pw, height: ph))
+        fill.type = .radial
+        fill.startPoint = CGPoint(x: 0.5, y: 0.5)
+        fill.endPoint = CGPoint(x: 1, y: 1)
+        // Where the face's square ends, as a fraction of the plate's half
+        // WIDTH.
+        //
+        // The first version divided by the half DIAGONAL, on the assumption
+        // that `endPoint` of (1, 1) reaches the layer's corner. It does not: a
+        // CAGradientLayer's radial endPoint describes the layer's INSCRIBED
+        // ellipse, so location 1.0 is the half width and everything beyond it,
+        // the corners included, is clamped to the last colour. The plateau came
+        // out at 245 pt where the face needs 346, the head sat in the falloff,
+        // and the fill under it measured 0.216 where 0.124 was predicted.
+        //
+        // The probe found it because the two routes to that number disagreed --
+        // which is the entire reason both are computed.
+        fill.locations = [0, NSNumber(value: Double((side / 2) / (pw / 2))), 1]
+        scrim.layer?.addSublayer(fill)
         plateShadow.addSubview(scrim, positioned: .above, relativeTo: plate)
 
         host.addSubview(plateShadow)
@@ -380,7 +419,7 @@ final class HomeController: NSObject {
         guard let url,
               let st = Ambience.backdropStats(url: url, region: plateShadow.frame,
                                               screen: screen) else {
-            scrim.layer?.opacity = Float(Self.dockFill)
+            setFill(centre: Self.dockFill, edge: Self.dockFill)
             plateAdapted = false
             plateBackdropLuma = 0
             plateFill = Self.dockFill
@@ -388,7 +427,9 @@ final class HomeController: NSObject {
         }
         let a = min(0.88, max(Self.dockFill,
                               1 - Self.faceGroundTarget / max(st.mean, 0.001)))
-        scrim.layer?.opacity = Float(a)
+        // The edge keeps enough fill to hold the panel's shape and its border,
+        // and no more. Below the tier's own .085 it would stop being a surface.
+        setFill(centre: a, edge: max(Self.dockFill, a * Self.edgeFraction))
         plateAdapted = true
         plateBackdropLuma = st.mean
         plateFill = a
