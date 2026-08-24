@@ -109,9 +109,24 @@ class MeasuredProfile:
     def rate_at_context(self, context_tokens: int) -> float | None:
         """Throughput at a given context length, from the measured slope.
 
-        Returns None when the slope was not measured, rather than assuming the
-        rate is flat. Assuming flat is precisely the error that made 6.79 tok/s
-        look like a floor when it was the rate at one particular context.
+        WHERE NO SLOPE WAS MEASURED, THE RATE IS TREATED AS FLAT. This
+        docstring said the opposite until 2026-08-24 -- "returns None rather
+        than assuming the rate is flat" -- and the code has always returned the
+        flat rate. The prose was describing a behaviour that would break the
+        router: only the strong tier has a measured slope, so returning None
+        would make draft, small and standard unroutable at every context
+        length, and a fail-closed router that can reach nothing is not
+        fail-closed, it is off.
+
+        Flat is also the better-supported reading for those tiers: SPIKE-001
+        3.1 measured them within +/-3% across a ten-minute run, in six runs
+        each. The tier where it is NOT supported is exactly the one that has a
+        slope -- the MoE lost 39-47% of its rate, sign-consistent in 6 of 6.
+
+        But the assumption is still an assumption, and an unmeasured tier that
+        decays would be silently overstated here. So `select` NAMES it in the
+        decision rather than leaving the reader to infer it from an absent
+        field.
         """
         if self.wall_tokens_per_sec is None:
             return None
@@ -344,6 +359,12 @@ class Router:
                 f"rate adjusted for context: {best.context_slowdown_us_per_token} us "
                 "per token of context (KV-cache growth, measured)")
         factors.append(f"measured_source={best.source}")
+        if best.context_slowdown_us_per_token is None:
+            factors.append(
+                "FLAT-ASSUMED: no context slope measured for this profile, so "
+                f"the rate is treated as constant at {context_tokens} tokens. "
+                "Measured on the tier that HAS a slope: 39-47% lost across a "
+                "ten-minute run")
         if best.node_id is None:
             # RECORD WHAT WAS COMPARED. This profile names no node, so nothing
             # ties the rate above to the machine that will serve the call. It
