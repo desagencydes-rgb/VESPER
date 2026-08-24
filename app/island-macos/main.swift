@@ -1021,6 +1021,52 @@ if args.contains("--mode-restore") {
 // with the ground's exact configuration -- borderless, transparent, level
 // normal-1, .managed -- covered by an opaque window over it. This says whether
 // the watch detects being covered at all, and WHICH of its two paths did it.
+// §10's dock swap, isolated. It reported "system dock up" while the home was on
+// VESPER's own Desktop, which means the Dock never went under -- and the swap is
+// three things that can each fail silently: activation, the presentation option
+// taking, and the Dock actually yielding its space.
+if args.contains("--dock-check") {
+    guard let sc = NSScreen.main else { exit(2) }
+    // RE-FETCH, never hold. An NSScreen object caches its geometry, so a
+    // reference taken before the change reports the world as it was and the
+    // Dock looks like it refused to move.
+    func spaceLine(_ tag: String) {
+        guard let s = NSScreen.main else { return }
+        print("  \(tag): visibleFrame.minY \(Int(s.visibleFrame.minY))"
+            + "  (frame.minY \(Int(s.frame.minY)))"
+            + "  dock reserves space: \(s.visibleFrame.minY > s.frame.minY + 1)")
+    }
+    print("")
+    print("  dock swap — §10, one step at a time")
+    print("  " + String(repeating: "─", count: 58))
+    print("  active before: \(NSApp.isActive)")
+    spaceLine("before")
+    NSApp.activate(ignoringOtherApps: true)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+        print("  active after activate(): \(NSApp.isActive)")
+        if NSApp.isActive {
+            NSApp.presentationOptions.insert(.autoHideDock)
+            print("  presentationOptions now contains .autoHideDock: "
+                + "\(NSApp.presentationOptions.contains(.autoHideDock))")
+        } else {
+            print("  NOT ACTIVE — presentationOptions may only be set by the active app,")
+            print("  and setting it anyway raises. This is where the swap stops.")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            spaceLine("after ")
+            let cur = NSScreen.main ?? sc
+            let won = cur.visibleFrame.minY <= cur.frame.minY + 1
+            print("")
+            print(won ? "  PASS — the Dock went under."
+                      : "  FAIL — the Dock still reserves its space.")
+            NSApp.presentationOptions.remove(.autoHideDock)
+            print("  " + String(repeating: "═", count: 58))
+            exit(won ? 0 : 1)
+        }
+    }
+    app.run()
+}
+
 if args.contains("--occlusion-check") {
     guard let sc = NSScreen.main else { exit(2) }
     let r = CGRect(x: sc.frame.minX + 40, y: sc.frame.minY + 40, width: 320, height: 240)

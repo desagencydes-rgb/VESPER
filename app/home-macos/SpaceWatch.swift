@@ -75,8 +75,12 @@ enum SpaceWatch {
     /// watching the CAUSE and reporting it as the effect, and this file is not
     /// going to do that quietly. So the dim covers the persistent Dock and the
     /// transient reveal is a named gap.
+    /// Takes the screen only to identify WHICH one; the geometry is re-fetched,
+    /// because an NSScreen object caches its frames and a reference held from
+    /// before a change reports the world as it was.
     static func systemDockVisible(on screen: NSScreen) -> Bool {
-        screen.visibleFrame.minY > screen.frame.minY + 1
+        let s = NSScreen.screens.first { $0.frame == screen.frame } ?? NSScreen.main ?? screen
+        return s.visibleFrame.minY > s.frame.minY + 1
     }
 
     /// The fingerprint of the Desktop that is active right now: the numbers of
