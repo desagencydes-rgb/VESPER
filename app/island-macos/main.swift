@@ -1013,6 +1013,120 @@ if args.contains("--mode-restore") {
     exit(0)
 }
 
+// THE OCCLUSION STOP, tested at 320x240 instead of full screen.
+//
+// Criterion 4 can only be exercised at full size by covering the whole display
+// in black, which is a thing to do on VESPER's own Desktop and nowhere else.
+// The MECHANISM does not care about size: the same OcclusionWatch, on a window
+// with the ground's exact configuration -- borderless, transparent, level
+// normal-1, .managed -- covered by an opaque window over it. This says whether
+// the watch detects being covered at all, and WHICH of its two paths did it.
+if args.contains("--occlusion-check") {
+    guard let sc = NSScreen.main else { exit(2) }
+    let r = CGRect(x: sc.frame.minX + 40, y: sc.frame.minY + 40, width: 320, height: 240)
+    let probe = NSWindow(contentRect: r, styleMask: [.borderless],
+                         backing: .buffered, defer: false)
+    // FLOATING, and that is a deliberate departure from the ground's own
+    // normal-1. At normal-1 in a screen corner the probe starts UNDER whatever
+    // the owner has open, so it is occluded before the test begins and covering
+    // it changes nothing -- which is exactly what the first run reported: zero
+    // changes seen, by either path, for a mechanism that was never given a
+    // visible window to watch. The level is raised so the test can begin at all;
+    // the ground's real level is exercised by the full-screen criterion 4 run.
+    probe.level = .floating
+    probe.collectionBehavior = [.managed]
+    probe.animationBehavior = .none
+    probe.isOpaque = false
+    probe.backgroundColor = .clear
+    probe.hasShadow = false
+    probe.ignoresMouseEvents = true
+    let v = NSView(frame: CGRect(origin: .zero, size: r.size))
+    v.wantsLayer = true
+    v.layer?.backgroundColor = CGColor(red: 0.06, green: 0.19, blue: 0.75, alpha: 1)
+    probe.contentView = v
+    probe.orderFrontRegardless()
+
+    let pollOnly = args.contains("--poll-only")
+    let watch = OcclusionWatch(window: probe, observeNotification: !pollOnly)
+    var covered: (Double, OcclusionWatch.Source)?
+    var uncovered: (Double, OcclusionWatch.Source)?
+    var t0 = Date()
+    watch.onChange = { visible, source in
+        let dt = Date().timeIntervalSince(t0)
+        if !visible, covered == nil { covered = (dt, source) }
+        else if visible, covered != nil, uncovered == nil { uncovered = (dt, source) }
+    }
+    watch.start()
+
+    print("")
+    print("  occlusion stop — the mechanism, at 320x240")
+    print("  " + String(repeating: "─", count: 60))
+    print(pollOnly
+          ? "  NOTIFICATION DISCONNECTED — the poll alone, which is the path the"
+          + "\n  full-screen ground at normal-1 actually has to rely on."
+          : "  a window with the ground's exact configuration, covered and uncovered.")
+    print("  the full-screen criterion 4 run belongs on VESPER's own Desktop.")
+
+    var cover: NSWindow?
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+        // A test that begins on an already-covered window measures nothing and
+        // reports FAIL, which is the worst of both.
+        guard probe.occlusionState.contains(.visible) else {
+            print("")
+            print("  the probe was ALREADY COVERED before the test began, so covering")
+            print("  it could not be a change. Nothing was measured — this is not a")
+            print("  failure of the mechanism, it is the test failing to start.")
+            exit(2)
+        }
+        print("  probe starts visible — beginning")
+        t0 = Date()
+        let w = NSWindow(contentRect: r, styleMask: [.borderless],
+                         backing: .buffered, defer: false)
+        w.collectionBehavior = [.managed]
+        w.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue + 1)
+        w.isOpaque = true
+        w.backgroundColor = .black
+        w.animationBehavior = .none
+        w.orderFrontRegardless()
+        cover = w
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
+            cover?.orderOut(nil)
+            t0 = Date()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4.0) {
+                probe.orderOut(nil)
+                watch.stop()
+                print("")
+                if let c = covered {
+                    // Interpolation, not String(format:). `%@` given a C string
+                    // pointer is a SIGTRAP with no message -- the run that found
+                    // that had already completed the measurement and died while
+                    // printing it, which is the most annoying possible place.
+                    print("  covered   DETECTED in "
+                        + String(format: "%.2f", c.0) + " s, by the \(c.1.rawValue)")
+                } else {
+                    print("  covered   NOT DETECTED — the watch never saw it")
+                }
+                if let u = uncovered {
+                    print("  uncovered DETECTED in "
+                        + String(format: "%.2f", u.0) + " s, by the \(u.1.rawValue)")
+                } else {
+                    print("  uncovered NOT DETECTED")
+                }
+                print("  \(watch.provenance)")
+                print("")
+                let ok = covered != nil && uncovered != nil
+                print(ok
+                      ? "  PASS — the stop has a working signal in both directions."
+                      : "  FAIL — the ground would keep drawing behind the owner's work.")
+                print("  " + String(repeating: "═", count: 60))
+                exit(ok ? 0 : 1)
+            }
+        }
+    }
+    app.run()
+}
+
 if args.contains("--glass-verify") {
     // --no-hatch is the NEGATIVE CONTROL: run the same alarm with the hatch
     // withheld, and require it to go RED. A negative control that passes is a

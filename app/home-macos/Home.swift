@@ -268,10 +268,27 @@ final class HomeController: NSObject {
 
         super.init()
 
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(occlusionChanged),
-            name: NSWindow.didChangeOcclusionStateNotification, object: ground)
+        // The notification alone had never once fired -- see OcclusionWatch's
+        // header, and SPIKE-013 SS1 criterion 4 for the measurement that found it.
+        watch = OcclusionWatch(window: ground)
+        watch?.onChange = { [weak self] visible, source in
+            guard let self else { return }
+            self.occlusionNotifications += 1
+            print("  home: ground \(visible ? "visible" : "covered") "
+                + "(detected by \(source.rawValue))")
+            // The deliberate stop. See the file header: the system will not do
+            // this for us, and a home rendering at 120 fps behind a full-screen
+            // editor is the exact failure the host-lifetime goal exists to
+            // prevent -- measured at 116.8 fps on 2026-08-24, while covered.
+            if visible { self.startRendering() } else { self.stopRendering() }
+            self.onVisibilityChange?(visible)
+        }
+        watch?.start()
     }
+
+    private var watch: OcclusionWatch?
+    /// What is actually carrying the signal, for whoever writes the report.
+    var occlusionProvenance: String { watch?.provenance ?? "no watch" }
 
     var isVisible: Bool { ground.occlusionState.contains(.visible) }
 
@@ -343,8 +360,8 @@ final class HomeController: NSObject {
     /// faults with different repairs, and INV-HOME-4 rests on this path.
     private(set) var occlusionNotifications = 0
 
+    @available(*, deprecated, message: "kept only so the old wiring is visibly gone")
     @objc private func occlusionChanged() {
-        occlusionNotifications += 1
         let v = isVisible
         // The deliberate stop. See the file header: the system will not do
         // this, and a home rendering at 120 fps behind a full-screen editor is
