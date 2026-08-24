@@ -1,146 +1,98 @@
-# Home — steps 1 and 2 (2026-08-23)
+# Home — state of play (2026-08-24)
 
-Written for the session that picks this up. Step 1 landed as `b2122bc`; step 2
-is the `SPIKE-013` precondition below, and it ends on a decision the owner owns.
+Written for the session that picks this up. Steps 1 and 2 are done; the home
+runs from the login item and does not stop.
 
 ## Owner's standing facts
 
-- **Desktop 1 has Notes open. Desktop 2 is the empty one — that is VESPER's.**
-  Do not confuse them; the owner said so explicitly.
+- **Desktop 1 is the owner's. Desktop 2 is the empty one — that is VESPER's.**
 - The owner asked to be stopped and told whenever a run needs them.
+- **Do not black out a Desktop that has their windows on it.** The occlusion
+  phase did this once, unannounced, and it is now guarded.
 
-## Step 1 — DONE
+## What runs, right now, with nothing to start by hand
 
-The home is folded into `VESPER.app`. One process, one binary, one identity.
+`~/Library/LaunchAgents/ai.vesper.island.plist`, `RunAtLoad`, `KeepAlive`:
 
-| File | What it is |
-|---|---|
-| `app/home-macos/Home.swift` | `HomeController` — the ground at `normal − 1` `.managed`, transparent, the face on it, the **deliberate occlusion stop** |
-| `app/home-macos/HomeAmbience.swift` | the eleven modes out of `modes.json`, and the wallpaper as the **real desktop picture** (reversible: original recorded in Application Support) |
-| `app/home-macos/SpaceWatch.swift` | foreign-window fingerprint + Jaccard, promoted out of `residency_probe.swift` |
-| `app/home-macos/HomeVerify.swift` | identity readout + the §2.6 measurement + the sibling guard |
-| `app/island-macos/main.swift` | `--home`, `--home-verify`, and `Controller.retreat(_:)` for §2.6 |
-
-**Named `HomeAmbience.swift`, not `Ambience.swift`** — macOS is case-insensitive
-and `Ambience.swift` silently overwrote the F2 probe `ambience.swift`. Recovered
-from git. Do not reintroduce the collision.
-
-## What was measured, and what was not
-
-- **Identity**: launched as the app, `codesign` reports `Identifier=ai.vesper.island`,
-  `Signature=adhoc`. As a loose binary it reports no bundle and says so.
-  **NOT proven:** that a permission dialog says VESPER. That is observed in a
-  dialog or not at all, and the first one is the Accessibility grant this build
-  deliberately has not asked for.
-- **Occlusion answers a stronger question than residency.** Dry run, nobody
-  switching: ground on the active Desktop 24/24, reported covered 24/24, because
-  a full-screen terminal was over it. That is what §2.6 and §10 both want.
-- **§2.6's signal is UNMEASURED.** It needs the owner to switch Desktops.
-
-## THE ONE RUN THE OWNER STILL HAS TO DO
-
-The LaunchAgent keeps an island alive, and a second VESPER invalidates the
-control — so the agent must be stopped first. The guard refuses and says so if
-it is not.
-
-```sh
-launchctl bootout gui/$(id -u)/ai.vesper.island
-./app/VESPER.app/Contents/MacOS/VESPER --home-verify --after 12 --seconds 45
-#   1. within 12 s, Ctrl+2 to VESPER's empty Desktop — the ground is created THERE
-#   2. wait ~10 s, Ctrl+1 back to Notes, wait ~10 s, Ctrl+2 again
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.vesper.island.plist
+```
+VESPER --home --on-empty-desktop --mode Home --chrome
 ```
 
-Log lands at `app/home-macos/home_verify_last_run.log`.
+One process. Island, ground, face, glass plate, chrome and main menu. It waits
+**indefinitely** for a Desktop with none of the owner's windows on it and takes
+nothing until it finds one — no `--wait`, because a timeout exit under
+`KeepAlive` is a restart loop. The wait does not block, so the island is up the
+moment the process is.
 
-**The criterion is an implication, not an agreement.** `lit while ABSENT` must be
-0. `dark while present` is legitimate and reported, not judged. `control (island)`
-must be 0 — it is the island's own panel, on every Desktop and above every
-ordinary window, so it can be neither left behind nor covered.
+Its log is `~/Library/Application Support/VESPER/island.out`, live rather than
+buffered.
 
-If `leaving-the-desktop-darkens-the-ground` FAILS, §2.6 cannot use occlusion and
-must move to `NSWorkspace.activeSpaceDidChangeNotification`.
+## What is built and measured
 
-## Step 2 — ANSWERED 2026-08-23, and the answer is NO
-
-**Can a `WKWebView` be transparent over the face, with public API only? No.**
-
-Full readings, controls and disposition: `SPIKE-013` §0 (status `RUNNING` in
-`docs/spikes/INDEX.toml`). Instrument: `app/home-macos/glass_probe.swift`, run
-twice at two window levels with identical readings.
-
-- Every public configuration paints `#FFFFFF` over the ground — including
-  `underPageBackgroundColor = .clear`, which is **set, held, and reads back at
-  α 0.00** while changing nothing. It is the scroll-bounce colour, and it is the
-  whole public surface: no macOS 26 addition touches background.
-- The private `_setDrawsBackground:` **and** the legacy WebKit1
-  `WebView.drawsBackground` (which is public, and deprecated since 10.14) both
-  let the ground through — on the same instrument, in the same run. That is what
-  makes this a finding rather than a blind spot.
-- So it is not "no public route exists". It is **"no public route exists on
-  `WKWebView`"** — and the one that does forecloses Tauri, whose macOS backend
-  *is* a `WKWebView`.
-
-**The instrument is the other half of the deliverable.** Two earlier ones failed
-silently in opposite directions: `takeSnapshot` composites onto an opaque bitmap
-(reports opaque for a transparent page), `cacheDisplay` only draws this
-process's views (reports opaque for anything WebKit renders). This one asks the
-window server for the composite of our own window, and does not trust that
-either — `CGWindow.h:264` returns *transparent black* when a window can't be
-read, which is indistinguishable from success. Three controls run first, and
-`B1` (a page painted edge to edge in `#FF00FF` must read back `#FF00FF`) is the
-one both earlier instruments would have failed.
-
-**And the glass reaches the ground once it is transparent** (`SPIKE-013` §0.5).
-A card blurring across a hard edge in the ground smears it over **41–42 pt**
-inside the card and leaves it **0 pt** outside — on both routes, and over a real
-`CAMetalLayer` as readily as a `CALayer`. It could have gone the other way: a
-backdrop filter samples the page's own backdrop, and the field is not in the
-page. So the §1.1 look is achievable; only the transparency is missing.
-
-### DECIDED 2026-08-23 — the hatch, with an alarm
-
-Owner chose: **take the private route, and make its failure loud.** Landed in
-`bdc70ac`.
-
-| | |
+| | Verified by |
 |---|---|
-| `app/home-macos/GlassGuard.swift` | the ONLY file that may name `_setDrawsBackground:`. Carries the hatch, the reader, and three controls it runs every time |
-| `VESPER --glass-verify` | `TRANSPARENT` / `OPAQUE` / `UNREADABLE`, exit `0` / `1` / `2`. **`UNREADABLE` is not a pass** |
-| `VESPER --glass-verify --no-hatch` | the standing negative control. Measured: `#FFFFFF` red without the hatch, green with it |
-| `CI-058` `glass-hatch-contained` | refuses the selector in any unmarked file, and refuses it in `GlassGuard.swift` if the reader or the negative control is removed. Found two files on its first run |
-| `INV-HOME-5` | promoted from candidate **with the exception written into it**, traced to `SR-002` |
+| **The two-layer home** — Metal field below, transparent `WKWebView` above | `--face-check`: the card paints where the ground paints nothing; face contrast unchanged with the chrome over it |
+| **The glass hatch** — the one private call, with an alarm | `--glass-verify` → `TRANSPARENT`; `--glass-verify --no-hatch` → `OPAQUE #FFFFFF`. `CI-058` |
+| **The plate behind the face** — Dock tier, fill solved from the wallpaper | backdrop `0.494` → fill `0.757` → ground `0.120` predicted, `0.125` measured |
+| **The falloff** — glass at the rim, contrast at the centre | rim reads `2.8x` the centre |
+| **The face** — density derived from the layer, not inherited | `10.3%` of its region above its ground, up from `0.61%` |
+| **§8's four tiers** — Centre, Attendant, Dispersed, Absent | `--cost-check`: Absent draws **0 frames**, every run |
+| **The occlusion stop** | `--occlusion-check` → `0.02 s` by notification; `--poll-only` → `0.50 s` by poll |
+| **Icons and widgets hidden on VESPER's Desktop only** | **486/486** tiles of the ground read alpha >= 0.99 |
+| **The main menu** — §14.2's bar, avatar, separate expandable tile | `--face-check`: paints at the Dock's position |
+| **The dock swap** — §10 | mechanism wired; **not yet observed on Desktop 2** — watch the log for `system dock down` |
 
-**Why the exception is coherent rather than a climbdown.** `ISLAND-ARCHITECTURE`
-§2's own reason for banning private API is that *"the failure mode is silent"*.
-The ban is against the silence. `SPIKE-013` produced a reader that sees the real
-composite, so the silence is gone and the risk is one VESPER can see.
+`SPIKE-013` §1a carries the cost table. The composite costs **+0.053%** of one
+core.
 
-**The alarm's own first run reported `UNREADABLE`,** and the fault was the
-alarm's: `navigationDelegate` is weak and nothing held the delegate between
-steps. It refused to answer rather than guessing — which is what the three steps
-are for, and why `UNREADABLE` is a separate verdict from `OPAQUE`.
+## GENUINELY BLOCKED — and on what
 
-### What is unblocked, and what is still not
+| # | What | Blocked on |
+|---|---|---|
+| 1 | **`SPIKE-013` criteria 1, 5, 6** — GPU, package power, battery drain, idle cadence | **`sudo powermetrics`.** Owner action. Everything on screen runs at an unmeasured power budget |
+| 2 | **Criterion 2** — `DISPERSED <= CENTRE` | Same. CPU came back **inconclusive**: `centre 0.222 [0.193 … 0.263]` against `dispersed 0.244 [0.223 … 0.275]`, ranges overlap, so the axis cannot separate them. §3 refuses "about the same" in **both** directions |
+| 3 | **Criterion 4 at full scale** | A run on VESPER's own Desktop — forcing occlusion means covering the whole display in black. The mechanism is verified; only the full-size figure is owed |
+| 4 | **The eight main-menu icons** | Owner: *"we'll have to define them, then get them or build them."* Eight meanings, then eight icons. Placeholders ship until then, and they look like placeholders on purpose |
+| 5 | **The face is a floating head** | §14.1 says a **bust** — head, neck and shoulders — at roughly the middle fifth of the width, from under the menu bar to two-thirds down. Needs `face_cloud.py` work **and** an owner decision, because it moves where every card goes |
+| 6 | **§10's 30% dim under the Dock** | No public API for the **autohide reveal** — it reserves no space, so `visibleFrame` cannot see it, and the Dock's own window bounds are the whole display. The persistent Dock is handled. The alternative is watching the cursor, which is watching the cause and calling it the effect |
+| 7 | **APCA** | §3 names `Lc >= 60`. The card solves a **WCAG-style luminance ratio** instead, labelled as a proxy in the code and in its own readout. Needs APCA's constants from source |
+| 8 | **Whether Tauri already uses the private hatch** | `wry` is not installed. If it does, choosing Tauri accepts the hatch inside a dependency, where `CI-058` cannot see it |
+| 9 | **Switching Spaces programmatically** | §2.3a — no public API names a Space. An Accessibility grant would do it, and this build deliberately has not asked for one |
 
-**The 90 cards are unblocked.** Nothing about them is throwaway now: the chrome
-can be transparent, and the glass blurs the live field behind it.
+## Not blocked, not started
 
-Still not done, and not blocked on the owner:
+The rail (§14.2's four glass buttons), the transcript line, the remaining cards.
+The composition question (#5) should be settled first: moving 90 cards later
+costs more than moving one now.
 
-- **`SPIKE-013`'s actual question — the composite's COST — has no numbers.**
-  That is the six-configuration table in §1, and it can now be measured against
-  a configuration that ships. Its `on_fail` fallbacks stand unchanged.
-- **`wry` is still unread.** If Tauri's macOS backend uses the same selector,
-  the chrome inherits this hatch whether or not VESPER writes it — and
-  `GlassGuard.verify` is the right alarm for that too, but `CI-058` cannot see
-  inside a dependency. Read it the day it lands.
+## Verification, all of it
 
-## Still open, carried forward
+```sh
+python3.13 tools/ci/checks.py all          # 32
+python3.13 tools/ci/self_test.py           # 80, red then green
+python3.13 tools/reference_lint.py
+python3.13 tools/traceability_lint.py
 
-- **GPU/energy for the face is unmeasured** — `powermetrics` needs sudo. 117.9 fps
-  at 0.2 % CPU is the CPU half only.
-- `adopt_probe` built, never run. It is the *repair* path now, not placement.
-- `intro.mp4` — proposed as the first-run cold open. Owner has not confirmed.
-- The reference "cool ideas" primitives are identified, not yet engineered.
-  Standing rule: adopt the primitives, refuse the habit of filling them.
+VESPER --glass-verify              # 0 transparent · 1 opaque · 2 unreadable
+VESPER --glass-verify --no-hatch   # must go RED
+VESPER --occlusion-check           # both directions
+VESPER --occlusion-check --poll-only
+VESPER --home --mode Home --chrome --face-check --seconds 14
+VESPER --home --mode Home --cost-check --cost-seconds 6 --cost-repeats 3
+```
+
+**`python3.13`, not `python3`** — the system 3.9 dies on `tomllib`, and
+`checks.py` still exits 0 while doing it.
+
+## Things that bit, worth not repeating
+
+- **A patch script is an instrument.** A multi-part replacement reporting one
+  boolean hid the one anchor that missed; the scrim did not exist for three
+  measurements while the reader took the blame. Assert every replacement.
+- **`framesDrawn` counts attempts.** It reported 367 frames for a face nobody
+  could see, and 116.8 fps for a ground that was fully covered.
+- **A mean hides the run that did nothing.** Print every run before any average.
+- **`String(format:)` with `%@` and a C string is a SIGTRAP with no message**,
+  and it will happen after the measurement has completed.
+- **Two definitions of the same plist drift.** `launchctl` will happily report
+  "reloaded" for a file that did not change.
