@@ -711,6 +711,82 @@ the commit says why.
 on one laptop are not a backup; eleven wallpapers in `~/Downloads` are less than
 that.
 
+## 4h. 2026-08-24 — the router was not routing, and this Mac made the first real call
+
+### Every difficulty went to the strong tier, and `A-022` was green
+
+`SR-009`, verbatim from the COC: *"Model router sends easy tasks to smaller
+models and hard tasks to stronger models."* Measured on `A-022`'s own corpus
+this morning: `got = ['strong','strong','strong','strong']` against floors
+`['draft','small','standard','strong']`. 202 s of estimated work for a trivial
+task the draft tier answers in 25 s.
+
+**Two faults, and neither was visible alone.** Selection ranked
+`TIER_RANK * 1e6 + rate` descending — "prefer the strongest tier that fits".
+The guard was *that fits*, and nothing ever made a stronger tier not fit,
+because `Router.from_spike_results` never set `host_ram_gb`. The residency
+constraint lived only in `A-022`'s hand-built doubles and was structurally
+unreachable in production.
+
+`A-022` **named this exact failure mode in its own comment** — *"would pass on
+a router that sent EVERYTHING to strong, which is not routing"* — and then
+asserted only the floor and monotonicity, both of which a constant `strong`
+satisfies. Naming a fault is not detecting it.
+
+### Registration order was the real routing rule
+
+`Provider` has carried a `profile_id` since F1 and `ModelGateway.complete`
+never read it. There was no parameter through which a `RouteDecision` could be
+passed at all. `A-022` asserted `RouteDecision`, `A-004` asserted
+`attempts_by_class`, and **no test held both ends of one call** — so a router
+that picks perfectly and a gateway that discards the pick were green together.
+
+That, not an empty router, was what made "wire a real provider" dangerous. The
+router was never empty: it loads six measured profiles from `SPIKE-001`.
+
+### This Mac is now a node with a real runtime — build-identical to node 1
+
+`~/VESPER-runtime/` (outside the repo, as node 1's is). `llama.cpp` **b10405,
+commit e79e4bf66** — the server reports `build_info: "b10405-e79e4bf66"`, the
+*same string* node 1's reports carry. Same model file name, same Q4_K_M quant,
+same `-ngl 99 -fa on -c 1024`. `~/VESPER-runtime/serve.sh` starts it.
+
+**VESPER's first real model call, 2026-08-24:** router chose
+`draft-accelerated-qwen1.7b` on measured profiles, the gateway routed to it,
+the adapter answered `VESPER online.` — `free:1 paid:0`.
+
+### Two traps a test double cannot produce
+
+1. **The adapter ignored `base_url` when `identity` was passed.** The identity
+   carries its own URL and the call path used *that*. A provider built for a
+   dead port, handed the live endpoint's identity for convenience, returned a
+   healthy 200 — a connection-failure test asserting against a working server.
+   A caller building several providers from one identity would have sent all of
+   them to one endpoint, **every result correctly labelled with where it came
+   from.** Self-consistent, and wrong. The adapter now refuses the mismatch.
+2. **A reasoning model spends its budget thinking first.** Asked for a short
+   answer under a 40-token budget, the endpoint returned HTTP 200, a well-formed
+   body, `completion_tokens: 40`, and `content: ""`. Nothing in the transport
+   failed. A caller reading `text` alone records an empty answer as a success,
+   and a verifier then disagrees *with the model* instead of with the budget.
+   `finish_reason` and `reasoning_content` are returned for this reason.
+
+### Reachability, measured — neither other node was up
+
+15:05 on 2026-08-24, from `192.168.100.163`: **TCP/22 to node 2
+(`192.168.100.102`) closed**, nothing on `:22` or `:8080` anywhere on the /24,
+ARP holding only the router and one unrelated device. ICMP is blocked both ways
+so ping proves nothing; this is the TCP answer. Node 1 holds every model above
+the draft tier, so the standard and strong tiers are unreachable from here
+until it is powered on.
+
+### `CI-007` is no longer vacuous on the directory `INV-HW-1` names first
+
+`routing/` did not exist until today. The check scans 82 files now, and a
+planted product name in `routing/` goes red — **checked, not assumed.**
+
+---
+
 ## 5. Open questions, recorded rather than resolved
 
 1. **What window must `C1` run for?** `AT-03` calls it the most important run in the
@@ -732,13 +808,15 @@ that.
 | | |
 |---|---|
 | Handoff / live verification figures | `VESPER_ENGINEERING_STATUS.md` |
-| Current plan | `PLAN_2026-08-17.md` |
+| Current plan | `PLAN_2026-08-24.md` |
 | Build order and gate placement | `docs/architecture/IMPLEMENTATION_SEQUENCE.md` |
 | Acceptance tests (the normative ones) | `verification/acceptance/AT-0*.md` |
 | Measurements | `docs/planning/spike-results/`, with `README.md` as the record |
 | Owner decisions | `docs/decisions/OWNER_DECISIONS.md` |
 | Endurance evidence, 23 h partial | `docs/planning/spike-results/A-029-endurance-2026-08-16/` |
 | Procurement and model evaluations | `docs/planning/MACBOOK_PROCUREMENT_BENCHMARK.md`, `QWEN38_27B_EVALUATION.md` |
+| Provider adapters, live gate | `routing/http_completion.py`, `verification/run_live_provider_acceptance.py` |
+| Local inference runtime (not in repo) | `~/VESPER-runtime/`, started by `serve.sh` |
 | Placement / survival | `core/placement.py`, `verification/run_f6_acceptance.py`, `verification/stress_placement.py` |
 | Alarm armed-state evidence | `docs/planning/spike-results/ALARM-0900-armed-verification-20260818.json` |
 | J3 browser capability probes | `docs/planning/spike-results/SPIKE-004-capability-probe-*.json` |

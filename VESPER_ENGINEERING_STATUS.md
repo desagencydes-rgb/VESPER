@@ -1,12 +1,12 @@
 # VESPER — Engineering Status
 
-**Updated:** 2026-08-18, after F6 placement landed and six CI checks were implemented · **Maintained continuously.** If another engineer or agent takes over tomorrow, this file plus `docs/DECISION_LOG.md` is the handoff.
+**Updated:** 2026-08-24, after the router was found not to be routing and the first real model call crossed the choke point · **Maintained continuously.** If another engineer or agent takes over tomorrow, this file plus `docs/DECISION_LOG.md` is the handoff.
 
 > **Read `MEMORY.md` first.** It carries what is *not* derivable from this file, the code or the
 > git history: the measured numbers with their provenance, the **bandwidth law** that governs
 > every model decision on node 1, the mistakes already made and corrected, and the doctrine this
 > project keeps rediscovering. Not required reading — a place to stand on. The current plan is
-> `PLAN_2026-08-17.md`.
+> `PLAN_2026-08-24.md`.
 
 ---
 
@@ -17,7 +17,7 @@
 | **Phase** | **F0, F1, F2 COMPLETE. F3, F4, F5, F6 part-built — every software-only case done, hardware-blocked cases named.** Seven gates run in CI. **F6 placement landed 2026-08-18**: `DF-PLACE` and `DF-SURVIVAL-PROFILE` implemented in `core/placement.py`, `A-048` (nine cases, both mandatory negative controls) and `A-017` green, plus a property harness over randomised fabrics. Implementation authorised and under way — `INV-ADR-1` was discharged 2026-08-14 by owner acceptance of `ADR-002` (with `ADR-001` and `ADR-012` already ACCEPTED). |
 | **Position** | **Three** SRs remain below `SPECIFIED` and `--profile release` fails on depth, deliberately: `SR-034` is the corpus's worked example of a requirement correctly held there, and `SR-016`/`SR-017` are F6 network-fabric work whose assertions `A-045` already holds. The other four were raised 2026-08-17 against the assertion that already named their mechanism. **No completeness judgement is recorded here** — that is part of the gate. |
 | **Verdict** | **None recorded here.** The readiness gate is the project owner's act. `docs/architecture/IMPLEMENTATION_READINESS_REPORT.md` and `docs/FINAL_PRE_F0_VERIFICATION_REPORT.md` are *evidence for* that gate. |
-| **Next action** | Software-only work continues to land — F6 placement on 2026-08-18. What remains blocked needs the **MacBook** (expected 2026-08-20), the **iPhone app**, **cameras**, and a **flat clear sheet**. **The endurance run is NOT in flight**; this line claimed it was for a day after it stopped being true. `A-029` is F5's gate, seventh of nine in the build order, and is scheduled for week 3 alongside the work it actually gates — the 23 h partial is banked as evidence. Owner still owes `OWNER-DECISION-006(c)` and the ADR-001/012 authority question below. |
+| **Next action** | **The router was not routing, and that is fixed (2026-08-24).** `SR-009` asks for easy work on smaller models; every difficulty was reaching the strong tier, and `A-022` was green because it asserted the tier floor and monotonicity, both of which a constant `strong` satisfies. Separately, `ModelGateway.complete` had no parameter for a routed profile at all, so **registration order was the routing rule**. Both closed, each with an executed red run. `routing/` now exists, which makes `CI-007` non-vacuous on the first directory `INV-HW-1` names. **VESPER has made a real model call** — `free:1 paid:0`, build `b10405-e79e4bf66`. What remains blocked needs the **iPhone app**, **cameras**, a **flat clear sheet**, and **node 1 powered on** (measured 2026-08-24 15:05: TCP/22 closed across the /24, so every tier above `draft` is unreachable from here). Software-only work continues to land — F6 placement on 2026-08-18. What remains blocked needs the **MacBook** (expected 2026-08-20), the **iPhone app**, **cameras**, and a **flat clear sheet**. **The endurance run is NOT in flight**; this line claimed it was for a day after it stopped being true. `A-029` is F5's gate, seventh of nine in the build order, and is scheduled for week 3 alongside the work it actually gates — the 23 h partial is banked as evidence. Owner still owes `OWNER-DECISION-006(c)` and the ADR-001/012 authority question below. |
 | **Known blocker on F0** | **DISCHARGED 2026-08-14.** `ADR-002` was accepted by the owner under `OWNER-DECISION-006(b)`; `ADR-001` and `ADR-012` were already ACCEPTED. `CI-008` enforces this mechanically and is green. **One authority question remains open and is the owner's:** `ADR-001` and `ADR-012` carry `ACCEPTED` stamped by an engineering pass, not by the owner. The corpus records that either all three are confirmed together at the readiness gate or the other two are re-confirmed on the same basis. F0 proceeded on the mechanical gate; this is recorded, not resolved. |
 | **Repository** | `git init` **done** 2026-08-12, `core.autocrlf=false`, corpus committed as authored. Branch protection and the `@owner` handle remain host-side owner actions, so `CI-002` and `CI-044` stay `PENDING`. |
 
@@ -42,7 +42,15 @@ verification/run_f6_acceptance.py             PASS   A-048 (9 cases) + A-017, 3 
 verification/stress_placement.py              PASS   160k property assertions
 verification/stress_fabric.py                 PASS   180k property assertions, DF-FABRIC-ADMIT
 verification/run_a029_endurance.py --self-test PASS  6/6 healthy, 3/3 controls fail as required
+verification/run_live_provider_acceptance.py  PASS   5/5 -- NOT hermetic, needs a live endpoint
 ```
+
+**The live provider gate is deliberately outside `checks.py all`.** It needs a model
+server; with none it reports `NOT RUN` and **exits 2**, never 0. A gate that goes green
+because its subject was absent is the vacuity defect described two paragraphs down, and
+the point of naming that defect was to stop repeating it. Start the endpoint with
+`~/VESPER-runtime/serve.sh` — llama.cpp **b10405-e79e4bf66**, the same build node 1 runs,
+so the two nodes' figures are comparable rather than merely both present.
 
 **The two figures that matter, and the difference between them.** *"21 of 56 checks implemented"* is true and flattering. *"23 of 118 invariants are enforced today"* is the number a reader actually wants. An invariant counts as enforced today only if a check names it that is **implemented**, **symmetric in both registries**, **red-run by the harness**, and **not vacuous on this tree**. `ci-registry` computes it on every run, so it cannot go stale.
 
