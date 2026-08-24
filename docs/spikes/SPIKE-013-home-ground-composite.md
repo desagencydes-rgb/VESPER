@@ -222,6 +222,86 @@ Every figure is read from the world after acting — `powermetrics` and the
 battery's own drain, never the renderer's own frame-time counter alone. An
 instrument's self-report is not evidence.
 
+## 1a. What §1 delivered, 2026-08-24 — the sudo-free half
+
+Run on **battery at 22–27%**, never on mains. §3 forbids reporting one as the
+other, so the power source is read from `pmset` and printed in every run's own
+header. Phase length **6 s**, three interleaved runs per tier — *not* the
+protocol's 10 min, which is a duration for **power**, not for CPU.
+
+The reading is **our process tree**: this pid plus the WebKit helpers that
+appeared after we started. `proc_pid_rusage(getpid())` reports the webview as
+nearly free, because WebKit renders out of process — wrong in exactly the
+direction that flatters the architecture. `host_processor_info` is dominated by
+whatever else runs on the machine; the first SPIKE-013 run read 132% at
+"wallpaper only" and then measured the face as *cheaper* than the wallpaper.
+
+| phase | CPU %, mean [lo … hi] | fps | frames |
+|---|---|---|---|
+| baseline | `0.002` | 0.0 | **0** |
+| centre | `0.222 [0.193 … 0.263]` | 111.2 | — |
+| attendant | `0.230 [0.225 … 0.240]` | 116.0 | — |
+| dispersed | `0.244 [0.223 … 0.275]` | 115.0 | — |
+| absent | `0.002` | 0.0 | **0** |
+| composite | `0.275` | 119.1 | — |
+
+**The composite's cost: `+0.053%` of one core.** One axis. GPU and package power
+are not in it.
+
+| # | Criterion | Result |
+|---|---|---|
+| 1 | the composite sustains its cadence, with CPU, GPU and power | **CPU only** — 119 fps held, `+0.053%` |
+| 2 | `DISPERSED ≤ CENTRE` on every axis | **INCONCLUSIVE** — see below |
+| 3 | `ABSENT` draws zero, proven by counter | **PASS** — 0 frames, every run |
+| 4 | occluded draws zero, proven by counter | **PASS on the mechanism**, not yet at full scale |
+| 5 | a stated idle cadence and its power difference | not measured |
+| 6 | battery drain as hours of runtime | not measured |
+
+### Criterion 2 is inconclusive, and that is the result
+
+The first attempt printed `CPU 0.3 vs 0.2  ok` — a verdict computed at full
+precision beside a display rounded to one decimal, so the numbers shown
+contradicted the answer given. That is this repo's own recorded defect (*"the
+stall record rounded the number it is judged by"*) wearing new clothes, and the
+fix was not more decimals. It was to measure the **spread**:
+
+```
+centre     0.222  [0.193 … 0.263]
+dispersed  0.244  [0.223 … 0.275]
+```
+
+**The ranges overlap.** This axis cannot separate the two tiers. §3's *"the
+requirement is not relaxed to 'about the same'"* cuts both ways — it is equally
+not **met** by "about the same". GPU and package power are the axes that would
+settle it.
+
+### Criterion 4 found the defect the spike was not looking for
+
+The ground held **116.8 fps while fully covered**. `Home.swift`'s entire premise
+is that macOS will not throttle a covered Metal layer, so the ground stops
+*deliberately* — and it never had. The window server said `covered`, the
+renderer said `running`, and a delivery counter said
+`didChangeOcclusionStateNotification` had arrived **zero times**.
+
+The notification is not broken in general: at `.floating`, covered by one of our
+own windows, it fires in **0.02 s** in both directions. It does not arrive for
+the *ground specifically* — full-screen, level `normal − 1`, transparent,
+`.managed`. `OcclusionWatch` now keeps it and adds a 0.5 s poll of
+`occlusionState`, proven alone with the notification disconnected: covered in
+`0.50 s`, uncovered in `0.29 s`.
+
+**Full-scale criterion 4 is still owed**, because forcing occlusion at full size
+means covering the whole display in black. The phase now refuses to run on a
+Desktop that has any of the owner's windows on it.
+
+### `ABSENT` is not zero CPU, and says so
+
+`0.002%` against Centre's `0.222%`. The residue is the 0.5 s occlusion poll and
+the 0.4 s dock poll — the machinery that makes the stop possible at all. §8's
+claim is about the cloud, and the cloud draws nothing.
+
+---
+
 ## 2. Pass criteria
 
 | # | Criterion |

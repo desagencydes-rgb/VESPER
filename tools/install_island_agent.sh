@@ -27,19 +27,16 @@ fi
 [ -x "$BIN" ] || { echo "build first: ./app/island-macos/build.sh"; exit 1; }
 mkdir -p "$LA" "$HOME/Library/Application Support/VESPER"
 
-cat > "$LA/$ID.plist" <<PLIST
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>Label</key><string>$ID</string>
-  <key>ProgramArguments</key><array><string>$BIN</string></array>
-  <key>WorkingDirectory</key><string>$REPO</string>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>ProcessType</key><string>Interactive</string>
-  <key>StandardErrorPath</key><string>$HOME/Library/Application Support/VESPER/island.err</string>
-</dict></plist>
-PLIST
+# ONE DEFINITION, COPIED -- not a second one written here.
+#
+# This script used to write its own plist while build.sh wrote another inside the
+# bundle, and on 2026-08-24 they drifted: build.sh gained the home's arguments,
+# this file kept spawning the island alone, and `launchctl` reported "LaunchAgent
+# reloaded" for a plist that had not changed. Two definitions of what VESPER is
+# means the one that runs is whichever was written last.
+SRC="$REPO/app/VESPER.app/Contents/Library/LaunchAgents/$ID.plist"
+[ -f "$SRC" ] || { echo "no plist in the bundle: ./app/island-macos/build.sh"; exit 1; }
+cp "$SRC" "$LA/$ID.plist"
 
 launchctl bootout "gui/$(id -u)/$ID" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$LA/$ID.plist"

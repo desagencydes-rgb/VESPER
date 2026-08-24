@@ -647,6 +647,27 @@ turned off; the points drift to a low-energy field and stay there, alive. A
 cross-fade to a different asset would be a new asset, a second renderer, and a
 visible cut where the owner asked for a dispersal.
 
+> **Built 2026-08-24.** `HomeController.setTier(_:)`, and the tiers are what §8
+> says rather than four names on one behaviour. **Attendant** is the *same
+> envelope* at a corner anchor with amplitude `0.45` — the driver is untouched
+> and its output scaled, because changing the envelope makes it a different
+> behaviour rather than the same one quieter. **Dispersed** releases the
+> attractor in the shader: the same 39,805 points, each drifting to a resting
+> place derived from its own vertex id with a slow per-point phase, so the field
+> is alive rather than merely stopped. The irises go with the head — a pair of
+> hot points floating in an ambience field reads as a face failing to dissolve.
+> **Absent** stops the renderer and hides the layer.
+>
+> `SPIKE-013` §1a has the measurements. Criterion 2 came back **inconclusive**:
+> `centre 0.222 [0.193 … 0.263]` against `dispersed 0.244 [0.223 … 0.275]`, and
+> overlapping ranges mean CPU cannot separate the tiers at all.
+>
+> **`INV-HOME-3` was violated and a frame counter caught it.** The occlusion
+> watch did `if visible { startRendering() }`, so with the tier at `Absent`,
+> becoming visible put the renderer back and "Absent runs no timer" quietly
+> stopped being true. Occlusion is a behaviour: it may *lower* the face's claim,
+> because a covered surface must not draw, and it may never *raise* it.
+
 **Three rules that come straight from decisions already made:**
 
 - **The stage owns the tier, and a behaviour may not raise its own.** Identical
@@ -970,6 +991,37 @@ anywhere on it. But the contrast target only has to be met *where the face is*,
 so the fill holds its solved value across the face's own radius and decays to
 `0.42` of it at the rim, measured at **2.8×** the centre's luminance. The
 plateau's edge is the face's edge.
+
+### 14.1b The main menu, and what is still a placeholder
+
+Built 2026-08-24, in the chrome layer. §14.2's bar at the Dock's own position,
+bottom-centre, Dock tier glass (§4), with the owner's avatar and a **separate**
+expandable tile at its right end — separate because §14.2 says separate, and a
+ninth slot in the bar would not be that.
+
+**The eight slots carry placeholder glyphs and are named, not drawn.** Owner,
+2026-08-24: *"only change is icons (we'll have to define them, then get them or
+build them)."* So the geometry, glass, spacing and hover behaviour are built to
+spec and every glyph is obviously a placeholder. Inventing eight icons and
+shipping them as though they were decided is how a placeholder becomes a design
+nobody chose. **What is owed: eight icon meanings, then eight icons.**
+
+**The dock swap is live** (§10): `NSApplicationPresentationAutoHideDock` while
+VESPER is frontmost, with the activation it requires — VESPER is `LSUIElement`,
+so nothing of ours is frontmost on an empty Desktop until it says so. Guarded,
+because setting `presentationOptions` while inactive raises, and a raise here
+would take the home down for a Dock.
+
+**§10's 30% dim is half built, and the missing half is named.** Finding the
+Dock's window and reading its bounds does not work: measured, the Dock process
+owns exactly two on-screen windows and **both are the whole display**, so the
+bar's own bounds say nothing and a height filter over that list returns `false`
+forever while looking like a working check. `NSScreen.visibleFrame` is a real
+reading of the same fact and catches the **persistent** Dock. It cannot catch
+the **autohide reveal**, which reserves no space — and that is the case §10
+actually describes. The alternative is watching the cursor near the bottom edge,
+which is watching the cause and reporting it as the effect. Left undone rather
+than faked.
 
 ### 14.2 The surfaces the reference adds
 

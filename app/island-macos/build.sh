@@ -84,11 +84,29 @@ cat > "$APP/Contents/Library/LaunchAgents/$ID.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>$ID</string>
-  <key>ProgramArguments</key><array><string>$APP/Contents/MacOS/VESPER</string></array>
+  <!-- THE WHOLE THING, AND IT DOES NOT STOP. Owner, 2026-08-24: "is it better
+       to put everything built there and not stop it?" -- yes, and this is where
+       that decision lives.
+
+       --on-empty-desktop with NO --wait is deliberate. The home waits for a
+       Desktop with none of the owner's windows on it, indefinitely, and never
+       takes one that has. A --wait here would exit on timeout, and under
+       KeepAlive an exit is a restart loop.
+
+       The wait does not block: the island is up the moment the process is,
+       whether or not a Desktop is free. -->
+  <key>ProgramArguments</key><array>
+    <string>$APP/Contents/MacOS/VESPER</string>
+    <string>--home</string>
+    <string>--on-empty-desktop</string>
+    <string>--mode</string><string>Home</string>
+    <string>--chrome</string>
+  </array>
   <key>WorkingDirectory</key><string>$REPO</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ProcessType</key><string>Interactive</string>
+  <key>StandardOutPath</key><string>$HOME/Library/Application Support/VESPER/island.out</string>
   <key>StandardErrorPath</key><string>$HOME/Library/Application Support/VESPER/island.err</string>
 </dict></plist>
 PLIST

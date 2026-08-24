@@ -58,6 +58,28 @@ final class HomeController: NSObject {
     /// sublayers, so a black layer put inside it is painted over by the very
     /// thing it was meant to darken. The reading that caught it was the plate
     /// still measuring luma 0.512 after the fill was solved at 0.757.
+    /// THE ICON MASK, and it is also the wallpaper.
+    ///
+    /// Owner, 2026-08-24: "normal widgets and icons (photos, apps, anything)
+    /// should not appear in vesper's home." macOS has no per-Space control for
+    /// either -- `CreateDesktop` is global and both Desktops show the same
+    /// `~/Desktop`. But it does not need one. MEASURED the same day: the desktop
+    /// picture sits at window layer -2147483624 and Finder's icons and the
+    /// widgets sit just above it, while this ground sits at level -1. They are
+    /// two billion levels BELOW us. They were never showing past VESPER; they
+    /// were showing THROUGH it, because the ground is transparent.
+    ///
+    /// So the ground paints the mode's wallpaper itself, opaquely, and
+    /// everything under it is occluded on this Desktop and no other -- the
+    /// window is `.managed`, so it lives on exactly one.
+    ///
+    /// AND THIS IS NOT THE IMITATION §13 REJECTED. That objection was that "the
+    /// menu bar samples the desktop picture, so a picture in a window is an
+    /// imitation" -- true when the window painted something the desktop did not.
+    /// The desktop picture IS this same file now, set by `Ambience.apply`, so
+    /// the menu bar samples the very image being painted here. Same picture,
+    /// same aspect-fill crop, one of them just happens to be above the icons.
+    private let wallpaper = CALayer()
     private let scrim = NSView()
     /// The falloff. A FLAT scrim at the solved fill is what the owner saw on
     /// 2026-08-24 and it read as a slab, not as glass -- at 0.757 there is
@@ -170,6 +192,17 @@ final class HomeController: NSObject {
         // and the run reports 0.1% CPU for a renderer that never ran.
         metal.drawableSize = CGSize(width: side * screen.backingScaleFactor,
                                     height: side * screen.backingScaleFactor)
+        // FIRST OF ALL, below the plate and below the face.
+        wallpaper.frame = CGRect(origin: .zero, size: screen.frame.size)
+        // The window server's own fill-and-centre-crop, by name rather than by
+        // arithmetic: 13% of a 16:9 source is off-screen on this display, and a
+        // seam at the menu bar is exactly what a different crop would look like.
+        wallpaper.contentsGravity = .resizeAspectFill
+        wallpaper.masksToBounds = true
+        wallpaper.backgroundColor = NSColor.black.cgColor
+        wallpaper.isHidden = true       // nothing to show until a mode is set
+        host.layer?.addSublayer(wallpaper)
+
         // THE PLATE GOES IN FIRST so the face draws over it. Two views rather
         // than one because a corner radius needs `masksToBounds` and a cast
         // shadow is clipped by it -- DESIGN-FOUNDATION SS4 asks for both on every
@@ -640,6 +673,26 @@ final class HomeController: NSObject {
             face.uniforms.tintB = Float(c.blueComponent)
         }
         let ok = Ambience.apply(m, on: screen, quiet: quiet)
+
+        // Paint it here too, so the icons and widgets underneath are covered.
+        // If the file cannot be read the ground stays transparent and says so:
+        // a home that silently shows the owner's desktop clutter is a worse
+        // failure than one that reports it.
+        if let dir = Ambience.wallpaperDir(), let url = m.wallpaper(in: dir),
+           let img = NSImage(contentsOf: url)?
+                        .cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            wallpaper.contents = img
+            wallpaper.isHidden = false
+            CATransaction.commit()
+        } else {
+            wallpaper.isHidden = true
+            if !quiet {
+                print("  *** wallpaper NOT painted — the desktop's own icons and")
+                print("      widgets will show through the ground ***")
+            }
+        }
         // The plate is adapted to the picture that is now behind it, not to the
         // one that was there when the process started.
         let url = Ambience.wallpaperDir().flatMap { m.wallpaper(in: $0) }

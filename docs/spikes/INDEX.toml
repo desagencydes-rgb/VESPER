@@ -381,6 +381,24 @@ unmarked file and refusing it in GlassGuard.swift if the reader or the negative
 control is removed; INV-HOME-5 promoted from candidate with the exception written
 into it, traced to SR-002.
 
+SS1 PARTLY DELIVERED 2026-08-24, on battery at 22-27%, never mains. Composite
+cost +0.053% of one core (composite - centre, three interleaved runs each).
+Criterion 3 PASS: ABSENT draws 0 frames, every run. Criterion 2 INCONCLUSIVE:
+centre 0.222 [0.193-0.263] against dispersed 0.244 [0.223-0.275], and
+overlapping ranges mean the axis cannot separate them -- SS3's refusal to relax
+the requirement to "about the same" cuts both ways, so it is equally not met by
+it. Criteria 1, 5 and 6 still need powermetrics and sudo.
+
+CRITERION 4 FOUND A DEFECT THE SPIKE WAS NOT LOOKING FOR. The ground held 116.8
+fps while fully covered: didChangeOcclusionStateNotification had been delivered
+ZERO times, so Home.swift's deliberate stop -- the mechanism the host-lifetime
+goal rests on -- had never once run. The notification works at .floating in 0.02
+s; it does not arrive for the ground specifically (full screen, normal-1,
+transparent, .managed). OcclusionWatch keeps it and adds a 0.5 s poll of
+occlusionState, proven alone with the notification disconnected. Full-scale
+criterion 4 is still owed and belongs on VESPER's own Desktop, because forcing
+it means covering the whole display.
+
 The 90 home cards are UNBLOCKED. SS1's six-configuration cost table is now
 measurable against a configuration that ships, which is what this precondition
 existed to secure, and its on_fail fallbacks stand unchanged."""

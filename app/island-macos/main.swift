@@ -1209,31 +1209,76 @@ if args.contains("--home") {
     //
     // It fails CLOSED. No empty Desktop, no ground: taking the owner's Desktop
     // is worse than not starting.
+    // --on-empty-desktop turns a deadline into a CONDITION, and that is the
+    // difference between a command the owner has to stand over and one that can
+    // be left running for good.
+    //
+    // §2.3a: the ground is `.managed`, so it is created on whichever Desktop is
+    // ACTIVE, and no public API names a Space to put it on instead. --after
+    // handles that with a stopwatch: switch within N seconds or the ground
+    // lands on top of your work. This waits for the room to be EMPTY instead --
+    // SpaceWatch.fingerprint() already excludes our own windows and counts only
+    // ordinary ones, so "no foreign windows here" is exactly "this is not the
+    // Desktop you are working on".
+    //
+    // IT DOES NOT BLOCK, and that matters for the login-item case: VESPER's
+    // island must be up the moment the process is, not whenever a Desktop
+    // happens to come free. The first version slept the main thread before
+    // `app.run()`, which would have held the island hostage to the home.
+    //
+    // AND IT WILL NOT TAKE DESKTOP 1 AT LOGIN. At login every Desktop is empty,
+    // including the owner's, so "first empty Desktop" would claim theirs. The
+    // condition is therefore: an empty Desktop, AND a non-empty one seen at
+    // least once first. VESPER waits until the machine is in use, then takes
+    // the room nobody is in.
     if args.contains("--on-empty-desktop") {
         let limit = args.firstIndex(of: "--wait").flatMap { i -> Double? in
             i + 1 < args.count ? Double(args[i + 1]) : nil
-        } ?? 900
+        }
         print("home: waiting for an EMPTY Desktop — switch to VESPER's whenever you like.")
         print("      it refuses to create the ground on a Desktop with your windows on it.")
-        let deadline = Date().addingTimeInterval(limit)
-        var fp = SpaceWatch.fingerprint()
         var announced = false
-        while !fp.isEmpty && Date() < deadline {
-            if !announced {
-                print("      here now: \(fp.count) foreign window(s) — not VESPER's Desktop.")
-                announced = true
+        var t: Timer?
+        t = Timer(timeInterval: 0.5, repeats: true) { timer in
+            let fp = SpaceWatch.fingerprint()
+            if !fp.isEmpty {
+                if !announced {
+                    print("      here now: \(fp.count) foreign window(s) — not VESPER's Desktop.")
+                    announced = true
+                }
+                return
             }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.4))
-            fp = SpaceWatch.fingerprint()
+            // Owner, 2026-08-24: "if both desktops are empty, say on boot for
+            // example, it can just take one, and leave the other one untouched
+            // ... not take something i have work on". So the condition is
+            // exactly emptiness, and nothing else: an empty Desktop is fair
+            // game whether or not the machine has been used yet.
+            timer.invalidate(); t = nil
+            print("home: empty Desktop — the ground is created HERE.")
+            startHome()
         }
-        guard fp.isEmpty else {
-            let msg = "home: no empty Desktop within \(Int(limit)) s — refusing to take one "
-                    + "that is not VESPER's. Nothing was changed.\n"
-            FileHandle.standardError.write(msg.data(using: .utf8)!)
-            exit(3)
+        RunLoop.main.add(t!, forMode: .common)
+        if let limit {
+            // A deadline only exists when one is asked for. Under launchd's
+            // KeepAlive, exiting on a timeout is a restart loop; the agent case
+            // waits indefinitely and takes nothing.
+            DispatchQueue.main.asyncAfter(deadline: .now() + limit) {
+                guard t != nil else { return }
+                t?.invalidate()
+                let msg = "home: no empty Desktop within \(Int(limit)) s — refusing to take "
+                        + "one that is not VESPER's. Nothing was changed.\n"
+                FileHandle.standardError.write(msg.data(using: .utf8)!)
+                exit(3)
+            }
         }
-        print("home: empty Desktop — the ground is created HERE.")
+    } else {
+        startHome()
     }
+}
+
+/// Everything the home needs, in one place, so it can be started immediately or
+/// when a Desktop comes free without the two paths drifting apart.
+func startHome() {
     guard let h = HomeController(screen: NSScreen.main ?? screen) else {
         FileHandle.standardError.write("home: could not start\n".data(using: .utf8)!)
         exit(2)
@@ -1279,6 +1324,34 @@ if args.contains("--home") {
             // discriminating the moment a backing went behind the face -- the
             // face rect returned 100% at alpha 1.000, which is true of the
             // window and says nothing about the face.
+            // THE ICON MASK, proved rather than asserted. Icons and widgets sit
+            // two billion window levels below the ground; the only way they
+            // reach the owner's eye is through a transparent patch of it. So the
+            // question is not "are the icons hidden" -- which would need a
+            // screen recording -- but "is any part of this window see-through",
+            // which our own window's alpha answers exactly.
+            var opaque = 0, tiles = 0
+            let step: CGFloat = 64
+            var gx: CGFloat = 0
+            while gx < size.width {
+                var gy: CGFloat = 0
+                while gy < size.height {
+                    let c = GlassGuard.coverage(img, viewSize: size,
+                                rect: CGRect(x: gx, y: gy, width: 8, height: 8))
+                    tiles += 1
+                    if c.meanAlpha >= 0.99 { opaque += 1 }
+                    gy += step
+                }
+                gx += step
+            }
+            print(String(format: "  ground opacity  %d/%d tiles fully opaque (%.1f%%)",
+                         opaque, tiles, tiles > 0 ? Double(opaque) / Double(tiles) * 100 : 0))
+            print(opaque == tiles
+                  ? "  nothing below the ground can show through — icons and widgets"
+                  + " are covered on this Desktop"
+                  : "  SOME OF THE GROUND IS SEE-THROUGH — the owner's icons and widgets"
+                  + " will show there")
+
             let pr = h.plateRect
             // A corner of the plate the face never reaches: this is the plate
             // ALONE, and it is the reference every face number is read against.
@@ -1357,6 +1430,21 @@ if args.contains("--home") {
                 print(cardA.painted == 0
                       ? "  the card is NOT painting — mounted is not the same as visible"
                       : "  the card paints where the ground paints nothing")
+            }
+
+            // THE MAIN MENU. Bottom-centre, at the Dock's position. Probed
+            // separately from the card because they are different CSS and a bar
+            // that failed to lay out would be invisible in the card's number.
+            if h.chrome.mounted {
+                let bar = CGRect(x: size.width / 2 - 120, y: 18, width: 240, height: 48)
+                let b = GlassGuard.coverage(img, viewSize: size, rect: bar)
+                let bl = GlassGuard.luma(img, viewSize: size, rect: bar)
+                print(String(format: "  main menu       %.1f%% painted, luma %.3f",
+                             b.total > 0 ? Double(b.painted) / Double(b.total) * 100 : 0,
+                             bl.mean))
+                print(b.painted == 0
+                      ? "  the main menu is NOT painting"
+                      : "  the main menu paints at the Dock's position")
             }
 
             let fpct = faceL.total > 0
