@@ -1,0 +1,159 @@
+##############################################################################
+# ADMISSION BASELINE -- what `security_baseline` MEANS, written down
+#
+# Authority: ADR-007 D2, REM-011 3.7, A-042.2, INV-TRUST-1.
+#
+# WHY THIS FILE HAD TO EXIST BEFORE A NODE COULD BE ENROLLED.
+# `node_capability_profile.schema.json` has carried a `security_baseline` field
+# with the enum {meets, partial, fails} since 2026-08-20, and ADR-007 D2 says
+# the trust zone is "derived from them by RULE, not declared". No rule was ever
+# written. So the field could only be filled by somebody typing one of three
+# words, which is a declaration wearing a measurement's clothes -- exactly what
+# INV-HW-2 exists to refuse, applied to the one input that decides whether a
+# node may hold VESPER's state.
+#
+# THE PROBE MEASURES, THIS FILE GRADES, AND THE SPLIT IS THE POINT. A probe
+# that decided its own passing grade would be a node raising its own ceiling,
+# and ADR-007 D2 forbids that in as many words. `tools/spike/probe_host_facts.py`
+# returns facts with the command that produced each; the verdict is here, where
+# changing it is a reviewed diff rather than a code path.
+##############################################################################
+
+schema_version = 1
+authority = "ADR-007 D2; REM-011 3.7; A-042.2"
+applies_to = "NodeCapabilityProfile.security_baseline"
+
+##############################################################################
+# THE REQUIRED SET
+#
+# Every requirement below must hold for `meets`. Each names the failure it
+# prevents, because a control whose reason is not written down is a control the
+# next reviewer deletes as paranoia.
+#
+# UNKNOWN IS NOT A PASS. A requirement whose instrument returned null is
+# treated as failed -- the alternative admits a node because its probe was
+# broken, which is the vacuity defect the corpus already refuses elsewhere.
+##############################################################################
+
+[requirement.disk_encryption]
+required = true
+instrument = "probe_host_facts.security.instruments.disk_encryption"
+prevents = """A node that is carried out of the building yields VESPER's state
+at rest. The survival core is tasks, memory, alarms and policy (core/devices.py
+CONTINUITY_CRITICAL); a host that cannot protect those when powered off cannot
+hold them when powered on."""
+
+[requirement.kernel_integrity_protection]
+required = true
+instrument = "probe_host_facts.security.instruments.kernel_integrity_protection"
+prevents = """Key storage above `file_based` is a claim ABOUT THE OS. An OS
+whose own integrity protections are disabled cannot make that claim -- the
+keychain's non-exportability is enforced by the kernel that has been opened up.
+This is why the requirement is not merely 'nice': it is what makes the
+key_storage_class ceiling meaningful at all."""
+
+[requirement.no_unexpected_external_listeners]
+required = true
+instrument = "probe_host_facts.security.instruments.no_unexpected_external_listeners"
+prevents = """Enrollment admits nodes reachable over a LAN, and MEMORY.md
+records that this network blocks ICMP while leaving TCP open -- so 'nothing
+pinged me' has already been established as no evidence at all. What matters is
+what is actually REACHABLE, and this measures exactly that."""
+supersedes = "host_firewall, 2026-08-25"
+why_the_firewall_was_the_wrong_instrument = """This requirement was first
+written as `host_firewall = on`, and measuring it is what showed the mistake.
+The platform's application firewall is per-application, does not filter
+loopback, and permits signed binaries by default. So it can be ON while a
+service sits bound to 0.0.0.0, and OFF while nothing is exposed at all -- which
+was this host's real state: FileVault on, SIP on, firewall off, and exactly one
+non-loopback listener, the platform's own continuity service.
+
+As an admission gate it therefore produces BOTH false failures and false
+passes, and the false pass is the dangerous one. The question the requirement
+was reaching for -- is anything unexpected reachable from the network -- is one
+command away, stays meaningful when VESPER's own fabric later serves on the LAN
+(the check becomes "the listener set is exactly the expected set"), and cannot
+be satisfied by a toggle that changes nothing about what is listening.
+
+The firewall state is still recorded, as `host_firewall_advisory`, and is NOT
+graded. A control worth having is not the same as a control worth gating on."""
+
+[requirement.os_supported]
+required = true
+instrument = "probe_host_facts.security.instruments.os_version"
+prevents = "An OS past its support horizon receives no fixes for the mechanisms above."
+note = """Deliberately NOT a version floor per platform. A hard-coded minimum
+version goes stale silently and then admits or refuses on a number nobody
+re-read. The check is that the probe returned a version at all, plus the
+owner's re-attestation at ADR-007 D4's interval, which is the mechanism that
+actually catches drift."""
+
+##############################################################################
+# GRADING
+##############################################################################
+
+[grade]
+meets = "every requirement with required = true holds"
+partial = "at least one required requirement holds and at least one does not"
+fails = "no required requirement holds, or no probe ran"
+
+[grade.unknown_disposition]
+value = "fails"
+why = """A requirement whose instrument returned null counts as NOT holding.
+Fail-closed: admitting a node because its probe returned nothing is how a
+broken instrument becomes a trusted node."""
+
+##############################################################################
+# ZONE DERIVATION -- the rule ADR-007 D2 said existed
+#
+#   zone = MIN( ceiling(key_storage_class), cap(security_baseline) )
+#
+# Two independent bounds, and the lower wins. They answer different questions:
+# key storage asks "can this node keep a secret", the baseline asks "is the
+# platform holding that secret intact". A node can pass either and fail the
+# other, and A-042.2 is written about exactly that combination.
+##############################################################################
+
+[zone_ceiling_by_key_storage]
+hardware_backed = "Z0"
+os_keychain = "Z1"
+file_based = "Z2"
+none = "NOT_ENROLLABLE"
+
+[zone_ceiling_by_key_storage.notes]
+none = """ADR-007 D2's last row: a node that cannot keep a secret cannot have
+an identity. NOT_ENROLLABLE is a distinct state from Z2 and must never be
+recorded as it -- Z2 is an enrolled node with a bounded role, and a node with
+no key is not enrolled at all."""
+os_keychain = """RECORDED DISAGREEMENT, resolved fail-closed. ADR-007 D2's
+table gives `Z0` to an OS keychain that is non-exportable and device-locked,
+and `Z1` to one that is exportable. core/devices.py TRUST_ZONE_CEILING collapses
+both to `Z1`. This file follows the CODE, because nothing on any supported
+platform currently proves non-exportability to the probe, and a ceiling granted
+on an unverified property is not a ceiling. Raising it to Z0 requires an
+instrument that demonstrates non-exportability, not an edit here."""
+
+[zone_cap_by_baseline]
+meets = "Z0"
+partial = "Z2"
+fails = "Z2"
+
+[zone_cap_by_baseline.notes]
+partial = """A-042.2: a node that passes the capability floor and fails the
+security baseline is Z2 HOWEVER MUCH THROUGHPUT IT OFFERS. `partial` is a
+failing baseline -- it is reported separately from `fails` so the diagnostic
+can name what is missing, not so it can buy a better zone."""
+
+##############################################################################
+# WHAT Z2 COSTS, stated here because it is the thing people are surprised by
+##############################################################################
+
+[consequences.Z2]
+may = ["render", "observe"]
+may_not = ["hold state", "issue commands", "receive secrets"]
+roles_permitted = ["presence_endpoint", "sensor_node"]
+survival_capable = false
+enforced_by = "INV-TRUST-1; node_capability_profile.schema.json allOf[0]; core/enrollment.py check_z2_bound"
+consequence = """A Z2 node cannot be VESPER's host. It cannot hold the task
+graph, the memory index or the policy, so a fabric whose only node is Z2 has
+nowhere to keep VESPER between one moment and the next."""

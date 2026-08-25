@@ -424,3 +424,55 @@ time_box = "2 working days"
 owner_role = "Platform Engineer"
 requires_hardware = true
 raised_by = "docs/design/HOME-ARCHITECTURE.md SS4, 2026-08-22. Verified 2026-08-22 by swiftc -parse against the macOS 26.5 SDK: WidgetKit, SwiftUI, AppIntents and WebKit all resolve under Command Line Tools with no Xcode on this machine. That settles the compiler and settles nothing else. The island already produced the cautionary case -- SMAppService compiled, registered without throwing, reported enabled, and launchd refused to spawn the app every time."
+
+[spikes.SPIKE-015]
+title = "The small tier's model, decided by measurement on this host"
+protocol = "docs/spikes/SPIKE-015-small-tier-model-selection.md"
+status = "RUNNING"
+status_note = """RUNNING since 2026-08-25. Pre-registered BEFORE any candidate
+result was seen, and the ten pass criteria are in the protocol rather than here.
+
+BASELINE TAKEN 2026-08-25 -- the incumbent Qwen3-1.7B-Q4_K_M, build
+b10405-e79e4bf66, one slot, 16k context. It is not a candidate; it is what a
+candidate has to beat, and it already answers three things nobody had measured:
+
+  conversation      2.5 s wall, first VISIBLE token at 1.91 s, 67.5 tok/s
+  tool call single  PASS, 2.9 s, correct function and arguments
+  tool call multi   PASS, 3.0 s, correct second call from the first result
+  long context      PASS, found the needle, 11.2 s
+  coding            PASS, generated code passed its asserts -- 41.5 s, first
+                    visible token at 40.7 s
+  science reasoning FAIL on content, 56.2 s, first visible token at 51.2 s
+  arithmetic        BUDGET EXHAUSTED -- 2700 tokens, 9565 characters of
+                    reasoning, no answer emitted
+  vision            UNAVAILABLE, endpoint reports modalities.vision = false
+
+THE FINDING THAT SHAPES THE WHOLE SPIKE: throughput is not the latency. At 59
+tok/s the science question left FIFTY-ONE SECONDS OF SILENCE before the first
+token a person would see, because reasoning is generated before the answer
+starts and is never shown or spoken. A thinking model can pass every published
+speed measure and be unusable in conversation. Criterion 2 exists for this.
+
+TWO INSTRUMENT DEFECTS CAUGHT AND FIXED BEFORE ANY CANDIDATE RAN, both of which
+would have condemned rather than flattered:
+
+  * streamed tool-call ARGUMENTS arrive in fragments keyed by index. Appending
+    each delta as its own call read the arguments as "{" and scored two correct
+    calls as failures -- on the axis that decides the whole question.
+  * n_ctx = 1024 bound before any token budget did. Every reasoning test hit
+    the context ceiling rather than the model, and the long-context test
+    returned HTTP 400. The 1024 window is node 1's draft-tier configuration and
+    is correct for cross-node comparability; it is far too small for this work.
+
+Also fixed: serve.sh omitted --parallel, documented as `-1 = auto`. Auto
+resolved to 1 slot on node 1 and 4 on this host, so identical command lines
+produced different server configurations and incomparable rates."""
+question = "Can ONE small local model carry VESPER's front-end work -- conversation, perception, tool calling -- on this host, fast enough to talk to and quiet enough that the owner does not notice it is running?"
+pass_criteria = "All ten criteria in the protocol document, fixed before the first candidate ran: >=7 tok/s sustained; <=2.0 s to first VISIBLE token in conversation; endpoint reports vision true AND every image test answers; a recognisable transcription of a real handwritten notebook page; the real labels and values read off a screenshot of VESPER's own surface; single-turn tool calling with correct function and arguments; MULTI-TURN tool calling using the first call's result; a verifiable fact retrieved from long same-register prose; generated code that passes asserts under execution; and the host staying comfortable -- battery temperature rise under 12 C and peak under 42 C, memory pressure band never at or below 25, no OS thermal warning."
+on_fail = "The THINKING BUDGET is tuned before any criterion is. `--reasoning on|off|auto` and `--reasoning-budget N` are server-side controls, so conversational latency and reasoning depth can be two deployments of one model rather than two models. If bounding the budget cannot buy criterion 2 without losing tool calling, long context or code, the candidate is reported as failing and the next is tested. NOT PERMITTED: an idle-condition figure reported as the working one; a client-side rate reported as the model's; a vision result from a run whose projector did not load; relaxing the host-comfort criterion because a candidate was otherwise good."
+blocks = ["the small tier in capability_profiles.toml", "any local-model claim in the degradation ladder", "the voice path, which cannot be specified against an unmeasured first-token latency"]
+depends_on = ["SPIKE-001"]
+time_box = "2 working days"
+owner_role = "Platform Engineer"
+requires_hardware = true
+raised_by = "The owner, 2026-08-24, re-deciding the small tier with two constraints: no model at or above 7B on this host at any cost, and the model must stay light enough not to be noticed until someone checks. The published cost of the 7B ban is small and specific -- Qwen3-VL-4B-Thinking scores 67.3 BFCL-v3 against Qwen3-VL-8B-Instruct's 66.3, and 51.3 LiveCodeBench v6 against 39.3 -- so the ban costs nothing on the two axes it was feared to."

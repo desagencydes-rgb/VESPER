@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "spike": "SPIKE-015",
+  "label": "qwen3vl-4b-thinking-q4km-reasoning-on",
+  "generated_at_utc": "20260824T231123Z",
+  "endpoint": {
+    "base_url": "http://127.0.0.1:8080",
+    "model_path": "./models/Qwen3VL-4B-Thinking-Q4_K_M.gguf",
+    "total_slots": 1,
+    "modalities": {
+      "vision": true,
+      "video": true,
+      "audio": false
+    },
+    "chat_template_has_tools": true
+  },
+  "assets": {
+    "handwriting": "docs/source/handwritten-pages/1.jpeg",
+    "ui": "docs/design/ui-refs/island-expanded-instruments.png",
+    "design": "docs/design/assets/wallpapers/thinking.png",
+    "screen": "docs/planning/spike-results/spike015-assets/screen.png"
+  },
+  "host": {
+    "samples": 2,
+    "battery_temp_c": {
+      "start": 30.68,
+      "peak": 30.68,
+      "end": 30.68
+    },
+    "instant_amperage_ma": {
+      "peak_draw": -1258,
+      "median": -1258
+    },
+    "charge_percent": {
+      "start": 67,
+      "end": 67,
+      "used": 0
+    },
+    "memory_band": {
+      "start": 23,
+      "worst": 23
+    },
+    "aborted": "memory pressure band fell to 23 -- a model that pushes the owner's working set out is not lightweight"
+  },
+  "results": []
+}

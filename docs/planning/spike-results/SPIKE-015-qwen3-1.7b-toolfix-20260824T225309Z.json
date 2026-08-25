@@ -1,0 +1,103 @@
+{
+  "schema_version": 1,
+  "spike": "SPIKE-015",
+  "label": "qwen3-1.7b-toolfix",
+  "generated_at_utc": "20260824T225309Z",
+  "endpoint": {
+    "base_url": "http://127.0.0.1:8080",
+    "model_path": "./models/Qwen3-1.7B-Q4_K_M.gguf",
+    "total_slots": 1,
+    "modalities": {
+      "vision": false,
+      "video": false,
+      "audio": false
+    },
+    "chat_template_has_tools": true
+  },
+  "assets": {
+    "handwriting": "docs/source/handwritten-pages/1.jpeg",
+    "ui": "docs/design/ui-refs/island-expanded-instruments.png",
+    "design": "docs/design/assets/wallpapers/thinking.png",
+    "screen": "docs/planning/spike-results/spike015-assets/screen.png"
+  },
+  "host": {
+    "samples": 3,
+    "battery_temp_c": {
+      "start": 30.57,
+      "peak": 30.57,
+      "end": 30.57
+    },
+    "instant_amperage_ma": {
+      "peak_draw": -415,
+      "median": -415
+    },
+    "charge_percent": {
+      "start": 73,
+      "end": 73,
+      "used": 0
+    },
+    "memory_band": {
+      "start": 48,
+      "worst": 45
+    },
+    "aborted": null
+  },
+  "results": [
+    {
+      "cycle": 0,
+      "name": "tool_call_single",
+      "axis": "self_action",
+      "note": "",
+      "wall_seconds": 3.24,
+      "ttft_visible_seconds": null,
+      "ttft_any_seconds": 0.08,
+      "server_tokens_per_sec": 58.16644280446518,
+      "tokens_predicted": 185,
+      "tokens_evaluated": 1,
+      "reasoning_chars": 692,
+      "finish_reason": "tool_calls",
+      "verdict": true,
+      "verdict_detail": "structured call get_node_metric({\"node_id\": \"nd_macbook\", \"metric\": \"battery\"}) -- all present",
+      "error": null,
+      "answer": "",
+      "reasoning": "Okay, the user is asking for the battery level on node nd_macbook. Let me check the tools available. There's a function called get_node_metric that reads a live metric from an enrolled node. The parameters are node_id and metric. The metric can be battery, cpu, memory, or tokens_per_sec. The user specifically mentioned battery, so the metric parameter should be \"battery\". The node_id is \"nd_macbook\". I need to call this function with those parameters. Let me make sure I have the correct JSON structure for the tool call. The function name is get_node_metric, and the arguments should include node_id as \"nd_macbook\" and metric as \"battery\". I'll format that into the tool_call XML tags.\n",
+      "host_at_end": {
+        "t": 1787611989.5354471,
+        "battery_temp_c": 30.57,
+        "instant_amperage_ma": -415,
+        "charge_percent": 73,
+        "memory_band": 48,
+        "loadavg": "{ 2.36 2.75 2.54 }",
+        "thermal_warning": false
+      }
+    },
+    {
+      "cycle": 0,
+      "name": "tool_call_multi_turn",
+      "axis": "self_action",
+      "note": "BFCL multi-turn is where small models collapse. This is the test that matters most for the autonomy loop.",
+      "wall_seconds": 2.52,
+      "ttft_visible_seconds": null,
+      "ttft_any_seconds": 0.12,
+      "server_tokens_per_sec": 61.918362074798196,
+      "tokens_predicted": 151,
+      "tokens_evaluated": 1,
+      "reasoning_chars": 498,
+      "finish_reason": "tool_calls",
+      "verdict": true,
+      "verdict_detail": "structured call queue_task({\"name\": \"defer_heavy_work\"}) -- all present",
+      "error": null,
+      "answer": "",
+      "reasoning": "Okay, the user asked to check the battery on nd_macbook. I called the get_node_metric function with node_id \"nd_macbook\" and metric \"battery\". The response came back with a battery level of 74%. Since 74 is below 80%, I need to queue the task 'defer_heavy_work'. Now, I should use the queue_task function with the name \"defer_heavy_work\". Let me make sure the parameters are correct. The function requires the name parameter, so I'll pass \"defer_heavy_work\". Alright, that's all I need to do here.\n",
+      "host_at_end": {
+        "t": 1787611994.60907,
+        "battery_temp_c": 30.57,
+        "instant_amperage_ma": -415,
+        "charge_percent": 73,
+        "memory_band": 46,
+        "loadavg": "{ 2.57 2.79 2.55 }",
+        "thermal_warning": false
+      }
+    }
+  ]
+}

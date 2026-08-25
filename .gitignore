@@ -49,3 +49,6 @@ app/VESPER.app/
 docs/design/source/refs/tiny/
 docs/design/source/artifacts/home-previews.built.html
 f1b_last_run.log
+
+# Accidental Claude Code session transcript dumps.
+2*-local-command-caveat*.txt
