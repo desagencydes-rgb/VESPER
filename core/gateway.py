@@ -63,6 +63,22 @@ from .cost import CostPolicy, CostPolicyViolation
 from .effort import Effort, for_difficulty, guard_response
 from .quota import QuotaLedger, UNAVAILABLE_ON_TIER
 
+
+def _limit_parse_suspect(message: str) -> bool:
+    """Ask the adapter whether a refusal named an unreadable limit.
+
+    IMPORTED LAZILY, AND THAT IS STRUCTURAL. `core/` must not depend on
+    `routing/` at module load -- the adapter is a plug-in detail and the
+    gateway is the boundary it plugs into. A missing adapter degrades to
+    "no suspicion" rather than breaking the gateway, because a drift DETECTOR
+    that can take the whole call path down is worse than the drift.
+    """
+    try:
+        from routing.http_completion import quota_limit_parse_suspect
+    except Exception:  # noqa: BLE001
+        return False
+    return quota_limit_parse_suspect(message)
+
 # SR-004: an error a human can act on. Classification decides retry timing.
 TRANSIENT = ("rate_limited", "timeout", "server_error", "connection_error")
 TERMINAL = ("auth_failed", "quota_exhausted", "revoked", "bad_request")
@@ -290,6 +306,31 @@ class ModelGateway:
         which is the more expensive of the two mistakes by a wide margin.
         """
         limit = getattr(exc, "quota_limit", None)
+        if limit is None and _limit_parse_suspect(str(exc)):
+            # THE SILENT DEGRADATION THIS EXISTS TO MAKE LOUD. The limit lives
+            # only in the vendor's prose -- the structured quota block carries
+            # metrics and ids and no limit at all. So a rewording turns a
+            # PERMANENT refusal into one that looks temporary, and the ladder
+            # retries a dead rung every day forever while every check stays
+            # green, because the fixture is frozen and still parses.
+            #
+            # Routing is deliberately NOT changed here: EXHAUSTED stays the
+            # safe default, since defaulting a missing limit to zero would
+            # retire a working model on its first ordinary rate limit. This
+            # only says so, which is the difference between a defect that gets
+            # found and one that quietly costs a rung.
+            self._bus.publish(
+                "quota.limit_parse_suspect", subject=p.provider_id,
+                payload={"provider_id": p.provider_id, "model": p.model,
+                         "message_excerpt": str(exc)[:200],
+                         "booked_as": "exhausted",
+                         "note": ("this refusal names a limit in a shape the "
+                                  "parser did not read. A zero limit would be "
+                                  "indistinguishable from an ordinary spent "
+                                  "window here. RE-MEASURE against a live "
+                                  "refusal -- the fixture can no longer tell "
+                                  "you.")},
+                component="gateway")
         entry = self.quota.record_refusal(
             p.provider_id, p.model, limit=limit,
             retry_after_ms=retry_after_ms,

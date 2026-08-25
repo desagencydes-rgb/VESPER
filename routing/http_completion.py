@@ -155,6 +155,32 @@ class EndpointIdentity:
 # expires first, and re-measuring it is a live call the owner has to make.
 _QUOTA_LIMIT = re.compile(r"\blimit:\s*(\d+)")
 
+# DRIFT DETECTOR FOR THE LINE ABOVE, and the reason it needs one.
+#
+# The limit that separates "this tier has no allowance" from "today's window is
+# spent" exists ONLY in the prose of the vendor's `message`. Verified against
+# the captured refusal: the structured QuotaFailure block carries `quotaMetric`,
+# `quotaId` and `quotaDimensions` -- and no limit value at all. So a regex over
+# a sentence is not laziness here, it is the only signal there is.
+#
+# THAT MAKES IT THE MOST PERISHABLE LINE IN THE TREE. If the vendor rewords the
+# sentence, `_quota_limit_from` returns None, the refusal books as EXHAUSTED,
+# the ladder retries a permanently dead rung every day forever -- AND NOTHING
+# GOES RED. The fixture still parses, because the fixture is frozen; the check
+# still passes, because it checks the fixture. A test that cannot fail when the
+# world changes is not covering the thing it appears to cover.
+#
+# So absence of a match is split in two. "No limit published" is ordinary and
+# silent -- most providers never publish one. "A refusal that talks about a
+# limit in a shape we could not read" is a PARSER DRIFT signal, and it is said
+# out loud. This deliberately does NOT change routing: EXHAUSTED remains the
+# safe default either way (defaulting a missing field to zero would retire a
+# working model on its first rate limit, which is far worse). It only makes a
+# silent degradation visible, which is the whole difference between a bug that
+# gets found and one that quietly costs a rung.
+_QUOTA_LIMIT_SUSPECT = re.compile(
+    r"\b(?:limit|quota)\b[^.\n]{0,40}?\b(?:is|of|=|:)\s*\d", re.I)
+
 
 def _quota_limit_from(message: str) -> int | None:
     """The smallest published limit in a refusal message, or None.
@@ -168,6 +194,20 @@ def _quota_limit_from(message: str) -> int | None:
     """
     found = [int(m) for m in _QUOTA_LIMIT.findall(message or "")]
     return min(found) if found else None
+
+
+def quota_limit_parse_suspect(message: str) -> bool:
+    """True when a refusal names a limit in a shape the parser did not read.
+
+    NOT an error and NOT a routing input -- a signal that the one line standing
+    between "permanently unavailable" and "back tomorrow" may have drifted. See
+    the comment on `_QUOTA_LIMIT_SUSPECT`. A True here means: re-measure against
+    a live refusal, because the fixture can no longer tell you.
+    """
+    m = message or ""
+    if _QUOTA_LIMIT.search(m):
+        return False                      # parsed fine; nothing to report
+    return bool(_QUOTA_LIMIT_SUSPECT.search(m))
 
 
 def _error_detail(err) -> tuple:

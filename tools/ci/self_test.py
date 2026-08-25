@@ -938,6 +938,7 @@ CASES += [
 # an off-by-one. Each one restores a defect that was MEASURED against a live
 # provider on 2026-08-25 and that no gate could see before these checks existed.
 GATEWAY = "core/gateway.py"
+HTTP_COMPLETION = REPO / "routing" / "http_completion.py"
 EFFORT = "core/effort.py"
 
 CASES += [
@@ -967,6 +968,13 @@ CASES += [
      _sub("                            budget += 1", "                            pass", 1),
      "the refund dropped, so the one request that discovers a rung is "
      "permanently outside the tier pays for knowledge every later request uses"),
+
+    ("chain-budget-bounded", HTTP_COMPLETION,
+     _sub("    return bool(_QUOTA_LIMIT_SUSPECT.search(m))", "    return False", 1),
+     "the parser-drift detector silenced -- a vendor rewording turns a "
+     "PERMANENT limit-0 refusal into one that looks temporary, the ladder "
+     "retries a dead rung every day forever, and every check stays green "
+     "because the fixture is frozen and still parses"),
 
     ("effort-floor-and-null-answer", EFFORT,
      _sub("    if content is not None and content.strip():",

@@ -2672,11 +2672,51 @@ def check_chain_budget() -> Result:
               f"{EXHAUSTED!r}. Permanence must key on the limit being ZERO, not on "
               "the status being 429 -- a spent window refills.")
 
+    # ------------------------------------------- the parser's own drift alarm
+    # WHY THIS BELONGS IN A CHECK AND NOT A COMMENT. The limit that separates
+    # "permanently outside the tier" from "back tomorrow" is carried ONLY in
+    # the vendor's prose -- verified against the captured bytes: the structured
+    # QuotaFailure block holds metrics, quota ids and a retry delay, and no
+    # limit. So one regex over one sentence stands between a dead rung being
+    # retired and being retried every day forever.
+    #
+    # A frozen fixture cannot notice a rewording. The fixture still parses, the
+    # check above still passes, and the ladder quietly starts paying for a rung
+    # that can never answer. So the DETECTOR is asserted here, in both
+    # directions -- it must fire on a limit named in a shape the parser missed,
+    # and must stay silent on an ordinary refusal that publishes no limit at
+    # all. Without the second half this passes for a detector that simply
+    # always fires, which would be an alarm nobody could act on.
+    try:
+        from routing.http_completion import quota_limit_parse_suspect
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the drift detector did not import: {exc!r}")
+        return r
+
+    reworded = ("You exceeded your current quota. Quota exceeded for metric: "
+                "generate_content_free_tier_requests, the limit is 0 for this model.")
+    if _quota_limit_from(reworded) is not None:
+        r.err("a reworded refusal parsed after all -- this case no longer "
+              "exercises the drift path and must be replaced with one the "
+              "parser genuinely misses, or the alarm below is untested")
+    elif not quota_limit_parse_suspect(reworded):
+        r.err("a refusal naming `the limit is 0` in prose the parser could not "
+              "read raised NO suspicion. That is the silent degradation: it "
+              "books as EXHAUSTED, looks temporary, and the ladder retries a "
+              "permanently dead rung every day while every check stays green.")
+
+    ordinary = "Rate limit exceeded. Please try again later."
+    if quota_limit_parse_suspect(ordinary):
+        r.err("an ordinary refusal that publishes no limit raised suspicion. "
+              "Most providers never publish one, so this would fire constantly "
+              "and an alarm that always fires is one nobody reads.")
+
     if r.ok:
         r.note(f"chain budget {ModelGateway.MAX_ATTEMPTS_PER_REQUEST}/request; "
                "ordering exercised in both directions; limit-0 parsed from "
                f"{LIMIT_ZERO_FIXTURE.relative_to(REPO).as_posix()} and discriminated "
-               "against a non-zero limit")
+               "against a non-zero limit; parser-drift alarm asserted in both "
+               "directions")
     return r
 
 
