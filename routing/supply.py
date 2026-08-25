@@ -124,6 +124,15 @@ class SupplyRow:
     # question.
     account: str = ""
     purpose: str = "text"
+    # WHICH DIFFICULTIES MAY ROUTE HERE. Declared in the governed table, never
+    # parsed from the provider id: an id is a label and a renamed row would
+    # otherwise silently change what it is trusted to answer.
+    tier: str = "standard"
+    # Optional request parameters this endpoint accepts. EMPTY BY DEFAULT:
+    # sending a parameter a provider does not know is a 400, and a 400 is
+    # `bad_request`, which is TERMINAL -- so one unsupported field silently
+    # retires a working rung.
+    supports: tuple = ()
     # CARRIED SO AN ESCALATION CAN NAME IT. core/repair.py writes the owner a
     # guide, and "replace the value of its environment variable" is not a
     # guide -- it makes the reader go and look up the thing the system already
@@ -209,7 +218,13 @@ def load_rows(*, secrets: dict | None = None,
             hard_cap_evidence=r.get("hard_cap_evidence", ""),
             model=r["model"], wire=r["wire"],
             # The profile names a TIER and a CLASS, never a vendor.
-            profile_id=(f"remote-rung{r['rung']}-{r.get('purpose','text')}"
+            # THE PROFILE NAMES A CAPABILITY, NOT A SUPPLIER. Rows sharing a
+            # tier, purpose, rung and egress class share a profile, and the
+            # gateway then picks between them on remaining headroom. A profile
+            # per provider would make the router choose the vendor, which is
+            # exactly the product-shaped routing INV-HW-1 refuses.
+            profile_id=(f"remote-{r.get('tier','standard')}"
+                        f"-{r.get('purpose','text')}-rung{r['rung']}"
                         f"-{r['egress_class'].lower()}"),
             measured_tokens_per_sec=float(rate),
             rate_is_measured=rate_measured,
@@ -225,6 +240,8 @@ def load_rows(*, secrets: dict | None = None,
             credential_env=r.get("credential_env", ""),
             account=r.get("account", ""),
             purpose=r.get("purpose", "text"),
+            tier=r.get("tier", "standard"),
+            supports=tuple(r.get("supports") or ()),
         ))
     return rows, skipped
 
@@ -264,7 +281,9 @@ def _http_call(row: SupplyRow, endpoint: str, key: str, account: str,
             payload: dict[str, Any] = {
                 "model": row.model, "max_tokens": budget,
                 "messages": [{"role": "user", "content": prompt}]}
-            if options.get("reasoning_effort"):
+            # SENT ONLY WHERE THE ROW SAYS IT IS ACCEPTED. See SupplyRow.supports.
+            if (options.get("reasoning_effort")
+                    and "reasoning_effort" in row.supports):
                 payload["reasoning_effort"] = options["reasoning_effort"]
         elif row.wire == "cf_responses":
             payload = {"input": prompt, "max_output_tokens": budget}
@@ -431,3 +450,69 @@ def register(gateway, cost, ledger: QuotaLedger, *,
             "skipped": skipped,
             "excluded_by_egress": [r.provider_id for r in rows
                                    if r not in permitted]}
+
+
+def measured_profiles(rows: list, *, purpose: str = "text") -> list:
+    """Turn supply rows into router profiles, one per distinct capability.
+
+    WHY THE ROUTER COULD NOT REACH A REMOTE PROVIDER UNTIL NOW. `Router` loaded
+    six profiles, all local, all from SPIKE-001 -- and `register` above built
+    provider ids the router had never heard of. So `Router.select(difficulty)`
+    could never return a remote profile, and the live acceptance run passed only
+    because it named the profile directly and bypassed the router entirely.
+
+    That is the same shape as the defect the gateway had until 2026-08-24:
+    `Provider.profile_id` existed and nothing read it, so registration order was
+    the real routing rule while A-022 stayed green. A decision that cannot reach
+    the thing it decides is not a decision.
+
+    ONE PROFILE PER CAPABILITY, NOT PER SUPPLIER. Several rows collapse onto one
+    profile id and the gateway ranks between them on headroom. A profile per
+    provider would put the vendor's name in the router's decision, which is what
+    INV-HW-1 exists to refuse.
+
+    THE RATE IS THE SLOWEST MEMBER, not the mean and not the fastest. The
+    router's estimate must hold for whichever member actually answers, and a
+    mean describes a call nobody makes. Erring slow makes the estimate
+    pessimistic, which defers work; erring fast promises a latency the profile
+    cannot keep.
+    """
+    from core.router import MeasuredProfile
+
+    # PURPOSE FILTERS BEFORE TIER, and leaving it out was a real defect caught
+    # the moment these profiles were first printed. The image row is
+    # `tier = standard`, and `core/router.py` selects on TIER ALONE -- it has no
+    # concept of modality. So a moderate-difficulty TEXT task would have been
+    # routed to an image generator, which would have answered, with a picture.
+    #
+    # The router is not the place to fix that. Teaching it about modality would
+    # put a second axis into a component whose whole contract is difficulty ->
+    # capability. Instead each modality gets its own router populated with its
+    # own profiles, which is what MULTI_ROUTE.md SS4 meant by "their own routing
+    # systems" -- separate policy, one shared ledger underneath.
+    by_profile: dict[str, list] = {}
+    for r in rows:
+        if r.purpose != purpose:
+            continue
+        by_profile.setdefault(r.profile_id, []).append(r)
+
+    out = []
+    for pid, members in sorted(by_profile.items()):
+        rates = [m.measured_tokens_per_sec for m in members
+                 if m.measured_tokens_per_sec]
+        if not rates:
+            continue                      # INV-HW-2: unmeasured is UNAVAILABLE
+        out.append(MeasuredProfile(
+            profile_id=pid,
+            tier=members[0].tier,
+            node_class="remote",
+            wall_tokens_per_sec=min(rates),
+            wall_tokens_per_sec_idle=max(rates),
+            measured=True,
+            source=("routing/supply.py from the latest REMOTE-SUPPLY probe; "
+                    f"{len(members)} member(s): "
+                    + ", ".join(sorted(m.provider_id for m in members))
+                    + "; rate is the SLOWEST member, which is the one the "
+                      "estimate has to hold for"),
+        ))
+    return out

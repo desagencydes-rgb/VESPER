@@ -33,6 +33,12 @@
 ##############################################################################
 
 schema_version = 1
+# TIER IS DECLARED PER ROW AND NEVER PARSED FROM THE ID. `cf-strong` appears to
+# carry its own tier and reading it out of the name would be the same defect as
+# deriving a model profile from its filename: an id is a label, not a
+# measurement, and renaming a row would silently change what it is trusted to
+# answer. The tier says WHICH DIFFICULTIES may route here; the measured rate
+# says how fast it is. Both are needed and neither implies the other.
 authority = "PROVIDER_SUPPLY.md - MULTI_ROUTE.md SS2 - INV-HW-2, INV-COST-5, R6"
 
 # --------------------------------------------------------------------------
@@ -42,6 +48,7 @@ authority = "PROVIDER_SUPPLY.md - MULTI_ROUTE.md SS2 - INV-HW-2, INV-COST-5, R6"
 
 [[provider]]
 id = "cf-strong"
+tier = "strong"
 rung = 1
 purpose = "text"
 # THE SAME POOL AS cf-image, and this line is the whole of MULTI_ROUTE.md SS3.
@@ -75,6 +82,14 @@ UNMEASURED. Do not restore trust in the field without re-measuring."""
 
 [[provider]]
 id = "groq-strong"
+tier = "strong"
+# OPTIONAL PARAMETERS ARE DECLARED PER ROW AND DEFAULT TO UNSUPPORTED.
+# "OpenAI-compatible" describes the request SHAPE, not the parameter set, and
+# assuming otherwise cost a live 400: Mistral answered `reasoning_effort is not
+# enabled for this model` on every call, and the whole standard-tier private
+# rung was dead while the wire format looked correct. Measured per row; absent
+# means not sent.
+supports = ["reasoning_effort"]
 rung = 1
 egress_class = "E1_PRIVATE"
 cost_class = "metered_free_tier"
@@ -101,6 +116,7 @@ usage_reporting = "reliable"
 
 [[provider]]
 id = "google-a1"
+tier = "standard"
 rung = 1
 egress_class = "E2_PUBLIC"
 cost_class = "metered_free_tier"
@@ -125,6 +141,7 @@ strongest still had full quota on three others."""
 
 [[provider]]
 id = "google-a2"
+tier = "standard"
 rung = 1
 egress_class = "E2_PUBLIC"
 cost_class = "metered_free_tier"
@@ -140,6 +157,7 @@ quota_window_seconds = 86_400
 
 [[provider]]
 id = "google-a3"
+tier = "standard"
 rung = 1
 egress_class = "E2_PUBLIC"
 cost_class = "metered_free_tier"
@@ -155,6 +173,7 @@ quota_window_seconds = 86_400
 
 [[provider]]
 id = "google-a4"
+tier = "standard"
 rung = 1
 egress_class = "E2_PUBLIC"
 cost_class = "metered_free_tier"
@@ -179,6 +198,7 @@ quota_window_seconds = 86_400
 
 [[provider]]
 id = "ollama-strong"
+tier = "strong"
 rung = 1
 egress_class = "E1_PRIVATE"
 cost_class = "metered_free_tier"
@@ -200,6 +220,7 @@ this opportunistically and never plans against it (PROVIDER_SUPPLY.md SS6)."""
 
 [[provider]]
 id = "mistral-standard"
+tier = "standard"
 rung = 1
 egress_class = "E1_PRIVATE"
 cost_class = "metered_free_tier"
@@ -218,6 +239,7 @@ measured limit and this is opportunistic like Ollama."""
 
 [[provider]]
 id = "nvidia-strong"
+tier = "strong"
 rung = 1
 egress_class = "E2_PUBLIC"
 cost_class = "metered_free_tier"
@@ -242,6 +264,7 @@ promotion to E1 is a reviewed change to this row, not a runtime decision."""
 
 [[provider]]
 id = "openrouter-standard"
+tier = "standard"
 rung = 1
 egress_class = "E2_PUBLIC"
 cost_class = "metered_free_tier"
@@ -278,6 +301,7 @@ setting can promote this row."""
 
 [[provider]]
 id = "claude-sub"
+tier = "strong"
 rung = 2
 egress_class = "E1_PRIVATE"
 cost_class = "free"
@@ -307,6 +331,7 @@ it. Every surface shares one pool."""
 
 [[provider]]
 id = "codex-sub"
+tier = "strong"
 rung = 2
 egress_class = "E2_PUBLIC"
 cost_class = "free"
@@ -364,6 +389,7 @@ routing rule, not a note."""
 
 [[provider]]
 id = "cf-image"
+tier = "standard"
 rung = 1
 purpose = "image"
 account = "cloudflare"

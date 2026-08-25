@@ -96,7 +96,15 @@ def main() -> int:
         # contents can grow is a latent bug waiting for the list to grow.
         text_profiles = [p for p in rep["profile_ids"] if "-text-" in p]
         image_profiles = [p for p in rep["profile_ids"] if "-image-" in p]
-        profile = text_profiles[0] if text_profiles else None
+        # PICK BY TIER, NOT BY POSITION -- and this is the SECOND time. The
+        # first version indexed `profile_ids[0]`; adding an image rung made
+        # position 0 an image profile. Fixing it to `text_profiles[0]` moved the
+        # same bug one level down, and splitting profiles by tier then made
+        # position 0 the STANDARD tier, whose only private member was returning
+        # 400. An index into a list whose contents can grow is a latent bug
+        # waiting for the list to grow, however many times it is re-indexed.
+        strong_text = [p for p in text_profiles if "-strong-" in p]
+        profile = (strong_text or text_profiles or [None])[0]
         record("the text and image ladders are separately addressable",
                bool(text_profiles) and bool(image_profiles),
                f"text={text_profiles} image={image_profiles}")
@@ -167,6 +175,47 @@ def main() -> int:
                    bool(shared),
                    "; ".join(f"{p['account']}: used={p['used']} of {p['limit']} "
                              f"by {p['drawn_by']}" for p in pools) or "no pooled entries")
+
+        # ------------------------------ 4c. ROUTED BY DIFFICULTY, not by name
+        # THE ASSERTION THAT WAS MISSING UNTIL NOW. Every check above names its
+        # profile directly, which bypasses A-022 entirely -- the router held six
+        # local profiles and had never heard of a remote one, so
+        # `Router.select` could not have returned one. A decision that cannot
+        # reach the thing it decides is not a decision.
+        from core.router import NoRouteAvailable, Router
+        from routing.supply import for_egress, load_rows, measured_profiles
+        all_rows, _ = load_rows()
+        priv = for_egress(all_rows, "E1_PRIVATE")
+        router = Router(bus, measured_profiles(priv, purpose="text"))
+        try:
+            d_hard = router.select("hard", task_id="routed-hard")
+            d_easy = router.select("easy", task_id="routed-easy")
+            record("the router selects a REMOTE profile by difficulty",
+                   d_hard.profile_id.startswith("remote-"),
+                   f"hard -> {d_hard.profile_id} ({d_hard.tier})")
+            record("a hard task never routes below the strong tier",
+                   d_hard.tier == "strong",
+                   f"hard={d_hard.tier}  easy={d_easy.tier}")
+            out_r = gw.complete("Reply with exactly: ROUTED_OK",
+                                task_id="routed-1",
+                                profile_id=d_hard.profile_id, difficulty="hard")
+            txt = (out_r.get("result") or {}).get("text") or ""
+            record("the router's decision reaches a real provider",
+                   "ROUTED_OK" in txt.upper(),
+                   f"{d_hard.profile_id} -> {out_r['provider_id']}")
+        except (NoRouteAvailable, AllProvidersExhausted) as e:
+            record("the router selects a REMOTE profile by difficulty", False,
+                   str(e)[:160])
+
+        # A TEXT ROUTER MUST NOT BE ABLE TO REACH AN IMAGE GENERATOR. The image
+        # row is tier=standard and the router selects on tier alone, so without
+        # the purpose filter a moderate text task would be answered by a picture.
+        text_ids = {p.profile_id for p in measured_profiles(priv, purpose="text")}
+        img_ids = {p.profile_id for p in measured_profiles(priv, purpose="image")}
+        record("the text router cannot reach an image generator",
+               text_ids.isdisjoint(img_ids) and bool(img_ids),
+               f"text={len(text_ids)} image={len(img_ids)} overlap="
+               f"{sorted(text_ids & img_ids) or 'none'}")
 
         # ------------------------------- 5. the public ladder is strictly wider
         bus_p, cost_p, ledger_p, gw_p = wiring(tmp, node="public")

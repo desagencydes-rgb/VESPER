@@ -1,0 +1,100 @@
+<!doctype html><meta charset="utf-8">
+<style>
+  html,body{margin:0;height:100%;background:transparent;overflow:hidden;
+            font-family:-apple-system,system-ui,sans-serif;
+            -webkit-font-smoothing:antialiased;
+            color:#f4e6dc}
+
+  /* ---- the metrics card (§14.2) ---------------------------------- */
+  .card{position:absolute;left:{{left}}px;top:{{top}}px;
+        width:{{cardWidth}}px;height:{{cardHeight}}px;box-sizing:border-box;
+        padding:22px 24px;border-radius:22px;
+        background-color:rgba(255,255,255,.055);
+        background-image:linear-gradient(rgba(0,0,0,{{fill}}),
+                                         rgba(0,0,0,{{fill}}));
+        -webkit-backdrop-filter:blur(24px) saturate(180%);
+        backdrop-filter:blur(24px) saturate(180%);
+        border:1px solid rgba(255,255,255,.14);
+        box-shadow:0 8px 32px rgba(0,0,0,.22),
+                   inset 0 1px 0 rgba(255,255,255,.22)}
+  .t{font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+     color:rgba(244,230,220,.55);margin-bottom:16px}
+  .row{display:flex;justify-content:space-between;align-items:baseline;
+       padding:7px 0;border-top:1px solid rgba(255,255,255,.07)}
+  .row:first-of-type{border-top:0}
+  .k{font-size:12px;color:rgba(244,230,220,.72)}
+  .v{font-size:12px;letter-spacing:.04em;color:rgba(244,230,220,.38)}
+
+  /* ---- the main menu (§10, §14.2) -------------------------------- */
+  /* Dock tier: blur 42, saturate 200%, fill .085, radius 34. The bar
+     sits at the Dock's own position, bottom-centre, because §10 says
+     VESPER's main menu TAKES that position rather than sharing it. */
+  .dockrow{position:absolute;left:0;right:0;bottom:10px;
+           display:flex;justify-content:center;align-items:flex-end;
+           gap:14px;
+           transition:opacity .28s cubic-bezier(.32,.72,0,1)}
+  /* §10: "It dims to 30% while occluded so it is visibly still there
+     rather than apparently gone." Driven from Swift, which reads the
+     Dock's own window rather than guessing from the cursor. */
+  body.dock-up .dockrow{opacity:.30}
+  .bar,.tile{box-sizing:border-box;
+             background-color:rgba(255,255,255,.085);
+             background-image:linear-gradient(rgba(0,0,0,.34),
+                                              rgba(0,0,0,.34));
+             -webkit-backdrop-filter:blur(42px) saturate(200%);
+             backdrop-filter:blur(42px) saturate(200%);
+             border:1px solid rgba(255,255,255,.13);
+             border-radius:34px;
+             box-shadow:0 10px 34px rgba(0,0,0,.30),
+                        inset 0 1px 0 rgba(255,255,255,.20)}
+  .bar{display:flex;align-items:center;gap:10px;padding:9px 12px}
+  .tile{display:flex;align-items:center;justify-content:center;
+        width:64px;height:64px;padding:0}
+  .slot{width:52px;height:52px;padding:0;border:0;border-radius:15px;
+        background:rgba(255,255,255,.05);
+        display:flex;align-items:center;justify-content:center;
+        cursor:default;
+        transition:transform .22s cubic-bezier(.32,.72,0,1),
+                   background .22s ease}
+  .slot:hover{transform:translateY(-6px) scale(1.06);
+              background:rgba(255,255,255,.11)}
+  .slot svg{width:26px;height:26px;fill:none;
+            stroke:rgba(244,230,220,.62);stroke-width:1.4}
+  /* The owner's avatar (§14.2), separated from the actions the way the
+     system Dock separates its trash. */
+  .sep{width:1px;height:34px;background:rgba(255,255,255,.13);margin:0 4px}
+  .avatar{width:52px;height:52px;border-radius:50%;
+          background:linear-gradient(160deg,rgba(255,255,255,.20),
+                                            rgba(255,255,255,.05));
+          border:1px solid rgba(255,255,255,.18);
+          display:flex;align-items:center;justify-content:center;
+          font-size:15px;letter-spacing:.06em;
+          color:rgba(244,230,220,.78)}
+  .tile svg{width:24px;height:24px;fill:none;
+            stroke:rgba(244,230,220,.62);stroke-width:1.5}
+  /* Every glyph in this bar is a placeholder and says so on hover.
+     The dotted underline is the tell. */
+  .slot,.tile{position:relative}
+</style>
+
+<div class="card">
+  <div class="t">host</div>
+  {{METRIC_ROWS}}
+</div>
+
+<div class="dockrow">
+  <div class="bar">
+    {{slots}}
+    <div class="sep"></div>
+    <div class="avatar" title="the owner's avatar — placeholder">A</div>
+  </div>
+  <!-- §14.2: "a SEPARATE expandable menu tile at its right end". Separate
+       is the point: it is not a ninth slot in the bar. -->
+  <div class="tile" title="expandable menu — placeholder">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 8h16M4 12h16M4 16h10" stroke-linecap="round"/>
+      <path d="M17.5 15.5l2.5 2.5-2.5 2.5" stroke-linecap="round"
+            stroke-linejoin="round"/>
+    </svg>
+  </div>
+</div>

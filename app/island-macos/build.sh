@@ -38,6 +38,10 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Library/LaunchAgents"
 cp island "$APP/Contents/MacOS/VESPER"
 cp face.bin "$APP/Contents/Resources/face.bin"
+# The chrome's markup ships as a RESOURCE so a designer can edit it without a
+# rebuild. The binary still carries an inline copy: a missing file must never
+# blank a layer that sits over the owner's whole Desktop.
+cp "$HOME_SRC/chrome/home.html" "$APP/Contents/Resources/home.html"
 cp "$REPO/docs/design/assets/vesper-icon.png" "$APP/Contents/Resources/vesper-icon.png"
 
 # The mark, as the app icon -- it is what appears in the permission dialogs.

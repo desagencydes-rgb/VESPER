@@ -157,6 +157,30 @@ final class HomeChrome {
             </button>
             """
         }.joined()
+        let t = template()
+        return t.source
+            .replacingOccurrences(of: "{{cardWidth}}",  with: String(cardWidth))
+            .replacingOccurrences(of: "{{cardHeight}}", with: String(cardHeight))
+            .replacingOccurrences(of: "{{left}}",       with: String(left))
+            .replacingOccurrences(of: "{{top}}",        with: String(top))
+            .replacingOccurrences(of: "{{fill}}",       with: String(fill))
+            .replacingOccurrences(of: "{{slots}}",      with: slots)
+            .replacingOccurrences(of: "{{METRIC_ROWS}}", with: metricRows())
+    }
+
+    /// Where the chrome's markup came from, and it is REPORTED rather than
+    /// assumed.
+    struct Template { let source: String; let origin: String }
+
+    /// The shipped fallback. Byte-identical to the file at the time it was
+    /// extracted.
+    ///
+    /// A MISSING TEMPLATE MUST NOT BLANK THE CHROME. This layer sits over the
+    /// owner's whole Desktop; the failure mode of "file not found" cannot be a
+    /// transparent webview with nothing in it, because that is indistinguishable
+    /// from a working home with no cards. So the binary always carries a copy it
+    /// can paint, and says when it fell back to it.
+    static func fallbackTemplate() -> String {
         return """
         <!doctype html><meta charset="utf-8">
         <style>
@@ -166,12 +190,12 @@ final class HomeChrome {
                     color:#f4e6dc}
 
           /* ---- the metrics card (§14.2) ---------------------------------- */
-          .card{position:absolute;left:\(left)px;top:\(top)px;
-                width:\(cardWidth)px;height:\(cardHeight)px;box-sizing:border-box;
+          .card{position:absolute;left:{{left}}px;top:{{top}}px;
+                width:{{cardWidth}}px;height:{{cardHeight}}px;box-sizing:border-box;
                 padding:22px 24px;border-radius:22px;
                 background-color:rgba(255,255,255,.055);
-                background-image:linear-gradient(rgba(0,0,0,\(fill)),
-                                                 rgba(0,0,0,\(fill)));
+                background-image:linear-gradient(rgba(0,0,0,{{fill}}),
+                                                 rgba(0,0,0,{{fill}}));
                 -webkit-backdrop-filter:blur(24px) saturate(180%);
                 backdrop-filter:blur(24px) saturate(180%);
                 border:1px solid rgba(255,255,255,.14);
@@ -239,12 +263,12 @@ final class HomeChrome {
 
         <div class="card">
           <div class="t">host</div>
-          \(metricRows())
+          {{METRIC_ROWS}}
         </div>
 
         <div class="dockrow">
           <div class="bar">
-            \(slots)
+            {{slots}}
             <div class="sep"></div>
             <div class="avatar" title="the owner's avatar — placeholder">A</div>
           </div>
@@ -258,7 +282,31 @@ final class HomeChrome {
             </svg>
           </div>
         </div>
+
         """
+    }
+
+    /// Load the markup: repo first for a live loop, bundle second, inline last.
+    ///
+    /// WHY THE REPO PATH IS TRIED FIRST, and why that is not a hazard in a
+    /// shipped build. Every CSS change cost a 19-second `swiftc` rebuild while
+    /// this markup was a string literal, and iteration speed is what actually
+    /// limits how good a surface looks -- a designer at 19 s per attempt
+    /// produces worse work than the same designer at one second, whatever
+    /// renderer is underneath. A shipped copy has no repo beside it, so the
+    /// branch simply does not fire; an installed VESPER reads its own bundle.
+    static func template() -> Template {
+        let fm = FileManager.default
+        let devPath = URL(fileURLWithPath: fm.currentDirectoryPath)
+            .appendingPathComponent("app/home-macos/chrome/home.html")
+        if let s = try? String(contentsOf: devPath, encoding: .utf8), !s.isEmpty {
+            return Template(source: s, origin: "repo:\(devPath.path)")
+        }
+        if let u = Bundle.main.url(forResource: "home", withExtension: "html"),
+           let s = try? String(contentsOf: u, encoding: .utf8), !s.isEmpty {
+            return Template(source: s, origin: "bundle")
+        }
+        return Template(source: fallbackTemplate(), origin: "inline-fallback")
     }
 
     /// Mount the chrome over `host`, but only if the glass is actually clear.
