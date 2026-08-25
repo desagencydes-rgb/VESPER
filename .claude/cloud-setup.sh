@@ -28,8 +28,8 @@ echo "  python: $PY ($($PY --version 2>&1))"
 echo
 echo "=== gates available offline (no credentials needed) ==="
 cat <<EOT
-  $PY tools/ci/checks.py all          # 31 checks
-  $PY tools/ci/self_test.py           # red-then-green, 79 cases
+  $PY tools/ci/checks.py all          # 34 checks
+  $PY tools/ci/self_test.py           # red-then-green, 88 cases
   $PY tools/traceability_lint.py
   $PY tools/reference_lint.py
   $PY verification/run_f0_acceptance.py   # ... f1 .. f6

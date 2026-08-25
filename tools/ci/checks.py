@@ -2405,6 +2405,418 @@ def check_glass_hatch() -> Result:
     return r
 
 
+# --------------------------------------------------------------------------
+# CI-059 / CI-060 -- the gateway wired to the quota ledger and the effort floor.
+#
+# BOTH CHECKS ARE RUNTIME-FIXTURE AND BOTH DRIVE THE REAL `ModelGateway`, for
+# the reason `core/gateway.py`'s own docstring records about `profile_id`: that
+# field existed on `Provider` from F1 and the gateway never read it, so the
+# router produced a decision, the gateway called providers in registration
+# order, and every test passed. A-022 asserted on `RouteDecision`, A-004 on
+# `attempts_by_class`, and NO TEST HELD THE TWO ENDS OF THE SAME CALL. A
+# structural check that `core/quota.py` and `core/effort.py` are imported would
+# reproduce that defect exactly: an import is not a call site.
+#
+# So these construct a gateway, register providers, and read what came back.
+#
+# THE FIXTURES ARE THE POINT OF THE LIMIT-0 AND EMPTY-CONTENT CASES. Both are
+# verbatim captures from live endpoints on 2026-08-25 (see the README beside
+# them). A cloud session has no credentials by design and must not invent a
+# provider shape it has not observed -- INV-HW-2 applies to a response shape
+# exactly as it applies to a throughput figure. The quota limit below is PARSED
+# OUT OF THE CAPTURED BYTES by the same function the live path uses, never
+# typed in as a literal 0.
+# --------------------------------------------------------------------------
+PROVIDER_FIXTURES = REPO / "tests" / "fixtures" / "provider-responses"
+LIMIT_ZERO_FIXTURE = PROVIDER_FIXTURES / "google-429-limit-zero.json"
+EMPTY_CONTENT_FIXTURE = PROVIDER_FIXTURES / "groq-200-empty-content.json"
+
+
+class _StubBus:
+    """Enough bus for this: `CostPolicy` and `ModelGateway` only ever publish.
+
+    A real `EventBus` needs a clock and a `StoreSet` on disk, which would make
+    a fast check slow and would couple it to persistence it is not testing.
+    Recording the events keeps them assertable if a later case needs them.
+    """
+
+    def __init__(self) -> None:
+        self.events: list[tuple[str, dict]] = []
+
+    def publish(self, type_: str, *, subject: str | None = None,
+                payload: dict | None = None, component: str | None = None) -> None:
+        self.events.append((type_, payload or {}))
+
+
+def _gateway(quota=None, sleep_free: bool = True):
+    """A gateway on a stub bus, with sleeping disabled.
+
+    `sleep=lambda s: None` because the retry PACING is not what these check --
+    A-004 already asserts the delays -- and sleeping the real backoff would put
+    30 s of wall clock into a gate that is meant to fail fast.
+    """
+    from core.cost import CostPolicy
+    from core.gateway import ModelGateway
+    from core.hlc import HybridLogicalClock
+
+    bus = _StubBus()
+    cost = CostPolicy(bus, HybridLogicalClock("ci"))
+    gw = ModelGateway(bus, cost, sleep=(lambda s: None) if sleep_free else None,
+                      quota=quota)
+    return bus, cost, gw
+
+
+def _raiser(classification: str, calls: list, tag: str, **attrs):
+    """A provider that always fails, recording that it was reached.
+
+    Counting invocations rather than reading `attempts_by_class` in every case
+    is deliberate: the counter is what the gateway BELIEVES it spent, and the
+    list is what actually left. A-004.3's lesson is that those are different
+    measurements, and a budget bug could easily move one without the other.
+    """
+    def call(prompt, options):
+        calls.append(tag)
+        e = RuntimeError(f"{tag}: {classification}")
+        e.classification = classification
+        for k, v in attrs.items():
+            setattr(e, k, v)
+        raise e
+    return call
+
+
+def check_chain_budget() -> Result:
+    r = Result("chain-budget-bounded")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.gateway import AllProvidersExhausted, ModelGateway, Provider
+        from core.quota import QuotaLedger, UNAVAILABLE_ON_TIER, EXHAUSTED
+        from routing.http_completion import _quota_limit_from
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the gateway did not import: {exc!r}")
+        return r
+
+    # ---------------------------------------------------------------- budget
+    # SIX RUNGS, TWO ATTEMPTS EACH. Without a chain-wide bound this request
+    # costs TWELVE provider calls, and the real cost of a request is then a
+    # property of how many providers happened to be registered rather than
+    # anything anybody decided. MULTI_ROUTE.md §2: ten per REQUEST.
+    bus, cost, gw = _gateway()
+    calls: list[str] = []
+    for i in range(6):
+        cost.register_credential(f"rung{i}", "free")
+        gw.register(Provider(f"rung{i}", "prof",
+                             _raiser("rate_limited", calls, f"rung{i}"),
+                             model=f"m{i}"))
+    try:
+        gw.complete("q", task_id="budget", profile_id="prof")
+    except AllProvidersExhausted:
+        pass
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"a fully-failing chain raised {exc!r} rather than AllProvidersExhausted")
+    if len(calls) != ModelGateway.MAX_ATTEMPTS_PER_REQUEST:
+        r.err(f"a six-rung chain at 2 attempts each made {len(calls)} provider calls; "
+              f"the chain-wide budget is {ModelGateway.MAX_ATTEMPTS_PER_REQUEST}. An "
+              "unbounded chain spends per-provider attempts times ladder length, which "
+              "is a number nobody chose.")
+    if gw.attempts_by_class.get("free") != len(calls):
+        r.err(f"the boundary counter says {gw.attempts_by_class.get('free')} attempts "
+              f"while {len(calls)} calls actually left. A-004.3 asserts on the counter, "
+              "so the two disagreeing means the assertion measures the wrong thing.")
+
+    # DISCRIMINATION: the budget is READ, not a constant that happens to be 10.
+    # Without this the case above would also pass a build that stopped after ten
+    # for some unrelated reason.
+    bus, cost, gw = _gateway()
+    calls3: list[str] = []
+    for i in range(6):
+        cost.register_credential(f"rung{i}", "free")
+        gw.register(Provider(f"rung{i}", "prof",
+                             _raiser("rate_limited", calls3, f"rung{i}"),
+                             model=f"m{i}"))
+    try:
+        gw.complete("q", task_id="budget3", profile_id="prof",
+                    max_attempts_per_request=3)
+    except AllProvidersExhausted:
+        pass
+    if len(calls3) != 3:
+        r.err(f"an explicit budget of 3 permitted {len(calls3)} calls. The budget is "
+              "not being read.")
+
+    # A TERMINAL COSTS ITS ONE ATTEMPT AND NOTHING MORE. Six terminal rungs then
+    # a working one: at one attempt each that is 6 spent and the seventh answers.
+    # At two each the budget is gone before it is reached, and the request fails
+    # while a healthy provider sat untouched.
+    bus, cost, gw = _gateway()
+    tcalls: list[str] = []
+    for i in range(6):
+        cost.register_credential(f"dead{i}", "free")
+        gw.register(Provider(f"dead{i}", "prof",
+                             _raiser("auth_failed", tcalls, f"dead{i}"),
+                             model=f"d{i}"))
+    cost.register_credential("healthy", "free")
+    gw.register(Provider("healthy", "prof", lambda p, o: {"text": "answered"},
+                         model="h"))
+    try:
+        out = gw.complete("q", task_id="terminal", profile_id="prof")
+        if out["provider_id"] != "healthy":
+            r.err(f"after six terminal rungs the answer came from {out['provider_id']!r}")
+        if out.get("attempts_remaining") != ModelGateway.MAX_ATTEMPTS_PER_REQUEST - 7:
+            r.err(f"six terminal refusals plus one success left "
+                  f"{out.get('attempts_remaining')} of "
+                  f"{ModelGateway.MAX_ATTEMPTS_PER_REQUEST}. A TERMINAL must consume "
+                  "its single attempt and none of the retries it would have bought.")
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"six TERMINAL rungs exhausted the chain before a healthy provider was "
+              f"reached: {exc!r}")
+
+    # ------------------------------------------------------- quota ordering
+    # BOTH DIRECTIONS, and the second is what makes this evidence. A check that
+    # only ever registers the rich provider second cannot tell "ordered by
+    # headroom" apart from "reversed the registration list".
+    for rich, poor in (("second-registered", "first-registered"),
+                       ("first-registered", "second-registered")):
+        ledger = QuotaLedger()
+        bus, cost, gw = _gateway(ledger)
+        for pid in ("first-registered", "second-registered"):
+            cost.register_credential(pid, "free")
+            gw.register(Provider(pid, "prof",
+                                 (lambda n: lambda p, o: {"text": n})(pid),
+                                 model="shared-model"))
+        # MEASURED ceilings on both sides. An unmeasured entry deliberately
+        # sorts in the MIDDLE (see QuotaLedger.rank), so a case built on two
+        # unmeasured entries would be asserting against a tie-break.
+        ledger.entry(rich, "shared-model").limit = 100
+        ledger.entry(rich, "shared-model").limit_is_measured = True
+        ledger.entry(rich, "shared-model").used = 5.0
+        ledger.entry(poor, "shared-model").limit = 100
+        ledger.entry(poor, "shared-model").limit_is_measured = True
+        ledger.entry(poor, "shared-model").used = 95.0
+        out = gw.complete("q", task_id="order", profile_id="prof")
+        if out["provider_id"] != rich:
+            r.err(f"with {rich!r} holding 95% headroom and {poor!r} holding 5%, the "
+                  f"call went to {out['provider_id']!r}. Registration order is still "
+                  "deciding routing.")
+
+    # --------------------------------------------------- limit == 0 refusals
+    if not LIMIT_ZERO_FIXTURE.is_file():
+        r.err(f"{LIMIT_ZERO_FIXTURE.relative_to(REPO).as_posix()} is missing: the "
+              "limit-0 cases have no captured bytes to run against and would be "
+              "asserting against a shape nobody observed")
+        return r
+    body = json.loads(LIMIT_ZERO_FIXTURE.read_text(encoding="utf-8"))
+    message = (body.get("error") or {}).get("message") or ""
+    limit = _quota_limit_from(message)
+    if limit != 0:
+        r.err(f"the captured refusal parsed to limit={limit!r}, not 0. Either the "
+              "fixture changed or the message parser stopped reading it -- and the "
+              "parser reads PROSE, so a vendor rewording removes the only signal "
+              "separating a permanent refusal from a temporary one.")
+        return r
+
+    ledger = QuotaLedger()
+    bus, cost, gw = _gateway(ledger)
+    zero_calls: list[str] = []
+    cost.register_credential("no-allowance", "free")
+    cost.register_credential("working", "free")
+    gw.register(Provider("no-allowance", "prof",
+                         _raiser("rate_limited", zero_calls, "no-allowance",
+                                 quota_limit=limit, retry_after_ms=7_065),
+                         model="excluded-model"))
+    gw.register(Provider("working", "prof", lambda p, o: {"text": "answered"},
+                         model="included-model"))
+    out = gw.complete("q", task_id="zero1", profile_id="prof")
+    if len(zero_calls) != 1:
+        r.err(f"a limit-0 refusal was attempted {len(zero_calls)} times. "
+              "`rate_limited` is TRANSIENT and always will be; the permanence is in "
+              "the `limit` field, and retrying it spends the budget every day forever "
+              "on a call that cannot succeed.")
+    if out.get("attempts_remaining") != ModelGateway.MAX_ATTEMPTS_PER_REQUEST - 1:
+        r.err(f"a limit-0 refusal plus one success left "
+              f"{out.get('attempts_remaining')} of "
+              f"{ModelGateway.MAX_ATTEMPTS_PER_REQUEST}. Discovering that a rung is "
+              "permanently outside the tier is ledger maintenance that happens once "
+              "ever and benefits every later request; it must not be billed to the "
+              "one request that found out.")
+    state = ledger.entry("no-allowance", "excluded-model").state
+    if state != UNAVAILABLE_ON_TIER:
+        r.err(f"the ledger recorded the limit-0 refusal as {state!r}, not "
+              f"{UNAVAILABLE_ON_TIER!r}. An exhausted window returns tomorrow; a zero "
+              "limit never returns.")
+    gw.complete("q", task_id="zero2", profile_id="prof")
+    gw.complete("q", task_id="zero3", profile_id="prof")
+    if len(zero_calls) != 1:
+        r.err(f"the excluded rung was called {len(zero_calls)} times across three "
+              "requests. UNAVAILABLE_ON_TIER is permanent and must never be offered "
+              "again -- `_roll_if_window_elapsed` refuses to roll it for the same "
+              "reason.")
+
+    # DISCRIMINATION, and the case that makes the three above evidence. The SAME
+    # classification, the SAME status, a NON-ZERO limit: this one is temporary,
+    # and a build that keyed on `rate_limited` instead of on `limit` would
+    # retire a working model on its first ordinary rate limit.
+    ledger2 = QuotaLedger()
+    bus, cost, gw = _gateway(ledger2)
+    cost.register_credential("busy", "free")
+    cost.register_credential("working", "free")
+    gw.register(Provider("busy", "prof",
+                         _raiser("rate_limited", [], "busy", quota_limit=20,
+                                 retry_after_ms=33_000),
+                         model="metered-model"))
+    gw.register(Provider("working", "prof", lambda p, o: {"text": "answered"},
+                         model="included-model"))
+    gw.complete("q", task_id="nonzero", profile_id="prof")
+    busy_state = ledger2.entry("busy", "metered-model").state
+    if busy_state != EXHAUSTED:
+        r.err(f"a refusal carrying limit=20 was recorded as {busy_state!r}, not "
+              f"{EXHAUSTED!r}. Permanence must key on the limit being ZERO, not on "
+              "the status being 429 -- a spent window refills.")
+
+    if r.ok:
+        r.note(f"chain budget {ModelGateway.MAX_ATTEMPTS_PER_REQUEST}/request; "
+               "ordering exercised in both directions; limit-0 parsed from "
+               f"{LIMIT_ZERO_FIXTURE.relative_to(REPO).as_posix()} and discriminated "
+               "against a non-zero limit")
+    return r
+
+
+def check_effort_floor() -> Result:
+    r = Result("effort-floor-and-null-answer")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.effort import (EFFORT_RANK, EffortFloorViolation, FLOOR,
+                                 REASONING_HEADROOM)
+        from core.gateway import Provider
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the effort policy did not import: {exc!r}")
+        return r
+
+    # ------------------------------------------------- the null answer (§13.3)
+    if not EMPTY_CONTENT_FIXTURE.is_file():
+        r.err(f"{EMPTY_CONTENT_FIXTURE.relative_to(REPO).as_posix()} is missing: the "
+              "empty-content case would be asserting against a hand-written double "
+              "of a shape that was measured")
+        return r
+    captured = json.loads(EMPTY_CONTENT_FIXTURE.read_text(encoding="utf-8"))
+    choice = (captured.get("choices") or [{}])[0]
+    content = (choice.get("message") or {}).get("content")
+    finish = choice.get("finish_reason")
+    if content != "" or finish != "length":
+        r.err(f"the captured 200 no longer reads content={content!r} "
+              f"finish_reason={finish!r}. The fixture is evidence, not a double: if it "
+              "changed, that is a finding to record rather than a test to adjust.")
+        return r
+
+    bus, cost, gw = _gateway()
+    offered_budgets: list[int | None] = []
+    cost.register_credential("null-answer", "free")
+    cost.register_credential("real-answer", "free")
+
+    def null_answer(prompt, options):
+        offered_budgets.append(options.get("max_tokens"))
+        return {"text": content, "stop_reason": finish}
+
+    gw.register(Provider("null-answer", "prof", null_answer, model="reasoning"))
+    gw.register(Provider("real-answer", "prof",
+                         lambda p, o: {"text": "a real answer"}, model="plain"))
+    out = gw.complete("q", task_id="null", profile_id="prof", difficulty="moderate")
+    if out["provider_id"] != "real-answer":
+        r.err(f"a 200 carrying empty content was returned as an answer (from "
+              f"{out['provider_id']!r}). Nothing in the transport failed and nothing "
+              "in the response says anything went wrong, which is exactly why it "
+              "needs a guard at the one boundary every call crosses.")
+    if len(offered_budgets) < 2:
+        r.err(f"the empty answer was attempted {len(offered_budgets)} time(s). It is a "
+              "failed attempt and must be RETRIED, not merely rejected.")
+    elif not (offered_budgets[1] and offered_budgets[0]
+              and offered_budgets[1] > offered_budgets[0]):
+        r.err(f"the retry offered budgets {offered_budgets[:2]}. The failure is "
+              "deterministic in the budget -- reasoning consumed the whole allowance "
+              "before a content token was emitted -- so an identical retry is the same "
+              "call made twice.")
+
+    # DISCRIMINATION: the guard keys on EMPTINESS, not on `finish_reason`. A
+    # truncated answer that still said something is an answer, and refusing it
+    # would throw away work that was paid for.
+    bus, cost, gw = _gateway()
+    cost.register_credential("truncated", "free")
+    gw.register(Provider("truncated", "prof",
+                         lambda p, o: {"text": "a partial but real ans",
+                                       "stop_reason": finish},
+                         model="reasoning"))
+    out = gw.complete("q", task_id="trunc", profile_id="prof", difficulty="moderate")
+    if out["result"]["text"] != "a partial but real ans":
+        r.err("a TRUNCATED but non-empty answer was refused. The guard must key on "
+              "empty content, not on finish_reason=length.")
+
+    # ----------------------------------------------------- the floor (§14)
+    bus, cost, gw = _gateway()
+    seen: list[dict] = []
+    cost.register_credential("wire", "free")
+    gw.register(Provider("wire", "prof",
+                         lambda p, o: (seen.append(dict(o)), {"text": "ok"})[1],
+                         model="m"))
+    out = gw.complete("q", task_id="hard", profile_id="prof", difficulty="hard",
+                      expected_output_tokens=1_024)
+    want_effort = FLOOR["hard"]
+    want_budget = REASONING_HEADROOM[want_effort] + 1_024
+    if out["effort"]["reasoning_effort"] != want_effort:
+        r.err(f"difficulty=hard derived reasoning_effort="
+              f"{out['effort']['reasoning_effort']!r}, not the floor {want_effort!r}")
+    if out["effort"]["max_tokens"] != want_budget:
+        r.err(f"difficulty=hard derived max_tokens={out['effort']['max_tokens']}, not "
+              f"{want_budget} (reasoning headroom PLUS output, never output alone)")
+    # THE DECISION MUST REACH THE CALL. `profile_id` was carried on `Provider`
+    # for months without the gateway reading it, and everything looked correct.
+    # An effort derived and not sent is that defect again.
+    if not seen or seen[0].get("reasoning_effort") != want_effort:
+        r.err(f"the derived effort did not reach the provider: options carried "
+              f"{seen[0].get('reasoning_effort') if seen else None!r}")
+    if not seen or seen[0].get("max_tokens") != want_budget \
+            or seen[0].get("n_predict") != want_budget:
+        r.err(f"the derived budget did not reach the provider under both spellings: "
+              f"max_tokens={seen[0].get('max_tokens') if seen else None}, "
+              f"n_predict={seen[0].get('n_predict') if seen else None}. An adapter "
+              "reads one of the two, and a budget written only to the other is a "
+              "decision that never reaches the call.")
+
+    # LOWERING IS REFUSED, LOUDLY. A silent clamp is how a cost optimisation
+    # becomes a capability regression that no test sees -- and this gateway is
+    # the one component that feels budget pressure, which is precisely why it
+    # must not be the one that gets to relax the standard.
+    lowered = None
+    try:
+        gw.complete("q", task_id="lower", profile_id="prof", difficulty="hard",
+                    options={"reasoning_effort": "low"})
+        lowered = "accepted"
+    except EffortFloorViolation:
+        lowered = "refused"
+    except Exception as exc:                       # noqa: BLE001
+        lowered = f"raised {exc!r}"
+    if lowered != "refused":
+        r.err(f"a caller lowering effort below the difficulty's floor was {lowered}. "
+              "Effort may be raised and never lowered, and a caller-supplied effort "
+              "must be read as a request to RAISE rather than merged over the derived "
+              "value -- a merge is a bypass wearing the shape of an override.")
+
+    # RAISING IS HONOURED, which is the half that keeps the floor a floor rather
+    # than a fixed setting.
+    out = gw.complete("q", task_id="raise", profile_id="prof", difficulty="trivial",
+                      options={"reasoning_effort": "high"})
+    if out["effort"]["reasoning_effort"] != "high":
+        r.err(f"a caller raising effort above the floor got "
+              f"{out['effort']['reasoning_effort']!r}. A floor that cannot be exceeded "
+              "is a ceiling.")
+
+    if r.ok:
+        r.note(f"null answer from "
+               f"{EMPTY_CONTENT_FIXTURE.relative_to(REPO).as_posix()} retried with a "
+               f"grown budget and discriminated against a truncated real answer; "
+               f"floor table {dict(FLOOR)} over efforts {sorted(EFFORT_RANK, key=EFFORT_RANK.get)}")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -2438,6 +2850,8 @@ CHECK_FNS = {
     "host-stress": check_host_stress,
     "projection-unknown-absent": check_projection_unknown_absent,
     "glass-hatch-contained": check_glass_hatch,
+    "chain-budget-bounded": check_chain_budget,
+    "effort-floor-and-null-answer": check_effort_floor,
 }
 
 

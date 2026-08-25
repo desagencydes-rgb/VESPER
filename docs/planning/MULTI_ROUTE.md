@@ -684,6 +684,30 @@ is a routing rule, not a note: sending trivial tasks there wastes the rung.
 - Provider registration: probe capability at enrolment; never trust `/models`.
 - Rung 2 ordering: Codex last among subscription rungs for short tasks.
 
+**Landed 2026-08-25, in a cloud session with no credentials.** Stages 2 and 3
+are wired into `core/gateway.py` and guarded by `CI-059` and `CI-060`, both
+red-run against the fixtures beside this file rather than against a live call.
+`build_provider` now carries the model into the ledger's key, and
+`CompletionService` passes the routed difficulty to the gateway so the effort
+floor reaches the wire instead of stopping at the router.
+
+Three things on this list are **not** done and cannot be done without a key:
+
+- **Stage 1's second source for neuron spend.** The gateway books a reported
+  ZERO as unmeasured — the only correct move available from here — but that
+  makes spend an honest guess, not a measurement. The dashboard or the GraphQL
+  analytics path still has to be read on the owner's machine.
+- **Capability probing at enrolment.** `identify` still consults `/models`,
+  which finding 2 proves is a declaration. Replacing a listing with a probe
+  means making calls.
+- **The limit-0 parser is the most perishable line in the tree.** The captured
+  refusal carries `limit: 0` **only in the prose of its `message`** — the
+  structured `QuotaFailure` block does not contain it — so
+  `_quota_limit_from` reads a regex over vendor prose. A rewording removes the
+  only signal separating a permanent refusal from a temporary one, and nothing
+  goes red when it does; the ladder simply starts retrying a dead rung again.
+  That is a live re-measurement, and it is the first thing to re-check.
+
 
 ---
 

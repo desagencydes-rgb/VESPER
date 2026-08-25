@@ -92,7 +92,17 @@ class CompletionService:
             try:
                 out = self._gateway.complete(
                     prompt, task_id=task_id, options=options,
-                    profile_id=d.profile_id)
+                    profile_id=d.profile_id,
+                    # THE DIFFICULTY GOES TO THE GATEWAY TOO, and not passing it
+                    # would repeat this file's own founding defect one level
+                    # down. `difficulty` already chose the TIER here; it also
+                    # decides how hard that tier is told to think, and
+                    # `core/effort.py` is the floor for the second question. A
+                    # difficulty that stops at the router leaves the effort
+                    # floor reachable only by a caller who states it twice --
+                    # which is a seam that exists in a test and not in the
+                    # product.
+                    difficulty=difficulty)
             except (AllProvidersExhausted, NoProviderForProfile) as e:
                 last = e
                 tried.add(d.profile_id)

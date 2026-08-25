@@ -75,9 +75,10 @@ ic = ["IC-002"]
 tests = ["A-004"]
 contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json"]
 decision_functions = ["DF-PROVIDER-ADMIT"]
-invariants = ["INV-COST-3"]
-ci = ["CI-020"]
+invariants = ["INV-COST-3", "INV-COST-8", "INV-COST-9"]
+ci = ["CI-020", "CI-059", "CI-060"]
 status = "SPECIFIED"
+raised = "2026-08-25: `switch according to policy` had no policy behind it. The gateway classified failures and retried, and then chose the next provider by REGISTRATION ORDER -- so `switching` was real and `according to policy` was not, and nothing could see the gap because the router was asserted against its own decision and the gateway against its own counters. CI-059 binds the two. CI-060 is here for the RETRY half of `retry without stopping`: a 200 carrying empty content is a failed attempt, and until it was named as one the gateway recorded it as `ok` and handed back an empty string."
 
 [requirements.SR-004]
 arch = ["ARCH-09", "ARCH-25"]
@@ -105,10 +106,11 @@ ic = ["IC-002"]
 tests = ["A-005", "A-020", "A-022"]
 contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json", "contracts/entities/model_profile.schema.json", "contracts/policy/capability_profiles.toml"]
 decision_functions = ["DF-SURVIVAL-PROFILE", "DF-GOVERNOR-LEVEL"]
-invariants = ["INV-HW-1", "INV-HW-2"]
-ci = ["CI-007", "CI-034"]
+invariants = ["INV-HW-1", "INV-HW-2", "INV-COST-9"]
+ci = ["CI-007", "CI-034", "CI-060"]
 status = "SPECIFIED"
 raised = "2026-08-12: local model selection now resolves against MEASURED capability profiles rather than a name. The mechanism was already load-bearing (CI-007, CI-034, INV-HW-1/2) and had no artifact."
+raised_2026_08_25 = "CI-060 is listed here as well as under SR-003, and the split is deliberate rather than duplication. `enhance productivity/thinking` and `benchmarked for task quality` are about HOW HARD THE MODEL IS TOLD TO THINK, which is a different question from which provider answers -- measured 2026-08-25 at 4.6x completion tokens between low and high effort for an identical answer, and at low effort answering a hard problem CORRECTLY. Listing it only under SR-003 would have been the lazy answer, because SR-003 already carried the gateway."
 
 [requirements.SR-007]
 arch = ["ARCH-10"]

@@ -64,14 +64,20 @@ renders it.
 had. Use `python3.13` (`~/.local/bin/python3.13`). Verified 2026-08-23.
 
 ```sh
-python3.13 tools/ci/checks.py all       # 31 checks
-python3.13 tools/ci/self_test.py        # red-then-green, 79 cases
+python3.13 tools/ci/checks.py all       # 34 checks
+python3.13 tools/ci/self_test.py        # red-then-green, 88 cases
 python3.13 tools/traceability_lint.py
 python3.13 tools/reference_lint.py
 python3.13 verification/run_f0_acceptance.py   # ... f1 .. f6
 python3.13 verification/stress_placement.py    # 160k property assertions
 python3.13 verification/stress_fabric.py        # 180k property assertions
 ```
+
+**Corrected 2026-08-25:** the two figures above read 31 and 79 while the
+commands printed 32 and 80. Nothing depended on them, which is exactly why they
+drifted — a number nobody acts on is a number nobody re-reads. They are now the
+counts after `CI-059` and `CI-060` landed, and the rule that applies is this
+file's own opening line: the command wins.
 
 **Corrected 2026-08-21:** this file said `stress_placement` ran 320k assertions.
 The runner's own headline is `20000 random fabrics, 8 properties each = 160,000

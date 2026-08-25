@@ -285,6 +285,20 @@ owner_rem = "REM-006"
 enforced_by = ["A-021"]
 kind = "runtime"
 
+[invariants.INV-COST-8]
+statement = "One request spends a bounded total number of provider attempts across the whole chain, not a per-provider allowance multiplied by the ladder length. Provider order within a routed profile is decided by measured remaining quota, never by registration order. A refusal carrying a quota limit of zero is terminal, consumes no attempt budget, and is never offered again."
+owner_rem = "REM-006"
+enforced_by = ["CI-059"]
+kind = "runtime"
+measurement = "2026-08-25, first live calls. A 429 carrying `limit: 0` means the tier never had an allowance, so the refusal is permanent while the status is identical to a temporary one; `rate_limited` is TRANSIENT and stays TRANSIENT, because the distinction is not in the status code. Captured verbatim in tests/fixtures/provider-responses/google-429-limit-zero.json."
+
+[invariants.INV-COST-9]
+statement = "The gateway derives reasoning effort and the token budget from the routed difficulty's floor. A caller may raise effort and may never lower it; the attempt is refused rather than clamped. A response carrying empty content is a failed attempt, retried with a larger budget, and never returned as an answer."
+owner_rem = "REM-006"
+enforced_by = ["CI-060"]
+kind = "runtime"
+measurement = "2026-08-25. Same prompt, same answer `OK`: reasoning_effort low cost 26 completion tokens, medium 34, provider default 64, high 119 -- 4.6x for an identical answer, with the default near the top. And at max_tokens=16 the same endpoint returned HTTP 200, finish_reason `length` and content `''`, captured in tests/fixtures/provider-responses/groq-200-empty-content.json."
+separation_note = "The floor is deliberately NOT the gateway's to lower. Budget pressure may change routing and may never change standards: a system that feels the pressure and can relax its own quality floor gets dumber exactly where sharpness matters, and every step of it looks locally justified. core/effort.py raises rather than clamps for the same reason."
 # ------------------------------------------------- REM-007 triggers
 [invariants.INV-TRIG-1]
 statement = "Every autonomous action traces to exactly one registered trigger_id whose predicate demonstrably evaluated true against a reconstructible world-model snapshot."

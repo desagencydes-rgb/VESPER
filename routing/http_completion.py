@@ -71,13 +71,22 @@ class EndpointError(Exception):
     500 ms retry against a per-DAY limit is not patience, it is a second
     identical failure. SR-004 asks for a retry time a human can act on, and the
     authoritative one is the number the server sent.
+
+    `quota_limit` IS THE FIELD THAT SEPARATES "SPENT" FROM "NEVER HAD ANY", and
+    it is the one thing the status code cannot tell you. Measured 2026-08-25: a
+    `429` carrying `limit: 0` means the tier has no allowance for that model at
+    all, so the refusal is permanent, whereas the same status with a non-zero
+    limit returns when the window rolls. `core/gateway.py` books it; None means
+    the server published no limit, which is NOT zero.
     """
 
     def __init__(self, message: str, classification: str,
-                 retry_after_ms: int | None = None) -> None:
+                 retry_after_ms: int | None = None,
+                 quota_limit: int | None = None) -> None:
         super().__init__(message)
         self.classification = classification
         self.retry_after_ms = retry_after_ms
+        self.quota_limit = quota_limit
 
 
 # HTTP status -> the gateway's classification. Anything unlisted is
@@ -130,12 +139,43 @@ class EndpointIdentity:
                 "model": self.model}
 
 
+# THE QUOTA CEILING, READ OUT OF PROSE BECAUSE THAT IS WHERE IT IS.
+#
+# `tests/fixtures/provider-responses/google-429-limit-zero.json` is a verbatim
+# capture from 2026-08-25. Its structured `details` block carries the metric
+# names, the quota ids and a retry delay -- and NOT the limit. The only place
+# `limit: 0` appears anywhere in that response is the human-readable `message`
+# string, three times.
+#
+# So this regex is not laziness, it is the shape of the data, and it is the
+# most fragile thing in this module: a vendor rewording that sentence removes
+# the only signal that separates a permanent refusal from a temporary one, and
+# nothing will fail loudly when they do -- the ladder just starts retrying a
+# dead rung again. The fixture README says these expire; this is the line that
+# expires first, and re-measuring it is a live call the owner has to make.
+_QUOTA_LIMIT = re.compile(r"\blimit:\s*(\d+)")
+
+
+def _quota_limit_from(message: str) -> int | None:
+    """The smallest published limit in a refusal message, or None.
+
+    THE MINIMUM, NOT THE FIRST AND NOT THE LAST. The captured refusal names
+    three metrics -- per-day requests, per-minute requests and input tokens --
+    and a zero on ANY of them is enough to make the call impossible. Taking the
+    first match would be reading whichever metric the vendor happened to order
+    first; taking the minimum reads the binding constraint, which is the one
+    that decides whether this rung can ever answer.
+    """
+    found = [int(m) for m in _QUOTA_LIMIT.findall(message or "")]
+    return min(found) if found else None
+
+
 def _error_detail(err) -> tuple:
-    """Read an HTTP error body ONCE, for both its retry hint and its message.
+    """Read an HTTP error body ONCE, for its retry hint, message and quota limit.
 
     Read once because `err.read()` is not repeatable -- a second caller gets
-    an empty string and silently concludes the server said nothing. Both facts
-    come from the same read for that reason.
+    an empty string and silently concludes the server said nothing. All three
+    facts come from the same read for that reason.
 
     RETURNS `retry_after_ms = None` FOR A NON-POSITIVE HINT, and that is the
     fix rather than a tidy-up. Measured 2026-08-24: this endpoint's `retryDelay`
@@ -179,7 +219,7 @@ def _error_detail(err) -> tuple:
                     break
     except Exception:  # noqa: BLE001
         pass
-    return retry_ms, message
+    return retry_ms, message, _quota_limit_from(message)
 
 
 def _post_json(url: str, payload: dict, timeout: float,
@@ -192,10 +232,10 @@ def _post_json(url: str, payload: dict, timeout: float,
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        retry_ms, message = _error_detail(e)
+        retry_ms, message, limit = _error_detail(e)
         raise EndpointError(
             f"HTTP {e.code} from {url}" + (f" -- {message}" if message else ""),
-            _STATUS_CLASS.get(e.code, "server_error"), retry_ms) from e
+            _STATUS_CLASS.get(e.code, "server_error"), retry_ms, limit) from e
     except TimeoutError as e:
         raise EndpointError(f"timeout after {timeout}s", "timeout") from e
     except urllib.error.URLError as e:
@@ -315,6 +355,22 @@ def _chat_suffix(base_url: str) -> str:
             else "/v1/chat/completions")
 
 
+def _budget(options: dict) -> int:
+    """The token allowance for one call, under either of its two spellings.
+
+    `max_tokens` is the OpenAI spelling and `n_predict` is the local runner's.
+    `core.gateway` derives the budget from `core.effort` and writes BOTH, but a
+    caller reaching this module directly may write either -- and reading only
+    `n_predict`, as this did until 2026-08-25, silently discarded a budget
+    written under the other name and served 256 instead. A truncation at 256
+    does not look like a dropped setting; it looks like a model that stopped.
+
+    `max_tokens` wins where both appear, because that is the one the effort
+    policy writes first and a disagreement means somebody set the other by hand.
+    """
+    return int(options.get("max_tokens") or options.get("n_predict") or 256)
+
+
 def _call_raw(ident: EndpointIdentity, prompt: str, options: dict,
               timeout: float, headers: dict | None = None) -> dict:
     """The raw continuation endpoint. Used for MEASUREMENT.
@@ -327,7 +383,7 @@ def _call_raw(ident: EndpointIdentity, prompt: str, options: dict,
     """
     payload = {
         "prompt": prompt,
-        "n_predict": int(options.get("n_predict", 256)),
+        "n_predict": _budget(options),
         "temperature": float(options.get("temperature", 0.7)),
         "stream": False,
     }
@@ -374,7 +430,7 @@ def _call_chat(ident: EndpointIdentity, prompt: str, options: dict,
     msgs.append({"role": "user", "content": prompt})
     payload: dict[str, Any] = {
         "messages": msgs,
-        "max_tokens": int(options.get("n_predict", 256)),
+        "max_tokens": _budget(options),
         "temperature": float(options.get("temperature", 0.7)),
         "stream": False,
     }
@@ -516,4 +572,10 @@ def build_provider(provider_id: str, profile_id: str, base_url: str, *,
         out["mode"] = mode
         return out
 
-    return Provider(provider_id=provider_id, profile_id=profile_id, call=call)
+    # THE LEDGER'S SECOND KEY, carried from the identity rather than invented.
+    # A local runner serves one model and reports none, and "" is the honest key
+    # for that -- it says "this endpoint's only model", which is true, where
+    # copying `provider_id` in would make two models on one account share a
+    # quota line and retire both when either is refused.
+    return Provider(provider_id=provider_id, profile_id=profile_id, call=call,
+                    model=ident.model or "")

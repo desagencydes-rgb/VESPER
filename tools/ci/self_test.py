@@ -928,5 +928,65 @@ CASES += [
 ]
 
 
+# ---------------------------------------------------------------- CI-059/060
+#
+# The gateway wired to the quota ledger and the effort floor. Every mutation
+# here is a PLAUSIBLE EDIT rather than a sabotage, and three of them are edits
+# somebody would make while tidying: `content.strip()` looks redundant next to
+# an `is not None`, a caller-supplied `reasoning_effort` looks like something a
+# caller should be allowed to set, and a refund inside a retry loop looks like
+# an off-by-one. Each one restores a defect that was MEASURED against a live
+# provider on 2026-08-25 and that no gate could see before these checks existed.
+GATEWAY = "core/gateway.py"
+EFFORT = "core/effort.py"
+
+CASES += [
+    ("chain-budget-bounded", GATEWAY,
+     _sub("    MAX_ATTEMPTS_PER_REQUEST = 10", "    MAX_ATTEMPTS_PER_REQUEST = 100", 1),
+     "the chain budget raised past the ladder length -- it stops binding, and "
+     "the cost of a request goes back to being per-provider attempts times "
+     "however many providers happen to be registered"),
+
+    ("chain-budget-bounded", GATEWAY,
+     _sub("                budget -= 1\n", "", 1),
+     "the budget counted but never spent: every rung is tried in full and the "
+     "bound reads as enforced in every log line"),
+
+    ("chain-budget-bounded", GATEWAY,
+     _sub("        ranked = self.quota.rank(offered)", "        ranked = offered", 1),
+     "the ledger consulted and its answer discarded -- registration order "
+     "decides routing again, and a rung the ledger knows is dead is offered "
+     "back to every request"),
+
+    ("chain-budget-bounded", GATEWAY,
+     _sub("permanent = self._book_refusal(p, err, hint)", "permanent = False", 1),
+     "a limit-0 refusal read as an ordinary rate limit: same status, opposite "
+     "fact, and the budget is spent on it every day forever"),
+
+    ("chain-budget-bounded", GATEWAY,
+     _sub("                            budget += 1", "                            pass", 1),
+     "the refund dropped, so the one request that discovers a rung is "
+     "permanently outside the tier pays for knowledge every later request uses"),
+
+    ("effort-floor-and-null-answer", EFFORT,
+     _sub("    if content is not None and content.strip():",
+          "    if content is not None:", 1),
+     "the emptiness test reduced to a null test -- `''` is not None, so a 200 "
+     "carrying no answer is handed back as one, which is the exact shape "
+     "measured on 2026-08-25"),
+
+    ("effort-floor-and-null-answer", GATEWAY,
+     _sub('raise_to=options.get("reasoning_effort"))', "raise_to=None)", 1),
+     "the caller's effort dropped instead of being read as a request to RAISE: "
+     "the floor is never asked about, so it can never be violated, and a build "
+     "that lowers effort passes every test"),
+
+    ("effort-floor-and-null-answer", EFFORT,
+     _sub("        if EFFORT_RANK[raise_to] < EFFORT_RANK[floor]:", "        if False:", 1),
+     "the floor comparison disabled -- lowering is accepted in silence, which "
+     "is how budget pressure turns into a quality regression nothing detects"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

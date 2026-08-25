@@ -606,6 +606,32 @@ traces_to = "SR-002. The check's INVARIANT lineage is INV-HW-2 via CI-034, whose
 coord_note = "This check also asserts that Projection.supersedes orders by HLC, and one self-test case inverts it. That is a REGRESSION GUARD on this module, not enforcement of INV-COORD-4 -- CI-005 enforces ordering across the codebase, and claiming it here would be the asymmetric enforcement claim CI-043 exists to catch. The assertion stays; the claim does not."
 note = "THE RUNTIME HALF CI-034's note defers. CI-034 covers the policy table; this covers the first runtime surface that renders to a person. Deliberately a runtime fixture rather than a structural grep: a grep for the guards passes on a guard that has been INVERTED, and inverting one comparison is a mistake already made in this codebase. The third self-test case is the exact failure drawn in the owner's UI reference -- an empty status column filled with a plausible number because it looked wrong empty."
 
+
+[checks.CI-059]
+name = "chain-budget-bounded"
+enforces = ["INV-COST-8"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py chain-budget-bounded"
+blocking = "pr"
+self_test = "Raise MAX_ATTEMPTS_PER_REQUEST past the ladder length so it stops binding; stop decrementing the budget; discard QuotaLedger.rank's answer and use the offered order; read a limit-0 refusal as an ordinary rate limit; drop the refund that keeps a limit-0 discovery off the budget."
+self_test_evidence = "tools/ci/self_test.py chain-budget-bounded -- 5 cases, red then green, 2026-08-25."
+subject = "core/gateway.py x core/quota.py x tests/fixtures/provider-responses/google-429-limit-zero.json"
+note = """Three properties of one method, checked together because they fail together. Until 2026-08-25 the gateway had a per-provider attempt allowance and no chain-wide bound, so a six-rung ladder cost twelve calls and the price of a request was a property of how many providers happened to be registered. It also called providers in registration order: `profile_id` fixed WHICH CAPABILITY answers and never said which of several providers serving it had quota left. RUNTIME FIXTURE, NOT A GREP, for the reason the module's own docstring records -- `Provider.profile_id` existed from F1 and the gateway never read it, and every test stayed green because A-022 asserted on the RouteDecision and A-004 on attempts_by_class and nothing held the two ends of one call. An import is not a call site. The limit-0 cases parse their quota ceiling out of the CAPTURED bytes with the same function the live path uses, so a cloud session with no credentials is still testing a shape that was observed rather than one it imagined (INV-HW-2)."""
+discriminators = "Three cases exist to stop this passing for the wrong reason: an explicit budget of 3 must be honoured (so 10 is read, not hardcoded); the headroom ordering is asserted in BOTH directions (so `ordered by headroom` is distinguishable from `reversed the list`); and a refusal carrying limit=20 must be recorded EXHAUSTED rather than permanent (so permanence keys on the limit being zero, not on the status being 429). Without the third, a build that retired a working model on its first ordinary rate limit would pass."
+
+[checks.CI-060]
+name = "effort-floor-and-null-answer"
+enforces = ["INV-COST-9"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py effort-floor-and-null-answer"
+blocking = "pr"
+self_test = "Reduce the empty-content test to a null test so `''` passes; drop the caller's reasoning_effort instead of passing it as raise_to, so the floor is never asked about; disable the floor comparison in core/effort.py so lowering is accepted in silence."
+self_test_evidence = "tools/ci/self_test.py effort-floor-and-null-answer -- 3 cases, red then green, 2026-08-25."
+subject = "core/gateway.py x core/effort.py x tests/fixtures/provider-responses/groq-200-empty-content.json"
+note = """The two halves of `spending less must not mean answering worse`. A 200 carrying empty content was measured on 2026-08-25: reasoning tokens are billed as completion tokens and consumed the whole budget before a content token was emitted, so nothing in the transport failed and nothing in the response said anything was wrong. `routing/http_completion.py` carries a guard of its own and it is NOT a substitute -- it is one adapter's and it keys on that vendor's spelling of the reasoning field, so a response carrying reasoning under another key walks through it with empty content. INV-COST-3's argument for a single choke point is the same argument. The floor half is checked here rather than in core/effort.py's own tests because the gateway is the one component that feels budget pressure, and a system that feels budget pressure and can lower its own quality floor gets quietly dumber in exactly the situations where being sharp matters most, with every step locally justified."""
+discriminators = "A truncated but NON-EMPTY answer must still be returned, so the guard is shown to key on emptiness rather than on finish_reason=length -- refusing those would throw away work already paid for. And raising effort above the floor must be honoured, so the floor is shown to be a floor rather than a fixed setting."
+measurement_note = "MULTI_ROUTE.md §14 measured that low effort answered a hard problem CORRECTLY for 4.6x fewer tokens than high, which contradicts the assumption this design was built on. The floor stays anyway: two problems is not an eval set, and the failure it guards against is silent. What the measurement changed is the PRICE of the insurance, not the case for it."
+
 [checks.CI-058]
 name = "glass-hatch-contained"
 enforces = ["INV-HOME-5"]

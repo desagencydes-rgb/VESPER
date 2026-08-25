@@ -22,6 +22,32 @@ gateway checkpoints and queues. It does not reach for a paid provider and does
 not wake the owner for ordinary work. SR-003's "retry without stopping" is
 satisfied within the permitted subset -- both requirements stand unmodified,
 which is the point AR-005 missed.
+
+WHAT THE FIRST LIVE CALLS CHANGED HERE, 2026-08-25. Six findings in
+`docs/planning/MULTI_ROUTE.md` SS13/SS14 were taken against real endpoints, and
+four of them contradicted code that already looked correct in this file:
+
+  * THE RETRY BUDGET WAS PER PROVIDER AND UNBOUNDED ACROSS THE CHAIN. Two
+    attempts each on a six-rung ladder is twelve calls for one request, and
+    nothing in this module knew the number. MULTI_ROUTE SS2 "Where the 10
+    retries go" says ten PER REQUEST, across the whole ladder. It is now a
+    budget the chain spends, not a per-provider allowance that multiplies.
+
+  * REGISTRATION ORDER WAS THE ROUTING RULE FOR *WHICH FREE PROVIDER*, exactly
+    as it was for `profile_id` before 2026-08-24. `profile_id` fixed WHICH
+    CAPABILITY answers; it never decided which of several providers serving
+    that capability had any quota left. `QuotaLedger.rank` decides that now,
+    per request, because which provider is biggest changes through the day.
+
+  * A `429` DOES NOT ALWAYS MEAN "EXHAUSTED". Carrying `limit: 0` it means the
+    tier never had an allowance, so the refusal is permanent and retrying it
+    spends the budget every day forever. `rate_limited` is in TRANSIENT and
+    always will be -- the fix is not to reclassify the status but to read the
+    quota detail underneath it. See `_book_refusal`.
+
+  * A `200` CAN CARRY NO ANSWER. `core.effort.guard_response` refuses one at
+    this boundary rather than in an adapter, because an adapter guard is
+    per-provider and this is the one place every call passes through.
 """
 
 from __future__ import annotations
@@ -34,10 +60,20 @@ from typing import Any, Callable
 from . import decision_path
 from .bus import EventBus
 from .cost import CostPolicy, CostPolicyViolation
+from .effort import Effort, for_difficulty, guard_response
+from .quota import QuotaLedger, UNAVAILABLE_ON_TIER
 
 # SR-004: an error a human can act on. Classification decides retry timing.
 TRANSIENT = ("rate_limited", "timeout", "server_error", "connection_error")
 TERMINAL = ("auth_failed", "quota_exhausted", "revoked", "bad_request")
+
+# Classifications that mean "the provider refused on quota", and therefore that
+# the refusal carries a QUOTA SHAPE worth booking. `rate_limited` is TRANSIENT
+# and stays TRANSIENT: the distinction between a window that refills and a tier
+# that excludes is NOT in the status code, it is in the `limit` field, and the
+# whole finding of 2026-08-25 is that the two are indistinguishable from the
+# status alone.
+QUOTA_CLASSIFICATIONS = ("rate_limited", "quota_exhausted")
 
 
 class AllProvidersExhausted(Exception):
@@ -62,6 +98,16 @@ class Provider:
     profile_id: str
     call: Callable[[str, dict], dict]
     available: bool = True
+    # THE LEDGER'S SECOND KEY. Quota is metered per (provider, model), not per
+    # provider: one account can hold a spent model and an untouched one, and a
+    # ledger keyed on the account alone would retire both when either is
+    # refused. Empty string is a real key meaning "the endpoint's only model" --
+    # it is not a missing value, and it must not be defaulted to `provider_id`,
+    # which would make two models on one account share a line again.
+    model: str = ""
+
+    def quota_key(self) -> tuple[str, str]:
+        return (self.provider_id, self.model)
 
 
 @dataclass(slots=True)
@@ -83,7 +129,8 @@ class ModelGateway:
     """Every model call in VESPER goes through `complete`."""
 
     def __init__(self, bus: EventBus, cost: CostPolicy, *,
-                 sleep: Callable[[float], None] | None = None) -> None:
+                 sleep: Callable[[float], None] | None = None,
+                 quota: QuotaLedger | None = None) -> None:
         self._bus = bus
         self._cost = cost
         self._providers: list[Provider] = []
@@ -93,6 +140,14 @@ class ModelGateway:
                                                   "metered_free_tier": 0}
         self.history: list[Attempt] = []
         self._sleep = sleep or time.sleep
+        # THERE IS ALWAYS A LEDGER, and `quota=None` does not mean "no ordering".
+        # A gateway without one falls back to registration order, which is the
+        # exact defect `core/quota.py` was written to remove -- so the fallback
+        # is an in-memory ledger for this process, never an absent one. Passing
+        # a path-backed ledger makes the knowledge survive a restart; passing
+        # nothing makes it survive the request, which is still better than
+        # deciding routing by the order somebody happened to call `register`.
+        self.quota = quota if quota is not None else QuotaLedger()
 
     def register(self, provider: Provider) -> None:
         with self._lock:
@@ -139,15 +194,182 @@ class ModelGateway:
             return int(server_hint_ms)
         return min(30_000, int(500 * (2 ** attempt_index)))
 
+    # THE CHAIN-WIDE DEFAULT, from MULTI_ROUTE.md SS2 "Where the 10 retries go":
+    # ten PER REQUEST across the whole ladder, not ten per rung. The number is
+    # the owner's brief, not a measurement, and is named here so it is one
+    # constant rather than a literal repeated at each call site.
+    MAX_ATTEMPTS_PER_REQUEST = 10
+
+    # What the gateway asks for when the caller states no difficulty. Used ONLY
+    # to give `guard_response` something to report the budget in; it sets no
+    # floor and injects nothing into the request. See `_effort_for`.
+    UNSTATED = "UNSTATED"
+
+    def _effort_for(self, difficulty: str | None, options: dict,
+                    expected_output_tokens: int) -> tuple[Effort, dict]:
+        """Derive the effort floor, and the options that carry it to the wire.
+
+        EFFORT MAY BE RAISED AND NEVER LOWERED, and the load-bearing detail is
+        WHERE a caller-supplied `reasoning_effort` goes. It is passed to
+        `for_difficulty` as `raise_to`, never merged over the derived value
+        afterwards -- a merge would be a bypass wearing the shape of an
+        override, and `EffortFloorViolation` would never be raised because
+        nothing would ever ask. `core/effort.py` raises rather than clamping for
+        the same reason: a silent clamp is how a cost optimisation becomes a
+        capability regression that no test sees.
+
+        NO DIFFICULTY STATED MEANS NO FLOOR, NOT A DEFAULT ONE. Choosing a
+        difficulty on the caller's behalf would be declaring a fact about a task
+        nobody measured, and it would silently rewrite the token budget of every
+        pre-existing caller of this method. So the unrouted form leaves the
+        options untouched and reports the budget that was ACTUALLY in play --
+        which is the caller's, and saying so is the honest reading.
+        """
+        if difficulty is None:
+            budget = options.get("max_tokens") or options.get("n_predict") or 0
+            return (Effort(reasoning_effort=str(options.get("reasoning_effort")
+                                                or self.UNSTATED),
+                           max_tokens=int(budget),
+                           difficulty=self.UNSTATED,
+                           rationale=("no difficulty was routed to this call, so no "
+                                      "floor applies and none was invented; the "
+                                      "budget reported here is the caller's own")),
+                    dict(options))
+        eff = for_difficulty(difficulty,
+                             expected_output_tokens=expected_output_tokens,
+                             raise_to=options.get("reasoning_effort"))
+        out = dict(options)
+        out["reasoning_effort"] = eff.reasoning_effort
+        # BOTH KEYS, AND THEY MUST NOT DISAGREE. `max_tokens` is the OpenAI
+        # spelling and `n_predict` is the local runner's; an adapter reads one
+        # of the two, and a budget written to only the key the OTHER adapter
+        # reads is a decision that never reaches the call -- the same shape as
+        # the `profile_id` defect this module's docstring records.
+        out["max_tokens"] = eff.max_tokens
+        out["n_predict"] = eff.max_tokens
+        return eff, out
+
+    @staticmethod
+    def _grow_budget(options: dict, effort: Effort) -> dict:
+        """Retry an empty answer with a LARGER budget, not the same one.
+
+        MEASURED 2026-08-25: a `200` with `finish_reason: length` and no content
+        means reasoning consumed the entire allowance before a content token was
+        emitted. Retrying at the same budget reproduces it exactly -- the
+        failure is deterministic in the budget, so an identical retry is not a
+        retry, it is the same call made twice.
+
+        Doubling rather than adding a fixed margin, because the shortfall is
+        unknown: the provider reports what it spent, never what it needed.
+        Unused budget costs nothing -- providers bill what was generated, not
+        what was permitted -- so the asymmetry is total and the bias is upward.
+        """
+        current = int(options.get("max_tokens") or options.get("n_predict")
+                      or effort.max_tokens or 0)
+        grown = max(1, current) * 2
+        out = dict(options)
+        out["max_tokens"] = grown
+        out["n_predict"] = grown
+        return out
+
+    def _book_refusal(self, p: Provider, exc: Exception,
+                      retry_after_ms: int | None) -> bool:
+        """Record a quota refusal against the ledger. True if it is PERMANENT.
+
+        THE `limit` FIELD IS THE ONLY PLACE THE TWO CASES DIFFER. Measured
+        2026-08-25 (`MULTI_ROUTE.md` SS13.1): an image model answered
+        RESOURCE_EXHAUSTED with `limit: 0` -- the tier has no allowance at all,
+        so the first request is refused and so is every one after it. An
+        exhausted window returns tomorrow; a zero limit never returns. Same
+        status, same classification, opposite fact.
+
+        `quota_limit` is absent on every provider that does not publish one, and
+        absent is NOT zero: `record_refusal(limit=None)` books EXHAUSTED, which
+        rolls when the window does. Defaulting a missing field to zero would
+        permanently retire a working model on its first ordinary rate limit,
+        which is the more expensive of the two mistakes by a wide margin.
+        """
+        limit = getattr(exc, "quota_limit", None)
+        entry = self.quota.record_refusal(
+            p.provider_id, p.model, limit=limit,
+            retry_after_ms=retry_after_ms,
+            source=f"gateway refusal from {p.provider_id}: {str(exc)[:160]}")
+        return entry.state == UNAVAILABLE_ON_TIER
+
+    def _book_spend(self, p: Provider, result: dict) -> None:
+        """Book what the call cost, and say so when the provider would not.
+
+        A REPORTED ZERO IS TREATED AS UNMEASURED, and this is the opposite of
+        the rule `core/projection.py` applies to a reading of 0. The difference
+        is that this line is only reached AFTER `guard_response` passed, so the
+        response demonstrably carried content -- and a completion that produced
+        text cannot have cost zero completion tokens. Measured 2026-08-25
+        (`MULTI_ROUTE.md` SS13.5): a provider returned `input_tokens: 0,
+        output_tokens: 0, neurons: 0` on a call that plainly worked. A ledger
+        trusting that books zero spend forever and concludes the free tier is
+        infinite. Here zero is a missing field wearing a number, so it is passed
+        as `None` -- which `record_success` books as 1 unit and FLAGS.
+        """
+        amount = result.get("tokens_predicted")
+        measured = bool(amount)
+        self.quota.record_success(
+            p.provider_id, p.model,
+            amount=amount if measured else None,
+            unit="tokens" if measured else "UNKNOWN",
+            measured=measured,
+            source=f"gateway success from {p.provider_id}")
+
     def complete(self, prompt: str, *, task_id: str | None = None,
                  options: dict | None = None,
                  max_attempts_per_provider: int = 2,
-                 profile_id: str | None = None) -> dict:
-        """Call the first permitted, available provider that succeeds.
+                 max_attempts_per_request: int | None = None,
+                 profile_id: str | None = None,
+                 difficulty: str | None = None,
+                 expected_output_tokens: int = 1_024) -> dict:
+        """Call the permitted provider with the most headroom that succeeds.
 
         Every provider passes the cost check IMMEDIATELY BEFORE invocation, not
         once at entry. A period can change mid-call chain, and a check done at
         entry would authorise a request made after the rule changed.
+
+        THE ATTEMPT BUDGET IS CHAIN-WIDE, AND `max_attempts_per_provider` NO
+        LONGER MULTIPLIES BY THE LADDER LENGTH. Two attempts each across six
+        rungs is twelve calls for one request, and until 2026-08-25 nothing in
+        this method knew that number: the per-provider allowance was the only
+        bound, so the real cost of a request was a property of how many
+        providers happened to be registered. `max_attempts_per_request` is the
+        bound that actually holds, defaulting to
+        `MAX_ATTEMPTS_PER_REQUEST`; the per-provider figure is now a cap on how
+        long ONE rung may be retried before descending, which is what it always
+        read like.
+
+        TWO THINGS DO NOT SPEND IT, for different reasons.
+
+          * A TERMINAL classification costs its one attempt and nothing more.
+            MULTI_ROUTE SS2: "Terminal error -> descend immediately, no retry.
+            Zero budget spent on a 401." The call happened, so it is counted;
+            the RETRIES it would otherwise have bought are not.
+
+          * A `limit == 0` refusal costs NOTHING AT ALL, and the asymmetry is
+            deliberate. Discovering that a rung is permanently outside the tier
+            is not a retry -- it is ledger maintenance that happens exactly once
+            ever, and it benefits every later request. Charging the one request
+            unlucky enough to find out would price a permanent improvement as a
+            per-request failure. A `401` stays charged because it is not
+            permanent knowledge: the credential can be replaced.
+
+        PROVIDER ORDER IS THE LEDGER'S, NOT THE REGISTRY'S. `profile_id` fixed
+        WHICH CAPABILITY answers (below); it never said which of several
+        providers serving that capability had any quota left, so registration
+        order still decided that. `QuotaLedger.rank` decides it now, computed
+        per request because which provider is biggest changes through the day as
+        each is spent -- and it drops a rung the ledger knows is spent or
+        excluded rather than spending an attempt rediscovering it.
+
+        `difficulty` DERIVES THE EFFORT FLOOR AND THE TOKEN BUDGET. Omitting it
+        leaves both to the caller and applies no floor; supplying it means a
+        caller-supplied `reasoning_effort` is read as a request to RAISE and
+        raises `EffortFloorViolation` if it would lower. See `_effort_for`.
 
         `profile_id` IS THE SEAM TO THE ROUTER, AND IT DID NOT EXIST UNTIL
         2026-08-24. `Provider` has carried a `profile_id` field since F1, and
@@ -218,9 +440,73 @@ class ModelGateway:
             providers = matching
         last_error: Exception | None = None
 
+        # THE EFFORT DECISION IS MADE ONCE, BEFORE ANY PROVIDER IS TRIED, and it
+        # is allowed to abort the whole request. A floor violation is a defect in
+        # the caller, not a property of any rung: discovering it on rung four
+        # would mean three providers were already paid to answer a question at a
+        # quality the task does not permit.
+        effort, call_options = self._effort_for(difficulty, options,
+                                                expected_output_tokens)
+
+        # ORDER BY HEADROOM. Availability is settled first so that a revoked
+        # provider is recorded as skipped exactly once (A-004.3 reads these), and
+        # so the ledger is never asked to rank a rung that cannot be called at
+        # all.
+        callable_now: list[Provider] = []
         for p in providers:
             if not p.available:
                 self._record(p, "skipped", "provider_unavailable", None, 0.0)
+            else:
+                callable_now.append(p)
+
+        by_key: dict[tuple[str, str], Provider] = {}
+        offered: list[tuple[str, str]] = []
+        for p in callable_now:
+            k = p.quota_key()
+            if k not in by_key:
+                by_key[k] = p
+                offered.append(k)
+            else:
+                # TWO PROVIDERS ON ONE QUOTA LINE, RECORDED RATHER THAN DROPPED.
+                # The ledger meters per (provider, model), so a second handle
+                # with the same key is not a second budget -- ranking it twice
+                # would offer one allowance to the chain as though it were two.
+                # Only the first is tried, and the collapse is written down:
+                # a rung that vanishes silently is indistinguishable from one
+                # that was never registered, and the caller registered it.
+                self._record(p, "skipped", "duplicate_quota_key", None, 0.0)
+        ranked = self.quota.rank(offered)
+        # WHAT THE LEDGER DROPPED IS RECORDED, NOT SILENTLY OMITTED. `rank`
+        # returns only the AVAILABLE pairs, so an exhausted window and a
+        # `limit: 0` exclusion both vanish from the order -- which is the point,
+        # and is also how a rung disappears without anyone being told. The
+        # skipped record carries the ledger's own state, so "never tried" and
+        # "tried and refused" stay distinguishable in `history`.
+        for k in offered:
+            if k not in ranked:
+                # `quota_ledger_` PREFIXED, not `quota_`. `quota_exhausted` is
+                # already a TERMINAL classification meaning "the provider
+                # refused us just now", and reusing it for "the ledger did not
+                # offer this rung" would put two different events under one
+                # label -- one of which involves a call and one of which does
+                # not. The outcome field distinguishes them; the label should
+                # not need it to.
+                self._record(by_key[k], "skipped",
+                             f"quota_ledger_{self.quota.entry(*k).state}",
+                             None, 0.0)
+        providers = [by_key[k] for k in ranked]
+
+        budget = (self.MAX_ATTEMPTS_PER_REQUEST
+                  if max_attempts_per_request is None
+                  else int(max_attempts_per_request))
+
+        for p in providers:
+            if budget <= 0:
+                # THE LADDER STOPS WHERE THE BUDGET DOES. Recorded per untried
+                # rung rather than once, because "we ran out at rung 3" and "we
+                # ran out at rung 5" are different facts about the same request
+                # and only the history distinguishes them.
+                self._record(p, "skipped", "chain_budget_exhausted", None, 0.0)
                 continue
 
             # The choke point. Re-checked per provider, deliberately.
@@ -237,30 +523,73 @@ class ModelGateway:
             cred = self._cost.credential(p.provider_id)
             eff = cred.effective_class() if cred else "unknown"
 
+            # Grown in place when an empty answer is retried, so the SECOND
+            # attempt on this rung is not a byte-identical repeat of the first.
+            attempt_options = dict(call_options)
+
             for i in range(max_attempts_per_provider):
+                if budget <= 0:
+                    self._record(p, "skipped", "chain_budget_exhausted",
+                                 None, 0.0, cost_class=eff)
+                    break
                 t0 = time.perf_counter()
                 # THE BOUNDARY. Counted here because this is the line that
                 # actually reaches a provider; anywhere earlier counts intent.
                 with self._lock:
                     self.attempts_by_class[eff] = self.attempts_by_class.get(eff, 0) + 1
+                budget -= 1
+                err: Exception | None = None
+                answered_empty = False
                 try:
-                    result = p.call(prompt, options)
+                    result = p.call(prompt, attempt_options)
                 except Exception as e:  # noqa: BLE001
+                    err = e
+                else:
+                    # A SUCCESS STATUS IS NOT A SUCCESSFUL ANSWER, and this is
+                    # the one boundary every call crosses. `routing/
+                    # http_completion.py` carries a guard of its own and it is
+                    # NOT a substitute: it is one adapter's, it keys on that
+                    # vendor's field spelling for the reasoning text, and a
+                    # response carrying reasoning under a different key walks
+                    # straight through it with empty content. INV-COST-3's
+                    # argument for a single choke point is the same argument.
+                    try:
+                        guard_response(result.get("text"),
+                                       result.get("stop_reason"), effort)
+                    except Exception as e:  # noqa: BLE001
+                        err = e
+                        answered_empty = True
+                if err is not None:
                     ms = (time.perf_counter() - t0) * 1000.0
-                    cls = getattr(e, "classification", "server_error")
-                    hint = getattr(e, "retry_after_ms", None)
-                    delay = self._retry_delay_ms(cls, i, hint)
-                    self._record(p, "error", cls, delay, ms, cost_class=eff,
+                    cls = getattr(err, "classification", "server_error")
+                    hint = getattr(err, "retry_after_ms", None)
+                    permanent = False
+                    if cls in QUOTA_CLASSIFICATIONS:
+                        permanent = self._book_refusal(p, err, hint)
+                        if permanent:
+                            # REFUNDED, and it is a refund rather than a
+                            # never-charged because the shape is only knowable
+                            # AFTER the call. See `complete`'s docstring for why
+                            # this and a 401 are priced differently.
+                            budget += 1
+                    delay = None if permanent else self._retry_delay_ms(cls, i, hint)
+                    if answered_empty:
+                        attempt_options = self._grow_budget(attempt_options, effort)
+                    self._record(p, "error",
+                                 "quota_unavailable_on_tier" if permanent else cls,
+                                 delay, ms, cost_class=eff,
                                  server_retry_after_ms=hint)
-                    last_error = e
+                    last_error = err
                     if delay is None:
                         break  # terminal for this provider
                     self._sleep(delay / 1000.0)
                     continue
                 ms = (time.perf_counter() - t0) * 1000.0
+                self._book_spend(p, result)
                 self._record(p, "ok", None, None, ms, cost_class=eff)
                 return {"provider_id": p.provider_id, "profile_id": p.profile_id,
-                        "result": result}
+                        "result": result, "effort": effort.to_dict(),
+                        "attempts_remaining": budget}
 
         # Nothing permitted succeeded. Checkpoint and queue -- do NOT escalate.
         if task_id:
