@@ -153,6 +153,25 @@ class EndpointIdentity:
 # nothing will fail loudly when they do -- the ladder just starts retrying a
 # dead rung again. The fixture README says these expire; this is the line that
 # expires first, and re-measuring it is a live call the owner has to make.
+# A REQUEST WITH NO USER-AGENT IS REFUSED BY AT LEAST ONE PROVIDER'S WAF, and
+# it does not look like a WAF refusal when it happens.
+#
+# MEASURED 2026-08-25, same key, same payload, differing only in this header:
+#   User-Agent: Python-urllib/3.13   -> HTTP 403
+#   User-Agent: curl/8.7.1           -> HTTP 200
+#   User-Agent: vesper/1.0           -> HTTP 200
+#
+# urllib sends `Python-urllib/<version>` unless told otherwise, so the default
+# is the one value that fails. THE DANGEROUS PART IS THE CLASSIFICATION: 403
+# maps to `auth_failed`, which is TERMINAL, so the gateway would retire a
+# working E1-PRIVATE rung permanently on its first call and the owner would
+# reasonably conclude their key was bad. Half the private-safe capacity would
+# disappear with a plausible-looking explanation.
+#
+# Named for VESPER rather than disguised as a browser: the point is to identify
+# the caller honestly, not to evade a filter that is entitled to refuse us.
+USER_AGENT = "vesper/1.0 (+https://github.com/desagencydes-rgb/VESPER)"
+
 _QUOTA_LIMIT = re.compile(r"\blimit:\s*(\d+)")
 
 # DRIFT DETECTOR FOR THE LINE ABOVE, and the reason it needs one.
@@ -265,7 +284,7 @@ def _error_detail(err) -> tuple:
 def _post_json(url: str, payload: dict, timeout: float,
                headers: dict | None = None) -> dict:
     body = json.dumps(payload).encode("utf-8")
-    h = {"Content-Type": "application/json"}
+    h = {"Content-Type": "application/json", "User-Agent": USER_AGENT}
     h.update(headers or {})
     req = urllib.request.Request(url, data=body, headers=h)
     try:

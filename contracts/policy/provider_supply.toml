@@ -1,0 +1,162 @@
+##############################################################################
+# PROVIDER SUPPLY -- which remote endpoints exist, and what each may SEE
+#
+# Authority: PROVIDER_SUPPLY.md (the egress sweep) - MULTI_ROUTE.md (the
+# ladder) - INV-HW-2, INV-COST-3/5, rule R6.
+#
+# WHY THIS IS DATA AND NOT CODE. `routing/` decides on measured capability and
+# egress class; it never branches on who the provider is. The endpoint's
+# identity -- url, model, credential name -- arrives as data and is recorded in
+# the evidence a call returns. A different vendor speaking the same shape is a
+# row here, not a patch. That is the same discipline INV-HW-1 applies to
+# hardware, applied to suppliers.
+#
+# WHY IT IS GOVERNED. This file decides WHAT MAY SEE THE OWNER'S PRIVATE DATA.
+# The runtime may propose a change to it and may never apply one
+# (INV-SELF-1..7). Adding a row is a reviewed act.
+#
+# RULE R6, WHICH ORDERS THE COLUMNS BELOW: egress class gates the provider
+# BEFORE quota does. A large free quota never buys access to private content.
+# The two most generous free tiers available are both E2_PUBLIC, so a router
+# that picked on quota would pick exactly wrong.
+#
+# EVERY `quota_*` FIGURE HERE IS PUBLISHED, NOT MEASURED. They are written as
+# `quota_published` for that reason and are loaded with `limit_is_measured =
+# false`. The ledger plans against them conservatively and replaces them with
+# the real ceiling the first time a provider refuses -- a refusal is a
+# measurement, a docs page is not (INV-HW-2).
+#
+# MODEL IDS ARE PROBED, NEVER TRUSTED. MULTI_ROUTE.md SS13.2: a provider's own
+# `/models` listing returned 37 entries of which most 404 on these credentials.
+# `tools/spike/probe_remote_supply.py` asks each endpoint directly and a row
+# that fails its probe is not registered.
+##############################################################################
+
+schema_version = 1
+authority = "PROVIDER_SUPPLY.md - MULTI_ROUTE.md SS2 - INV-HW-2, INV-COST-5, R6"
+
+# --------------------------------------------------------------------------
+# RUNG 1 -- key-based remote. Tried first, ordered among themselves by
+# REMAINING HEADROOM at request time, not by their order here.
+# --------------------------------------------------------------------------
+
+[[provider]]
+id = "cf-strong"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+# INV-COST-5: metered_free_tier is treated as PAID unless a hard cap is
+# provable. No card is attached and the tier cannot overspend into billing.
+provable_hard_cap = true
+hard_cap_evidence = "Free account, no payment method attached; the tier refuses at the ceiling rather than billing over it. Re-verify if a card is ever added."
+credential_env = "CLOUDFLARE_API_TOKEN"
+account_env = "CLOUDFLARE_ACCOUNT_ID"
+endpoint = "https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model}"
+model = "@cf/openai/gpt-oss-120b"
+wire = "cf_responses"
+quota_unit = "neurons"
+quota_published = 10_000
+quota_window_seconds = 86_400
+quota_note = """ONE POOL SHARED WITH IMAGE GENERATION. MULTI_ROUTE.md SS3: text
+and image draw the same 10,000 neurons/day, so the ledger for this account is
+per-ACCOUNT and never per-modality. Separate modality ledgers would each
+believe they held the whole pool."""
+usage_reporting = "unreliable"
+usage_note = """MEASURED 2026-08-25: a call that plainly worked reported
+input_tokens 0, output_tokens 0, neurons 0. Spend from this provider is booked
+UNMEASURED. Do not restore trust in the field without re-measuring."""
+
+[[provider]]
+id = "groq-strong"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free account, no payment method attached. E1 permission additionally requires Zero Data Retention enabled on the account -- owner confirmed 2026-08-25."
+credential_env = "GROQ_API_KEY"
+endpoint = "https://api.groq.com/openai/v1/chat/completions"
+model = "openai/gpt-oss-120b"
+wire = "openai_chat"
+quota_unit = "tokens"
+quota_published = 200_000
+quota_window_seconds = 86_400
+quota_note = """Token-bound, not request-bound: the 1,000 req/day ceiling never
+binds first. Completion tokens INCLUDE reasoning tokens -- measured 57 of 64 on
+a seven-character answer -- so a ledger counting output length undercounts real
+spend by roughly 8x on small calls."""
+usage_reporting = "reliable"
+
+# --------------------------------------------------------------------------
+# E2_PUBLIC -- public content only. NOT lesser: a large free pool for work
+# with nothing private in it. Never reachable for private content, whatever
+# their headroom (R6).
+# --------------------------------------------------------------------------
+
+[[provider]]
+id = "google-a1"
+rung = 1
+egress_class = "E2_PUBLIC"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Unpaid tier, no billing account. Refuses at the ceiling; MEASURED refusing at 20/day/model/project on 2026-08-24."
+credential_env = "GOOGLE_API_KEY_A1"
+endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+model = "gemini-3.6-flash"
+wire = "google_generate"
+quota_unit = "requests"
+quota_published = 20
+quota_window_seconds = 86_400
+egress_note = """PERMANENTLY E2. The unpaid tier trains on submitted content,
+its terms say not to submit confidential information, and no opt-out exists for
+it. This is structural, not a setting -- no amount of added capacity promotes
+it."""
+quota_note = """The unit is the PAIR (project, model): `GenerateRequestsPerDay
+PerProjectPerModel-FreeTier`, read off a real 429. Four sibling projects share
+one account, so MODEL is the outer loop and KEY the inner -- draining one
+project across its models would answer from its weakest model while the
+strongest still had full quota on three others."""
+
+[[provider]]
+id = "google-a2"
+rung = 1
+egress_class = "E2_PUBLIC"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Unpaid tier, no billing account. Sibling project of google-a1."
+credential_env = "GOOGLE_API_KEY_A2"
+endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+model = "gemini-3.6-flash"
+wire = "google_generate"
+quota_unit = "requests"
+quota_published = 20
+quota_window_seconds = 86_400
+
+[[provider]]
+id = "google-a3"
+rung = 1
+egress_class = "E2_PUBLIC"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Unpaid tier, no billing account. Sibling project of google-a1."
+credential_env = "GOOGLE_API_KEY_A3"
+endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+model = "gemini-3.6-flash"
+wire = "google_generate"
+quota_unit = "requests"
+quota_published = 20
+quota_window_seconds = 86_400
+
+[[provider]]
+id = "google-a4"
+rung = 1
+egress_class = "E2_PUBLIC"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Unpaid tier, no billing account. Sibling project of google-a1."
+credential_env = "GOOGLE_API_KEY_A4"
+endpoint = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+model = "gemini-3.6-flash"
+wire = "google_generate"
+quota_unit = "requests"
+quota_published = 20
+quota_window_seconds = 86_400
