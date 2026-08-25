@@ -2484,6 +2484,113 @@ def _raiser(classification: str, calls: list, tag: str, **attrs):
     return call
 
 
+def check_triage_excludes_quota() -> Result:
+    """Quota failures are routed around, never investigated; the rest are kept.
+
+    RUNTIME FIXTURE. A structural check ("is rate_limited in the exclusion
+    set") passes for a queue that never consults the set. The queue is built
+    and fed.
+    """
+    r = Result("triage-excludes-quota")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.quota import QuotaLedger
+        from core.repair import RepairAgent, TIER1, TIER3
+        from core.triage import (CAN_WAIT, CRITICAL_DEFERRED, CRITICAL_NOW,
+                                 NO_FIX_NEEDED, REPEAT_THRESHOLD, TriageQueue)
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"triage did not import: {exc!r}")
+        return r
+
+    # 1. QUOTA IS DECLINED. The brief's rule, and the reason a queue stays
+    # readable: a backlog whose only resolution is "yes, we used what we had"
+    # is a backlog nobody opens, and the real finding goes down with it.
+    q = TriageQueue()
+    for cls in ("rate_limited", "quota_exhausted", "quota_unavailable_on_tier",
+                "cost_policy"):
+        if q.record("p", "m", cls) is not None:
+            r.err(f"{cls!r} was admitted for investigation. A working provider "
+                  "doing its job is not a finding; queueing it buries the ones "
+                  "that are.")
+
+    # 2. AN UNKNOWN CLASSIFICATION IS ADMITTED. Fail-OPEN here is the safe
+    # direction: the cost is one queue entry, and the cost of the alternative
+    # is a new failure mode discarded silently forever.
+    if q.record("p", "m", "a_classification_nobody_wrote_a_rule_for") is None:
+        r.err("an unrecognised classification was declined. That is the one "
+              "most worth a person's attention -- declining it makes every "
+              "future unknown failure invisible.")
+
+    # 3. GRADING, both directions on the repeat threshold. Without the second
+    # half this passes for a grader that escalates everything, which is the
+    # same as a grader that grades nothing.
+    q1 = TriageQueue()
+    it = q1.grade(q1.record("p", "m", "auth_failed"))
+    if it.grade != CRITICAL_NOW:
+        r.err(f"auth_failed graded {it.grade!r}. A revoked key does not heal "
+              "and removes a whole rung until a person acts.")
+    q2 = TriageQueue()
+    one = q2.grade(q2.record("p", "m", "server_error"))
+    if one.grade != NO_FIX_NEEDED:
+        r.err(f"a single server_error graded {one.grade!r}. One blip the ladder "
+              "already absorbed must close, or the queue fills with noise.")
+    q3 = TriageQueue()
+    for _ in range(REPEAT_THRESHOLD):
+        q3.record("p", "m", "server_error")
+    many = q3.grade(q3.open_items()[0])
+    if many.grade != CRITICAL_DEFERRED:
+        r.err(f"{REPEAT_THRESHOLD} server_errors graded {many.grade!r}. A "
+              "pattern is a change in the world rather than a blip.")
+
+    # 4. ONLY CRITICAL_NOW IS ACTED ON UNATTENDED. A CRITICAL_DEFERRED item has
+    # a workaround that is holding; acting anyway spends risk to buy nothing.
+    ag = RepairAgent(ledger=QuotaLedger(), supply_rows=[])
+    out = ag.repair(many)
+    # ASSERT ON THE REASON, NOT ON `fixed`. A first version checked only that
+    # `fixed` was False -- and `server_error` has no tier-1 handler, so it is
+    # False whether the grade guard runs or not. The case could not go red:
+    # the check was passing for the right answer reached by the wrong route.
+    # What must be true is that the item was declined BECAUSE OF ITS GRADE.
+    if out.fixed or CRITICAL_DEFERRED not in out.note:
+        r.err(f"a {CRITICAL_DEFERRED} item was not declined on its grade "
+              f"(fixed={out.fixed}, note={out.note[:80]!r}). Its workaround is "
+              "holding -- acting anyway spends risk to buy nothing.")
+
+    # 5. THE ESCALATION NAMES THE VARIABLE. A guide saying "replace its
+    # environment variable" makes the reader look up what the system already
+    # knew, and a guide that costs the reader work is a worse guide.
+    from routing.supply import SupplyRow
+    row = SupplyRow(provider_id="solo-x", rung=1, egress_class="E1_PRIVATE",
+                    cost_class="free", provable_hard_cap=True,
+                    hard_cap_evidence="e", model="m", wire="openai_chat",
+                    profile_id="p", measured_tokens_per_sec=1.0,
+                    rate_is_measured=True, quota_unit="requests",
+                    quota_limit=1, quota_window_seconds=1,
+                    credential_env="SOLO_X_API_KEY")
+    ag2 = RepairAgent(ledger=QuotaLedger(), supply_rows=[row])
+    q4 = TriageQueue()
+    solo = q4.grade(q4.record("solo-x", "m", "auth_failed"))
+    esc = ag2.repair(solo)
+    text = " ".join(esc.guide)
+    if esc.tier != TIER3:
+        r.err(f"a service with no sibling credential escalated as {esc.tier!r}, "
+              "not to the owner. VESPER cannot obtain a credential -- that is "
+              "the owner's, by rule.")
+    if "SOLO_X_API_KEY" not in text:
+        r.err("the escalation guide did not name the environment variable to "
+              "replace. The name is not a secret; only the value is.")
+    if "ALREADY ATTEMPTED" not in text:
+        r.err("the guide omitted what was already tried, so the owner repeats "
+              "work and cannot see what has been ruled out.")
+
+    if r.ok:
+        r.note(f"quota classes declined; unknown admitted; repeat threshold "
+               f"{REPEAT_THRESHOLD} asserted in both directions; escalation "
+               "names its variable and what was tried")
+    return r
+
+
 def check_narration_complete() -> Result:
     """SR-004 has a line for every way a request can fail, and no device names.
 
@@ -3003,6 +3110,7 @@ CHECK_FNS = {
     "glass-hatch-contained": check_glass_hatch,
     "chain-budget-bounded": check_chain_budget,
     "narration-complete": check_narration_complete,
+    "triage-excludes-quota": check_triage_excludes_quota,
     "effort-floor-and-null-answer": check_effort_floor,
 }
 

@@ -308,6 +308,15 @@ why_not_generated = "Three structural reasons, none aesthetic. The component tha
 why_gated = "SR-004 and RB-006 point in opposite directions and both stand unmodified. Narrating ten retries of a 3 a.m. autonomous run satisfies the letter of SR-004 and violates proportionality; saying nothing while the owner waits satisfies RB-006 by deleting SR-004. interruption_budget.toml's lattice arbitrates, and core/narration.py asks it rather than re-deciding it."
 measurement = "2026-08-25. The loader refused to start on its first run: `revoked` is in the gateway's TERMINAL set and had no line, which would have surfaced as silence at the exact moment the owner was waiting to be told something."
 
+[invariants.INV-TRIAGE-1]
+statement = "A quota failure is classified, routed around and never queued for investigation. Every other failure is recorded during the outage and graded afterwards, from stored attempt records rather than a summary. Only a CRITICAL_NOW grade is acted on without the owner; when no autonomous action applies, the escalation names what was already attempted, the exact remaining steps, and the command that confirms the fix."
+owner_rem = "REM-006"
+enforced_by = ["CI-062"]
+kind = "runtime"
+why_quota_is_excluded = "A rate limit or a spent window is a working provider doing its job. There is nothing to find and no action a person could take, so queueing it produces a backlog whose only possible resolution is `yes, we used what we had` -- and a queue that fills with non-findings is a queue nobody opens, taking the real findings down with it. limit==0 is excluded for a different reason: it is permanent, but the ledger has already recorded it and the ladder has already stopped offering that rung, so the system has fully absorbed the fact. It is a configuration truth for the daily summary, not an incident."
+why_unknown_is_admitted = "Fail-OPEN, against this corpus's usual direction, and deliberately. A classification with no grading rule is precisely what a person should look at; the cost of admitting it is one queue entry, and the cost of declining it is a new failure mode discarded silently forever."
+why_grading_is_not_a_model_call = "The rule is written down so it can be argued with, tested, and re-derived from the same attempts six months later. A model asked to grade its own provider failures produces a plausible answer nobody can check, and the one thing this queue exists to produce is findings that survive review."
+
 # ------------------------------------------------- REM-007 triggers
 [invariants.INV-TRIG-1]
 statement = "Every autonomous action traces to exactly one registered trigger_id whose predicate demonstrably evaluated true against a reconstructible world-model snapshot."

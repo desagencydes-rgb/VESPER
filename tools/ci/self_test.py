@@ -941,9 +941,41 @@ GATEWAY = "core/gateway.py"
 HTTP_COMPLETION = REPO / "routing" / "http_completion.py"
 NARRATION = "core/narration.py"
 NARRATION_TOML = "contracts/policy/narration.toml"
+TRIAGE = "core/triage.py"
+REPAIR = "core/repair.py"
 EFFORT = "core/effort.py"
 
 CASES += [
+    ("triage-excludes-quota", TRIAGE,
+     _sub('    "rate_limited",                 # a working provider doing its job',
+          '    # "rate_limited",  # a working provider doing its job', 1),
+     "quota failures admitted for investigation -- the queue fills with items "
+     "whose only resolution is `yes, we used what we had`, and the real "
+     "findings go down with the backlog nobody opens"),
+
+    ("triage-excludes-quota", TRIAGE,
+     _sub("        return classification not in NOT_INVESTIGATED",
+          "        return classification in ('auth_failed', 'bad_request')", 1),
+     "an unrecognised classification declined -- the one failure most worth a "
+     "person's attention, and every future unknown discarded silently"),
+
+    ("triage-excludes-quota", TRIAGE,
+     _sub("            if n >= REPEAT_THRESHOLD:", "            if n >= 0:", 1),
+     "a single transient blip graded critical: the queue fills with noise the "
+     "ladder already absorbed, and a grader that escalates everything grades "
+     "nothing"),
+
+    ("triage-excludes-quota", REPAIR,
+     _sub("        if item.grade != CRITICAL_NOW:", "        if False:", 1),
+     "a CRITICAL_DEFERRED item repaired unattended -- its workaround was "
+     "holding, so the risk is spent to buy nothing"),
+
+    ("triage-excludes-quota", REPAIR,
+     _sub('f"`{_env_of(self._rows, item.provider_id) or \'its environment variable\'}` "',
+          '"`its environment variable` "', 1),
+     "the escalation guide stops naming the environment variable to replace, "
+     "so the owner must go and look up what the system already knew"),
+
     ("narration-complete", NARRATION_TOML,
      _sub('classification = "exhausted_all"', 'classification = "exhausted_all_DISABLED"', 1),
      "the line for `every provider is spent` deleted -- the one outcome where "

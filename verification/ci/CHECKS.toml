@@ -607,6 +607,18 @@ coord_note = "This check also asserts that Projection.supersedes orders by HLC, 
 note = "THE RUNTIME HALF CI-034's note defers. CI-034 covers the policy table; this covers the first runtime surface that renders to a person. Deliberately a runtime fixture rather than a structural grep: a grep for the guards passes on a guard that has been INVERTED, and inverting one comparison is a mistake already made in this codebase. The third self-test case is the exact failure drawn in the owner's UI reference -- an empty status column filled with a plausible number because it looked wrong empty."
 
 
+[checks.CI-062]
+name = "triage-excludes-quota"
+enforces = ["INV-TRIAGE-1"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py triage-excludes-quota"
+blocking = "pr"
+self_test = "Admit quota failures for investigation so the queue fills with non-findings; decline an unrecognised classification so every future unknown is discarded; grade a single transient blip as critical; repair a CRITICAL_DEFERRED item whose workaround is holding; drop the environment variable name from the escalation guide."
+self_test_evidence = "tools/ci/self_test.py triage-excludes-quota -- 5 cases, red then green, 2026-08-25."
+subject = "core/triage.py x core/repair.py x routing/supply.py"
+note = """The brief's rule, and it is right: quota errors are classified, routed and forgotten; everything else is held. RUNTIME FIXTURE rather than a membership test, because checking that `rate_limited` appears in an exclusion set passes for a queue that never consults the set. Investigation running AFTER the outage rather than during it is structural, not tidy -- triage needs a working model to reason about a failure and during the outage there is not one, so a system that investigated at the moment of failure would be asking the broken thing to explain itself."""
+discriminators = "The repeat threshold is asserted in BOTH directions: one transient fault must CLOSE and three must escalate. Without the first half this passes for a grader that escalates everything, which is the same as a grader that grades nothing. The escalation is asserted to name its environment variable and what was already attempted, because a guide that omits either makes the owner repeat work and hides what has been ruled out -- and a guide that costs the reader work is a worse guide than none."
+
 [checks.CI-061]
 name = "narration-complete"
 enforces = ["INV-NARRATE-1"]

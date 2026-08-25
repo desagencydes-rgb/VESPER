@@ -118,6 +118,11 @@ class SupplyRow:
     quota_unit: str
     quota_limit: int | None
     quota_window_seconds: int
+    # CARRIED SO AN ESCALATION CAN NAME IT. core/repair.py writes the owner a
+    # guide, and "replace the value of its environment variable" is not a
+    # guide -- it makes the reader go and look up the thing the system already
+    # knew. The variable NAME is not a secret; only its value is.
+    credential_env: str = ""
 
 
 def load_rows(*, secrets: dict | None = None,
@@ -195,6 +200,7 @@ def load_rows(*, secrets: dict | None = None,
             # against conservatively.
             quota_limit=(int(published) if published else None),
             quota_window_seconds=int(r.get("quota_window_seconds", 86_400)),
+            credential_env=r.get("credential_env", ""),
         ))
     return rows, skipped
 
