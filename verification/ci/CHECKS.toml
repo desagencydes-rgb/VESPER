@@ -607,6 +607,18 @@ coord_note = "This check also asserts that Projection.supersedes orders by HLC, 
 note = "THE RUNTIME HALF CI-034's note defers. CI-034 covers the policy table; this covers the first runtime surface that renders to a person. Deliberately a runtime fixture rather than a structural grep: a grep for the guards passes on a guard that has been INVERTED, and inverting one comparison is a mistake already made in this codebase. The third self-test case is the exact failure drawn in the owner's UI reference -- an empty status column filled with a plausible number because it looked wrong empty."
 
 
+[checks.CI-063]
+name = "shared-pool-is-shared"
+enforces = ["INV-COST-10"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py shared-pool-is-shared"
+blocking = "pr"
+self_test = "Ignore the account pool so an entry healthy on its own books passes while the shared budget is empty; drop the reservation floors so a batch job spends the day before the owner asks a question."
+self_test_evidence = "tools/ci/self_test.py shared-pool-is-shared -- 2 cases, red then green, 2026-08-25."
+subject = "core/quota.py x routing/supply.py x contracts/policy/provider_supply.toml"
+note = """RUNTIME FIXTURE rather than a field check, because the defect being guarded against is precisely a field that is PRESENT AND UNREAD -- `Provider.profile_id` sat unread from F1 to 2026-08-25 while every test stayed green, and `account` is the same shape of trap one layer down. The measurement behind this row also corrected the plan twice: Cloudflare zeroes its usage field for text and reports it honestly for image (172.8 neurons on a 1024x1024), and that figure is 3x the planning estimate, which had multiplied the step cost by steps rather than by tiles*steps."""
+discriminators = "The floor is asserted in both the contended and the QUIET case: with nothing spent, image must still be capped at the pool minus the text floor. Without that, this passes for a floor that only binds once someone complains -- which is what the first docstring wrongly claimed the code did. Overcommitted floors are asserted to fail CLOSED, so a pool that has been oversold refuses everyone rather than letting whoever asks first win."
+
 [checks.CI-062]
 name = "triage-excludes-quota"
 enforces = ["INV-TRIAGE-1"]

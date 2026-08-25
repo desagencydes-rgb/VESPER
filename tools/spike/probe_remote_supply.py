@@ -80,6 +80,11 @@ EXPECT = ("retr",)                # matches retry / retries / retrying
 # other thing this probe is for.
 MIN_TOKENS_FOR_RATE = 50
 
+# An image row cannot answer the text prompt, and asking it to would measure
+# nothing. Its own prompt is deliberately trivial: this probe establishes that
+# the row ANSWERS and what it COSTS, not what it can draw.
+IMAGE_PROMPT = "a single grey square on a white background"
+
 
 def load_secrets() -> dict:
     """Read the owner's credential file. NEVER printed, only read."""
@@ -166,6 +171,9 @@ def call(row: dict, secrets: dict) -> dict:
     elif wire == "cf_responses":
         hdr = {"Authorization": f"Bearer {key}"}
         payload = {"input": PROMPT}
+    elif wire == "cf_image":
+        hdr = {"Authorization": f"Bearer {key}"}
+        payload = {"prompt": IMAGE_PROMPT, "steps": 4}
     elif wire == "google_generate":
         hdr = {"x-goog-api-key": key}
         payload = {"contents": [{"parts": [{"text": PROMPT}]}]}
@@ -195,6 +203,16 @@ def extract(wire: str, body: dict) -> dict:
                     text = "".join(p.get("text", "") for p in o.get("content") or [])
             u = res.get("usage") or {}
             completion, prompt_toks = u.get("output_tokens"), u.get("input_tokens")
+        elif wire == "cf_image":
+            res = body.get("result") or {}
+            img = res.get("image") or ""
+            u = res.get("usage") or {}
+            # THE ANSWER IS BYTES, NOT PROSE. `text` carries a receipt so the
+            # shared usable-check has something to see; the real evidence is
+            # that decodable image data came back and what it cost.
+            return {"text": (f"image bytes {len(img)}" if img else ""),
+                    "completion_tokens": None, "prompt_tokens": None,
+                    "neurons": u.get("neurons"), "image_chars": len(img)}
         elif wire == "google_generate":
             cand = (body.get("candidates") or [{}])[0]
             text = "".join(p.get("text", "")
@@ -234,7 +252,13 @@ def main() -> int:
         # ASSERT ON THE TEXT, NOT THE STATUS. A 200 carrying empty content was
         # measured on this fabric; a probe trusting the status would enroll a
         # provider that cannot answer.
-        answered = bool(text) and all(w in text.lower() for w in EXPECT)
+        # An image row is judged on whether IMAGE DATA came back, not on
+        # whether a text answer is on-topic. Applying the text oracle here
+        # would fail every image row for not containing the word "retry".
+        if row["wire"] == "cf_image":
+            answered = bool(r.get("image_chars"))
+        else:
+            answered = bool(text) and all(w in text.lower() for w in EXPECT)
         ok = r.get("status") == 200 and answered
         usable += 1 if ok else 0
         ctok = r.get("completion_tokens")
@@ -304,6 +328,8 @@ def main() -> int:
             # approximation. Kept in a separate field from the measured rate so
             # a consumer must opt in to the assumption rather than inherit it.
             "derived_tokens_per_sec": derived_tps,
+            "neurons": r.get("neurons"),
+            "image_chars": r.get("image_chars"),
             "derivation": f"measured_chars_per_sec / {CHARS_PER_TOKEN} chars-per-token (English approximation, NOT measured on this provider)",
             "latency_bound": latency_bound,
             "min_tokens_for_rate": MIN_TOKENS_FOR_RATE,

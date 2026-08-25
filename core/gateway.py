@@ -149,8 +149,14 @@ def _completion_tokens(result: dict) -> int | None:
     on calls that worked, so a falsy value falls through to the next key and
     ultimately to None, which the ledger books as UNMEASURED rather than free.
     """
+    # `neurons` LEADS THE LIST because it is what the provider actually bills.
+    # An image call reports neurons: 172.8 and completion_tokens: 0 -- reading
+    # tokens first books a real 172.8-neuron generation as an unmeasured 1.0,
+    # and the ledger then thinks the day holds thousands of images instead of
+    # 58. Found by the acceptance run, which asserted the pool and got 1.0.
     usage = result.get("usage") or {}
-    for key in ("completion_tokens",        # openai-shaped
+    for key in ("neurons",                  # cf image -- the BILLED unit
+                "completion_tokens",        # openai-shaped
                 "output_tokens",            # cf responses
                 "candidatesTokenCount"):    # google generateContent
         v = usage.get(key)

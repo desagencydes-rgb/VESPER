@@ -118,6 +118,12 @@ class SupplyRow:
     quota_unit: str
     quota_limit: int | None
     quota_window_seconds: int
+    # WHICH SHARED POOL, AND WHAT FOR. Several rows can name one account and
+    # draw a single budget; `purpose` is what a reservation floor is declared
+    # against so a batch job cannot spend the day before the owner asks a
+    # question.
+    account: str = ""
+    purpose: str = "text"
     # CARRIED SO AN ESCALATION CAN NAME IT. core/repair.py writes the owner a
     # guide, and "replace the value of its environment variable" is not a
     # guide -- it makes the reader go and look up the thing the system already
@@ -175,7 +181,22 @@ def load_rows(*, secrets: dict | None = None,
         rate_measured = bool(m.get("rate_is_measured"))
         if rate is None:
             rate = m.get("derived_tokens_per_sec")
-        if rate is None:
+
+        if r.get("purpose") == "image":
+            # AN IMAGE ROW HAS NO TOKEN RATE, and demanding one would skip a
+            # provider that answered perfectly well -- the instrument would be
+            # measuring the wrong quantity and then refusing the row for not
+            # producing it. What is observable, and what actually matters for
+            # scheduling, is TIME PER IMAGE. Recorded in the same field so the
+            # ranking has a number, with the unit stated in the profile id.
+            secs = m.get("elapsed_s")
+            if not secs:
+                skipped.append((pid, "no elapsed time recorded -- an image row "
+                                     "is measured in seconds per image"))
+                continue
+            rate = 1.0 / float(secs)
+            rate_measured = True
+        elif rate is None:
             skipped.append((pid, "no rate, measured or derived -- the probe "
                                  "could not see throughput for this row"))
             continue
@@ -188,7 +209,8 @@ def load_rows(*, secrets: dict | None = None,
             hard_cap_evidence=r.get("hard_cap_evidence", ""),
             model=r["model"], wire=r["wire"],
             # The profile names a TIER and a CLASS, never a vendor.
-            profile_id=f"remote-rung{r['rung']}-{r['egress_class'].lower()}",
+            profile_id=(f"remote-rung{r['rung']}-{r.get('purpose','text')}"
+                        f"-{r['egress_class'].lower()}"),
             measured_tokens_per_sec=float(rate),
             rate_is_measured=rate_measured,
             quota_unit=r.get("quota_unit", "UNKNOWN"),
@@ -201,6 +223,8 @@ def load_rows(*, secrets: dict | None = None,
             quota_limit=(int(published) if published else None),
             quota_window_seconds=int(r.get("quota_window_seconds", 86_400)),
             credential_env=r.get("credential_env", ""),
+            account=r.get("account", ""),
+            purpose=r.get("purpose", "text"),
         ))
     return rows, skipped
 
@@ -244,6 +268,13 @@ def _http_call(row: SupplyRow, endpoint: str, key: str, account: str,
                 payload["reasoning_effort"] = options["reasoning_effort"]
         elif row.wire == "cf_responses":
             payload = {"input": prompt, "max_output_tokens": budget}
+        elif row.wire == "cf_image":
+            # STEPS ARE A COST LEVER, NOT A QUALITY DIAL ONLY. The measured
+            # formula bills tiles*4.80 + tiles*steps*9.60, so every extra step
+            # costs 9.60 per tile -- 38.4 on a 1024x1024. The default is the
+            # model's own recommended minimum.
+            payload = {"prompt": prompt,
+                       "steps": int(options.get("steps") or 4)}
         elif row.wire == "google_generate":
             payload = {"contents": [{"parts": [{"text": prompt}]}],
                        "generationConfig": {"maxOutputTokens": budget}}
@@ -316,6 +347,18 @@ def _normalise(wire: str, raw: dict) -> dict:
         msg = c.get("message") or {}
         return {"text": msg.get("content"), "stop_reason": c.get("finish_reason"),
                 "usage": raw.get("usage") or {}}
+    if wire == "cf_image":
+        res = raw.get("result") or {}
+        # The IMAGE is returned base64 in `image`; it is deliberately NOT
+        # decoded here. `text` carries a short receipt so the gateway's
+        # empty-content guard sees a real answer, and the bytes travel
+        # separately -- a 265 KB blob in the field that telemetry copies
+        # verbatim would end up in every event, checkpoint and evidence record.
+        img = res.get("image") or ""
+        return {"text": (f"image/jpeg base64 {len(img)} chars" if img else ""),
+                "image_b64": img, "stop_reason": "stop",
+                "usage": res.get("usage") or {}}
+
     if wire == "cf_responses":
         res = raw.get("result") or {}
         text = None
@@ -369,6 +412,12 @@ def register(gateway, cost, ledger: QuotaLedger, *,
         gateway.register(Provider(row.provider_id, row.profile_id, call,
                                   model=row.model))
         e = ledger.entry(row.provider_id, row.model)
+        if row.account:
+            # ONE POOL PER ACCOUNT, declared before the entry joins it, so a
+            # second modality cannot arrive believing the ceiling is its own.
+            ledger.declare_pool(row.account, float(row.quota_limit or 0))
+            e.account = row.account
+        e.purpose = row.purpose
         e.unit = row.quota_unit
         e.limit = row.quota_limit
         e.limit_is_measured = False        # published, not measured

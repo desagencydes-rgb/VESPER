@@ -2484,6 +2484,86 @@ def _raiser(classification: str, calls: list, tag: str, **attrs):
     return call
 
 
+def check_shared_pool_is_shared() -> Result:
+    """Modalities sharing one meter share one budget, and floors protect the owner.
+
+    RUNTIME FIXTURE. A structural check that an `account` field exists passes
+    for a ledger that never consults it -- and the defect this guards against
+    is precisely a field that is present and unread.
+    """
+    r = Result("shared-pool-is-shared")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.quota import QuotaLedger
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"quota did not import: {exc!r}")
+        return r
+
+    # 1. SPENDING THROUGH ONE MODALITY MUST CLOSE THE OTHER. Cloudflare bills
+    # text and image from one 10,000/day. Two consumers each seeing a full
+    # ceiling authorise twice the real budget, and the overspend lands as 429s
+    # on whichever asks last -- most likely the interactive one.
+    led = QuotaLedger()
+    led.declare_pool("acct", 1_000)
+    for model, purpose in (("txt", "text"), ("img", "image")):
+        e = led.entry("p", model)
+        e.account, e.purpose, e.unit = "acct", purpose, "neurons"
+    led.record_success("p", "img", amount=1_000, measured=True, unit="neurons")
+    if led.usable("p", "txt"):
+        r.err("the pool was spent through the image model and the TEXT model "
+              "still reported usable. Two consumers of one budget both "
+              "concluding they may proceed is the whole defect: the ceiling is "
+              "the account's, not the entry's.")
+
+    # 2. A FLOOR PROTECTS THE OWNER'S CONVERSATION from a batch job.
+    led2 = QuotaLedger()
+    led2.declare_pool("acct", 1_000)
+    for model, purpose in (("txt", "text"), ("img", "image")):
+        e = led2.entry("p", model)
+        e.account, e.purpose, e.unit = "acct", purpose, "neurons"
+    led2.reserve("acct", "text", 0.60)
+    led2.record_success("p", "img", amount=400, measured=True, unit="neurons")
+    img_left = led2.spendable("acct", "image")
+    txt_left = led2.spendable("acct", "text")
+    if img_left is None or round(img_left) != 0:
+        r.err(f"after spending 400 of 1000 with 60% held for text, image could "
+              f"still spend {img_left}. Expected 0 -- 600 is reserved and a "
+              "floor that yields to whoever asks first is not a floor.")
+    if txt_left is None or round(txt_left) != 600:
+        r.err(f"text could spend {txt_left}, expected 600. The owner's share "
+              "must survive a batch job that ran first.")
+
+    # 3. THE FLOOR IS HARD, and this is asserted because the docstring once
+    # claimed otherwise. Lending only works if the loan can be called back, and
+    # SPENT QUOTA CANNOT BE RECLAIMED -- there is no layer that returns neurons
+    # to conversation after a batch has used them.
+    led3 = QuotaLedger()
+    led3.declare_pool("acct", 1_000)
+    e = led3.entry("p", "img")
+    e.account, e.purpose = "acct", "image"
+    led3.reserve("acct", "text", 0.60)
+    if round(led3.spendable("acct", "image")) != 400:
+        r.err("with nothing yet spent, image could reach more than the pool "
+              "minus the text floor. An unused floor is NOT lent out: it "
+              "cannot be, because it could never be reclaimed.")
+
+    # 4. OVERCOMMITTED FLOORS FAIL CLOSED. Fractions summing past 1.0 make
+    # every purpose unspendable, which surfaces at once instead of silently
+    # overselling the pool.
+    led3.reserve("acct", "audio", 0.50)
+    if led3.usable("p", "img"):
+        r.err("floors summing over 1.0 left a purpose spendable. Overcommit "
+              "must fail closed and visibly, not resolve itself by letting "
+              "whoever asks first win.")
+
+    if r.ok:
+        r.note("one meter, one budget: spend through image closes text; a 60% "
+               "text floor survives a batch job; the floor is hard because "
+               "spent quota cannot be reclaimed; overcommit fails closed")
+    return r
+
+
 def check_triage_excludes_quota() -> Result:
     """Quota failures are routed around, never investigated; the rest are kept.
 
@@ -2872,12 +2952,22 @@ def check_chain_budget() -> Result:
     # the same defect for the other two.
     from core.gateway import _completion_tokens
     for shape, payload, want in [
+        # NEURONS FIRST, because it is what the provider actually bills for an
+        # image and because a tuple missing it still satisfies every other
+        # case. This assertion was absent at first and the self-test proved it:
+        # removing `neurons` from the read order changed nothing that was
+        # checked, so the case reported exit0/exit0 -- a mutation applied to a
+        # line nothing was looking at.
+        ("cf image (neurons)", {"usage": {"neurons": 172.8,
+                                          "completion_tokens": 0}}, 172),
         ("openai", {"usage": {"completion_tokens": 24}}, 24),
         ("cf", {"usage": {"output_tokens": 31}}, 31),
         ("google", {"usage": {"candidatesTokenCount": 17}}, 17),
         ("local", {"tokens_predicted": 12}, 12),
     ]:
         got = _completion_tokens(payload)
+        if got is not None:
+            got = int(got)
         if got != want:
             r.err(f"a {shape}-shaped response reporting {want} completion tokens "
                   f"booked {got!r}. An adapter's vocabulary is not the system's: "
@@ -3111,6 +3201,7 @@ CHECK_FNS = {
     "chain-budget-bounded": check_chain_budget,
     "narration-complete": check_narration_complete,
     "triage-excludes-quota": check_triage_excludes_quota,
+    "shared-pool-is-shared": check_shared_pool_is_shared,
     "effort-floor-and-null-answer": check_effort_floor,
 }
 

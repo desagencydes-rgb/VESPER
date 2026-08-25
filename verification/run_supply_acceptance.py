@@ -88,7 +88,18 @@ def main() -> int:
                isinstance(rep["skipped"], list),
                f"skipped={rep['skipped'] or 'none'}")
 
-        profile = rep["profile_ids"][0] if rep["profile_ids"] else None
+        # PICK THE TEXT PROFILE BY NAME, NOT BY POSITION. This read
+        # `profile_ids[0]` until the image rung was added, at which point the
+        # list gained a second entry and a TEXT prompt was sent to an image
+        # model -- which answered, with a picture. The run went red and that is
+        # the acceptance test doing its job: an index into a list whose
+        # contents can grow is a latent bug waiting for the list to grow.
+        text_profiles = [p for p in rep["profile_ids"] if "-text-" in p]
+        image_profiles = [p for p in rep["profile_ids"] if "-image-" in p]
+        profile = text_profiles[0] if text_profiles else None
+        record("the text and image ladders are separately addressable",
+               bool(text_profiles) and bool(image_profiles),
+               f"text={text_profiles} image={image_profiles}")
 
         # ------------------------------------------------ 2. a real answer
         try:
@@ -131,6 +142,31 @@ def main() -> int:
                 record("SR-003: revoking the answering rung fails over to another",
                        False, str(e)[:200])
             gw.set_available(first, True)
+
+        # ------------------------------------------- 4b. image, same pool
+        if image_profiles:
+            try:
+                img = gw.complete("a single grey square on a white background",
+                                  task_id="live-img",
+                                  profile_id=image_profiles[0],
+                                  difficulty="trivial")
+                res = img.get("result") or {}
+                b64 = res.get("image_b64") or ""
+                record("the image ladder returns real image data",
+                       len(b64) > 1000,
+                       f"provider={img['provider_id']} base64_chars={len(b64)}")
+            except AllProvidersExhausted as e:
+                record("the image ladder returns real image data", False, str(e)[:160])
+
+            # THE POINT OF ONE LEDGER: an image call must appear against the
+            # SAME account budget the text call drew on. If these were separate
+            # ledgers both would look healthy while together overspending.
+            pools = ledger.pool_report()
+            shared = [p for p in pools if len(p["drawn_by"]) > 1]
+            record("text and image book against ONE shared account pool",
+                   bool(shared),
+                   "; ".join(f"{p['account']}: used={p['used']} of {p['limit']} "
+                             f"by {p['drawn_by']}" for p in pools) or "no pooled entries")
 
         # ------------------------------- 5. the public ladder is strictly wider
         bus_p, cost_p, ledger_p, gw_p = wiring(tmp, node="public")

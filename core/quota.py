@@ -86,6 +86,17 @@ class Entry:
 
     provider_id: str
     model: str
+    # THE POOL THIS ENTRY DRAWS FROM, when several (provider, model) pairs
+    # share one budget. Cloudflare meters text AND image generation from a
+    # single 10,000 neurons/day; without this, a text consumer and an image
+    # consumer each see a full ceiling and together authorise twice the real
+    # budget. Empty means the entry has a budget of its own.
+    account: str = ""
+    # What this entry is FOR. Entries sharing a pool compete, and a batch job
+    # will happily spend the whole day's budget before the owner asks their
+    # first question. The purpose is what a reservation floor is declared
+    # against.
+    purpose: str = "text"
     unit: str = "UNKNOWN"
     limit: int | None = None
     limit_is_measured: bool = False
@@ -130,8 +141,84 @@ class QuotaLedger:
         self._entries: dict[tuple[str, str], Entry] = {}
         self._path = Path(path) if path else None
         self._bus = bus
+        # account -> published ceiling for the whole pool.
+        self._pools: dict[str, float] = {}
+        # (account, purpose) -> fraction of the pool reserved for it.
+        self._floors: dict[tuple, float] = {}
         if self._path and self._path.exists():
             self._load()
+
+    def declare_pool(self, account: str, limit: float) -> None:
+        """One shared ceiling for every entry naming this account."""
+        with self._lock:
+            self._pools[account] = float(limit)
+
+    def reserve(self, account: str, purpose: str, fraction: float) -> None:
+        """Hold a share of a pool for one purpose.
+
+        THE FLOOR IS HARD, AND THE FIRST VERSION OF THIS DOCSTRING SAID IT WAS
+        SOFT -- "an unused floor is lent out". The code never did that, and it
+        could not: lending only works if the lender can call the loan back, and
+        SPENT QUOTA CANNOT BE RECLAIMED. Once a batch of images has spent the
+        day's neurons there is no mechanism, at any layer, that returns them to
+        conversation. A floor that yields to whoever asks first is not a floor.
+
+        So a purpose may spend the pool MINUS what every other purpose holds,
+        whether or not those others have spent anything yet. That idles capacity
+        on a quiet day, and it is the correct trade: the cost of the reservation
+        is a batch job finishing later, and the cost of not having one is the
+        owner asking a question at 6 p.m. and being told the day is gone.
+
+        Fractions are not checked against a total of 1.0 on purpose -- floors
+        summing over 1.0 make every purpose unspendable, which is a fail-closed
+        outcome that surfaces immediately rather than a silent overcommit.
+        """
+        with self._lock:
+            self._floors[(account, purpose)] = float(fraction)
+
+    def reserved_for_others(self, account: str, purpose: str) -> float:
+        """Pool units held for purposes OTHER than this one."""
+        with self._lock:
+            cap = self._pools.get(account)
+            if cap is None:
+                return 0.0
+            return sum(cap * f for (a, p), f in self._floors.items()
+                       if a == account and p != purpose)
+
+    def spendable(self, account: str, purpose: str) -> float | None:
+        """What this purpose may still spend, after others' floors.
+
+        Never negative: once a purpose has eaten into what others reserved,
+        the answer is zero rather than a debt. A negative here would flow into
+        a ranking comparison and quietly reorder the ladder.
+        """
+        rem = self.pool_remaining(account)
+        if rem is None:
+            return None
+        return max(0.0, rem - self.reserved_for_others(account, purpose))
+
+    def pool_used(self, account: str) -> float:
+        """Total spend across every entry drawing on this pool."""
+        with self._lock:
+            return sum(e.used for e in self._entries.values()
+                       if e.account == account)
+
+    def pool_remaining(self, account: str) -> float | None:
+        with self._lock:
+            cap = self._pools.get(account)
+        if cap is None:
+            return None
+        return max(0.0, cap - self.pool_used(account))
+
+    def pool_report(self) -> list:
+        with self._lock:
+            accounts = sorted({e.account for e in self._entries.values() if e.account})
+        return [{"account": a, "limit": self._pools.get(a),
+                 "used": round(self.pool_used(a), 1),
+                 "remaining": self.pool_remaining(a),
+                 "drawn_by": sorted(f"{e.provider_id}/{e.model}"
+                                    for e in self._entries.values() if e.account == a)}
+                for a in accounts]
 
     # ------------------------------------------------------------- accounting
 
@@ -243,8 +330,39 @@ class QuotaLedger:
     # -------------------------------------------------------------- selection
 
     def usable(self, provider_id: str, model: str) -> bool:
+        """AVAILABLE, and the shared pool must not already be spent.
+
+        An entry can be perfectly healthy on its own books while the account it
+        draws from has nothing left. Checking only the entry is how two
+        consumers of one budget both conclude they may proceed.
+        """
         e = self.entry(provider_id, model)
-        return e.state == AVAILABLE
+        if e.state != AVAILABLE:
+            return False
+        if not e.account:
+            return True
+        rem = self.spendable(e.account, e.purpose)
+        return rem is None or rem > 0
+
+    def headroom_fraction(self, e: Entry) -> float | None:
+        """Headroom as a fraction, THE BINDING ONE when a pool applies.
+
+        An entry in a pool has two ceilings and the smaller decides. Reporting
+        only the entry's own would let an image consumer see plenty of room in
+        a pool that conversation had already spent -- which is the failure the
+        pool exists to prevent, arriving one level down.
+        """
+        own = e.fraction_left()
+        if not e.account:
+            return own
+        cap = self._pools.get(e.account)
+        if cap is None or cap <= 0:
+            return own
+        # The pool fraction this purpose may actually reach, not the raw
+        # remainder: capacity another purpose is holding is not headroom.
+        spendable = self.spendable(e.account, e.purpose)
+        pool = (spendable / cap) if spendable is not None else 1.0
+        return pool if own is None else min(own, pool)
 
     def rank(self, candidates: list[tuple[str, str]]) -> list[tuple[str, str]]:
         """Order (provider, model) pairs by headroom, most first.
@@ -268,7 +386,7 @@ class QuotaLedger:
                 e = self.entry(pid, model)
                 if e.state != AVAILABLE:
                     continue
-                frac = e.fraction_left()
+                frac = self.headroom_fraction(e)
                 # -1.0 sorts unmeasured between "plenty left" and "nearly out".
                 key = frac if frac is not None else 0.5
                 scored.append((-key, i, pid, model))

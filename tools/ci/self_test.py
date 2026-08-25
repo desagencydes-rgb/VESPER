@@ -941,11 +941,25 @@ GATEWAY = "core/gateway.py"
 HTTP_COMPLETION = REPO / "routing" / "http_completion.py"
 NARRATION = "core/narration.py"
 NARRATION_TOML = "contracts/policy/narration.toml"
+QUOTA_PY = "core/quota.py"
 TRIAGE = "core/triage.py"
 REPAIR = "core/repair.py"
 EFFORT = "core/effort.py"
 
 CASES += [
+    ("shared-pool-is-shared", QUOTA_PY,
+     _sub("        rem = self.spendable(e.account, e.purpose)\n        return rem is None or rem > 0",
+          "        return True", 1),
+     "the shared pool ignored: an entry healthy on its own books passes while "
+     "the account it draws from is empty, so two consumers of one budget both "
+     "proceed and together authorise twice it"),
+
+    ("shared-pool-is-shared", QUOTA_PY,
+     _sub("            return sum(cap * f for (a, p), f in self._floors.items()\n                       if a == account and p != purpose)",
+          "            return 0.0", 1),
+     "reservation floors dropped -- a batch of images spends the day before "
+     "the owner asks their first question, and every step of it looks fine"),
+
     ("triage-excludes-quota", TRIAGE,
      _sub('    "rate_limited",                 # a working provider doing its job',
           '    # "rate_limited",  # a working provider doing its job', 1),
@@ -1028,8 +1042,8 @@ CASES += [
      "permanently outside the tier pays for knowledge every later request uses"),
 
     ("chain-budget-bounded", GATEWAY,
-     _sub('    for key in ("completion_tokens",        # openai-shaped',
-          '    for key in ("tokens_predicted",  # openai-shaped', 1),
+     _sub('    for key in ("neurons",                  # cf image -- the BILLED unit',
+          '    for key in ("tokens_predicted",  # cf image -- the BILLED unit', 1),
      "spend read from the local runner's field name only -- every remote "
      "provider books 1.0 UNMEASURED while reporting an exact count, and the "
      "ledger's figures are worthless without anything going red"),
