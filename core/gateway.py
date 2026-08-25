@@ -570,6 +570,11 @@ class ModelGateway:
         budget = (self.MAX_ATTEMPTS_PER_REQUEST
                   if max_attempts_per_request is None
                   else int(max_attempts_per_request))
+        # The ceiling, kept so an attempt can say WHICH of how many it is.
+        # Derived from the starting budget rather than the class constant,
+        # because a caller may pass its own and "attempt 3 of 10" would then be
+        # a lie about a request that was only ever allowed 3.
+        budget_cap = budget
 
         for p in providers:
             if budget <= 0:
@@ -649,7 +654,16 @@ class ModelGateway:
                     self._record(p, "error",
                                  "quota_unavailable_on_tier" if permanent else cls,
                                  delay, ms, cost_class=eff,
-                                 server_retry_after_ms=hint)
+                                 server_retry_after_ms=hint,
+                                 # NO +1: the budget is decremented BEFORE the
+                                 # call, so by the time an error is recorded
+                                 # this attempt has already been paid for.
+                                 # With the +1 the first attempt announced
+                                 # itself as "2 of 10" -- a confident sentence
+                                 # off by one, which is the kind of wrong the
+                                 # owner has no reason to doubt.
+                                 attempt=(budget_cap - budget),
+                                 max_attempts=budget_cap)
                     last_error = err
                     if delay is None:
                         break  # terminal for this provider
@@ -674,7 +688,19 @@ class ModelGateway:
     def _record(self, p: Provider, outcome: str, classification: str | None,
                 retry_after_ms: int | None, elapsed_ms: float,
                 cost_class: str = "unknown",
-                server_retry_after_ms: int | None = None) -> None:
+                server_retry_after_ms: int | None = None,
+                attempt: int | None = None,
+                max_attempts: int | None = None) -> None:
+        """Publish what happened, INCLUDING WHERE IN THE BUDGET IT HAPPENED.
+
+        `attempt` and `max_attempts` are carried because SR-004 asks for the
+        retry state to be SHOWN, and a subscriber cannot reconstruct it: the
+        chain budget is spent across providers, so "which attempt is this"
+        is a property of the request and not of any one rung. Without them the
+        narration said "Attempt 1 of 10" on every line of a failover -- a
+        confident, well-formed sentence carrying the wrong number, which is
+        worse than saying nothing because the owner has no reason to doubt it.
+        """
         a = Attempt(p.provider_id, cost_class, outcome, classification,
                     retry_after_ms, elapsed_ms, server_retry_after_ms)
         with self._lock:
@@ -685,7 +711,9 @@ class ModelGateway:
                                    "classification": classification,
                                    "retry_after_ms": retry_after_ms,
                                    "server_retry_after_ms": server_retry_after_ms,
-                                   "elapsed_ms": round(elapsed_ms, 2)},
+                                   "elapsed_ms": round(elapsed_ms, 2),
+                                   "attempt": attempt,
+                                   "max_attempts": max_attempts},
                           component="gateway")
 
     def paid_attempts(self) -> int:

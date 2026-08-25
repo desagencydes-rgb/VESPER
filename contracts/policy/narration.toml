@@ -1,0 +1,134 @@
+##############################################################################
+# NARRATION -- what VESPER SAYS while a request is failing over
+#
+# Authority: SR-004 ("show error type and retry time") - REM-007 SS4.6
+# interruption budget - RB-006 proportionality - INV-HW-1.
+#
+# NOT PRODUCED BY A MODEL, AND THE REASON IS NOT AESTHETIC.
+#
+#   1. The thing that has failed IS the model layer. Asking a model to narrate
+#      its own unavailability is a dependency loop that breaks exactly when it
+#      is needed.
+#   2. A generated sentence cannot be asserted on. A template renders
+#      identically every time, so a check can compare the exact string.
+#   3. It costs nothing and leaves no egress. Local synthesis is already on the
+#      host; a spoken status line should never become a provider call.
+#
+# INV-HW-1 APPLIES TO EVERY LINE HERE, and CI-007 scans this file. "Moving to
+# the desktop" is a violation; "moving to a local model" is the profile
+# talking. The user hears a capability, never an inventory.
+#
+# THE FIELDS ARE A CLOSED SET, and every one is something the gateway already
+# holds at the moment it speaks: provider_class, attempt, max_attempts,
+# retry_in_seconds, next_rung. A template referencing anything else cannot be
+# rendered and is refused at load rather than at 3 a.m.
+#
+# THIS IS A GOVERNED SURFACE. The runtime may PROPOSE a line and may never
+# apply one -- a system that can rewrite its own script can stop reporting the
+# thing it is failing at.
+##############################################################################
+
+schema_version = 1
+authority = "SR-004 - REM-007 SS4.6 - RB-006 - INV-HW-1"
+fields = ["provider_class", "attempt", "max_attempts", "retry_in_seconds", "next_rung"]
+
+# --------------------------------------------------------------------------
+# WHEN VESPER MAY SPEAK AT ALL.
+#
+# `interruption_budget.toml` sets a strict lattice: alarm_safety >
+# active_user_task > ambience > proactive, with preparation UNBUDGETED.
+#
+# A failing request the owner is WAITING ON is `active_user_task` -- speaking
+# is the whole of SR-004 and is what this file is for. The same failure inside
+# an overnight autonomous run is `proactive`, and narrating ten retries at
+# 3 a.m. would satisfy the letter of SR-004 while violating RB-006. So the
+# class decides, and the budget is asked rather than re-decided here.
+# --------------------------------------------------------------------------
+[speech]
+speak_when = ["active_user_task", "alarm_safety"]
+log_only_when = ["ambience", "proactive"]
+terminal_outcome_always_recorded = true
+note = """Under a log-only class the ATTEMPTS are recorded and nothing is
+spoken; only a terminal outcome that needs the owner is surfaced, and it is
+surfaced through the ordinary interruption path rather than by bypassing it."""
+
+# --------------------------------------------------------------------------
+# One row per classification. `classification` values come from
+# core/gateway.py TRANSIENT + TERMINAL -- imported by value in the loader so
+# the two cannot drift apart silently.
+# --------------------------------------------------------------------------
+
+[[line]]
+classification = "rate_limited"
+text = "Rate limited. Retrying in {retry_in_seconds} seconds. Attempt {attempt} of {max_attempts}."
+why = "SR-004 names both halves: the error TYPE and the retry TIME. A spinner is neither."
+
+[[line]]
+classification = "quota_exhausted"
+text = "That provider's quota is spent for now. Moving to {next_rung}."
+why = """Expected, not alarming, and the wording says so. This is a window that
+refills; nothing is broken and the owner has nothing to do."""
+
+[[line]]
+classification = "quota_unavailable_on_tier"
+text = "That model isn't included in the free tier at all. Removing it from the ladder and moving to {next_rung}."
+why = """MEASURED 2026-08-25: a refusal carrying `limit: 0` -- never had an
+allowance, as opposed to having spent one. Said differently from
+quota_exhausted BECAUSE THEY ARE DIFFERENT FACTS: one returns tomorrow and the
+other never returns, and an owner who hears them described identically will
+wait for something that is not coming."""
+
+[[line]]
+classification = "auth_failed"
+text = "Credentials were refused. Moving to {next_rung}, and I've queued that for investigation."
+why = """The one failure here that will not heal on its own and removes a whole
+rung until someone acts. Says a person will need to be involved, without
+pretending to know yet whether it is urgent."""
+
+[[line]]
+classification = "connection_error"
+text = "No route to that provider. Moving to {next_rung}."
+why = "Says nothing about cause: from here a dead endpoint and a dead network are indistinguishable, and guessing aloud would be inventing a diagnosis."
+
+[[line]]
+classification = "timeout"
+text = "That provider stopped responding. Moving to {next_rung}."
+why = "Deliberately not 'is slow' -- the request may well have been served and lost on the way back."
+
+[[line]]
+classification = "server_error"
+text = "That provider returned an error. Retrying in {retry_in_seconds} seconds. Attempt {attempt} of {max_attempts}."
+why = "Their fault, probably transient, bounded retry."
+
+[[line]]
+classification = "bad_request"
+text = "I sent that provider something it couldn't accept. Moving to {next_rung} and queuing this to fix."
+why = """Owns the fault plainly, because it IS ours and it will recur
+identically until changed. Nothing here invites the owner to act -- it says
+VESPER has recorded it."""
+
+[[line]]
+classification = "revoked"
+text = "That provider was withdrawn mid-task. Moving to {next_rung}."
+why = """A-004.3 revokes providers DURING a run, so this is a live state change
+rather than a fault -- the phrasing avoids implying anything broke. This line
+was missing from the first draft and the loader refused to start without it,
+which is the check doing its job: `revoked` is in the gateway's TERMINAL set,
+so the gap would otherwise have surfaced as silence at the one moment the owner
+was waiting to be told something."""
+
+[[line]]
+classification = "cost_policy"
+text = "That provider isn't permitted right now. Moving to {next_rung}."
+why = """A refusal at the choke point, not a failure. Never phrased as an
+error: nothing went wrong, a rule was applied."""
+
+[[line]]
+classification = "exhausted_all"
+text = "Every provider is spent. I've checkpointed the task and queued it. Nothing is lost."
+why = """THE MOST IMPORTANT LINE IN THIS FILE, and it is a SUCCESS path
+wearing an exception's clothes. `AllProvidersExhausted` is an exception in the
+call layer and a correct outcome in this one: the task survives, resumes when a
+window refills, and no money was spent to fake progress. `Nothing is lost` is
+the fact the owner actually needs -- without it they will assume the work
+died and redo it."""

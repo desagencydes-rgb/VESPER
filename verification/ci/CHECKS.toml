@@ -607,6 +607,18 @@ coord_note = "This check also asserts that Projection.supersedes orders by HLC, 
 note = "THE RUNTIME HALF CI-034's note defers. CI-034 covers the policy table; this covers the first runtime surface that renders to a person. Deliberately a runtime fixture rather than a structural grep: a grep for the guards passes on a guard that has been INVERTED, and inverting one comparison is a mistake already made in this codebase. The third self-test case is the exact failure drawn in the owner's UI reference -- an empty status column filled with a plausible number because it looked wrong empty."
 
 
+[checks.CI-061]
+name = "narration-complete"
+enforces = ["INV-NARRATE-1"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py narration-complete"
+blocking = "pr"
+self_test = "Delete a classification's line so a failure renders into silence; render a line with a missing field instead of refusing; speak under a proactive class so an unattended run narrates every retry; stop speaking under active_user_task so SR-004 is satisfied by a system that never says anything."
+self_test_evidence = "tools/ci/self_test.py narration-complete -- 4 cases, red then green, 2026-08-25."
+subject = "core/narration.py x contracts/policy/narration.toml x core/gateway.py"
+note = """SR-004 asks for the error type and the retry time to be SHOWN, and it is not satisfied by a log file: the owner is sitting in front of a request that is not answering, and the difference between a system that is working and one that has hung is whether it says so. RUNTIME FIXTURE rather than a row count, because a structural check passes for a file whose templates cannot render -- and a template that raises at format time IS silence, arriving at the exact moment the owner is waiting to be told something. Nothing here is model-generated, for three structural reasons: the thing that has failed is the model layer, so narrating through it is a dependency loop that breaks precisely when needed; a generated sentence cannot be asserted on; and a spoken status line that became a provider call would spend quota to explain that quota is spent."""
+discriminators = "Speech is asserted in BOTH directions -- silent under `proactive`, spoken under `active_user_task`. Without the second half this passes for an announcer that never speaks at all, which satisfies RB-006 by deleting SR-004. The rendered STRING is scanned for device names rather than the source file, because CI-007 already scans the file and would not see a name arriving through a substituted field."
+
 [checks.CI-059]
 name = "chain-budget-bounded"
 enforces = ["INV-COST-8"]

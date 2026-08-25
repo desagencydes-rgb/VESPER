@@ -299,6 +299,15 @@ enforced_by = ["CI-060"]
 kind = "runtime"
 measurement = "2026-08-25. Same prompt, same answer `OK`: reasoning_effort low cost 26 completion tokens, medium 34, provider default 64, high 119 -- 4.6x for an identical answer, with the default near the top. And at max_tokens=16 the same endpoint returned HTTP 200, finish_reason `length` and content `''`, captured in tests/fixtures/provider-responses/groq-200-empty-content.json."
 separation_note = "The floor is deliberately NOT the gateway's to lower. Budget pressure may change routing and may never change standards: a system that feels the pressure and can relax its own quality floor gets dumber exactly where sharpness matters, and every step of it looks locally justified. core/effort.py raises rather than clamps for the same reason."
+[invariants.INV-NARRATE-1]
+statement = "Every failure classification the gateway can produce has a narration line, rendered from a governed template and never produced by a model. A line whose required fields are absent is refused, never rendered with a gap. Speech is gated by the interruption class: a failure the owner is waiting on is spoken, an unattended one is recorded and not spoken."
+owner_rem = "REM-007"
+enforced_by = ["CI-061"]
+kind = "runtime"
+why_not_generated = "Three structural reasons, none aesthetic. The component that has failed IS the model layer, so narrating through it is a dependency loop that breaks precisely when it is needed. A generated sentence cannot be asserted on, where a template renders identically every time and a check can compare the exact string. And a spoken status line that became a provider call would spend quota to explain that quota is spent."
+why_gated = "SR-004 and RB-006 point in opposite directions and both stand unmodified. Narrating ten retries of a 3 a.m. autonomous run satisfies the letter of SR-004 and violates proportionality; saying nothing while the owner waits satisfies RB-006 by deleting SR-004. interruption_budget.toml's lattice arbitrates, and core/narration.py asks it rather than re-deciding it."
+measurement = "2026-08-25. The loader refused to start on its first run: `revoked` is in the gateway's TERMINAL set and had no line, which would have surfaced as silence at the exact moment the owner was waiting to be told something."
+
 # ------------------------------------------------- REM-007 triggers
 [invariants.INV-TRIG-1]
 statement = "Every autonomous action traces to exactly one registered trigger_id whose predicate demonstrably evaluated true against a reconstructible world-model snapshot."

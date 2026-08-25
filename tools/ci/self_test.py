@@ -939,9 +939,35 @@ CASES += [
 # provider on 2026-08-25 and that no gate could see before these checks existed.
 GATEWAY = "core/gateway.py"
 HTTP_COMPLETION = REPO / "routing" / "http_completion.py"
+NARRATION = "core/narration.py"
+NARRATION_TOML = "contracts/policy/narration.toml"
 EFFORT = "core/effort.py"
 
 CASES += [
+    ("narration-complete", NARRATION_TOML,
+     _sub('classification = "exhausted_all"', 'classification = "exhausted_all_DISABLED"', 1),
+     "the line for `every provider is spent` deleted -- the one outcome where "
+     "the owner most needs to hear `nothing is lost` renders into silence, and "
+     "they reasonably assume the work died"),
+
+    ("narration-complete", NARRATION,
+     _sub("        if missing:\n            # NOT rendered with blanks.",
+          "        if False:\n            # NOT rendered with blanks.", 1),
+     "a sentence rendered with a hole in it -- `Retrying in  seconds` reads as "
+     "a bug to a listener and costs trust in every other line"),
+
+    ("narration-complete", NARRATION,
+     _sub("        may_speak = interruption_class in self._speak_when",
+          "        may_speak = True", 1),
+     "every retry of an unattended 3 a.m. run narrated aloud: the letter of "
+     "SR-004 satisfied and RB-006 proportionality violated"),
+
+    ("narration-complete", NARRATION,
+     _sub("        may_speak = interruption_class in self._speak_when",
+          "        may_speak = False", 1),
+     "nothing ever spoken -- RB-006 satisfied by deleting SR-004, and a failing "
+     "request is indistinguishable from a hung one"),
+
     ("chain-budget-bounded", GATEWAY,
      _sub("    MAX_ATTEMPTS_PER_REQUEST = 10", "    MAX_ATTEMPTS_PER_REQUEST = 100", 1),
      "the chain budget raised past the ladder length -- it stops binding, and "

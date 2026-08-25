@@ -84,11 +84,28 @@ raised = "2026-08-25: `switch according to policy` had no policy behind it. The 
 arch = ["ARCH-09", "ARCH-25"]
 ic = ["IC-001", "IC-002"]
 tests = ["A-004"]
-contracts = ["contracts/events/event_envelope.schema.json", "contracts/results/result.schema.json"]
+contracts = ["contracts/events/event_envelope.schema.json", "contracts/results/result.schema.json", "contracts/policy/narration.toml"]
 decision_functions = ["DF-PROVIDER-ADMIT"]
-invariants = ["INV-OBS-1"]
-ci = ["CI-040"]
+invariants = ["INV-OBS-1", "INV-NARRATE-1"]
+ci = ["CI-040", "CI-061"]
 status = "SPECIFIED"
+raised_2026_08_25 = """`Show error type and retry time` had been read as a
+telemetry requirement, and the CI behind it checked the observability envelope.
+That is the record; it is not the SHOWING. The owner sitting in front of a
+request that is not answering learns nothing from a well-formed event, and the
+difference between a system that is working and one that has hung is whether it
+says so. CI-061 covers the half that reaches a person: a line for every
+classification the gateway can produce, rendered from a governed template,
+never generated -- the component that has failed is the model layer, so
+narrating through it is a dependency loop that breaks exactly when needed.
+
+Speech is gated rather than unconditional, because SR-004 and RB-006 point in
+opposite directions and both stand unmodified. Narrating ten retries of an
+unattended 3 a.m. run satisfies the letter of this requirement and violates
+proportionality; saying nothing while the owner waits satisfies proportionality
+by deleting this requirement. interruption_budget.toml arbitrates, and the
+check asserts BOTH directions -- silent under proactive, spoken under
+active_user_task -- because either half alone passes for a defect."""
 
 [requirements.SR-005]
 arch = ["ARCH-09", "ARCH-13", "ARCH-24"]

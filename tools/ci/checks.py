@@ -2484,6 +2484,85 @@ def _raiser(classification: str, calls: list, tag: str, **attrs):
     return call
 
 
+def check_narration_complete() -> Result:
+    """SR-004 has a line for every way a request can fail, and no device names.
+
+    RUNTIME FIXTURE, NOT A GREP. A structural check ("does narration.toml have
+    N rows") passes for a file whose rows cannot render -- and a template that
+    raises at format time is silence at the one moment the owner is waiting to
+    be told something, which is the failure this whole surface exists to
+    prevent. So the announcer is built and the lines are actually rendered.
+    """
+    r = Result("narration-complete")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.gateway import TERMINAL, TRANSIENT
+        from core.narration import EXTRA, Announcer, NarrationRefused
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"narration did not import: {exc!r}")
+        return r
+
+    try:
+        a = Announcer()
+    except NarrationRefused as exc:
+        r.err(f"the announcer refused to load: {exc}")
+        return r
+
+    # 1. COVERAGE. Every classification the gateway can produce.
+    for cls in (*TRANSIENT, *TERMINAL, *EXTRA):
+        try:
+            a.render(cls, provider_class="a provider", attempt=1, max_attempts=10,
+                     retry_in_seconds=5, next_rung="a local model")
+        except NarrationRefused as exc:
+            r.err(f"classification {cls!r} could not be rendered: {exc}")
+
+    # 2. NO DEVICE NAMES SPOKEN. CI-007 scans the file; this scans what the
+    # owner actually HEARS, which is the rendered string rather than the source.
+    # A template could name a device only in a substituted field, and the file
+    # scan would not see it.
+    for cls in (*TRANSIENT, *TERMINAL, *EXTRA):
+        said = a.render(cls, provider_class="a provider", attempt=1,
+                        max_attempts=10, retry_in_seconds=5,
+                        next_rung="a local model").lower()
+        for name in PRODUCT_NAMES:
+            if name.strip() and name.strip() in said:
+                r.err(f"the line for {cls!r} says {name.strip()!r}. INV-HW-1: the "
+                      "owner hears a capability, never an inventory.")
+
+    # 3. A HALF-RENDERED SENTENCE IS REFUSED. "Retrying in  seconds" reads as a
+    # bug to a listener and costs trust in every other line.
+    try:
+        a.render("rate_limited", attempt=1, max_attempts=10)
+        r.err("a line missing a required field rendered anyway. A sentence with "
+              "a hole in it is worse than silence.")
+    except NarrationRefused:
+        pass
+
+    # 4. THE BUDGET GATES SPEECH. Narrating ten retries of an unattended 3 a.m.
+    # run satisfies the letter of SR-004 and violates RB-006. Asserted in BOTH
+    # directions, or this passes for an announcer that never speaks at all.
+    spoken: list = []
+    a2 = Announcer(speaker=lambda text: spoken.append(text))
+    u_quiet = a2.announce("rate_limited", interruption_class="proactive",
+                          attempt=1, max_attempts=10, retry_in_seconds=5)
+    u_loud = a2.announce("rate_limited", interruption_class="active_user_task",
+                         attempt=1, max_attempts=10, retry_in_seconds=5)
+    if u_quiet.spoken:
+        r.err("an unattended (proactive) failure was SPOKEN. RB-006: every "
+              "retry of a background run narrated aloud is noise, not status.")
+    if not u_loud.spoken:
+        r.err("a failure the owner is waiting on was NOT spoken. That is the "
+              "whole of SR-004 -- the difference between a system that is "
+              "working and one that has hung is whether it says so.")
+
+    if r.ok:
+        r.note(f"{len(TRANSIENT) + len(TERMINAL) + len(EXTRA)} classifications "
+               "rendered; speech gated in both directions; no device name in "
+               "any rendered line")
+    return r
+
+
 def check_chain_budget() -> Result:
     r = Result("chain-budget-bounded")
     if str(REPO) not in sys.path:
@@ -2923,6 +3002,7 @@ CHECK_FNS = {
     "projection-unknown-absent": check_projection_unknown_absent,
     "glass-hatch-contained": check_glass_hatch,
     "chain-budget-bounded": check_chain_budget,
+    "narration-complete": check_narration_complete,
     "effort-floor-and-null-answer": check_effort_floor,
 }
 
