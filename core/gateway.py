@@ -141,6 +141,25 @@ class Attempt:
     server_retry_after_ms: int | None = None
 
 
+def _completion_tokens(result: dict) -> int | None:
+    """What the provider says it generated, across every shape we speak.
+
+    ORDER IS DELIBERATE: the provider's own accounting first, the local
+    runner's field last. A ZERO IS NOT AN ANSWER -- one provider reports zeros
+    on calls that worked, so a falsy value falls through to the next key and
+    ultimately to None, which the ledger books as UNMEASURED rather than free.
+    """
+    usage = result.get("usage") or {}
+    for key in ("completion_tokens",        # openai-shaped
+                "output_tokens",            # cf responses
+                "candidatesTokenCount"):    # google generateContent
+        v = usage.get(key)
+        if v:
+            return int(v)
+    v = result.get("tokens_predicted")      # local runner
+    return int(v) if v else None
+
+
 class ModelGateway:
     """Every model call in VESPER goes through `complete`."""
 
@@ -350,8 +369,19 @@ class ModelGateway:
         trusting that books zero spend forever and concludes the free tier is
         infinite. Here zero is a missing field wearing a number, so it is passed
         as `None` -- which `record_success` books as 1 unit and FLAGS.
+
+        THE FIELD NAME IS NOT ONE FIELD NAME, and reading only one is how this
+        method spent its first day booking every remote call as an unmeasured
+        guess. It read `tokens_predicted`, which is the LOCAL runner's spelling;
+        every remote provider reports under `usage`, and the three wire shapes
+        spell it three ways again. So the ledger recorded 1.0 UNMEASURED for
+        providers that had just handed it an exact number -- including the two
+        that report honestly, which are precisely the ones worth being accurate
+        about. Nothing failed; the figures were simply worthless. Same defect
+        class as `n_predict` vs `max_tokens`: an adapter's vocabulary treated as
+        the system's.
         """
-        amount = result.get("tokens_predicted")
+        amount = _completion_tokens(result)
         measured = bool(amount)
         self.quota.record_success(
             p.provider_id, p.model,

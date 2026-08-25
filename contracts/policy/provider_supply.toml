@@ -160,3 +160,167 @@ wire = "google_generate"
 quota_unit = "requests"
 quota_published = 20
 quota_window_seconds = 86_400
+
+# --------------------------------------------------------------------------
+# RUNG 1, continued -- the remaining key-based suppliers.
+#
+# Added 2026-08-25 after the first four were measured. Every `model` below was
+# read from that provider's own catalogue and then CALLED, because a listing
+# is not availability (MULTI_ROUTE.md SS13.2) -- a row that fails its probe is
+# not registered.
+# --------------------------------------------------------------------------
+
+[[provider]]
+id = "ollama-strong"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free plan, no payment method. No privacy step required: no logging, no training and zero retention are published, and required of their GPU partners."
+credential_env = "OLLAMA_API_KEY"
+endpoint = "https://ollama.com/v1/chat/completions"
+model = "gpt-oss:20b"
+wire = "openai_chat"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """QUOTA IS UNPUBLISHED AND THAT IS THE ROW'S DEFINING FACT. The
+plan says only "light usage", metered in GPU-time on a rolling 5-hour window
+rather than in tokens or requests. `quota_published = 0` is NOT a limit-0
+refusal -- it means NOTHING WAS PUBLISHED, and the loader must register this
+with limit=None so the ledger books it as an unmeasured ceiling. VESPER uses
+this opportunistically and never plans against it (PROVIDER_SUPPLY.md SS6)."""
+
+[[provider]]
+id = "mistral-standard"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free plan is credit-bound at $10/month with no card attached. E1 permission additionally requires the training opt-out (Admin -> Privacy -> Anonymous improvement data) -- owner confirmed 2026-08-25; the free tier defaults INTO training."
+credential_env = "MISTRAL_API_KEY"
+endpoint = "https://api.mistral.ai/v1/chat/completions"
+model = "mistral-large-latest"
+wire = "openai_chat"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 2_592_000
+quota_note = """Credit-bound, not request- or token-bound: $10/month of API
+credits. There is no request ceiling to count against, so the ledger holds no
+measured limit and this is opportunistic like Ollama."""
+
+[[provider]]
+id = "nvidia-strong"
+rung = 1
+egress_class = "E2_PUBLIC"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Developer credits, no card attached; refuses at the ceiling."
+credential_env = "NVIDIA_NIM_API_KEY"
+endpoint = "https://integrate.api.nvidia.com/v1/chat/completions"
+model = "meta/llama-3.3-70b-instruct"
+model_note = """MULTI_ROUTE.md SS13.2 AGAIN, ON A SECOND VENDOR. This account's
+catalogue lists 95 models; `nvidia/llama-3.1-nemotron-70b-instruct` and
+`-51b-instruct` are both in it and both answer 404 -- "Function ...: Not found".
+Two of the four candidates tried were catalogued and unavailable. The listing
+is a declaration; only the call is a measurement."""
+wire = "openai_chat"
+quota_unit = "requests"
+quota_published = 1_000
+quota_window_seconds = 2_592_000
+egress_note = """E2 PENDING, NOT E2 SETTLED. The no-training claim appears on a
+product page and not in a contract that could be fetched, and an instrument's
+self-report is not evidence. Held public-only until the terms are confirmed;
+promotion to E1 is a reviewed change to this row, not a runtime decision."""
+
+[[provider]]
+id = "openrouter-standard"
+rung = 1
+egress_class = "E2_PUBLIC"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free endpoints only; no card attached."
+credential_env = "OPENROUTER_API_KEY"
+endpoint = "https://openrouter.ai/api/v1/chat/completions"
+model = "nvidia/nemotron-3-ultra-550b-a55b:free"
+wire = "openai_chat"
+quota_unit = "requests"
+quota_published = 50
+quota_window_seconds = 86_400
+egress_note = """PERMANENTLY E2, and structurally so. A `:free` endpoint is only
+offered to accounts that have enabled "free endpoints that may train on
+inputs"; with that setting off the API answers 404 No endpoints available
+matching your data policy. Training consent IS the price of this tier, so no
+setting can promote this row."""
+
+
+# --------------------------------------------------------------------------
+# RUNG 2 -- subscription-backed, reached through each vendor's OWN CLI.
+#
+# NOT MCP, and the distinction cost a wrong design earlier today. `claude mcp
+# serve` and an MCP client are the wrong direction entirely: they expose TOOLS
+# to a model, where VESPER needs an ANSWER from one. The subscriptions are
+# reached by running the official CLI headless as a subprocess -- an official
+# client, subscription auth, a documented programmatic surface. Not scraping,
+# and not a lifted OAuth token in a third-party harness.
+#
+# THESE ARE RUNG 2 AND MUST NEVER BE REACHED AHEAD OF RUNG 1. A rung-1 call
+# costs free quota that refills daily; a rung-2 call costs the owner's own
+# 5-hour window, which they may want for themselves.
+# --------------------------------------------------------------------------
+
+[[provider]]
+id = "claude-sub"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CLAUDE_CONFIG_DIR"
+endpoint = "claude"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+config_dir_env = "CLAUDE_CONFIG_DIR"
+config_dir = "~/.config/vesper/claude-vesper"
+model = "subscription-default"
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+egress_note = """E1 ONLY WITH TRAINING OFF ON THAT ACCOUNT. Owner confirmed
+2026-08-25. With it on, consumer data may be retained de-identified for up to
+five years in training pipelines, and the policy explicitly covers Claude Code."""
+quota_note = """DEDICATED ACCOUNT, NO FAILOVER EDGE TO THE OWNER'S. Bound by
+CLAUDE_CONFIG_DIR to a separate account (verified: a per-config-dir keychain
+entry, so credentials are genuinely isolated). When this account is spent the
+ladder falls THROUGH to the next rung and never sideways to the owner's --
+failover between two accounts triggered by exhaustion is limit evasion, and it
+is what enforcement targets. The owner may retrigger manually; that is a
+decision, not a failover.
+
+The window is ~5h and the ceiling is unpublished, so nothing is planned against
+it. Every surface shares one pool."""
+
+[[provider]]
+id = "codex-sub"
+rung = 2
+egress_class = "E2_PUBLIC"
+cost_class = "free"
+credential_env = "VESPER_CODEX_HOME"
+endpoint = "codex"
+wire = "cli_subprocess"
+argv = ["exec", "--skip-git-repo-check", "{prompt}"]
+model = "subscription-default"
+quota_unit = "tokens"
+quota_published = 0
+quota_window_seconds = 18_000
+egress_note = """HELD E2 PENDING CONFIRMATION. The ChatGPT `Improve the model
+for everyone` toggle does NOT cover Codex -- Codex carries a separate,
+independent control for training on full environments, which neither that
+toggle nor the privacy portal overrides. The owner reports both are off; the
+second rests on secondary sources because OpenAI's help pages refuse automated
+fetching. Fail-closed until seen: a rung's worth of capacity held back on an
+unverified claim is the correct trade when the alternative is the owner's
+source code in a training set."""
+quota_note = """~6,400 TOKENS OF OVERHEAD PER CALL, MEASURED 2026-08-25: `codex
+exec` reported 6,393 tokens used to answer nine characters. Against a
+token-metered plan that overhead dominates any short request, so this rung must
+take work large enough to amortise it and never trivial tasks. That is a
+routing rule, not a note."""

@@ -969,6 +969,13 @@ CASES += [
      "the refund dropped, so the one request that discovers a rung is "
      "permanently outside the tier pays for knowledge every later request uses"),
 
+    ("chain-budget-bounded", GATEWAY,
+     _sub('    for key in ("completion_tokens",        # openai-shaped',
+          '    for key in ("tokens_predicted",  # openai-shaped', 1),
+     "spend read from the local runner's field name only -- every remote "
+     "provider books 1.0 UNMEASURED while reporting an exact count, and the "
+     "ledger's figures are worthless without anything going red"),
+
     ("chain-budget-bounded", HTTP_COMPLETION,
      _sub("    return bool(_QUOTA_LIMIT_SUSPECT.search(m))", "    return False", 1),
      "the parser-drift detector silenced -- a vendor rewording turns a "

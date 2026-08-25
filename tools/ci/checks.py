@@ -2672,6 +2672,38 @@ def check_chain_budget() -> Result:
               f"{EXHAUSTED!r}. Permanence must key on the limit being ZERO, not on "
               "the status being 429 -- a spent window refills.")
 
+    # ------------------------------------ spend is read from the provider
+    # WHY THIS IS ASSERTED AND NOT ASSUMED. `_book_spend` read one field name,
+    # `tokens_predicted`, which is the LOCAL runner's spelling. Every remote
+    # provider reports under `usage` and the three wire shapes spell it three
+    # ways, so the ledger booked 1.0 UNMEASURED for providers that had just
+    # handed it an exact count. Nothing failed and no gate went red -- the
+    # numbers were simply worthless, which is the failure mode a quota ledger
+    # can least afford. Found by the live acceptance run, not by a check.
+    #
+    # Asserted across all three remote spellings AND the local one, because a
+    # fix that reads only the shape that happened to be debugged reintroduces
+    # the same defect for the other two.
+    from core.gateway import _completion_tokens
+    for shape, payload, want in [
+        ("openai", {"usage": {"completion_tokens": 24}}, 24),
+        ("cf", {"usage": {"output_tokens": 31}}, 31),
+        ("google", {"usage": {"candidatesTokenCount": 17}}, 17),
+        ("local", {"tokens_predicted": 12}, 12),
+    ]:
+        got = _completion_tokens(payload)
+        if got != want:
+            r.err(f"a {shape}-shaped response reporting {want} completion tokens "
+                  f"booked {got!r}. An adapter's vocabulary is not the system's: "
+                  "reading one spelling books every other provider as an "
+                  "unmeasured guess while it reports exact numbers.")
+    # A REPORTED ZERO MUST NOT BOOK AS ZERO. One provider returns zeros on calls
+    # that worked; booking that as spend concludes the free tier is infinite.
+    if _completion_tokens({"usage": {"completion_tokens": 0, "output_tokens": 0}}) is not None:
+        r.err("a response reporting zero completion tokens booked a measured "
+              "zero. Zero here is a missing field wearing a number -- it must "
+              "fall through to None so the ledger books it UNMEASURED.")
+
     # ------------------------------------------- the parser's own drift alarm
     # WHY THIS BELONGS IN A CHECK AND NOT A COMMENT. The limit that separates
     # "permanently outside the tier" from "back tomorrow" is carried ONLY in

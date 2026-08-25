@@ -34,6 +34,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import tomllib
@@ -124,6 +125,40 @@ def call(row: dict, secrets: dict) -> dict:
     if "{account}" in url:
         url = url.replace("{account}", secrets.get(row.get("account_env", ""), ""))
 
+    if wire == "cli_subprocess":
+        # A SUBSCRIPTION RUNG IS A SUBPROCESS, NOT AN HTTP CALL, and it is
+        # measured the same way anything else is: run it, time it, read the
+        # answer back. No token count is available from a CLI, so the rate is
+        # derived from characters exactly as it is for a provider that reports
+        # zeros -- same honesty, same separate field.
+        #
+        # THIS SPENDS THE OWNER'S OWN SUBSCRIPTION WINDOW. One call, once, is
+        # the price of knowing the rung works; it is not run on a loop.
+        env = dict(os.environ)
+        if row.get("config_dir_env") and row.get("config_dir"):
+            env[row["config_dir_env"]] = os.path.expanduser(row["config_dir"])
+        argv = [row["endpoint"]] + [a.replace("{prompt}", PROMPT)
+                                    for a in row.get("argv", [])]
+        t0 = time.perf_counter()
+        try:
+            cp = subprocess.run(argv, capture_output=True, text=True,
+                                timeout=300, env=env, input="")
+            out = (cp.stdout or "").strip()
+            code = cp.returncode
+            err = (cp.stderr or "").strip()[:160] if code else None
+        except FileNotFoundError:
+            return {"status": 0, "elapsed_s": 0.0, "text": None,
+                    "completion_tokens": None, "prompt_tokens": None,
+                    "raw_error": f"{row['endpoint']} is not installed"}
+        except subprocess.TimeoutExpired:
+            return {"status": 0, "elapsed_s": 300.0, "text": None,
+                    "completion_tokens": None, "prompt_tokens": None,
+                    "raw_error": "timed out after 300s"}
+        return {"status": 200 if code == 0 else 0,
+                "elapsed_s": round(time.perf_counter() - t0, 3),
+                "text": out, "completion_tokens": None,
+                "prompt_tokens": None, "raw_error": err}
+
     if wire == "openai_chat":
         hdr = {"Authorization": f"Bearer {key}"}
         payload = {"model": model, "max_tokens": 2048,
@@ -187,7 +222,9 @@ def main() -> int:
     results, usable = [], 0
     for row in rows:
         pid = row["id"]
-        if not secrets.get(row["credential_env"]):
+        if row["wire"] == "cli_subprocess":
+            pass                       # gated on the binary existing, checked in call()
+        elif not secrets.get(row["credential_env"]):
             print(f"  {pid:<12} SKIP     no credential in {row['credential_env']}")
             results.append({"provider_id": pid, "usable": False,
                             "reason": "no credential present"})
