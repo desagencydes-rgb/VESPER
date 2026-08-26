@@ -2852,8 +2852,16 @@ def check_intake_is_modality_neutral() -> Result:
         r.err(f"intake did not import: {exc!r}")
         return r
 
+    # CONSTRUCTED WITH A CLOCK. Every case built a bare `Intake()`, so the HLC
+    # branch never ran -- and it called a method the clock does not have. The
+    # same wrong assumption was fixed in core/triage.py and left standing here,
+    # because both were written the same day from the same wrong idea and only
+    # one was ever exercised with a clock. A check that constructs its subject
+    # one way covers one way; this is the second time that sentence was needed.
+    from core.hlc import HybridLogicalClock
     acted: list = []
-    ink = Intake(dispatch=lambda u: acted.append(u.text))
+    ink = Intake(clock=HybridLogicalClock("intake-check"),
+                 dispatch=lambda u: acted.append(u.text))
 
     # 1. TYPED IS CERTAIN BY CONSTRUCTION and must pass straight through.
     if ink.typed("hello")["outcome"] != "dispatched":

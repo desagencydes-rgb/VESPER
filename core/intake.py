@@ -132,7 +132,12 @@ class Intake:
         """
         with self._lock:
             if self._clock is not None and not u.hlc:
-                u.hlc = str(self._clock.tick())
+                # `now()`, NOT `tick()`. The identical wrong assumption was
+                # made in core/triage.py and fixed there; it was still here,
+                # because fixing one call site is not fixing a belief about an
+                # API. Both files were written the same day from the same wrong
+                # idea, and only one had been exercised with a clock attached.
+                u.hlc = str(self._clock.now())
             self.history.append(u)
 
             if not u.final:

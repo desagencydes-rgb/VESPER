@@ -31,6 +31,62 @@
 import AppKit
 import WebKit
 
+// MARK: - The two directions between the page and the runtime
+
+/// What the owner typed, on its way to the runtime.
+///
+/// THE WEBVIEW CANNOT REACH PYTHON AND MUST NOT TRY. It has no socket, no
+/// interpreter and no business holding one: the page is a SURFACE, and a
+/// surface that can start a process is a surface that can be talked into
+/// starting one. So the field posts to Swift, Swift appends a line to a file,
+/// and the runtime -- which already owns the bus, the ladder and the cost
+/// policy -- picks it up. That is the same direction home.json already runs in,
+/// reversed, rather than a second kind of channel.
+///
+/// APPEND, NEVER REWRITE. Two utterances typed a moment apart must both
+/// survive; a whole-file write would drop whichever lost the race and report
+/// nothing. One JSON object per line, which is also what makes a partial write
+/// recoverable -- a torn last line is one lost utterance, not a lost file.
+final class SayBridge: NSObject, WKScriptMessageHandler {
+
+    static let name = "vesperSay"
+    static var outbox: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/VESPER/say.jsonl")
+    }
+
+    func userContentController(_ c: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        guard message.name == Self.name,
+              let text = message.body as? String else { return }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        // TYPED, SO CERTAIN AND FINAL, and said explicitly rather than left to
+        // a default. core/intake.py distinguishes `confidence: null` -- meaning
+        // certainty is not a question on this channel -- from a recogniser's
+        // 1.0, and the record cannot be audited later if the two collapse.
+        let obj: [String: Any] = ["text": trimmed, "source": "typed",
+                                  "final": true,
+                                  "at_ms": Int(Date().timeIntervalSince1970 * 1000)]
+        guard let data = try? JSONSerialization.data(withJSONObject: obj),
+              var line = String(data: data, encoding: .utf8) else { return }
+        line += "\n"
+
+        let url = Self.outbox
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let h = try? FileHandle(forWritingTo: url) {
+            defer { try? h.close() }
+            _ = try? h.seekToEnd()
+            try? h.write(contentsOf: Data(line.utf8))
+        } else {
+            try? Data(line.utf8).write(to: url)
+        }
+    }
+}
+
+
 final class HomeChrome {
 
     private(set) var web: WKWebView?
@@ -181,14 +237,17 @@ final class HomeChrome {
         }
         return entries.suffix(6).map { e in
             let text = esc((e["text"] as? String) ?? "")
-            let src = (e["source"] as? String) ?? "typed"
+            // WHO SAID IT, not how it arrived. `source` still records the
+            // channel for audit; the label the owner reads is the speaker.
+            let who = (e["who"] as? String) ?? "owner"
+            let src = who == "vesper" ? "vesper" : ((e["source"] as? String) ?? "typed")
             // AN UNCERTAIN UTTERANCE IS MARKED, NOT HIDDEN. core/intake.py
             // withholds it from the dispatcher and still records it; showing it
             // plainly is what lets the owner tell "did not hear" from "heard
             // and declined".
             let certain = (e["certain"] as? Bool) ?? true
             let mark = certain ? "" : " <span class=\"unsure\">unsure</span>"
-            return "<div class=\"tline\"><span class=\"src\">\(src)</span>"
+            return "<div class=\"tline \(who)\"><span class=\"src\">\(src)</span>"
                  + "\(text)\(mark)</div>"
         }.joined(separator: "\n          ")
     }
@@ -353,6 +412,31 @@ final class HomeChrome {
             </svg>
           </div>
         </div>
+
+        <script>
+          // The field's only job: hand the text to Swift and clear itself. It does not
+          // render the result -- the transcript is pushed back in by the runtime, so
+          // what the owner sees is what VESPER actually recorded rather than an
+          // optimistic echo that might never have arrived.
+          (function () {
+            var f = document.getElementById('say');
+            if (!f) return;
+            f.addEventListener('keydown', function (e) {
+              if (e.key !== 'Enter') return;
+              var v = f.value.trim();
+              if (!v) return;
+              try {
+                window.webkit.messageHandlers.vesperSay.postMessage(v);
+                f.value = '';
+              } catch (err) {
+                // NO SILENT SWALLOW. If the bridge is absent the owner has just typed
+                // into a void, and the field saying so is the only way they would know.
+                f.value = '';
+                f.placeholder = 'not connected to the runtime';
+              }
+            });
+          })();
+        </script>
         """
     }
 
@@ -387,6 +471,47 @@ final class HomeChrome {
     private(set) var cardFill = 0.0
     private(set) var cardAdapted = false
 
+    private let bridge = SayBridge()
+    private var refresh: Timer?
+
+    /// Push the runtime's state into the live page.
+    ///
+    /// PUSHED FROM SWIFT RATHER THAN FETCHED BY THE PAGE. The page is loaded
+    /// from a string with no base URL, so it has no origin and cannot read a
+    /// file -- and giving it one so it could would hand a surface the ability
+    /// to read the disk, which is a much larger thing than a transcript needs.
+    ///
+    /// RE-RENDERS ONLY WHAT CHANGED. Reloading the page each tick would clear
+    /// the field the owner is typing into, which is the one thing the loop must
+    /// not do. So it writes the transcript's innerHTML and the body's face
+    /// attribute and touches nothing else.
+    ///
+    /// 700 ms, not faster. This is a status surface, not an animation -- the
+    /// FACE animates continuously in Metal below, driven by its own driver at
+    /// frame rate, and this only tells it which behaviour to hold. SPIKE-013's
+    /// cost table is why: the composite already costs +0.053% of one core, and
+    /// a JS evaluation four times a second buys nothing a person can perceive.
+    func startRefresh() {
+        refresh?.invalidate()
+        let timer = Timer(timeInterval: 0.7, repeats: true) { [weak self] _ in
+            guard let self, let w = self.web else { return }
+            let face = Self.faceBehaviour()
+            let rows = Self.transcriptRows()
+            let js = """
+            (function(){
+              document.body.setAttribute('data-face', '\(face)');
+              var t = document.querySelector('.transcript');
+              if (t) t.innerHTML = `\(rows)`;
+            })();
+            """
+            w.evaluateJavaScript(js, completionHandler: nil)
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        refresh = timer
+    }
+
+    func stopRefresh() { refresh?.invalidate(); refresh = nil }
+
     func mount(over host: NSView, faceRect: CGRect, screen: NSScreen,
                backdrop: URL?,
                onVerdict: @escaping (GlassGuard.Verdict) -> Void) {
@@ -399,7 +524,12 @@ final class HomeChrome {
             // samples exists reads a world that does not contain it yet.
             guard let self, verdict.mayMountChrome else { onVerdict(verdict); return }
 
-            let w = WKWebView(frame: host.bounds)
+            // The page's only way to reach anything. Registered on the
+            // configuration BEFORE the view exists, because a handler added
+            // afterwards is not visible to a page that has already loaded.
+            let cfg = WKWebViewConfiguration()
+            cfg.userContentController.add(self.bridge, name: SayBridge.name)
+            let w = WKWebView(frame: host.bounds, configuration: cfg)
             w.autoresizingMask = [.width, .height]
             GlassGuard.makeTransparent(w)
             // The chrome sits ABOVE the field. The face's Metal layer carries
@@ -446,6 +576,7 @@ final class HomeChrome {
             w.loadHTMLString(Self.page(cardWidth: cw, cardHeight: ch,
                                        left: left, top: t, fill: self.cardFill),
                              baseURL: nil)
+            self.startRefresh()
             onVerdict(verdict)
         }
     }

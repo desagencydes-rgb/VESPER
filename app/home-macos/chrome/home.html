@@ -110,3 +110,28 @@
     </svg>
   </div>
 </div>
+
+<script>
+  // The field's only job: hand the text to Swift and clear itself. It does not
+  // render the result -- the transcript is pushed back in by the runtime, so
+  // what the owner sees is what VESPER actually recorded rather than an
+  // optimistic echo that might never have arrived.
+  (function () {
+    var f = document.getElementById('say');
+    if (!f) return;
+    f.addEventListener('keydown', function (e) {
+      if (e.key !== 'Enter') return;
+      var v = f.value.trim();
+      if (!v) return;
+      try {
+        window.webkit.messageHandlers.vesperSay.postMessage(v);
+        f.value = '';
+      } catch (err) {
+        // NO SILENT SWALLOW. If the bridge is absent the owner has just typed
+        // into a void, and the field saying so is the only way they would know.
+        f.value = '';
+        f.placeholder = 'not connected to the runtime';
+      }
+    });
+  })();
+</script>
