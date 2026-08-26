@@ -2484,6 +2484,102 @@ def _raiser(classification: str, calls: list, tag: str, **attrs):
     return call
 
 
+
+
+def check_intake_is_modality_neutral() -> Result:
+    """A misheard instruction is reflected, not executed; partials never act.
+
+    RUNTIME FIXTURE. The property is about what the pipe DOES with an uncertain
+    utterance, and a structural check that a `confidence` field exists passes
+    for a pipe that never reads it -- which is the same present-and-unread trap
+    `Provider.profile_id` sat in for months.
+    """
+    r = Result("intake-is-modality-neutral")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.intake import (CONFIDENCE_FLOOR, SPOKEN, TYPED, Intake,
+                                 IntakeRefused, Utterance)
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"intake did not import: {exc!r}")
+        return r
+
+    acted: list = []
+    ink = Intake(dispatch=lambda u: acted.append(u.text))
+
+    # 1. TYPED IS CERTAIN BY CONSTRUCTION and must pass straight through.
+    if ink.typed("hello")["outcome"] != "dispatched":
+        r.err("a typed utterance was not dispatched. Typing admits no "
+              "uncertainty; gating it would make the text path worse to buy "
+              "nothing for the spoken one.")
+
+    # 2. A PARTIAL MUST NOT ACT. A recogniser emits a stream of revisions and
+    # only the last is what was said; acting on each answers four questions
+    # nobody asked and spends four times the quota doing it.
+    before = len(acted)
+    ink.spoken("delete the", confidence=0.99, final=False)
+    if len(acted) != before:
+        r.err("a non-final utterance was acted on. Every revision would run as "
+              "its own request -- and the dangerous one is that an incomplete "
+              "sentence can be a valid instruction with the opposite meaning.")
+
+    # 3. LOW CONFIDENCE IS REFLECTED, NOT EXECUTED, and this is the safety
+    # property. `delete the archive` and `delete the archives` are one phoneme
+    # apart. Correcting a wrong transcription costs seconds; acting on one costs
+    # whatever the action costs.
+    before = len(acted)
+    out = ink.spoken("delete the archive", confidence=CONFIDENCE_FLOOR - 0.2,
+                     final=True)
+    if out["outcome"] != "reflected" or len(acted) != before:
+        r.err(f"an utterance below the confidence floor was {out['outcome']!r} "
+              "and reached the dispatcher. An uncertain instruction must be "
+              "reflected back for confirmation, never executed.")
+
+    # 4. AND IT MUST STILL BE DELIVERED. Confidence gates ACTION, not delivery:
+    # an utterance that is dropped rather than shown leaves the owner with no
+    # idea VESPER heard anything, which is worse than a wrong guess shown.
+    if not any(u["text"] == "delete the archive" for u in ink.transcript()):
+        r.err("a reflected utterance is missing from the transcript. It must be "
+              "shown -- silently dropping it leaves the owner unable to tell "
+              "`did not hear` from `heard and declined`.")
+
+    # 5. HIGH CONFIDENCE ACTS. Without this the check passes for a pipe that
+    # refuses everything, which is safe and useless.
+    before = len(acted)
+    if ink.spoken("open the calendar", confidence=0.99,
+                  final=True)["outcome"] != "dispatched" or len(acted) == before:
+        r.err("a confident final utterance was not acted on. A pipe that "
+              "refuses everything satisfies the safety half by deleting the "
+              "function.")
+
+    # 6. PROVENANCE IS MANDATORY. An utterance whose source is unknown cannot be
+    # audited, and the record is the only place the source is allowed to matter.
+    try:
+        Utterance(text="x", source="somewhere")
+        r.err("an utterance with an unknown source was accepted.")
+    except IntakeRefused:
+        pass
+
+    # 7. TYPED CARRIES `confidence = None`, NOT 1.0. One is a fact about the
+    # channel, the other is a measurement from a recogniser that happened to be
+    # sure -- and a record that cannot tell them apart cannot be audited later.
+    typed_u = Utterance(text="x", source=TYPED)
+    spoken_u = Utterance(text="x", source=SPOKEN, confidence=1.0)
+    if typed_u.confidence is not None or spoken_u.confidence != 1.0:
+        r.err("typed input reported a numeric confidence. `None` means "
+              "certainty is not a question on this channel; 1.0 means a "
+              "recogniser measured it. Collapsing them loses the distinction "
+              "the audit record needs.")
+
+    if r.ok:
+        r.note(f"partials buffer; below {CONFIDENCE_FLOOR} reflects and is still "
+               "shown; above it acts; source is mandatory; typed confidence is "
+               "None rather than 1.0")
+    return r
+
+
+
+
 def check_shared_pool_is_shared() -> Result:
     """Modalities sharing one meter share one budget, and floors protect the owner.
 
@@ -3202,6 +3298,7 @@ CHECK_FNS = {
     "narration-complete": check_narration_complete,
     "triage-excludes-quota": check_triage_excludes_quota,
     "shared-pool-is-shared": check_shared_pool_is_shared,
+    "intake-is-modality-neutral": check_intake_is_modality_neutral,
     "effort-floor-and-null-answer": check_effort_floor,
 }
 

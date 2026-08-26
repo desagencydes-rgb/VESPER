@@ -326,6 +326,15 @@ why_one_ledger = "The brief asked for image, video and music to get their own ro
 why_the_floor_is_hard = "An earlier docstring called the floor soft and said an unused share was lent out. The code never did that and could not: lending works only if the lender can call the loan back, and SPENT QUOTA CANNOT BE RECLAIMED. No layer returns neurons to conversation after a batch has spent them. So a floor idles capacity on a quiet day, which is the correct trade -- the cost of the reservation is a batch finishing later, and the cost of not having one is the owner asking a question at 6 p.m. and being told the day is gone."
 measurement = "2026-08-25. Cloudflare reports `neurons: 0` for TEXT and a real figure for IMAGE: 172.8 on one 1024x1024 at 4 steps, matching the published formula tiles*4.80 + tiles*steps*9.60. That is 3x the planning estimate of 57.6, which had multiplied the step cost by steps alone rather than by tiles*steps. One large image costs 3.3 reference text answers; the day holds 58 of them, or 231 at 512x512."
 
+[invariants.INV-INTAKE-1]
+statement = "Every utterance carries its source, whether it is final, and its confidence, whatever channel it arrived on. A non-final utterance is never acted on. An utterance below the confidence floor is reflected back for confirmation and is still shown; it never reaches the dispatcher. Nothing downstream branches on the source."
+owner_rem = "REM-007"
+enforced_by = ["CI-064"]
+kind = "runtime"
+why_before_there_is_a_microphone = "The owner's constraint, 2026-08-25: a text field is necessary now and matters less once VESPER holds a spoken conversation. That says which modality is PRIMARY, not which to build first -- and the expensive mistake is building the typed path as though typing were the only way anything arrives. A typed utterance is certain and complete; a spoken one arrives in fragments each revising the last, every word carrying a confidence that may be low. A pipe assuming certainty bakes that assumption into every caller downstream, and voice then arrives as a rewrite rather than a source."
+why_confidence_gates_action_only = "`delete the archive` and `delete the archives` are one phoneme apart, and a recogniser 61% sure is not evidence of anything. But an uncertain utterance that is DROPPED leaves the owner unable to tell `did not hear` from `heard and declined`. So it is recorded and shown, and only the dispatch is withheld: correcting a wrong transcription costs seconds, acting on one costs whatever the action costs."
+unmeasured = "CONFIDENCE_FLOOR = 0.75 is UNMEASURED and marked as such in the source. Nothing has measured a recogniser on this owner's voice in this room, and a threshold taken from a paper is a declared number. The SHAPE is right; the value is not yet a finding and must not be quoted as one."
+
 # ------------------------------------------------- REM-007 triggers
 [invariants.INV-TRIG-1]
 statement = "Every autonomous action traces to exactly one registered trigger_id whose predicate demonstrably evaluated true against a reconstructible world-model snapshot."

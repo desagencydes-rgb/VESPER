@@ -88,7 +88,7 @@ tests = ["A-004"]
 contracts = ["contracts/events/event_envelope.schema.json", "contracts/results/result.schema.json", "contracts/policy/narration.toml"]
 decision_functions = ["DF-PROVIDER-ADMIT"]
 invariants = ["INV-OBS-1", "INV-NARRATE-1"]
-ci = ["CI-040", "CI-061"]
+ci = ["CI-040", "CI-061", "CI-064"]
 status = "SPECIFIED"
 raised_2026_08_25 = """`Show error type and retry time` had been read as a
 telemetry requirement, and the CI behind it checked the observability envelope.

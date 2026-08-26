@@ -607,6 +607,18 @@ coord_note = "This check also asserts that Projection.supersedes orders by HLC, 
 note = "THE RUNTIME HALF CI-034's note defers. CI-034 covers the policy table; this covers the first runtime surface that renders to a person. Deliberately a runtime fixture rather than a structural grep: a grep for the guards passes on a guard that has been INVERTED, and inverting one comparison is a mistake already made in this codebase. The third self-test case is the exact failure drawn in the owner's UI reference -- an empty status column filled with a plausible number because it looked wrong empty."
 
 
+[checks.CI-064]
+name = "intake-is-modality-neutral"
+enforces = ["INV-INTAKE-1"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py intake-is-modality-neutral"
+blocking = "pr"
+self_test = "Remove the confidence gate so an uncertain instruction executes; dispatch every partial so a recogniser's revisions each run as a request; drop a reflected utterance from the transcript so the owner cannot tell `did not hear` from `heard and declined`."
+self_test_evidence = "tools/ci/self_test.py intake-is-modality-neutral -- 3 cases, red then green, 2026-08-25."
+subject = "core/intake.py"
+note = """RUNTIME FIXTURE rather than a field check: the property is what the pipe DOES with an uncertain utterance, and checking that a `confidence` field exists passes for a pipe that never reads it -- the same present-and-unread trap `Provider.profile_id` sat in for months. Built before there is a microphone because the difference that forces a rewrite is not the input device: a typed utterance is certain and complete, a spoken one arrives in fragments each revising the last."""
+discriminators = "A confident final utterance must still ACT. Without that half this passes for a pipe that refuses everything, which is safe and useless. And a reflected utterance must still appear in the transcript, so `withheld from the dispatcher` is distinguishable from `discarded`."
+
 [checks.CI-063]
 name = "shared-pool-is-shared"
 enforces = ["INV-COST-10"]

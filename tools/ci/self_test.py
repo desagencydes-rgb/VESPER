@@ -941,12 +941,31 @@ GATEWAY = "core/gateway.py"
 HTTP_COMPLETION = REPO / "routing" / "http_completion.py"
 NARRATION = "core/narration.py"
 NARRATION_TOML = "contracts/policy/narration.toml"
+INTAKE = "core/intake.py"
 QUOTA_PY = "core/quota.py"
 TRIAGE = "core/triage.py"
 REPAIR = "core/repair.py"
 EFFORT = "core/effort.py"
 
 CASES += [
+    ("intake-is-modality-neutral", INTAKE,
+     _sub("        return self.confidence >= CONFIDENCE_FLOOR",
+          "        return True", 1),
+     "the confidence gate removed -- a 61%-sure `delete the archive` is "
+     "executed instead of reflected, and the owner finds out from the result"),
+
+    ("intake-is-modality-neutral", INTAKE,
+     _sub("            if not u.final:", "            if False:", 1),
+     "every partial dispatched: a recogniser's revisions each run as their own "
+     "request, and an incomplete sentence can be a valid instruction with the "
+     "opposite meaning"),
+
+    ("intake-is-modality-neutral", INTAKE,
+     _sub("                self._emit(\"intake.reflected\", u)",
+          "                self._emit(\"intake.reflected\", u); self.history.pop()", 1),
+     "a reflected utterance dropped from the transcript, so the owner cannot "
+     "tell `did not hear` from `heard and declined`"),
+
     ("shared-pool-is-shared", QUOTA_PY,
      _sub("        rem = self.spendable(e.account, e.purpose)\n        return rem is None or rem > 0",
           "        return True", 1),
