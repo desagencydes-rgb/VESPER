@@ -4123,7 +4123,49 @@ def check_latency_preference_reorders() -> "Result":
                   "Under-penalising costs the owner a minute in front of a "
                   "screen that looks broken.")
 
+        # A COLD PROFILE IS RANKED ON THE PROBE'S OWN WALL CLOCK, not on a
+        # figure derived from throughput. The two are different quantities --
+        # one is seconds to a whole answer with the supplier's queue in it, the
+        # other is tokens per second -- and deriving one while the other sat
+        # unread in the same file cost a measured 13.3 s on the first request
+        # to a profile.
+        cold_slow = MeasuredProfile("cold-slow", "strong", "remote", 900.0, 900.0,
+                                    measured=True, source="check",
+                                    probe_seconds=30.0)
+        cold_fast = MeasuredProfile("cold-fast", "strong", "remote", 20.0, 20.0,
+                                    measured=True, source="check",
+                                    probe_seconds=1.0)
+        r3 = Router(bus, [cold_slow, cold_fast])
+        # NOTE THE RATES ARE INVERTED against the probe times deliberately: the
+        # profile with the far better throughput is the one that actually took
+        # 30 s. If the router were still ranking on the derived figure it would
+        # pick `cold-slow`, and no amount of it being "measured" would help.
+        if r3.select("moderate", prefer="latency").profile_id != "cold-fast":
+            r.err("a cold profile was ranked on throughput while its enrolment "
+                  "probe's wall clock was available. A rate cannot see the "
+                  "supplier's queue; the probe timing is the same quantity a "
+                  "live observation is.")
+        # AND A LIVE OBSERVATION STILL OUTRANKS THE PROBE. The seed is a cold
+        # sample, not a floor.
+        r3.observe("cold-fast", 60.0)
+        if r3.select("moderate", prefer="latency").profile_id != "cold-slow":
+            r.err("an enrolment probe timing outranked a live observation. The "
+                  "seed exists to order the FIRST request; after that the path "
+                  "has better evidence than the sweep does.")
+
     gw = (REPO / "core" / "gateway.py").read_text(encoding="utf-8")
+    # THE SEED MUST NEVER OVERWRITE A LIVE SAMPLE. `register` can run again in
+    # a long-lived process, and re-seeding would quietly restore an
+    # enrolment-day figure over everything the path has learned since.
+    if "provider_id in self._observed" not in gw:
+        r.err("ModelGateway.seed_observation does not refuse to overwrite an "
+              "existing observation. Re-registration would replace live "
+              "evidence with an enrolment-day number, silently.")
+    if "seed_observation" not in (REPO / "routing" / "supply.py").read_text(
+            encoding="utf-8"):
+        r.err("registration does not seed the gateway's latency view, so the "
+              "first request ranks three rungs of one profile on quota "
+              "headroom -- measured 1.50s, 2.66s and 3.85s on the same probe.")
     if 'if prefer == "latency" and self._observed:' not in gw:
         r.err("the gateway does not re-order rungs on observed latency, so the "
               "variance merely moves from between profiles to within one.")
@@ -4138,8 +4180,10 @@ def check_latency_preference_reorders() -> "Result":
         r.note("cost ranking unchanged; latency ranking prefers the faster "
                "profile; the tier floor holds under both; a live observation "
                "outranks the sweep and is back within 3x of the truth after 8 "
-               "good samples; the "
-               "gateway reorders after quota, never before")
+               "good samples; a cold profile ranks on the probe's own wall "
+               "clock rather than on a derived rate, and a live sample "
+               "outranks the seed; the gateway reorders after quota, never "
+               "before, and refuses to re-seed over live evidence")
     return r
 
 

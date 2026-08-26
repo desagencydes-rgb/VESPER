@@ -834,6 +834,20 @@ class ModelGateway:
             "paid escalation (RB-017) and the owner was not woken (SR-042). "
             f"Last error: {last_error}")
 
+    def seed_observation(self, provider_id: str, seconds: float) -> None:
+        """Prime a rung's latency estimate from an enrolment measurement.
+
+        SEPARATE FROM THE INTERNAL RECORDING PATH so that "measured here, just
+        now" and "measured at enrolment" cannot be confused at the call site --
+        and it is a no-op if the rung has already been called, because a live
+        sample is better evidence than a cold one and must never be overwritten
+        by registration running again.
+        """
+        if seconds <= 0 or provider_id in self._observed:
+            return
+        with self._lock:
+            self._observed[provider_id] = Observation(provider_id, seconds)
+
     def observed(self, provider_id: str) -> Observation | None:
         """Live wall-clock seconds for one rung, or None if never called here."""
         return self._observed.get(provider_id)

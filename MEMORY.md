@@ -140,6 +140,58 @@ merit, and that has never actually been exercised against a real second node her
 Build those features now and connect them on enrolment; do not defer the build for
 want of a node that is one message away.
 
+### The remote ladder's latency, and what a free tier actually runs out of — 2026-08-26
+
+Measured on this MacBook, same 45-character prompt, `routing/supply.py` wires
+directly. Not the enrolment sweep's throughput figure — wall clock to a whole
+answer, which is what the owner waits for.
+
+| rung | wall clock, repeated | comment |
+|---|---|---|
+| `groq-strong` | 0.63 / 0.77 / 0.61 s | the only rung that is reliably conversational |
+| `ollama-strong` | 2.58 s | |
+| `cf-strong` | 1.04 / 5.27 s | |
+| `mistral-standard` | **4.3 / 16.6 / 29.4 / 48.3 s** | free tier, server-side queueing |
+
+The sweep's `elapsed_s` per rung is now carried onto `SupplyRow.probe_elapsed_s`
+and seeds both the router's profile estimate and the gateway's per-rung one. It
+is the **same quantity** a live observation is -- seconds from asking to having
+an answer -- which throughput is not. Deriving a cold estimate from tok/s while
+this number sat unread two fields away cost a measured 13.3 s on the first
+request to a profile.
+
+**End to end, cold process, 2026-08-26 after the fix:** six conversational turns
+through the packaged app's own runtime, 0.54 s mean, worst 0.89 s. The same
+question that opened the day at 25.9 s and 68.7 s now answers in 0.65 s.
+`latency_budgets.toml` puts `speech_end_to_response_onset` at 1200 ms; every
+turn is now inside it.
+
+**A single sweep sample of a remote rung is not a measurement of the rung.** It
+is a sample from a distribution, and mistral's spread is 11x. `docs/planning/
+spike-results/REMOTE-SUPPLY-*.json` records it at 51 tok/s, which is true and
+routes the owner into the tail. `core/latency.py` keeps a live per-rung estimate
+for exactly this; the sweep is the cold start, not the authority.
+
+### Tokens per minute is the binding constraint, not billing — 2026-08-26
+
+Verbatim from a live Groq 429 while probing:
+
+```
+Rate limit reached ... on tokens per minute (TPM):
+Limit 8000, Used 5118, Requested 3155
+```
+
+`Requested 3155` is `max_tokens` plus the prompt, on a turn that returned twelve
+words. **`max_tokens` is charged against TPM whether or not it is generated.**
+`core/effort.py` sized its budget on the opposite claim ("unused budget costs
+nothing -- providers bill what was generated") and that claim is about BILLING.
+The budget is not spent, it is withheld from the next request, which is why it
+looked free for as long as it did.
+
+Practical consequence for a session: **a handful of probe calls will rate-limit
+the fastest rung on the ladder.** Batch what you need to measure, and expect a
+429 rather than a wrong answer if you do not.
+
 ### Other devices
 Owner's phone (always on) · iPhone · Samsung Galaxy J3 (2016, 360×640 @ dpr 2, Android 5.1.1)
 · MacBook (expected 2026-08-20) · several old tablets, camera usability to be audited.

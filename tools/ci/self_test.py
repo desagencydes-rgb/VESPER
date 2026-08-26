@@ -1247,6 +1247,27 @@ CASES += [
      "a demoted rung never forgiven -- one slow minute retires it for the life "
      "of the process, and the ladder quietly narrows to whatever was fast first"),
 
+    ("latency-preference-reorders", ROUTER,
+     _sub("            elif p.probe_seconds:\n                seconds = p.probe_seconds",
+          "            elif False:\n                seconds = p.probe_seconds", 1),
+     "the enrolment probe's own wall clock ignored on a cold profile, so the "
+     "first request to one is ranked on throughput -- a quantity that cannot "
+     "see the supplier's queue, and the request that discovers it cost 13.3s"),
+
+    ("latency-preference-reorders", GATEWAY,
+     _sub("        if seconds <= 0 or provider_id in self._observed:",
+          "        if seconds <= 0:", 1),
+     "re-registration allowed to overwrite a live observation with the "
+     "enrolment-day figure, so everything the path learned is silently "
+     "replaced by a number from the sweep"),
+
+    ("latency-preference-reorders", SUPPLY_PY,
+     _sub("            gateway.seed_observation(row.provider_id, row.probe_elapsed_s)",
+          "            pass", 1),
+     "the gateway left cold at registration: the first request ranks three "
+     "rungs of one profile on quota headroom, measured at 1.50s, 2.66s and "
+     "3.85s on the same probe"),
+
     ("latency-preference-reorders", GATEWAY,
      _sub('        if prefer == "latency" and self._observed:',
           '        if False and self._observed:', 1),

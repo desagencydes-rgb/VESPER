@@ -114,6 +114,12 @@ class MeasuredProfile:
     # means the profile describes a node CLASS rather than an enrolled node;
     # `select` records that rather than treating it as a clean bill.
     node_id: str | None = None
+    # WALL CLOCK FROM THE ENROLMENT PROBE'S OWN CALL, seconds, or None where
+    # nothing timed one. Seeds the live estimate so the first request to a
+    # profile is not the one that discovers it is slow -- measured 2026-08-26,
+    # that first request cost 13.3 s while the number that would have prevented
+    # it sat unread in the file the profile was built from.
+    probe_seconds: float | None = None
 
     def available(self) -> bool:
         """INV-HW-2: unmeasured is UNAVAILABLE, never available."""
@@ -382,9 +388,19 @@ class Router:
             # request later it has an observation and corrects itself. Pessimism
             # here would be self-sealing -- never chosen, never measured, never
             # chosen.
+            # THREE SOURCES, BEST FIRST, AND THEY ARE NOT EQUALLY GOOD.
+            # A live observation is this path, now. The enrolment probe is the
+            # same QUANTITY -- wall clock for one whole answer -- measured once,
+            # on a longer prompt, so it overstates uniformly and still orders
+            # correctly. The derived figure is a different quantity altogether
+            # and is the last resort, for a profile nothing has ever timed.
             o = self._observed.get(p.profile_id)
-            seconds = (o.seconds if o is not None
-                       else LATENCY_REFERENCE_TOKENS / rate)
+            if o is not None:
+                seconds = o.seconds
+            elif p.probe_seconds:
+                seconds = p.probe_seconds
+            else:
+                seconds = LATENCY_REFERENCE_TOKENS / rate
             if prefer == "latency":
                 key = (seconds, TIER_RANK[p.tier] - TIER_RANK[floor])
             else:
@@ -457,10 +473,16 @@ class Router:
                 f"observed_seconds={obs.seconds:.2f} over {obs.samples} live "
                 f"call(s), worst {obs.worst_seconds:.2f}s -- live wall clock, "
                 "not the enrolment sweep")
+        elif best.probe_seconds:
+            factors.append(
+                f"no live observation yet; ranked on the enrolment probe's own "
+                f"wall clock, {best.probe_seconds:.2f}s -- one sample, on a "
+                "longer prompt than a conversational turn, so it overstates")
         else:
             factors.append(
-                "no live observation for this profile yet; ranked on the "
-                "enrolment sweep, which cannot see the supplier's queue")
+                "no live observation and no probe timing for this profile; "
+                "ranked on a figure DERIVED from throughput, which cannot see "
+                "the supplier's queue at all")
         est = context_tokens / rate if rate else None
         factors.append(f"selected_rate_tokens_per_sec={rate:.2f}")
         if best.context_slowdown_us_per_token is not None:

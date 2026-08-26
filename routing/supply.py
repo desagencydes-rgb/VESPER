@@ -128,6 +128,10 @@ class SupplyRow:
     # parsed from the provider id: an id is a label and a renamed row would
     # otherwise silently change what it is trusted to answer.
     tier: str = "standard"
+    # Wall clock for the enrolment probe's one call. Seeds the live latency
+    # estimate so the FIRST request to a profile is not the one that discovers
+    # a slow rung. See `load_rows` for why it is not a throughput figure.
+    probe_elapsed_s: float | None = None
     # Optional request parameters this endpoint accepts. EMPTY BY DEFAULT:
     # sending a parameter a provider does not know is a 400, and a 400 is
     # `bad_request`, which is TERMINAL -- so one unsupported field silently
@@ -228,6 +232,21 @@ def load_rows(*, secrets: dict | None = None,
                         f"-{r['egress_class'].lower()}"),
             measured_tokens_per_sec=float(rate),
             rate_is_measured=rate_measured,
+            # THE SWEEP'S OWN WALL CLOCK, carried through rather than left in
+            # the JSON. It is the SAME QUANTITY a live observation is -- seconds
+            # from asking to having an answer, queueing included -- which
+            # throughput is not, and core/router.py was deriving a cold estimate
+            # from throughput while this measurement sat unread two fields away.
+            # Measured 2026-08-26: the first request to a profile took 13.3 s
+            # because the derived estimate ranked the slow rung first, and the
+            # number that would have prevented it was in the file being read.
+            #
+            # IT IS NOT THE SAME PROMPT as a conversational turn -- the sweep
+            # asks for ~300 words -- so it OVERSTATES a short turn, uniformly,
+            # across every row. Overstating everything by a similar factor
+            # preserves the ordering, which is all a cold start needs, and the
+            # first real call replaces it.
+            probe_elapsed_s=(float(m["elapsed_s"]) if m.get("elapsed_s") else None),
             quota_unit=r.get("quota_unit", "UNKNOWN"),
             # PUBLISHED ZERO MEANS "NOTHING WAS PUBLISHED", NOT "LIMIT ZERO".
             # A literal 0 here would be recorded as UNAVAILABLE_ON_TIER and
@@ -508,6 +527,17 @@ def register(gateway, cost, ledger: QuotaLedger, *,
         e.limit_is_measured = False        # published, not measured
         e.window_seconds = row.quota_window_seconds
         e.source = f"contracts/policy/provider_supply.toml:{row.provider_id} (published)"
+        # SEED THE GATEWAY'S LATENCY VIEW TOO, for the same reason the router's
+        # is seeded: three rungs share one profile and are not equally fast --
+        # measured 2026-08-26 at 1.50s, 2.66s and 3.85s on the same probe. Left
+        # cold, the gateway ranks them on quota headroom on the first request,
+        # which is the axis unrelated to time that INV-PERF-2 exists about.
+        #
+        # SEEDED, NOT ASSERTED: it enters `_observed` as an ordinary sample, so
+        # the first real call updates it like any other and a rung that has
+        # since got slower is not held to an enrolment-day figure.
+        if row.probe_elapsed_s:
+            gateway.seed_observation(row.provider_id, row.probe_elapsed_s)
         registered.append(row)
 
     return {"egress_class": egress_class,
@@ -568,7 +598,17 @@ def measured_profiles(rows: list, *, purpose: str = "text") -> list:
                  if m.measured_tokens_per_sec]
         if not rates:
             continue                      # INV-HW-2: unmeasured is UNAVAILABLE
+        # THE PROFILE'S COLD LATENCY IS ITS FASTEST MEMBER, where the rate above
+        # is its SLOWEST. That looks inconsistent and is not: the rate has to
+        # hold for whichever member answers, so erring slow is honest. The
+        # latency estimate is used to CHOOSE, and the gateway will hand the
+        # request to the best member inside the profile -- so the number the
+        # router needs is what this profile can do, not what its worst member
+        # would do. Ranking a three-rung profile by its slowest member would
+        # reject it for a rung that never gets asked.
+        probes = [m.probe_elapsed_s for m in members if m.probe_elapsed_s]
         out.append(MeasuredProfile(
+            probe_seconds=(min(probes) if probes else None),
             profile_id=pid,
             tier=members[0].tier,
             node_class="remote",
