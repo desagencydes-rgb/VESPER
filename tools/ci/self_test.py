@@ -1144,6 +1144,20 @@ CASES += [
      "retries a dead rung every day forever, and every check stays green "
      "because the fixture is frozen and still parses"),
 
+    ("chrome-template-renders", CHROME_TPL,
+     _sub(".convo{position:absolute;left:{{convoLeft}}px;right:26px;bottom:104px;",
+          ".convo{position:absolute;right:26px;bottom:104px;width:min(38vw,520px);", 1),
+     "the conversation cluster put back on a viewport-derived position: it "
+     "cannot avoid an element it cannot see, and it sat over the face on the "
+     "owner's display while this check was green"),
+
+    ("chrome-template-renders", CHROME_SW,
+     _sub("let convoLeft = Int(faceRect.maxX) + 40",
+          "let convoLeft = Int(host.bounds.width) - 460", 1),
+     "the token kept and its derivation cut loose from the face -- the same "
+     "defect wearing a token, which is what a check asserting only that the "
+     "rule is present would miss"),
+
     ("effort-floor-and-null-answer", EFFORT,
      _sub("    if content is not None and content.strip():",
           "    if content is not None:", 1),

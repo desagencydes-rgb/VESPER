@@ -2623,10 +2623,50 @@ def check_chrome_template_renders() -> Result:
         if needed not in tpl:
             r.err(f"template is missing {needed!r}: {why}")
 
+    # THE CONVERSATION CLUSTER IS ANCHORED TO THE FACE, NOT TO THE VIEWPORT.
+    #
+    # THIS IS THE PROPERTY THAT WAS GREEN WHILE BROKEN. The rule read
+    # `right: 26px; width: min(38vw, 520px)` and this check happily confirmed
+    # the rule was present -- but a width derived from the viewport cannot
+    # avoid an element it cannot see, and on the owner's display the card sat
+    # over the face. "The rule exists" and "the card clears the face" are
+    # different claims, and only the first had a gate.
+    #
+    # The distinction being asserted is not cosmetic: `left: {{convoLeft}}px`
+    # with convoLeft = faceRect.maxX + 40 makes overlap ARITHMETICALLY
+    # impossible, whatever the window size. A viewport rule can only ever be
+    # coincidentally clear. So the check is that the cluster's horizontal origin
+    # comes from a substituted token, and that the token is derived from the
+    # face in the Swift that fills it.
+    # `(?:[^}]|\}\})*` RATHER THAN `[^}]*`. The substitution tokens are
+    # `{{name}}`, so a rule containing one contains `}}` -- a naive negated
+    # class stops inside the token and reports the rule as lacking the very
+    # thing it is being checked for. It did exactly that on the first run.
+    m = re.search(r"\.convo\{((?:[^}]|\}\})*)\}", tpl, re.S)
+    if m is None:
+        r.err("the template has no `.convo` rule, so the conversation card and "
+              "history bar have no position at all")
+    elif "{{convoLeft}}" not in m.group(1):
+        r.err("`.convo` does not take its horizontal origin from a substituted "
+              "token. A viewport-derived position cannot avoid the face -- it "
+              "is only ever coincidentally clear of it, and on 2026-08-26 the "
+              "coincidence ran out on the owner's display.")
+    # MATCHED ON THE ASSIGNMENT, NOT ON THE STRING ANYWHERE IN THE FILE. The
+    # first version searched for `faceRect.maxX` and was satisfied by the
+    # COMMENT above the assignment that mentions it -- so cutting the
+    # derivation loose left the check green. A check a comment can satisfy is
+    # checking the prose.
+    if not re.search(r"convoLeft\s*=\s*Int\(faceRect\.maxX\)", swift):
+        r.err("HomeChrome.swift does not derive convoLeft from faceRect.maxX. "
+              "The token would be substituted with a number that knows nothing "
+              "about where the face is, which is the same defect wearing a "
+              "token.")
+
     if r.ok:
         r.note(f"{len(tpl)} bytes, {len(tokens)} tokens all substituted "
                f"({', '.join(sorted(tokens))}), fallback token set matches, "
-               "stylesheet + card + dock row present")
+               "stylesheet + card + dock row present, conversation cluster "
+               "anchored to faceRect rather than to the viewport")
     return r
 
 
