@@ -30,7 +30,7 @@ swiftc -O -swift-version 5 -target arm64-apple-macosx13.0 \
   main.swift FaceRenderer.swift Behaviour.swift \
   "$HOME_SRC/Home.swift" "$HOME_SRC/HomeAmbience.swift" "$HOME_SRC/SpaceWatch.swift" \
   "$HOME_SRC/HomeVerify.swift" "$HOME_SRC/GlassGuard.swift" \
-  "$HOME_SRC/HomeChrome.swift" "$HOME_SRC/HomeSurfaces.swift" "$HOME_SRC/HomeCost.swift" \
+  "$HOME_SRC/HomeChrome.swift" "$HOME_SRC/HomeSurfaces.swift" "$HOME_SRC/RuntimeHost.swift" "$HOME_SRC/HomeCost.swift" \
   "$HOME_SRC/OcclusionWatch.swift" "$HOME_SRC/DockSwap.swift" \
   -o island
 
@@ -42,6 +42,35 @@ cp face.bin "$APP/Contents/Resources/face.bin"
 # rebuild. The binary still carries an inline copy: a missing file must never
 # blank a layer that sits over the owner's whole Desktop.
 cp "$HOME_SRC/chrome/home.html" "$APP/Contents/Resources/home.html"
+
+# THE RUNTIME SHIPS INSIDE THE BUNDLE, and is started BY the app rather than by
+# a second login item.
+#
+# A separate LaunchAgent made VESPER two things: two labels, two identities, and
+# a runtime that could be answering while the app was not running -- holding the
+# owner's API keys with no window anywhere to say so. One app means one thing to
+# launch, one thing to quit, and a runtime whose lifetime is the app's.
+#
+# Contents/Resources, not Contents/MacOS: a second executable in MacOS/ is
+# signed as a RESOURCE of the bundle rather than as code with an identity, which
+# is the same TCC question this build already answered once.
+mkdir -p "$APP/Contents/Resources/runtime"
+cp -R "$REPO/core" "$REPO/routing" "$REPO/contracts" \
+      "$APP/Contents/Resources/runtime/" 2>/dev/null
+mkdir -p "$APP/Contents/Resources/runtime/tools/ops"
+cp "$REPO/tools/ops/vesper_runtime.py" "$APP/Contents/Resources/runtime/tools/ops/"
+
+# THE MEASUREMENTS SHIP WITH THE RUNTIME, and forgetting them was not a small
+# omission. INV-HW-2 refuses an unmeasured provider, so a bundle carrying the
+# supply TABLE and not the measurements registers nothing at all: every row is
+# skipped as UNAVAILABLE and the app answers "no route" to everything, while
+# looking perfectly healthy. The table says who exists; the probe says who was
+# measured to answer, and the runtime needs both.
+mkdir -p "$APP/Contents/Resources/runtime/docs/planning/spike-results"
+cp "$REPO"/docs/planning/spike-results/REMOTE-SUPPLY-*.json \
+   "$APP/Contents/Resources/runtime/docs/planning/spike-results/" 2>/dev/null || \
+   echo "WARNING: no REMOTE-SUPPLY measurement to bundle -- the app will have no route" >&2
+find "$APP/Contents/Resources/runtime" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 cp "$REPO/docs/design/assets/vesper-icon.png" "$APP/Contents/Resources/vesper-icon.png"
 
 # The mark, as the app icon -- it is what appears in the permission dialogs.
@@ -161,7 +190,16 @@ if [ -f "$HOME/Library/LaunchAgents/$ID.plist" ]; then
   fi
   # And re-read the world rather than trusting the exit code: launchctl
   # accepting a bootstrap is not a running process.
-  sleep 2
+  # POLL, DO NOT SLEEP ONCE. A single `sleep 2` reported "VESPER is not
+  # supervised" for an agent that loaded correctly a second later, and the
+  # false alarm cost a real investigation. HANDOFF_HOME_STEP1 names this class
+  # four times over: "when a reading says a mechanism did nothing, suspect the
+  # reading first". A fixed wait is a guess about how long something takes;
+  # polling asks the world until it answers or the budget runs out.
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    launchctl list 2>/dev/null | grep -q "$ID" && break
+    sleep 0.5
+  done
   if launchctl list 2>/dev/null | grep -q "$ID"; then
     echo "VESPER is supervised (pid $(pgrep -f "VESPER.app/Contents/MacOS/VESPER" | head -1))"
   else

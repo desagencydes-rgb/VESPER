@@ -1283,6 +1283,26 @@ if args.contains("--home-verify") {
 
 var home: HomeController?
 if args.contains("--home") {
+    // THE RUNTIME STARTS WITH THE HOME AND STOPS WITH IT.
+    //
+    // Started here rather than by a second login item: two labels made VESPER
+    // two things, and left a runtime that could be answering while no window
+    // existed anywhere -- holding the owner's API keys with nothing on screen
+    // to say so. One app, one lifetime.
+    //
+    // ITS RESULT IS PRINTED WHETHER OR NOT IT WORKED. A home with no runtime
+    // looks exactly like a home whose runtime has nothing to say: the field
+    // accepts what is typed, queues it, and nothing ever answers. Silence here
+    // would make the two indistinguishable, and the field's own placeholder
+    // only reports the case where the BRIDGE is missing, not the runtime.
+    let runtimeHost = RuntimeHost()
+    if !args.contains("--no-runtime") {
+        print("runtime: \(runtimeHost.start())")
+    } else {
+        print("runtime: not started (--no-runtime); the field will queue and "
+            + "nothing will answer")
+    }
+
     // --after N delays creation by N seconds, and it exists for one reason:
     // the ground is `.managed`, so it lands on whichever Desktop is ACTIVE when
     // it is created, and there is no public API that names a Space to put it on

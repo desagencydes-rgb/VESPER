@@ -38,7 +38,23 @@ SRC="$REPO/app/VESPER.app/Contents/Library/LaunchAgents/$ID.plist"
 [ -f "$SRC" ] || { echo "no plist in the bundle: ./app/island-macos/build.sh"; exit 1; }
 cp "$SRC" "$LA/$ID.plist"
 
+# WAIT FOR THE BOOTOUT TO ACTUALLY COMPLETE BEFORE BOOTSTRAPPING.
+#
+# `bootout` returns before launchd has finished unloading the job, and
+# bootstrapping into that window fails with `5: Input/output error` -- which
+# reads like a permissions or plist problem and is neither. The build reported
+# "VESPER is not supervised" twice for an agent that loaded correctly the moment
+# it was retried by hand, and the false alarm cost a real investigation both
+# times.
+#
+# This is the same read-too-soon shape HANDOFF_HOME_STEP1 records four times
+# over, arriving as a WRITE-too-soon: the previous state had not finished
+# leaving when the next one was asked to arrive.
 launchctl bootout "gui/$(id -u)/$ID" 2>/dev/null || true
+for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  launchctl list 2>/dev/null | grep -q "$ID" || break
+  sleep 0.25
+done
 launchctl bootstrap "gui/$(id -u)" "$LA/$ID.plist"
 echo "loaded $ID"
 echo "remove with: tools/install_island_agent.sh --uninstall"
