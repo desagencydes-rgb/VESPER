@@ -264,6 +264,22 @@ final class HomeChrome {
     /// AN ABSENT FILE MEANS `resting`, WHICH IS THE TRUE READING. Nothing is
     /// running, so nothing is happening -- unlike a stale `thinking`, which
     /// would report work that is not occurring.
+    /// VESPER's thoughts and actions, as the runtime last published them.
+    ///
+    /// READ FROM THE SAME FILE ON THE SAME TICK as the behaviour and the stage
+    /// line. A second poll would be a second clock over one register, and the
+    /// two would eventually disagree about the same moment.
+    static func workbenchJSON() -> String {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/VESPER/home.json")
+        guard let d = try? Data(contentsOf: url),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let w = o["workbench"],
+              let out = try? JSONSerialization.data(withJSONObject: w)
+        else { return "{}" }
+        return String(data: out, encoding: .utf8) ?? "{}"
+    }
+
     static func faceBehaviour() -> String {
         let url = FileManager.default
             .homeDirectoryForCurrentUser
@@ -389,7 +405,9 @@ final class HomeChrome {
           :root{--ink:#f4e6dc;
                 --face-body:"Aeonik","Outfit","Futura",-apple-system,system-ui,
                             "Helvetica Neue",sans-serif;
-                --face-emoji:"Apple Color Emoji"}
+                --face-emoji:"Apple Color Emoji";
+                --face-hand:"Learning Curve","Bradley Hand",
+                            "Noteworthy","Snell Roundhand"}
           html,body{margin:0;height:100%;background:transparent;overflow:hidden;
                     font-family:var(--face-body),var(--face-emoji);
                     -webkit-font-smoothing:antialiased;
@@ -509,6 +527,35 @@ final class HomeChrome {
                box-shadow:0 0 12px rgba(244,190,150,.45)}
           @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
 
+          /* The workbench, top left. Thoughts in the HAND (SS5), actions in the
+             body face because SS5 forbids the hand a number and the owner needs
+             one. Reduced against the template, deliberately -- this is the
+             surface a MISSING template file falls back to, and it has to be
+             correct rather than complete. */
+          .work{position:absolute;left:{{left}}px;top:38px;width:{{cardWidth}}px;
+                box-sizing:border-box;padding:18px 20px 14px;border-radius:22px;
+                background-color:rgba(255,255,255,.055);
+                background-image:linear-gradient(rgba(0,0,0,{{fill}}),
+                                                 rgba(0,0,0,{{fill}}));
+                -webkit-backdrop-filter:blur(24px) saturate(180%);
+                backdrop-filter:blur(24px) saturate(180%);
+                border:1px solid rgba(255,255,255,.14)}
+          .work.idle{opacity:0}
+          .think{font-family:var(--face-hand),cursive;font-size:19px;
+                 line-height:1.34;color:rgba(244,230,220,.80);margin:0 0 14px}
+          .think p{margin:0 0 2px}
+          .acts{border-top:1px solid rgba(255,255,255,.09);padding-top:10px}
+          .act{display:flex;align-items:baseline;gap:9px;padding:4px 0;
+               font-size:11.5px}
+          .adot{flex:0 0 auto;width:5px;height:5px;border-radius:50%;
+                background:rgba(244,230,220,.30)}
+          .act.live .adot{background:rgba(244,230,220,.85)}
+          .act.failed .adot{background:rgba(232,130,110,.90)}
+          .averb{flex:0 0 auto;min-width:52px;font-size:9px;letter-spacing:.15em;
+                 text-transform:uppercase;color:rgba(244,230,220,.34)}
+          .adet{flex:1;color:rgba(244,230,220,.66);overflow:hidden;
+                text-overflow:ellipsis;white-space:nowrap}
+          .asec{flex:0 0 auto;font-size:10px;color:rgba(244,230,220,.34)}
           /* ---- the conversation, bottom right ---------------------------------
              A CARD, not a bare line on the ground. The line read as a caption over the
              wallpaper; at this length it needs a ground of its own to stay legible,
@@ -588,6 +635,10 @@ final class HomeChrome {
 
         </style>
 
+            <div class="work idle" id="work">
+              <div class="think" id="think"></div>
+              <div class="acts" id="acts"></div>
+            </div>
         <div class="card">
           <div class="t">host</div>
           {{METRIC_ROWS}}
@@ -752,6 +803,39 @@ final class HomeChrome {
             };
 
             // The history bar. Collapsed it shows the OLDEST line, which is what makes
+
+            var work = document.getElementById('work');
+            var thinkEl = document.getElementById('think');
+            var actsEl = document.getElementById('acts');
+            var lastWork = '';
+            window.__vesperWork = function (json) {
+              if (json === lastWork || !work) return;
+              lastWork = json;
+              var w; try { w = JSON.parse(json); } catch (e) { return; }
+              var th = (w && w.thoughts) || [], ac = (w && w.actions) || [];
+              if (!th.length && !ac.length) { work.classList.add('idle'); return; }
+              work.classList.remove('idle');
+              thinkEl.textContent = '';
+              for (var i = 0; i < th.length; i++) {
+                var p = document.createElement('p');
+                p.textContent = th[i]; thinkEl.appendChild(p);
+              }
+              actsEl.textContent = '';
+              for (var j = ac.length - 1; j >= 0; j--) {
+                var a = ac[j], row = document.createElement('div');
+                row.className = 'act ' + (a.state || 'done');
+                var parts = [['adot',''], ['averb', a.verb || ''],
+                             ['adet', a.detail || ''],
+                             ['asec', (typeof a.seconds === 'number')
+                                      ? a.seconds.toFixed(2) + 's' : '']];
+                for (var k = 0; k < parts.length; k++) {
+                  var e = document.createElement('span');
+                  e.className = parts[k][0]; e.textContent = parts[k][1];
+                  row.appendChild(e);
+                }
+                actsEl.appendChild(row);
+              }
+            };
             // it a way back into the conversation rather than a duplicate of the card.
             var lastJSON = '';
             window.__vesperHistory = function (json) {
@@ -835,6 +919,11 @@ final class HomeChrome {
     /// render tick. `(level, isDriven)` -- and `isDriven` is not redundant with
     /// a zero level: a real sentence passes through zero at every word boundary,
     /// and a face that dropped its source on each of those would stutter.
+    /// The behaviour this tick read out of `home.json`, for the host that owns
+    /// the face. Optional because the chrome runs in contexts with no renderer
+    /// behind it -- `--chrome` over a bare field, and the verify probes.
+    var onFaceBehaviour: ((String) -> Void)?
+
     var speech: (level: Float, isDriven: Bool) {
         (bridge.speechLevel, bridge.speechIsFromText)
     }
@@ -896,7 +985,30 @@ final class HomeChrome {
         let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             guard let self, let w = self.web else { return }
             let face = Self.faceBehaviour()
+            // AND THE FACE ITSELF, WHICH HAD NEVER BEEN TOLD.
+            //
+            // This tick has read the behaviour out of `home.json` since it was
+            // written, and pushed it into the PAGE -- where it drives a status
+            // dot. `FaceDriver.behaviour` was set by nothing anywhere in this
+            // app: it defaulted to `.resting` and stayed there for the process's
+            // whole life. `core/home_state.py` derived the behaviour correctly,
+            // the file carried it correctly, the dot showed it correctly, and
+            // the face was resting through every request VESPER ever answered.
+            //
+            // Built-and-unreached, again, and this time it silently invalidated
+            // an entire feature: the scale and brightness channels added for
+            // thinking and talking all live on `behaviour`, so none of them had
+            // ever run.
+            //
+            // REUSING THIS POLL rather than adding a second one. One mechanism,
+            // one register -- a second timer reading the same file is how the
+            // two come to disagree.
+            self.onFaceBehaviour?(face)
             let (line, who) = Self.stageLine()
+            let workSafe = Self.workbenchJSON()
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "`", with: "\\`")
+                .replacingOccurrences(of: "$", with: "\\$")
             let histSafe = Self.historyJSON()
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "`", with: "\\`")
@@ -910,6 +1022,7 @@ final class HomeChrome {
               document.body.setAttribute('data-face', '\(face)');
               if (window.__vesperStage) window.__vesperStage(`\(safe)`, '\(who)');
               if (window.__vesperHistory) window.__vesperHistory(`\(histSafe)`);
+              if (window.__vesperWork) window.__vesperWork(`\(workSafe)`);
             })();
             """
             // REPORT WHAT THE PUSH DID. `completionHandler: nil` swallowed

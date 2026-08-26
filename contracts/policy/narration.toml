@@ -110,6 +110,22 @@ text = "That provider returned an error. Retrying in {retry_in_seconds} seconds.
 why = "Their fault, probably transient, bounded retry."
 
 [[line]]
+classification = "budget_too_large"
+text = "This one needs more room than that rung allows. Moving to {next_rung}."
+why = """NOT `bad_request`, and the difference is what the owner should expect
+next. A bad request will recur identically until the code changes; this one is
+about THIS request's size against THAT rung's ceiling, and the next question --
+smaller -- will be served by the same rung perfectly well. So the line says the
+request needs room rather than that VESPER made a mistake, because it did not.
+
+Measured 2026-08-26: a `hard` request reserves 8192 tokens of reasoning
+headroom plus its expected output, and one rung's whole per-minute allowance is
+smaller than that. It answered `413 Request too large` in 0.19 s, and being
+unclassified it fell through to `server_error` -- so the owner would have been
+told a working provider was broken, and the chain retried a request that could
+not succeed."""
+
+[[line]]
 classification = "bad_request"
 text = "I sent that provider something it couldn't accept. Moving to {next_rung} and queuing this to fix."
 why = """Owns the fault plainly, because it IS ours and it will recur

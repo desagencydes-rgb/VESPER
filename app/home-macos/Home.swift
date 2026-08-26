@@ -326,6 +326,21 @@ final class HomeController: NSObject {
 
         // The notification alone had never once fired -- see OcclusionWatch's
         // header, and SPIKE-013 SS1 criterion 4 for the measurement that found it.
+        // THE FACE IS TOLD WHAT IT IS DOING. Until 2026-08-26 nothing set
+        // `FaceDriver.behaviour` in this app at all -- it defaulted to
+        // `.resting` and never moved, so fourteen behaviours and every motion
+        // channel hanging off them were unreachable in the shipping build while
+        // `home.json`, the status dot and CI all agreed the behaviour was being
+        // derived correctly. It was. It just never arrived.
+        //
+        // REFUSED RATHER THAN COERCED, matching core/home_state.py: a string
+        // that is not a behaviour leaves the face as it is instead of resetting
+        // it to rest, because a typo upstream should not look like idleness.
+        chrome.onFaceBehaviour = { [weak self] name in
+            guard let self, let b = Behaviour(rawValue: name) else { return }
+            self.motion.behaviour = b
+        }
+
         watch = OcclusionWatch(window: ground)
         watch?.onChange = { [weak self] visible, source in
             guard let self else { return }

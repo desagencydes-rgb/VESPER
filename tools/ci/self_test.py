@@ -1193,6 +1193,12 @@ CASES += [
      "rule is present would miss"),
 
     ("face-follows-activity", HOME_SW,
+     _sub("            self.motion.behaviour = b", "            _ = b", 1),
+     "the face is never told which behaviour it is in: it holds `resting` for "
+     "the life of the process while home.json, the status dot and every other "
+     "assertion in this check go on agreeing the behaviour is derived correctly"),
+
+    ("face-follows-activity", HOME_SW,
      _sub("            self.chrome.wake()", "            // self.chrome.wake()", 1),
      "only the Space-change edge wakes the chrome: switching APPS brings the "
      "face back on its display link while the cards and the main menu stay on "
@@ -1226,6 +1232,19 @@ CASES += [
      "the compositor woken by putting an opacity on `body`: it becomes a "
      "backdrop root, every glass panel loses the Desktop it filters, and the "
      "cards render as bare translucent fill with the text barely legible"),
+
+    ("chrome-template-renders", CHROME_TPL,
+     _sub("    window.__vesperWork = function (json) {",
+          "    window.__renamedReceiver = function (json) {", 1),
+     "the page loses its workbench receiver: VESPER's thoughts and actions are "
+     "still derived from the bus, still written to home.json, still pushed on "
+     "every tick, and rendered by nothing"),
+
+    ("chrome-template-renders", CHROME_SW,
+     _sub("    static func workbenchJSON() -> String {",
+          "    static func benchState() -> String {", 1),
+     "HomeChrome stops reading the workbench out of home.json, so the card sits "
+     "empty while the runtime fills the file behind it"),
 
     ("effort-floor-and-null-answer", EFFORT,
      _sub("    if content is not None and content.strip():",
@@ -1343,6 +1362,18 @@ CASES += [
      "the gateway's re-order removed: the router picks the fast profile and "
      "quota headroom then picks the slow rung inside it, which is how four "
      "consecutive turns measured 0.56s, 4.22s, 1.02s and 4.63s"),
+
+    ("effort-floor-and-null-answer", HTTP_COMPLETION,
+     _sub('    413: "budget_too_large",', '    # 413 unclassified', 1),
+     "413 falls through to `server_error` again: TRANSIENT, so the chain "
+     "retries a request that cannot get under the ceiling and then reports a "
+     "provider that is working perfectly as broken"),
+
+    ("effort-floor-and-null-answer", GATEWAY,
+     _sub('TERMINAL = ("auth_failed", "quota_exhausted", "revoked", "bad_request",\n            "budget_too_large")',
+          'TERMINAL = ("auth_failed", "quota_exhausted", "revoked", "bad_request")', 1),
+     "`budget_too_large` left with no rule in the chain: neither retried nor "
+     "abandoned, on an error that fails identically every time"),
 
     ("system-turn-reaches-the-wire", SUPPLY_PY,
      _sub('                msgs.append({"role": "system", "content": system})',

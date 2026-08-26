@@ -83,6 +83,7 @@ class HomeState:
         self._behaviour = RESTING
         self._since = time.time()
         self._reason = "no activity yet"
+        self._workbench: dict = {}
         self._transcript: list = []
         self._rows: list = []
         self._writes = 0
@@ -205,6 +206,18 @@ class HomeState:
             self._set(TALKING, "a reply reached the stage")
         self.write()
 
+    def set_workbench(self, state: dict) -> None:
+        """VESPER's thoughts and actions, for the top-left card.
+
+        WRITTEN THROUGH HERE RATHER THAN BY `Workbench` ITSELF, because this
+        object owns the merge into `home.json` and a second writer is how the
+        face state and the metrics rows came to delete each other. `Workbench`
+        derives; this publishes. One file, one writer per key, one merge.
+        """
+        with self._lock:
+            self._workbench = dict(state or {})
+        self.write()
+
     def set_rows(self, rows: list) -> None:
         """The metrics card's rows. Owned by whoever measured them."""
         with self._lock:
@@ -230,6 +243,11 @@ class HomeState:
                     existing = {}
             existing["face"] = self.state()
             existing["transcript"] = self._transcript
+            # A THIRD KEY, AND STILL ONE MERGE. Written unconditionally so the
+            # card empties when the workbench does -- a board that keeps its
+            # last contents when the source goes quiet reports work that is not
+            # happening, which is the same defect as a face stuck on `thinking`.
+            existing["workbench"] = self._workbench
             if self._rows:
                 existing["rows"] = self._rows
             self._path.parent.mkdir(parents=True, exist_ok=True)

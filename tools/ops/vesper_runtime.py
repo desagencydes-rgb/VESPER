@@ -53,6 +53,7 @@ from core.quota import QuotaLedger                              # noqa: E402
 from core.router import NoRouteAvailable, Router                # noqa: E402
 from core.store import StoreSet                                 # noqa: E402
 from core.triage import TriageQueue                             # noqa: E402
+from core.workbench import Workbench                            # noqa: E402
 from routing import supply                                      # noqa: E402
 from routing.supply import for_egress, load_rows, measured_profiles  # noqa: E402
 
@@ -100,7 +101,12 @@ def build(node: str = "vesper-runtime"):
     # namelessly, which is indistinguishable from working and was the state of
     # this system until 2026-08-26.
     persona = Persona.load(bus=bus)
-    return bus, gw, router, home, intake, triage, report, persona
+    # SUBSCRIBES, LIKE THE FACE DOES. Nothing on the request path calls into it:
+    # a board somebody has to remember to update is accurate until the first
+    # time somebody forgets.
+    bench = Workbench()
+    bench.attach(bus)
+    return bus, gw, router, home, intake, triage, report, persona, bench
 
 
 def answer(gw, router, persona, utterance) -> str:
@@ -165,7 +171,7 @@ def answer(gw, router, persona, utterance) -> str:
     return ((out.get("result") or {}).get("text") or "").strip()
 
 
-def pump(bus, gw, router, persona, home, intake, transcript: list,
+def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          once: bool = False) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     OUTBOX.touch(exist_ok=True)
@@ -230,6 +236,10 @@ def pump(bus, gw, router, persona, home, intake, transcript: list,
         transcript.extend(said)
         del transcript[:-40]
     home.set_transcript(list(transcript))
+    # PUBLISHED EVERY PASS, including the passes that handled nothing -- a row
+    # that opened during a call has to be seen to close, and closing is an event
+    # that arrives while this loop is otherwise idle.
+    home.set_workbench(bench.state())
     home.write()
     return handled
 
@@ -242,7 +252,7 @@ def main() -> int:
     ap.add_argument("--status", action="store_true")
     args = ap.parse_args()
 
-    bus, gw, router, home, intake, triage, report, persona = build()
+    bus, gw, router, home, intake, triage, report, persona, bench = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -262,7 +272,7 @@ def main() -> int:
                                 "final": True}) + "\n")
 
     if args.once or args.say:
-        n = pump(bus, gw, router, persona, home, intake, transcript, once=True)
+        n = pump(bus, gw, router, persona, bench, home, intake, transcript, once=True)
         # THE SAME HONESTY THE INTERRUPT PATH APPLIES. A one-shot run that exits
         # leaving `thinking` on disk reports work that is not happening; the
         # 90 s staleness fallback would correct it eventually, and eventually is
@@ -302,7 +312,7 @@ def main() -> int:
     home.write()
     while True:
         try:
-            pump(bus, gw, router, persona, home, intake, transcript)
+            pump(bus, gw, router, persona, bench, home, intake, transcript)
             # THE PLUMBING USED TO COST MORE THAN THE MODEL. 0.5 s here plus
             # 0.7 s in the chrome's own timer is up to 1.2 s of pure polling
             # around a call that now returns in ~0.7 s -- the transport was the

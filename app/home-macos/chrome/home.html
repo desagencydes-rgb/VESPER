@@ -16,7 +16,9 @@
   :root{--ink:#f4e6dc;
         --face-body:"Aeonik","Outfit","Futura",-apple-system,system-ui,
                     "Helvetica Neue",sans-serif;
-        --face-emoji:"Apple Color Emoji"}
+        --face-emoji:"Apple Color Emoji";
+        --face-hand:"Learning Curve","Bradley Hand","Noteworthy",
+                    "Snell Roundhand"}
   html,body{margin:0;height:100%;background:transparent;overflow:hidden;
             font-family:var(--face-body),var(--face-emoji);
             -webkit-font-smoothing:antialiased;
@@ -136,6 +138,60 @@
        box-shadow:0 0 12px rgba(244,190,150,.45)}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
 
+
+  /* ---- the workbench, top left -----------------------------------------
+     TWO COLUMNS OF DIFFERENT KINDS OF CLAIM, and the type is what keeps them
+     apart. Thoughts are VESPER in the first person, in the HAND (SS5). Actions
+     are the instrument -- a provider, an outcome, a duration -- in the body
+     face, because SS5 forbids the hand to carry a number and the owner needs
+     the number.
+
+     SS5 NAMES LEARNING CURVE AND IT IS NOT INSTALLED HERE. It is free and
+     installable today, so it is named FIRST and takes over the moment it
+     arrives; Bradley Hand is what this machine actually has that shares its
+     character -- informal, single-stroke, unjoined. Snell Roundhand is behind
+     it as formal copperplate rather than as an equal.
+
+     ABOVE THE HOST CARD IN THE SAME COLUMN, sharing its `left` so the two read
+     as one cluster rather than two decisions. */
+  .work{position:absolute;left:{{left}}px;top:38px;width:{{cardWidth}}px;
+        box-sizing:border-box;padding:18px 20px 14px;border-radius:22px;
+        background-color:rgba(255,255,255,.055);
+        background-image:linear-gradient(rgba(0,0,0,{{fill}}),
+                                         rgba(0,0,0,{{fill}}));
+        -webkit-backdrop-filter:blur(24px) saturate(180%);
+        backdrop-filter:blur(24px) saturate(180%);
+        border:1px solid rgba(255,255,255,.14);
+        box-shadow:0 8px 32px rgba(0,0,0,.22),
+                   inset 0 1px 0 rgba(255,255,255,.22);
+        transition:opacity .5s cubic-bezier(.32,.72,0,1)}
+  /* EMPTY MEANS ABSENT, not an empty box. A card holding a heading and nothing
+     else says VESPER is doing something and declining to say what. */
+  .work.idle{opacity:0;pointer-events:none}
+  .think{font-family:var(--face-hand),cursive;
+         font-size:19px;line-height:1.34;letter-spacing:.005em;
+         color:rgba(244,230,220,.80);min-height:26px;
+         margin:0 0 14px;
+         transition:opacity .45s ease}
+  .think p{margin:0 0 2px}
+  .think p:nth-child(2){color:rgba(244,230,220,.52)}
+  .acts{border-top:1px solid rgba(255,255,255,.09);padding-top:10px}
+  .act{display:flex;align-items:baseline;gap:9px;padding:4px 0;
+       font-size:11.5px;line-height:1.4}
+  .adot{flex:0 0 auto;width:5px;height:5px;border-radius:50%;
+        background:rgba(244,230,220,.30);transform:translateY(-2px)}
+  .act.live .adot{background:rgba(244,230,220,.85);
+                  box-shadow:0 0 8px rgba(244,230,220,.45);
+                  animation:pulse 1.6s ease-in-out infinite}
+  .act.failed .adot{background:rgba(232,130,110,.90);
+                    box-shadow:0 0 8px rgba(232,130,110,.40)}
+  .averb{flex:0 0 auto;min-width:52px;font-size:9px;letter-spacing:.15em;
+         text-transform:uppercase;color:rgba(244,230,220,.34)}
+  .adet{flex:1;color:rgba(244,230,220,.66);
+        overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .asec{flex:0 0 auto;font-size:10px;letter-spacing:.03em;
+        color:rgba(244,230,220,.34);font-variant-numeric:tabular-nums}
+
   /* ---- the conversation, bottom right ---------------------------------
      A CARD, not a bare line on the ground. The line read as a caption over the
      wallpaper; at this length it needs a ground of its own to stay legible,
@@ -215,6 +271,10 @@
 
 </style>
 
+<div class="work idle" id="work">
+  <div class="think" id="think"></div>
+  <div class="acts" id="acts"></div>
+</div>
 <div class="card">
   <div class="t">host</div>
   {{METRIC_ROWS}}
@@ -482,6 +542,53 @@
         var p = pending; pending = null;
         if (p) arrive(p.text, p.who);
       }, 860);
+    };
+
+
+    // The workbench. Rows are pushed as DATA and written with textContent --
+    // these lines carry provider names and error classifications straight off
+    // the wire, and the day one contains a tag is the day that stops being
+    // theoretical.
+    var work = document.getElementById('work');
+    var thinkEl = document.getElementById('think');
+    var actsEl = document.getElementById('acts');
+    var lastWork = '';
+    window.__vesperWork = function (json) {
+      if (json === lastWork) return;
+      lastWork = json;
+      var w;
+      try { w = JSON.parse(json); } catch (e) { return; }
+      var thoughts = (w && w.thoughts) || [], actions = (w && w.actions) || [];
+      if (!work) return;
+      if (!thoughts.length && !actions.length) { work.classList.add('idle'); return; }
+      work.classList.remove('idle');
+      thinkEl.textContent = '';
+      for (var i = 0; i < thoughts.length; i++) {
+        var p = document.createElement('p');
+        p.textContent = thoughts[i];
+        thinkEl.appendChild(p);
+      }
+      actsEl.textContent = '';
+      // NEWEST FIRST. The board is read at a glance and the thing that just
+      // happened is the thing being looked for.
+      for (var j = actions.length - 1; j >= 0; j--) {
+        var a = actions[j];
+        var row = document.createElement('div');
+        row.className = 'act ' + (a.state || 'done');
+        var dot = document.createElement('span'); dot.className = 'adot';
+        var verb = document.createElement('span'); verb.className = 'averb';
+        verb.textContent = a.verb || '';
+        var det = document.createElement('span'); det.className = 'adet';
+        det.textContent = a.detail || '';
+        var sec = document.createElement('span'); sec.className = 'asec';
+        // ROUNDED HERE AND NOWHERE ELSE. Rounding is presentation and belongs
+        // to whoever renders it; the record keeps what was measured.
+        sec.textContent = (typeof a.seconds === 'number')
+          ? a.seconds.toFixed(a.seconds < 10 ? 2 : 1) + 's' : '';
+        row.appendChild(dot); row.appendChild(verb);
+        row.appendChild(det); row.appendChild(sec);
+        actsEl.appendChild(row);
+      }
     };
 
     // The history bar. Collapsed it shows the OLDEST line, which is what makes

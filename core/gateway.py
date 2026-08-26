@@ -82,7 +82,15 @@ def _limit_parse_suspect(message: str) -> bool:
 
 # SR-004: an error a human can act on. Classification decides retry timing.
 TRANSIENT = ("rate_limited", "timeout", "server_error", "connection_error")
-TERMINAL = ("auth_failed", "quota_exhausted", "revoked", "bad_request")
+# `budget_too_large` IS TERMINAL FOR THIS REQUEST AND NOT FOR THE RUNG, which
+# is a distinction this tuple cannot express on its own -- so it lives here and
+# `_book_refusal` is deliberately not given it. A rung that cannot accept a
+# 9216-token reservation is perfectly able to accept a 640-token one, and the
+# next request will find that out. Retrying THIS one is what must stop:
+# measured 2026-08-26, a 413 classified `server_error` was retried against a
+# ceiling it could never get under, twice per turn.
+TERMINAL = ("auth_failed", "quota_exhausted", "revoked", "bad_request",
+            "budget_too_large")
 
 # Classifications that mean "the provider refused on quota", and therefore that
 # the refusal carries a QUOTA SHAPE worth booking. `rate_limited` is TRANSIENT

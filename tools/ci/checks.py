@@ -2735,6 +2735,30 @@ def check_chrome_template_renders() -> Result:
                   "an empty transparent page leaves the blur with nothing to "
                   "sample and the cards washed out.")
 
+    # THE WORKBENCH REACHES THE PAGE. Two columns of different claims and the
+    # type is what separates them: thoughts in the HAND, actions in the body
+    # face. SS5 forbids the hand a number -- "never a system message, never a
+    # number" -- and the owner needs the number, so it goes in the row beside it.
+    for label, src in (("the template", tpl), ("the inline fallback", swift)):
+        # THE DEFINITION, NOT THE NAME. `"__vesperWork" in src` is satisfied by
+        # `__vesperWorkX`, and by the call site, and by a comment -- three ways
+        # to be green with the receiver gone. Match the assignment.
+        if "window.__vesperWork = function" not in src:
+            r.err(f"{label} cannot receive the workbench, so VESPER's thoughts "
+                  "and actions are derived, written to home.json and rendered "
+                  "by nothing.")
+        if "--face-hand" not in src:
+            r.err(f"{label} declares no hand. SS5's third face is VESPER writing "
+                  "in the first person and it is the whole reason the thoughts "
+                  "column is a different kind of claim from the actions one.")
+    if "static func workbenchJSON()" not in swift:
+        r.err("HomeChrome never reads the workbench out of home.json, so the "
+              "page's receiver is never called.")
+    if "window.__vesperWork(" not in swift:
+        r.err("the refresh tick never calls the page's workbench receiver. The "
+              "file is read and the card is never told -- built-and-unreached "
+              "one step further along than usual.")
+
     if r.ok:
         r.note(f"{len(tpl)} bytes, {len(tokens)} tokens all substituted "
                f"({', '.join(sorted(tokens))}), fallback token set matches, "
@@ -2742,7 +2766,8 @@ def check_chrome_template_renders() -> Result:
                "anchored to faceRect rather than to the viewport; one dissolve "
                "timer, a mirrored out-stagger and a bounded element count in "
                "both the template and the fallback; nothing roots the backdrop "
-               "at body")
+               "at body; the workbench reaches both copies and the hand is "
+               "declared in each")
     return r
 
 
@@ -2966,6 +2991,28 @@ def check_face_follows_activity() -> Result:
     if "func wake()" not in (REPO / "app" / "home-macos"
                              / "HomeChrome.swift").read_text(encoding="utf-8"):
         r.err("HomeChrome has no `wake`, so the edges call nothing.")
+    # AND THE DRIVER IS TOLD WHICH BEHAVIOUR IT IS IN.
+    #
+    # THE ONE THAT INVALIDATED EVERYTHING ELSE IN THIS CHECK. `FaceDriver
+    # .behaviour` was set by nothing anywhere in the app: it defaulted to
+    # `.resting` and stayed there for the life of the process. `home_state.py`
+    # derived the behaviour, `home.json` carried it, the page's status dot showed
+    # it, and every assertion above passed -- while the face rested through every
+    # request VESPER answered. Fourteen behaviours and every motion channel
+    # hanging off them were unreachable in the shipping build.
+    #
+    # Nothing else here can catch it: the Python half is correct, the Swift
+    # channels are correct, and the defect is entirely in the absence of one
+    # assignment between them.
+    if "motion.behaviour = " not in live:
+        r.err("nothing assigns FaceDriver.behaviour, so the face holds "
+              "`resting` for the life of the process. Every behaviour, every "
+              "gaze field and every animation channel is unreachable, and each "
+              "of them tests correctly in isolation.")
+    if "onFaceBehaviour" not in chrome_sw:
+        r.err("the chrome does not report the behaviour it reads to its host. "
+              "It has always pushed it into the PAGE, where it moves a status "
+              "dot -- the dot was right and the face was resting.")
     if "motion.pulse" not in home_sw or "motion.glow" not in home_sw:
         r.err("the render tick does not apply the animation channels. They "
               "would be computed every frame and drawn by nothing.")
@@ -3940,6 +3987,45 @@ def check_effort_floor() -> Result:
                   "are billed as completion tokens and can consume the entire "
                   "budget before a content token is emitted.")
 
+    # THE OTHER END OF THE SAME AXIS. This check has always covered a budget
+    # too SMALL -- reasoning eats the allowance and a 200 comes back empty. A
+    # budget too LARGE is the mirror and had no coverage at all: measured
+    # 2026-08-26, a `hard` request reserves 9216 tokens and one rung's whole
+    # per-minute allowance is 8000, so it answered `413 Request too large` in
+    # 0.19 s every time.
+    from routing.http_completion import _STATUS_CLASS
+    from core.gateway import TERMINAL, TRANSIENT
+    cls413 = _STATUS_CLASS.get(413)
+    if cls413 != "budget_too_large":
+        r.err(f"HTTP 413 classifies as {cls413!r}. Unclassified it falls through "
+              "to `server_error`, which is TRANSIENT -- so the chain retries a "
+              "request that cannot succeed and then reports a working provider "
+              "as broken.")
+    else:
+        if cls413 in TRANSIENT:
+            r.err("`budget_too_large` is TRANSIENT. Retrying an oversized "
+                  "request against a fixed ceiling fails identically, forever.")
+        if cls413 not in TERMINAL:
+            r.err("`budget_too_large` is neither TRANSIENT nor TERMINAL, so the "
+                  "chain has no rule for it.")
+        # AND IT MUST NOT BOOK A QUOTA REFUSAL. The rung is fine and the
+        # credential is fine; retiring it over one request's SHAPE would remove
+        # a working provider that will serve the next, smaller question.
+        from core.gateway import QUOTA_CLASSIFICATIONS
+        if cls413 in QUOTA_CLASSIFICATIONS:
+            r.err("`budget_too_large` books a quota refusal. A rung that cannot "
+                  "accept a 9216-token reservation accepts a 640-token one "
+                  "perfectly well -- this is a fact about the request, not "
+                  "about the allowance.")
+    # AND THE OWNER IS TOLD SOMETHING TRUE. `narration.toml` refuses to load
+    # without a line per classification, so this asserts the line SAYS the
+    # right thing rather than that one exists.
+    nar = (REPO / "contracts" / "policy" / "narration.toml").read_text(
+        encoding="utf-8")
+    if 'classification = "budget_too_large"' not in nar:
+        r.err("no narration line for `budget_too_large` -- silence at the "
+              "moment the owner is waiting to be told something.")
+
     if r.ok:
         r.note(f"null answer from "
                f"{EMPTY_CONTENT_FIXTURE.relative_to(REPO).as_posix()} retried with a "
@@ -3947,7 +4033,8 @@ def check_effort_floor() -> Result:
                f"floor table {dict(FLOOR)} over efforts {sorted(EFFORT_RANK, key=EFFORT_RANK.get)}; "
                f"declared output {dict(EXPECTED_OUTPUT)} narrows the reserve "
                f"{loose.max_tokens}->{tight.max_tokens} on trivial without "
-               f"touching reasoning headroom")
+               f"touching reasoning headroom; 413 classifies as budget_too_large, "
+               "terminal for the request and not for the rung, and narrates")
     return r
 
 

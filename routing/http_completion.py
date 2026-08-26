@@ -97,6 +97,26 @@ _STATUS_CLASS = {
     401: "auth_failed",
     403: "auth_failed",
     404: "bad_request",
+    # 413 IS NOT A SERVER FAULT AND IT IS NOT A BAD REQUEST EITHER, and it fell
+    # through to `server_error` -- a TRANSIENT class, so the chain retried a
+    # request that could never succeed and then reported a healthy rung as
+    # broken.
+    #
+    # Measured 2026-08-26: a `hard` request reserves 9216 tokens
+    # (8192 reasoning headroom + 1024 expected output) and one rung on the
+    # ladder has an 8000 tokens-per-minute ceiling. It answered
+    # `413 Request too large` in 0.19 s, every time, for the same reason it
+    # always would. The ladder descended and the next rung answered, so the
+    # owner saw a correct answer with a lie beside it: `server_error` on a
+    # provider that was working perfectly.
+    #
+    # `budget_too_large` is its own class because the CURE is specific and is
+    # neither of the neighbouring ones. Retrying is pointless, so it must not
+    # be TRANSIENT. The credential is fine and the rung is fine, so retiring it
+    # the way TERMINAL does would remove a working provider over one request's
+    # shape. What it means is "not this rung for a request this size" -- one
+    # attempt, then descend.
+    413: "budget_too_large",
     429: "rate_limited",
     402: "quota_exhausted",
 }
