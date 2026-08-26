@@ -1,10 +1,26 @@
 <!doctype html><meta charset="utf-8">
 <body data-face="{{FACE}}">
 <style>
+  /* SS5's stack, in the order the specification sets it.
+     Aeonik and Canela are named FIRST even though neither is licensed yet: the
+     day they are bought and installed they take over with no code change, and
+     until then the cascade falls through. `Outfit` is the substitute
+     DESIGN-FOUNDATION itself names; Futura is what this machine actually has
+     that shares Aeonik's geometric construction. -apple-system last, so there
+     is always a face.
+
+     THE EMOJI FACE IS DECLARED EXPLICITLY. Without it the cascade hands a
+     colour emoji to whichever text face matched first, and a geometric
+     grotesque has no glyph for one -- which is half of why they rendered as
+     boxes. The other half was the dissolve splitting them; see the script. */
+  :root{--ink:#f4e6dc;
+        --face-body:"Aeonik","Outfit","Futura",-apple-system,system-ui,
+                    "Helvetica Neue",sans-serif;
+        --face-emoji:"Apple Color Emoji"}
   html,body{margin:0;height:100%;background:transparent;overflow:hidden;
-            font-family:-apple-system,system-ui,sans-serif;
+            font-family:var(--face-body),var(--face-emoji);
             -webkit-font-smoothing:antialiased;
-            color:#f4e6dc}
+            color:var(--ink)}
 
   /* ---- the metrics card (§14.2) ---------------------------------- */
   .card{position:absolute;left:{{left}}px;top:{{top}}px;
@@ -120,39 +136,72 @@
        box-shadow:0 0 12px rgba(244,190,150,.45)}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
 
-  /* ---- the stage, bottom centre ---------------------------------------
-     ONE PLACE, TWO SPEAKERS. What the owner said appears here, dissolves,
-     and the answer arrives in the same spot. A transcript list would make
-     this a chat window; a single stage makes it a conversation, which is
-     what it becomes once speech lands and there is nothing to scroll.
+  /* ---- the conversation, bottom right ---------------------------------
+     A CARD, not a bare line on the ground. The line read as a caption over the
+     wallpaper; at this length it needs a ground of its own to stay legible,
+     and SS4 names Sheet for cards.
 
-     NO GLASS PANEL. The text sits on the ground itself: a panel here would
-     box the one element that should feel like it belongs to the face rather
-     than to the chrome. */
-  .stage{position:absolute;left:50%;transform:translateX(-50%);
-         bottom:132px;width:min(72vw,880px);text-align:center;
-         pointer-events:none;z-index:4;min-height:64px;
-         display:flex;align-items:flex-end;justify-content:center}
-  .say{font-size:19px;line-height:1.5;letter-spacing:.005em;
-       color:rgba(244,230,220,.94);
-       text-shadow:0 2px 18px rgba(0,0,0,.55), 0 0 42px rgba(0,0,0,.35)}
-  .say.vesper{color:rgba(228,238,255,.94);font-size:18px}
-  /* Each character is its own element so it can leave on its own path. */
-  .say b{display:inline-block;font-weight:inherit;white-space:pre;
+     BOTTOM RIGHT AND ABOVE THE DOCK ROW rather than beside it. The main menu
+     is centred and grows with its contents, so anything sharing its band gets
+     pushed into it the moment a slot is added. Sitting above it is stable
+     under a menu of any width. */
+  .convo{position:absolute;right:26px;bottom:104px;width:min(38vw,520px);
+         display:flex;flex-direction:column;gap:10px;z-index:7}
+
+  /* The history bar: the OLDEST line, one row, until it is asked to open. */
+  .history{box-sizing:border-box;border-radius:16px;overflow:hidden;
+           background-color:rgba(255,255,255,.045);
+           background-image:linear-gradient(rgba(0,0,0,0.40),rgba(0,0,0,0.40));
+           -webkit-backdrop-filter:blur(22px) saturate(175%);
+           backdrop-filter:blur(22px) saturate(175%);
+           border:1px solid rgba(255,255,255,.11);cursor:default;
+           max-height:44px;
+           transition:max-height .46s cubic-bezier(.32,.72,0,1),
+                      border-color .3s ease, background-color .3s ease}
+  .history:hover{border-color:rgba(255,255,255,.20);
+                 background-color:rgba(255,255,255,.065)}
+  .history.open{max-height:min(46vh,420px);overflow-y:auto}
+  .hrow{display:flex;gap:10px;align-items:baseline;padding:11px 16px;
+        font-size:12.5px;line-height:1.45;
+        border-top:1px solid rgba(255,255,255,.055)}
+  .hrow:first-child{border-top:0}
+  .history:not(.open) .hrow:not(:first-child){display:none}
+  .hwho{flex:0 0 auto;min-width:46px;font-size:9px;letter-spacing:.15em;
+        text-transform:uppercase;color:rgba(244,230,220,.30)}
+  .htext{flex:1;color:rgba(244,230,220,.66);
+         overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .history.open .htext{white-space:normal;overflow:visible}
+  .hcue{flex:0 0 auto;font-size:9px;letter-spacing:.13em;text-transform:uppercase;
+        color:rgba(244,230,220,.26);transition:opacity .3s ease}
+
+  /* The card: the current exchange, and the only thing that animates. */
+  .stage{box-sizing:border-box;padding:18px 20px;border-radius:20px;
+         min-height:66px;display:flex;align-items:flex-end;
+         background-color:rgba(255,255,255,.055);
+         background-image:linear-gradient(rgba(0,0,0,0.44),rgba(0,0,0,0.44));
+         -webkit-backdrop-filter:blur(24px) saturate(180%);
+         backdrop-filter:blur(24px) saturate(180%);
+         border:1px solid rgba(255,255,255,.15);
+         box-shadow:0 10px 36px rgba(0,0,0,.26),
+                    inset 0 1px 0 rgba(255,255,255,.22)}
+  .say{font-size:14px;line-height:1.55;letter-spacing:.004em;
+       color:rgba(244,230,220,.94);max-height:132px;overflow:hidden}
+  .say.vesper{color:rgba(230,240,255,.92)}
+  .say b{display:inline-block;font-weight:inherit;white-space:pre-wrap;
          will-change:transform,opacity,filter}
-  .say.in b{animation:arrive .42s cubic-bezier(.22,.9,.24,1) both}
-  .say.out b{animation:scatter .78s cubic-bezier(.4,0,.7,.2) both}
+  .say.in b{animation:arrive .40s cubic-bezier(.22,.9,.24,1) both}
+  .say.out b{animation:scatter .74s cubic-bezier(.4,0,.7,.2) both}
   @keyframes arrive{
-    from{opacity:0;filter:blur(7px);transform:translateY(9px) scale(.97)}
+    from{opacity:0;filter:blur(6px);transform:translateY(8px) scale(.98)}
     to  {opacity:1;filter:blur(0);transform:none}}
-  /* THE DISSOLVE. Each glyph takes its own direction from a per-character
+  /* THE DISSOLVE. Every glyph takes its own direction from a per-character
      custom property, so the line comes apart rather than sliding away as a
-     block -- the same idea as the face's dispersal tier, where the points
-     drift to their own resting places instead of translating together. */
+     block -- the same idea as the face's dispersal tier, where each point
+     drifts to its own resting place instead of translating together. */
   @keyframes scatter{
     0%  {opacity:1;filter:blur(0);transform:none}
-    100%{opacity:0;filter:blur(9px);
-         transform:translate(var(--dx),var(--dy)) rotate(var(--rot)) scale(.72)}}
+    100%{opacity:0;filter:blur(8px);
+         transform:translate(var(--dx),var(--dy)) rotate(var(--rot)) scale(.74)}}
 
 </style>
 
@@ -168,7 +217,13 @@
          placeholder="say something to VESPER">
 </div>
 
-<div class="stage"><div class="say" id="stage"></div></div>
+
+<div class="convo">
+  <div class="history" id="history">
+    <div class="rows" id="hrows"></div>
+  </div>
+  <div class="stage"><div class="say" id="stage"></div></div>
+</div>
 
 <div class="dockrow">
   <div class="bar">
@@ -222,34 +277,47 @@
 </script>
 
 <script>
-  // THE STAGE. One place, two speakers: what the owner said arrives, comes
-  // apart, and the answer lands in the same spot. Driven entirely from data
-  // pushed by Swift -- the page holds no state about the conversation, so a
-  // refresh cannot disagree with the runtime about what was said.
+  // THE CONVERSATION SURFACE. The card animates the current exchange; the bar
+  // above it holds the history. Both are driven entirely from data pushed by
+  // Swift -- the page keeps no record of its own, so a refresh cannot disagree
+  // with the runtime about what was said.
   (function () {
     var stage = document.getElementById('stage');
+    var hist  = document.getElementById('history');
+    var hrows = document.getElementById('hrows');
     if (!stage) return;
     var showing = '';
+
+    // SPLIT BY GRAPHEME, NOT BY INDEX. `text[i]` walks UTF-16 CODE UNITS, so
+    // an emoji -- a surrogate pair, often several joined by ZWJ -- was torn
+    // into halves that are not characters at all. That is why they rendered as
+    // boxes: the dissolve had already destroyed them before the font was ever
+    // asked for a glyph. Intl.Segmenter is the correct instrument; Array.from
+    // is the fallback and at least keeps surrogate pairs whole.
+    var seg = (typeof Intl !== 'undefined' && Intl.Segmenter)
+      ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : null;
+    function graphemes(s) {
+      if (seg) return Array.from(seg.segment(s), function (g) { return g.segment; });
+      return Array.from(s);
+    }
 
     function paint(text, who, mode) {
       stage.className = 'say' + (who === 'vesper' ? ' vesper' : '') + ' ' + mode;
       stage.innerHTML = '';
-      // ONE ELEMENT PER CHARACTER, because the dissolve has to come apart
-      // rather than slide away as a block. Each glyph carries its own
-      // direction, the way the face's dispersed tier gives every point its
-      // own resting place instead of translating them together.
-      for (var i = 0; i < text.length; i++) {
+      var gs = graphemes(text);
+      var n = gs.length;
+      for (var i = 0; i < n; i++) {
         var b = document.createElement('b');
-        b.textContent = text[i];
+        b.textContent = gs[i];
         var a = Math.random() * Math.PI * 2;
-        var d = 26 + Math.random() * 74;
+        var d = 22 + Math.random() * 62;
         b.style.setProperty('--dx', (Math.cos(a) * d).toFixed(1) + 'px');
-        b.style.setProperty('--dy', (Math.sin(a) * d - 26).toFixed(1) + 'px');
-        b.style.setProperty('--rot', ((Math.random() - 0.5) * 46).toFixed(1) + 'deg');
+        b.style.setProperty('--dy', (Math.sin(a) * d - 20).toFixed(1) + 'px');
+        b.style.setProperty('--rot', ((Math.random() - 0.5) * 42).toFixed(1) + 'deg');
         // Staggered from the middle outwards so the line frays rather than
         // wiping left to right, which reads as a transition effect.
-        var mid = Math.abs(i - text.length / 2) / (text.length / 2 || 1);
-        b.style.animationDelay = ((mode === 'out' ? (1 - mid) : mid) * 260).toFixed(0) + 'ms';
+        var mid = Math.abs(i - n / 2) / (n / 2 || 1);
+        b.style.animationDelay = ((mode === 'out' ? (1 - mid) : mid) * 240).toFixed(0) + 'ms';
         stage.appendChild(b);
       }
     }
@@ -260,12 +328,53 @@
       if (showing) {
         // DISSOLVE FIRST, THEN ARRIVE. The wait matches the scatter animation
         // plus its stagger; cutting it short would overlap two lines in the
-        // one place they share, which is the whole reason this is a stage and
+        // one place they share, which is the whole reason this is a card and
         // not a list.
         stage.classList.remove('in');
         stage.classList.add('out');
-        setTimeout(next, 900);
+        setTimeout(next, 860);
       } else { next(); }
     };
+
+    // The history bar. Collapsed it shows the OLDEST line, which is what makes
+    // it a way back into the conversation rather than a duplicate of the card.
+    var lastJSON = '';
+    window.__vesperHistory = function (json) {
+      if (json === lastJSON) return;
+      lastJSON = json;
+      var rows;
+      try { rows = JSON.parse(json); } catch (e) { return; }
+      if (!rows.length) {
+        hrows.innerHTML = '<div class="hrow"><span class="hwho">—</span>'
+                        + '<span class="htext" style="opacity:.4">'
+                        + 'nothing said yet</span></div>';
+        return;
+      }
+      var html = '';
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        var cue = (i === 0 && rows.length > 1)
+          ? '<span class="hcue">' + (rows.length - 1) + ' more</span>' : '';
+        html += '<div class="hrow"><span class="hwho">'
+             + (r.who === 'vesper' ? 'vesper' : 'you') + '</span>'
+             + '<span class="htext"></span>' + cue + '</div>';
+      }
+      hrows.innerHTML = html;
+      // TEXT SET AS textContent, NEVER AS MARKUP. These lines carry a model's
+      // output, and the day one contains a tag is the day that stops being
+      // theoretical.
+      var cells = hrows.querySelectorAll('.htext');
+      for (var j = 0; j < rows.length; j++) cells[j].textContent = rows[j].text;
+    };
+
+    if (hist) {
+      hist.addEventListener('click', function () {
+        // Focus first: VESPER is an accessory app and a click does not make it
+        // active on its own, so without this the expand works and the field
+        // beside it still cannot be typed into.
+        try { window.webkit.messageHandlers.vesperFocus.postMessage('1'); } catch (e) {}
+        hist.classList.toggle('open');
+      });
+    }
   })();
 </script>

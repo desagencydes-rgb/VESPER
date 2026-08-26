@@ -2577,6 +2577,8 @@ def check_chrome_template_renders() -> Result:
     for needed, why in [("<style", "no stylesheet -- every surface would paint unstyled"),
                         ("class=\"card\"", "the card is gone from the markup"),
                         ("class=\"dockrow\"", "the main menu row is gone"),
+                        ('id="history"', "the history bar is gone and there is "
+                         "no way back into the conversation"),
                         ('id="stage"', "the stage is gone -- the surface typing "
                          "and speech SHARE, so losing it removes the place "
                          "either channel appears"),
@@ -2594,6 +2596,19 @@ def check_chrome_template_renders() -> Result:
                         # over the menu bar. An element that exists is not an
                         # element that is styled, and only one of those is a
                         # surface.
+                        (".convo{", "the conversation column has no rule, so "
+                         "the card and history bar fall out of the bottom-right "
+                         "corner and back over the dock"),
+                        (".history{", "the history bar has no rule -- it "
+                         "renders as unbounded raw rows instead of one line "
+                         "that opens"),
+                        ("--face-body", "the type stack is gone: SS5's faces "
+                         "are named first so they take over the day they are "
+                         "licensed, and without the variable every surface "
+                         "falls back to the system face"),
+                        ("Intl.Segmenter", "the grapheme split is gone -- the "
+                         "dissolve walks UTF-16 code units again and tears "
+                         "every emoji into halves that are not characters"),
                         (".stage{", "the stage has no rule -- the exchange "
                          "renders as unpositioned raw text, which is exactly "
                          "what happened the first time these surfaces were "
