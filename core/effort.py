@@ -56,11 +56,43 @@ EFFORT_RANK = {e: i for i, e in enumerate(EFFORTS)}
 # and then multiplied, because reasoning scales with the problem and those
 # figures are the floor of the range, not its middle.
 #
-# GENEROUS ON PURPOSE. Unused budget costs nothing -- providers bill what was
-# generated, not what was permitted. Insufficient budget costs the entire call
-# AND returns a success status while doing it. The asymmetry is total, so the
-# only defensible bias is upward.
+# GENEROUS ON PURPOSE, BUT NOT FREE, AND THIS COMMENT USED TO SAY IT WAS.
+#
+# It read: "Unused budget costs nothing -- providers bill what was generated,
+# not what was permitted." That is true of BILLING and false of RATE LIMITING,
+# and rate limiting is what a free tier actually runs out of. Measured
+# 2026-08-26, verbatim from a live 429:
+#
+#     Rate limit reached ... on tokens per minute (TPM):
+#     Limit 8000, Used 5118, Requested 3155
+#
+# `Requested 3155` is `max_tokens` plus the prompt. The turn that produced it
+# returned twelve words. So a `moderate` request reserves 3072 tokens of the
+# minute's allowance whether or not it uses forty of them, and the ladder gets
+# roughly two conversational turns per minute out of a rung that could serve
+# dozens. The budget is not spent, it is WITHHELD -- from the next request.
+#
+# THE ASYMMETRY THAT JUSTIFIED THE UPWARD BIAS IS STILL REAL and none of these
+# numbers move: too small a budget does not shorten an answer, it returns NO
+# answer with a 200, because reasoning tokens are billed as completion tokens
+# and can consume the whole allowance before a content token is emitted. That
+# is what this table protects against and it stays exactly as measured.
+#
+# What was wrong was applying it to the OUTPUT allowance too. Reasoning
+# headroom must be generous because it is unpredictable; expected output is a
+# statement the CALLER makes about its own request, and 1024 tokens for
+# "hello" was a statement nobody made. See `EXPECTED_OUTPUT`.
 REASONING_HEADROOM = {"low": 512, "medium": 2_048, "high": 8_192}
+
+# What the caller should DECLARE it expects back, by difficulty. Not a cap on
+# the answer -- the reasoning headroom above is added to it, and `_grow_budget`
+# still doubles the whole thing if a rung returns empty.
+#
+# ANCHORED ON `voice.toml [brevity] default_words = 40`, roughly 60 tokens, and
+# then given four to sixteen times that so a turn that legitimately runs long
+# is not the one that discovers the limit. `hard` keeps the old 1024 because a
+# request classified hard is one that asked for depth.
+EXPECTED_OUTPUT = {"trivial": 128, "easy": 256, "moderate": 512, "hard": 1_024}
 
 
 class EffortFloorViolation(Exception):

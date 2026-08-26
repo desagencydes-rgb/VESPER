@@ -64,14 +64,20 @@ renders it.
 had. Use `python3.13` (`~/.local/bin/python3.13`). Verified 2026-08-23.
 
 ```sh
-python3.13 tools/ci/checks.py all       # 34 checks
-python3.13 tools/ci/self_test.py        # red-then-green, 88 cases
+python3.13 tools/ci/checks.py all       # 45 checks
+python3.13 tools/ci/self_test.py        # red-then-green, 131 cases
 python3.13 tools/traceability_lint.py
 python3.13 tools/reference_lint.py
 python3.13 verification/run_f0_acceptance.py   # ... f1 .. f6
 python3.13 verification/stress_placement.py    # 160k property assertions
 python3.13 verification/stress_fabric.py        # 180k property assertions
 ```
+
+**Corrected 2026-08-26:** they read 34 and 88 while the commands printed 45 and
+131 -- the third time this pair has drifted, and it drifted furthest the time
+nobody was watching it. CI-068..CI-071 and three effort cases account for the
+gap. The rule is this file's opening line and it keeps being the answer: the
+command wins.
 
 **Corrected 2026-08-25:** the two figures above read 31 and 79 while the
 commands printed 32 and 80. Nothing depended on them, which is exactly why they

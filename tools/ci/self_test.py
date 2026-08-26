@@ -1252,6 +1252,27 @@ CASES += [
      "the persona dropped from the cf_responses wire, so one rung on the "
      "ladder answers as nobody and the others answer as VESPER"),
 
+    ("effort-floor-and-null-answer", EFFORT,
+     _sub('EXPECTED_OUTPUT = {"trivial": 128, "easy": 256, "moderate": 512, "hard": 1_024}',
+          'EXPECTED_OUTPUT = {"trivial": 1_024, "easy": 1_024, "moderate": 1_024, "hard": 1_024}', 1),
+     "the declared output allowance flattened back to the 1024 default: a "
+     "greeting reserves 1536 tokens of a TPM limit measured at 8000, so a rung "
+     "that could serve dozens of turns a minute serves five"),
+
+    ("effort-floor-and-null-answer", EFFORT,
+     _sub('EXPECTED_OUTPUT = {"trivial": 128, "easy": 256, "moderate": 512, "hard": 1_024}',
+          'EXPECTED_OUTPUT = {"trivial": 128, "easy": 256, "moderate": 1_024, "hard": 512}', 1),
+     "the output allowance made non-monotonic -- a HARD request is allotted "
+     "less room to answer in than a moderate one, which is the capability "
+     "regression the effort floor exists to refuse, arriving through the other "
+     "half of the budget"),
+
+    ("effort-floor-and-null-answer", EFFORT,
+     _sub('REASONING_HEADROOM = {"low": 512, "medium": 2_048, "high": 8_192}',
+          'REASONING_HEADROOM = {"low": 128, "medium": 2_048, "high": 8_192}', 1),
+     "reasoning headroom cut to pay for the same saving: a starved reasoning "
+     "budget does not shorten the answer, it returns NO answer with a 200"),
+
     ("system-turn-reaches-the-wire", RUNTIME,
      _sub("        out = gw.complete(utterance.text, task_id=task, system=system,",
           "        out = gw.complete(utterance.text, task_id=task,", 1),

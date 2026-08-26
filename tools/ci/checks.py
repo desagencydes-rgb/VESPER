@@ -3530,8 +3530,9 @@ def check_effort_floor() -> Result:
     if str(REPO) not in sys.path:
         sys.path.insert(0, str(REPO))
     try:
-        from core.effort import (EFFORT_RANK, EffortFloorViolation, FLOOR,
-                                 REASONING_HEADROOM)
+        from core.effort import (EFFORT_RANK, EXPECTED_OUTPUT,
+                                 EffortFloorViolation, FLOOR,
+                                 REASONING_HEADROOM, for_difficulty)
         from core.gateway import Provider
     except Exception as exc:                       # noqa: BLE001
         r.err(f"the effort policy did not import: {exc!r}")
@@ -3654,11 +3655,75 @@ def check_effort_floor() -> Result:
               f"{out['effort']['reasoning_effort']!r}. A floor that cannot be exceeded "
               "is a ceiling.")
 
+    # THE RESERVATION IS NOT FREE, and the comment that sized it said it was.
+    # A free tier runs out of TOKENS PER MINUTE, not of billing, and a live 429
+    # on 2026-08-26 read `Limit 8000, Used 5118, Requested 3155` for a turn that
+    # came back twelve words long: `max_tokens` is charged whether or not it is
+    # generated. So a declared expectation must narrow the reserve.
+    if set(EXPECTED_OUTPUT) != set(FLOOR):
+        r.err(f"EXPECTED_OUTPUT covers {sorted(EXPECTED_OUTPUT)} but the floor "
+              f"table covers {sorted(FLOOR)}. A difficulty with no declared "
+              "expectation silently takes the 1024-token default that this "
+              "table exists to replace.")
+    else:
+        prev = -1
+        for d in ("trivial", "easy", "moderate", "hard"):
+            cur = EXPECTED_OUTPUT[d]
+            if cur <= prev:
+                r.err(f"EXPECTED_OUTPUT is not monotonic at {d!r} ({prev} -> "
+                      f"{cur}). A harder request must not be allotted less room "
+                      "to answer in than an easier one.")
+            prev = cur
+        loose = for_difficulty("trivial")
+        tight = for_difficulty("trivial",
+                               expected_output_tokens=EXPECTED_OUTPUT["trivial"])
+        if tight.max_tokens >= loose.max_tokens:
+            r.err(f"declaring a small expected output did not narrow the "
+                  f"reserve ({loose.max_tokens} -> {tight.max_tokens}). On a "
+                  "TPM-limited rung the difference is how many turns a minute "
+                  "holds -- the budget is not spent, it is withheld from the "
+                  "next request.")
+        # AND THE REASONING HEADROOM IS UNTOUCHED BY IT. This is the control:
+        # the narrowing must come out of the OUTPUT allowance only. Reasoning
+        # is unpredictable and a starved reasoning budget returns no answer at
+        # all with a 200, which is the failure the rest of this check is about.
+        # ANCHORED ON THE MEASUREMENT, NOT ON THE TABLE ITSELF. The first
+        # version of this compared `tight.max_tokens - EXPECTED_OUTPUT[...]`
+        # against `REASONING_HEADROOM[...]` -- both sides read the same dict, so
+        # cutting the headroom moved the equation with it and the control passed
+        # under a deliberate violation. A negative control that passes is a
+        # defect, not a relief.
+        #
+        # The values are the conclusion of a measurement (low 26 / medium 34 /
+        # high 119 completion tokens on a trivial prompt, multiplied because
+        # reasoning scales with the problem), so they are asserted as literals
+        # for the same reason CI-031 refuses a relaxed latency budget: changing
+        # a measured constant is a RE-MEASUREMENT and has to arrive with new
+        # evidence, not as the cheapest way to pay for a saving somewhere else.
+        MEASURED_HEADROOM = {"low": 512, "medium": 2_048, "high": 8_192}
+        if dict(REASONING_HEADROOM) != MEASURED_HEADROOM:
+            r.err(f"REASONING_HEADROOM is {dict(REASONING_HEADROOM)}, not the "
+                  f"measured {MEASURED_HEADROOM}. A starved reasoning budget "
+                  "does not shorten an answer -- it returns NO answer with a "
+                  "200 status, measured at 57 of 64 tokens consumed before a "
+                  "seven-character reply. Shaving this to buy rate-limit "
+                  "headroom takes it from the one allowance that cannot spare "
+                  "it.")
+        elif tight.max_tokens - EXPECTED_OUTPUT["trivial"] != MEASURED_HEADROOM[
+                FLOOR["trivial"]]:
+            r.err("a declared expected output changed the REASONING headroom. "
+                  "It may only narrow the output allowance: reasoning tokens "
+                  "are billed as completion tokens and can consume the entire "
+                  "budget before a content token is emitted.")
+
     if r.ok:
         r.note(f"null answer from "
                f"{EMPTY_CONTENT_FIXTURE.relative_to(REPO).as_posix()} retried with a "
                f"grown budget and discriminated against a truncated real answer; "
-               f"floor table {dict(FLOOR)} over efforts {sorted(EFFORT_RANK, key=EFFORT_RANK.get)}")
+               f"floor table {dict(FLOOR)} over efforts {sorted(EFFORT_RANK, key=EFFORT_RANK.get)}; "
+               f"declared output {dict(EXPECTED_OUTPUT)} narrows the reserve "
+               f"{loose.max_tokens}->{tight.max_tokens} on trivial without "
+               f"touching reasoning headroom")
     return r
 
 

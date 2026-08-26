@@ -46,6 +46,7 @@ from core.hlc import HybridLogicalClock                         # noqa: E402
 from core.home_state import HomeState                           # noqa: E402
 from core.intake import Intake                                  # noqa: E402
 from core.difficulty import classify                            # noqa: E402
+from core.effort import EXPECTED_OUTPUT                         # noqa: E402
 from core.narration import Announcer                            # noqa: E402
 from core.persona import Persona, Situation                     # noqa: E402
 from core.quota import QuotaLedger                              # noqa: E402
@@ -140,8 +141,15 @@ def answer(gw, router, persona, utterance) -> str:
         # the profile and the gateway picks the rung inside it; setting it on
         # one leaves the other ranking on an axis unrelated to time, which just
         # moves the variance from between profiles to within one.
+        # `expected_output_tokens` IS DECLARED, NOT DEFAULTED, and the default
+        # was 1024 for every request including "hello". A free tier does not run
+        # out of billing, it runs out of TOKENS PER MINUTE, and a live 429 on
+        # 2026-08-26 read `Limit 8000, Used 5118, Requested 3155` for a turn
+        # that came back twelve words long. The budget is not spent -- it is
+        # withheld from the next request, which is why this looked free.
         out = gw.complete(utterance.text, task_id=task, system=system,
                           profile_id=decision.profile_id, prefer="latency",
+                          expected_output_tokens=EXPECTED_OUTPUT[kind.difficulty],
                           difficulty=kind.difficulty)
     except AllProvidersExhausted:
         # NOT AN ERROR STRING. The narration layer has already spoken the real
