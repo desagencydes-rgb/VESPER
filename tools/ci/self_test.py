@@ -941,6 +941,8 @@ GATEWAY = "core/gateway.py"
 HTTP_COMPLETION = REPO / "routing" / "http_completion.py"
 NARRATION = "core/narration.py"
 NARRATION_TOML = "contracts/policy/narration.toml"
+CHROME_TPL = "app/home-macos/chrome/home.html"
+CHROME_SW = "app/home-macos/HomeChrome.swift"
 INTAKE = "core/intake.py"
 QUOTA_PY = "core/quota.py"
 TRIAGE = "core/triage.py"
@@ -948,6 +950,23 @@ REPAIR = "core/repair.py"
 EFFORT = "core/effort.py"
 
 CASES += [
+    ("chrome-template-renders", CHROME_TPL,
+     _sub("{{fill}}", "{{fillx}}", 1),
+     "a token the Swift does not substitute: it renders literally into a CSS "
+     "declaration, the parser DROPS the declaration silently, and the card "
+     "paints with no fill over a bright wallpaper -- present, and unreadable"),
+
+    ("chrome-template-renders", CHROME_TPL,
+     _sub('<style', '<styl3', 1),
+     "the stylesheet element gone -- every surface paints unstyled while the "
+     "chrome still reports itself mounted"),
+
+    ("chrome-template-renders", CHROME_SW,
+     _sub("static func fallbackTemplate() -> String {",
+          "static func fallbackTemplateX() -> String {", 1),
+     "the inline fallback removed, so a missing template file blanks a layer "
+     "covering the owner's whole Desktop"),
+
     ("intake-is-modality-neutral", INTAKE,
      _sub("        return self.confidence >= CONFIDENCE_FLOOR",
           "        return True", 1),

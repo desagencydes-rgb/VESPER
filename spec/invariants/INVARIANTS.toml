@@ -335,6 +335,15 @@ why_before_there_is_a_microphone = "The owner's constraint, 2026-08-25: a text f
 why_confidence_gates_action_only = "`delete the archive` and `delete the archives` are one phoneme apart, and a recogniser 61% sure is not evidence of anything. But an uncertain utterance that is DROPPED leaves the owner unable to tell `did not hear` from `heard and declined`. So it is recorded and shown, and only the dispatch is withheld: correcting a wrong transcription costs seconds, acting on one costs whatever the action costs."
 unmeasured = "CONFIDENCE_FLOOR = 0.75 is UNMEASURED and marked as such in the source. Nothing has measured a recogniser on this owner's voice in this room, and a threshold taken from a paper is a declared number. The SHAPE is right; the value is not yet a finding and must not be quoted as one."
 
+[invariants.INV-HOME-6]
+statement = "The home's markup is present, every substitution token it uses is replaced by the chrome, the chrome substitutes no token the markup lacks, and the inline fallback carries the same token set as the file. The stylesheet, the card and the main-menu row are present."
+owner_rem = "REM-009"
+enforced_by = ["CI-065"]
+kind = "structural"
+why_it_needs_an_offline_guard = "Every other layer in the tree is covered by checks that run without credentials; the chrome was covered by nothing, and its failure mode is the worst available. A malformed template ships, the webview mounts, and NOTHING PAINTS -- while `mounted` stays true, which HomeChrome's own header warns about in as many words. A layer sitting over the owner's whole Desktop cannot be verified only by someone looking at it."
+why_the_fallback_is_checked_too = "The binary carries an inline copy so a missing file never blanks the Desktop, and a fallback is by definition the copy nobody looks at. It and the file can diverge for months, and the divergence surfaces on the day the file is gone -- which is to say in front of the owner, during the exact failure the fallback was written for."
+why_an_unsubstituted_token_is_dangerous = "It renders literally into a CSS declaration, and an invalid declaration is DROPPED SILENTLY by the parser. The surface still appears; it is merely wrong -- a card with no solved fill over a bright wallpaper, with ink that no longer meets its contrast requirement. Present-but-wrong is harder to notice than absent."
+
 # ------------------------------------------------- REM-007 triggers
 [invariants.INV-TRIG-1]
 statement = "Every autonomous action traces to exactly one registered trigger_id whose predicate demonstrably evaluated true against a reconstructible world-model snapshot."

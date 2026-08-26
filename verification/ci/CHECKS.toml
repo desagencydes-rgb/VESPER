@@ -607,6 +607,18 @@ coord_note = "This check also asserts that Projection.supersedes orders by HLC, 
 note = "THE RUNTIME HALF CI-034's note defers. CI-034 covers the policy table; this covers the first runtime surface that renders to a person. Deliberately a runtime fixture rather than a structural grep: a grep for the guards passes on a guard that has been INVERTED, and inverting one comparison is a mistake already made in this codebase. The third self-test case is the exact failure drawn in the owner's UI reference -- an empty status column filled with a plausible number because it looked wrong empty."
 
 
+[checks.CI-065]
+name = "chrome-template-renders"
+enforces = ["INV-HOME-6"]
+kind = "structural"
+impl = "tools/ci/checks.py chrome-template-renders"
+blocking = "pr"
+self_test = "Rename a token so the Swift substitutes nothing for it; remove the stylesheet element; delete the inline fallback so a missing file blanks the Desktop."
+self_test_evidence = "tools/ci/self_test.py chrome-template-renders -- 3 cases, red then green, 2026-08-25."
+subject = "app/home-macos/chrome/home.html x app/home-macos/HomeChrome.swift"
+note = """The first offline guard the UI layer has ever had. The markup moved out of a Swift string literal on 2026-08-25 so a CSS change stops costing a 19-second rebuild -- iteration speed is what actually limits how good a surface looks. Externalising it also created a file that can go missing, drift from its fallback, or lose a token, none of which any existing check could see. STRUCTURAL rather than runtime because the property is about what the artifact CONTAINS; whether it paints is `--face-check`'s question and needs a display."""
+discriminators = "Token agreement is asserted in BOTH directions. A template token the Swift ignores renders literally into CSS; a Swift substitution for a token the template no longer has means the file was edited and the code was not. Only the first is a visible bug, and the second is the earlier warning -- catching only the first would let the two drift until they broke."
+
 [checks.CI-064]
 name = "intake-is-modality-neutral"
 enforces = ["INV-INTAKE-1"]

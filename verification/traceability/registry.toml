@@ -66,7 +66,7 @@ contracts = ["contracts/entities/semantic_scene.schema.json"]
 state_machines = ["SM-SCENE"]
 decision_functions = ["DF-SELECT-ENDPOINT"]
 invariants = ["INV-SCENE-1", "INV-SCENE-3", "INV-HOME-5"]
-ci = ["CI-028", "CI-030", "CI-057", "CI-058"]
+ci = ["CI-028", "CI-030", "CI-057", "CI-058", "CI-065"]
 status = "SPECIFIED"
 
 [requirements.SR-003]

@@ -2486,6 +2486,109 @@ def _raiser(classification: str, calls: list, tag: str, **attrs):
 
 
 
+
+
+CHROME_TEMPLATE = "app/home-macos/chrome/home.html"
+CHROME_SWIFT = "app/home-macos/HomeChrome.swift"
+
+
+def check_chrome_template_renders() -> Result:
+    """The home's markup is complete, substitutable, and matches its fallback.
+
+    WHY THIS IS THE FIRST OFFLINE GUARD THE UI HAS EVER HAD. Every other layer
+    in this tree is covered by checks that run without credentials; the chrome
+    was covered by nothing. Its failure mode is the worst available: a malformed
+    template ships, the webview mounts, and NOTHING PAINTS -- while `mounted`
+    stays true, which `HomeChrome`'s own header warns about in as many words.
+    A layer that sits over the owner's whole Desktop cannot be verified only by
+    someone looking at it.
+
+    THE DRIFT THIS EXISTS TO CATCH is not a typo. The binary carries an inline
+    fallback so a missing file never blanks the Desktop, and a fallback is by
+    definition the copy nobody looks at. It and the file can diverge for months
+    and the divergence only surfaces on the day the file is gone -- which is to
+    say, in front of the owner, during the failure the fallback was written for.
+    """
+    r = Result("chrome-template-renders")
+    tpl_path = REPO / CHROME_TEMPLATE
+    swift_path = REPO / CHROME_SWIFT
+    if not tpl_path.is_file():
+        r.err(f"{CHROME_TEMPLATE} is missing. The chrome would fall back to the "
+              "inline copy, which is correct behaviour and is NOT a reason to "
+              "ship without the file -- the fallback exists for a failure, not "
+              "as the source of truth.")
+        return r
+    tpl = tpl_path.read_text(encoding="utf-8")
+    swift = swift_path.read_text(encoding="utf-8")
+    if len(tpl.strip()) < 200:
+        r.err(f"{CHROME_TEMPLATE} is {len(tpl)} bytes -- too small to be the "
+              "home's markup. An empty template mounts cleanly and paints "
+              "nothing.")
+        return r
+
+    tokens = set(re.findall(r"\{\{(\w+)\}\}", tpl))
+    if not tokens:
+        r.err("the template contains no substitution tokens at all. Either it "
+              "is not the template, or the values the chrome solves at mount "
+              "time (the card's fill, its position) are now hardcoded -- and a "
+              "hardcoded fill cannot adapt to the wallpaper behind it.")
+
+    # 1. EVERY TOKEN MUST BE SUBSTITUTED BY THE SWIFT. A token nobody replaces
+    # renders as literal `{{fill}}` inside a CSS declaration, which the parser
+    # discards silently -- the card then paints with no fill and the owner sees
+    # a pane of clear glass over a bright wallpaper with unreadable ink.
+    for tok in sorted(tokens):
+        if f'"{{{{{tok}}}}}"' not in swift:
+            r.err(f"the template uses {{{{{tok}}}}} and HomeChrome substitutes "
+                  "no such token. It would render literally into the CSS, where "
+                  "an invalid declaration is DROPPED SILENTLY -- the surface "
+                  "still appears, just wrong, which is the hardest kind of "
+                  "wrong to notice.")
+
+    # 2. AND THE SWIFT MUST NOT SUBSTITUTE TOKENS THE TEMPLATE NO LONGER HAS.
+    # That direction is the drift warning: it means the file was edited and the
+    # code was not, so the two disagree about what the page is made of.
+    for m in re.finditer(r'replacingOccurrences\(of: "\{\{(\w+)\}\}"', swift):
+        if m.group(1) not in tokens:
+            r.err(f"HomeChrome substitutes {{{{{m.group(1)}}}}}, which the "
+                  "template no longer contains. The file and the code have "
+                  "drifted apart.")
+
+    # 3. THE INLINE FALLBACK MUST USE THE SAME TOKENS AS THE FILE. If it does
+    # not, the day the file goes missing is the day the owner sees a broken
+    # home -- during the exact failure the fallback was written to survive.
+    fb_start = swift.find("static func fallbackTemplate()")
+    if fb_start < 0:
+        r.err("HomeChrome has no inline fallback. A missing template file would "
+              "then blank a layer covering the owner's whole Desktop.")
+    else:
+        fb = swift[fb_start:swift.find("static func template()", fb_start)]
+        fb_tokens = set(re.findall(r"\{\{(\w+)\}\}", fb))
+        if fb_tokens != tokens:
+            r.err(f"the inline fallback and {CHROME_TEMPLATE} disagree about "
+                  f"their tokens: only-in-file={sorted(tokens - fb_tokens)}, "
+                  f"only-in-fallback={sorted(fb_tokens - tokens)}. A fallback is "
+                  "by definition the copy nobody looks at, so it drifts "
+                  "silently and the divergence surfaces during the failure it "
+                  "was written for.")
+
+    # 4. STRUCTURE. Checked by presence rather than by parsing: the point is
+    # that the page still HAS its parts, not that the HTML is well-formed.
+    for needed, why in [("<style", "no stylesheet -- every surface would paint unstyled"),
+                        ("class=\"card\"", "the card is gone from the markup"),
+                        ("class=\"dockrow\"", "the main menu row is gone")]:
+        if needed not in tpl:
+            r.err(f"template is missing {needed!r}: {why}")
+
+    if r.ok:
+        r.note(f"{len(tpl)} bytes, {len(tokens)} tokens all substituted "
+               f"({', '.join(sorted(tokens))}), fallback token set matches, "
+               "stylesheet + card + dock row present")
+    return r
+
+
+
+
 def check_intake_is_modality_neutral() -> Result:
     """A misheard instruction is reflected, not executed; partials never act.
 
@@ -3299,6 +3402,7 @@ CHECK_FNS = {
     "triage-excludes-quota": check_triage_excludes_quota,
     "shared-pool-is-shared": check_shared_pool_is_shared,
     "intake-is-modality-neutral": check_intake_is_modality_neutral,
+    "chrome-template-renders": check_chrome_template_renders,
     "effort-floor-and-null-answer": check_effort_floor,
 }
 
