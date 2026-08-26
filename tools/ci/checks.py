@@ -2914,6 +2914,25 @@ def check_face_follows_activity() -> Result:
     if "motion.speechSource" not in home_sw:
         r.err("the render tick never sets `speechSource`, so the page reports "
               "delivery to a driver that is not listening.")
+    # BOTH EDGES WAKE THE CHROME. The face resumes on a display link and the
+    # webview does not resume until something asks it for a frame, so the two
+    # paths that end with the ground visible -- the occlusion notification and
+    # the Space change -- each have to say so. Wiring one fixes switching apps
+    # and leaves switching Desktops exactly as it was.
+    # COUNTED OVER LIVE LINES ONLY. `home_sw.count("chrome.wake()")` counts the
+    # commented-out call too, so disabling one edge leaves the count unchanged
+    # and the check green -- the third time in this file that a comment has
+    # satisfied an assertion about code. Strip them first.
+    live = "\n".join(ln for ln in home_sw.splitlines()
+                     if not ln.lstrip().startswith("//"))
+    if live.count("chrome.wake()") < 2:
+        r.err("only one of the two visibility edges wakes the chrome. The face "
+              "comes back on its own display link; the cards, the main menu and "
+              "the widgets stay on WebKit's throttled schedule, which reads as "
+              "them vanishing while the owner is away.")
+    if "func wake()" not in (REPO / "app" / "home-macos"
+                             / "HomeChrome.swift").read_text(encoding="utf-8"):
+        r.err("HomeChrome has no `wake`, so the edges call nothing.")
     if "motion.pulse" not in home_sw or "motion.glow" not in home_sw:
         r.err("the render tick does not apply the animation channels. They "
               "would be computed every frame and drawn by nothing.")

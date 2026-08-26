@@ -351,6 +351,12 @@ final class HomeController: NSObject {
             // it.
             if visible {
                 if self.tier != .absent { self.startRendering() }
+                // THE CHROME NEEDS TELLING AND THE FACE DOES NOT. `startRendering`
+                // resumes a display link that draws on the next vsync; the
+                // webview stays on WebKit's throttled schedule until something
+                // asks it for a frame. Same edge, two layers that do not resume
+                // alike -- see `HomeChrome.wake`.
+                self.chrome.wake()
             } else {
                 self.stopRendering()
             }
@@ -572,6 +578,11 @@ final class HomeController: NSObject {
         waitUntilComposited { [weak self] in
             guard let self else { return }
             self.startRendering()
+            // The Space-change path, not the occlusion one. Both end with the
+            // ground visible and both leave the webview throttled, so both have
+            // to say so -- wiring only the occlusion edge would fix switching
+            // apps and leave switching Desktops exactly as it was.
+            self.chrome.wake()
             self.onVisibilityChange?(self.isVisible)
         }
     }

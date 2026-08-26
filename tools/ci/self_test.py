@@ -1192,6 +1192,12 @@ CASES += [
      "defect wearing a token, which is what a check asserting only that the "
      "rule is present would miss"),
 
+    ("face-follows-activity", HOME_SW,
+     _sub("            self.chrome.wake()", "            // self.chrome.wake()", 1),
+     "only the Space-change edge wakes the chrome: switching APPS brings the "
+     "face back on its display link while the cards and the main menu stay on "
+     "WebKit's throttled schedule, which is what the owner reported"),
+
     ("chrome-template-renders", CHROME_TPL,
      _sub("      if (pendingTimer) { pending = { text: text, who: who }; return; }",
           "      if (false) { pending = { text: text, who: who }; return; }", 1),

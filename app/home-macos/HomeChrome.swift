@@ -1038,6 +1038,36 @@ final class HomeChrome {
 
     /// §10's dim. Driven from Swift because the fact lives in the window
     /// server -- the page has no way to know a system Dock is over it.
+    /// Wake the web layer on the edge where the ground becomes visible again.
+    ///
+    /// THE FACE AND THE CHROME DO NOT RESUME ALIKE, and the owner sees the
+    /// difference. The face is a Metal layer on a `CADisplayLink`; the moment
+    /// the ground is revealed it is already drawing. The chrome is a WKWebView,
+    /// and WebKit throttles compositing for a view in a covered window and does
+    /// not hurry to undo it -- so the face is back and the cards, the main menu
+    /// and the widgets arrive some time afterwards, which reads as them
+    /// disappearing while the owner is away and reappearing when they return.
+    ///
+    /// MEASURED, AND NOT RELIABLY. `occlusion_repaint_probe` recorded 1470 ms
+    /// from reveal to first paint on one run and no paint at all within 1.5 s on
+    /// another -- and then 19-27 ms on five consecutive runs afterwards, with or
+    /// without this call. So the slow path is real and was observed, and this
+    /// fix is NOT proven to be what removes it. It is here because it is a
+    /// single call on an edge that already exists, it measured no cost when
+    /// recovery was already fast, and the alternative is leaving a surface the
+    /// owner is looking at on WebKit's own schedule.
+    ///
+    /// The AppKit invalidations alone do not reach WebKit's scheduler; touching
+    /// the DOM and asking the page itself for a frame is what restarts it.
+    func wake() {
+        guard let w = web, mounted else { return }
+        w.setNeedsDisplay(w.bounds)
+        w.evaluateJavaScript(
+            "document.body.style.opacity='0.999';"
+          + "requestAnimationFrame(function(){document.body.style.opacity='';});",
+            completionHandler: nil)
+    }
+
     func setDockUp(_ up: Bool) {
         web?.evaluateJavaScript(
             "document.body.classList.toggle('dock-up', \(up))", completionHandler: nil)
