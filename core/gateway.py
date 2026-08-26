@@ -61,6 +61,7 @@ from . import decision_path
 from .bus import EventBus
 from .cost import CostPolicy, CostPolicyViolation
 from .effort import Effort, for_difficulty, guard_response
+from .latency import Observation
 from .quota import QuotaLedger, UNAVAILABLE_ON_TIER
 
 
@@ -218,6 +219,10 @@ class ModelGateway:
         self.attempts_by_class: dict[str, int] = {"free": 0, "paid": 0,
                                                   "metered_free_tier": 0}
         self.history: list[Attempt] = []
+        # LIVE, PER-PROCESS, NEVER PERSISTED. See `core/latency.py` for why a
+        # latency estimate read off disk at startup is a declared number in a
+        # measured number's clothes.
+        self._observed: dict[str, Observation] = {}
         self._sleep = sleep or time.sleep
         # THERE IS ALWAYS A LEDGER, and `quota=None` does not mean "no ordering".
         # A gateway without one falls back to registration order, which is the
@@ -435,11 +440,13 @@ class ModelGateway:
             source=f"gateway success from {p.provider_id}")
 
     def complete(self, prompt: str, *, task_id: str | None = None,
+                 system: str | None = None,
                  options: dict | None = None,
                  max_attempts_per_provider: int = 2,
                  max_attempts_per_request: int | None = None,
                  profile_id: str | None = None,
                  difficulty: str | None = None,
+                 prefer: str = "cost",
                  expected_output_tokens: int = 1_024,
                  privacy_class: str = "private") -> dict:
         """Call the permitted provider with the most headroom that succeeds.
@@ -564,6 +571,32 @@ class ModelGateway:
         effort, call_options = self._effort_for(difficulty, options,
                                                 expected_output_tokens)
 
+        # THE PERSONA, IF THE CALLER BROUGHT ONE. A named parameter rather than
+        # a key the caller buries in `options`, so that "this request went out
+        # with no identity" is visible in the signature and greppable across
+        # call sites -- `core/persona.py` records what the absence sounded like.
+        #
+        # NOT COMPOSED HERE. The gateway is the choke point for what may LEAVE
+        # (egress, cost, quota) and composing the preamble here would make it
+        # the author of what is said as well, which is `core/persona.py`'s job
+        # and answerable to two contracts this module does not read.
+        #
+        # NOT PUT IN TELEMETRY EITHER, only its length: the preamble carries
+        # whatever `voice.toml [owner]` holds, and a field copied verbatim into
+        # every `gateway.attempt` event would put it in every checkpoint and
+        # every evidence record downstream of one.
+        if system:
+            call_options["system"] = system
+        system_chars = len(system or "")
+
+        if prefer not in ("cost", "latency"):
+            raise ValueError(
+                f"unknown prefer={prefer!r}, expected 'cost' or 'latency'. "
+                "Refused rather than defaulted, for the same reason "
+                "`core/router.py` refuses it: a typo would silently restore the "
+                "ordering this parameter exists to override, and the symptom "
+                "would be an occasional slow answer with nothing to point at.")
+
         # ORDER BY HEADROOM. Availability is settled first so that a revoked
         # provider is recorded as skipped exactly once (A-004.3 reads these), and
         # so the ledger is never asked to rank a rung that cannot be called at
@@ -611,6 +644,37 @@ class ModelGateway:
                              f"quota_ledger_{self.quota.entry(*k).state}",
                              None, 0.0)
         providers = [by_key[k] for k in ranked]
+
+        # THEN, IF THE CALLER IS WAITING, RE-ORDER ON OBSERVED SECONDS.
+        #
+        # HEADROOM IS THE RIGHT PRIMARY KEY AND IT IS NOT A LATENCY KEY. Ranking
+        # by headroom spends the largest pool first and keeps the small ones in
+        # reserve, which is correct and stays the default. What it cannot see is
+        # that the rungs behind one profile are not equally fast: measured
+        # 2026-08-26, three rungs share `remote-strong-text-rung1-e1_private` and
+        # answer the same greeting in 0.63 s, 2.58 s and 5.27 s. Headroom rotates
+        # which one wins as quota is spent, so four consecutive turns took
+        # 0.56 s, 4.22 s, 1.02 s and 4.63 s with nothing about the requests
+        # differing. That is not a slow ladder, it is a ladder whose speed is
+        # decided by an axis unrelated to speed.
+        #
+        # THE RE-ORDER IS STABLE AND TOTAL-ORDER-SAFE: `sorted` keeps the
+        # ledger's sequence among rungs with no observation, so this only ever
+        # moves a rung that has actually been timed on this path. A rung nobody
+        # has called keeps its headroom position and gets its chance.
+        #
+        # IT DOES NOT SKIP ANYTHING. Every rung the ledger offered is still in
+        # the list and still tried in turn if the ones before it fail; only the
+        # order changes. Quota is still what decides whether a rung is offered
+        # at all -- this runs strictly after `rank`.
+        if prefer == "latency" and self._observed:
+            def _seen(pr: Provider) -> tuple:
+                o = self._observed.get(pr.provider_id)
+                # Unobserved sorts FIRST among equals rather than last: the
+                # alternative is self-sealing, a rung never tried is never
+                # timed and so is never tried.
+                return (0.0 if o is None else o.seconds,)
+            providers = sorted(providers, key=_seen)
 
         budget = (self.MAX_ATTEMPTS_PER_REQUEST
                   if max_attempts_per_request is None
@@ -757,6 +821,7 @@ class ModelGateway:
                 self._book_spend(p, result)
                 self._record(p, "ok", None, None, ms, cost_class=eff)
                 return {"provider_id": p.provider_id, "profile_id": p.profile_id,
+                        "system_chars": system_chars,
                         "result": result, "effort": effort.to_dict(),
                         "attempts_remaining": budget}
 
@@ -768,6 +833,10 @@ class ModelGateway:
             "Task checkpointed and queued for the next permitted period; no "
             "paid escalation (RB-017) and the owner was not woken (SR-042). "
             f"Last error: {last_error}")
+
+    def observed(self, provider_id: str) -> Observation | None:
+        """Live wall-clock seconds for one rung, or None if never called here."""
+        return self._observed.get(provider_id)
 
     def _record(self, p: Provider, outcome: str, classification: str | None,
                 retry_after_ms: int | None, elapsed_ms: float,
@@ -789,6 +858,23 @@ class ModelGateway:
                     retry_after_ms, elapsed_ms, server_retry_after_ms)
         with self._lock:
             self.history.append(a)
+            # RECORDED FROM THE SAME NUMBER THE RECORD ALREADY CARRIED. This
+            # module has timed every attempt since it was written and used the
+            # figure only for telemetry; the ordering above needed exactly it.
+            # Bookkeeping that nothing reads is the cheapest thing in a system
+            # to leave broken, which is why it was.
+            #
+            # SKIPS ARE EXCLUDED (elapsed 0.0) -- a rung that was never called
+            # has no duration, and folding a zero in would make an untried rung
+            # look like the fastest one on the ladder. Errors ARE included: a
+            # rung that took 40 s to fail is a slow rung.
+            if elapsed_ms > 0.0:
+                o = self._observed.get(p.provider_id)
+                if o is None:
+                    self._observed[p.provider_id] = Observation(
+                        p.provider_id, elapsed_ms / 1000.0)
+                else:
+                    o.update(elapsed_ms / 1000.0)
         self._bus.publish("gateway.attempt", subject=p.provider_id,
                           payload={"provider_id": p.provider_id,
                                    "cost_class": cost_class, "outcome": outcome,

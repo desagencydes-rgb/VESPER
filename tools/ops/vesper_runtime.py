@@ -45,7 +45,9 @@ from core.gateway import AllProvidersExhausted, ModelGateway    # noqa: E402
 from core.hlc import HybridLogicalClock                         # noqa: E402
 from core.home_state import HomeState                           # noqa: E402
 from core.intake import Intake                                  # noqa: E402
+from core.difficulty import classify                            # noqa: E402
 from core.narration import Announcer                            # noqa: E402
+from core.persona import Persona, Situation                     # noqa: E402
 from core.quota import QuotaLedger                              # noqa: E402
 from core.router import NoRouteAvailable, Router                # noqa: E402
 from core.store import StoreSet                                 # noqa: E402
@@ -56,6 +58,11 @@ from routing.supply import for_egress, load_rows, measured_profiles  # noqa: E40
 STATE = Path.home() / "Library" / "Application Support" / "VESPER"
 OUTBOX = STATE / "say.jsonl"
 OFFSET = STATE / "say.offset"
+
+# How often the outbox is re-read. See the loop at the bottom for why it is
+# this small: it is half of the owner-visible floor on a reply, and the other
+# half is the chrome's own timer in HomeChrome.swift.
+POLL_SECONDS = 0.15
 
 
 def build(node: str = "vesper-runtime"):
@@ -86,37 +93,71 @@ def build(node: str = "vesper-runtime"):
                      next_rung="a local model")
 
     intake = Intake(bus=bus, clock=clock)
-    return bus, gw, router, home, intake, triage, report
+    # LOADED ONCE, AT BUILD, AND ALLOWED TO STOP THE PROCESS. `Persona.load`
+    # raises on a contract it cannot validate, and that raise is not caught
+    # here: a runtime that starts without a persona answers fluently and
+    # namelessly, which is indistinguishable from working and was the state of
+    # this system until 2026-08-26.
+    persona = Persona.load(bus=bus)
+    return bus, gw, router, home, intake, triage, report, persona
 
 
-def answer(gw, router, utterance) -> str:
+def answer(gw, router, persona, utterance) -> str:
     """One request across the ladder. Difficulty routes it; the ladder serves it.
 
     `privacy_class` IS NOT PASSED, and that is the point of the default. Anything
     the owner types is theirs until something establishes otherwise, so it takes
     the gateway's strict default and reaches only E1_PRIVATE suppliers. A caller
     that wanted the public pool would have to say so, in writing, at the call.
+
+    AND THAT DEFAULT NOW GOVERNS MORE THAN THE QUESTION. The composed persona
+    carries whatever `voice.toml [owner]` holds, so the preamble is owner
+    content and travels under the same strict class -- E1_PRIVATE rungs only,
+    checked per provider at the choke point, before quota is even consulted.
     """
+    task = utterance.hlc or "typed"
+    kind = classify(utterance.text)
     try:
-        # Difficulty is not inferred. Nothing here has measured how hard a
-        # request is, and a guess would silently choose a weaker model --
-        # core/effort.py's floor exists precisely to stop that being cheap.
-        # `moderate` is the honest middle until something can classify.
-        decision = router.select("moderate", task_id=utterance.hlc or "typed")
+        # PREFER LATENCY, BECAUSE THE OWNER IS LOOKING AT THE SCREEN. That is
+        # the whole justification and it is situational, which is why it is an
+        # argument here and not a new default inside the router: a background
+        # task at 3 a.m. should still rank on cost. `latency_budgets.toml` puts
+        # `speech_end_to_response_onset` at 1200 ms, and this path was measured
+        # at 25.9 s and 68.7 s on 2026-08-26 -- a 20-57x miss on a budget whose
+        # `on_miss.prohibited` list starts with "relax budget_ms".
+        decision = router.select(kind.difficulty, prefer="latency", task_id=task)
     except NoRouteAvailable as e:
         return f"no route: {e}"
+
+    # THE SITUATION IS DERIVED, NOT STORED (DR-028's third layer). `normal`
+    # because a typed request with the owner waiting is exactly that; the alarm
+    # path builds its own and does not come through here.
+    system, _ = persona.compose(Situation(urgency="normal"))
+
+    t0 = time.perf_counter()
     try:
-        out = gw.complete(utterance.text, task_id=utterance.hlc or "typed",
-                          profile_id=decision.profile_id, difficulty="moderate")
+        # `prefer` IS PASSED TO BOTH LAYERS, and it has to be. The router picks
+        # the profile and the gateway picks the rung inside it; setting it on
+        # one leaves the other ranking on an axis unrelated to time, which just
+        # moves the variance from between profiles to within one.
+        out = gw.complete(utterance.text, task_id=task, system=system,
+                          profile_id=decision.profile_id, prefer="latency",
+                          difficulty=kind.difficulty)
     except AllProvidersExhausted:
         # NOT AN ERROR STRING. The narration layer has already spoken the real
         # sentence; this is what the transcript shows, and it says the true
         # thing: the task survives.
         return "every provider is spent — checkpointed and queued, nothing lost"
+    finally:
+        # OBSERVED WHETHER IT SUCCEEDED OR NOT, in a `finally`, because a rung
+        # that took 40 s to fail is a slow rung and the next selection needs to
+        # know. Recording only successes would let a supplier that times out
+        # keep its enrolment-day estimate forever.
+        router.observe(decision.profile_id, time.perf_counter() - t0)
     return ((out.get("result") or {}).get("text") or "").strip()
 
 
-def pump(bus, gw, router, home, intake, transcript: list,
+def pump(bus, gw, router, persona, home, intake, transcript: list,
          once: bool = False) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     OUTBOX.touch(exist_ok=True)
@@ -159,7 +200,7 @@ def pump(bus, gw, router, home, intake, transcript: list,
             said = []
             home.set_transcript(list(transcript))
             if res["outcome"] == "dispatched":
-                reply = answer(gw, router, intake.history[-1])
+                reply = answer(gw, router, persona, intake.history[-1])
                 # VESPER'S REPLY IS NOT AN UTTERANCE, and the first version put
                 # it into `intake.history` as one. `Intake` is the record of
                 # things said TO VESPER -- its confidence, its partials and its
@@ -193,7 +234,7 @@ def main() -> int:
     ap.add_argument("--status", action="store_true")
     args = ap.parse_args()
 
-    bus, gw, router, home, intake, triage, report = build()
+    bus, gw, router, home, intake, triage, report, persona = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -213,7 +254,7 @@ def main() -> int:
                                 "final": True}) + "\n")
 
     if args.once or args.say:
-        n = pump(bus, gw, router, home, intake, transcript, once=True)
+        n = pump(bus, gw, router, persona, home, intake, transcript, once=True)
         # THE SAME HONESTY THE INTERRUPT PATH APPLIES. A one-shot run that exits
         # leaving `thinking` on disk reports work that is not happening; the
         # 90 s staleness fallback would correct it eventually, and eventually is
@@ -253,8 +294,14 @@ def main() -> int:
     home.write()
     while True:
         try:
-            pump(bus, gw, router, home, intake, transcript)
-            time.sleep(0.5)
+            pump(bus, gw, router, persona, home, intake, transcript)
+            # THE PLUMBING USED TO COST MORE THAN THE MODEL. 0.5 s here plus
+            # 0.7 s in the chrome's own timer is up to 1.2 s of pure polling
+            # around a call that now returns in ~0.7 s -- the transport was the
+            # slower half of a conversation. An idle pass is a `seek` on a file
+            # that has not changed; measured below 1 ms, so the cost of the
+            # shorter interval is not on the same scale as what it buys.
+            time.sleep(POLL_SECONDS)
         except KeyboardInterrupt:
             raise
         except Exception as e:                      # noqa: BLE001

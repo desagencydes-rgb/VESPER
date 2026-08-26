@@ -51,6 +51,7 @@ from pathlib import Path
 from typing import Any
 
 from .bus import EventBus
+from .latency import ALPHA_DOWN, ALPHA_UP, Observation  # noqa: F401
 
 # contracts/entities/model_profile.schema.json capability_tier
 TIERS = ("draft", "small", "standard", "strong")
@@ -64,6 +65,18 @@ DIFFICULTY_FLOOR = {"trivial": "draft", "easy": "small",
                     "moderate": "standard", "hard": "strong"}
 
 UNKNOWN = "UNKNOWN"
+
+# The turn size a latency ESTIMATE is expressed in, so that a figure derived
+# from throughput and a figure observed on the wire are the same quantity and
+# can be compared at all. Anchored on `voice.toml [brevity] default_words = 40`
+# -- roughly 60 tokens of English -- rather than picked: a conversational turn
+# is what this axis is ordering.
+#
+# ITS VALUE DOES NOT CHANGE ANY ORDERING AMONG UNOBSERVED PROFILES, because it
+# divides every one of them by the same constant. It matters only where an
+# estimate is compared against a real observation, which is the comparison it
+# exists to keep honest.
+LATENCY_REFERENCE_TOKENS = 64
 
 
 class NoRouteAvailable(Exception):
@@ -182,15 +195,36 @@ class Router:
         # Optional because a profile describing a node CLASS has no node to
         # check. It is NOT optional for a profile that names one: see `select`.
         self._enrollment = enrollment
+        self._observed: dict[str, Observation] = {}
 
     def add(self, profile: MeasuredProfile) -> None:
         self._profiles.append(profile)
+
+    def observe(self, profile_id: str, seconds: float) -> None:
+        """Record what a real call to this profile actually cost in wall time.
+
+        CALLED BY WHOEVER MADE THE CALL, not by the router, because the router
+        does not make calls -- it names a profile and something else spends the
+        seconds. An uncalled `observe` is the built-and-unreached shape again,
+        so `CI-071` asserts the answer path calls it.
+        """
+        if seconds <= 0:
+            return
+        o = self._observed.get(profile_id)
+        if o is None:
+            self._observed[profile_id] = Observation(profile_id, seconds)
+        else:
+            o.update(seconds)
+
+    def observed(self, profile_id: str) -> Observation | None:
+        return self._observed.get(profile_id)
 
     def select(self, difficulty: str, *, context_tokens: int = 2048,
                host_ram_free_gb: float | None = None,
                node_busy: bool = False,
                allow_degraded: bool = False,
                exclude: set | None = None,
+               prefer: str = "cost",
                task_id: str | None = None) -> RouteDecision:
         """Pick a profile. Fail-closed by default.
 
@@ -212,6 +246,11 @@ class Router:
         """
         if difficulty not in DIFFICULTY:
             raise ValueError(f"unknown difficulty {difficulty!r}, expected {DIFFICULTY}")
+        if prefer not in ("cost", "latency"):
+            raise ValueError(
+                f"unknown prefer={prefer!r}, expected 'cost' or 'latency'. "
+                "Refused rather than defaulted: a typo would silently restore "
+                "the ranking this parameter exists to override.")
         floor = DIFFICULTY_FLOOR[difficulty]
         factors: list[str] = [
             f"difficulty={difficulty}", f"tier_floor={floor}",
@@ -299,8 +338,58 @@ class Router:
             # profiles at equal distance and equal rate would fall through to
             # comparing MeasuredProfile, which has slots and no ordering, and
             # the router would raise TypeError instead of routing.
-            candidates.append((TIER_RANK[p.tier] - TIER_RANK[floor], -rate,
-                               len(candidates), p, rate))
+            # WHICH AXIS RANKS THEM IS THE CALLER'S SITUATION, NOT A CONSTANT.
+            #
+            # `prefer="cost"` is the rule above and stays the default: distance
+            # above the floor ascending, ties on throughput. It is correct
+            # wherever a stronger tier is bought with seconds, which is true of
+            # every rung on our own fabric -- strong answers a trivial task in
+            # 202 s that draft answers in 25 s.
+            #
+            # IT IS EXACTLY WRONG FOR A REMOTE RUNG, and the premise is the part
+            # that fails rather than the logic. "Strong" on a supplier's fabric
+            # is somebody else's accelerator, and it is not paid for in our
+            # seconds at all. Measured 2026-08-26 on the same 45-character
+            # prompt: the standard rung this router preferred took 25.9 s and
+            # 68.7 s on two consecutive tries; the strong rung it rejected as
+            # too expensive answered in 0.63 s, 0.77 s and 0.61 s. It chose a
+            # profile 40x slower in order to save a cost nobody was charging.
+            #
+            # So `prefer="latency"` ranks on estimated seconds-to-answer and
+            # keeps distance-above-floor as the tiebreaker. THE FLOOR IS NOT
+            # TOUCHED by either axis: SR-009 still forbids routing hard work
+            # below `strong`, and this only decides which of the profiles
+            # ALREADY ELIGIBLE gets the request.
+            #
+            # THE TWO ESTIMATES ARE NOT THE SAME QUANTITY, and the first
+            # version of this got the SCALES wrong rather than the logic. It
+            # derived the unobserved figure as `context_tokens / rate` -- the
+            # time to emit 2048 tokens -- and compared it against observations
+            # of single conversational turns. 40 s of enrolment-derived estimate
+            # sat beside 40 s of measured misery and they are not the same 40 s;
+            # a rung caught taking 40 s live still ranked ahead of a healthy one.
+            # `CI-071` found it, which is what a negative control is for.
+            #
+            # So both sides are now expressed as SECONDS FOR ONE TURN. The
+            # reference size cancels out entirely when ranking two unobserved
+            # profiles against each other -- it is a common factor -- and it
+            # matters only where an estimate meets an observation, which is
+            # exactly the comparison it was chosen to make honest.
+            #
+            # The remaining bias is deliberate: a derived figure cannot see the
+            # supplier's queue, so an unobserved profile is estimated
+            # OPTIMISTICALLY, which is what makes it get tried at all. One
+            # request later it has an observation and corrects itself. Pessimism
+            # here would be self-sealing -- never chosen, never measured, never
+            # chosen.
+            o = self._observed.get(p.profile_id)
+            seconds = (o.seconds if o is not None
+                       else LATENCY_REFERENCE_TOKENS / rate)
+            if prefer == "latency":
+                key = (seconds, TIER_RANK[p.tier] - TIER_RANK[floor])
+            else:
+                key = (TIER_RANK[p.tier] - TIER_RANK[floor], -rate)
+            candidates.append((key, len(candidates), p, rate))
 
         degraded_from = None
         if not candidates and allow_degraded:
@@ -322,8 +411,8 @@ class Router:
                     # measured downward. Below the floor the nearest profile is
                     # the STRONGEST one available, which is what the docstring
                     # above promises a degraded route returns.
-                    candidates.append((TIER_RANK[floor] - TIER_RANK[p.tier],
-                                       -rate, len(candidates), p, rate))
+                    candidates.append(((TIER_RANK[floor] - TIER_RANK[p.tier],
+                                        -rate), len(candidates), p, rate))
             if candidates:
                 degraded_from = floor
                 factors.append(
@@ -352,6 +441,26 @@ class Router:
 
         candidates.sort()
         *_, best, rate = candidates[0]
+        obs = self._observed.get(best.profile_id)
+        factors.append(
+            f"prefer={prefer} ("
+            + ("ranked on estimated seconds-to-answer, floor unchanged; a "
+               "remote strong rung is not paid for in our seconds"
+               if prefer == "latency" else
+               "ranked on distance above the tier floor, ties on throughput")
+            + ")")
+        if obs is not None:
+            # PROVENANCE ON THE LIVE FIGURE, same as every other number here.
+            # `samples` and `worst` are carried because an EWMA alone cannot be
+            # audited: 3 s could be three steady calls or one 0.5 s and one 60 s.
+            factors.append(
+                f"observed_seconds={obs.seconds:.2f} over {obs.samples} live "
+                f"call(s), worst {obs.worst_seconds:.2f}s -- live wall clock, "
+                "not the enrolment sweep")
+        else:
+            factors.append(
+                "no live observation for this profile yet; ranked on the "
+                "enrolment sweep, which cannot see the supplier's queue")
         est = context_tokens / rate if rate else None
         factors.append(f"selected_rate_tokens_per_sec={rate:.2f}")
         if best.context_slowdown_us_per_token is not None:

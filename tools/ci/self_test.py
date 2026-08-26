@@ -949,6 +949,14 @@ QUOTA_PY = "core/quota.py"
 TRIAGE = "core/triage.py"
 REPAIR = "core/repair.py"
 EFFORT = "core/effort.py"
+PERSONA_PY = "core/persona.py"
+PERSONA_TOML = "contracts/policy/persona.toml"
+VOICE_TOML = "contracts/policy/voice.toml"
+DIFFICULTY = "core/difficulty.py"
+ROUTER = "core/router.py"
+LATENCY = "core/latency.py"
+SUPPLY_PY = "routing/supply.py"
+RUNTIME = "tools/ops/vesper_runtime.py"
 
 CASES += [
     ("chrome-template-renders", CHROME_TPL,
@@ -1156,5 +1164,102 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# CI-068..CI-071. The persona, difficulty and latency surfaces, all landed
+# 2026-08-26. Each defect below is either one that was ACTUALLY LIVE in this
+# tree that day, or the specific way the property fails silently -- which for
+# personality is every way, because a persona that renders empty still returns
+# a fluent answer.
+# --------------------------------------------------------------------------
+CASES += [
+    ("persona-is-a-contract", PERSONA_TOML,
+     _sub("humour_during_alarm = true", "humour_during_alarm = false", 1),
+     "a hard refusal turned into a setting: the alarm register may joke, and "
+     "the joke is spent out of the owner's acknowledgement time"),
+
+    ("persona-is-a-contract", PERSONA_TOML,
+     _sub('register_id = "none"\nhumour = "none"',
+          'register_id = "none"\nhumour = "full"', 1),
+     "the alarm register given humour -- the schema states the rule in prose "
+     "and cannot express it as a constraint, so nothing but this would catch it"),
+
+    ("persona-is-a-contract", VOICE_TOML,
+     _sub("[register.plain]", "[register.plainx]", 1),
+     "the `plain` register left with no guidance: it renders as an empty tone "
+     "instruction, which does not fail -- it just sounds chatty during a refusal"),
+
+    ("persona-is-a-contract", PERSONA_PY,
+     _sub('        sel = Selection(reg, reason, degraded_from)',
+          '        sel = Selection(reg, reason, None)', 1),
+     "the downgrade to `plain` made silent, so the deterministic layer becomes "
+     "unobservable and A-036 has nothing to observe"),
+
+    ("difficulty-classifies-up", DIFFICULTY,
+     _sub("    if _MATERIAL.search(raw):", "    if False:", 1),
+     "a request carrying code or a stack trace no longer raises -- it falls "
+     "through to the length rules and a four-word bug report is answered at "
+     "`easy` with the reasoning budget stripped off it"),
+
+    ("difficulty-classifies-up", DIFFICULTY,
+     _sub("    flat = _normalise(raw)\n    if flat in GREETINGS:",
+          "    flat = _normalise(raw)\n    if any(g in flat for g in GREETINGS):", 1),
+     "acknowledgements matched as substrings: `thanks, now explain the "
+     "placement stress runner` is classified as a thank-you and answered at "
+     "trivial effort"),
+
+    ("difficulty-classifies-up", DIFFICULTY,
+     _sub('    return Classification(\n        "moderate", "no confident signal either way',
+          '    return Classification(\n        "trivial", "no confident signal either way', 1),
+     "the no-signal fallback demoted to trivial, so every request the rules "
+     "cannot read is answered at the weakest tier the ladder offers"),
+
+    ("latency-preference-reorders", ROUTER,
+     _sub('            if prefer == "latency":\n                key = (seconds, TIER_RANK[p.tier] - TIER_RANK[floor])',
+          '            if False:\n                key = (seconds, TIER_RANK[p.tier] - TIER_RANK[floor])', 1),
+     "the latency axis silently ignored -- selection falls back to cost and a "
+     "conversational turn goes to the rung measured at 25.9s over one measured "
+     "at 0.63s, with the decision record still claiming prefer=latency"),
+
+    ("latency-preference-reorders", ROUTER,
+     _sub("            if TIER_RANK[p.tier] < TIER_RANK[floor]:",
+          "            if False:", 1),
+     "the tier floor dropped: prefer=latency stops choosing among eligible "
+     "profiles and starts widening eligibility, so hard work routes to whatever "
+     "is quickest and SR-009 is gone"),
+
+    ("latency-preference-reorders", LATENCY,
+     _sub("        a = ALPHA_UP if seconds > self.seconds else ALPHA_DOWN",
+          "        a = ALPHA_UP if seconds > self.seconds else 0.0", 1),
+     "a demoted rung never forgiven -- one slow minute retires it for the life "
+     "of the process, and the ladder quietly narrows to whatever was fast first"),
+
+    ("latency-preference-reorders", GATEWAY,
+     _sub('        if prefer == "latency" and self._observed:',
+          '        if False and self._observed:', 1),
+     "the gateway's re-order removed: the router picks the fast profile and "
+     "quota headroom then picks the slow rung inside it, which is how four "
+     "consecutive turns measured 0.56s, 4.22s, 1.02s and 4.63s"),
+
+    ("system-turn-reaches-the-wire", SUPPLY_PY,
+     _sub('                msgs.append({"role": "system", "content": system})',
+          '                pass', 1),
+     "the persona dropped from the openai_chat wire -- composed, validated, "
+     "and never sent, which is the built-and-unreached failure this tree keeps "
+     "rediscovering"),
+
+    ("system-turn-reaches-the-wire", SUPPLY_PY,
+     _sub('                payload["instructions"] = system', '                pass', 1),
+     "the persona dropped from the cf_responses wire, so one rung on the "
+     "ladder answers as nobody and the others answer as VESPER"),
+
+    ("system-turn-reaches-the-wire", RUNTIME,
+     _sub("        out = gw.complete(utterance.text, task_id=task, system=system,",
+          "        out = gw.complete(utterance.text, task_id=task,", 1),
+     "the runtime stops passing a persona: both contracts still load, both "
+     "still validate, and nothing reaches a provider"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
+

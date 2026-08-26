@@ -724,3 +724,51 @@ impl = "tools/ci/checks.py glass-hatch-contained"
 blocking = "pr"
 self_test = "Add a .swift file under app/ that reaches for the private WKWebView background selector without the `glass-hatch-ok` marker; strip CGWindowListCreateImage out of GlassGuard.swift so the hatch ships without its alarm."
 self_test_evidence = "tools/ci/self_test.py -- CREATE case: an unmarked Swift file under app/ using setValue(false, forKey: \"drawsBackground\"): red then green."
+
+[checks.CI-068]
+name = "persona-is-a-contract"
+enforces = ["INV-PERSONA-1"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py persona-is-a-contract"
+blocking = "pr"
+self_test = "Set a hard_refusal to false; give the alarm register humour; remove a register's guidance from voice.toml so it renders as an empty tone; make the UNKNOWN downgrade silent."
+self_test_evidence = "tools/ci/self_test.py persona-is-a-contract -- 4 cases, red then green, 2026-08-26."
+subject = "contracts/policy/persona.toml x contracts/policy/voice.toml x core/persona.py"
+note = """A-036 asserts the policy layer changes behaviour WITH THE MODEL HELD CONSTANT, which is unsatisfiable while personality lives in a prompt string -- hold the model constant and edit its prompt and you have changed the model's input, not exercised a policy layer. `persona_policy.schema.json` has existed since IC-005 and had never been instantiated: nothing composed a persona and no wire in routing/supply.py carried a system turn, so every request reached every supplier as a bare user turn. Asked its own name on 2026-08-26 the ladder replied "you can call me Vesper -- it's one of my names", a fabricated fact about itself stated confidently, which is the class RB-001 forbids."""
+discriminators = "The failure mode is SILENT, which is why the load path is asserted rather than the output. A persona that renders empty does not error -- the answer still comes back fluent, just nameless -- so the check asserts refusal at load for an unguided register, in BOTH directions (guidance with no register is caught too, because guidance nothing selects is dead code nobody notices). The schema's absent enum members are asserted as absences: RB-012 holds because `real_person` is not expressible, and a schema that grew it would make impersonation configurable."
+
+[checks.CI-069]
+name = "difficulty-classifies-up"
+enforces = ["INV-DIFF-1"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py difficulty-classifies-up"
+blocking = "pr"
+self_test = "Match acknowledgements as substrings so a real request that opens with `thanks` is demoted; run the length rule before the hard markers so `why?` becomes trivial; make the no-signal fallback trivial instead of moderate."
+self_test_evidence = "tools/ci/self_test.py difficulty-classifies-up -- 3 cases, red then green, 2026-08-26."
+subject = "core/difficulty.py"
+note = """Replaces a hardcoded difficulty="moderate" on every request in tools/ops/vesper_runtime.py, whose own comment was honest about being a placeholder. The constant cost twice: `moderate` floors at the `standard` tier, so a greeting could not be answered by anything cheaper and on 2026-08-26 took 25.9 s; and it floors at `medium` effort, reserving 2048 tokens of reasoning headroom to say hello back."""
+discriminators = "The property asserted is the ASYMMETRY, not the accuracy. Classifying up costs a stronger rung; classifying down strips reasoning budget and returns a confidently wrong answer, which is the failure core/effort.py raises rather than clamps to avoid. So the control is that appending a hard marker to any base request never LOWERS its difficulty, checked over four bases, and that silence from every rule falls back to the same `moderate` the constant used -- the worst case of the module must be the status quo it replaced."
+
+[checks.CI-070]
+name = "system-turn-reaches-the-wire"
+enforces = ["INV-PERSONA-2"]
+kind = "structural"
+impl = "tools/ci/checks.py system-turn-reaches-the-wire"
+blocking = "pr"
+self_test = "Drop the system message from the openai_chat branch; drop `instructions` from cf_responses; let the cf_image branch consume `system`; stop the runtime passing a persona to the gateway."
+self_test_evidence = "tools/ci/self_test.py system-turn-reaches-the-wire -- 4 cases, red then green, 2026-08-26."
+subject = "routing/supply.py x core/gateway.py x tools/ops/vesper_runtime.py"
+note = """BUILT-AND-UNREACHED is the failure this exists for, and it is the one this corpus keeps rediscovering -- Provider.profile_id unread, egress applied only at registration, the face connected to nothing. core/persona.py can compose a flawless preamble and, until 2026-08-26, no branch in routing/supply.py had anywhere to put one. Each of the four wires spells it differently and there is no shared field to lean on, so each spelling is asserted by name: a wire added without one carries no persona and looks identical from outside."""
+discriminators = "The cf_image branch is asserted in the NEGATIVE direction: an image request has no system role, and folding the preamble into the prompt would render `address the owner as sir` into the picture. The cli_subprocess rung is asserted to fold-and-label rather than to be equivalent -- a prepended preamble is a user turn and can be argued out of by the rest of the same message, which a real system turn resists, and the two rungs must not be silently reported as the same thing."
+
+[checks.CI-071]
+name = "latency-preference-reorders"
+enforces = ["INV-PERF-2"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py latency-preference-reorders"
+blocking = "pr"
+self_test = "Make prefer=latency ignore live observations; let it widen eligibility below the tier floor; run the gateway's re-order before quota ranking instead of after; make a demoted rung unforgivable."
+self_test_evidence = "tools/ci/self_test.py latency-preference-reorders -- 4 cases, red then green, 2026-08-26."
+subject = "core/router.py x core/gateway.py x core/latency.py"
+note = """latency_budgets.toml puts speech_end_to_response_onset at 1200 ms. Measured 2026-08-26 the same conversational turn took 25.9 s and 68.7 s, a 20-57x miss, and on_miss.prohibited starts with "relax budget_ms" -- so the implementation was the thing that had to move. Two layers ranked on axes unrelated to time: the router on distance above the tier floor, the gateway on quota headroom. Fixing one moved the variance instead of removing it; four consecutive turns on one profile took 0.56s, 4.22s, 1.02s and 4.63s purely because headroom rotated which of three rungs answered."""
+discriminators = "The control that keeps this from becoming `route everything to whatever is quickest` is that the tier FLOOR is asserted to hold under both axes -- prefer=latency chooses among eligible profiles and never widens eligibility, so SR-009 still forbids answering hard work below `strong`. The gateway's re-order is asserted to run strictly AFTER quota ranking, because quota decides which rungs are offered at all and latency may only reorder what it offered. Recovery is asserted on the estimate itself rather than on who won a selection: an assertion about a selection turns on what it was compared against, and the first version of this fixture passed or failed on two near-equal numbers."

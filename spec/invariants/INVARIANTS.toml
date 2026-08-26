@@ -899,3 +899,42 @@ owner_rem = "REM-009"
 enforced_by = ["CI-058"]
 kind = "structural"
 exception_granted = "Owner decision 2026-08-23, on the reading in SPIKE-013 SS0 and SS0.5. The alarm is GlassGuard.verify, which carries three controls and a permanent negative control (--glass-verify --no-hatch) because an alarm that has only ever been green has not been shown to key on the thing it claims to key on."
+
+# ------------------------------------------------- REM-009 personality
+[invariants.INV-PERSONA-1]
+statement = "Personality is a policy artifact loaded fail-closed, not a prompt string. The four hard refusals are true and unconfigurable, a register is selected deterministically from situational state, truth outranks the register whenever the two conflict, and every downgrade is reported rather than silent."
+owner_rem = "REM-009"
+enforced_by = ["CI-068"]
+kind = "runtime"
+why_it_was_missing = "contracts/policy/persona_policy.schema.json has existed since IC-005 and had never been instantiated. Nothing composed a persona, and no wire in routing/supply.py carried a system turn, so every request reached every supplier as a bare user turn. Measured 2026-08-26: asked \"vesper is your name right?\", the ladder answered in 53 words that it was a virtual assistant without feelings and that Vesper was \"one of my names\" -- a fabricated fact about itself, stated confidently, which is the class RB-001 forbids. A model with no identity does not decline to have one; it invents one per request."
+why_a_policy_artifact = "A-036 asserts that the policy layer changes behaviour WITH THE MODEL HELD CONSTANT. That is unsatisfiable while personality lives in a prompt: hold the model constant and edit its prompt and you have changed the model's input, not exercised a policy layer. The dials therefore live outside every prompt, in a contract whose every field CI can read -- `humour = \"none\"` is checkable and \"be serious here\" is not."
+why_fail_closed_at_load = "A persona that renders empty does not error. The answer still comes back fluent, just nameless, which is indistinguishable from working and was the state of this system for its whole life. So a register declared with no guidance raises at construction rather than rendering as an empty tone instruction that merely sounds off."
+why_the_refusals_are_enumerated = "Written as four required-true fields rather than omitted-because-obvious, because the enumeration IS the record: a reader sees the four things personality may never do and CI asserts each by name. RB-012 holds structurally as well -- the schema has no `real_person` member, and a schema that cannot express the violation cannot be configured into it."
+
+[invariants.INV-PERSONA-2]
+statement = "The composed persona reaches the provider as a system turn on every wire that has one, is folded and labelled as weaker where a rung has none, and is never sent to a wire with no system role at all."
+owner_rem = "REM-009"
+enforced_by = ["CI-070"]
+kind = "structural"
+why_it_was_missing = "Built-and-unreached, which is this tree's recurring failure -- Provider.profile_id sat unread, the egress class was applied at registration and never at the choke point, the face was connected to nothing. core/persona.py can compose a flawless preamble and until 2026-08-26 no branch in routing/supply.py had anywhere to put one."
+why_per_wire = "The four wires spell it differently -- `messages[role=system]`, `instructions`, `systemInstruction`, and nothing at all -- and there is no shared field to lean on. Merging them by folding the preamble into the prompt string would be simpler and wrong: a system turn folded into the user turn IS a user turn, and the model weights it as one."
+why_the_image_wire_is_excluded = "An image request has no system role. Prepending the persona to the prompt would render `address the owner as sir` into the picture, so that branch is asserted in the negative direction rather than left unmentioned."
+
+# ------------------------------------------------- REM-010 request shaping
+[invariants.INV-DIFF-1]
+statement = "Request difficulty is classified asymmetrically: it may be raised on a single marker and may be lowered only on a positive, narrow signal. Absence of any signal yields the same middle difficulty a constant would, and the classification reports whether it was confident."
+owner_rem = "REM-010"
+enforced_by = ["CI-069"]
+kind = "runtime"
+why_it_was_missing = "tools/ops/vesper_runtime.py passed difficulty=\"moderate\" on every request, with a comment honest about being a placeholder: nothing had measured how hard a request is. The constant cost twice -- `moderate` floors at the `standard` tier, so a greeting could not be answered by anything cheaper and took 25.9 s on 2026-08-26; and it floors at `medium` effort, reserving 2048 tokens of reasoning headroom to say hello back."
+why_asymmetric = "The two errors are not priced alike. Classifying too high costs a stronger rung. Classifying too low strips the reasoning budget and returns a confidently wrong answer, which is precisely the failure core/effort.py raises rather than clamps to avoid. So the fallback is the constant it replaced: the worst case of the classifier must be the status quo."
+
+[invariants.INV-PERF-2]
+statement = "When the owner is waiting on a reply, both routing layers rank on measured wall-clock latency rather than on an axis unrelated to time. The tier floor is unchanged by the preference, quota still decides which rungs are offered at all, and a live observation outranks the enrolment sweep."
+owner_rem = "REM-010"
+enforced_by = ["CI-071"]
+kind = "runtime"
+why_it_was_missing = "Two layers each ranked on something that is not time and each was defensible alone. core/router.py ranked on distance above the tier floor, which is correct wherever a stronger tier is bought with our own seconds -- true of every rung on our own fabric, false of a remote rung that is somebody else's accelerator. core/gateway.py ranked on quota headroom, which is correct for spending the largest pool first and blind to the fact that the rungs behind one profile are not equally fast. Measured 2026-08-26: the same conversational turn took 25.9 s and 68.7 s against a latency_budgets.toml figure of 1200 ms, while a rung the router rejected as too expensive answered it in 0.63 s."
+why_both_layers = "Fixing one moves the variance rather than removing it. With the router corrected and the gateway not, four consecutive turns on a single profile took 0.56 s, 4.22 s, 1.02 s and 4.63 s purely because headroom rotated which of three rungs answered."
+why_the_floor_is_untouched = "The control that keeps this from becoming `route everything to whatever is quickest`. The preference chooses among profiles ALREADY eligible and never widens eligibility, so SR-009 still forbids answering hard work below `strong`."
+why_live_outranks_the_sweep = "The supply sweep measures each rung once. For a rung on somebody else's hardware that is a sample from a distribution, not a property of the rung: the same 45-character prompt to one standard rung took 4.3 s, 16.6 s, 29.4 s and 48.3 s within a few minutes. Reading only the mean routes the owner into the tail. This strengthens INV-HW-2 rather than weakening it -- everything ranked on is measured, more recently and on the path that actually serves requests."

@@ -3662,6 +3662,382 @@ def check_effort_floor() -> Result:
     return r
 
 
+def check_persona_is_a_contract() -> "Result":
+    """IC-005/DR-028: personality is a policy artifact, not a prompt string.
+
+    THE PROPERTY IS THAT IT LOADS FAIL-CLOSED. A persona that silently renders
+    empty is the state this whole surface replaced -- and it does not look
+    broken from outside: the answer still comes back fluent, just nameless, and
+    on 2026-08-26 it also came back inventing facts about its own name.
+    """
+    r = Result("persona-is-a-contract")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.persona import (REGISTER_IDS, Persona, PersonaRefused,
+                                  Situation)
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.persona did not import: {exc!r}")
+        return r
+
+    try:
+        p = Persona.load()
+    except PersonaRefused as e:
+        r.err(f"the shipped persona contract does not load: {e}")
+        return r
+
+    # 1. THE SCHEMA'S ENUM IS THE ONE IN FORCE. `core/persona.py` restates it
+    # by value to stay stdlib-only, so the restatement is asserted against the
+    # schema file rather than trusted -- a schema edit this module does not
+    # follow would otherwise permit a value the contract forbids.
+    schema = json.loads((REPO / "contracts" / "policy"
+                         / "persona_policy.schema.json").read_text(encoding="utf-8"))
+    item = schema["properties"]["registers"]["items"]["properties"]
+    for field, names in (("register_id", REGISTER_IDS),):
+        declared = tuple(item[field]["enum"])
+        if declared != tuple(names):
+            r.err(f"core/persona.py {field} is {names} but the schema declares "
+                  f"{declared}. The restatement has drifted from the contract.")
+    # RB-012 and the sarcasm ceiling are expressed as ABSENT enum members, so
+    # they are asserted as absences: a schema that grew `real_person` would
+    # make the impersonation refusal configurable.
+    if "real_person" in item["impressions"]["enum"]:
+        r.err("persona_policy.schema.json permits impressions=real_person. "
+              "RB-012 is absolute and the schema's own note says a schema that "
+              "cannot express the violation cannot be configured into it.")
+    if "full" in item["sarcasm"]["enum"]:
+        r.err("the schema permits sarcasm=full; it has no such member by "
+              "design -- prosody carries the marker and a degraded endpoint "
+              "drops prosody first.")
+
+    # 2. THE FOUR HARD REFUSALS ARE TRUE, individually named.
+    raw = tomllib.loads((REPO / "contracts" / "policy"
+                         / "persona.toml").read_text(encoding="utf-8"))
+    for name in ("impersonate_real_person", "humour_during_alarm",
+                 "joke_over_unknown", "playfulness_over_boundary"):
+        if raw.get("hard_refusals", {}).get(name) is not True:
+            r.err(f"hard_refusals.{name} is not true. The schema makes it a "
+                  "const; none of the four is a setting.")
+    if raw.get("truth_precedence", {}).get("on_conflict") != "TRUTH":
+        r.err("truth_precedence.on_conflict is not TRUTH -- a configurable "
+              "precedence is a configuration in which truth loses.")
+
+    # 3. SELECTION IS DETERMINISTIC AND ALARM OUTRANKS HUMOUR.
+    a = p.select(Situation(urgency="alarm"))
+    if a.register.humour != "none" or a.register.sarcasm != "none":
+        r.err(f"the alarm register carries humour={a.register.humour!r}. A joke "
+              "in an alarm scene costs acknowledgement time, which is the one "
+              "thing an alarm is spending.")
+    twice = {p.select(Situation()).register.register_id for _ in range(5)}
+    if len(twice) != 1:
+        r.err(f"selection is not deterministic: {twice}. A-036 holds the model "
+              "constant and expects the POLICY to decide; a register that "
+              "varies makes that unmeasurable.")
+
+    # 4. TRUTH OUTRANKS PERSONALITY, and the downgrade is reported.
+    u = p.select(Situation(content_is_unknown=True))
+    if u.register.humour != "none":
+        r.err("an UNKNOWN was not downgraded to a humourless register "
+              "(hard_refusals.joke_over_unknown).")
+    if u.degraded_from is None:
+        r.err("the downgrade to plain was silent. truth_precedence."
+              "degradation_is_reported: an unreported downgrade makes the "
+              "deterministic layer unobservable, and A-036 has to observe it.")
+
+    # 5. THE PREAMBLE IS ACTUALLY BUILT and carries the identity that was
+    # missing. Asserted on content, not on length: an empty string is a
+    # perfectly well-formed preamble and is exactly the defect.
+    text, sel = p.compose(Situation())
+    if "VESPER" not in text:
+        r.err("the composed preamble does not name VESPER. Asked its own name "
+              "with no preamble, the ladder answered 'it is one of my names'.")
+    # NARROWED FROM `"UNKNOWN" not in text`, WHICH WAS WRONG AND CAUGHT ITSELF
+    # ON ITS FIRST RUN. The honesty rules legitimately contain the word -- "an
+    # UNKNOWN is reported as UNKNOWN" is the instruction. What must not appear
+    # is an OWNER FIELD rendered as the placeholder, so the assertion is about
+    # the owner lines and nothing else.
+    for line in text.splitlines():
+        if line.startswith("- The owner") and "UNKNOWN" in line:
+            r.err(f"an unestablished owner field rendered into the preamble: "
+                  f"{line!r}. voice.toml keeps them as UNKNOWN precisely so "
+                  "they render as NO line; sending the word teaches the model "
+                  "to say it back.")
+
+    # 6. AN UNGUIDED REGISTER IS REFUSED AT LOAD. The negative control for the
+    # whole file: without it a register renders empty and merely sounds off.
+    broken = dict(raw)
+    voice = tomllib.loads((REPO / "contracts" / "policy"
+                           / "voice.toml").read_text(encoding="utf-8"))
+    thin = {k: v for k, v in voice.items() if k != "register"}
+    thin["register"] = {k: v for k, v in voice["register"].items() if k != "plain"}
+    try:
+        Persona(broken, thin)
+    except PersonaRefused:
+        pass
+    else:
+        r.err("a register with no guidance in voice.toml loaded without "
+              "complaint. It would render as an empty tone instruction, which "
+              "does not fail -- it just sounds chatty during a refusal.")
+    if not r.errors:
+        r.note(f"{len(p.registers)} registers, 4 hard refusals asserted "
+               f"individually, schema enums matched by value, alarm humourless, "
+               f"UNKNOWN downgrade reported, preamble {len(text)} chars in "
+               f"register {sel.register.register_id!r}")
+    return r
+
+
+def check_difficulty_classifies_up() -> "Result":
+    """The classifier may raise freely and must not lower without a signal.
+
+    THE ASYMMETRY IS THE PROPERTY, not the accuracy. A request classified too
+    HIGH costs a stronger rung; one classified too LOW gets `low` reasoning
+    effort and comes back confidently wrong, which is the failure core/effort.py
+    raises rather than clamps to avoid.
+    """
+    r = Result("difficulty-classifies-up")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.difficulty import DIFFICULTY, classify
+        from core.router import DIFFICULTY as ROUTER_DIFFICULTY
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.difficulty did not import: {exc!r}")
+        return r
+
+    if tuple(DIFFICULTY) != tuple(ROUTER_DIFFICULTY):
+        r.err(f"core/difficulty.py DIFFICULTY {DIFFICULTY} disagrees with "
+              f"core/router.py {ROUTER_DIFFICULTY}. The classifier would emit a "
+              "difficulty the router raises ValueError on.")
+
+    rank = {d: i for i, d in enumerate(DIFFICULTY)}
+
+    # 1. HARD MARKERS RAISE, and they beat every downgrade rule. "why?" is
+    # three characters; a length rule that ran first would call it trivial.
+    for q in ("why?", "explain the ladder", "fix core/router.py",
+              "compare the two", "```py\nx=1\n```"):
+        c = classify(q)
+        if c.difficulty != "hard":
+            r.err(f"{q!r} classified {c.difficulty!r}, not hard ({c.signal}). "
+                  "A hard marker must outrank the short-utterance rules.")
+
+    # 2. ONLY A WHOLE-UTTERANCE GREETING IS TRIVIAL. Substring matching here
+    # would demote a real request that happens to open politely.
+    if classify("hello").difficulty != "trivial":
+        r.err("a bare greeting was not trivial")
+    c = classify("thanks, now explain the placement stress runner")
+    if c.difficulty != "hard":
+        r.err(f"{c.difficulty!r} for a request that merely OPENS with an "
+              "acknowledgement. Matching `thanks` as a substring would strip "
+              "the reasoning budget off the request that follows it.")
+
+    # 3. NO SIGNAL MEANS MODERATE, never trivial. The worst case of this whole
+    # module has to be the constant it replaced.
+    c = classify("the thing we discussed about the other matter")
+    if c.difficulty != "moderate":
+        r.err(f"an unreadable request classified {c.difficulty!r}. Silence from "
+              "every rule must fall back to the honest middle.")
+    if c.confident:
+        r.err("a fallback classification reported itself confident.")
+
+    # 4. THE NEGATIVE CONTROL FOR THE ASYMMETRY. Adding a hard marker to any
+    # request must never LOWER its difficulty.
+    for base in ("hello", "what is the time", "ok", "the other matter"):
+        lo, hi = classify(base), classify(base + ", and explain why")
+        if rank[hi.difficulty] < rank[lo.difficulty]:
+            r.err(f"adding a hard marker to {base!r} LOWERED difficulty "
+                  f"{lo.difficulty!r} -> {hi.difficulty!r}.")
+    if not r.errors:
+        r.note("hard markers outrank length; whole-utterance greetings only; "
+               "no signal falls back to moderate and says it is not confident; "
+               "adding a marker never lowers difficulty over 4 bases")
+    return r
+
+
+def check_system_turn_reaches_the_wire() -> "Result":
+    """The persona must arrive as a SYSTEM turn on every wire that has one.
+
+    BUILT-AND-UNREACHED IS THE FAILURE THIS CHECKS FOR. Before 2026-08-26
+    `core/persona.py` could compose a perfect preamble and no branch in
+    `routing/supply.py` carried one, so every request reached every supplier as
+    a bare user turn. The payload builder is asserted directly rather than the
+    call, so this needs no network and no key.
+    """
+    r = Result("system-turn-reaches-the-wire")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from routing import supply
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"routing.supply did not import: {exc!r}")
+        return r
+
+    src = (REPO / "routing" / "supply.py").read_text(encoding="utf-8")
+    MARK = "PERSONA-PROBE-SENTINEL"
+
+    # Each wire spells it differently and there is no shared field to lean on,
+    # so each spelling is asserted by name. A wire added without one would
+    # otherwise carry no persona and look identical from the outside.
+    for wire, needle in (("openai_chat", '"role": "system"'),
+                         ("cf_responses", '"instructions"'),
+                         ("google_generate", '"systemInstruction"')):
+        if needle not in src:
+            r.err(f"the {wire} branch has no {needle} -- a request on that wire "
+                  "carries no persona at all, and nothing about the answer says "
+                  "so.")
+
+    # THE FOLDED-PROMPT RUNG IS LABELLED, NOT ASSUMED EQUIVALENT. A subscription
+    # CLI has no system argument the contract can carry, so the preamble is
+    # prepended; that is weaker than a system turn and the code must say so.
+    if "system}\n\n---\n\n{prompt}" not in src.replace("f\"", "").replace("\\n", "\n"):
+        if "---" not in src or "options.get(\"system\")" not in src:
+            r.err("the cli_subprocess wire does not fold the preamble into the "
+                  "prompt, so subscription rungs answer with no persona.")
+
+    # AN IMAGE REQUEST HAS NO SYSTEM ROLE and must not receive one: the preamble
+    # would be drawn into the picture.
+    body = src[src.index('elif row.wire == "cf_image"'):src.index('elif row.wire == "google_generate"')]
+    if "system" in body and "NO SYSTEM TURN" not in body:
+        r.err("the cf_image branch consumes `system`. An image prompt has no "
+              "system role; prepending the persona would put 'address the owner "
+              "as sir' into the rendered image.")
+
+    # THE GATEWAY MUST CARRY IT AS A NAMED PARAMETER, not as a key a caller
+    # buries in `options` -- "this request went out with no identity" has to be
+    # visible in the signature and greppable across call sites.
+    gw = (REPO / "core" / "gateway.py").read_text(encoding="utf-8")
+    if "system: str | None = None" not in gw:
+        r.err("ModelGateway.complete has no `system` parameter.")
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if "system=system" not in rt:
+        r.err("the runtime's answer path does not pass a persona to the "
+              "gateway. The contracts would load, compose, validate -- and "
+              "nothing would reach a provider.")
+    if not r.errors:
+        r.note("system turn spelled per wire (messages/instructions/"
+               "systemInstruction), folded and labelled on the CLI rung, "
+               "refused on the image wire, named on the gateway, passed by the "
+               "runtime")
+    return r
+
+
+def check_latency_preference_reorders() -> "Result":
+    """`prefer=latency` must re-rank BOTH layers, and change neither floor.
+
+    ONE LAYER IS NOT ENOUGH, and that is the whole reason this asserts two.
+    The router picks a profile and the gateway picks a rung inside it; fixing
+    only the router moved the variance rather than removing it -- measured
+    2026-08-26, four consecutive turns on one profile took 0.56s, 4.22s, 1.02s
+    and 4.63s purely because quota headroom rotated which rung answered.
+    """
+    r = Result("latency-preference-reorders")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.bus import EventBus
+        from core.hlc import HybridLogicalClock
+        from core.latency import Observation
+        from core.router import MeasuredProfile, Router
+        from core.store import StoreSet
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"router/latency did not import: {exc!r}")
+        return r
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        clock = HybridLogicalClock("latency-check")
+        bus = EventBus(clock, StoreSet(Path(d), node_id="latency-check"),
+                       component="check")
+        # A SLOW STANDARD RUNG AND A FAST STRONG ONE -- the shape the remote
+        # ladder actually has, and the shape the cost ranking gets wrong.
+        # 20 tok/s, NOT THE 51 THIS FIXTURE FIRST USED. At 51 the unobserved
+        # estimate lands at 1.25 s and a recovered rung at 1.3 s, so the
+        # assertion below turned on two near-equal numbers rather than on the
+        # property -- a test that passes or fails on a coincidence is not
+        # testing what it says it is.
+        slow = MeasuredProfile("slow-standard", "standard", "remote", 20.0, 20.0,
+                               measured=True, source="check")
+        fast = MeasuredProfile("fast-strong", "strong", "remote", 334.0, 334.0,
+                               measured=True, source="check")
+        router = Router(bus, [slow, fast])
+
+        if router.select("moderate", prefer="cost").profile_id != "slow-standard":
+            r.err("prefer=cost no longer picks the lowest tier above the floor. "
+                  "That ranking is correct wherever a stronger tier is bought "
+                  "with our own seconds and must remain the default.")
+        if router.select("moderate", prefer="latency").profile_id != "fast-strong":
+            r.err("prefer=latency did not pick the faster profile. A remote "
+                  "strong rung is somebody else's accelerator and is not paid "
+                  "for in our seconds.")
+
+        # THE FLOOR IS UNTOUCHED BY EITHER AXIS. This is the control that keeps
+        # the change from becoming "route everything to whatever is quickest":
+        # SR-009 still forbids answering hard work below `strong`.
+        draft = MeasuredProfile("quick-draft", "draft", "remote", 900.0, 900.0,
+                                measured=True, source="check")
+        r2 = Router(bus, [draft, fast])
+        if r2.select("hard", prefer="latency").profile_id != "fast-strong":
+            r.err("prefer=latency routed HARD work below the tier floor. The "
+                  "axis chooses among ELIGIBLE profiles; it does not widen "
+                  "eligibility.")
+
+        # A LIVE OBSERVATION OUTRANKS THE ENROLMENT SWEEP, in both directions.
+        router.observe("fast-strong", 40.0)
+        if router.select("moderate", prefer="latency").profile_id != "slow-standard":
+            r.err("a profile observed at 40s live was still preferred on the "
+                  "strength of its enrolment-day throughput. The sweep measures "
+                  "one moment on somebody else's hardware.")
+        # RECOVERY IS BOUNDED AND THE BOUND IS ASSERTED. 8 good samples is the
+        # curve at ALPHA_UP=0.7/ALPHA_DOWN=0.4; the first pair tried here took
+        # 17, which is not slow-to-forgive but retired-by-one-bad-minute.
+        for _ in range(8):
+            router.observe("fast-strong", 0.6)
+        o = router.observed("fast-strong")
+        # ASSERTED ON THE ESTIMATE ITSELF, not only on who won. The selection
+        # depends on what it is being compared against; the estimate does not,
+        # and the property claimed in core/latency.py is about the estimate.
+        if o.seconds > 3 * 0.6:
+            r.err(f"after 8 samples at 0.6s the estimate is still "
+                  f"{o.seconds:.2f}s -- more than 3x the truth. That is not "
+                  "slow-to-forgive, it is a rung retired by one bad minute.")
+        if router.select("moderate", prefer="latency").profile_id != "fast-strong":
+            r.err(f"a profile that recovered to {o.seconds:.2f}s was still not "
+                  "selected over one estimated at 3.2s.")
+
+        o = router.observed("fast-strong")
+        if o is None or o.worst_seconds < 40.0:
+            r.err("the observation does not retain its worst sample. An EWMA "
+                  "alone cannot be audited: 3s could be three steady calls or "
+                  "one 0.5s and one 60s.")
+        # FAST UP, SLOW DOWN -- asserted as an asymmetry, not as a constant.
+        a, b = Observation("x", 1.0), Observation("y", 1.0)
+        a.update(10.0)
+        b.update(10.0)
+        b.update(1.0)
+        if not (10.0 - a.seconds) < (a.seconds - 1.0):
+            r.err("a slow sample did not move the estimate most of the way. "
+                  "Under-penalising costs the owner a minute in front of a "
+                  "screen that looks broken.")
+
+    gw = (REPO / "core" / "gateway.py").read_text(encoding="utf-8")
+    if 'if prefer == "latency" and self._observed:' not in gw:
+        r.err("the gateway does not re-order rungs on observed latency, so the "
+              "variance merely moves from between profiles to within one.")
+    if gw.index("providers = [by_key[k] for k in ranked]") > gw.index(
+            'if prefer == "latency" and self._observed:'):
+        r.err("the latency re-order runs BEFORE quota ranking. Quota must "
+              "decide which rungs are offered at all; this only reorders them.")
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if rt.count('prefer="latency"') < 2:
+        r.err("the runtime sets prefer=latency on only one of the two layers.")
+    if not r.errors:
+        r.note("cost ranking unchanged; latency ranking prefers the faster "
+               "profile; the tier floor holds under both; a live observation "
+               "outranks the sweep and is back within 3x of the truth after 8 "
+               "good samples; the "
+               "gateway reorders after quota, never before")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -3700,6 +4076,10 @@ CHECK_FNS = {
     "triage-excludes-quota": check_triage_excludes_quota,
     "shared-pool-is-shared": check_shared_pool_is_shared,
     "intake-is-modality-neutral": check_intake_is_modality_neutral,
+    "persona-is-a-contract": check_persona_is_a_contract,
+    "difficulty-classifies-up": check_difficulty_classifies_up,
+    "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
+    "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,
     "face-follows-activity": check_face_follows_activity,
     "chrome-template-renders": check_chrome_template_renders,

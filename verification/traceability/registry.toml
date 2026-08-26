@@ -157,9 +157,10 @@ ic = ["IC-002"]
 tests = ["A-022"]
 contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json"]
 decision_functions = ["DF-PROVIDER-ADMIT"]
-invariants = ["INV-HW-1"]
-ci = ["CI-007"]
+invariants = ["INV-HW-1", "INV-DIFF-1", "INV-PERF-2"]
+ci = ["CI-007", "CI-069", "CI-071"]
 status = "SPECIFIED"
+raised = "2026-08-26: `sends EASY tasks to SMALLER models` was enforced on the routing half and unenforced on the classifying half, because nothing classified. tools/ops/vesper_runtime.py passed difficulty=\"moderate\" on every request, so the mapping ran correctly over a constant input and a greeting was routed to the same tier as a design question. CI-069 covers the classification; CI-071 covers what happens when the tier that satisfies the floor is not the one that answers fastest -- on a remote rung a stronger tier is somebody else's accelerator and is not bought with our seconds at all."
 
 [requirements.SR-010]
 arch = ["ARCH-10", "ARCH-13"]
@@ -430,10 +431,12 @@ depth_note = "Shares SR-023's Artifact type. Deliberately NOT given a decision f
 arch = ["ARCH-06", "ARCH-17"]
 ic = ["IC-005"]
 tests = ["A-036"]
-contracts = ["contracts/entities/semantic_scene.schema.json", "contracts/policy/persona_policy.schema.json"]
+contracts = ["contracts/entities/semantic_scene.schema.json", "contracts/policy/persona_policy.schema.json", "contracts/policy/persona.toml", "contracts/policy/voice.toml"]
 decision_functions = ["DF-PERSONA"]
-invariants = ["INV-EVID-1", "INV-EVID-3"]
+invariants = ["INV-EVID-1", "INV-EVID-3", "INV-PERSONA-1", "INV-PERSONA-2"]
+ci = ["CI-068", "CI-070"]
 status = "SPECIFIED"
+raised = "2026-08-26: this row named persona_policy.schema.json and DF-PERSONA and carried no `ci` key, which was accurate -- the schema had been specified since IC-005 and never instantiated. Nothing composed a persona and no wire in routing/supply.py carried a system turn, so every request reached every supplier as a bare user turn. Asked its own name that day the ladder replied that Vesper was `one of my names`: a fabricated fact about itself, confidently stated, which is the class RB-001 forbids. CI-068 asserts the contract loads fail-closed; CI-070 asserts the composed preamble actually reaches the wire, because composing one that nothing sends is this tree's recurring failure."
 
 [requirements.SR-036]
 arch = ["ARCH-04", "ARCH-23"]
@@ -567,9 +570,10 @@ tests = ["A-020", "A-047", "A-009"]
 contracts = ["contracts/entities/semantic_scene.schema.json", "contracts/policy/latency_budgets.toml"]
 state_machines = ["SM-SCENE"]
 decision_functions = ["DF-DEGRADE"]
-invariants = ["INV-PERF-1", "INV-SCENE-2"]
-ci = ["CI-031", "CI-051"]
+invariants = ["INV-PERF-1", "INV-PERF-2", "INV-SCENE-2"]
+ci = ["CI-031", "CI-051", "CI-071"]
 status = "SPECIFIED"
+raised_2026_08_26 = "latency_budgets.toml has set speech_end_to_response_onset at 1200 ms since before any hardware existed, and CI-031 has guarded the number against being relaxed. Nothing measured the path against it. The first measurement was 25.9 s and 68.7 s on the same conversational turn -- a 20-57x miss -- and on_miss.prohibited begins with `relax budget_ms`, so the implementation moved. CI-071 is the gap analysis turned into a gate."
 raised = "2026-08-12: latency budgets now exist as a contract, written BEFORE measurement per INV-PERF-1, and give SPIKE-002 a pass/fail criterion. Progressive presence (SM-SCENE update_mode = stream) is the mechanism that makes first-audio achievable at all; a scene deliverable only when complete makes the budget unmeetable by construction."
 
 [requirements.SR-048]

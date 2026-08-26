@@ -277,26 +277,51 @@ def _http_call(row: SupplyRow, endpoint: str, key: str, account: str,
 
     def call(prompt: str, options: dict) -> dict:
         budget = int(options.get("max_tokens") or options.get("n_predict") or 1024)
+        # THE PERSONA'S ONLY ROUTE TO THE WIRE. Until 2026-08-26 no branch below
+        # carried one, so `core/persona.py` could compose a preamble that
+        # nothing sent -- built-and-unreached, the failure mode this corpus
+        # keeps rediscovering. Each wire spells it differently and there is no
+        # shared field to lean on, which is exactly why it has to be written
+        # out per branch rather than merged into the prompt string once: a
+        # system turn folded into the user turn is a user turn, and the model
+        # weights it as one.
+        system = (options.get("system") or "").strip() or None
         if row.wire == "openai_chat":
+            msgs: list[dict] = []
+            if system:
+                msgs.append({"role": "system", "content": system})
+            msgs.append({"role": "user", "content": prompt})
             payload: dict[str, Any] = {
-                "model": row.model, "max_tokens": budget,
-                "messages": [{"role": "user", "content": prompt}]}
+                "model": row.model, "max_tokens": budget, "messages": msgs}
             # SENT ONLY WHERE THE ROW SAYS IT IS ACCEPTED. See SupplyRow.supports.
             if (options.get("reasoning_effort")
                     and "reasoning_effort" in row.supports):
                 payload["reasoning_effort"] = options["reasoning_effort"]
         elif row.wire == "cf_responses":
             payload = {"input": prompt, "max_output_tokens": budget}
+            if system:
+                # The Responses shape carries it as `instructions`, beside the
+                # input rather than inside it. Verified against this endpoint
+                # on 2026-08-26 rather than assumed from the OpenAI docs it
+                # resembles -- `reasoning_effort` on Mistral is the standing
+                # reminder that "OpenAI-compatible" is a family resemblance and
+                # not a parameter set.
+                payload["instructions"] = system
         elif row.wire == "cf_image":
             # STEPS ARE A COST LEVER, NOT A QUALITY DIAL ONLY. The measured
             # formula bills tiles*4.80 + tiles*steps*9.60, so every extra step
             # costs 9.60 per tile -- 38.4 on a 1024x1024. The default is the
             # model's own recommended minimum.
+            # NO SYSTEM TURN. An image request has no system role to carry
+            # one, and prepending the persona to the image prompt would put
+            # "address the owner as sir" into the picture.
             payload = {"prompt": prompt,
                        "steps": int(options.get("steps") or 4)}
         elif row.wire == "google_generate":
             payload = {"contents": [{"parts": [{"text": prompt}]}],
                        "generationConfig": {"maxOutputTokens": budget}}
+            if system:
+                payload["systemInstruction"] = {"parts": [{"text": system}]}
         else:
             raise SupplyRefused(f"unknown wire {row.wire!r}")
 
@@ -324,23 +349,59 @@ def _http_call(row: SupplyRow, endpoint: str, key: str, account: str,
     return call
 
 
-def _cli_call(row: SupplyRow, argv: list, config_env: str | None,
+def _cli_call(row: SupplyRow, binary: str, argv: list, config_env: str | None,
               config_dir: str | None, timeout: float = 300.0):
-    """A subscription rung. The official CLI, headless, as a subprocess."""
+    """A subscription rung. The official CLI, headless, as a subprocess.
+
+    `binary` IS SEPARATE FROM `argv` BECAUSE IT WAS BEING TAKEN FROM IT. This
+    function built its command as `[argv[0]] + argv[1:]`, and the contract's
+    argv for that rung is `["-p", "{prompt}"]` -- so it executed `-p` and got
+    FileNotFoundError, which the handler below reported as `auth_failed`.
+    `auth_failed` is in `gateway.TERMINAL`, so a rung that was merely wired
+    wrong retired itself permanently, on the first attempt, quietly.
+
+    THE SWEEP DID NOT CATCH IT, and that is the more useful half. The
+    2026-08-25 supply measurement recorded this rung usable at 15.28 s, because
+    the measurement script assembles its own command rather than calling this
+    function. The instrument and the production path disagreed and the
+    instrument was the one that got believed -- the ladder has been carrying a
+    rung nothing could ever actually call, with a green measurement beside it.
+    """
 
     def call(prompt: str, options: dict) -> dict:
         from routing.http_completion import EndpointError
         env = dict(os.environ)
         if config_env and config_dir:
             env[config_env] = os.path.expanduser(config_dir)
-        cmd = [row.model and argv[0] or argv[0]]
-        cmd = [argv[0]] + [a.replace("{prompt}", prompt) for a in argv[1:]]
+        # A SUBSCRIPTION CLI HAS NO SYSTEM ARGUMENT WE CAN RELY ON. `claude`
+        # takes `--append-system-prompt` and `codex exec` takes nothing of the
+        # kind, and the argv template lives in the contract where a per-vendor
+        # flag would have to be encoded per row. So the preamble is prepended
+        # to the prompt with an explicit boundary instead.
+        #
+        # THIS IS WEAKER THAN A SYSTEM TURN AND IS LABELLED AS SUCH. A folded
+        # preamble is a user turn: the model can be argued out of it by the
+        # rest of the same message in a way a real system turn resists. It is
+        # recorded here rather than smoothed over because the two rungs are not
+        # equivalent and a reader comparing behaviour across the ladder needs
+        # to know which one they are on.
+        system = (options.get("system") or "").strip()
+        text = (f"{system}\n\n---\n\n{prompt}" if system else prompt)
+        cmd = [binary] + [a.replace("{prompt}", text) for a in argv]
         try:
             cp = subprocess.run(cmd, capture_output=True, text=True,
                                 timeout=timeout, env=env, input="")
         except FileNotFoundError as e:
-            raise EndpointError(f"{row.provider_id}: {argv[0]} not installed",
-                                "auth_failed") from e
+            # NOT `auth_failed`. A missing binary and a rejected credential are
+            # both terminal and are not the same fact: one is fixed by
+            # installing something and the other by signing in, and triage
+            # reads this string to decide which. `bad_request` is the terminal
+            # class that says "this call was malformed", which a command naming
+            # a binary that is not here is.
+            raise EndpointError(
+                f"{row.provider_id}: {binary!r} is not on PATH -- the rung is "
+                "installed in the contract and not on this machine",
+                "bad_request") from e
         except subprocess.TimeoutExpired as e:
             raise EndpointError(f"{row.provider_id}: timed out", "timeout") from e
         if cp.returncode != 0:
@@ -418,7 +479,7 @@ def register(gateway, cost, ledger: QuotaLedger, *,
     for row in permitted:
         raw = by_id[row.provider_id]
         if row.wire == "cli_subprocess":
-            call = _cli_call(row, raw.get("argv", []),
+            call = _cli_call(row, raw["endpoint"], raw.get("argv", []),
                              raw.get("config_dir_env"), raw.get("config_dir"))
         else:
             call = _http_call(row, raw["endpoint"],

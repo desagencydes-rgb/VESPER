@@ -301,6 +301,7 @@ final class HomeChrome {
     }
 
     static func page(cardWidth: Int, cardHeight: Int, left: Int, top: Int,
+                     convoLeft: Int,
                      fill: Double) -> String {
         let slots = menuSlots.enumerated().map { i, name in
             """
@@ -314,6 +315,7 @@ final class HomeChrome {
         }.joined()
         let t = template()
         return t.source
+            .replacingOccurrences(of: "{{convoLeft}}",  with: String(convoLeft))
             .replacingOccurrences(of: "{{cardWidth}}",  with: String(cardWidth))
             .replacingOccurrences(of: "{{cardHeight}}", with: String(cardHeight))
             .replacingOccurrences(of: "{{left}}",       with: String(left))
@@ -484,8 +486,18 @@ final class HomeChrome {
              BOTTOM RIGHT AND ABOVE THE DOCK ROW rather than beside it. The main menu
              is centred and grows with its contents, so anything sharing its band gets
              pushed into it the moment a slot is added. Sitting above it is stable
-             under a menu of any width. */
-          .convo{position:absolute;right:26px;bottom:104px;width:min(38vw,520px);
+             under a menu of any width.
+
+             AND ANCHORED TO THE FACE, NOT TO THE VIEWPORT. `right: 26px` with a
+             `min(38vw, 520px)` width put this cluster over the face card on the
+             owner's display: a viewport-derived width cannot avoid an element it
+             cannot see, so the two were only ever coincidentally clear of each other.
+             `{{convoLeft}}` is `faceRect.maxX + 40` computed in Swift, which is how
+             the HOST card on the left has always been placed. `max-width` with
+             `margin-left:auto` then keeps it from sprawling on a wide screen while
+             still starting no further left than the face allows. */
+          .convo{position:absolute;left:{{convoLeft}}px;right:26px;bottom:104px;
+                 max-width:420px;margin-left:auto;
                  display:flex;flex-direction:column;gap:10px;z-index:7}
 
           /* The history bar: the OLDEST line, one row, until it is asked to open. */
@@ -802,7 +814,15 @@ final class HomeChrome {
 
     func startRefresh() {
         refresh?.invalidate()
-        let timer = Timer(timeInterval: 0.7, repeats: true) { [weak self] _ in
+        // 0.25 s, DOWN FROM 0.7 s. Together with the runtime's own poll this
+        // was up to 1.2 s of transport around a model call that now returns in
+        // well under a second -- the plumbing was the slower half of the
+        // conversation, and it was the half nobody had measured because the
+        // provider was always blamed first. Each tick reads one small JSON file
+        // and evaluates a string; the composite cost recorded in §0.5 is
+        // +0.053% of one core, and this multiplies that term by 2.8, not the
+        // window's whole cost.
+        let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in
             guard let self, let w = self.web else { return }
             let face = Self.faceBehaviour()
             let (line, who) = Self.stageLine()
@@ -898,6 +918,18 @@ final class HomeChrome {
             // right when the face moves.
             let cw = 300, ch = 236
             let left = max(48, Int(faceRect.minX) - cw - 72)
+            // THE RIGHT-HAND CLUSTER IS ANCHORED THE SAME WAY THE LEFT ONE IS,
+            // and it was not. The HOST card has always been placed from
+            // `faceRect.minX`, so it clears the face at any window size; the
+            // conversation card was positioned in pure CSS as `right: 26px`
+            // with a `min(38vw, 520px)` width, which knows nothing about where
+            // the face is and overlapped it on this display. A viewport-derived
+            // width cannot avoid an element it cannot see -- the two are only
+            // ever coincidentally clear of each other.
+            //
+            // 40 px of gap, then the card takes whatever is left, capped in CSS
+            // so it does not sprawl on a wide screen.
+            let convoLeft = Int(faceRect.maxX) + 40
             let top = Int(host.bounds.height - faceRect.midY) - ch / 2
             let t = max(48, top)
             self.cardRect = CGRect(x: CGFloat(left),
@@ -924,7 +956,8 @@ final class HomeChrome {
             }
 
             w.loadHTMLString(Self.page(cardWidth: cw, cardHeight: ch,
-                                       left: left, top: t, fill: self.cardFill),
+                                       left: left, top: t, convoLeft: convoLeft,
+                                       fill: self.cardFill),
                              baseURL: nil)
             self.startRefresh()
             onVerdict(verdict)

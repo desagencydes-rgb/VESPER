@@ -144,8 +144,18 @@
      BOTTOM RIGHT AND ABOVE THE DOCK ROW rather than beside it. The main menu
      is centred and grows with its contents, so anything sharing its band gets
      pushed into it the moment a slot is added. Sitting above it is stable
-     under a menu of any width. */
-  .convo{position:absolute;right:26px;bottom:104px;width:min(38vw,520px);
+     under a menu of any width.
+
+     AND ANCHORED TO THE FACE, NOT TO THE VIEWPORT. `right: 26px` with a
+     `min(38vw, 520px)` width put this cluster over the face card on the
+     owner's display: a viewport-derived width cannot avoid an element it
+     cannot see, so the two were only ever coincidentally clear of each other.
+     `{{convoLeft}}` is `faceRect.maxX + 40` computed in Swift, which is how
+     the HOST card on the left has always been placed. `max-width` with
+     `margin-left:auto` then keeps it from sprawling on a wide screen while
+     still starting no further left than the face allows. */
+  .convo{position:absolute;left:{{convoLeft}}px;right:26px;bottom:104px;
+         max-width:420px;margin-left:auto;
          display:flex;flex-direction:column;gap:10px;z-index:7}
 
   /* The history bar: the OLDEST line, one row, until it is asked to open. */
