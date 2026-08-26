@@ -967,6 +967,24 @@ CASES += [
      "the inline fallback removed, so a missing template file blanks a layer "
      "covering the owner's whole Desktop"),
 
+    ("egress-gates-at-choke-point", GATEWAY,
+     _sub("            if p.egress_class not in permitted_egress:",
+          "            if False:", 1),
+     "the egress check removed from the choke point: private content reaches a "
+     "public-only supplier that trains on it, and the two most generous free "
+     "tiers available are exactly the wrong ones"),
+
+    ("egress-gates-at-choke-point", GATEWAY,
+     _sub('                 privacy_class: str = "private") -> dict:',
+          '                 privacy_class: str = "public") -> dict:', 1),
+     "unlabelled content defaulted to PUBLIC -- every caller that does not pass "
+     "a class silently opts the owner's data out of the boundary"),
+
+    ("egress-gates-at-choke-point", GATEWAY,
+     _sub('    egress_class: str = E1_PRIVATE', '    egress_class: str = E2_PUBLIC', 1),
+     "a provider registered with no declared class becomes public-capable, so "
+     "an unvetted endpoint is trusted by omission rather than by decision"),
+
     ("intake-is-modality-neutral", INTAKE,
      _sub("        return self.confidence >= CONFIDENCE_FLOOR",
           "        return True", 1),

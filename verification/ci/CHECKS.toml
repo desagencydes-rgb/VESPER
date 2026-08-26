@@ -607,6 +607,18 @@ coord_note = "This check also asserts that Projection.supersedes orders by HLC, 
 note = "THE RUNTIME HALF CI-034's note defers. CI-034 covers the policy table; this covers the first runtime surface that renders to a person. Deliberately a runtime fixture rather than a structural grep: a grep for the guards passes on a guard that has been INVERTED, and inverting one comparison is a mistake already made in this codebase. The third self-test case is the exact failure drawn in the owner's UI reference -- an empty status column filled with a plausible number because it looked wrong empty."
 
 
+[checks.CI-066]
+name = "egress-gates-at-choke-point"
+enforces = ["INV-PRIV-6"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py egress-gates-at-choke-point"
+blocking = "pr"
+self_test = "Remove the egress check from the choke point so private content reaches a public-only supplier; default privacy_class to public so unlabelled content opts itself out; default Provider.egress_class to E2_PUBLIC so an unvetted endpoint is trusted by omission."
+self_test_evidence = "tools/ci/self_test.py egress-gates-at-choke-point -- 3 cases, red then green, 2026-08-25."
+subject = "core/gateway.py x core/privacy.py x contracts/policy/provider_supply.toml"
+note = """Closes the gap PROVIDER_SUPPLY.md SS8 and MULTI_ROUTE.md SS12 both recorded as open while the whole ladder was built on top of it: the egress classes were policy that nothing at the choke point read. Filtering at registration decides which ladder gets built and says nothing about what may then be sent down it. RUNTIME FIXTURE because the property is what the gateway DOES with a mismatched pair -- asserting that an `egress_class` field exists passes for a gateway that never reads it, which is exactly the state this check was written to end."""
+discriminators = "Permission is asserted alongside refusal: public content must still REACH a public supplier. Without that half this passes for a gateway that refuses everything, which protects privacy by deleting the function. An unknown class must RAISE rather than exhaust, so a typo is distinguishable from a ladder that ran out -- otherwise a one-character mistake reads as ordinary unavailability."
+
 [checks.CI-065]
 name = "chrome-template-renders"
 enforces = ["INV-HOME-6"]

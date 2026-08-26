@@ -128,6 +128,30 @@ class TriageQueue:
         bus.subscribe("gateway.attempt", on_attempt, name="triage-attempt",
                       idempotency_key=lambda e: e.event_id)
 
+        # A WARNING NOBODY READS IS NOT A CONTROL.
+        #
+        # `quota.limit_parse_suspect` fires when a refusal names a limit in a
+        # shape the parser could not read -- the signal that the one regex
+        # standing between "permanently dead rung" and "back tomorrow" has
+        # drifted. It was published and NOTHING CONSUMED IT, which made it a
+        # log line dressed as a safeguard: the detector would fire correctly,
+        # forever, into a bus with no subscriber.
+        #
+        # Routed here it becomes a graded item with an owner-facing escalation,
+        # which is the difference between detecting drift and doing something
+        # about it.
+        def on_drift(ev: Any) -> None:
+            payload = getattr(ev, "payload", {}) or {}
+            self.record(payload.get("provider_id", "unknown"),
+                        payload.get("model", "unknown"),
+                        "quota_limit_unparseable",
+                        detail={"message_excerpt": payload.get("message_excerpt"),
+                                "booked_as": payload.get("booked_as")})
+
+        bus.subscribe("quota.limit_parse_suspect", on_drift,
+                      name="triage-quota-drift",
+                      idempotency_key=lambda e: e.event_id)
+
     # ------------------------------------------------------------- admission
 
     @staticmethod
@@ -198,6 +222,16 @@ class TriageQueue:
                 f"the provider rejected our request {n}x as malformed. Almost "
                 "always our defect, and it will recur identically on every "
                 "future call until the request changes.")
+        elif c == "quota_limit_unparseable":
+            g, why = CRITICAL_NOW, (
+                f"a refusal from {item.provider_id} named a limit the parser "
+                "could not read. That parser is the ONLY signal separating a "
+                "tier with no allowance (permanent) from a spent window (back "
+                "tomorrow) -- the structured quota block carries metrics and "
+                "ids and no limit at all. While it is drifted, a dead rung is "
+                "retried every day forever and every check stays green, "
+                "because the fixture is frozen and still parses. Needs a live "
+                "refusal to re-measure against; the fixture cannot tell you.")
         elif c == "no_provider_for_profile":
             g, why = CRITICAL_NOW, (
                 "a routed capability has no provider. The router decided and "
@@ -277,7 +311,17 @@ class TriageQueue:
             # still must not order on wall time; a sequence preserves admission
             # order without pretending to be a time.
             return f"seq-{len(self._items):08d}-{sum(i.count() for i in self._items.values()):08d}"
-        return str(self._clock.tick())
+        # `now()`, NOT `tick()`. This read `self._clock.tick()` from the day it
+        # was written and HybridLogicalClock has no such method, so every
+        # `record` with a clock attached raised AttributeError -- and the bus
+        # SWALLOWS handler exceptions into a failure counter, so the drift
+        # subscription fired correctly, failed silently, and looked wired.
+        #
+        # Found because the queue was finally constructed WITH a clock. The
+        # check exercised the no-clock path only, so a whole branch of this
+        # class had never run. A test that constructs its subject one way
+        # covers one way.
+        return str(self._clock.now())
 
     def _publish(self, type_: str, subject: str, payload: dict) -> None:
         if self._bus is not None:

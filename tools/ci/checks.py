@@ -2589,6 +2589,119 @@ def check_chrome_template_renders() -> Result:
 
 
 
+
+
+def check_egress_gates_at_choke_point() -> Result:
+    """Private content cannot reach a public-only supplier, whatever its quota.
+
+    THE GAP THIS CLOSES, and it was open while the whole ladder was built on
+    top of it. `core/privacy.py` has classified content as
+    {public, personal, private} since A-010. `provider_supply.toml` classifies
+    suppliers as {E1_PRIVATE, E2_PUBLIC}. Both existed, both were right, and
+    NOTHING JOINED THEM: the egress class was applied once when the ladder was
+    built and the choke point had never heard of it. A caller who registered a
+    public ladder could send the owner's private content down it and no rule
+    anywhere would object.
+
+    INV-COST-3's argument, unchanged: a rule enforced anywhere but the one
+    place every call passes through is a rule with a bypass.
+    """
+    r = Result("egress-gates-at-choke-point")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.gateway import (AllProvidersExhausted, E1_PRIVATE, E2_PUBLIC,
+                                  EgressRefused, MAY_CARRY, ModelGateway,
+                                  Provider)
+        from core.quota import QuotaLedger
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the gateway did not import: {exc!r}")
+        return r
+
+    def gw_with(egress: str):
+        ledger = QuotaLedger()
+        bus, cost, gw = _gateway(ledger)
+        cost.register_credential("p", "free")
+        gw.register(Provider("p", "prof",
+                             lambda q, o: {"text": "answered", "usage": {}},
+                             model="m", egress_class=egress))
+        return gw
+
+    # 1. THE REFUSAL. A public-only supplier must not receive private content,
+    # and the ladder must exhaust rather than fall through to it.
+    try:
+        gw_with(E2_PUBLIC).complete("secret", task_id="e1", profile_id="prof",
+                                    difficulty="trivial",
+                                    privacy_class="private")
+        r.err("private content reached an E2_PUBLIC provider. Two of the most "
+              "generous free tiers available are public-only, so a ladder that "
+              "ranks on headroom reaches exactly the wrong suppliers -- "
+              "capacity must never buy permission.")
+    except AllProvidersExhausted:
+        pass
+
+    # 2. THE PERMISSION. Without this the check passes for a gateway that
+    # refuses everything, which protects privacy by deleting the function.
+    try:
+        out = gw_with(E2_PUBLIC).complete("a public question", task_id="e2",
+                                          profile_id="prof",
+                                          difficulty="trivial",
+                                          privacy_class="public")
+        if out.get("provider_id") != "p":
+            r.err("public content was refused by a public supplier.")
+    except AllProvidersExhausted:
+        r.err("public content could not reach an E2_PUBLIC provider. A rule "
+              "that refuses everything is not a privacy boundary, it is an "
+              "outage.")
+
+    # 3. UNLABELLED IS PRIVATE. Not "unclassified", not "assume public".
+    # core/privacy.py's asymmetry: withholding costs a re-ask, and sending
+    # private content to a provider that trains on it cannot be undone.
+    import inspect
+    default = inspect.signature(ModelGateway.complete).parameters["privacy_class"].default
+    if default != "private":
+        r.err(f"privacy_class defaults to {default!r}. Unlabelled content must "
+              "be treated as PRIVATE -- the ambiguous case has to resolve to "
+              "the cheap failure, exactly as the display router does.")
+
+    # 4. A TYPO IS REFUSED, NOT DEFAULTED. Silently reading an unknown class as
+    # permissive is how a one-character mistake becomes an egress.
+    try:
+        gw_with(E1_PRIVATE).complete("x", task_id="e3", profile_id="prof",
+                                     difficulty="trivial",
+                                     privacy_class="publik")
+        r.err("an unknown privacy_class was accepted. A typo must refuse, "
+              "never resolve to the most permissive reading.")
+    except EgressRefused:
+        pass
+    except AllProvidersExhausted:
+        r.err("an unknown privacy_class was treated as an ordinary refusal "
+              "rather than raising. It must be distinguishable from a ladder "
+              "that merely ran out.")
+
+    # 5. A PROVIDER REGISTERED WITHOUT A CLASS IS PRIVATE-ONLY. An unvetted
+    # endpoint must not receive private content by omission.
+    if Provider("x", "y", lambda a, b: {}).egress_class != E1_PRIVATE:
+        r.err("a Provider with no declared egress class did not default to "
+              "the strictest. Defaulting to permissive would let an unreviewed "
+              "endpoint be trusted by omission rather than by decision.")
+
+    # 6. THE TABLE ITSELF. `personal` is content ABOUT the owner and must be
+    # treated as private, not as a middle ground that leaks.
+    if MAY_CARRY.get("personal") != frozenset({E1_PRIVATE}):
+        r.err("`personal` content is permitted somewhere other than "
+              "E1_PRIVATE. It is content about the owner; a middle ground "
+              "between public and private is where it leaks.")
+
+    if r.ok:
+        r.note("private refused at a public supplier and public permitted at "
+               "one; unlabelled defaults to private; an unknown class raises; "
+               "an undeclared Provider is private-only")
+    return r
+
+
+
+
 def check_intake_is_modality_neutral() -> Result:
     """A misheard instruction is reflected, not executed; partials never act.
 
@@ -2782,10 +2895,20 @@ def check_triage_excludes_quota() -> Result:
         r.err(f"triage did not import: {exc!r}")
         return r
 
+    # CONSTRUCTED WITH A CLOCK, and that is not incidental. Every case below
+    # built a bare `TriageQueue()`, so the HLC branch of `_tick` had never
+    # executed -- it called a method the clock does not have, raised
+    # AttributeError on every record, and the bus SWALLOWS handler exceptions
+    # into a failure counter. The drift subscription fired correctly, failed
+    # silently, and looked wired. A check that constructs its subject one way
+    # covers one way.
+    from core.hlc import HybridLogicalClock
+    clock = HybridLogicalClock("triage-check")
+
     # 1. QUOTA IS DECLINED. The brief's rule, and the reason a queue stays
     # readable: a backlog whose only resolution is "yes, we used what we had"
     # is a backlog nobody opens, and the real finding goes down with it.
-    q = TriageQueue()
+    q = TriageQueue(clock=clock)
     for cls in ("rate_limited", "quota_exhausted", "quota_unavailable_on_tier",
                 "cost_policy"):
         if q.record("p", "m", cls) is not None:
@@ -2804,17 +2927,17 @@ def check_triage_excludes_quota() -> Result:
     # 3. GRADING, both directions on the repeat threshold. Without the second
     # half this passes for a grader that escalates everything, which is the
     # same as a grader that grades nothing.
-    q1 = TriageQueue()
+    q1 = TriageQueue(clock=clock)
     it = q1.grade(q1.record("p", "m", "auth_failed"))
     if it.grade != CRITICAL_NOW:
         r.err(f"auth_failed graded {it.grade!r}. A revoked key does not heal "
               "and removes a whole rung until a person acts.")
-    q2 = TriageQueue()
+    q2 = TriageQueue(clock=clock)
     one = q2.grade(q2.record("p", "m", "server_error"))
     if one.grade != NO_FIX_NEEDED:
         r.err(f"a single server_error graded {one.grade!r}. One blip the ladder "
               "already absorbed must close, or the queue fills with noise.")
-    q3 = TriageQueue()
+    q3 = TriageQueue(clock=clock)
     for _ in range(REPEAT_THRESHOLD):
         q3.record("p", "m", "server_error")
     many = q3.grade(q3.open_items()[0])
@@ -2848,7 +2971,7 @@ def check_triage_excludes_quota() -> Result:
                     quota_limit=1, quota_window_seconds=1,
                     credential_env="SOLO_X_API_KEY")
     ag2 = RepairAgent(ledger=QuotaLedger(), supply_rows=[row])
-    q4 = TriageQueue()
+    q4 = TriageQueue(clock=clock)
     solo = q4.grade(q4.record("solo-x", "m", "auth_failed"))
     esc = ag2.repair(solo)
     text = " ".join(esc.guide)
@@ -3402,6 +3525,7 @@ CHECK_FNS = {
     "triage-excludes-quota": check_triage_excludes_quota,
     "shared-pool-is-shared": check_shared_pool_is_shared,
     "intake-is-modality-neutral": check_intake_is_modality_neutral,
+    "egress-gates-at-choke-point": check_egress_gates_at_choke_point,
     "chrome-template-renders": check_chrome_template_renders,
     "effort-floor-and-null-answer": check_effort_floor,
 }

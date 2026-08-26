@@ -428,8 +428,13 @@ def register(gateway, cost, ledger: QuotaLedger, *,
             row.provider_id, row.cost_class,
             provable_hard_cap=row.provable_hard_cap,
             hard_cap_evidence=row.hard_cap_evidence)
+        # THE PROVIDER CARRIES ITS OWN EGRESS CLASS TO THE CHOKE POINT.
+        # Filtering at registration is necessary and was never sufficient: it
+        # decides which ladder gets built, and says nothing about what may then
+        # be sent down it.
         gateway.register(Provider(row.provider_id, row.profile_id, call,
-                                  model=row.model))
+                                  model=row.model,
+                                  egress_class=row.egress_class))
         e = ledger.entry(row.provider_id, row.model)
         if row.account:
             # ONE POOL PER ACCOUNT, declared before the entry joins it, so a

@@ -344,6 +344,15 @@ why_it_needs_an_offline_guard = "Every other layer in the tree is covered by che
 why_the_fallback_is_checked_too = "The binary carries an inline copy so a missing file never blanks the Desktop, and a fallback is by definition the copy nobody looks at. It and the file can diverge for months, and the divergence surfaces on the day the file is gone -- which is to say in front of the owner, during the exact failure the fallback was written for."
 why_an_unsubstituted_token_is_dangerous = "It renders literally into a CSS declaration, and an invalid declaration is DROPPED SILENTLY by the parser. The surface still appears; it is merely wrong -- a card with no solved fill over a bright wallpaper, with ink that no longer meets its contrast requirement. Present-but-wrong is harder to notice than absent."
 
+[invariants.INV-PRIV-6]
+statement = "Every model call declares the privacy class of its content, and the gateway refuses any provider whose egress class may not carry it. The check runs at the choke point, per provider, immediately before invocation, and BEFORE the cost check. Unlabelled content is private. An unrecognised class raises rather than resolving to a permissive reading. A provider registered without an egress class is private-only."
+owner_rem = "REM-006"
+enforced_by = ["CI-066"]
+kind = "runtime"
+why_it_was_missing = "Two correct vocabularies had never been introduced. core/privacy.py has classified content as {public, personal, private} since A-010; contracts/policy/provider_supply.toml classifies suppliers as {E1_PRIVATE, E2_PUBLIC}. The egress class was applied ONCE at registration, deciding which ladder got built, and said nothing about what could then be sent down it. A caller registering a public ladder could send private content through it and no rule anywhere would object. Recorded as an open gap in PROVIDER_SUPPLY.md SS8 and MULTI_ROUTE.md SS12 while the entire ladder was built on top of it."
+why_before_the_cost_check = "Cost decides whether VESPER may SPEND on a provider; egress decides whether that provider may SEE this content. A refusal on price that happens to preempt a privacy violation is luck, and a rule that depends on another rule failing first is not enforced. Ordering it first also keeps the recorded reason the real reason."
+why_unlabelled_is_private = "core/privacy.py's asymmetry, applied to egress rather than to displays: withholding something the owner wanted costs a re-ask, and sending private content to a provider that trains on it cannot be undone. So the ambiguous case resolves to the cheap failure, and UNKNOWN is treated as the strict class rather than as a missing input to be guessed at."
+
 # ------------------------------------------------- REM-007 triggers
 [invariants.INV-TRIG-1]
 statement = "Every autonomous action traces to exactly one registered trigger_id whose predicate demonstrably evaluated true against a reconstructible world-model snapshot."

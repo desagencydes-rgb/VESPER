@@ -108,6 +108,38 @@ class NoProviderForProfile(Exception):
     """
 
 
+# What a provider may be shown, and what a request may be shown TO.
+#
+# TWO VOCABULARIES MET HERE AND HAD NEVER BEEN INTRODUCED. `core/privacy.py`
+# has classified content as {public, personal, private} since A-010;
+# `contracts/policy/provider_supply.toml` classifies suppliers as
+# {E1_PRIVATE, E2_PUBLIC}. Both existed, both were correct, and NOTHING JOINED
+# THEM -- the egress class was applied once at registration and the choke point
+# had never heard of it. A caller registering a public ladder could send the
+# owner's private content through it and no rule anywhere would object.
+#
+# INV-COST-3's argument applies unchanged: a rule enforced anywhere except the
+# one place every call passes through is a rule with a bypass.
+E1_PRIVATE, E2_PUBLIC = "E1_PRIVATE", "E2_PUBLIC"
+
+# Which supplier classes may carry which content class.
+#
+# UNLABELLED CONTENT IS PRIVATE. Not "unclassified", not "assume public" --
+# private. core/privacy.py states the asymmetry this rests on: withholding
+# something the owner wanted costs a re-ask, and sending private content to a
+# provider that trains on it cannot be undone. So the ambiguous case resolves
+# to the cheap failure, exactly as the display router does.
+MAY_CARRY = {
+    "private":  frozenset({E1_PRIVATE}),
+    "personal": frozenset({E1_PRIVATE}),
+    "public":   frozenset({E1_PRIVATE, E2_PUBLIC}),
+}
+
+
+class EgressRefused(Exception):
+    """A provider was refused because of what the content is, not what it costs."""
+
+
 @dataclass(slots=True)
 class Provider:
     provider_id: str
@@ -121,6 +153,12 @@ class Provider:
     # it is not a missing value, and it must not be defaulted to `provider_id`,
     # which would make two models on one account share a line again.
     model: str = ""
+    # WHAT THIS PROVIDER MAY BE SHOWN. Defaults to the STRICTEST class, not the
+    # most permissive: a provider registered without one is a provider nobody
+    # has vetted, and treating it as public-capable would let an unreviewed
+    # endpoint receive the owner's private content by omission rather than by
+    # decision.
+    egress_class: str = E1_PRIVATE
 
     def quota_key(self) -> tuple[str, str]:
         return (self.provider_id, self.model)
@@ -402,7 +440,8 @@ class ModelGateway:
                  max_attempts_per_request: int | None = None,
                  profile_id: str | None = None,
                  difficulty: str | None = None,
-                 expected_output_tokens: int = 1_024) -> dict:
+                 expected_output_tokens: int = 1_024,
+                 privacy_class: str = "private") -> dict:
         """Call the permitted provider with the most headroom that succeeds.
 
         Every provider passes the cost check IMMEDIATELY BEFORE invocation, not
@@ -591,7 +630,46 @@ class ModelGateway:
                 self._record(p, "skipped", "chain_budget_exhausted", None, 0.0)
                 continue
 
-            # The choke point. Re-checked per provider, deliberately.
+            # THE EGRESS CHECK, AND IT RUNS BEFORE THE COST CHECK.
+            #
+            # Deliberately first: cost decides whether VESPER may SPEND on this
+            # provider, egress decides whether this provider may SEE this
+            # content. A refusal on price that happens to preempt a privacy
+            # violation is luck, and a rule that depends on another rule failing
+            # first is not enforced. It also keeps the ordering honest in the
+            # record -- the reason recorded is the real reason.
+            #
+            # Re-checked per provider for the same reason cost is: the ladder
+            # descends across suppliers with different egress classes, and a
+            # check done once at entry would authorise every later rung.
+            permitted_egress = MAY_CARRY.get(privacy_class)
+            if permitted_egress is None:
+                raise EgressRefused(
+                    f"unknown privacy_class {privacy_class!r}; expected "
+                    f"{sorted(MAY_CARRY)}. Refused rather than defaulted: a "
+                    "typo would otherwise silently select the most permissive "
+                    "reading of what may leave the machine.")
+            if p.egress_class not in permitted_egress:
+                self._record(p, "refused_by_egress", "egress_policy", None, 0.0)
+                self._bus.publish(
+                    "privacy.egress_refused", subject=p.provider_id,
+                    payload={"provider_id": p.provider_id,
+                             "provider_egress_class": p.egress_class,
+                             "privacy_class": privacy_class,
+                             "task_id": task_id,
+                             "note": ("R6: egress gates the provider BEFORE "
+                                      "quota does. Capacity never buys "
+                                      "permission -- the two most generous "
+                                      "free tiers available are both public-"
+                                      "only, so a ladder ranked on headroom "
+                                      "would reach exactly the wrong ones.")},
+                    component="gateway")
+                last_error = EgressRefused(
+                    f"{p.provider_id} is {p.egress_class} and this content is "
+                    f"{privacy_class!r}")
+                continue
+
+            # The cost choke point. Re-checked per provider, deliberately.
             try:
                 self._cost.check(p.provider_id, task_id=task_id)
             except CostPolicyViolation as e:
