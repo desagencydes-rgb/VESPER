@@ -1218,6 +1218,15 @@ CASES += [
      "missing template file degrades to a surface that builds hundreds of "
      "elements for text the card clips"),
 
+    ("chrome-template-renders", CHROME_SW,
+     _sub("        w.setNeedsDisplay(w.bounds)",
+          "        w.setNeedsDisplay(w.bounds)\n"
+          "        w.evaluateJavaScript(\"document.body.style.opacity='0.999'\", "
+          "completionHandler: nil)", 1),
+     "the compositor woken by putting an opacity on `body`: it becomes a "
+     "backdrop root, every glass panel loses the Desktop it filters, and the "
+     "cards render as bare translucent fill with the text barely legible"),
+
     ("effort-floor-and-null-answer", EFFORT,
      _sub("    if content is not None and content.strip():",
           "    if content is not None:", 1),

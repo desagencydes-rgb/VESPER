@@ -1062,10 +1062,40 @@ final class HomeChrome {
     func wake() {
         guard let w = web, mounted else { return }
         w.setNeedsDisplay(w.bounds)
-        w.evaluateJavaScript(
-            "document.body.style.opacity='0.999';"
-          + "requestAnimationFrame(function(){document.body.style.opacity='';});",
-            completionHandler: nil)
+        // NOT `document.body.style.opacity`, WHICH IS WHAT THIS DID AND IT WAS
+        // A REAL REGRESSION THE OWNER SAW WITHIN THE HOUR.
+        //
+        // Any opacity below 1 makes that element a BACKDROP ROOT. Every glass
+        // panel in this page is `backdrop-filter: blur(24px) saturate(180%)`,
+        // and a backdrop filter samples what is painted behind the element
+        // WITHIN its backdrop root -- so rooting it at `body` left them
+        // sampling an empty transparent page instead of the Desktop. The blur
+        // had nothing to blur and the cards rendered as bare translucent fill:
+        // washed out, and the text on them barely legible.
+        //
+        // AND IT COULD NOT UNDO ITSELF. The reset was queued in
+        // `requestAnimationFrame`, which is precisely the callback WebKit does
+        // not run while a view is throttled -- the exact state this function
+        // exists to leave. So the page could sit rooted for as long as the
+        // throttle lasted, which is the whole problem it was meant to solve,
+        // now with the glass broken as well.
+        //
+        // A dedicated 1x1 element off the top-left corner instead: mutating it
+        // forces a compositing update, it creates its own stacking context and
+        // nobody's backdrop is rooted at it, and there is nothing to reset.
+        w.evaluateJavaScript("""
+            (function(){
+              var k = document.getElementById('__wake');
+              if (!k) {
+                k = document.createElement('div');
+                k.id = '__wake';
+                k.style.cssText = 'position:fixed;left:-4px;top:-4px;width:1px;'
+                                + 'height:1px;pointer-events:none;opacity:0.01';
+                document.documentElement.appendChild(k);
+              }
+              k.style.transform = 'translateZ(0) rotate(' + (Date.now() % 360) + 'deg)';
+            })();
+            """, completionHandler: nil)
     }
 
     func setDockUp(_ up: Bool) {

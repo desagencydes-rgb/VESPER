@@ -2703,13 +2703,46 @@ def check_chrome_template_renders() -> Result:
                   "the rest is clipped by `overflow: hidden` after being given "
                   "its own scatter vector, delay and animation.")
 
+    # NOTHING MAY ROOT THE BACKDROP AT `body` OR `html`.
+    #
+    # Every panel in this page is `backdrop-filter: blur(24px) saturate(180%)`,
+    # and a backdrop filter samples what is painted behind the element WITHIN
+    # its backdrop root. `opacity` below 1 makes an element a backdrop root --
+    # so one line setting `document.body.style.opacity` cuts every glass panel
+    # off from the Desktop it is supposed to be sampling. The blur has nothing
+    # to blur, the cards render as bare translucent fill, and the text on them
+    # stops being legible. Shipped 2026-08-26 as a one-line "wake the
+    # compositor" trick and seen by the owner within the hour.
+    #
+    # THE UNDO WAS THE WORSE HALF: it was queued in `requestAnimationFrame`,
+    # which is exactly the callback WebKit does not run while a view is
+    # throttled -- the state the trick existed to leave. It could stay rooted
+    # for as long as the throttle lasted.
+    #
+    # Checked in the Swift as well as the template, because the call that did
+    # it was Swift evaluating JS into the page, where no amount of reading the
+    # template would have found it.
+    ROOTING = re.compile(
+        r"(?:document\.)?(?:body|documentElement)\s*\.style\.opacity\s*=",
+        re.I)
+    for label, src in (("the template", tpl), ("HomeChrome.swift", swift)):
+        live = "\n".join(ln for ln in src.splitlines()
+                         if not ln.lstrip().startswith(("//", "*", "/*")))
+        if ROOTING.search(live):
+            r.err(f"{label} sets an opacity on `body` or `documentElement`. "
+                  "Any value below 1 makes it a BACKDROP ROOT, and every glass "
+                  "panel here filters the Desktop behind it -- rooting them at "
+                  "an empty transparent page leaves the blur with nothing to "
+                  "sample and the cards washed out.")
+
     if r.ok:
         r.note(f"{len(tpl)} bytes, {len(tokens)} tokens all substituted "
                f"({', '.join(sorted(tokens))}), fallback token set matches, "
                "stylesheet + card + dock row present, conversation cluster "
                "anchored to faceRect rather than to the viewport; one dissolve "
                "timer, a mirrored out-stagger and a bounded element count in "
-               "both the template and the fallback")
+               "both the template and the fallback; nothing roots the backdrop "
+               "at body")
     return r
 
 
