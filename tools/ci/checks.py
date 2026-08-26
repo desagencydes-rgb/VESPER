@@ -2584,7 +2584,25 @@ def check_chrome_template_renders() -> Result:
                          "way to say anything to VESPER at all"),
                         ('data-face=', "the face behaviour no longer reaches the "
                          "page, so every state-reactive rule falls back to the "
-                         "resting appearance while VESPER is working")]:
+                         "resting appearance while VESPER is working"),
+                        # EVERY SURFACE'S RULE, NOT JUST ITS ELEMENT. The
+                        # `.stack` CSS went missing once because an insert
+                        # anchored on an indentation the file did not have: the
+                        # replace did nothing, reported nothing, and the MARKUP
+                        # still landed. A check for `class="stack"` passed while
+                        # the transcript and field rendered as raw unstyled text
+                        # over the menu bar. An element that exists is not an
+                        # element that is styled, and only one of those is a
+                        # surface.
+                        (".stack{", "the transcript/field container has no rule "
+                         "-- it renders as unpositioned raw text, which is what "
+                         "happened the first time this was built"),
+                        (".transcript{", "the transcript has no glass and no "
+                         "bounds"),
+                        (".field{", "the input has no rule and appears as a bare "
+                         "browser text box"),
+                        (".dot{", "the state dot has no rule, so VESPER's "
+                         "activity is invisible even when the face is correct")]:
         if needed not in tpl:
             r.err(f"template is missing {needed!r}: {why}")
 

@@ -76,6 +76,69 @@
   /* Every glyph in this bar is a placeholder and says so on hover.
      The dotted underline is the tell. */
   .slot,.tile{position:relative}
+
+  /* ---- the transcript and the field (SS14.2) ----------------------------
+     Centred on the face's column, above the dock row. Sheet tier: same glass
+     and the same solved fill as the card, because these are cards.
+
+     THIS CSS WENT MISSING ONCE AND THE SYMPTOM WAS NOT AN ERROR. The insert
+     anchored on a closing style tag indented by eight spaces; the file's is at
+     column 0, so the replace did nothing and reported nothing. The MARKUP
+     landed, so a check that `class="stack"` was present passed -- and the
+     surfaces rendered as raw unstyled text over the menu bar. Verifying that
+     an element exists is not verifying that it is styled.
+
+     AND THE COMMENT THAT SAID SO BROKE THE NEXT CHECK. Written with a literal
+     closing style tag in the prose, it became the FIRST such tag in the file,
+     so a verifier slicing to it read a stylesheet that ended before these
+     rules began and reported them missing when they were present. A comment
+     about a parsing hazard is still parsed. */
+  .stack{position:absolute;left:50%;transform:translateX(-50%);
+         bottom:120px;width:620px;display:flex;flex-direction:column;gap:12px;
+         z-index:5}
+  .transcript{box-sizing:border-box;padding:16px 20px;border-radius:20px;
+              background-color:rgba(255,255,255,.055);
+              background-image:linear-gradient(rgba(0,0,0,0.42),rgba(0,0,0,0.42));
+              -webkit-backdrop-filter:blur(24px) saturate(180%);
+              backdrop-filter:blur(24px) saturate(180%);
+              border:1px solid rgba(255,255,255,.14);
+              box-shadow:0 8px 32px rgba(0,0,0,.22),
+                         inset 0 1px 0 rgba(255,255,255,.22);
+              max-height:190px;overflow:hidden;
+              display:flex;flex-direction:column;justify-content:flex-end;gap:8px}
+  .tline{font-size:13px;line-height:1.5;color:rgba(244,230,220,.86)}
+  .tline.dim{color:rgba(244,230,220,.34)}
+  .tline.vesper{color:rgba(244,230,220,.66)}
+  .tline.vesper .src{color:rgba(180,220,255,.46)}
+  .src{display:inline-block;min-width:56px;font-size:9.5px;letter-spacing:.14em;
+       text-transform:uppercase;color:rgba(244,230,220,.32);vertical-align:1px}
+  .unsure{margin-left:8px;font-size:9.5px;letter-spacing:.10em;
+          text-transform:uppercase;color:rgba(244,190,150,.62)}
+  .field{box-sizing:border-box;display:flex;align-items:center;gap:14px;
+         padding:15px 20px;border-radius:20px;
+         background-color:rgba(255,255,255,.055);
+         background-image:linear-gradient(rgba(0,0,0,0.42),rgba(0,0,0,0.42));
+         -webkit-backdrop-filter:blur(24px) saturate(180%);
+         backdrop-filter:blur(24px) saturate(180%);
+         border:1px solid rgba(255,255,255,.18);
+         box-shadow:0 8px 32px rgba(0,0,0,.22),
+                    inset 0 1px 0 rgba(255,255,255,.22)}
+  .field input{flex:1;background:transparent;border:0;outline:0;
+               font-family:inherit;font-size:14px;color:#f4e6dc;
+               letter-spacing:.01em}
+  .field input::placeholder{color:rgba(244,230,220,.32)}
+  .dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;
+       background:rgba(244,230,220,.34);
+       transition:background .4s ease, box-shadow .4s ease}
+  body[data-face="thinking"] .dot,
+  body[data-face="working"]  .dot{background:rgba(244,230,220,.88);
+       box-shadow:0 0 10px rgba(244,230,220,.45)}
+  body[data-face="talking"]  .dot{background:rgba(180,220,255,.92);
+       box-shadow:0 0 12px rgba(180,220,255,.50)}
+  body[data-face="listening"] .dot{background:rgba(180,255,210,.90);
+       box-shadow:0 0 12px rgba(180,255,210,.45)}
+  body[data-face="wondering"] .dot{background:rgba(244,190,150,.90);
+       box-shadow:0 0 12px rgba(244,190,150,.45)}
 </style>
 
 <div class="card">

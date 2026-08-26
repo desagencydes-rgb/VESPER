@@ -210,6 +210,30 @@ def main() -> int:
             print(f"  {who:>6}: {line['text'][:120]}")
         return 0
 
+    # GREET ON ARRIVAL. The owner asked for it, and it is doing real work
+    # beyond courtesy: a home that shows an empty transcript is
+    # indistinguishable from a home whose runtime never started. One line says
+    # the whole chain is alive -- surface, bridge, runtime, ladder -- before
+    # anything is asked of it.
+    #
+    # NOT MODEL-GENERATED. It must appear when the ladder is unreachable, which
+    # is exactly when a generated greeting could not be produced.
+    hour = time.localtime().tm_hour
+    part = ("Good morning" if 5 <= hour < 12 else
+            "Good afternoon" if 12 <= hour < 18 else
+            "Good evening")
+    transcript.append({"who": "vesper", "source": "vesper", "certain": True,
+                       "text": f"{part}, sir. I'm here."})
+    home.set_transcript(list(transcript))
+    home._set("talking", "greeting the owner")
+    try:
+        Announcer(bus=bus).announce(
+            "greeting", interruption_class="active_user_task")
+    except Exception:                               # noqa: BLE001
+        # A MISSING LINE MUST NOT STOP THE RUNTIME. The greeting is the first
+        # thing that runs; a template problem here would look exactly like the
+        # runtime failing to start at all.
+        pass
     print("vesper runtime: watching the field. ctrl-c to stop.")
     home.write()
     while True:

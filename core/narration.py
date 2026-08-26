@@ -47,7 +47,8 @@ from .gateway import TERMINAL, TRANSIENT           # noqa: E402
 
 # Classifications this module speaks for that are not gateway exception
 # classes: they are outcomes the gateway reaches by other paths.
-EXTRA = ("quota_unavailable_on_tier", "cost_policy", "exhausted_all")
+EXTRA = ("quota_unavailable_on_tier", "cost_policy", "exhausted_all",
+         "greeting")
 
 
 class NarrationRefused(Exception):

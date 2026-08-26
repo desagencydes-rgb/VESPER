@@ -59,6 +59,15 @@ surfaced through the ordinary interruption path rather than by bypassing it."""
 # --------------------------------------------------------------------------
 
 [[line]]
+classification = "greeting"
+text = "I'm here."
+why = """Spoken once when the runtime comes up. It is not courtesy alone: a home
+showing an empty transcript is indistinguishable from a home whose runtime never
+started, and one line proves the whole chain is alive -- surface, bridge,
+runtime, ladder -- before anything is asked of it. Deliberately short, because
+it is heard on every start and a long greeting becomes something to dread."""
+
+[[line]]
 classification = "rate_limited"
 text = "Rate limited. Retrying in {retry_in_seconds} seconds. Attempt {attempt} of {max_attempts}."
 why = "SR-004 names both halves: the error TYPE and the retry TIME. A spinner is neither."
