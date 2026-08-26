@@ -533,6 +533,8 @@ final class HomeChrome {
              surface a MISSING template file falls back to, and it has to be
              correct rather than complete. */
           .work{position:absolute;left:{{left}}px;top:38px;width:{{cardWidth}}px;
+                max-height:calc({{top}}px - 58px);
+                display:flex;flex-direction:column;
                 box-sizing:border-box;padding:18px 20px 14px;border-radius:22px;
                 background-color:rgba(255,255,255,.055);
                 background-image:linear-gradient(rgba(0,0,0,{{fill}}),
@@ -541,10 +543,18 @@ final class HomeChrome {
                 backdrop-filter:blur(24px) saturate(180%);
                 border:1px solid rgba(255,255,255,.14)}
           .work.idle{opacity:0}
+          /* Newest first and brightest; never shrinks, never clipped. The
+             ACTIONS give way when the card runs short -- a log can scroll, a
+             half-shown thought is just wrong. */
           .think{font-family:var(--face-hand),cursive;font-size:19px;
-                 line-height:1.34;color:rgba(244,230,220,.80);margin:0 0 14px}
+                 line-height:1.34;color:rgba(244,230,220,.82);margin:0 0 14px;
+                 flex:0 0 auto}
           .think p{margin:0 0 2px}
-          .acts{border-top:1px solid rgba(255,255,255,.09);padding-top:10px}
+          .think p + p{color:rgba(244,230,220,.46);font-size:17px}
+          .think p + p + p{color:rgba(244,230,220,.30)}
+          .acts{border-top:1px solid rgba(255,255,255,.09);padding-top:10px;
+                flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:none}
+          .acts::-webkit-scrollbar{display:none}
           .act{display:flex;align-items:baseline;gap:9px;padding:4px 0;
                font-size:11.5px}
           .adot{flex:0 0 auto;width:5px;height:5px;border-radius:50%;
@@ -815,10 +825,24 @@ final class HomeChrome {
               var th = (w && w.thoughts) || [], ac = (w && w.actions) || [];
               if (!th.length && !ac.length) { work.classList.add('idle'); return; }
               work.classList.remove('idle');
+              // The line budget, spent newest-first, measured rather than
+              // counted -- and the gaps between lines are part of it. See the
+              // template for the full reasoning.
               thinkEl.textContent = '';
+              var lh = parseFloat(getComputedStyle(thinkEl).lineHeight) || 26;
+              var lines = w.max_lines || 2;
+              var probe = document.createElement('p');
+              thinkEl.appendChild(probe);
+              var gap = parseFloat(getComputedStyle(probe).marginBottom) || 0;
+              thinkEl.removeChild(probe);
+              var budget = lh * lines + gap * (lines - 1);
               for (var i = 0; i < th.length; i++) {
                 var p = document.createElement('p');
                 p.textContent = th[i]; thinkEl.appendChild(p);
+                if (i === 0) { continue; }     // the newest, never tested
+                if (thinkEl.getBoundingClientRect().height > budget) {
+                  thinkEl.removeChild(p); break;
+                }
               }
               actsEl.textContent = '';
               for (var j = ac.length - 1; j >= 0; j--) {

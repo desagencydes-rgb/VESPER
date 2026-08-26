@@ -50,7 +50,23 @@ DIGIT = re.compile(r"\d")
 # How many rows the board holds. Enough to see a failover through; short enough
 # that the card is a glance and not a log.
 MAX_ACTIONS = 12
-MAX_THOUGHTS = 2
+
+# HOW MANY THOUGHTS ARE KEPT, WHICH IS NOT HOW MANY ARE SHOWN.
+#
+# This was one number and conflated two things. SS5's rule is about LINES on
+# screen -- "never more than ~two lines" -- and it was implemented as a cap of
+# two THOUGHTS, which is wrong in both directions: one long thought is already
+# several lines and passed, while two short ones are one line each and were
+# treated as the ceiling.
+#
+# Worse, the cap did the discarding here, so the renderer got exactly two
+# strings and no way to prefer the new one. Whichever thought was newest had to
+# share the budget with a stale one even when it needed all of it.
+#
+# So the record keeps a few and `hand.max_lines` becomes what it always said it
+# was: a budget of RENDERED LINES, spent newest-first, by the only layer that
+# can measure a line.
+MAX_THOUGHTS_KEPT = 4
 
 
 class HandRuleViolation(Exception):
@@ -77,7 +93,7 @@ class Workbench:
     def __init__(self, *, voice_path: Path | None = None) -> None:
         with (voice_path or VOICE).open("rb") as fh:
             self._hand = (tomllib.load(fh).get("hand") or {})
-        self._max_lines = int(self._hand.get("max_lines", MAX_THOUGHTS))
+        self._max_lines = int(self._hand.get("max_lines", 2))
         for name, line in self._hand.items():
             if name == "max_lines":
                 continue
@@ -105,7 +121,7 @@ class Workbench:
                 # that stutters reads as a loop rather than as a mind.
                 return line
             self._thoughts.append(line)
-            del self._thoughts[:-self._max_lines]
+            del self._thoughts[:-MAX_THOUGHTS_KEPT]
         return line
 
     # ------------------------------------------------------------- actions
@@ -215,6 +231,15 @@ class Workbench:
     # -------------------------------------------------------------- render
 
     def state(self) -> dict:
+        """NEWEST THOUGHT FIRST, because the renderer spends its line budget in
+        order and the newest is the one that must never be the casualty.
+
+        The list stays chronological in `self._thoughts` -- that is the record,
+        and a record that reorders itself for a view is not a record. The
+        reversal happens here, at the boundary, where it is a presentation
+        decision and says so.
+        """
         with self._lock:
-            return {"thoughts": list(self._thoughts),
+            return {"thoughts": list(reversed(self._thoughts)),
+                    "max_lines": self._max_lines,
                     "actions": [a.to_dict() for a in self._actions]}

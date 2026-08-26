@@ -950,6 +950,7 @@ TRIAGE = "core/triage.py"
 REPAIR = "core/repair.py"
 EFFORT = "core/effort.py"
 PERSONA_PY = "core/persona.py"
+WORKBENCH = "core/workbench.py"
 BEHAVIOUR_SW = "app/island-macos/Behaviour.swift"
 HOME_SW = "app/home-macos/Home.swift"
 PERSONA_TOML = "contracts/policy/persona.toml"
@@ -1362,6 +1363,24 @@ CASES += [
      "the gateway's re-order removed: the router picks the fast profile and "
      "quota headroom then picks the slow rung inside it, which is how four "
      "consecutive turns measured 0.56s, 4.22s, 1.02s and 4.63s"),
+
+    ("chrome-template-renders", CHROME_TPL,
+     _sub("        if (i === 0) { continue; }", "        if (false) { continue; }", 1),
+     "the newest thought tested against the line budget like any other: a long "
+     "one is dropped entirely, so VESPER thinks something and shows nothing"),
+
+    ("chrome-template-renders", CHROME_TPL,
+     _sub("      var budget = lh * lines + gap * (lines - 1);",
+          "      var budget = lh * lines;", 1),
+     "the gaps between lines left out of the budget: two one-line thoughts "
+     "measure 51.00px against 50.92px and the second vanishes, SS5's `~two "
+     "lines` decided by eight hundredths of a pixel"),
+
+    ("chrome-template-renders", WORKBENCH,
+     _sub("            return {\"thoughts\": list(reversed(self._thoughts)),",
+          "            return {\"thoughts\": list(self._thoughts),", 1),
+     "thoughts published oldest-first again, so the renderer spends its budget "
+     "on stale lines and the newest is the one that runs out of room"),
 
     ("effort-floor-and-null-answer", HTTP_COMPLETION,
      _sub('    413: "budget_too_large",', '    # 413 unclassified', 1),

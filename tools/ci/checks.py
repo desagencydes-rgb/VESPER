@@ -2751,6 +2751,35 @@ def check_chrome_template_renders() -> Result:
             r.err(f"{label} declares no hand. SS5's third face is VESPER writing "
                   "in the first person and it is the whole reason the thoughts "
                   "column is a different kind of claim from the actions one.")
+    # THE NEWEST THOUGHT IS NEVER THE CASUALTY, in both copies.
+    #
+    # The budget is spent newest-first and the first entry is appended without
+    # being tested -- so a long thought is shown whole and the OLDER ones are
+    # dropped to make room, rather than the new one being clipped or squeezed.
+    # It rendered the other way round on both counts: thoughts were appended
+    # chronologically with `nth-child(2)` dimmed, so a fresh thought appeared
+    # FADED under a stale bright one; and a six-line ceiling clipped it.
+    for label, src in (("the template", tpl), ("the inline fallback", swift)):
+        if "if (i === 0) { continue; }" not in src:
+            r.err(f"{label} tests the newest thought against the line budget. "
+                  "It must be appended unconditionally -- a long thought is "
+                  "still a thought, and clipping it is exactly the `packed and "
+                  "hidden` the budget exists to avoid.")
+        if "gap * (lines - 1)" not in src:
+            r.err(f"{label} counts lines and not the gaps between them. Two "
+                  "one-line thoughts measured 51.00px against a budget of "
+                  "50.92px and the second was dropped: SS5's `~two lines` "
+                  "decided by eight hundredths of a pixel.")
+        if "flex:0 0 auto" not in src:
+            r.err(f"{label} lets the thoughts block shrink. When the card runs "
+                  "short the ACTIONS must give way -- a log can scroll, a "
+                  "half-shown thought is just wrong.")
+    if "reversed(self._thoughts)" not in (REPO / "core" / "workbench.py").read_text(
+            encoding="utf-8"):
+        r.err("the workbench publishes thoughts oldest-first, so the renderer "
+              "spends its budget on stale lines and the newest is what runs "
+              "out of room.")
+
     if "static func workbenchJSON()" not in swift:
         r.err("HomeChrome never reads the workbench out of home.json, so the "
               "page's receiver is never called.")

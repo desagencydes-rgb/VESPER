@@ -154,7 +154,12 @@
 
      ABOVE THE HOST CARD IN THE SAME COLUMN, sharing its `left` so the two read
      as one cluster rather than two decisions. */
+  /* THE CARD IS BOUNDED BY THE HOST CARD BELOW IT, not by a guess. `{{top}}`
+     is where the metrics card starts, computed in Swift off the face, so this
+     can grow to fill the gap and never into it. */
   .work{position:absolute;left:{{left}}px;top:38px;width:{{cardWidth}}px;
+        max-height:calc({{top}}px - 58px);
+        display:flex;flex-direction:column;
         box-sizing:border-box;padding:18px 20px 14px;border-radius:22px;
         background-color:rgba(255,255,255,.055);
         background-image:linear-gradient(rgba(0,0,0,{{fill}}),
@@ -168,14 +173,28 @@
   /* EMPTY MEANS ABSENT, not an empty box. A card holding a heading and nothing
      else says VESPER is doing something and declining to say what. */
   .work.idle{opacity:0;pointer-events:none}
+  /* NEWEST FIRST AND BRIGHTEST. It rendered the other way round: thoughts were
+     appended chronologically and `nth-child(2)` was the dimmed rule, so the
+     NEW thought was the faded one under a stale bright one. */
   .think{font-family:var(--face-hand),cursive;
          font-size:19px;line-height:1.34;letter-spacing:.005em;
-         color:rgba(244,230,220,.80);min-height:26px;
+         color:rgba(244,230,220,.82);min-height:26px;
          margin:0 0 14px;
          transition:opacity .45s ease}
+  /* NO CLIPPING AND NO SHRINKING, DELIBERATELY, AND THIS IS THE WHOLE POINT.
+     Clipping is what "packed and hidden" looks like. The line budget is spent
+     by REMOVING older thoughts in the script, so whatever survives is whole --
+     and `flex:0 0 auto` means the newest thought is never the thing that gives
+     way when the card runs short. The ACTIONS give way instead: they are a log
+     and a log can scroll, whereas a half-shown thought is just wrong. */
+  .think{flex:0 0 auto}
   .think p{margin:0 0 2px}
-  .think p:nth-child(2){color:rgba(244,230,220,.52)}
-  .acts{border-top:1px solid rgba(255,255,255,.09);padding-top:10px}
+  .think p + p{color:rgba(244,230,220,.46);font-size:17px}
+  .think p + p + p{color:rgba(244,230,220,.30)}
+  .acts{border-top:1px solid rgba(255,255,255,.09);padding-top:10px;
+        flex:1 1 auto;min-height:0;overflow-y:auto;
+        scrollbar-width:none}
+  .acts::-webkit-scrollbar{display:none}
   .act{display:flex;align-items:baseline;gap:9px;padding:4px 0;
        font-size:11.5px;line-height:1.4}
   .adot{flex:0 0 auto;width:5px;height:5px;border-radius:50%;
@@ -562,11 +581,50 @@
       if (!work) return;
       if (!thoughts.length && !actions.length) { work.classList.add('idle'); return; }
       work.classList.remove('idle');
+      // THE LINE BUDGET IS SPENT NEWEST-FIRST, AND THE NEWEST IS NEVER THE
+      // CASUALTY.
+      //
+      // SS5's rule is about LINES on screen -- "never more than ~two lines" --
+      // and it had been implemented as a cap of two THOUGHTS, discarded before
+      // the renderer ever saw them. That is wrong in both directions: one long
+      // thought is already several lines and passed the count, while two short
+      // ones are one line each and hit the ceiling. And with exactly two
+      // strings arriving there was no way to prefer the new one, so a fresh
+      // thought had to share the budget with a stale one even when it needed
+      // all of it.
+      //
+      // MEASURED, NOT ASSUMED. A line is a rendered height, which only the
+      // engine knows -- a character count would be a guess that is wrong at
+      // every width and every typeface, and the hand is a typeface nobody has
+      // measured. So each older thought is appended and KEPT only if the block
+      // still fits; the first is appended unconditionally and never tested.
       thinkEl.textContent = '';
+      var lh = parseFloat(getComputedStyle(thinkEl).lineHeight) || 26;
+      var lines = w.max_lines || 2;
+      // THE GAPS BETWEEN THE LINES ARE PART OF THE BUDGET. Without them two
+      // one-line thoughts measured 51.00 px against a budget of 50.92 and the
+      // second was dropped -- SS5's "~two lines" decided by eight hundredths of
+      // a pixel. Read from the DOM rather than hardcoded, so a change to the
+      // paragraph spacing does not silently re-tune what fits.
+      var probe = document.createElement('p');
+      thinkEl.appendChild(probe);
+      var gap = parseFloat(getComputedStyle(probe).marginBottom) || 0;
+      thinkEl.removeChild(probe);
+      var budget = lh * lines + gap * (lines - 1);
       for (var i = 0; i < thoughts.length; i++) {
         var p = document.createElement('p');
         p.textContent = thoughts[i];
         thinkEl.appendChild(p);
+        // THE NEWEST IS APPENDED AND NEVER TESTED. The first version gave it a
+        // ceiling of six lines and clipped it past that -- which is the defect
+        // being fixed, arriving through the guard meant to prevent a different
+        // one. A long thought is still a thought; what gives way when the card
+        // runs short is the actions list below, which scrolls.
+        if (i === 0) { continue; }
+        if (thinkEl.getBoundingClientRect().height > budget) {
+          thinkEl.removeChild(p);
+          break;
+        }
       }
       actsEl.textContent = '';
       // NEWEST FIRST. The board is read at a glance and the thing that just
