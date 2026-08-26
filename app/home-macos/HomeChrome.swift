@@ -620,6 +620,8 @@ final class HomeChrome {
     private(set) var cardFill = 0.0
     private(set) var cardAdapted = false
 
+    static var pushFailures = 0
+    static var pushedOnce = false
     private let bridge = SayBridge()
     private var refresh: Timer?
 
@@ -640,6 +642,32 @@ final class HomeChrome {
     /// frame rate, and this only tells it which behaviour to hold. SPIKE-013's
     /// cost table is why: the composite already costs +0.053% of one core, and
     /// a JS evaluation four times a second buys nothing a person can perceive.
+    /// Ask the page what it painted. Not what it was told to paint.
+    static func reportStage(_ w: WKWebView) {
+        let js = """
+        (function(){
+          function d(sel){
+            var e = document.querySelector(sel);
+            if (!e) return sel + ': ABSENT';
+            var r = e.getBoundingClientRect();
+            var s = getComputedStyle(e);
+            return sel + ': "' + (e.textContent||'').trim().slice(0,42) + '"'
+                 + ' box=' + Math.round(r.x) + ',' + Math.round(r.y)
+                 + ' ' + Math.round(r.width) + 'x' + Math.round(r.height)
+                 + ' opacity=' + s.opacity + ' display=' + s.display
+                 + ' vis=' + s.visibility;
+          }
+          return [d('#stage'), d('.field'), d('#say'),
+                  'viewport=' + window.innerWidth + 'x' + window.innerHeight,
+                  'face=' + document.body.getAttribute('data-face')].join(' | ');
+        })();
+        """
+        w.evaluateJavaScript(js) { val, err in
+            if let err { print("chrome: stage READBACK failed: \(err)") }
+            else { print("chrome: READBACK \(val ?? "nil")") }
+        }
+    }
+
     func startRefresh() {
         refresh?.invalidate()
         let timer = Timer(timeInterval: 0.7, repeats: true) { [weak self] _ in
@@ -656,7 +684,32 @@ final class HomeChrome {
               if (window.__vesperStage) window.__vesperStage(`\(safe)`, '\(who)');
             })();
             """
-            w.evaluateJavaScript(js, completionHandler: nil)
+            // REPORT WHAT THE PUSH DID. `completionHandler: nil` swallowed
+            // every JavaScript error: a throw inside the injected snippet --
+            // an undefined function, a bad template literal -- left the page
+            // unchanged and said nothing, which is indistinguishable from a
+            // timer that never fired. The whole pipeline can be working and
+            // the surface still show nothing, which is exactly what happened.
+            w.evaluateJavaScript(js) { _, err in
+                if let err {
+                    Self.pushFailures += 1
+                    if Self.pushFailures <= 3 {
+                        print("chrome: stage push FAILED: \(err)")
+                    }
+                } else if !Self.pushedOnce {
+                    Self.pushedOnce = true
+                    print("chrome: stage push OK (first)")
+                    // READ THE WORLD AFTER ACTING. "push OK" only means the
+                    // snippet did not throw; it says nothing about whether a
+                    // glyph is on screen. A stage that is empty, transparent,
+                    // zero-height or positioned off the display would report
+                    // exactly the same success. So the PAGE is asked what it
+                    // actually rendered -- text, box and opacity -- which is
+                    // the closest thing to looking at it available without a
+                    // screen-recording grant.
+                    Self.reportStage(w)
+                }
+            }
         }
         RunLoop.main.add(timer, forMode: .common)
         refresh = timer

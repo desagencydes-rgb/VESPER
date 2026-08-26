@@ -143,6 +143,21 @@ def pump(bus, gw, router, home, intake, transcript: list,
             said.append({"who": "owner", "text": text,
                          "source": res["utterance"]["source"],
                          "certain": res["utterance"]["certain"]})
+            # SHOW THE OWNER THEIR OWN WORDS BEFORE ANSWERING, and this is not
+            # a nicety. The transcript was written ONCE at the end of the pass,
+            # so the owner's line was appended and immediately superseded by
+            # the reply -- it never appeared on the stage at all. What the
+            # owner saw was: the field clears, nothing, nothing, an answer.
+            #
+            # And the wait is real: measured 30 s on this exchange, and one
+            # supplier in the table answers at 5 tok/s. Half a minute of no
+            # feedback is indistinguishable from a system that did not hear.
+            # Publishing here means the words land, the face turns to thinking,
+            # and the dissolve happens when the answer actually arrives.
+            transcript.extend(said)
+            del transcript[:-40]
+            said = []
+            home.set_transcript(list(transcript))
             if res["outcome"] == "dispatched":
                 reply = answer(gw, router, intake.history[-1])
                 # VESPER'S REPLY IS NOT AN UTTERANCE, and the first version put
