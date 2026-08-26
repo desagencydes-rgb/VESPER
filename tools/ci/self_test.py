@@ -943,6 +943,7 @@ NARRATION = "core/narration.py"
 NARRATION_TOML = "contracts/policy/narration.toml"
 CHROME_TPL = "app/home-macos/chrome/home.html"
 CHROME_SW = "app/home-macos/HomeChrome.swift"
+HOME_STATE = "core/home_state.py"
 INTAKE = "core/intake.py"
 QUOTA_PY = "core/quota.py"
 TRIAGE = "core/triage.py"
@@ -966,6 +967,30 @@ CASES += [
           "static func fallbackTemplateX() -> String {", 1),
      "the inline fallback removed, so a missing template file blanks a layer "
      "covering the owner's whole Desktop"),
+
+    ("face-follows-activity", HOME_STATE,
+     _sub('THINKING = "thinking"', 'THINKING = "working"', 1),
+     "the constants transposed again -- three names, three valid behaviours, "
+     "and the face shows the wrong expression for every event while nothing "
+     "raises"),
+
+    ("face-follows-activity", HOME_STATE,
+     _sub("            if (self._behaviour != RESTING\n                    and time.time() - self._since > STALE_AFTER_S):\n                return RESTING",
+          "            if False:\n                return RESTING", 1),
+     "staleness removed: a face stuck on `thinking` after the run stopped "
+     "reports work that is not happening, which nothing else would correct"),
+
+    ("face-follows-activity", HOME_STATE,
+     _sub("        if behaviour not in DERIVABLE:", "        if False:", 1),
+     "an expression nothing measures becomes reachable -- a face that can be "
+     "told to look happy eventually looks happy about something it never "
+     "evaluated"),
+
+    ("face-follows-activity", HOME_STATE,
+     _sub("            existing[\"face\"] = self.state()",
+          "            existing = {}; existing[\"face\"] = self.state()", 1),
+     "the snapshot rewritten whole instead of merged, so the face state and "
+     "the metrics rows delete each other and the loser is whichever ran last"),
 
     ("egress-gates-at-choke-point", GATEWAY,
      _sub("            if p.egress_class not in permitted_egress:",

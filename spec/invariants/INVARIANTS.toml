@@ -353,6 +353,16 @@ why_it_was_missing = "Two correct vocabularies had never been introduced. core/p
 why_before_the_cost_check = "Cost decides whether VESPER may SPEND on a provider; egress decides whether that provider may SEE this content. A refusal on price that happens to preempt a privacy violation is luck, and a rule that depends on another rule failing first is not enforced. Ordering it first also keeps the recorded reason the real reason."
 why_unlabelled_is_private = "core/privacy.py's asymmetry, applied to egress rather than to displays: withholding something the owner wanted costs a re-ask, and sending private content to a provider that trains on it cannot be undone. So the ambiguous case resolves to the cheap failure, and UNKNOWN is treated as the strict class rather than as a missing input to be guessed at."
 
+[invariants.INV-HOME-7]
+statement = "VESPER's face reports what VESPER is doing. Each activity signal maps to a distinct behaviour derived from events rather than set by a caller; a behaviour with no further event falls back to rest; an expression nothing measures cannot be selected; and the snapshot the chrome reads is merged, never rewritten whole."
+owner_rem = "REM-009"
+enforced_by = ["CI-067"]
+kind = "runtime"
+why_it_was_disconnected = "Behaviour.swift has carried fourteen behaviours -- distinct gaze, blink, breath, dispersal -- since the island was written, and the only thing that ever selected one was `--demo`, cycling them on a timer so they could be seen. So a face able to express thinking, listening and talking rested through every call VESPER made. Built-and-unreached is this tree's recurring failure: Provider.profile_id sat unread for months, and the egress class was applied at registration and never at the choke point. Each was correct and each had no seam to the thing it was about."
+why_derived_not_set = "A `set_thinking()` method would put the face's honesty in the hands of whoever remembered to call it, and the first forgotten call is a face reporting work that is not happening. Subscribing means the face cannot claim activity it did not have, and cannot fail to show activity it did."
+why_stale_falls_back = "The face is an instrument and its reading is about VESPER. `resting` while a request is in flight is a false reading in exactly the way a stale metric is -- and a face stuck on `thinking` after a crash is worse than one at rest, because it reports work that is not occurring and nothing else would correct it."
+why_unmeasured_expressions_are_refused = "Five of the fourteen -- laughing, joking, angry, happy, aura -- are expressive states nothing currently measures. Selecting one from a heuristic would be the face inventing a mood. They stay unreachable until something can honestly produce them."
+
 # ------------------------------------------------- REM-007 triggers
 [invariants.INV-TRIG-1]
 statement = "Every autonomous action traces to exactly one registered trigger_id whose predicate demonstrably evaluated true against a reconstructible world-model snapshot."

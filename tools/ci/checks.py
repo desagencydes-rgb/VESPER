@@ -2576,7 +2576,15 @@ def check_chrome_template_renders() -> Result:
     # that the page still HAS its parts, not that the HTML is well-formed.
     for needed, why in [("<style", "no stylesheet -- every surface would paint unstyled"),
                         ("class=\"card\"", "the card is gone from the markup"),
-                        ("class=\"dockrow\"", "the main menu row is gone")]:
+                        ("class=\"dockrow\"", "the main menu row is gone"),
+                        ("class=\"transcript\"", "the transcript is gone -- the "
+                         "surface typing and speech SHARE, so losing it removes "
+                         "the record of what was said on either channel"),
+                        ('id="say"', "the input field is gone and there is no "
+                         "way to say anything to VESPER at all"),
+                        ('data-face=', "the face behaviour no longer reaches the "
+                         "page, so every state-reactive rule falls back to the "
+                         "resting appearance while VESPER is working")]:
         if needed not in tpl:
             r.err(f"template is missing {needed!r}: {why}")
 
@@ -2587,6 +2595,130 @@ def check_chrome_template_renders() -> Result:
     return r
 
 
+
+
+
+
+
+
+def check_face_follows_activity() -> Result:
+    """VESPER's face reports what it is doing, and falls back to rest when stale.
+
+    THE FACE WAS BUILT AND NEVER CONNECTED. `Behaviour.swift` has carried
+    fourteen behaviours -- distinct gaze, blink, breath, dispersal -- since the
+    island was written, and the only thing that ever selected one was `--demo`,
+    cycling them on a timer so they could be SEEN. A face able to express
+    thinking, listening and talking rested through every call VESPER made.
+
+    Built-and-unreached is this tree's recurring failure: `Provider.profile_id`
+    sat unread for months, the egress class was applied at registration and
+    never at the choke point. Each was correct, and each had no seam to the
+    thing it was about.
+    """
+    r = Result("face-follows-activity")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        import tempfile
+        import time
+        from core.home_state import (DERIVABLE, LISTENING, RESTING, STALE_AFTER_S,
+                                     TALKING, THINKING, WONDERING, WORKING,
+                                     HomeState)
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"home_state did not import: {exc!r}")
+        return r
+
+    # 0. THE CONSTANTS BIND TO WHAT THEY SAY. Written one per line after a
+    # transposed tuple bound THINKING to "working" -- three names, three
+    # strings, all present, and the face showed the wrong state for every
+    # event. Both values were valid behaviours, so nothing raised.
+    for name, value in [("THINKING", THINKING), ("WORKING", WORKING),
+                        ("TALKING", TALKING), ("LISTENING", LISTENING),
+                        ("WONDERING", WONDERING), ("RESTING", RESTING)]:
+        if value != name.lower():
+            r.err(f"{name} is bound to {value!r}. A transposition here shows "
+                  "the wrong expression for every event and raises nothing, "
+                  "because both sides are valid behaviours.")
+
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "home.json"
+        from core.bus import EventBus
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+        clock = HybridLogicalClock("face-check")
+        store = StoreSet(Path(td) / "s", node_id="face-check")
+        bus = EventBus(clock, store, component="face-check")
+        hs = HomeState(path=path)
+        hs.attach(bus)
+
+        if hs.behaviour() != RESTING:
+            r.err("the face did not start at rest.")
+
+        # 1. EACH SIGNAL PRODUCES ITS OWN EXPRESSION. Asserted individually
+        # rather than as a sequence: a mapping where every event produced the
+        # same behaviour would satisfy "it changed" and express nothing.
+        for event, payload, want, why in [
+            ("intake.dispatched", {}, THINKING, "an utterance was accepted"),
+            ("route.selected", {}, WORKING, "a call is in flight"),
+            ("gateway.attempt", {"outcome": "error",
+                                 "classification": "rate_limited"}, WONDERING,
+             "a provider failed and another is being tried"),
+            ("narration.emitted", {"spoken": True}, TALKING, "speaking aloud"),
+            ("intake.partial", {}, LISTENING, "a spoken utterance is mid-revision"),
+        ]:
+            bus.publish(event, subject="s", payload=payload, component="x")
+            got = hs.behaviour()
+            if got != want:
+                r.err(f"{event} produced {got!r}, expected {want!r} ({why}). A "
+                      "face that reports the wrong activity is a false reading "
+                      "in the same way a stale metric is.")
+
+        # 2. STALENESS FALLS BACK TO REST. A face stuck on `thinking` after a
+        # crash reports work that is not happening, which is worse than rest.
+        hs._since = time.time() - (STALE_AFTER_S + 5)
+        if hs.behaviour() != RESTING:
+            r.err(f"a behaviour older than {STALE_AFTER_S}s did not fall back "
+                  "to rest. A face still reporting work after the process "
+                  "stopped is a false reading that nothing else would correct.")
+
+        # 3. AN UNDERIVABLE EXPRESSION IS REFUSED, NOT COERCED. The expressive
+        # states nothing measures -- laughing, angry, happy -- must not be
+        # reachable from a heuristic, or the face invents a mood.
+        try:
+            hs._set("laughing", "nothing measures this")
+            r.err("an expression nothing measures was accepted. A face that "
+                  "can be told to look happy will eventually look happy about "
+                  "something it did not evaluate.")
+        except ValueError:
+            pass
+
+        # 4. THE FILE THE CHROME READS ACTUALLY CARRIES IT.
+        import json
+        obj = json.loads(path.read_text(encoding="utf-8"))
+        if (obj.get("face") or {}).get("behaviour") not in DERIVABLE:
+            r.err("home.json carries no usable `face.behaviour`. The chrome "
+                  "reads that key; without it the face falls back to resting "
+                  "forever, which is what it did before it was connected.")
+
+        # 5. WRITING MUST NOT CLOBBER THE OTHER PRODUCER. `home_snapshot.py`
+        # owns `rows`; this owns `face` and `transcript`. A whole-file rewrite
+        # from either deletes the other's work, and the loser is whichever ran
+        # last -- a race with no error.
+        obj["rows"] = [{"label": "keep", "value": "me"}]
+        path.write_text(json.dumps(obj), encoding="utf-8")
+        hs._set(THINKING, "second write")
+        after = json.loads(path.read_text(encoding="utf-8"))
+        if not after.get("rows"):
+            r.err("writing the face state deleted `rows`. Two producers share "
+                  "this file and a whole-file rewrite makes them race with no "
+                  "error reported.")
+
+    if r.ok:
+        r.note("five signals map to five distinct expressions; a stale "
+               f"behaviour falls back to rest after {STALE_AFTER_S:.0f}s; an "
+               "unmeasured expression is refused; the snapshot merges rather "
+               "than clobbering the other producer")
+    return r
 
 
 
@@ -3526,6 +3658,7 @@ CHECK_FNS = {
     "shared-pool-is-shared": check_shared_pool_is_shared,
     "intake-is-modality-neutral": check_intake_is_modality_neutral,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,
+    "face-follows-activity": check_face_follows_activity,
     "chrome-template-renders": check_chrome_template_renders,
     "effort-floor-and-null-answer": check_effort_floor,
 }

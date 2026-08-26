@@ -136,6 +136,63 @@ final class HomeChrome {
         }.joined(separator: "\n          ")
     }
 
+    /// What VESPER is doing, read from the state the runtime writes.
+    ///
+    /// THE FACE WAS BUILT AND NEVER CONNECTED. `Behaviour.swift` carries
+    /// fourteen behaviours with distinct gaze, blink, breath and dispersal, and
+    /// the only thing that has ever selected one is `--demo`, cycling them on a
+    /// timer so they could be seen. So a face able to express thinking,
+    /// listening and talking has been resting through every call VESPER has
+    /// made -- the same built-and-unreached shape as `Provider.profile_id`
+    /// sitting unread, and the egress class applied at registration and never
+    /// at the choke point.
+    ///
+    /// READ, NOT PUSHED, and polled rather than notified. The runtime is a
+    /// separate process; a push would need a second channel between the same
+    /// two processes, and `tools/ops/alarm_wake_linux.py` records what two
+    /// mechanisms writing one piece of state costs. The snapshot is already
+    /// the channel.
+    ///
+    /// AN ABSENT FILE MEANS `resting`, WHICH IS THE TRUE READING. Nothing is
+    /// running, so nothing is happening -- unlike a stale `thinking`, which
+    /// would report work that is not occurring.
+    static func faceBehaviour() -> String {
+        let url = FileManager.default
+            .homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/VESPER/home.json")
+        guard let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let face = obj["face"] as? [String: Any],
+              let b = face["behaviour"] as? String, !b.isEmpty
+        else { return "resting" }
+        return b
+    }
+
+    /// What has been said, newest last. Shared by typing and by speech.
+    static func transcriptRows() -> String {
+        let url = FileManager.default
+            .homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/VESPER/home.json")
+        guard let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let entries = obj["transcript"] as? [[String: Any]], !entries.isEmpty
+        else {
+            return "<div class=\"tline dim\">nothing said yet</div>"
+        }
+        return entries.suffix(6).map { e in
+            let text = esc((e["text"] as? String) ?? "")
+            let src = (e["source"] as? String) ?? "typed"
+            // AN UNCERTAIN UTTERANCE IS MARKED, NOT HIDDEN. core/intake.py
+            // withholds it from the dispatcher and still records it; showing it
+            // plainly is what lets the owner tell "did not hear" from "heard
+            // and declined".
+            let certain = (e["certain"] as? Bool) ?? true
+            let mark = certain ? "" : " <span class=\"unsure\">unsure</span>"
+            return "<div class=\"tline\"><span class=\"src\">\(src)</span>"
+                 + "\(text)\(mark)</div>"
+        }.joined(separator: "\n          ")
+    }
+
     /// The snapshot is data VESPER produced, but it is still interpolated into
     /// a page. Escaped because a value is not markup, and the day one carries a
     /// model's output is the day that stops being theoretical.
@@ -166,6 +223,8 @@ final class HomeChrome {
             .replacingOccurrences(of: "{{fill}}",       with: String(fill))
             .replacingOccurrences(of: "{{slots}}",      with: slots)
             .replacingOccurrences(of: "{{METRIC_ROWS}}", with: metricRows())
+            .replacingOccurrences(of: "{{TRANSCRIPT}}", with: transcriptRows())
+            .replacingOccurrences(of: "{{FACE}}", with: faceBehaviour())
     }
 
     /// Where the chrome's markup came from, and it is REPORTED rather than
@@ -183,6 +242,7 @@ final class HomeChrome {
     static func fallbackTemplate() -> String {
         return """
         <!doctype html><meta charset="utf-8">
+        <body data-face="{{FACE}}">
         <style>
           html,body{margin:0;height:100%;background:transparent;overflow:hidden;
                     font-family:-apple-system,system-ui,sans-serif;
@@ -266,6 +326,17 @@ final class HomeChrome {
           {{METRIC_ROWS}}
         </div>
 
+        <div class="stack">
+          <div class="transcript">
+            {{TRANSCRIPT}}
+          </div>
+          <div class="field">
+            <span class="dot" title="what VESPER is doing"></span>
+            <input id="say" type="text" autocomplete="off" spellcheck="false"
+                   placeholder="say something to VESPER">
+          </div>
+        </div>
+
         <div class="dockrow">
           <div class="bar">
             {{slots}}
@@ -282,7 +353,6 @@ final class HomeChrome {
             </svg>
           </div>
         </div>
-
         """
     }
 
