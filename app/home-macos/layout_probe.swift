@@ -28,6 +28,15 @@ func intArg(_ name: String, _ dflt: Int) -> Int {
 }
 let w = intArg("--width", 2000), h = intArg("--height", 1300)
 
+/// An arbitrary expression, so this stays an INSTRUMENT rather than one fixed
+/// question. Added the day the transcript card's reveal was reported glitchy:
+/// the default report says where boxes are and cannot say how many elements a
+/// line creates or how long painting one costs, and guessing at that is how a
+/// performance fix gets made to the wrong thing.
+let evalIdx = args.firstIndex(of: "--eval")
+let customJS: String? = (evalIdx != nil && evalIdx! + 1 < args.count)
+    ? args[evalIdx! + 1] : nil
+
 let JS = """
 (function(){
   function r(sel){ var e=document.querySelector(sel); if(!e) return null;
@@ -59,8 +68,10 @@ final class Probe: NSObject, WKNavigationDelegate {
         // read as "the card is not there" rather than "the question was asked
         // too early".
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            v.evaluateJavaScript(JS) { res, err in
-                if let s = res as? String { print(s) } else {
+            v.evaluateJavaScript(customJS ?? JS) { res, err in
+                if let s = res as? String { print(s) }
+                else if let n = res as? NSNumber { print(n) }
+                else {
                     FileHandle.standardError.write("eval failed: \(String(describing: err))\n".data(using: .utf8)!)
                     exit(1)
                 }

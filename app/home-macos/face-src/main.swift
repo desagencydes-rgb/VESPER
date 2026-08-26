@@ -215,8 +215,15 @@ final class Driver: NSObject {
     let layer: CAMetalLayer
     let motion = FaceDriver()
     var drawn = 0
+    /// The tint the face was given, held apart from the tint being drawn --
+    /// `glow` multiplies the drawn value every frame and reading it back would
+    /// compound until the cloud went white. See Home.swift for the same split.
+    private let baseTint: (Float, Float, Float)
+
     init(face: FaceRenderer, layer: CAMetalLayer) {
         self.face = face; self.layer = layer
+        self.baseTint = (face.uniforms.tintR, face.uniforms.tintG,
+                         face.uniforms.tintB)
     }
     @objc func frame() {
         motion.step(1.0 / 60.0)
@@ -225,7 +232,13 @@ final class Driver: NSObject {
         face.uniforms.eyeYaw   = motion.eyeYaw
         face.uniforms.eyePitch = motion.eyePitch
         face.uniforms.blink    = motion.blink
-        face.uniforms.scale    = 0.96 * motion.breath
+        // Breath and pulse MULTIPLY: the breath keeps the cloud from being
+        // static under any behaviour, the pulse is what the current one is
+        // saying. See Behaviour.swift `stepChannels`.
+        face.uniforms.scale    = 0.96 * motion.breath * motion.pulse
+        face.uniforms.tintR    = baseTint.0 * motion.glow
+        face.uniforms.tintG    = baseTint.1 * motion.glow
+        face.uniforms.tintB    = baseTint.2 * motion.glow
         face.draw(in: layer)
         drawn += 1
     }

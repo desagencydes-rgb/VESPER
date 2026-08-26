@@ -63,6 +63,22 @@ final class SayBridge: NSObject, WKScriptMessageHandler {
     /// doing every time the cursor crossed the desktop, which is the behaviour
     /// SS10 refuses for the Dock and refuses here for the same reason.
     static let focusName = "vesperFocus"
+    /// The page reporting how far through VESPER's own sentence it is.
+    ///
+    /// A CHANNEL, NOT A TRIGGER. The chrome does not tell the face to "look
+    /// like it is talking" -- it reports which word of the reply is on screen,
+    /// and Behaviour.swift decides what that looks like. Keeping the decision
+    /// on the Swift side is what lets the audio path replace the SOURCE later
+    /// without touching a line of the animation.
+    static let speakingName = "vesperSpeaking"
+    /// Set when a speaking report arrives. Read by the host's render tick.
+    ///
+    /// Held here rather than pushed straight at the driver because the message
+    /// handler runs on the main queue between frames and the driver is stepped
+    /// inside one -- writing a level the frame is halfway through reading is a
+    /// tear nobody would ever see and nobody could ever explain.
+    private(set) var speechLevel: Float = 0
+    private(set) var speechIsFromText = false
     static var outbox: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support/VESPER/say.jsonl")
@@ -76,6 +92,21 @@ final class SayBridge: NSObject, WKScriptMessageHandler {
                 w.makeKeyAndOrderFront(nil)
                 w.makeFirstResponder(message.webView)
             }
+            return
+        }
+        if message.name == Self.speakingName {
+            guard let raw = message.body as? String,
+                  let d = raw.data(using: .utf8),
+                  let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
+            else { return }
+            let lvl = (o["level"] as? NSNumber)?.floatValue ?? 0
+            // `none` IS AN EXPLICIT STATE, not the absence of a report. A page
+            // that stops posting because it was torn down mid-sentence would
+            // otherwise leave the face mouthing forever; the host's staleness
+            // fallback would eventually correct it, and eventually is not the
+            // same as correctly.
+            speechIsFromText = (o["source"] as? String) == "textReveal"
+            speechLevel = speechIsFromText ? min(max(lvl, 0), 1) : 0
             return
         }
         guard message.name == Self.name,
@@ -653,10 +684,15 @@ final class HomeChrome {
               return Array.from(s);
             }
 
+            // The card shows 288 characters (48 per line over six lines, measured).
+            // Every glyph past that was split, animated, and then clipped.
+            var ANIMATED_MAX = 320;
+
             function paint(text, who, mode) {
               stage.className = 'say' + (who === 'vesper' ? ' vesper' : '') + ' ' + mode;
               stage.innerHTML = '';
-              var gs = graphemes(text);
+              var all = graphemes(text);
+              var gs = all.slice(0, ANIMATED_MAX);
               var n = gs.length;
               for (var i = 0; i < n; i++) {
                 var b = document.createElement('b');
@@ -672,20 +708,47 @@ final class HomeChrome {
                 b.style.animationDelay = ((mode === 'out' ? (1 - mid) : mid) * 240).toFixed(0) + 'ms';
                 stage.appendChild(b);
               }
+              if (all.length > n) {
+                var rest = document.createElement('b');
+                rest.textContent = all.slice(n).join('');
+                rest.style.animationDelay = '240ms';
+                stage.appendChild(rest);
+              }
             }
+
+            function restagger(el, mode) {
+              var kids = el.children, n = kids.length;
+              for (var i = 0; i < n; i++) {
+                var mid = Math.abs(i - n / 2) / (n / 2 || 1);
+                kids[i].style.animationDelay =
+                  ((mode === 'out' ? (1 - mid) : mid) * 240).toFixed(0) + 'ms';
+              }
+            }
+
+            // ONE PENDING TRANSITION. This scheduled a timer per arrival, and a
+            // typed turn publishes the owner's line and then the reply -- both
+            // inside the same 860 ms dissolve. Two timers, two different lines,
+            // the first painted and wiped a few milliseconds later.
+            var pending = null, pendingTimer = null;
 
             window.__vesperStage = function (text, who) {
               if (!text || text === showing) return;
-              var next = function () { showing = text; paint(text, who, 'in'); };
-              if (showing) {
-                // DISSOLVE FIRST, THEN ARRIVE. The wait matches the scatter animation
-                // plus its stagger; cutting it short would overlap two lines in the
-                // one place they share, which is the whole reason this is a card and
-                // not a list.
-                stage.classList.remove('in');
-                stage.classList.add('out');
-                setTimeout(next, 860);
-              } else { next(); }
+              if (pendingTimer) { pending = { text: text, who: who }; return; }
+              if (!showing) { showing = text; paint(text, who, 'in'); return; }
+              // DISSOLVE FIRST, THEN ARRIVE. The wait matches the scatter animation
+              // plus its stagger; cutting it short would overlap two lines in the
+              // one place they share, which is the whole reason this is a card and
+              // not a list. Re-staggered on the way out -- `paint(.., 'out')` was
+              // never called, so the dissolve replayed the ARRIVAL's stagger.
+              restagger(stage, 'out');
+              stage.classList.remove('in');
+              stage.classList.add('out');
+              pending = { text: text, who: who };
+              pendingTimer = setTimeout(function () {
+                pendingTimer = null;
+                var q = pending; pending = null;
+                if (q) { showing = q.text; paint(q.text, q.who, 'in'); }
+              }, 860);
             };
 
             // The history bar. Collapsed it shows the OLDEST line, which is what makes
@@ -767,6 +830,14 @@ final class HomeChrome {
     static var pushFailures = 0
     static var pushCount = 0
     private let bridge = SayBridge()
+
+    /// What the page last reported about VESPER's own delivery, for the host's
+    /// render tick. `(level, isDriven)` -- and `isDriven` is not redundant with
+    /// a zero level: a real sentence passes through zero at every word boundary,
+    /// and a face that dropped its source on each of those would stutter.
+    var speech: (level: Float, isDriven: Bool) {
+        (bridge.speechLevel, bridge.speechIsFromText)
+    }
     private var refresh: Timer?
 
     /// Push the runtime's state into the live page.
@@ -899,6 +970,7 @@ final class HomeChrome {
             let cfg = WKWebViewConfiguration()
             cfg.userContentController.add(self.bridge, name: SayBridge.name)
             cfg.userContentController.add(self.bridge, name: SayBridge.focusName)
+            cfg.userContentController.add(self.bridge, name: SayBridge.speakingName)
             let w = WKWebView(frame: host.bounds, configuration: cfg)
             w.autoresizingMask = [.width, .height]
             GlassGuard.makeTransparent(w)

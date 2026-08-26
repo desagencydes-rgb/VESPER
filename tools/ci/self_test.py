@@ -950,6 +950,8 @@ TRIAGE = "core/triage.py"
 REPAIR = "core/repair.py"
 EFFORT = "core/effort.py"
 PERSONA_PY = "core/persona.py"
+BEHAVIOUR_SW = "app/island-macos/Behaviour.swift"
+HOME_SW = "app/home-macos/Home.swift"
 PERSONA_TOML = "contracts/policy/persona.toml"
 VOICE_TOML = "contracts/policy/voice.toml"
 DIFFICULTY = "core/difficulty.py"
@@ -959,6 +961,38 @@ SUPPLY_PY = "routing/supply.py"
 RUNTIME = "tools/ops/vesper_runtime.py"
 
 CASES += [
+    ("face-follows-activity", HOME_STATE,
+     _sub("                and len(entries) > len(previous))",
+          "                and True)", 1),
+     "`talking` re-derived from an unchanged transcript: set_transcript runs on "
+     "every pump pass, so the face re-opens forever and never stops answering"),
+
+    ("face-follows-activity", HOME_STATE,
+     _sub("        if is_new_reply:", "        if False:", 1),
+     "answering no longer counts as talking -- back to `talking` being "
+     "reachable only when a status line is spoken aloud, so every reply lands "
+     "with the face still thinking"),
+
+    ("face-follows-activity", BEHAVIOUR_SW,
+     _sub("            glow = 1 + 0.22 * Float(sin(t / 5.1 * 2 * .pi))",
+          "            glow = 1 + 0.22 * Float(sin(t / 5.1 * 2 * .pi)); pulse = 1 + 0.1", 1),
+     "working made to change SIZE as well as lightness -- SS6 keeps each state "
+     "on its own channel precisely so two of them do not read as a third "
+     "thing, and working is the one whose size must hold still"),
+
+    ("face-follows-activity", BEHAVIOUR_SW,
+     _sub("            if speechSource == .none {",
+          "            if false {\\n                pulse = 1\\n                break\\n            }", 1),
+     "the talking envelope runs with no speech source -- a free-running curve "
+     "that looks exactly like speech on screen and is wrong every frame, which "
+     "SS6 names as the failure by name"),
+
+    ("face-follows-activity", HOME_SW,
+     _sub("        face.uniforms.scale    = 0.96 * motion.breath * motion.pulse",
+          "        face.uniforms.scale    = 0.96 * motion.breath", 1),
+     "the scale channel computed every frame and applied by nothing, so "
+     "thinking and talking look identical again and the driver looks correct"),
+
     ("chrome-template-renders", CHROME_TPL,
      _sub("{{fill}}", "{{fillx}}", 1),
      "a token the Swift does not substitute: it renders literally into a CSS "
@@ -1157,6 +1191,26 @@ CASES += [
      "the token kept and its derivation cut loose from the face -- the same "
      "defect wearing a token, which is what a check asserting only that the "
      "rule is present would miss"),
+
+    ("chrome-template-renders", CHROME_TPL,
+     _sub("      if (pendingTimer) { pending = { text: text, who: who }; return; }",
+          "      if (false) { pending = { text: text, who: who }; return; }", 1),
+     "one dissolve timer per arrival again: the owner's line and the reply both "
+     "land inside the same 860 ms window, so the first paints and is wiped a "
+     "few milliseconds later with no dissolve -- on every single turn"),
+
+    ("chrome-template-renders", CHROME_TPL,
+     _sub("      restagger(stage, 'out');", "      ;", 1),
+     "the outgoing line keeps its ARRIVAL delays, so the dissolve frays from "
+     "the middle outward exactly like the arrival instead of coming apart from "
+     "its ends -- the `out` branch in paint goes back to being unreachable"),
+
+    ("chrome-template-renders", CHROME_SW,
+     _sub("              var gs = all.slice(0, ANIMATED_MAX);",
+          "              var gs = all;", 1),
+     "the fallback goes back to animating every glyph of a long reply, so a "
+     "missing template file degrades to a surface that builds hundreds of "
+     "elements for text the card clips"),
 
     ("effort-floor-and-null-answer", EFFORT,
      _sub("    if content is not None and content.strip():",

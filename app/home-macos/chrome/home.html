@@ -311,10 +311,22 @@
       return Array.from(s);
     }
 
+    // HOW MANY GLYPHS THE CARD CAN ACTUALLY SHOW, measured rather than picked:
+    // 48 characters per line at the real type size in a 420 px card, and
+    // `max-height: 132px` over a 21.7 px line box is six lines. 288.
+    //
+    // EVERY GLYPH PAST IT WAS BEING SPLIT, GIVEN ITS OWN SCATTER VECTOR, ITS
+    // OWN DELAY AND ITS OWN ANIMATION, AND THEN CLIPPED BY `overflow: hidden`.
+    // A 250-word reply built hundreds of elements to animate text nobody could
+    // see. The margin is there because the card's width is derived from the
+    // face's position and a narrower face means more lines.
+    var ANIMATED_MAX = 320;
+
     function paint(text, who, mode) {
       stage.className = 'say' + (who === 'vesper' ? ' vesper' : '') + ' ' + mode;
       stage.innerHTML = '';
-      var gs = graphemes(text);
+      var all = graphemes(text);
+      var gs = all.slice(0, ANIMATED_MAX);
       var n = gs.length;
       for (var i = 0; i < n; i++) {
         var b = document.createElement('b');
@@ -330,20 +342,146 @@
         b.style.animationDelay = ((mode === 'out' ? (1 - mid) : mid) * 240).toFixed(0) + 'ms';
         stage.appendChild(b);
       }
+      // APPENDED AFTER THE LOOP, not before it. Appended first it came out at
+      // the FRONT of the card -- the tail of the sentence rendered ahead of its
+      // own beginning, which is a worse bug than the one being fixed.
+      if (all.length > n) {
+        // The remainder still goes in -- clipped today, and the card is not
+        // guaranteed to stay this size. It arrives as ONE element with no
+        // per-glyph treatment, because a per-glyph treatment on text that
+        // cannot be seen is the cost without the effect.
+        var rest = document.createElement('b');
+        rest.textContent = all.slice(n).join('');
+        rest.style.animationDelay = '240ms';
+        stage.appendChild(rest);
+      }
+    }
+
+    // WHAT THE FACE IS TOLD WHILE VESPER IS TALKING.
+    //
+    // §6 is explicit that speaking is DRIVEN AND NOT LOOPED -- "a sine wave
+    // pretending to be speech is the same failure as a status column reading
+    // 41 C on a host with no thermometer". There is no audio path yet, so the
+    // honest driver available is the delivery itself: which word of the reply
+    // is on screen right now. That is a real fact about real output. It is not
+    // amplitude and is not reported as amplitude -- Swift receives it tagged
+    // `textReveal`, and Behaviour.swift drives a shallower envelope for it than
+    // it will for `audio`, because a reveal cursor carries no loudness.
+    //
+    // PER WORD, NOT PER FRAME OF A RAMP. A monotonic ramp would render as a
+    // slow zoom, which is the THINKING channel and would make the two states
+    // indistinguishable -- the exact thing §6 keeps them on separate channels
+    // to avoid. Word boundaries are real structure in the real sentence, so the
+    // envelope rises and falls on them and the face moves the way the sentence
+    // is shaped.
+    var speakTimer = null;
+    function tellFace(level, source) {
+      try {
+        window.webkit.messageHandlers.vesperSpeaking.postMessage(
+          JSON.stringify({ level: level, source: source }));
+      } catch (e) {}
+    }
+    function stopSpeaking() {
+      if (speakTimer) { clearInterval(speakTimer); speakTimer = null; }
+      tellFace(0, 'none');
+    }
+    function speakOut(text) {
+      stopSpeaking();
+      var words = String(text).split(/\s+/).filter(Boolean);
+      if (!words.length) return;
+      // Cadence from the text, not a constant: a long word occupies the mouth
+      // for longer than a short one. ~165 wpm is unhurried speech; the per-word
+      // share is proportional to its length so the total tracks the sentence.
+      var totalChars = words.join('').length || 1;
+      var totalMs = Math.min(14000, (words.length / 165) * 60000);
+      var t0 = Date.now(), acc = [], run = 0;
+      for (var i = 0; i < words.length; i++) {
+        var share = (words[i].length / totalChars) * totalMs;
+        acc.push([run, run + share, words[i].length]);
+        run += share;
+      }
+      speakTimer = setInterval(function () {
+        var el = Date.now() - t0;
+        if (el >= run) { stopSpeaking(); return; }
+        for (var i = 0; i < acc.length; i++) {
+          if (el >= acc[i][0] && el < acc[i][1]) {
+            // Within a word: open toward the middle, close toward its end.
+            // Height from the word's own length, capped -- a fifteen-letter
+            // word does not open the mouth three times as far as a five.
+            var p = (el - acc[i][0]) / Math.max(1, acc[i][1] - acc[i][0]);
+            var h = Math.min(1, 0.45 + acc[i][2] / 12);
+            tellFace(h * Math.sin(p * Math.PI), 'textReveal');
+            return;
+          }
+        }
+      }, 33);
+    }
+
+    // ONE PENDING TRANSITION, NOT ONE PER ARRIVAL.
+    //
+    // This scheduled a fresh `setTimeout(next, 860)` on every call, with `text`
+    // captured per closure. A typed turn publishes the owner's line and then
+    // the reply, and since replies now come back in about half a second BOTH
+    // land inside the same 860 ms dissolve -- so two timers were pending, each
+    // holding a different line. The first painted, and a few milliseconds later
+    // the second wiped it and painted over. The owner's own words appeared for
+    // a few frames and vanished with no dissolve at all, on every single turn.
+    // Reproduced offscreen 2026-08-26 with `layout_probe --eval`.
+    //
+    // Now the dissolve is started once and the QUEUED TEXT is replaced. A line
+    // superseded before it was ever shown is simply never shown, which is the
+    // honest outcome: the card holds one line, and the newest is the one that
+    // matters.
+    var pending = null, pendingTimer = null;
+
+    function arrive(text, who) {
+      showing = text;
+      paint(text, who, 'in');
+      // ONLY VESPER'S OWN LINES SPEAK. The owner's line appears on the same
+      // card and is not VESPER talking; driving the face from it would have
+      // the face mouthing the owner's words back at them.
+      if (who === 'vesper') speakOut(text); else stopSpeaking();
+    }
+
+    // The mirror of `paint`'s delay line, applied to children that already
+    // exist. Kept here rather than inside `paint` because the outgoing line is
+    // never re-created -- re-creating it would restart it from its `from` frame,
+    // which is a flash, not a dissolve.
+    function restagger(el, mode) {
+      var kids = el.children, n = kids.length;
+      for (var i = 0; i < n; i++) {
+        var mid = Math.abs(i - n / 2) / (n / 2 || 1);
+        kids[i].style.animationDelay =
+          ((mode === 'out' ? (1 - mid) : mid) * 240).toFixed(0) + 'ms';
+      }
     }
 
     window.__vesperStage = function (text, who) {
       if (!text || text === showing) return;
-      var next = function () { showing = text; paint(text, who, 'in'); };
-      if (showing) {
-        // DISSOLVE FIRST, THEN ARRIVE. The wait matches the scatter animation
-        // plus its stagger; cutting it short would overlap two lines in the
-        // one place they share, which is the whole reason this is a card and
-        // not a list.
-        stage.classList.remove('in');
-        stage.classList.add('out');
-        setTimeout(next, 860);
-      } else { next(); }
+      if (pendingTimer) { pending = { text: text, who: who }; return; }
+      if (!showing) { arrive(text, who); return; }
+
+      // DISSOLVE FIRST, THEN ARRIVE. The wait matches the scatter animation
+      // plus its stagger; cutting it short would overlap two lines in the
+      // one place they share, which is the whole reason this is a card and
+      // not a list.
+      //
+      // RE-STAGGERED ON THE WAY OUT, and until now it never was. `paint` has
+      // always computed a mirrored delay for `out` -- edges first, middle last,
+      // so the line comes apart from its ends -- and `paint(text, who, 'out')`
+      // was never once called. The outgoing children kept the delays they were
+      // given when they arrived, so the dissolve played the ARRIVAL's stagger
+      // backwards-in-name-only. Measured: the two delay sequences were
+      // identical, element for element.
+      restagger(stage, 'out');
+      stage.classList.remove('in');
+      stage.classList.add('out');
+      pending = { text: text, who: who };
+      pendingTimer = setTimeout(function () {
+        pendingTimer = null;
+        var p = pending; pending = null;
+        if (p) arrive(p.text, p.who);
+      }, 860);
     };
 
     // The history bar. Collapsed it shows the OLDEST line, which is what makes

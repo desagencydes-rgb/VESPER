@@ -2662,11 +2662,54 @@ def check_chrome_template_renders() -> Result:
               "about where the face is, which is the same defect wearing a "
               "token.")
 
+    # THE TRANSITION IS SERIALISED, AND BOTH COPIES CARRY IT.
+    #
+    # `__vesperStage` scheduled a fresh 860 ms timer on every arrival, each
+    # closing over its own line. A typed turn publishes the owner's line and
+    # then the reply, and since replies now return in about half a second both
+    # land inside one dissolve -- so two timers ran, the first painted, and the
+    # second wiped it a few milliseconds later. The owner's own words appeared
+    # for a few frames, with no dissolve, on every turn. Reproduced offscreen
+    # with `app/home-macos/layout_probe --eval`.
+    #
+    # ASSERTED IN BOTH FILES SEPARATELY because the Swift fallback is a REDUCED
+    # copy, not a mirror -- 102 script lines against the template's 239 -- so
+    # requiring the two to be equal would be wrong, and requiring nothing is how
+    # the fallback kept the bug after the template was fixed.
+    for label, src in (("the template", tpl), ("the inline fallback", swift)):
+        # THE GUARD AND THE ASSIGNMENT BOTH. The assignment alone is satisfied
+        # by code that still schedules a timer per arrival -- it is the early
+        # return on an already-pending transition that does the serialising, and
+        # asserting only the timer left the self-test green with the guard gone.
+        if ("pendingTimer = setTimeout" not in src
+                or "if (pendingTimer)" not in src):
+            r.err(f"{label} schedules an unbounded number of dissolve timers. "
+                  "Two lines arriving inside one 860 ms window paint over each "
+                  "other, and the first is shown for a few frames with no "
+                  "dissolve at all.")
+        if "restagger(stage, 'out')" not in src:
+            r.err(f"{label} never re-staggers the outgoing line. `paint` has "
+                  "always computed a mirrored delay for `out` and was never "
+                  "called with it, so the dissolve replayed the ARRIVAL's "
+                  "stagger -- measured: the two delay sequences were identical, "
+                  "element for element.")
+        # THE SLICE, NOT THE NAME. `"ANIMATED_MAX" in src` is satisfied by the
+        # constant still being declared while nothing slices with it -- the
+        # self-test renamed the declaration, left the reference, and the check
+        # stayed green. Assert the mechanism.
+        if "slice(0, ANIMATED_MAX)" not in src:
+            r.err(f"{label} splits and animates every glyph of a reply. The "
+                  "card shows 288 characters (48 per line over six, measured); "
+                  "the rest is clipped by `overflow: hidden` after being given "
+                  "its own scatter vector, delay and animation.")
+
     if r.ok:
         r.note(f"{len(tpl)} bytes, {len(tokens)} tokens all substituted "
                f"({', '.join(sorted(tokens))}), fallback token set matches, "
                "stylesheet + card + dock row present, conversation cluster "
-               "anchored to faceRect rather than to the viewport")
+               "anchored to faceRect rather than to the viewport; one dissolve "
+               "timer, a mirrored out-stagger and a bounded element count in "
+               "both the template and the fallback")
     return r
 
 
@@ -2788,11 +2831,100 @@ def check_face_follows_activity() -> Result:
                   "this file and a whole-file rewrite makes them race with no "
                   "error reported.")
 
+        # 6. ANSWERING IS TALKING. `TALKING` was reachable only from
+        # `narration.spoken`, so it fired when VESPER said a STATUS LINE aloud
+        # and never when it answered the owner -- the one moment it is
+        # unambiguously talking. Every reply landed with the face still
+        # `thinking`, which is a false reading in the way a stale metric is.
+        hs2 = HomeState(path=path)
+        hs2.set_transcript([{"who": "owner", "text": "hi"}])
+        if hs2.behaviour() == "talking":
+            r.err("the owner's own line put the face into `talking`. The face "
+                  "would mouth the owner's words back at them.")
+        hs2.set_transcript([{"who": "owner", "text": "hi"},
+                            {"who": "vesper", "text": "Hello, sir."}])
+        if hs2.behaviour() != "talking":
+            r.err(f"a reply reached the stage and the face stayed "
+                  f"{hs2.behaviour()!r}. Answering is the clearest case of "
+                  "talking there is.")
+        # A NEW LINE, not merely a last line that is VESPER's. `set_transcript`
+        # runs on every pump pass; re-deriving from an unchanged transcript
+        # would hold the face open indefinitely after one reply.
+        hs2._set(THINKING, "next request")
+        hs2.set_transcript([{"who": "owner", "text": "hi"},
+                            {"who": "vesper", "text": "Hello, sir."}])
+        if hs2.behaviour() == "talking":
+            r.err("an unchanged transcript re-derived `talking`, so the face "
+                  "re-opens on every pump pass and never stops answering.")
+
+    # 7. THE ANIMATION CHANNELS ARE KEPT APART, and the talking channel refuses
+    # to invent a level. Asserted structurally because the driver is Swift and
+    # this gate is stdlib Python -- the same split CI-065 makes for the chrome.
+    beh = (REPO / "app" / "island-macos" / "Behaviour.swift").read_text(
+        encoding="utf-8")
+    if "case .thinking" not in beh or "pulse = 1 +" not in beh:
+        r.err("Behaviour.swift has no scale envelope for thinking. Until it "
+              "did, the face had ONE scale channel -- a 6.2 s breath identical "
+              "under every behaviour but `aura` -- so thinking and talking "
+              "differed only in where the eyes pointed, which is not a "
+              "difference at all from across a room.")
+    # SLICED FROM `stepChannels`, NOT FROM THE WHOLE FILE. `case .thinking` and
+    # `case .working` each appear three times -- in the gaze table, in the
+    # responsiveness table, and here -- so a naive `find` slices the gaze
+    # section and reports on a switch that has nothing to do with channels.
+    # It did exactly that on the first run.
+    chan = beh[beh.find("private func stepChannels"):]
+    think = chan[chan.find("case .thinking"):chan.find("case .working")]
+    # THE EXACT PINNED STATEMENT, with its newline. `"glow = 1" in think` also
+    # matches `glow = 1 + 0.22 * ...` -- a substring test that is satisfied by
+    # the very modulation it exists to forbid, and the self-test caught it.
+    # ASSERTED AS THE ABSENCE OF A MODULATION, not only as the presence of a
+    # pin. A pinned line followed by a modulation is exactly the violation, and
+    # a presence test cannot see it -- the self-test proved that by adding one
+    # and staying green. `glow = 1` is necessary; "and nothing else touches
+    # glow" is the property.
+    if "glow = 1\n" not in think or "glow = 1 +" in think or "glow +=" in think:
+        r.err("the thinking case does not pin `glow`. DESIGN-FOUNDATION SS6: "
+              "thinking modulates scale ONLY and working modulates lightness "
+              "ONLY -- a state that both pulsed and brightened reads as a third "
+              "thing.")
+    work = chan[chan.find("case .working"):chan.find("case .talking")]
+    if "pulse = 1\n" not in work or "pulse = 1 +" in work or "pulse +=" in work:
+        r.err("the working case does not pin `pulse`. SS6: `the size holds "
+              "still; only the brightness breathes`.")
+    if "case audio" not in beh or "case none" not in beh:
+        r.err("SpeechSource does not name its cases. The difference between "
+              "a driven envelope and a decorative one is the source, and an "
+              "unnamed source cannot be checked or swapped.")
+    talk = chan[chan.find("case .talking"):chan.find("default:")]
+    if "speechSource == .none" not in talk or "pulse = 1\n" not in talk:
+        r.err("the talking envelope runs with no speech source. SS6: `until "
+              "the audio path exists the mark does not speak; it idles`. A "
+              "free-running sine here is indistinguishable on screen from real "
+              "speech and wrong every frame.")
+    # AND THE CHANNEL IS ACTUALLY CARRIED. A driver that can be driven and a
+    # host that never drives it is the built-and-unreached shape again.
+    chrome_sw = (REPO / "app" / "home-macos" / "HomeChrome.swift").read_text(
+        encoding="utf-8")
+    if "vesperSpeaking" not in chrome_sw:
+        r.err("HomeChrome.swift registers no speaking channel, so nothing can "
+              "ever set a speech source and `talking` is permanently idle.")
+    home_sw = (REPO / "app" / "home-macos" / "Home.swift").read_text(
+        encoding="utf-8")
+    if "motion.speechSource" not in home_sw:
+        r.err("the render tick never sets `speechSource`, so the page reports "
+              "delivery to a driver that is not listening.")
+    if "motion.pulse" not in home_sw or "motion.glow" not in home_sw:
+        r.err("the render tick does not apply the animation channels. They "
+              "would be computed every frame and drawn by nothing.")
+
     if r.ok:
         r.note("five signals map to five distinct expressions; a stale "
                f"behaviour falls back to rest after {STALE_AFTER_S:.0f}s; an "
                "unmeasured expression is refused; the snapshot merges rather "
-               "than clobbering the other producer")
+               "than clobbering the other producer; a reply derives `talking` "
+               "and an unchanged transcript does not; scale and brightness "
+               "stay on separate channels and talking idles with no source")
     return r
 
 

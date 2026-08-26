@@ -21,6 +21,26 @@ enum Behaviour: String, CaseIterable {
 
 struct Gaze { var yaw: Float; var pitch: Float }
 
+/// Where the talking envelope's amplitude comes from. NAMED, because the
+/// difference between these is the difference between an instrument and a
+/// decoration.
+///
+/// §6 is explicit: "Speaking is driven, not looped ... A sine wave pretending to
+/// be speech is the same failure as a status column reading 41 C on a host with
+/// no thermometer -- it looks like data and is not." So there is no case here
+/// that means "make something up". `none` idles, and it is the default.
+///
+/// `textReveal` is the honest half-measure available before audio exists: the
+/// chrome reveals VESPER's reply grapheme by grapheme at a real cadence, and how
+/// much of the sentence has actually appeared is a real fact about real output.
+/// It is not amplitude and does not pretend to be -- it carries no loudness, only
+/// delivery -- which is why it drives a shallower envelope than `audio` will.
+enum SpeechSource {
+    case none               // nothing is speaking; the face idles (§6)
+    case textReveal         // driven by the chrome's reveal cursor
+    case audio              // driven by real amplitude; nothing produces this yet
+}
+
 final class FaceDriver {
     static let maxYaw: Float = 18 * .pi / 180
     static let maxPitch: Float = 12 * .pi / 180
@@ -33,6 +53,23 @@ final class FaceDriver {
     private(set) var eyeYaw: Float = 0, eyePitch: Float = 0
     private(set) var blink: Float = 0
     private(set) var breath: Float = 1
+
+    /// THE TWO ANIMATION CHANNELS, KEPT APART ON PURPOSE. §6: "Working
+    /// modulates lightness only, and thinking modulates scale only. Keeping each
+    /// state on its own channel is what makes them distinguishable at 20 pt
+    /// across a room. A state that both pulsed and brightened would read as a
+    /// third thing."
+    ///
+    /// Multiplied onto the renderer's scale and tint by whichever host is
+    /// drawing. Both rest at 1 so a behaviour that uses neither is untouched.
+    private(set) var pulse: Float = 1           // scale channel
+    private(set) var glow: Float = 1            // brightness channel
+
+    /// How much of the current sentence has been delivered, 0...1, and where
+    /// that number came from. SET FROM OUTSIDE -- the driver does not know what
+    /// VESPER is saying and must not invent it.
+    var speechLevel: Float = 0
+    var speechSource: SpeechSource = .none
 
     private var t: Double = 0
     private var history: [(Double, Gaze)] = []
@@ -106,5 +143,63 @@ final class FaceDriver {
         // the behaviour that is nothing but this.
         let depth: Float = behaviour == .aura ? 0.045 : 0.014
         breath = 1 + depth * Float(sin(t / (behaviour == .aura ? 3.4 : 6.2) * 2 * .pi))
+
+        stepChannels(dt)
+    }
+
+    /// The scale and brightness envelopes, one behaviour at a time.
+    ///
+    /// EVERY BEHAVIOUR NOT NAMED HERE LEAVES BOTH AT 1, and that is the point
+    /// rather than an omission. Until now the face had exactly one scale channel
+    /// -- a 6.2 s breath identical under every behaviour but `aura` -- so
+    /// thinking and talking were distinguishable only by where the eyes pointed.
+    /// From across a room that is not distinguishable at all.
+    private func stepChannels(_ dt: Double) {
+        switch behaviour {
+
+        // §6: "slow clean zoom in and out -- unhurried and even; no bounce, no
+        // jitter." One sine, one period, nothing summed onto it. The gaze fields
+        // above deliberately sum incommensurable periods so nothing loops
+        // visibly; this deliberately does not, because "even" is the whole
+        // character of the state and a second term would put a wobble in it.
+        case .thinking, .wondering, .imagining:
+            pulse = 1 + 0.055 * Float(sin(t / 3.8 * 2 * .pi))
+            glow = 1
+
+        // §6: "lightness rises and falls, slowly and consistently -- the size
+        // holds still; only the brightness breathes." `pulse` is pinned to 1
+        // rather than left to the breath, because "holds still" is the claim.
+        case .working, .acting:
+            pulse = 1
+            glow = 1 + 0.22 * Float(sin(t / 5.1 * 2 * .pi))
+
+        // §6: "scale tracks the voice -- fast, amplitude- and frequency-driven."
+        //
+        // WITH NO SOURCE IT DOES NOT SPEAK, IT IDLES, and that is §6 verbatim
+        // rather than a shortcut taken here. A free-running sine on this channel
+        // would be indistinguishable on screen from real speech and wrong every
+        // frame -- the exact failure the section calls out by name.
+        case .talking, .laughing:
+            glow = 1
+            if speechSource == .none {
+                pulse = 1
+                break
+            }
+            // SHALLOWER FOR TEXT THAN FOR AUDIO, because they are not the same
+            // measurement. A reveal cursor carries DELIVERY and no loudness, so
+            // a depth chosen for amplitude would overstate what is known. When
+            // the audio path lands it raises the depth and changes nothing else.
+            let depth: Float = speechSource == .audio ? 0.075 : 0.038
+            let level = min(max(speechLevel, 0), 1)
+            // Tracked with a fast follower rather than assigned, so a reveal
+            // that arrives in steps reads as speech and not as a stutter. Fast
+            // enough to keep up with a syllable; slow enough to round the step.
+            let want = 1 + depth * level
+            pulse += (want - pulse) * Float(min(1, 14.0 * dt))
+
+        default:
+            pulse = 1
+            glow = 1
+        }
     }
 }

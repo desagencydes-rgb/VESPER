@@ -546,6 +546,16 @@ final class HomeController: NSObject {
         (face.uniforms.tintR, face.uniforms.tintG, face.uniforms.tintB)
     }
 
+    /// THE TINT THE MODE CHOSE, held apart from the tint being DRAWN.
+    ///
+    /// `glow` multiplies the drawn tint every frame, so the drawn value cannot
+    /// also be the source of truth -- reading it back and multiplying again
+    /// would compound, and the face would brighten to white over a few seconds
+    /// of `working` and never come back. The mode writes here; the frame reads
+    /// here and writes the product. Initialised to `FaceRenderer`'s own default
+    /// so a face drawn before any mode is set is unchanged.
+    private var baseTint: (Float, Float, Float) = (1.00, 0.46, 0.29)
+
     // MARK: - Presence
 
     /// Order the ground front. NOT a placement mechanism: this window is
@@ -632,6 +642,13 @@ final class HomeController: NSObject {
         let now = Date()
         let dt = min(now.timeIntervalSince(lastFrame), 0.1)
         lastFrame = now
+        // THE SPEAKING SOURCE IS READ BEFORE THE STEP, so the driver sees this
+        // frame's report rather than the previous one's. One frame of lag is
+        // invisible; the reason to get it right anyway is that it is free and
+        // the alternative is a lag nobody remembers is there.
+        let sp = chrome.speech
+        motion.speechLevel = sp.level
+        motion.speechSource = sp.isDriven ? .textReveal : .none
         motion.step(dt)
         // Same envelope, scaled. §8's Attendant is the same behaviour quieter,
         // not a quieter behaviour.
@@ -640,7 +657,19 @@ final class HomeController: NSObject {
         face.uniforms.eyeYaw   = motion.eyeYaw * amplitude
         face.uniforms.eyePitch = motion.eyePitch * amplitude
         face.uniforms.blink    = motion.blink
-        face.uniforms.scale    = 0.96 * motion.breath
+        // BREATH AND PULSE MULTIPLY, they do not replace each other. The breath
+        // is what keeps the cloud from being perfectly static under any
+        // behaviour; the pulse is what the CURRENT behaviour is saying. A
+        // behaviour that says nothing on this channel leaves pulse at 1 and the
+        // face looks exactly as it did before this existed.
+        face.uniforms.scale    = 0.96 * motion.breath * motion.pulse
+        // The brightness channel, applied to the tint rather than to alpha:
+        // alpha would fade the cloud INTO the wallpaper, which §3's whole
+        // contrast solve exists to prevent. Tint intensity keeps the ink's
+        // relationship to its ground and changes only how lit it looks.
+        face.uniforms.tintR    = baseTint.0 * motion.glow
+        face.uniforms.tintG    = baseTint.1 * motion.glow
+        face.uniforms.tintB    = baseTint.2 * motion.glow
         face.uniforms.time    += Float(dt)
         // The dissolve is a motion, so it eases. 1.1 s, which is the four
         // springs' own territory rather than a number invented here.
@@ -707,9 +736,14 @@ final class HomeController: NSObject {
         // The face takes the mode's accent. It was derived from the light
         // source of the very picture now behind it, which is why they agree.
         if let c = m.accent.usingColorSpace(.sRGB) {
-            face.uniforms.tintR = Float(c.redComponent)
-            face.uniforms.tintG = Float(c.greenComponent)
-            face.uniforms.tintB = Float(c.blueComponent)
+            baseTint = (Float(c.redComponent), Float(c.greenComponent),
+                        Float(c.blueComponent))
+            // Written through immediately as well, so a mode set while nothing
+            // is rendering still shows -- `frame()` is what normally applies it
+            // and it is not running when the face is at rest offscreen.
+            face.uniforms.tintR = baseTint.0
+            face.uniforms.tintG = baseTint.1
+            face.uniforms.tintB = baseTint.2
         }
         let ok = Ambience.apply(m, on: screen, quiet: quiet)
 

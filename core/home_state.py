@@ -176,8 +176,33 @@ class HomeState:
                           idempotency_key=lambda e: e.event_id)
 
     def set_transcript(self, entries: list) -> None:
+        """The conversation, and -- derived from it -- whether VESPER is talking.
+
+        DERIVED HERE RATHER THAN SET BY THE CALLER, which is INV-HOME-7's whole
+        argument: a `set_talking()` would put the face's honesty in the hands of
+        whoever remembered to call it, and the first forgotten call is a face
+        that answered in silence.
+
+        WHY THE TRANSCRIPT AND NOT AN EVENT. `TALKING` was reachable only from
+        `narration.spoken`, so it fired when VESPER SAID a status line aloud and
+        never when it answered the owner -- the one moment it is unambiguously
+        talking. Every reply landed on the stage with the face still `thinking`,
+        which is a false reading in exactly the way a stale metric is.
+
+        A NEW VESPER LINE, not merely a last line that is VESPER's: this is
+        called on every pump pass, and re-deriving `talking` from an unchanged
+        transcript would hold the face open indefinitely after one reply.
+        """
         with self._lock:
+            previous = self._transcript
             self._transcript = list(entries)
+            newest = entries[-1] if entries else None
+            is_new_reply = (
+                newest is not None
+                and newest.get("who") == "vesper"
+                and len(entries) > len(previous))
+        if is_new_reply:
+            self._set(TALKING, "a reply reached the stage")
         self.write()
 
     def set_rows(self, rows: list) -> None:
