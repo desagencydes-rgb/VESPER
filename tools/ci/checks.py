@@ -2577,9 +2577,9 @@ def check_chrome_template_renders() -> Result:
     for needed, why in [("<style", "no stylesheet -- every surface would paint unstyled"),
                         ("class=\"card\"", "the card is gone from the markup"),
                         ("class=\"dockrow\"", "the main menu row is gone"),
-                        ("class=\"transcript\"", "the transcript is gone -- the "
-                         "surface typing and speech SHARE, so losing it removes "
-                         "the record of what was said on either channel"),
+                        ('id="stage"', "the stage is gone -- the surface typing "
+                         "and speech SHARE, so losing it removes the place "
+                         "either channel appears"),
                         ('id="say"', "the input field is gone and there is no "
                          "way to say anything to VESPER at all"),
                         ('data-face=', "the face behaviour no longer reaches the "
@@ -2594,11 +2594,13 @@ def check_chrome_template_renders() -> Result:
                         # over the menu bar. An element that exists is not an
                         # element that is styled, and only one of those is a
                         # surface.
-                        (".stack{", "the transcript/field container has no rule "
-                         "-- it renders as unpositioned raw text, which is what "
-                         "happened the first time this was built"),
-                        (".transcript{", "the transcript has no glass and no "
-                         "bounds"),
+                        (".stage{", "the stage has no rule -- the exchange "
+                         "renders as unpositioned raw text, which is exactly "
+                         "what happened the first time these surfaces were "
+                         "built"),
+                        ("@keyframes scatter", "the dissolve is gone: a line "
+                         "would be replaced by a cut rather than coming apart, "
+                         "and the stage would read as a label that changed"),
                         (".field{", "the input has no rule and appears as a bare "
                          "browser text box"),
                         (".dot{", "the state dot has no rule, so VESPER's "

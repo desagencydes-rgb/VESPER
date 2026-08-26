@@ -32,6 +32,29 @@
 import AppKit
 import Metal
 
+/// The ground, which must be able to take a keystroke.
+///
+/// A BORDERLESS `NSWindow` RETURNS FALSE FROM `canBecomeKey`, and that single
+/// default is why the field did nothing. The page rendered, the input existed,
+/// the bridge was registered -- and the window could never become key, so no
+/// keystroke ever reached the webview. Nothing failed and nothing logged;
+/// typing simply went nowhere.
+///
+/// It is a diagnosis worth keeping because everything ELSE was correct. Three
+/// separate verifications passed over it: the markup was present, the CSS was
+/// present, the runtime answered when the queue was written directly. Every one
+/// of them tested a layer that worked, around the one that did not.
+///
+/// `canBecomeMain` STAYS FALSE. This window is the desktop -- it sits below
+/// normal level and carries `.managed`. Main status would put VESPER's menu in
+/// the menu bar and make the ground behave like a document window, which is the
+/// opposite of what it is. Key without main is exactly right: it can receive
+/// text, and it does not pretend to be an application the owner switched to.
+final class GroundWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { false }
+}
+
 final class HomeController: NSObject {
 
     let screen: NSScreen
@@ -138,8 +161,8 @@ final class HomeController: NSObject {
         // TRANSPARENT -- the mode picture is the real desktop picture now, so
         // nothing of ours sits between the face and the window server's own
         // desktop.
-        ground = NSWindow(contentRect: screen.frame, styleMask: [.borderless],
-                          backing: .buffered, defer: false)
+        ground = GroundWindow(contentRect: screen.frame, styleMask: [.borderless],
+                              backing: .buffered, defer: false)
         ground.level = NSWindow.Level(rawValue: NSWindow.Level.normal.rawValue - 1)
         ground.collectionBehavior = [.managed]
         // The ground does not animate into existence. Two reasons, and the
