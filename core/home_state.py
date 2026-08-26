@@ -35,6 +35,7 @@ worse than one at rest: it reports work that is not happening.
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
 from pathlib import Path
@@ -84,6 +85,7 @@ class HomeState:
         self._reason = "no activity yet"
         self._transcript: list = []
         self._rows: list = []
+        self._writes = 0
 
     # ------------------------------------------------------------ behaviour
 
@@ -206,9 +208,29 @@ class HomeState:
             if self._rows:
                 existing["rows"] = self._rows
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self._path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(existing, indent=1), encoding="utf-8")
-            tmp.replace(self._path)
+            # A UNIQUE TEMP PER WRITE, NOT A FIXED NAME.
+            #
+            # `with_suffix(".tmp")` gives every writer the SAME path. Five bus
+            # handlers call this, and two overlapping writes race: the first
+            # creates home.tmp, the second overwrites and renames it, and the
+            # first's rename then fails with FileNotFoundError -- which
+            # propagated out of the pump loop and KILLED THE RUNTIME. The
+            # symptom was not a corrupt file; it was VESPER going silent, with
+            # the crash only visible in a log nobody was watching.
+            #
+            # The pid and a counter make collision impossible between processes
+            # and within one, and the rename stays atomic per POSIX.
+            self._writes += 1
+            tmp = self._path.with_name(
+                f"{self._path.stem}.{os.getpid()}.{self._writes}.tmp")
+            try:
+                tmp.write_text(json.dumps(existing, indent=1), encoding="utf-8")
+                tmp.replace(self._path)
+            finally:
+                # WHATEVER HAPPENS, DO NOT LEAVE THE TEMP BEHIND. A failed write
+                # that litters the state directory turns one bad moment into a
+                # directory nobody can read at a glance.
+                tmp.unlink(missing_ok=True)
             return self._path
 
     def _publish(self) -> None:

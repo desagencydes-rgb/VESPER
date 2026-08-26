@@ -217,6 +217,21 @@ def main() -> int:
             pump(bus, gw, router, home, intake, transcript)
             time.sleep(0.5)
         except KeyboardInterrupt:
+            raise
+        except Exception as e:                      # noqa: BLE001
+            # THE LOOP SURVIVES ONE BAD PASS. An exception here killed the
+            # runtime outright, and the symptom was VESPER going silent -- no
+            # error on screen, nothing in the home, the crash visible only in a
+            # log nobody was watching. A supervisor would restart it, but the
+            # app is the supervisor and it does not know the child died.
+            #
+            # Printed, not swallowed: a loop that hides its failures is how one
+            # bad pass becomes a permanently degraded runtime that still looks
+            # alive.
+            print(f"pump error (continuing): {type(e).__name__}: {e}",
+                  file=sys.stderr, flush=True)
+            time.sleep(1.0)
+        except BaseException:
             # THE FACE MUST NOT BE LEFT MID-THOUGHT. A stopped runtime that
             # leaves `thinking` on disk reports work that is not happening --
             # the staleness fallback would fix it in 90 s, and being correct
