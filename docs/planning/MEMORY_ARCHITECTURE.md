@@ -81,27 +81,202 @@ A verbatim owner utterance is rank 4; the extractor's reading of it is rank 5.
 Store both, separately, or the system silently promotes its own guesses to the
 owner's word — permanently and invisibly.
 
-## Eight subsystems
+## Nine subsystems
 
-Owner named four. Four more are required. Four of the eight need no model, which
-is the natural line for where a gateway is warranted.
+Owner named four. Five more are required. Six carry their own gateway, key set,
+model roster, benchmark and rules; three are deterministic and carry none.
 
-| Subsystem | When | Model | Gateway | If absent |
-|---|---|---|---|---|
-| VESPER | owner-facing | yes | own | — |
-| Chooser | before each turn | yes | own | falls back to today's deterministic path |
-| Updater | after each act, bg | yes | own | memory holds only what VESPER noticed |
-| Compactor | scheduled + pressure | yes | own | L1 grows until it stops fitting |
-| **Forgetter** | sweep + command | no | code | L3 grows forever; stale facts stay authoritative |
-| **Arbiter** | on contradiction | borrows | ladder | silent picks — what `INV-MEM-1` forbids |
-| **Verifier** | before trusting rank 3 | no | code | acting on a stale reading of a moved world |
-| **Miss recorder** | on failed recall | no | code | **no corpus accumulates; design cannot be judged** |
+| # | Subsystem | When | Model | Own gateway | If absent |
+|---|---|---|---|---|---|
+| 1 | **VESPER** | owner-facing | yes | served by the chooser | — |
+| 2 | **Chooser** | before each turn | yes | yes | falls back to today's deterministic path |
+| 3 | **Updater** | after each act, bg | yes | yes | memory holds only what VESPER noticed |
+| 4 | **Compactor** | scheduled + pressure | yes | yes | L1 grows until it stops fitting |
+| 5 | **Forgetter** | sweep, command, prune | partly | yes | L3 grows forever; stale facts stay authoritative |
+| 6 | **Arbiter** | on contradiction | yes | yes | silent picks — what `INV-MEM-1` forbids |
+| 7 | **Miss recorder** | on correction / repeat | partly | yes | **no corpus accumulates; the design can never be judged** |
+| 8 | **Verifier** | before trusting rank 3 | registry | borrows | acting on a stale reading of a moved world |
+| 9 | **Redactor** | every outbound request | **never** | **at the choke point** | **a credential reaches a provider and is logged there** |
 
-Owner chose **four separate gateways and key sets** for blast-radius isolation.
-Honest cost, recorded now rather than discovered: four credential sets, four
-failover ladders each needing to stay measured and correct, four places a rung
-can silently retire. `QuotaLedger.declare_pool` + reserved floors would give the
-same non-drain guarantee on one ladder; isolation is the thing being bought.
+### 5 · Forgetter — three jobs, three risk levels
+
+Split deliberately; they must not share a path.
+
+- **Expiry sweep** — driven by `Fact.valid_until_ms`. Deterministic, no model.
+  Running one here is paying for arithmetic. `world.sweep_expired()` exists and
+  is called by nothing.
+- **Owner-commanded** — *"forget that."* Needs interpretation of what "that" is.
+  Model, high stakes.
+- **Judgement pruning** — deciding a fact stopped mattering. Highest stakes; the
+  place a model could quietly erase things nobody notices are gone.
+
+Append-only lowers the stakes without removing them: a tombstone marks a record
+dead, the row survives, so a wrong forget is *recoverable* — but only if someone
+notices, and nobody notices an absence.
+
+### 6 · Arbiter — why it cannot live inside the updater
+
+It runs when two memories disagree and something must decide. It is separate for
+one reason: **the updater cannot ask a question.** It runs in the background,
+the owner is not there, and it has to finish.
+
+> March: the owner says "my flight is Tuesday."
+> April: the calendar says Wednesday.
+> Both live, both in memory, disagreeing.
+
+The updater only captured them; the compactor only shrinks. Three possible
+outputs, and the third is why this is a subsystem and not a function:
+
+1. **Write a winner** — rank settles it. Calendar is `source_of_record` (2) and
+   beats `user_statement` (4).
+2. **Ask the owner** — only they can know.
+3. **Hold both, act on neither, say so if asked** — a state VESPER can *sit in*.
+
+Rung 1 of the ladder is pure code; rungs 2–4 (look in memory, at the world,
+outside) need a model to formulate and interpret, which is why it has a gateway.
+
+### 7 · Miss recorder — and the hard problem in it
+
+**In a resident-memory architecture misses are invisible.** No query returns
+empty; VESPER simply does not know something and answers anyway, confidently. It
+cannot be caught at retrieval time. It has to be caught **retrospectively, from
+the owner's corrections.**
+
+Three detectors:
+
+| Detector | Signal | Needs a model? |
+|---|---|---|
+| **Repetition** | the owner states something already held at equal-or-higher rank | no — exact match |
+| **Correction** | a rank-4 statement supersedes what VESPER just acted on | **yes** — "no, it's X" vs "also X" is genuinely fuzzy |
+| **Explicit absence** | VESPER said "I do not have that" | no — self-reported |
+
+Writes to the existing `audit` store: the situation, which layer was consulted,
+what was found, what VESPER did — and **the correction that followed.** That
+pairing is a labelled example: what it should have known, beside what it did.
+**This is the corpus. It does not exist any other way.**
+
+### 8 · Verifier — a registry, appended to as each part lands
+
+Each entry: **fact pattern → how to check → what it costs → how long the answer
+stays fresh.**
+
+| Fact | Probe | Cost | Fresh for |
+|---|---|---|---|
+| is the alarm armed | read the LaunchAgent | ~5 ms | 60 s |
+| is node 1 up | TCP/22 | ~300 ms | 5 min |
+| what is on Tuesday | calendar | ~50 ms | 1 hr |
+
+The freshness column is load-bearing: it decides *check* versus *recall* per
+fact, rather than as a blanket policy. Scope is everything better checked than
+remembered — files, graphs, memory status, alarms, processes, plans, calendar,
+research state. Built in stages, appended each time.
+
+### 9 · Redactor — deterministic, at the choke point, never a model
+
+**"Make the model forget it" is not possible.** Once text is in a request it has
+been sent; the provider has it and has logged it. So detection must be
+deterministic and must run **before any model sees the text** — pattern and
+entropy scanning in code, the way `gitleaks` and `trufflehog` work. A model may
+be a *second* pass for what patterns miss; it can never be the first line,
+because **running it is the leak.**
+
+**It belongs inside `ModelGateway.complete`, not at each caller.** The gateway is
+already the single choke point for everything leaving this machine
+(`INV-COST-3`). Placed there it is structurally impossible for any subsystem to
+send a credential — including subsystems written later by someone who never read
+this document. Placed per-caller, one forgetful caller is a permanent leak.
+
+## Credentials — the vault
+
+Owner's design, with three adjustments.
+
+| Layer | Holds |
+|---|---|
+| L1 / L2 | **an opaque handle only** — `secret:7f3a` |
+| L3 vault | the value, encrypted, in its own protected store |
+
+1. **The handle is opaque.** `API-KEY,table=creds,row=17` transmits a map of the
+   vault to every provider on every turn. `secret:7f3a` means nothing off this
+   machine and resolves by local lookup. Same convenience, no structure leaked.
+2. **The vault key lives in the macOS Keychain, not in a file.** Hardware-backed
+   by the Secure Enclave on this machine. A key VESPER reads off disk protects
+   against a stolen laptop and against nothing running as VESPER. Keychain makes
+   the OS the gate, and the owner can still rotate it from settings.
+3. **A credential is used by CODE and never enters a prompt.** If VESPER
+   retrieves a key to *use* it and using it means a model call, it is back at the
+   provider. VESPER says "use the stored key for X"; the **code** resolves the
+   handle and makes the call. The model sees a handle, never a value.
+
+**Handles must survive compaction verbatim.** The compactor rewrites nodes; if it
+paraphrases `secret:7f3a` the credential becomes unreachable. It is an opaque
+token the compactor is forbidden to touch.
+
+The same intake pass resolves relative time — "next Tuesday" to an absolute date,
+with the original phrasing kept beside it. Relative time stored relatively is
+simply wrong the next day, and this is the boundary where it enters.
+
+## Sensitivity is monotonic — the design that needs no enumeration
+
+The owner's question: how do we stop VESPER classifying sensitive material as
+insensitive, given how many hidden cases exist?
+
+**By never classifying downward.**
+
+- Everything the owner says starts `private`. Relaxation requires **positive
+  evidence**; the absence of a red flag is not evidence.
+- A compacted node inherits the **maximum** sensitivity of its inputs.
+- The check on the result may **raise** it further. It may never lower it.
+
+You do not need to catch every sensitive thing. You need to never *lower* a
+classification. That is one assertion, and it subsumes the aggregation case —
+three innocuous facts compacting into a security profile is simply "the result
+was raised."
+
+This is the repo's existing fail-closed doctrine applied to a new axis:
+unlabelled defaults to private, UNKNOWN is UNAVAILABLE.
+
+## Time is a dimension, not a partition
+
+Compaction must **recognise** timelines, not split across them. Partitioning
+would wall off exactly the cross-period patterns that produce good conclusions —
+the world does not keep its causes inside one month. `Fact.observed_at_hlc`
+already makes time an attribute of every record; that is the right shape.
+
+## Self-updating the routing profiles — the split that keeps it legal
+
+The owner wants VESPER to repair its own routing when a provider drops or adds a
+model, triggered by investigating a real dead end. `provider_supply.toml` lives
+in `contracts/policy/` and is a **governed surface**: `INV-SELF-*` permits the
+runtime to PROPOSE into `workspace/` and never to self-apply. `profile_node.py`
+deliberately has no write path to its own contract for this reason.
+
+The split that preserves the intent:
+
+- **Measured availability is written freely.** This rung 404s, this model is
+  gone, this key was revoked. That is observation, and `INV-HW-2` wants it
+  recorded rather than declared.
+- **Contract changes are proposed.** Which providers are permitted, which egress
+  class, which cost class. Otherwise VESPER can silently rewrite which providers
+  it is allowed to use, which is a security capability rather than a maintenance
+  one.
+
+## Routing profile — the full field list
+
+Owner's five, plus eight that were missing.
+
+| Field | Why |
+|---|---|
+| key provider · available models · benchmark | owner's |
+| context window · size | owner's |
+| effort levels | owner's |
+| **egress class** | which rungs may see *this subsystem's* data. The updater handles raw owner speech: E1-private only |
+| **rate limits (TPM/RPM)** | the binding constraint — 131k window against 8k/min |
+| **cost class** | `INV-COST-5` treats metered-free as paid unless a hard cap is provable |
+| **measured latency** | `INV-HW-2`: measured at enrolment, never declared |
+| **supported parameters** | "OpenAI-compatible" is not one parameter set — a 400 on `reasoning_effort` cost a rung once |
+| **retirement policy** | a class terminal for the updater may be fine for the verifier |
+| **concurrency limit** | background subsystems can burst |
+| **preemption** | **when the owner is waiting, background yields.** Separate keys stop them competing for quota; nothing stops them competing for the machine |
 
 ## The resolution ladder (owner's design)
 
