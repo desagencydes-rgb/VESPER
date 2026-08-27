@@ -344,7 +344,10 @@ not optional.
 - **The chooser's latency budget** — a number to set before building.
 - **What the updater refuses** beyond credentials.
 - **How L2 is navigated** — "cheap traversal" is a requirement, not a mechanism.
-- **L3 replication** — see 11.
+- **Credential replication** — the vault on every node buys offline use and
+  puts it on machines with different protections (Windows, Kali). One node
+  holding it, others requesting on demand, is the alternative. Owner's call.
+- **Schema version field** — agreed necessary (12); the format is not chosen.
 
 ## Governing artefacts
 
