@@ -263,14 +263,64 @@ changes proposed.** Matches `selfmod.Proposal`.
    function of the log they disagree while the log agrees.
 10. **Time** — relative time stored relatively is wrong the next day.
 
-### Two more, raised 2026-08-27
+### Two more, raised 2026-08-27 — both now answered
 
-11. **L3 is one SQLite file on one machine.** Disk dies → all memory gone.
-    `INV-PLACE-3` says VESPER is not pinned to a machine; its memory currently
-    would be. Needs replication or a stated backup policy, decided now.
+11. **L3 was one SQLite file on one machine.** Answered by the backup policy
+    below.
 12. **Append-only makes the record format permanent.** Old rows stay in the old
     shape forever. **Every record needs a schema version from the first write**
-    or the shape can never change.
+    or the shape can never change. Costs one field now; cannot be added later.
+
+## Write modes — "append-only" is about the SYSTEM, not the owner
+
+Owner's clarification: the system may only append; the owner may change
+anything. Reconciled without losing provenance:
+
+| Mode | Who | Effect |
+|---|---|---|
+| **Append** | system | normal path. New record, HLC-ordered. |
+| **Supersede** | **owner only** | an "edit". A NEW record at rank 4 superseding the old; both remain. |
+| **Erase** | **owner only** | content destroyed. Tombstone records *that* an erasure happened, when, by the owner — never what. |
+
+**An edit must not be an in-place mutation.** Mutating a row leaves
+`observed_at_hlc` claiming a time that belongs to different content — the audit
+trail becomes false, and `INV-LOSS-3` loses the evidence base it depends on.
+Supersession gives the owner total control while every projection re-derives
+correctly.
+
+**Erase exists because supersession is not enough.** Some content should never
+have existed — a leaked key, something recorded in error. The tombstone keeps
+"something was removed here" auditable without keeping the content.
+
+## Backup — everything, in two places by class
+
+| Class | Destination | Mechanism |
+|---|---|---|
+| Ordinary memory | **private GitHub repo**, branch per type | export on write |
+| Credentials · highest sensitivity | **each node**, secure local store | auto-sync when node is on network |
+| Large files | **each node** | same path as credentials |
+
+### Five constraints on that
+
+1. **The redactor guards this path too.** Git history is effectively permanent:
+   a force-push does not remove a secret from clones, forks, or GitHub's
+   unreachable objects. So the redactor is an **egress** component, not a
+   provider component — one implementation, called at every boundary off this
+   machine: providers, GitHub, node sync.
+2. **Never commit the SQLite file.** Binary blob, no meaningful diff, whole file
+   rewritten per commit; the repo bloats and history is unreadable. Export
+   **JSONL or a SQL dump** — diffs, compresses, greps, restores.
+3. **Name files `(node, epoch)` and merges never conflict.** Two nodes pushing
+   one branch will fight; two nodes writing their own append-only files merge by
+   union. HLC still orders the contents.
+4. **A private repo is access control, not encryption.** GitHub staff, a
+   compromised token, one mis-click to public. Acceptable for ordinary memory;
+   name it rather than assume it.
+5. **The vault is as strong as the weakest node holding it.** Replicating
+   credentials to every node multiplies the attack surface across machines with
+   different protections (node 1 Windows, node 2 Kali). The alternative —
+   credentials on one node, others requesting on demand — costs offline use.
+   Owner's call; it should be a decision.
 
 ## Spikes, gating order
 
