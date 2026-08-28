@@ -25,14 +25,14 @@ Three kinds of entry:
 
 | # | Claim | Where it came from | What would settle it | If it is false |
 |---|---|---|---|---|
-| U1 | A prefix cut short still hits the cache, so the same memory block can be sent at different lengths to different providers | Asserted by me, 2026-08-28 | Send a long prefix, then a truncation of it; read the cache field | Per-provider sizing does not work; every provider needs its own block and its own cache entry |
+| U1 | A prefix cut short still hits the cache | Asserted by me, 2026-08-28 | **UNTESTABLE for now** — two runs voided because the positive control never hit. A truncation of a cache that never populates cannot be tested | Moot while the discount does not reproduce |
 | U2 | Splitting the resident block in two beats one block | Reasoned from two papers, never tested | Same questions, both layouts, scored | The whole two-block design is unnecessary complexity |
 | U3 | Models attend less to the middle of a long message | Published research, not tested on our rungs | Place a known fact at start / middle / end, ask for it | The layout argument collapses; ordering can be chosen purely for the cache |
 | U4 | Typed lines are better than JSON or prose for the model to read | Only the token cost was measured. Comprehension was assumed | Same facts, three encodings, same questions | Encoding should be chosen on token cost alone |
 | U5 | Selecting facts by search-plus-traversal surfaces the *right* facts | Never tested; only its speed was measured | Needs a record of times VESPER picked wrongly | Fast selection of the wrong facts is worse than slow selection of the right ones |
 | U6 | ~18 ms selection at 100k facts | Measured on **synthetic** data with an invented word distribution | Re-run against real memory once it exists | Selection may be materially slower on real text; the budget needs revisiting |
 | U7 | Re-summarising memory settles at a stable size | Assumed. The design rests on it | Grow a corpus, re-summarise repeatedly, plot the size | Either the resident block outgrows its budget, or it erodes to nothing |
-| U8 | Mistral is a viable failover rung | Measured 0.84 s once | Latency distribution over hours, not four calls | The failover rung is unusable and there is no second private fast rung |
+| U8 | Mistral is a viable failover rung | Measured 0.84 s once | **PARTLY ANSWERED**: 52 samples, p50 0.60 s, p99 2.65 s, zero errors. The 115 s event did not reproduce, so it is rarer than 1-in-52, not absent | Still needs a timeout; tail uncharacterised |
 
 ---
 
@@ -73,6 +73,14 @@ against the record, which is expensive and which nobody will keep doing.
 ---
 
 ## Problems observed and not explained
+
+| # | Observation | Status |
+|---|---|---|
+| P5 | **The cache discount does not reproduce.** 1 hit in 14 on Mistral, 0 in 4 on Groq. One 99.6% observation against 17 misses | Premise withdrawn. The design survives on a cost argument needing no cache |
+| P6 | **A probe with no positive control nearly produced a false finding.** The truncation test read "truncation misses" where the cache had simply never populated — byte-identical outputs | Fixed: positive control must hit and negative control must miss before the result is read at all |
+| P7 | **A patch script asserted on a hyphen where the file holds an en-dash, aborted, and `git commit` ran anyway** as a separate command — twice. A commit message described findings that were never written | Verify the write landed before committing; never chain a patch to a commit with `&&` |
+| P8 | **`git add -A core/` committed the history plumbing under an unrelated message**, landing `gateway.py` without its `routing/supply.py` half | Repaired in 58d51eb. Stage explicit paths, never a directory |
+
 
 | # | Observation | Status |
 |---|---|---|

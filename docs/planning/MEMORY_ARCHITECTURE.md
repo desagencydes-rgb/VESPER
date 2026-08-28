@@ -40,10 +40,23 @@ volume binds at all. On a request-capped rung a resident graph is free, and the
 throughput cliff below (4) does not exist. The binding constraint is per rung,
 never a property of "the provider ladder".
 
-**Latency at size, measured 2026-08-28:** Mistral served 8,250 resident tokens
-in 0.84–1.17 s against Groq's 0.42–0.67 s at 2,768. One 6.7 s outlier in four
-calls, so the tail is uncharacterised. A large resident block does not cost
-conversational speed.
+**Latency distributions, measured 2026-08-29** — 171 calls over 22 minutes,
+small payload, **zero errors on any rung**:
+
+| Rung | p50 | p90 | p99 | max | worst/median |
+|---|---|---|---|---|---|
+| Groq | 0.45 s | 0.53 s | 0.66 s | 0.66 s | **1.5×** |
+| Mistral | 0.60 s | 0.91 s | 2.65 s | 2.65 s | 4.4× |
+| Ollama | 1.03 s | 1.66 s | 2.50 s | 2.50 s | 2.4× |
+| Cloudflare | 1.16 s | 1.55 s | 3.52 s | 3.52 s | 3.0× |
+
+Groq is both the fastest and by far the most consistent, which is what a latency
+budget actually needs.
+
+**This does NOT clear the 115 s event.** Fifty-two clean Mistral samples failed
+to reproduce it, which makes it rarer than one in fifty-two — not absent. The
+sweep bounds the common case; the tail is uncharacterised and a timeout is still
+required.
 
 **Tokenizers disagree by 31% on identical bytes** — 8,800 characters measured as
 2,768 tokens on Groq and 3,631 on Mistral. L1's budget is per-provider; a single
@@ -56,8 +69,44 @@ number would be wrong on every rung but one.
 | small | 3,631 | **0.67 s** | 0 | 3,636 — full freight |
 | large | 8,249 | **17 s** | 8,224 | **30** |
 
-A repeated prefix CAN cost 0.4% of freight. That is the result the design
-needed and it is real.
+A repeated prefix CAN cost 0.4% of freight. That was observed **once**, and it
+is the number this design was justified on.
+
+### It does not reproduce — measured 2026-08-29
+
+| Rung | Attempts | Hits | Evidence |
+|---|---|---|---|
+| Mistral | **14** | **1** | `cached_tokens` reported explicitly as 0 |
+| Groq | 4 | 0 | No cache field at all; header delta shows 8,000 → ~1,810 on **both** cold and warm |
+
+Ten independent pairs on Mistral — each with its own prefix, so no pair could be
+warmed by another — returned **zero hits** at the same size and gap as the call
+that hit. Mean charge 8,251 tokens against a mean prompt of 8,247: full freight,
+every time.
+
+**The economic premise as originally written is withdrawn.** A discount arriving
+once in fourteen attempts is not something to build on, and expected cost is
+size × P(miss) — which at this rate is simply size.
+
+### The design survives, on a different argument than the one given
+
+Caching turned out to be the wrong question, because **the two rungs bind on
+different things**:
+
+| Rung | Binds on | An 8k resident block | A 2.3k index |
+|---|---|---|---|
+| Groq | 8,000 tokens/min | **77–88% of the minute** — unusable | ~29%, workable |
+| Mistral | **4 requests/min** | 32k of a 250k allowance = 13% | irrelevant |
+
+On Mistral the token budget was never the constraint, so caching changes nothing
+there. On Groq the block must fit 8,000 tokens per minute **with no discount at
+all** — and the index form does, while the fact-bearing form does not.
+
+**That is an independent justification for block A carrying the index rather
+than the facts**, reached from cost rather than from attention, and it holds
+whether or not caching ever works. Caching is now a bonus that may appear, never
+a premise. Any later measurement showing it work must be read against 1-in-14,
+not against the single call that hit.
 
 **But the two runs differ in prefix size AND in the gap between calls**, because
 `--spacing` was added for Mistral's 4-requests-per-minute limit and its effect
@@ -726,8 +775,9 @@ production.
 
 ## Spikes, gating order
 
-**S1 is answered in part.** A repeated prefix costs 0.4% of freight on Mistral.
-What remains is which variable buys it.
+**S1 is answered, and negatively.** A repeated prefix cost 0.4% of freight once,
+and full freight on the fourteen attempts since. The resident design no longer
+rests on it.
 
 Runnable now, no corpus needed:
 
@@ -735,7 +785,7 @@ Runnable now, no corpus needed:
 |---|---|---|
 | M1 | **Cache TTL** — how long the discount survives | possibly decisive: a discount expiring in 5 min is worth nothing to an assistant spoken to every 20 |
 | M2 | **Size vs waiting**, one variable at a time | resolves the confound above; every economic claim rests on it |
-| M3 | **Does Groq cache at all** | decides whether the 0.4 s rung gets the discount or only the 1 s one |
+| M3 | ~~Does Groq cache at all~~ | **ANSWERED 2026-08-29: no.** Header delta shows full freight on cold and warm alike |
 | M4 | **SQLite: FTS5 + traversal + ranking** at 10⁴ and 10⁵ facts | block B is on every turn's critical path; must be single-digit ms |
 | M5 | **Cloudflare and Ollama measurability** | unmeasurable spend is unusable, fail-closed |
 | M6 | **Token density per rung** | 31% spread already seen; L1's budget is per-provider |
