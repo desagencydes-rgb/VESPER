@@ -1,0 +1,94 @@
+{
+  "probe": "cache_hitrate",
+  "provider": "groq-strong",
+  "when": "2026-08-29T00:21:24",
+  "pairs": 4,
+  "gap_s": 45.0,
+  "pace_s": 50.0,
+  "prefix_target": 5000,
+  "hit_rate": 0.0,
+  "mean_prompt_tokens": 6164.25,
+  "mean_charge": null,
+  "results": [
+    {
+      "pair": 0,
+      "cold": {
+        "prompt_tokens": 6165,
+        "cached_tokens": null,
+        "query_cost": null,
+        "remaining": 1803.0,
+        "elapsed_s": 0.767,
+        "error": null
+      },
+      "warm": {
+        "prompt_tokens": 6165,
+        "cached_tokens": null,
+        "query_cost": null,
+        "remaining": 1820.0,
+        "elapsed_s": 0.737,
+        "error": null
+      },
+      "hit": false
+    },
+    {
+      "pair": 1,
+      "cold": {
+        "prompt_tokens": 6166,
+        "cached_tokens": null,
+        "query_cost": null,
+        "remaining": 1802.0,
+        "elapsed_s": 0.762,
+        "error": null
+      },
+      "warm": {
+        "prompt_tokens": 6166,
+        "cached_tokens": null,
+        "query_cost": null,
+        "remaining": 1818.0,
+        "elapsed_s": 0.592,
+        "error": null
+      },
+      "hit": false
+    },
+    {
+      "pair": 2,
+      "cold": {
+        "prompt_tokens": 6163,
+        "cached_tokens": null,
+        "query_cost": null,
+        "remaining": 1816.0,
+        "elapsed_s": 0.735,
+        "error": null
+      },
+      "warm": {
+        "prompt_tokens": 6163,
+        "cached_tokens": null,
+        "query_cost": null,
+        "remaining": 1811.0,
+        "elapsed_s": 0.842,
+        "error": null
+      },
+      "hit": false
+    },
+    {
+      "pair": 3,
+      "cold": {
+        "prompt_tokens": 6163,
+        "cached_tokens": null,
+        "query_cost": null,
+        "remaining": 1816.0,
+        "elapsed_s": 0.788,
+        "error": null
+      },
+      "warm": {
+        "prompt_tokens": 6163,
+        "cached_tokens": null,
+        "query_cost": null,
+        "remaining": 1805.0,
+        "elapsed_s": 0.755,
+        "error": null
+      },
+      "hit": false
+    }
+  ]
+}

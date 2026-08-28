@@ -1,0 +1,49 @@
+{
+  "probe": "cache_truncation",
+  "provider": "mistral-standard",
+  "when": "2026-08-29T00:06:59",
+  "full_tokens_target": 5000,
+  "gap_s": 20.0,
+  "calls": [
+    {
+      "call": "1_full",
+      "chars": 20000,
+      "prompt_tokens": 8246,
+      "cached_tokens": 0,
+      "query_cost": "8248",
+      "remaining": 233078.0,
+      "elapsed_s": 0.96,
+      "error": null
+    },
+    {
+      "call": "2_full_again",
+      "chars": 20000,
+      "prompt_tokens": 8247,
+      "cached_tokens": 0,
+      "query_cost": "8251",
+      "remaining": 230148.0,
+      "elapsed_s": 0.92,
+      "error": null
+    },
+    {
+      "call": "3_truncated",
+      "chars": 10000,
+      "prompt_tokens": 4118,
+      "cached_tokens": 0,
+      "query_cost": "4120",
+      "remaining": 231797.0,
+      "elapsed_s": 0.782,
+      "error": null
+    },
+    {
+      "call": "4_control",
+      "chars": 10000,
+      "prompt_tokens": 4119,
+      "cached_tokens": 0,
+      "query_cost": "4121",
+      "remaining": 233357.0,
+      "elapsed_s": 0.689,
+      "error": null
+    }
+  ]
+}

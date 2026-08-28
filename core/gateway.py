@@ -449,6 +449,7 @@ class ModelGateway:
 
     def complete(self, prompt: str, *, task_id: str | None = None,
                  system: str | None = None,
+                 history: list | None = None,
                  options: dict | None = None,
                  max_attempts_per_provider: int = 2,
                  max_attempts_per_request: int | None = None,
@@ -596,6 +597,28 @@ class ModelGateway:
         if system:
             call_options["system"] = system
         system_chars = len(system or "")
+
+        # THE CONVERSATION SO FAR, ALREADY BUDGETED BY THE CALLER.
+        #
+        # A NAMED PARAMETER, LIKE `system`, AND FOR A SHARPER REASON. Until
+        # 2026-08-27 `complete` sent one user message and nothing else, so every
+        # turn was a cold start -- VESPER was not LOSING the conversation, it had
+        # never been given one. A defect that total should be visible in the
+        # signature, not buried in an options dict.
+        #
+        # NOT ASSEMBLED HERE. What goes in is a context decision answerable to
+        # `core/context.py`'s budget and to the privacy class; this module
+        # decides what may LEAVE, which is a different question about the same
+        # bytes. Composing it here would make the choke point the author of the
+        # request as well as its gate.
+        #
+        # COUNTED, NOT COPIED, into telemetry -- the same rule as the preamble.
+        # The conversation is the most owner-specific thing in the request and a
+        # field echoed into every `gateway.attempt` event would land in every
+        # checkpoint downstream of one.
+        if history:
+            call_options["history"] = list(history)
+        history_turns = len(history or ())
 
         if prefer not in ("cost", "latency"):
             raise ValueError(
@@ -830,6 +853,7 @@ class ModelGateway:
                 self._record(p, "ok", None, None, ms, cost_class=eff)
                 return {"provider_id": p.provider_id, "profile_id": p.profile_id,
                         "system_chars": system_chars,
+                        "history_turns": history_turns,
                         "result": result, "effort": effort.to_dict(),
                         "attempts_remaining": budget}
 

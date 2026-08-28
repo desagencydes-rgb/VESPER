@@ -1,0 +1,212 @@
+{
+  "probe": "cache_hitrate",
+  "provider": "mistral-standard",
+  "when": "2026-08-29T00:14:45",
+  "pairs": 10,
+  "gap_s": 20.0,
+  "hit_rate": 0.0,
+  "mean_prompt_tokens": 8247.2,
+  "mean_charge": 8251.2,
+  "results": [
+    {
+      "pair": 0,
+      "cold": {
+        "prompt_tokens": 8252,
+        "cached_tokens": 0,
+        "query_cost": "8254",
+        "remaining": 238365.0,
+        "elapsed_s": 1.137,
+        "error": null
+      },
+      "warm": {
+        "prompt_tokens": 8253,
+        "cached_tokens": 0,
+        "query_cost": "8257",
+        "remaining": 234838.0,
+        "elapsed_s": 0.857,
+        "error": null
+      },
+      "hit": false
+    },
+    {
+      "pair": 1,
+      "cold": {
+        "prompt_tokens": 8245,
+        "cached_tokens": 0,
+        "query_cost": "8247",
+        "remaining": 229619.0,
+        "elapsed_s": 0.921,
+        "error": null
+      },
+      "warm": {
+        "prompt_tokens": 8246,
+        "cached_tokens": 0,
+        "query_cost": "8250",
+        "remaining": 224387.0,
+        "elapsed_s": 0.877,
+        "error": null
+      },
+      "hit": false
+    },
+    {
+      "pair": 2,
+      "cold": {
+        "prompt_tokens": 8243,
+        "cached_tokens": 0,
+        "query_cost": "8245",
+        "remaining": 223521.0,
+        "elapsed_s": 0.832,
+        "error": null
+      },
+      "warm": {
+        "prompt_tokens": 8244,
+        "cached_tokens": 0,
+        "query_cost": "8248",
+        "remaining": 224283.0,
+        "elapsed_s": 0.901,
+        "error": null
+      },
+      "hit": false
+    },
+    {
+      "pair": 3,
+      "cold": {
+        "prompt_tokens": 8244,
+        "cached_tokens": 0,
+        "query_cost": "8246",
+        "remaining": 225142.0,
+        "elapsed_s": 0.809,
+        "error": null
+      },
+      "warm": {
+        "prompt_tokens": 8245,
+        "cached_tokens": 0,
+        "query_cost": "8249",
+        "remaining": 222934.0,
+        "elapsed_s": 0.856,
+        "error": null
+      },
+      "hit": false
+    },
+    {
+      "pair": 4,
+      "cold": {
+        "prompt_tokens": 8248,
+        "cached_tokens": 0,
+        "query_cost": "8250",
+        "remaining": 220738.0,
+        "elapsed_s": 0.877,
+        "error": null
+      },
+      "warm": {
+        "prompt_tokens": 8249,
+        "cached_tokens": 0,
+        "query_cost": "8253",
+        "remaining": 219253.0,
+        "elapsed_s": 0.854,
+        "error": null
+      },
+      "hit": false
+    },
+    {
+      "pair": 5,
+      "cold": {
+        "prompt_tokens": 8245,
+        "cached_tokens": 0,
+        "query_cost": "8247",
+        "remaining": 220092.0,
+        "elapsed_s": 0.824,
+        "error": null
+      },
+      "warm": {
+        "prompt_tokens": 8246,
+        "cached_tokens": 0,
+        "query_cost": "8250",
+        "remaining": 220843.0,
+        "elapsed_s": 0.929,
+        "error": null
+      },
+      "hit": false
+    },
+    {
+      "pair": 6,
+      "cold": {
+        "prompt_tokens": 8248,
+        "cached_tokens": 0,
+        "query_cost": "8250",
+        "remaining": 221715.0,
+        "elapsed_s": 0.927,
+        "error": null
+      },
+      "warm": {
+        "prompt_tokens": 8249,
+        "cached_tokens": 0,
+        "query_cost": "8253",
+        "remaining": 222506.0,
+        "elapsed_s": 0.889,
+        "error": null
+      },
+      "hit": false
+    },
+    {
+      "pair": 7,
+      "cold": {
+        "prompt_tokens": 8243,
+        "cached_tokens": 0,
+        "query_cost": "8245",
+        "remaining": 223370.0,
+        "elapsed_s": 0.845,
+        "error": null
+      },
+      "warm": {
+        "prompt_tokens": 8244,
+        "cached_tokens": 0,
+        "query_cost": "8248",
+        "remaining": 224136.0,
+        "elapsed_s": 0.865,
+        "error": null
+      },
+      "hit": false
+    },
+    {
+      "pair": 8,
+      "cold": {
+        "prompt_tokens": 8248,
+        "cached_tokens": 0,
+        "query_cost": "8250",
+        "remaining": 224972.0,
+        "elapsed_s": 0.896,
+        "error": null
+      },
+      "warm": {
+        "prompt_tokens": 8249,
+        "cached_tokens": 0,
+        "query_cost": "8253",
+        "remaining": 225580.0,
+        "elapsed_s": 0.837,
+        "error": null
+      },
+      "hit": false
+    },
+    {
+      "pair": 9,
+      "cold": {
+        "prompt_tokens": 8246,
+        "cached_tokens": 0,
+        "query_cost": "8248",
+        "remaining": 223399.0,
+        "elapsed_s": 0.875,
+        "error": null
+      },
+      "warm": {
+        "prompt_tokens": 8247,
+        "cached_tokens": 0,
+        "query_cost": "8251",
+        "remaining": 221154.0,
+        "elapsed_s": 0.854,
+        "error": null
+      },
+      "hit": false
+    }
+  ]
+}
