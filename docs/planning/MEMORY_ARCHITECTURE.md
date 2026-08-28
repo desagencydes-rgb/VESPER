@@ -34,15 +34,51 @@ re-sent. Today's turn = 430 preamble + ~20 question + 2,560 reservation ≈ 3,01
 Reservation dominates the graph — cutting reservations buys more headroom than
 shrinking it.
 
-**The one question that decides the design: does prompt caching discount a
-stable prefix against the rate limit?** The graph is a stable prefix. Yes →
-near-free after the first request. No → full freight every turn, forever.
+**Rate limits are not one shape.** Groq binds on 8,000 tokens/min. Mistral binds
+on **4 requests/min** with 250,000 tokens/min — 62,500 tokens per request before
+volume binds at all. On a request-capped rung a resident graph is free, and the
+throughput cliff below (4) does not exist. The binding constraint is per rung,
+never a property of "the provider ladder".
+
+**Latency at size, measured 2026-08-28:** Mistral served 8,250 resident tokens
+in 0.84–1.17 s against Groq's 0.42–0.67 s at 2,768. One 6.7 s outlier in four
+calls, so the tail is uncharacterised. A large resident block does not cost
+conversational speed.
+
+**Tokenizers disagree by 31% on identical bytes** — 8,800 characters measured as
+2,768 tokens on Groq and 3,631 on Mistral. L1's budget is per-provider; a single
+number would be wrong on every rung but one.
+
+### Caching — MEASURED 2026-08-28, and the experiment was confounded
+
+| Run | Prefix | Gap between calls | Cached | Charged to the rate limit |
+|---|---|---|---|---|
+| small | 3,631 | **0.67 s** | 0 | 3,636 — full freight |
+| large | 8,249 | **17 s** | 8,224 | **30** |
+
+A repeated prefix CAN cost 0.4% of freight. That is the result the design
+needed and it is real.
+
+**But the two runs differ in prefix size AND in the gap between calls**, because
+`--spacing` was added for Mistral's 4-requests-per-minute limit and its effect
+on the thing being measured went unnoticed. Either variable explains both rows.
+So **it is not known whether the discount is bought by SIZE or by WAITING**, and
+every economic claim resting on a size threshold is provisional until one
+variable moves at a time.
+
+Published minimums make the size story the less likely one: OpenAI is 1,024
+tokens, Anthropic 1,024 for Opus/Sonnet. A ~4,000-token threshold would be far
+above the industry norm.
+
+**The remaining question is cache TTL and it may be the one that decides the
+design.** A discount that expires in five minutes is worth nothing to an
+assistant whose owner speaks to it every twenty.
 
 ## Three layers, one truth
 
 | Layer | Where | Size | Access | Holds |
 |---|---|---|---|---|
-| **L1** | in every request | ~1–2k tok | always present | compressed nodes + shape of what was omitted + pointers |
+| **L1** | in every request | two blocks, see below | always present | block A: rules + index of what exists · block B: the facts this turn needs |
 | **L2** | disk, FTS5 index | 10⁴–10⁵ | `SELECT`, no model call | entities, relations, facts with rank |
 | **L3** | `store.py` `log` | unbounded | rare, route-planned | everything; L1/L2 recomputable from it |
 
@@ -69,6 +105,88 @@ dependency, no vector DB.
 **So ×2 costs nothing extra.** One model call → one record carrying both
 renderings → one `append()` returns a `seq` → L1 carries the compressed
 rendering *plus that seq as pointer*. A reference, not a copy that can drift.
+
+## L1 — two blocks, in different places, for different reasons
+
+```
+[ BLOCK A ]  cached, stable        persona + rules + voice
+                                   index: "47 work facts, 12 people, 8 rules"
+[ BLOCK B ]  fresh, uncached       the 3-5 facts THIS turn needs
+[ question ]
+```
+
+**Why two and not one.** A single block cannot satisfy both constraints at once:
+
+- **Caching wants stability first.** The discount is prefix-keyed, so stable
+  content must lead and volatile content must trail.
+- **Attention wants importance at the EDGES.** Long-context accuracy follows a
+  U-curve; the middle degrades by >30%. Ordering purely for the cache puts the
+  facts in the middle — the worst position available.
+
+Two blocks resolve it. A leads (cache-optimal AND high-attention), B sits last
+against the question (the other high-attention position), and the weak middle is
+left deliberately empty.
+
+**Block A holds the INDEX, not the knowledge.** This is the correction to the
+original design. Context-rot measurements across 18 models find degradation is
+driven by length *and* by distractors, and specifically that **topically related
+but irrelevant content harms more than unrelated filler**. Resident personal
+memory is exactly that: related, and mostly irrelevant to any one turn. Carrying
+every fact resident maximises the most harmful kind of context there is.
+
+So A carries what memory CONTAINS — `47 facts under "work"; 3 resident;
+→log:1183` — which is what keeps absence non-silent, at ~15 tokens per node
+instead of the facts themselves.
+
+**Block B is selected deterministically.** FTS5 plus bounded graph traversal
+over L2, no model call, single-digit milliseconds. **This is what preserves the
+owner's founding insight**: there is still no recall EVENT, nothing waits on a
+retrieval hop, and a self-initiated act with no user turn still gets a block B.
+What was rejected was recall-as-a-round-trip, not selection.
+
+**Merging persona into A is not tidiness — it is what makes persona cacheable.**
+Measured 2026-08-28: `persona.toml` + `voice.toml` are ~1,590 tokens of content,
+shipped as their own system prompt every turn and below every published cache
+minimum. Alone they can never be discounted. As stratum 0 of block A they cross
+the threshold and both halves go nearly free.
+
+**The merge is in RENDERING, never in AUTHORITY.** Persona lives in
+`contracts/policy/`, governed, reviewed changes only (`INV-SELF-*`). Memory is
+derived. Block A renders from the contract and **the memory system may never
+write into it** — without that line a compaction pass could rewrite VESPER's own
+rules and no gate would notice.
+
+**A better structure exists and is out of reach.** Position-independent caching
+(EPIC, CacheBlend) caches chunks modularly and composes them in any order,
+dissolving the cache-versus-attention conflict entirely. It requires controlling
+the serving stack (vLLM + LMCache). Hosted APIs do not expose it and local
+inference is ruled out on this host. Revisit only if node 1 ever serves.
+
+## L2 — a graph schema inside SQLite
+
+The owner asked whether L2 should be a graph, a network, a model, a database, a
+JSON file or a graphify snapshot. **"Graph versus database" is a false choice:**
+the graph is the logical model, SQLite is the physical store. `entity`, `edge`
+and `fact` are tables; traversal is a bounded recursive CTE.
+
+Ruled out, with reasons:
+
+| Candidate | Why not |
+|---|---|
+| A model / neural net | no citable span (`INV-EVID-2`), unauditable, cannot be updated incrementally |
+| Vector DB | similarity is never sufficient for a citation; a dependency in a stdlib-only corpus |
+| JSON file | no index, load-everything-to-query, no safe concurrent write |
+| graphify snapshot | wrong lifecycle — a builder's snapshot on the owner's keys; L2 is live and incrementally written |
+
+FTS5 and JSON1 are both already available and `core/store.py` is already SQLite.
+This closes the open item *"how L2 is navigated"*: bounded-depth recursive CTE,
+no model call.
+
+**The query is on the critical path of every turn**, so it is a latency budget
+item, not an implementation detail. The risk is not the full-text lookup — it is
+the traversal depth × fanout and the ranking that picks 3–5 rows out of
+thousands. Both are measurable now against synthetic data, because what is being
+tested is the index, not the content.
 
 ## Two writers
 
@@ -263,6 +381,13 @@ changes proposed.** Matches `selfmod.Proposal`.
    function of the log they disagree while the log agrees.
 10. **Time** — relative time stored relatively is wrong the next day.
 
+13. **Distractors, not just size.** Degradation is driven by irrelevant content
+    as much as by length, and **topically related but irrelevant content harms
+    more than unrelated filler** — which is precisely what resident personal
+    memory is. This is the strongest argument against the original design and it
+    is why block A now carries the index rather than the facts. Unresolved:
+    the residual distractor cost of block A itself (S5).
+
 ### Two more, raised 2026-08-27 — both now answered
 
 11. **L3 was one SQLite file on one machine.** Answered by the backup policy
@@ -322,14 +447,200 @@ have existed — a leaked key, something recorded in error. The tombstone keeps
    credentials on one node, others requesting on demand — costs offline use.
    Owner's call; it should be a decision.
 
+## The sensor layer, and the "unconscious"
+
+**The gap this closes.** Everything above assumed a turn exists. VESPER's whole
+premise is that it acts without one — camera checks, calendar, code, stale
+plans, unfinished tasks, self-research, unresolved questions, incoming
+calls/SMS/WhatsApp/Telegram, socials. Nothing in the memory design says what
+GENERATES those.
+
+**Most of it is already built and reachable by nothing.** As with the rest of
+this corpus, the finding is not a missing design:
+
+| Artefact | State |
+|---|---|
+| `contracts/policy/interruption_budget.toml` | complete wake budget. Read only by `core/narration.py`, `core/alarm.py` |
+| `contracts/policy/trigger_registry.toml` | 8 triggers, `STATE`/`EVENT`/`COMPOSITE` predicates, debounce, cooldown, resource budget | 
+| `INV-TRIG-7` | *a model may propose a trigger, never BE one* — already the rule the always-on layer needs |
+| `trg_fact_expiry_sweep` | the sweep class already exists |
+
+**What is genuinely missing is the INPUT side.** Predicates reference
+`world.owner.attention_state`, `nodes.reachable_set`, `world.current_host.health`
+— and nothing populates them. **That is what a sensor is:** not a new subsystem,
+but the thing that makes the existing predicates evaluable.
+
+### Five source classes
+
+They differ by WHAT MAKES THEM HAPPEN, and that decides the mechanism.
+
+| Class | Nature | Sources |
+|---|---|---|
+| **Interrupt** | pushes, time-critical | incoming call, SMS, WhatsApp, Telegram |
+| **Queue** | pushes, not urgent | file changed, mail, a flag set |
+| **Timer** | cheap to check, polled | calendar, task state, disk, network reachability |
+| **Gated** | expensive — needs a REASON, never a timer | camera, screen, microphone, feeds |
+| **Sweep** | **nothing happens** — time alone makes it true | unfinished tasks, stale plans, unresolved questions, deferred work, self-research |
+
+**The sweep row has no sensor because there is nothing to sense.** Nothing emits
+an event when an idea has been unresolved for three weeks. It is a scheduled
+query over VESPER's own memory — the same engine as block B's selector, seeded
+by time instead of by an utterance.
+
+**That answers the open question of what seeds block B on a self-initiated
+turn: the sweep's finding is the seed.** One mechanism, not two.
+
+**A sensor and the verifier are the same shape.** The verifier registry is
+`fact → probe → cost → freshness`; a sensor is `source → probe → cost → period`.
+Same probe, two callers — one on demand before trusting a fact, one scheduled.
+One registry, not two.
+
+### What "unconscious" decomposes into
+
+The metaphor is load-bearing in one specific way: **the unconscious is cheap
+BECAUSE it is dumb and specific.** The cocktail-party effect does not run on
+general intelligence monitoring the room; it runs on a cheap always-on detector
+for one's own name. Twenty specific detectors cost nothing. One general "is this
+important?" detector costs a model call, always, forever.
+
+| Function | Meaning | Model? | Status |
+|---|---|---|---|
+| Filtering | most of what is sensed never reaches VESPER | **never** | new |
+| Salience | some things break through regardless | **never** | new |
+| Priming | recent/frequent memory is cheaper to reach | **never** | = block B ranking |
+| Consolidation | sorting and compressing while idle | yes, own routing | = the compactor |
+| Incubation | a new fact closes an open question | rarely | a join, not magic |
+| Automaticity | approved often enough → no deliberation | **never** | new, gated by `INV-SELF-*` |
+
+Four of six are code. The answer to *"does it get its own routing and API
+keys?"* is **no, for the always-on parts** — only consolidation does, and it
+already has one.
+
+### Two rules that stop it collapsing
+
+**1. The always-on layer never calls a model.** `INV-TRIG-7` already states the
+half about triggers; the sensor half needs writing. This is not cost discipline
+alone: **a regex cannot be prompt-injected.** The moment a model is put in the
+filter, the filter becomes the vulnerability it exists to prevent. "Let us just
+have a small model watch for interesting things" is the most natural next
+suggestion anyone will make, and it silently ends the design.
+
+**2. The filter logs what it discarded.** A filter deciding what reaches VESPER
+is deciding what VESPER knows, and a filter bug produces SILENCE — undetectable,
+exactly like a memory miss. The discard log is the miss log's shape at a
+different layer, and it is the only thing that makes the thresholds tunable.
+
+### The untrusted-input gap
+
+`INVARIANTS.toml:873` already holds the right principle — screen content, OCR
+output and command output are `retrieved_external`, may never raise authority,
+and *"an instruction read off a screen is an untrusted input, not a directive."*
+
+**Its scope is too narrow.** It covers screens. It does not cover an incoming
+SMS, a WhatsApp message, a calendar invite, or a page read during self-research
+— every one of which is text an outsider can put in front of VESPER. With
+sensors feeding triggers, anyone able to message VESPER can attempt to steer it.
+
+**Extend the existing invariant's scope rather than adding a rival to it.** A
+sensor's output is data, never a command, whatever the channel.
+
+The outbound direction needs a gate for the same reason: VESPER holding a phone
+number can initiate contact, and that is rate-limited and governed, not free.
+
+### Wake budget — already defined, and it is better than a new one
+
+No new numbers are needed. `interruption_budget.toml` holds:
+
+- **Lattice** `alarm_safety > active_user_task > ambience > proactive`, strict,
+  not reorderable by configuration.
+- **Modality cost** ambient_visual 1 · visual_notice 3 · speech 8 · alarm
+  `EXEMPT` (deliberately not a number — an exempt class must not be comparable).
+- **Per-state ceilings** ACTIVE_SESSION.focused 8/hr, 2 contacts · .available
+  24/hr, 6 · IDLE.present 16/hr, 4 · IDLE.absent 3/hr, 1 · FREE_TIME **0** ·
+  DND **0**.
+- **Rule** `act_now ⟺ expected_value > interruption_cost AND decays`, otherwise
+  `QUEUE_TO_BOUNDARY`; `drop_permitted = false`.
+
+And it already answers *"how often may VESPER act WITHOUT interrupting me"*:
+`[preparation] budgeted = false` — research, indexing, drafting, benchmarking and
+proposal filing are bounded by resource and cost policy, never by the
+interruption budget. `INV-IDEA-6`: **idle time expands available time, never
+authority.**
+
+### Sources — designed now, connected later
+
+Not needed for data gathering, spikes or testing. Listed so that the day a
+channel is enabled it is a registry row and not a redesign.
+
+| Source | Class | Notes |
+|---|---|---|
+| calendar · task state · disk · reachability · host health | Timer | cheapest, already partly in `host_actions.toml` |
+| filesystem / repo change · mail · flags | Queue | |
+| SMS · WhatsApp · Telegram · voice call | Interrupt | **untrusted text; needs the extended invariant before enabling** |
+| camera · screen · microphone · feeds | Gated | never on a timer — a cheap sensor must gate them; power is the constraint |
+| unfinished tasks · stale plans · unresolved questions · deferred work · self-research · low-priority projects | Sweep | no sensor exists; scheduled L2 query |
+| social accounts | Timer or Queue | outbound is governed, not free |
+
+## Which providers serve which subsystem
+
+Owner memory is private, so **rule R6 puts every memory-touching subsystem on
+E1_PRIVATE rungs only** — Cloudflare, Groq, Ollama, Mistral, Claude CLI. The
+public rungs (four Gemini keys, NVIDIA, OpenRouter) can never see memory however
+generous their quota.
+
+| Subsystem | Rung | On what basis |
+|---|---|---|
+| Chooser | Groq | 0.42–0.67 s measured; it is inside the latency path |
+| VESPER main | Groq → Mistral | fast first, quality on failover |
+| Compactor | Mistral | 250k tok/min, caches, latency irrelevant |
+| Arbiter | Claude CLI | judgement, rare, no metered quota |
+| Updater | Cloudflare | high volume, background |
+| Miss recorder | Cloudflare / Ollama | cheap, background |
+| Forgetter | Claude CLI | highest stakes, rarest |
+| Verifier | mostly no model | probes, not inference |
+| Redactor | **never a model** | running one IS the leak |
+| Sensors + filter | **never a model** | always-on; and a regex cannot be injected |
+
+**Nine subsystems, five private rungs.** Per-subsystem isolation is therefore
+**per-ACCOUNT, not per-provider** — separate Groq/Mistral/Cloudflare accounts, as
+already done with four Gemini keys. The owner has confirmed additional accounts
+are available. Quota isolation is the goal; the provider need not know the
+accounts are related.
+
+**Two rungs cannot be measured at all.** Cloudflare reported `prompt=0,
+completion=0` on three working calls (consistent with its known-unreliable
+usage reporting) and Ollama returns no rate-limit headers. Under fail-closed
+doctrine unmeasurable spend is unusable, so both need another accounting route
+before they carry a subsystem.
+
+**Mistral reports cost directly** — `x-ratelimit-tokens-query-cost` — which is
+better evidence than a delta between two observations. Worth reading in
+production.
+
 ## Spikes, gating order
+
+**S1 is answered in part.** A repeated prefix costs 0.4% of freight on Mistral.
+What remains is which variable buys it.
+
+Runnable now, no corpus needed:
+
+| # | Question | Why it decides something |
+|---|---|---|
+| M1 | **Cache TTL** — how long the discount survives | possibly decisive: a discount expiring in 5 min is worth nothing to an assistant spoken to every 20 |
+| M2 | **Size vs waiting**, one variable at a time | resolves the confound above; every economic claim rests on it |
+| M3 | **Does Groq cache at all** | decides whether the 0.4 s rung gets the discount or only the 1 s one |
+| M4 | **SQLite: FTS5 + traversal + ranking** at 10⁴ and 10⁵ facts | block B is on every turn's critical path; must be single-digit ms |
+| M5 | **Cloudflare and Ollama measurability** | unmeasurable spend is unusable, fail-closed |
+| M6 | **Token density per rung** | 31% spread already seen; L1's budget is per-provider |
+
+Blocked on a corpus that does not exist:
 
 | # | Question | Falsified if |
 |---|---|---|
-| S1 | Is a stable prefix discounted against TPM? | cached tokens charged in full — the graph permanently divides throughput |
 | S2 | Does compaction converge? | size grows monotonically, or recall falls below the bar |
-| S3 | Can the metadata be afforded? | overhead exceeds compression gain — L1 has no reason to exist |
+| S3 | Can the metadata be afforded? | overhead exceeds compression gain |
 | S4 | Is resident cheaper than retrieving? | resident loses on tokens or latency |
+| S5 | **Does a large block A measurably degrade answers?** | it does — block A shrinks to the index alone, permanently |
 
 **There is no corpus.** The 91 MB of transcripts and 1,060-line `MEMORY.md` are
 the *builder's* notes — `docs/design/HOME-CONTENT.md:117` says so explicitly.
@@ -343,11 +654,18 @@ not optional.
 - **Who sets expiry** — a model guessing a TTL decides what the owner keeps.
 - **The chooser's latency budget** — a number to set before building.
 - **What the updater refuses** beyond credentials.
-- **How L2 is navigated** — "cheap traversal" is a requirement, not a mechanism.
 - **Credential replication** — the vault on every node buys offline use and
   puts it on machines with different protections (Windows, Kali). One node
   holding it, others requesting on demand, is the alternative. Owner's call.
 - **Schema version field** — agreed necessary (12); the format is not chosen.
+- **Filter thresholds** — how loud a thing must be to wake VESPER. The mechanism
+  is cheap and the dials need the corpus; sane defaults, tuned from the discard
+  log.
+
+**Closed since 2026-08-27:** *how L2 is navigated* (bounded recursive CTE over a
+graph schema in SQLite) · *what seeds block B on a self-initiated turn* (the
+sweep's finding) · *the wake budget* (already specified in
+`interruption_budget.toml`; no new numbers needed).
 
 ## Governing artefacts
 

@@ -1,0 +1,257 @@
+{
+  "probe": "cache_discount",
+  "when": "2026-08-28T12:21:57",
+  "prefix_target_tokens": 2200,
+  "max_tokens": 32,
+  "providers": [
+    {
+      "id": "cf-strong",
+      "wire": "cf_responses",
+      "model": "@cf/openai/gpt-oss-120b",
+      "endpoint_host": "api.cloudflare.com",
+      "calls": [
+        {
+          "call": "A_cold",
+          "elapsed_s": 1.369,
+          "gap_since_prev_s": null,
+          "http_error": null,
+          "error": null,
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "cached_tokens": null,
+          "remaining_tokens": null,
+          "remaining_header": null,
+          "raw_remaining_drop": null,
+          "headers": {}
+        },
+        {
+          "call": "B_repeat",
+          "elapsed_s": 1.218,
+          "gap_since_prev_s": 1.37,
+          "http_error": null,
+          "error": null,
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "cached_tokens": null,
+          "remaining_tokens": null,
+          "remaining_header": null,
+          "raw_remaining_drop": null,
+          "headers": {}
+        },
+        {
+          "call": "C_control",
+          "elapsed_s": 1.671,
+          "gap_since_prev_s": 1.218,
+          "http_error": null,
+          "error": null,
+          "prompt_tokens": 0,
+          "completion_tokens": 0,
+          "cached_tokens": null,
+          "remaining_tokens": null,
+          "remaining_header": null,
+          "raw_remaining_drop": null,
+          "headers": {}
+        }
+      ]
+    },
+    {
+      "id": "groq-strong",
+      "wire": "openai_chat",
+      "model": "openai/gpt-oss-120b",
+      "endpoint_host": "api.groq.com",
+      "calls": [
+        {
+          "call": "A_cold",
+          "elapsed_s": 0.669,
+          "gap_since_prev_s": null,
+          "http_error": null,
+          "error": null,
+          "prompt_tokens": 2768,
+          "completion_tokens": 26,
+          "cached_tokens": null,
+          "remaining_tokens": 5200.0,
+          "remaining_header": "x-ratelimit-remaining-tokens",
+          "raw_remaining_drop": null,
+          "headers": {
+            "Cache-Control": "private, max-age=0, no-store, no-cache, must-revalidate",
+            "x-ratelimit-limit-requests": "1000",
+            "x-ratelimit-limit-tokens": "8000",
+            "x-ratelimit-remaining-requests": "999",
+            "x-ratelimit-remaining-tokens": "5200",
+            "x-ratelimit-reset-requests": "1m26.4s",
+            "x-ratelimit-reset-tokens": "21s",
+            "cf-cache-status": "DYNAMIC"
+          }
+        },
+        {
+          "call": "B_repeat",
+          "elapsed_s": 0.416,
+          "gap_since_prev_s": 0.669,
+          "http_error": null,
+          "error": null,
+          "prompt_tokens": 2768,
+          "completion_tokens": 26,
+          "cached_tokens": null,
+          "remaining_tokens": 2451.0,
+          "remaining_header": "x-ratelimit-remaining-tokens",
+          "raw_remaining_drop": 2749.0,
+          "headers": {
+            "Cache-Control": "private, max-age=0, no-store, no-cache, must-revalidate",
+            "x-ratelimit-limit-requests": "1000",
+            "x-ratelimit-limit-tokens": "8000",
+            "x-ratelimit-remaining-requests": "998",
+            "x-ratelimit-remaining-tokens": "2451",
+            "x-ratelimit-reset-requests": "2m52.8s",
+            "x-ratelimit-reset-tokens": "41.617s",
+            "cf-cache-status": "DYNAMIC"
+          }
+        },
+        {
+          "call": "C_control",
+          "elapsed_s": 0.16,
+          "gap_since_prev_s": 0.417,
+          "http_error": 429,
+          "error": null,
+          "prompt_tokens": null,
+          "completion_tokens": null,
+          "cached_tokens": null,
+          "remaining_tokens": 2481.0,
+          "remaining_header": "x-ratelimit-remaining-tokens",
+          "raw_remaining_drop": -30.0,
+          "headers": {
+            "Cache-Control": "private, max-age=0, no-store, no-cache, must-revalidate",
+            "retry-after": "3",
+            "x-ratelimit-limit-requests": "1000",
+            "x-ratelimit-limit-tokens": "8000",
+            "x-ratelimit-remaining-requests": "998",
+            "x-ratelimit-remaining-tokens": "2481",
+            "x-ratelimit-reset-requests": "2m52.8s",
+            "x-ratelimit-reset-tokens": "41.392s",
+            "cf-cache-status": "DYNAMIC"
+          }
+        }
+      ]
+    },
+    {
+      "id": "ollama-strong",
+      "wire": "openai_chat",
+      "model": "gpt-oss:20b",
+      "endpoint_host": "ollama.com",
+      "calls": [
+        {
+          "call": "A_cold",
+          "elapsed_s": 1.645,
+          "gap_since_prev_s": null,
+          "http_error": null,
+          "error": null,
+          "prompt_tokens": 2769,
+          "completion_tokens": 31,
+          "cached_tokens": null,
+          "remaining_tokens": null,
+          "remaining_header": null,
+          "raw_remaining_drop": null,
+          "headers": {}
+        },
+        {
+          "call": "B_repeat",
+          "elapsed_s": 1.059,
+          "gap_since_prev_s": 1.645,
+          "http_error": null,
+          "error": null,
+          "prompt_tokens": 2769,
+          "completion_tokens": 32,
+          "cached_tokens": null,
+          "remaining_tokens": null,
+          "remaining_header": null,
+          "raw_remaining_drop": null,
+          "headers": {}
+        },
+        {
+          "call": "C_control",
+          "elapsed_s": 1.426,
+          "gap_since_prev_s": 1.059,
+          "http_error": null,
+          "error": null,
+          "prompt_tokens": 2767,
+          "completion_tokens": 32,
+          "cached_tokens": null,
+          "remaining_tokens": null,
+          "remaining_header": null,
+          "raw_remaining_drop": null,
+          "headers": {}
+        }
+      ]
+    },
+    {
+      "id": "mistral-standard",
+      "wire": "openai_chat",
+      "model": "mistral-large-latest",
+      "endpoint_host": "api.mistral.ai",
+      "calls": [
+        {
+          "call": "A_cold",
+          "elapsed_s": 0.774,
+          "gap_since_prev_s": null,
+          "http_error": null,
+          "error": null,
+          "prompt_tokens": 3631,
+          "completion_tokens": 2,
+          "cached_tokens": 0,
+          "remaining_tokens": 246367.0,
+          "remaining_header": "x-ratelimit-remaining-tokens-minute",
+          "raw_remaining_drop": null,
+          "headers": {
+            "x-ratelimit-limit-tokens-minute": "250000",
+            "x-ratelimit-remaining-tokens-minute": "246367",
+            "x-ratelimit-tokens-query-cost": "3633",
+            "x-ratelimit-limit-req-minute": "4",
+            "x-ratelimit-remaining-req-minute": "3",
+            "cf-cache-status": "DYNAMIC"
+          }
+        },
+        {
+          "call": "B_repeat",
+          "elapsed_s": 1.274,
+          "gap_since_prev_s": 0.774,
+          "http_error": null,
+          "error": null,
+          "prompt_tokens": 3632,
+          "completion_tokens": 4,
+          "cached_tokens": 0,
+          "remaining_tokens": 242731.0,
+          "remaining_header": "x-ratelimit-remaining-tokens-minute",
+          "raw_remaining_drop": 3636.0,
+          "headers": {
+            "x-ratelimit-limit-tokens-minute": "250000",
+            "x-ratelimit-remaining-tokens-minute": "242731",
+            "x-ratelimit-tokens-query-cost": "3636",
+            "x-ratelimit-limit-req-minute": "4",
+            "x-ratelimit-remaining-req-minute": "2",
+            "cf-cache-status": "DYNAMIC"
+          }
+        },
+        {
+          "call": "C_control",
+          "elapsed_s": 0.7,
+          "gap_since_prev_s": 1.274,
+          "http_error": null,
+          "error": null,
+          "prompt_tokens": 3628,
+          "completion_tokens": 4,
+          "cached_tokens": 0,
+          "remaining_tokens": 239099.0,
+          "remaining_header": "x-ratelimit-remaining-tokens-minute",
+          "raw_remaining_drop": 3632.0,
+          "headers": {
+            "x-ratelimit-limit-tokens-minute": "250000",
+            "x-ratelimit-remaining-tokens-minute": "239099",
+            "x-ratelimit-tokens-query-cost": "3632",
+            "x-ratelimit-limit-req-minute": "4",
+            "x-ratelimit-remaining-req-minute": "1",
+            "cf-cache-status": "DYNAMIC"
+          }
+        }
+      ]
+    }
+  ]
+}

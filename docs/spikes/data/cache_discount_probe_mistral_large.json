@@ -1,0 +1,103 @@
+{
+  "probe": "cache_discount",
+  "when": "2026-08-28T12:24:13",
+  "prefix_target_tokens": 5000,
+  "max_tokens": 32,
+  "repeats": 4,
+  "spacing_s": 16.0,
+  "tag": "mistral_large",
+  "providers": [
+    {
+      "id": "mistral-standard",
+      "wire": "openai_chat",
+      "model": "mistral-large-latest",
+      "endpoint_host": "api.mistral.ai",
+      "calls": [
+        {
+          "call": "A0_cold",
+          "elapsed_s": 1.169,
+          "gap_since_prev_s": null,
+          "http_error": null,
+          "error": null,
+          "prompt_tokens": 8249,
+          "completion_tokens": 2,
+          "cached_tokens": 0,
+          "remaining_tokens": 241749.0,
+          "remaining_header": "x-ratelimit-remaining-tokens-minute",
+          "raw_remaining_drop": null,
+          "headers": {
+            "x-ratelimit-limit-tokens-minute": "250000",
+            "x-ratelimit-remaining-tokens-minute": "241749",
+            "x-ratelimit-tokens-query-cost": "8251",
+            "x-ratelimit-limit-req-minute": "4",
+            "x-ratelimit-remaining-req-minute": "3",
+            "cf-cache-status": "DYNAMIC"
+          }
+        },
+        {
+          "call": "A1_repeat",
+          "elapsed_s": 0.843,
+          "gap_since_prev_s": 17.174,
+          "http_error": null,
+          "error": null,
+          "prompt_tokens": 8250,
+          "completion_tokens": 4,
+          "cached_tokens": 8224,
+          "remaining_tokens": 241719.0,
+          "remaining_header": "x-ratelimit-remaining-tokens-minute",
+          "raw_remaining_drop": 30.0,
+          "headers": {
+            "x-ratelimit-limit-tokens-minute": "250000",
+            "x-ratelimit-remaining-tokens-minute": "241719",
+            "x-ratelimit-tokens-query-cost": "30",
+            "x-ratelimit-limit-req-minute": "4",
+            "x-ratelimit-remaining-req-minute": "2",
+            "cf-cache-status": "DYNAMIC"
+          }
+        },
+        {
+          "call": "A2_repeat",
+          "elapsed_s": 0.996,
+          "gap_since_prev_s": 16.851,
+          "http_error": null,
+          "error": null,
+          "prompt_tokens": 8249,
+          "completion_tokens": 3,
+          "cached_tokens": 0,
+          "remaining_tokens": 233467.0,
+          "remaining_header": "x-ratelimit-remaining-tokens-minute",
+          "raw_remaining_drop": 8252.0,
+          "headers": {
+            "x-ratelimit-limit-tokens-minute": "250000",
+            "x-ratelimit-remaining-tokens-minute": "233467",
+            "x-ratelimit-tokens-query-cost": "8252",
+            "x-ratelimit-limit-req-minute": "4",
+            "x-ratelimit-remaining-req-minute": "1",
+            "cf-cache-status": "DYNAMIC"
+          }
+        },
+        {
+          "call": "Z_control",
+          "elapsed_s": 6.739,
+          "gap_since_prev_s": 17.004,
+          "http_error": null,
+          "error": null,
+          "prompt_tokens": 8246,
+          "completion_tokens": 3,
+          "cached_tokens": 0,
+          "remaining_tokens": 226612.0,
+          "remaining_header": "x-ratelimit-remaining-tokens-minute",
+          "raw_remaining_drop": 6855.0,
+          "headers": {
+            "x-ratelimit-limit-tokens-minute": "250000",
+            "x-ratelimit-remaining-tokens-minute": "226612",
+            "x-ratelimit-tokens-query-cost": "8249",
+            "x-ratelimit-limit-req-minute": "4",
+            "x-ratelimit-remaining-req-minute": "3",
+            "cf-cache-status": "DYNAMIC"
+          }
+        }
+      ]
+    }
+  ]
+}
