@@ -288,6 +288,109 @@ written later by someone who never read this. Nine callers now.
 Same intake pass resolves relative time — "next Tuesday" → absolute, original
 phrasing kept beside it.
 
+## What the updater refuses, and where refusals go
+
+The updater captures indiscriminately by design. That makes its refusal list
+the only thing standing between "a safety net" and "a file that quietly
+accumulates everything the owner ever said near a microphone".
+
+**Refusing is not deleting.** Owner's decision, 2026-08-28: refused material
+goes to a **quarantine**, not to nothing. VESPER may read it for a deliberate
+check; the projections never do. Two properties follow, and both are the point:
+
+- **A wrong refusal is recoverable.** Without quarantine, over-refusal is a
+  silent permanent loss and nobody notices an absence.
+- **A wrong RULE becomes visible.** One refusal is an event; five hundred of
+  the same shape is a pattern, and the pattern is only visible if the refusals
+  are kept somewhere countable.
+
+**This inverts the default.** The obvious instinct is to refuse as little as
+possible so nothing is lost. With a quarantine the asymmetry reverses: an
+over-refusal is a retrievable inconvenience, an under-refusal is a permanent
+record of something that should never have been written. **Refuse generously.**
+
+### Three classes, and the first one may not be quarantined either
+
+| Class | Written to memory? | Quarantined? |
+|---|---|---|
+| **Credentials · keys · tokens · passwords** | Never | **The FACT only** — time, source, why. Never the value |
+| **Owner-designated sensitive** | No | In full, owner-reviewable, releasable |
+| **Low-confidence extraction** | Yes, at rank 5 | n/a — a rank, not a refusal |
+
+**Class 1 must not be quarantined in full, and this is the trap.** A quarantine
+holding every credential VESPER has ever seen is a more attractive target than
+the vault, because it is the one place they are all gathered and it was built
+to be the low-security bin. What is kept is the tombstone: *a credential-shaped
+string was refused here, at this time, from this source* — enough to audit the
+detector, useless to a thief.
+
+### The rules, split by who decided them
+
+**Settled — no owner input needed:**
+
+1. **Credential-shaped strings.** Deterministic detection, pattern plus
+   entropy, before any model sees the text.
+2. **Speech from an unidentified person** is never stored as the owner's
+   memory. `DF-IDENTITY-RESOLVE` already returns `unknown_person` as a distinct
+   role; nothing implements the consequence.
+3. **The updater's own reading of an utterance is rank 5, never rank 4.** Not a
+   refusal — a rank. Store the verbatim utterance at rank 4 *and* the reading at
+   rank 5, separately, or the system permanently promotes its guesses to the
+   owner's word.
+
+**Proposed, needs the owner's call — these are policy, not engineering:**
+
+4. Medical detail
+5. Financial account detail, as distinct from credentials
+6. Substantive content about identifiable third parties
+7. Anything said while the owner has marked the moment private
+
+**Deliberately NOT on this list**, because a plausible-sounding rule that fires
+wrongly is worse than a missing one: no refusal on "emotional content", none on
+"negative statements", none on profanity, none on anything requiring judgement
+about *tone*. Every one of those needs a model to evaluate, and a model in the
+refusal path is the same defect as a model in the redactor — running it on the
+text is the thing being avoided.
+
+## Background work never blocks the owner
+
+Owner's requirement, 2026-08-28: everything running before and after the
+owner-facing turn runs in the background, and VESPER continues regardless.
+
+| Rule | Why |
+|---|---|
+| **The turn never awaits a background subsystem** | Capture, miss recording and verification are dispatched and forgotten. A turn that waits on its own bookkeeping is slower than one with no memory at all |
+| **A background failure never fails the turn** | The updater dying must not turn a good answer into an error. Failures are recorded and triaged later, when a model is available again |
+| **Background work is idempotent, keyed** | Delivery is at-least-once, so the same capture arriving twice must not produce two facts. Keys on the event id |
+| **Ordering is by logical clock, never arrival** | Two background jobs finishing out of order must not reorder memory. Wall-clock ordering is already forbidden |
+| **The owner waiting preempts background work** | Separate keys stop quota competition, not competition for the machine |
+| **Backpressure sheds oldest-first, and records the shed** | If capture falls behind, it drops the oldest and says so. Silently dropping the newest loses what just happened, which is the material most likely to matter |
+
+### Thresholds and budgets
+
+| Path | Budget | On breach |
+|---|---|---|
+| Difficulty judgement (no model) | 5 ms | Fall through to `moderate` |
+| Memory selection for a turn | **25 ms** | Ship what was found; note the truncation |
+| Chooser, deterministic | 10 ms | Escalate to the model path |
+| Chooser, model path | **250 ms** | Hold the floor and say so |
+| Hold announcement threshold | **600 ms** total elapsed | Below this, say nothing at all |
+| Turn, end to end | 1,200 ms | Existing budget, unchanged |
+| Capture, per act | 30 s, background | Retry once, then quarantine the input |
+| Compaction pass | unbudgeted, off-peak | Yields to any owner-facing work |
+
+**The hold announcement threshold is separate from the chooser budget on
+purpose.** Announcing at 250 ms would make VESPER apologise constantly for
+delays nobody perceives; 600 ms is roughly where a pause stops reading as
+thinking and starts reading as broken.
+
+**While the floor is held, inbound is classified and not obeyed** —
+`core/barge_in.py`. Cooperative interruptions are swallowed, liveness checks
+get a status line without cancelling, competitive ones stop the work, and
+anything else is queued and delivered afterwards. Ambiguity breaks through,
+because a wrong break costs one preparation cycle and a wrong swallow means
+"stop" was ignored.
+
 ## Sensitivity is monotonic
 
 Owner's question: how to stop VESPER labelling sensitive material insensitive,
@@ -392,9 +495,13 @@ changes proposed.** Matches `selfmod.Proposal`.
 
 11. **L3 was one SQLite file on one machine.** Answered by the backup policy
     below.
-12. **Append-only makes the record format permanent.** Old rows stay in the old
-    shape forever. **Every record needs a schema version from the first write**
-    or the shape can never change. Costs one field now; cannot be added later.
+12. **Record format permanence — DOWNGRADED 2026-08-28.** The original claim
+    was that append-only makes the shape permanent and a version field cannot
+    be added later. **That is wrong**: the system appends but the OWNER may
+    edit, so an owner-authorised migration can rewrite old records. A version
+    integer per record is still worth having — it makes a migration a lookup
+    rather than a guess — but it is routine, not a one-way door, and it blocks
+    nothing.
 
 ## Write modes — "append-only" is about the SYSTEM, not the owner
 
@@ -649,18 +756,22 @@ not optional.
 
 ## Undecided
 
-- **The unit** — fact triples are rankable and decayable but lose nuance;
-  episodes are faithful and unqueryable. L3 holds both; L1 probably cannot.
-- **Who sets expiry** — a model guessing a TTL decides what the owner keeps.
-- **The chooser's latency budget** — a number to set before building.
-- **What the updater refuses** beyond credentials.
-- **Credential replication** — the vault on every node buys offline use and
-  puts it on machines with different protections (Windows, Kali). One node
-  holding it, others requesting on demand, is the alternative. Owner's call.
-- **Schema version field** — agreed necessary (12); the format is not chosen.
+- **What the updater refuses** beyond credentials — items 4-7 above are
+  policy, awaiting the owner.
 - **Filter thresholds** — how loud a thing must be to wake VESPER. The mechanism
   is cheap and the dials need the corpus; sane defaults, tuned from the discard
   log.
+
+**Closed 2026-08-28.** *Credential replication* — every node, same copy, same
+unlock credential; the unlock credential itself never rests on a node, or
+replicating the vault replicates its key. *Expiry* — nothing expires by
+deletion; staleness is a ranking input and supersession the only removal, so
+the constant case needs no model and the two rare cases share the arbiter's
+rung. *The unit* — short searchable form in L2 with a pointer to the full
+exchange in L3; the short form is what can be wrong, and only the failure
+record catches that. *Chooser budget* — deterministic first at 10 ms, model
+path at 250 ms, announce past 600 ms. *Schema version* — an integer per record,
+routine.
 
 **Closed since 2026-08-27:** *how L2 is navigated* (bounded recursive CTE over a
 graph schema in SQLite) · *what seeds block B on a self-initiated turn* (the
