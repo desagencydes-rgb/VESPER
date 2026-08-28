@@ -305,10 +305,24 @@ def _http_call(row: SupplyRow, endpoint: str, key: str, account: str,
         # system turn folded into the user turn is a user turn, and the model
         # weights it as one.
         system = (options.get("system") or "").strip() or None
+        # THE CONVERSATION SO FAR. A list of {"role", "content"} the caller has
+        # already budgeted -- this layer renders it and never decides what is
+        # in it. Empty is the normal case for a first turn and for every
+        # non-conversational caller.
+        #
+        # AS TURNS, NOT AS PROSE, wherever the wire has turns. Folding the
+        # history into the prompt string makes the whole conversation one user
+        # message: the model loses who said what, and the last thing anybody
+        # said blurs into the thing being asked. Two wires here have real turn
+        # arrays and both are used.
+        history = options.get("history") or []
         if row.wire == "openai_chat":
             msgs: list[dict] = []
             if system:
                 msgs.append({"role": "system", "content": system})
+            for h in history:
+                r = "assistant" if h.get("role") == "assistant" else "user"
+                msgs.append({"role": r, "content": str(h.get("content") or "")})
             msgs.append({"role": "user", "content": prompt})
             payload: dict[str, Any] = {
                 "model": row.model, "max_tokens": budget, "messages": msgs}
@@ -317,7 +331,19 @@ def _http_call(row: SupplyRow, endpoint: str, key: str, account: str,
                     and "reasoning_effort" in row.supports):
                 payload["reasoning_effort"] = options["reasoning_effort"]
         elif row.wire == "cf_responses":
-            payload = {"input": prompt, "max_output_tokens": budget}
+            # The Responses shape takes `input` as either a string or a list of
+            # turns. Verified against this endpoint rather than assumed from the
+            # OpenAI docs it resembles -- see the `instructions` note below for
+            # why that distinction has already cost once here.
+            if history:
+                items = [{"role": ("assistant" if h.get("role") == "assistant"
+                                   else "user"),
+                          "content": str(h.get("content") or "")}
+                         for h in history]
+                items.append({"role": "user", "content": prompt})
+                payload = {"input": items, "max_output_tokens": budget}
+            else:
+                payload = {"input": prompt, "max_output_tokens": budget}
             if system:
                 # The Responses shape carries it as `instructions`, beside the
                 # input rather than inside it. Verified against this endpoint
@@ -337,7 +363,15 @@ def _http_call(row: SupplyRow, endpoint: str, key: str, account: str,
             payload = {"prompt": prompt,
                        "steps": int(options.get("steps") or 4)}
         elif row.wire == "google_generate":
-            payload = {"contents": [{"parts": [{"text": prompt}]}],
+            # `model` IS GOOGLE'S SPELLING OF `assistant`. Sending "assistant"
+            # is a 400, and sending nothing makes every past turn look like the
+            # owner talking to themselves.
+            contents = [{"role": ("model" if h.get("role") == "assistant"
+                                  else "user"),
+                         "parts": [{"text": str(h.get("content") or "")}]}
+                        for h in history]
+            contents.append({"role": "user", "parts": [{"text": prompt}]})
+            payload = {"contents": contents,
                        "generationConfig": {"maxOutputTokens": budget}}
             if system:
                 payload["systemInstruction"] = {"parts": [{"text": system}]}
@@ -405,7 +439,17 @@ def _cli_call(row: SupplyRow, binary: str, argv: list, config_env: str | None,
         # equivalent and a reader comparing behaviour across the ladder needs
         # to know which one they are on.
         system = (options.get("system") or "").strip()
-        text = (f"{system}\n\n---\n\n{prompt}" if system else prompt)
+        # NO TURN ARRAY ON A CLI, so the conversation is folded in with speaker
+        # labels -- weaker than real turns for the same reason the preamble is
+        # weaker here, and labelled rather than smoothed over. A reader
+        # comparing behaviour across the ladder needs to know which rung they
+        # are on.
+        convo = ""
+        for h in options.get("history") or []:
+            who = "VESPER" if h.get("role") == "assistant" else "Owner"
+            convo += f"{who}: {str(h.get('content') or '')}\n"
+        parts = [p for p in (system, convo.strip(), prompt) if p]
+        text = "\n\n---\n\n".join(parts)
         cmd = [binary] + [a.replace("{prompt}", text) for a in argv]
         try:
             cp = subprocess.run(cmd, capture_output=True, text=True,
