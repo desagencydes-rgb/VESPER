@@ -1,7 +1,13 @@
 # Handoff — VESPER to completion
 
-**Deadline: 2026-09-12. Fourteen days from 2026-08-29, for ALL of VESPER —
-not only the memory system.**
+**Deadline: 2026-09-12. Fourteen days from 2026-08-29, for ALL of VESPER,
+running on the MacBook.** Other nodes come after, by owner decision 2026-08-29.
+
+**Single-node DEPLOY, never single-node DESIGN.** `INV-PLACE-3` stands: VESPER
+is not pinned to a machine, and a new node joins the fabric and wins placement
+on merit. Nothing here may be simplified on the assumption that one node is all
+there will ever be — the multi-node modules stay built, gated and green; they
+simply do not need wiring into the running Supervisor before the deadline.
 
 Read `MEMORY_ARCHITECTURE.md` for reasoning, `OPEN_QUESTIONS.md` for what is
 unproven, `DATA_PLAN.md` for what the evidence can and cannot support. This file
@@ -17,8 +23,32 @@ modules (bus, completion, config, cost, gateway, hlc, lease, policy, router,
 store, tasks, telemetry). Nine more are built, gated and green under their
 acceptance runs while being reached by **nothing in the running process**:
 
-`placement` · `fabric` · `enrollment` · `devices` · `interlock` · `repair` ·
-`reconcile` · `taint` · `projection`
+| Module | On the 14-day path? |
+|---|---|
+| `placement` · `fabric` · `enrollment` · `reconcile` | **No** — multi-node. Stay built and gated; wire them when a second node joins |
+| `taint` | **Yes, and it shortens the memory build** — see below |
+| `projection` | **Yes, and it shortens the memory build** — see below |
+| `interlock` | **Yes** — the emergency stop. A daily-use VESPER without a working dead-man's switch is not finished |
+| `devices` | Yes — the sensor layer needs a device registry, and this one already stores classes rather than product names |
+| `repair` | Yes — graded, tiered failure repair, already honest about what it cannot fix |
+
+### Two of them are memory work that is already done
+
+**`core/taint.py` already implements monotonic sensitivity.** The memory design
+requires that a compacted node inherit the strictest sensitivity of its inputs,
+and that a check may raise a classification but never lower it. That module
+exists, is gated, and states the rule the implementation would otherwise omit:
+*a summary of tainted content is tainted*. `summarise()` returns a `Tainted`
+rather than a plain string, `ceiling()` takes the most restrictive class across
+fragments, and `TaintedCache` preserves taint through cache reuse — which is
+exactly what block A's cached prefix needs. **Do not write a second sensitivity
+system. Use this one.**
+
+**`core/projection.py` already implements provenance-bound readings.** A
+`Reading` cannot hold a value without provenance or provenance without a value,
+and it carries `expired()`, `age_ms()` and `unavailable()`. That is the
+freshness machinery the verifier registry and block B selection both need, and
+the projection pattern L1 and L2 are specified to follow.
 
 `core/autonomy.py` is the same story: a full trigger loop with a predicate
 evaluator that structurally cannot call a model, and `trigger_registry.toml`
@@ -33,8 +63,9 @@ ones — and they carry far less risk, because the components already have gates
 ### What cannot be done in fourteen days, at any speed
 
 **Hardware-blocked**, and no amount of engineering moves them: the iPhone app,
-cameras, the flat clear sheet, and any node-1 fabric work while TCP/22 is closed
-across the /24. These are physical dependencies, not effort.
+cameras, and the flat clear sheet. Node-1 and fabric work is now **out of scope
+by owner decision** rather than merely blocked — other nodes come after the
+deadline.
 
 **Empirical validation of memory.** Does carrying memory improve answers, does
 re-summarising converge, does selection find the right facts, how large the
@@ -57,7 +88,7 @@ Owner may re-cut this; it is a proposal, not a decision already taken.
 | Days | Work |
 |---|---|
 | 1–4 | **Memory core.** L2 graph store → updater + miss recorder → redactor → block A/B rendering. Ends with memory flowing and the corpus accumulating |
-| 5–7 | **Wire what exists.** Autonomy loop into the Supervisor, the seven unwired triggers, the interruption budget, the nine unreached modules. Highest capability per hour of anything here |
+| 5–7 | **Wire what exists.** Autonomy loop into the Supervisor, the seven unwired triggers, the interruption budget, and the five node-local modules above. Highest capability per hour of anything here |
 | 8–10 | Chooser · compactor · sensors populating the world model the predicates already read |
 | 11–13 | Voice I/O if it fits; integration; hardening. **Voice is the largest single unknown** — deferred four times, `Intake.spoken()` still unused, and Darija voice quality is untested |
 | 14 | Full gates, documents, and an honest statement of what is proven versus assumed |
