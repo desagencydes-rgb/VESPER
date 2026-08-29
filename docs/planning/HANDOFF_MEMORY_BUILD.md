@@ -81,16 +81,83 @@ instrumentation stays in the build precisely so those questions become
 answerable later — which is also why the corpus generators come early, since
 every day they run before the deadline is a day of evidence.
 
+## Requirements coverage — checked against the COC and the handwritten source
+
+**The fourteen-day plan below was first written from the memory design and the
+status documents, not from the source requirements. Checking it against
+`docs/source/HANDWRITTEN_TRANSCRIPTION.txt` and the COC found a scope
+inversion and six unbuilt capabilities.** Do this check before trusting any
+plan in this repository; the plan is not the requirement.
+
+### The inversion — SR-046
+
+> *"All interactions of the above mainly use: hearing, talking, & showing text
+> at the bottom... **No text only or keyboard only** (those are active only when
+> I activate them by request or manually, **or as a fallback**)"*
+
+**Voice is the primary interaction mode and text is the fallback.** The first
+version of this plan scheduled voice for days 11-13 "if it fits". That is
+backwards against the source. `Intake.spoken()` exists and is called by nothing;
+there is no speech-in and no speech-out anywhere in the runtime.
+
+This is the single largest open question in the whole fourteen days, and it is
+larger than the memory system: it needs a speech-to-text path, a
+speech-out path, barge-in wired to `core/barge_in.py`, and — because of the
+language decision — **Darija voice quality, which is untested and may be much
+worse than Darija text.**
+
+### Unbuilt capabilities named in the source
+
+| SR | Requirement | State |
+|---|---|---|
+| SR-046 | Voice primary, text fallback | **Nothing built.** `Intake.spoken()` unreached |
+| SR-054 | Five cache tiers: file hash, chunk, embedding, summary, prompt prefix | **Only `TaintedCache` exists.** None of the five |
+| SR-014 | Multiple agents at once, on demand, same or different models | **Nothing built.** No orchestration |
+| SR-053 | Record told-to-remember items **"auto, right when told"** | **Nothing built.** The updater design has "off the record" but not its positive counterpart |
+| SR-008 | Context management with automatic **and manual** modes, switchable by command or interface | **Manual mode missing entirely** |
+| SR-055 | Multi-step pipeline ending in **self-check against files** before output | The self-check step is absent |
+| SR-007 | **Mapping system** — navigate a map instead of dumping files/codebase into context | `ci=0`. The memory design serves personal memory; this asks for the same over FILES AND CODE, which is broader |
+
+### A direct conflict with a decision taken on 2026-08-29
+
+**SR-029:** *"Ability to define me / my physiology / my mentality / my mood / my
+model / my vibe and take action whenever necessary — by words / funny commenting
+/ ambience changing (lights, visual interactions, hologram, music / sounds)"*
+
+I recommended, and the owner agreed, that there be **"no tone detection
+anywhere"**. That was said about the memory CAPTURE path — a model reading mood
+to decide what to write down — and it is right there. But as a blanket statement
+it contradicts a source requirement asking for exactly mood inference.
+
+**The reconciliation, which should be checked with the owner rather than
+assumed:** SR-029 is a live, transient, in-the-moment adaptation — read the room,
+change the tone, change the lights. The refused thing is *persisting a mood
+judgement into memory as a durable fact.* Those are compatible, and "said once
+isn't a trait" is precisely the rule that keeps them apart. But the blanket
+phrasing must not stand, or SR-029 gets quietly dropped as settled.
+
+### What this means for fourteen days
+
+The source requirement set does **not** fit in fourteen days on top of the memory
+system. That is a scoping decision and it belongs to the owner, not to whoever
+picks this up. The honest options are to cut capabilities explicitly, or to
+extend the deadline, or to ship the memory system and voice and name everything
+else as after-the-deadline. **Cutting by silence — simply not reaching them — is
+the one option that must not happen**, because the source calls the COC "our
+bible" and an unreached requirement that nobody recorded as cut reads later as an
+oversight rather than a decision.
+
 ## Suggested fourteen-day shape
 
 Owner may re-cut this; it is a proposal, not a decision already taken.
 
 | Days | Work |
 |---|---|
-| 1–4 | **Memory core.** L2 graph store → updater + miss recorder → redactor → block A/B rendering. Ends with memory flowing and the corpus accumulating |
-| 5–7 | **Wire what exists.** Autonomy loop into the Supervisor, the seven unwired triggers, the interruption budget, and the five node-local modules above. Highest capability per hour of anything here |
-| 8–10 | Chooser · compactor · sensors populating the world model the predicates already read |
-| 11–13 | Voice I/O if it fits; integration; hardening. **Voice is the largest single unknown** — deferred four times, `Intake.spoken()` still unused, and Darija voice quality is untested |
+| 1–3 | **Voice**, because SR-046 makes it the primary interaction mode and text the fallback. Largest unknown, so it goes first where there is room to be wrong |
+| 4–6 | **Memory core.** L2 graph store → updater + miss recorder → redactor → block A/B rendering. Ends with memory flowing and the corpus accumulating |
+| 7–9 | **Wire what exists.** Autonomy loop into the Supervisor, the seven unwired triggers, the interruption budget, and the five node-local modules above. Highest capability per hour of anything here |
+| 10–12 | Chooser · compactor · sensors populating the world model the predicates already read |
+| 11–13 | Integration; hardening; whatever of the unbuilt list above the owner chose to keep |
 | 14 | Full gates, documents, and an honest statement of what is proven versus assumed |
 
 **The one ordering rule that is not negotiable** is in the build table below: the
