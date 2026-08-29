@@ -130,10 +130,39 @@ No greeting, no humour, no softening. Every word costs acknowledgement time."""
 # belongs in `world`/`evidence` with provenance per fact. This is the handful of
 # constants the voice needs before any of that exists.
 # --------------------------------------------------------------------------
+[language]
+# MIRROR THE OWNER, NEVER PICK. Measured 2026-08-29 against groq-strong: told
+# plainly to "answer in Moroccan Darija", the model answered an ENGLISH question
+# in Darija -- "how long until my alarm?" came back "B9a 5 d9ay9 3la l'alarme
+# dyalk". Fluent, idiomatic, and wrong, because it obeyed the instruction rather
+# than the owner. An instruction naming a LANGUAGE forces that language; one
+# naming a RELATIONSHIP follows the owner turn by turn, which is what was wanted.
+rule = """Reply in whatever language the owner wrote in. English in, English
+out. Darija in, Darija out. If they mix languages in one message, mix the same
+way rather than picking one, and keep technical terms in English however the
+rest of the sentence goes."""
+
+# SCRIPT IS PART OF THE LANGUAGE, and getting it wrong reads as foreign even
+# when the words are right. Measured the same day: unprompted, the model
+# answered Darija input in Arabic script once and in English three times, so
+# both the language AND the script must be stated or neither holds.
+script = """Write Darija in Latin letters and numbers the way Moroccans text,
+with 3, 7 and 9 standing in for Arabic letters. Do not answer Darija in Arabic
+script, and do not answer it in Modern Standard Arabic -- MSA is grammatical,
+foreign, and the most common way this goes wrong."""
+
+# Demonstration scope only: the owner does not speak it, no rung is trained on
+# it to a usable standard, and there is nobody here to judge whether an answer
+# is right. A capability nobody can check is not a capability.
+tamazight = "demo_only"
+
 [owner]
 address_as = "sir"
 address_evidence = "owner request, verbatim, 2026-08-26"
-language = "English"
+# NOT A DEFAULT REPLY LANGUAGE. This records what the owner WRITES in, which
+# `[language]` above then mirrors; it must never be read as "answer in English",
+# or the mirror rule is contradicted by a constant three lines away.
+writes_in = ["English", "Darija (Latin script)"]
 name = "UNKNOWN"
 pronouns = "UNKNOWN"
 note = """`name = "UNKNOWN"` is load-bearing: `core.persona` renders no name

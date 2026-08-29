@@ -39,9 +39,17 @@ import time
 import tomllib
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import cache_discount_probe as _cdp       # noqa: E402
 from cache_discount_probe import (        # noqa: E402
     ROOT, SUPPLY, load_secrets, post, usage_of,
 )
+
+# A CONVERSATIONAL PROBE MUST NOT WAIT LIKE A BATCH ONE. The shared helper
+# allows 120 s, which is right for a large-prefix cache call and wrong here:
+# ten slow replies turn a five-minute probe into forty minutes, and with output
+# buffered that is indistinguishable from a hang. A reply that takes longer than
+# this is a failed reply for conversational purposes anyway.
+_cdp.TIMEOUT = 25.0
 
 OUT = ROOT / "docs" / "spikes" / "data" / "darija_probe.json"
 
@@ -89,9 +97,25 @@ def _hits(markers, text: str) -> list:
         if ARABIC.search(m_s):
             if m_s in text:
                 out.add(m_s)
-        elif re.search(rf"(?<![a-z0-9]){re.escape(m_s)}(?![a-z0-9])",
-                       text.lower()):
-            out.add(m_s)
+        else:
+            # ASYMMETRIC ON PURPOSE, and the asymmetry has a reason rather than
+            # being a convenience.
+            #
+            # Latin Darija is heavily inflected and agglutinative in
+            # transcription -- bghit/bghiti/bghitini, kayn/kaynch/makaynch --
+            # so a marker has to match as a STEM at a word start or the
+            # detector misses most real writing. Measured 2026-08-29: strict
+            # boundaries scored two plainly-Darija replies as containing no
+            # Darija at all, because the model wrote `bghiti` and `kaynch`.
+            #
+            # MSA markers keep the closing boundary, because the failure there
+            # ran the other way: `hal ` matched inside `chhal`, scoring the most
+            # characteristic Darija word in the set as evidence of MSA. A stem
+            # match on MSA would reintroduce exactly that.
+            strict = markers is MSA_MARKERS
+            tail = r"(?![a-z0-9])" if strict else ""
+            if re.search(rf"(?<![a-z0-9]){re.escape(m_s)}{tail}", text.lower()):
+                out.add(m_s)
     return sorted(out)
 
 
@@ -158,12 +182,21 @@ def main() -> int:
                                 "prompt_name": name, "prompt": text,
                                 "reply": out, "error": str(err) if err else None,
                                 "elapsed_s": round(elapsed, 2), **sc})
+                # WRITTEN AFTER EVERY CALL, not at the end. A run killed at
+                # minute 21 otherwise loses all twenty calls it already spent
+                # quota on, and the next run has to spend it again.
+                OUT.parent.mkdir(parents=True, exist_ok=True)
+                OUT.write_text(json.dumps(
+                    {"probe": "darija", "when": time.strftime("%F %T"),
+                     "instruction": INSTRUCTION, "partial": True,
+                     "results": results}, indent=2))
                 flag = "ERR " + str(err)[:40] if err else (
                     f"{sc['script']:6} d={len(sc['darija_markers'])} "
                     f"msa={len(sc['msa_markers'])}")
-                print(f"  [{name:10}] {flag}")
-                print(f"     Q: {text}")
-                print(f"     A: {out[:200] or '(empty)'}")
+                print(f"  [{name:10}] {flag}", flush=True)
+                print(f"     Q: {text}", flush=True)
+                print(f"     A: {out[:200] or '(empty)'}",
+                      flush=True)
                 time.sleep(pace)
 
     OUT.parent.mkdir(parents=True, exist_ok=True)

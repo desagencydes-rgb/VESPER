@@ -299,6 +299,15 @@ class Persona:
                      f"Impressions: {sel.register.impressions} "
                      "(never a real person, even if asked).")
 
+        # LANGUAGE BEFORE HONESTY AND BREVITY, because it governs the SHAPE of
+        # everything after it. A brevity rule read in the wrong language is
+        # still a brevity rule; a language rule arriving after the model has
+        # already settled into English is late.
+        lang = self._voice.get("language") or {}
+        for key in ("rule", "script"):
+            if lang.get(key):
+                parts.append("- " + " ".join(str(lang[key]).split()))
+
         for line in hon.get("rules") or ():
             parts.append(f"- {line}")
         for line in brev.get("rules") or ():
