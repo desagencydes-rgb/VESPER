@@ -1,6 +1,7 @@
-# Handoff — the memory build
+# Handoff — VESPER to completion
 
-**Deadline: 2026-09-12. Fourteen days from 2026-08-29.**
+**Deadline: 2026-09-12. Fourteen days from 2026-08-29, for ALL of VESPER —
+not only the memory system.**
 
 Read `MEMORY_ARCHITECTURE.md` for reasoning, `OPEN_QUESTIONS.md` for what is
 unproven, `DATA_PLAN.md` for what the evidence can and cannot support. This file
@@ -8,7 +9,63 @@ is the state and the order, nothing else.
 
 ---
 
-## The one thing the deadline changes
+## The scope, measured rather than estimated
+
+**The largest lever is wiring, not building.** Measured 2026-08-29: the
+`Supervisor` — which is what a running VESPER actually *is* — wires twelve
+modules (bus, completion, config, cost, gateway, hlc, lease, policy, router,
+store, tasks, telemetry). Nine more are built, gated and green under their
+acceptance runs while being reached by **nothing in the running process**:
+
+`placement` · `fabric` · `enrollment` · `devices` · `interlock` · `repair` ·
+`reconcile` · `taint` · `projection`
+
+`core/autonomy.py` is the same story: a full trigger loop with a predicate
+evaluator that structurally cannot call a model, and `trigger_registry.toml`
+holds eight triggers of which **one** is wired. `interruption_budget.toml` holds
+the complete wake budget and is read by two files.
+
+This is the corpus's own recurring finding turned into a schedule: *almost all
+built, almost all reachable by nothing*. Hours spent connecting existing,
+already-verified components buy far more capability than hours spent writing new
+ones — and they carry far less risk, because the components already have gates.
+
+### What cannot be done in fourteen days, at any speed
+
+**Hardware-blocked**, and no amount of engineering moves them: the iPhone app,
+cameras, the flat clear sheet, and any node-1 fabric work while TCP/22 is closed
+across the /24. These are physical dependencies, not effort.
+
+**Empirical validation of memory.** Does carrying memory improve answers, does
+re-summarising converge, does selection find the right facts, how large the
+resident block gets — every one needs a corpus of real use, and that accumulates
+at the speed the owner talks to VESPER rather than the speed anything is built.
+Two weeks cannot observe drift or erosion, which are the slow failures.
+
+**So the deliverable is a working system with known-unvalidated properties.**
+That is what a prototype is and it is fine. What is not fine is the distinction
+quietly disappearing: every claim about memory quality on 2026-09-12 rests on
+design argument, not measurement, and must be written that way. The
+instrumentation stays in the build precisely so those questions become
+answerable later — which is also why the corpus generators come early, since
+every day they run before the deadline is a day of evidence.
+
+## Suggested fourteen-day shape
+
+Owner may re-cut this; it is a proposal, not a decision already taken.
+
+| Days | Work |
+|---|---|
+| 1–4 | **Memory core.** L2 graph store → updater + miss recorder → redactor → block A/B rendering. Ends with memory flowing and the corpus accumulating |
+| 5–7 | **Wire what exists.** Autonomy loop into the Supervisor, the seven unwired triggers, the interruption budget, the nine unreached modules. Highest capability per hour of anything here |
+| 8–10 | Chooser · compactor · sensors populating the world model the predicates already read |
+| 11–13 | Voice I/O if it fits; integration; hardening. **Voice is the largest single unknown** — deferred four times, `Intake.spoken()` still unused, and Darija voice quality is untested |
+| 14 | Full gates, documents, and an honest statement of what is proven versus assumed |
+
+**The one ordering rule that is not negotiable** is in the build table below: the
+redactor lands before anything renders memory into a request.
+
+## Validation, and what the deadline cannot buy
 
 **The design cannot be empirically validated inside fourteen days, and no amount
 of speed fixes that.**
