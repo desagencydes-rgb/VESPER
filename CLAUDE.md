@@ -64,14 +64,19 @@ renders it.
 had. Use `python3.13` (`~/.local/bin/python3.13`). Verified 2026-08-23.
 
 ```sh
-python3.13 tools/ci/checks.py all       # 45 checks
-python3.13 tools/ci/self_test.py        # red-then-green, 154 cases
+python3.13 tools/ci/checks.py all       # 47 checks
+python3.13 tools/ci/self_test.py        # red-then-green, 160 cases
 python3.13 tools/traceability_lint.py
 python3.13 tools/reference_lint.py
 python3.13 verification/run_f0_acceptance.py   # ... f1 .. f6
 python3.13 verification/stress_placement.py    # 160k property assertions
 python3.13 verification/stress_fabric.py        # 180k property assertions
 ```
+
+**Corrected 2026-08-29:** they read 45 and 154 while the commands printed 47
+and 160 -- `CI-072` (the mid-hold interruption classifier) and `CI-073` (the
+baseline turn record) landed with three self-test cases each. Fourth drift of
+this pair; the rule is unchanged and it is this file's opening line.
 
 **Corrected 2026-08-26:** they read 34 and 88 while the commands printed 45 and
 154 -- the third time this pair has drifted, and it drifted furthest the time

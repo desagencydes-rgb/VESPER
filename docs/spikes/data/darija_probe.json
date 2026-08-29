@@ -1,0 +1,155 @@
+{
+  "probe": "darija",
+  "when": "2026-08-29 02:14:03",
+  "instruction": "Answer in Moroccan Darija written with Latin letters and numbers, the way Moroccans text. Keep it under 20 words.",
+  "results": [
+    {
+      "provider": "groq-strong",
+      "condition": "unprompted",
+      "prompt_name": "alarm",
+      "prompt": "chhal baqi 3la l'alarm dyali?",
+      "reply": "It looks like you\u2019re asking how much time is left on your alarm. Could you let me know:\n\n1. What time you set the alarm for, and  \n2. What the current time is (or the time zone you\u2019re in)?\n\nWith that information I can tell you how much time is remaining.",
+      "error": null,
+      "elapsed_s": 0.66,
+      "script": "latin",
+      "arabic_chars": 0,
+      "darija_markers": [],
+      "msa_markers": [],
+      "words": 51
+    },
+    {
+      "provider": "groq-strong",
+      "condition": "unprompted",
+      "prompt_name": "status",
+      "prompt": "wach node 1 khedama daba?",
+      "reply": "**\u0628\u0627\u0644\u062f\u0627\u0631\u062c\u0629:**  \n\u0645\u0627\u0634\u064a \u0648\u0627\u0636\u062d \u0634\u0646\u0648 \u0628\u0627\u0644\u0636\u0628\u0637 \u0643\u062a\u0642\u0635\u062f \u0628\u0640 \u201cnode 1\u201d. \u0648\u0627\u0634 \u0643\u062a\u0642\u0635\u062f \u0633\u064a\u0631\u0641\u0631/\u0646\u0648\u062f \u0641\u0640\u202fKubernetes\u060c \u0648\u0644\u0627 \u0634\u064a \u062e\u062f\u0645\u0629 \u0645\u0639\u064a\u0646\u0629 \u0641\u0640\u202f\u0634\u0628\u0643\u0629\u060c \u0648\u0644\u0627 \u0634\u064a \u062c\u0647\u0627\u0632 (\u0645\u062b\u0644\u0627\u064b Raspberry\u202fPi)\u061f\n\n\u0625\u0630\u0627 \u0639\u0637\u064a\u062a\u064a\u202f\u0644\u064a \u0634\u0648\u064a\u0629",
+      "error": null,
+      "elapsed_s": 0.73,
+      "script": "arabic",
+      "arabic_chars": 101,
+      "darija_markers": [],
+      "msa_markers": [],
+      "words": 30
+    },
+    {
+      "provider": "groq-strong",
+      "condition": "unprompted",
+      "prompt_name": "mixed",
+      "prompt": "wach kayn chi problem f the router config?",
+      "reply": "It looks like you\u2019re wondering whether there\u2019s something wrong with your router\u2019s configuration. To give you the most accurate help, I\u2019ll need a bit more information. Could you let me know:\n\n1. **Router model & firmware version** \u2013 e.g.,\u202fTP\u2011Link Archer\u202fC7 v5.2, Netgear Nighthawk R7000, etc.  \n2. **What you\u2019re",
+      "error": null,
+      "elapsed_s": 0.57,
+      "script": "latin",
+      "arabic_chars": 0,
+      "darija_markers": [],
+      "msa_markers": [],
+      "words": 50
+    },
+    {
+      "provider": "groq-strong",
+      "condition": "unprompted",
+      "prompt_name": "summary",
+      "prompt": "3tini r\u00e9sum\u00e9 dyal chno drt lyoum",
+      "reply": "Sure! I\u2019d love to help you recap your day, but I need a bit more information first. Could you tell me some of the things you did today\u2014work or school tasks, meetings, errands, hobbies, meals, or anything else you\u2019d like to include? Once I have those details, I\u2019ll put together a concise summary for you.",
+      "error": null,
+      "elapsed_s": 0.49,
+      "script": "latin",
+      "arabic_chars": 0,
+      "darija_markers": [],
+      "msa_markers": [],
+      "words": 55
+    },
+    {
+      "provider": "groq-strong",
+      "condition": "unprompted",
+      "prompt_name": "control_en",
+      "prompt": "how long until my alarm?",
+      "reply": "I\u2019m not sure which alarm you\u2019re referring to. Could you let me know:\n\n1. **What device or app** you set the alarm on (phone, smart speaker, computer, etc.)  \n2. **The time** you set the alarm for (e.g., 7:30\u202fAM)  \n3. **Your current time zone** (if it\u2019s different from the device\u2019s default)\n\nWith that info I can tell you exactly how much time is left until it goes",
+      "error": null,
+      "elapsed_s": 0.66,
+      "script": "latin",
+      "arabic_chars": 0,
+      "darija_markers": [],
+      "msa_markers": [],
+      "words": 67
+    },
+    {
+      "provider": "groq-strong",
+      "condition": "instructed",
+      "prompt_name": "alarm",
+      "prompt": "chhal baqi 3la l'alarm dyali?",
+      "reply": "Baqi 7 d9aye9 3la l'alarm dyalek.",
+      "error": null,
+      "elapsed_s": 0.31,
+      "script": "latin",
+      "arabic_chars": 0,
+      "darija_markers": [
+        "3la",
+        "baqi"
+      ],
+      "msa_markers": [],
+      "words": 6
+    },
+    {
+      "provider": "groq-strong",
+      "condition": "instructed",
+      "prompt_name": "status",
+      "prompt": "wach node 1 khedama daba?",
+      "reply": "Node 1 mazal khadma, kayn online daba.",
+      "error": null,
+      "elapsed_s": 0.53,
+      "script": "latin",
+      "arabic_chars": 0,
+      "darija_markers": [
+        "daba",
+        "kayn"
+      ],
+      "msa_markers": [],
+      "words": 7
+    },
+    {
+      "provider": "groq-strong",
+      "condition": "instructed",
+      "prompt_name": "mixed",
+      "prompt": "wach kayn chi problem f the router config?",
+      "reply": "Mashi moshkil, ghi tchecki IP w DNS, w restart router.",
+      "error": null,
+      "elapsed_s": 0.28,
+      "script": "latin",
+      "arabic_chars": 0,
+      "darija_markers": [],
+      "msa_markers": [],
+      "words": 10
+    },
+    {
+      "provider": "groq-strong",
+      "condition": "instructed",
+      "prompt_name": "summary",
+      "prompt": "3tini r\u00e9sum\u00e9 dyal chno drt lyoum",
+      "reply": "Lyoum qrit email, drt meeting, mchat lmarket, w qrit 30 dk f kitab.",
+      "error": null,
+      "elapsed_s": 0.33,
+      "script": "latin",
+      "arabic_chars": 0,
+      "darija_markers": [],
+      "msa_markers": [],
+      "words": 13
+    },
+    {
+      "provider": "groq-strong",
+      "condition": "instructed",
+      "prompt_name": "control_en",
+      "prompt": "how long until my alarm?",
+      "reply": "B9a 5 d9ay9 3la l'alarme dyalk",
+      "error": null,
+      "elapsed_s": 0.52,
+      "script": "latin",
+      "arabic_chars": 0,
+      "darija_markers": [
+        "3la"
+      ],
+      "msa_markers": [],
+      "words": 6
+    }
+  ]
+}
