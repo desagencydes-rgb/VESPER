@@ -570,8 +570,8 @@ tests = ["A-020", "A-047", "A-009"]
 contracts = ["contracts/entities/semantic_scene.schema.json", "contracts/policy/latency_budgets.toml"]
 state_machines = ["SM-SCENE"]
 decision_functions = ["DF-DEGRADE"]
-invariants = ["INV-PERF-1", "INV-PERF-2", "INV-SCENE-2"]
-ci = ["CI-031", "CI-051", "CI-071"]
+invariants = ["INV-PERF-1", "INV-PERF-2", "INV-SCENE-2", "INV-HOLD-1"]
+ci = ["CI-031", "CI-051", "CI-071", "CI-072"]
 status = "SPECIFIED"
 raised_2026_08_26 = "latency_budgets.toml has set speech_end_to_response_onset at 1200 ms since before any hardware existed, and CI-031 has guarded the number against being relaxed. Nothing measured the path against it. The first measurement was 25.9 s and 68.7 s on the same conversational turn -- a 20-57x miss -- and on_miss.prohibited begins with `relax budget_ms`, so the implementation moved. CI-071 is the gap analysis turned into a gate."
 raised = "2026-08-12: latency budgets now exist as a contract, written BEFORE measurement per INV-PERF-1, and give SPIKE-002 a pass/fail criterion. Progressive presence (SM-SCENE update_mode = stream) is the mechanism that makes first-audio achievable at all; a scene deliverable only when complete makes the budget unmeetable by construction."
@@ -582,8 +582,8 @@ ic = ["IC-008", "IC-010"]
 tests = ["A-003", "A-016", "A-029"]
 contracts = ["contracts/entities/trigger.schema.json"]
 decision_functions = ["DF-PROACTIVE", "DF-TRIGGER-EVAL"]
-invariants = ["INV-TRIG-3", "INV-TRIG-6"]
-ci = ["CI-025"]
+invariants = ["INV-TRIG-3", "INV-TRIG-6", "INV-BASE-1"]
+ci = ["CI-025", "CI-073"]
 state_machines = ["SM-TRIGGER"]
 status = "SPECIFIED"
 

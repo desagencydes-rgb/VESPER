@@ -773,3 +773,55 @@ self_test_evidence = "tools/ci/self_test.py latency-preference-reorders -- 7 cas
 subject = "core/router.py x core/gateway.py x core/latency.py"
 note = """latency_budgets.toml puts speech_end_to_response_onset at 1200 ms. Measured 2026-08-26 the same conversational turn took 25.9 s and 68.7 s, a 20-57x miss, and on_miss.prohibited starts with "relax budget_ms" -- so the implementation was the thing that had to move. Two layers ranked on axes unrelated to time: the router on distance above the tier floor, the gateway on quota headroom. Fixing one moved the variance instead of removing it; four consecutive turns on one profile took 0.56s, 4.22s, 1.02s and 4.63s purely because headroom rotated which of three rungs answered."""
 discriminators = "The control that keeps this from becoming `route everything to whatever is quickest` is that the tier FLOOR is asserted to hold under both axes -- prefer=latency chooses among eligible profiles and never widens eligibility, so SR-009 still forbids answering hard work below `strong`. The gateway's re-order is asserted to run strictly AFTER quota ranking, because quota decides which rungs are offered at all and latency may only reorder what it offered. Recovery is asserted on the estimate itself rather than on who won a selection: an assertion about a selection turns on what it was compared against, and the first version of this fixture passed or failed on two near-equal numbers."
+
+[checks.CI-072]
+name = "barge-in-never-swallows-a-halt"
+enforces = ["INV-HOLD-1"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py barge-in-never-swallows-a-halt"
+blocking = "pr"
+self_test = """Make the halt group swallow; make the ambiguity default swallow
+rather than break; delete the negated-halt group so "don't stop" cancels."""
+self_test_evidence = """tools/ci/self_test.py barge-in-never-swallows-a-halt --
+3 cases, red then green, 2026-08-29."""
+subject = "core/barge_in.py"
+note = """Measured need: told to hold the floor while the chooser works, the
+system must distinguish "take your time" from "stop". Conversation analysis
+already separates COOPERATIVE interruptions, which support the speaker and do
+not seek the floor, from COMPETITIVE ones, which take it -- so the taxonomy is
+borrowed rather than invented. A third class the obvious design misses is the
+liveness check ("you still there?"), which seeks neither; swallowing it
+silently is what produces the competitive interruption a moment later."""
+discriminators = """THE ASYMMETRY IS THE PROPERTY, NOT THE ACCURACY. A wrong
+break-through costs one wasted preparation cycle. A wrong swallow means the
+owner said "stop" and was ignored. An implementation that is merely accurate,
+without that bias, picks the wrong side of every genuinely ambiguous utterance,
+and the ambiguity case is the one that fails silently in production. The check
+therefore asserts the DEFAULT under ambiguity, not only the labelled cases. It
+also asserts no model is reachable from the module: this runs on every inbound
+token while the owner waits, and a fixed list is the reason the classifier
+cannot be talked out of stopping."""
+
+[checks.CI-073]
+name = "baseline-records-what-cannot-be-rebuilt"
+enforces = ["INV-BASE-1"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py baseline-records-what-cannot-be-rebuilt"
+blocking = "pr"
+self_test = """Give `outcome` a default so a caller may omit it; make the
+first-turn gap 0.0 instead of None; stop counting a failed append."""
+self_test_evidence = """tools/ci/self_test.py baseline-records-what-cannot-be-rebuilt
+-- 3 cases, red then green, 2026-08-29."""
+subject = "core/baseline.py"
+note = """Every question about the memory system is comparative, and none is
+answerable without a record of VESPER answering WITHOUT memory. That record is
+collectable only before memory is switched on, which is why this landed first."""
+discriminators = """OMISSION IS A DIFFERENT TEST FROM A BAD VALUE, and the
+first version of this check tested only the second. Giving `outcome` a default
+left every value assertion passing while the property that matters -- that a
+caller cannot skip the one field nothing can reconstruct -- was gone. The red
+run caught it. `declined` and `could_not` are the same event in a log and
+nothing downstream separates a choice from a failure afterwards. Similarly the
+first-turn gap must be None rather than 0: zero asserts that no time passed,
+which is a claim about the world, where None says there was no previous turn,
+which is a fact about the record."""

@@ -938,3 +938,17 @@ why_it_was_missing = "Two layers each ranked on something that is not time and e
 why_both_layers = "Fixing one moves the variance rather than removing it. With the router corrected and the gateway not, four consecutive turns on a single profile took 0.56 s, 4.22 s, 1.02 s and 4.63 s purely because headroom rotated which of three rungs answered."
 why_the_floor_is_untouched = "The control that keeps this from becoming `route everything to whatever is quickest`. The preference chooses among profiles ALREADY eligible and never widens eligibility, so SR-009 still forbids answering hard work below `strong`."
 why_live_outranks_the_sweep = "The supply sweep measures each rung once. For a rung on somebody else's hardware that is a sample from a distribution, not a property of the rung: the same 45-character prompt to one standard rung took 4.3 s, 16.6 s, 29.4 s and 48.3 s within a few minutes. Reading only the mean routes the owner into the tail. This strengthens INV-HW-2 rather than weakening it -- everything ranked on is measured, more recently and on the path that actually serves requests."
+
+[invariants.INV-HOLD-1]
+statement = "While the system holds the floor, inbound utterances are classified and not obeyed. A cooperative interruption is discarded, a liveness check is answered without cancelling, a competitive one stops the work, and anything else is queued and delivered afterwards. Under ambiguity the classification is BREAK. The classifier has no path to a model."
+owner_rem = "REM-007"
+enforced_by = ["CI-072"]
+kind = "mechanism"
+note = "The asymmetry is the property, not the accuracy: a wrong break-through costs one preparation cycle, a wrong swallow means the owner said stop and was ignored. The absence of a model path is what makes the classifier both cheap enough to run on every inbound token and impossible to talk out of stopping -- a regex cannot be prompt-injected."
+
+[invariants.INV-BASE-1]
+statement = "Every owner-facing turn is recorded with its outcome distinguished as answered, declined, or could_not, and that distinction is mandatory at write time. Capture is total: the recorder holds no opinion about which turns are worth keeping. A failure to record never fails the turn, and is counted."
+owner_rem = "REM-012"
+enforced_by = ["CI-073"]
+kind = "mechanism"
+note = "Declined and could_not are the same event in a log and nothing downstream separates a choice from a failure afterwards, so the field cannot carry a default. Capture is total because a recorder that filters at write time makes the corpus a product of its own filtering, and the corpus is the only evidence by which the memory system can ever be judged."

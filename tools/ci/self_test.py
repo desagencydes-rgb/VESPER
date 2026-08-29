@@ -956,6 +956,8 @@ HOME_SW = "app/home-macos/Home.swift"
 PERSONA_TOML = "contracts/policy/persona.toml"
 VOICE_TOML = "contracts/policy/voice.toml"
 DIFFICULTY = "core/difficulty.py"
+BARGE_IN = "core/barge_in.py"
+BASELINE = "core/baseline.py"
 ROUTER = "core/router.py"
 LATENCY = "core/latency.py"
 SUPPLY_PY = "routing/supply.py"
@@ -1315,6 +1317,46 @@ CASES += [
           '    return Classification(\n        "trivial", "no confident signal either way', 1),
      "the no-signal fallback demoted to trivial, so every request the rules "
      "cannot read is answered at the weakest tier the ladder offers"),
+
+    ("barge-in-never-swallows-a-halt", BARGE_IN,
+     _sub("    (_HALT, Floor.BREAK), (_REVERSE, Floor.BREAK), (_RECORRECT, Floor.BREAK),",
+          "    (_HALT, Floor.SWALLOW), (_REVERSE, Floor.BREAK), (_RECORRECT, Floor.BREAK),", 1),
+     "halts reclassified as cooperative -- the owner says `stop` while the "
+     "chooser holds the floor and it is discarded as encouragement, so the "
+     "work cannot be interrupted at all"),
+
+    ("barge-in-never-swallows-a-halt", BARGE_IN,
+     _sub("        return Floor.BREAK\n\n    # A long utterance is a new request",
+          "        return Floor.SWALLOW\n\n    # A long utterance is a new request", 1),
+     "the default under ambiguity flipped to swallow: every unrecognised short "
+     "utterance is discarded, and the asymmetry that a wrong swallow costs far "
+     "more than a wrong break is inverted"),
+
+    ("barge-in-never-swallows-a-halt", BARGE_IN,
+     _sub("    (_NEGATED_HALT, Floor.SWALLOW),      # before _HALT; longest-match anyway",
+          "    ((), Floor.SWALLOW),      # negated halts removed", 1),
+     "negated halts removed, so `don't stop` matches the halt list and cancels "
+     "the work the owner just asked to continue"),
+
+    ("baseline-records-what-cannot-be-rebuilt", BASELINE,
+     _sub('    outcome: str                      # "answered" | "declined" | "could_not"',
+          '    outcome: str = "answered"         # defaulted', 1),
+     "`outcome` given a default, so a caller may omit the one field nothing can "
+     "reconstruct -- `declined` and `could_not` become the same row and no "
+     "later pass can tell a choice from a failure"),
+
+    ("baseline-records-what-cannot-be-rebuilt", BASELINE,
+     _sub("        return None if prev is None else round(now - prev, 1)",
+          "        return 0.0 if prev is None else round(now - prev, 1)", 1),
+     "the first turn records a gap of 0.0 rather than None, asserting that no "
+     "time passed -- a claim about the world -- where there was simply no "
+     "previous turn"),
+
+    ("baseline-records-what-cannot-be-rebuilt", BASELINE,
+     _sub("            self.failed += 1",
+          "            pass  # not counted", 1),
+     "a failed append stops being counted, so a gap in the turn log is "
+     "indistinguishable from a quiet period and the loss is silent"),
 
     ("latency-preference-reorders", ROUTER,
      _sub('            if prefer == "latency":\n                key = (seconds, TIER_RANK[p.tier] - TIER_RANK[floor])',

@@ -4191,6 +4191,199 @@ def check_persona_is_a_contract() -> "Result":
     return r
 
 
+def check_barge_in_never_swallows_a_halt() -> "Result":
+    """Ambiguity must break through, and negation must not read as a halt.
+
+    THE ASYMMETRY IS THE PROPERTY. A wrong break-through costs one wasted
+    preparation cycle. A wrong swallow means the owner said "stop" and was
+    ignored, which is the failure that makes a system nobody leaves running.
+    Those costs are not comparable, so they must not share a default -- and an
+    implementation that is merely ACCURATE, without that bias, will pick the
+    wrong side of every genuinely ambiguous utterance.
+    """
+    r = Result("barge-in-never-swallows-a-halt")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.barge_in import Floor, classify, PHRASES
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.barge_in did not import: {exc!r}")
+        return r
+
+    # 1. A HALT IS NEVER SWALLOWED. This is the one that must not regress.
+    for u in ("stop", "stop it", "cancel", "wait", "hold on", "abort",
+              "nevermind", "shut up", "no", "actually", "hey", "emergency",
+              "ok stop", "actually stop that", "wrong question"):
+        got = classify(u)
+        if got is not Floor.BREAK:
+            r.err(f"{u!r} classified {got.value}, must be break. A competitive "
+                  "interruption that is swallowed is an owner who cannot stop "
+                  "the system.")
+
+    # 2. NEGATED HALTS MEAN CARRY ON. "don't stop" contains "stop" and reverses
+    # it; without this the most natural way to say "keep going" cancels.
+    for u in ("don't stop", "dont stop", "don’t stop", "please dont cancel",
+              "lets not stop until this is done"):
+        if classify(u) is Floor.BREAK:
+            r.err(f"{u!r} broke through. It contains a halt word and negates "
+                  "it; treating it as a halt cancels work the owner just asked "
+                  "to continue.")
+
+    # 3. COOPERATIVE INTERRUPTIONS ARE SWALLOWED. The owner's own example.
+    for u in ("take your time", "no rush", "ok", "mhm", "go ahead", "thanks",
+              "no worries", "whenever you're ready", ""):
+        got = classify(u)
+        if got is not Floor.SWALLOW:
+            r.err(f"{u!r} classified {got.value}, must be swallow. Granting "
+                  "time must not cancel the work it grants time for.")
+
+    # 4. LIVENESS CHECKS ANSWER WITHOUT CANCELLING. Swallowing these silently
+    # is what produces the competitive interruption a moment later.
+    for u in ("still there?", "you there", "how long", "hello?", "?"):
+        got = classify(u)
+        if got is not Floor.STATUS:
+            r.err(f"{u!r} classified {got.value}, must be status. A liveness "
+                  "check seeks neither the floor nor to encourage.")
+
+    # 5. AMBIGUITY BREAKS THROUGH. An unrecognised SHORT utterance is more
+    # likely an attempt to intervene than a stray thought.
+    for u in ("blorp", "zzz", "qq"):
+        if classify(u) is not Floor.BREAK:
+            r.err(f"unrecognised short utterance {u!r} did not break through. "
+                  "The default under ambiguity is the cheap error, not the "
+                  "expensive one.")
+
+    # 6. A LONG UTTERANCE WITH NO HALT WORD IS QUEUED, not discarded. It is a
+    # new request and losing it loses real content.
+    long_req = "can you also add the router numbers to that when you are done"
+    if classify(long_req) is not Floor.QUEUE:
+        r.err("a long utterance with no halt word was not queued; discarding "
+              "it would lose a real request.")
+
+    # 7. NO MODEL IS REACHABLE FROM HERE. This runs on every inbound token
+    # while the owner waits, and a fixed list is also the reason the classifier
+    # cannot be talked out of stopping.
+    src = (REPO / "core" / "barge_in.py").read_text()
+    for banned in ("import requests", "urllib.request", "ModelGateway",
+                   "def complete(", "openai", "http"):
+        if banned in src:
+            r.err(f"core/barge_in.py references {banned!r}. The mid-hold "
+                  "classifier must have no path to a model: it runs while the "
+                  "owner waits, and a regex cannot be prompt-injected.")
+
+    r.note(f"{len(PHRASES)} phrases; halts unswallowable, negated halts "
+           f"reversed, cooperative swallowed, liveness answered, ambiguity "
+           f"breaks through, long requests queued, no model path")
+    return r
+
+
+def check_baseline_records_what_cannot_be_rebuilt() -> "Result":
+    """The turn record must refuse the fields that are unrecoverable later.
+
+    `declined` and `could_not` are the same event in a log. Nothing downstream
+    can separate a choice from a failure once the row is written, so the
+    distinction has to be mandatory at write time -- a default would let every
+    caller skip the one field that cannot be reconstructed.
+    """
+    r = Result("baseline-records-what-cannot-be-rebuilt")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.baseline import Turn, BaselineRecorder, MAX_TEXT
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.baseline did not import: {exc!r}")
+        return r
+
+    # 1. OUTCOME IS MANDATORY AND CLOSED.
+    #
+    # OMISSION IS TESTED SEPARATELY FROM BAD VALUES, and the first version of
+    # this check tested only the second. Giving `outcome` a default left every
+    # value assertion passing while the property that matters -- that a caller
+    # CANNOT skip the one field nothing can reconstruct -- was gone. The red run
+    # caught it: a negative control that passes is a defect, not a relief.
+    try:
+        Turn(question="q", answer="a")          # type: ignore[call-arg]
+        r.err("Turn() constructed with no `outcome`. The field must be "
+              "mandatory: 'chose not to answer' and 'was unable to' are the "
+              "same event in a log, and a default lets every caller skip the "
+              "one decision that cannot be made afterwards.")
+    except TypeError:
+        pass
+
+    for bad in ("unknown", "", "refused", "error", None):
+        try:
+            Turn(question="q", answer="a", outcome=bad)
+            r.err(f"outcome={bad!r} was accepted. Only answered/declined/"
+                  "could_not may be stored; anything else erases the "
+                  "choice-versus-failure distinction at the moment it is made.")
+        except (ValueError, TypeError):
+            pass
+    for good in ("answered", "declined", "could_not"):
+        try:
+            Turn(question="q", answer="a", outcome=good)
+        except Exception as exc:                   # noqa: BLE001
+            r.err(f"outcome={good!r} was refused: {exc!r}")
+
+    # 2. FIRST-TURN GAP IS None, NOT ZERO. Zero claims no time passed, which is
+    # a statement about the world; None says there was no previous turn, which
+    # is a fact about the record.
+    class _Stub:
+        def __init__(self): self.rows = []
+        def append(self, store, kind, body, at):
+            self.rows.append((store, kind, body)); return type("R", (), {"seq": len(self.rows)})()
+    class _Clock:
+        def now(self): return "hlc:0:0"
+    st = _Stub()
+    rec = BaselineRecorder(st, _Clock())
+    rec.record(Turn(question="q", answer="a", outcome="answered"), now_ms=1000.0)
+    if st.rows[0][2]["gap_ms"] is not None:
+        r.err(f"first turn recorded gap_ms={st.rows[0][2]['gap_ms']!r}; must be "
+              "None. Zero would assert that no time passed.")
+    rec.record(Turn(question="q2", answer="a2", outcome="answered"), now_ms=6000.0)
+    if st.rows[1][2]["gap_ms"] != 5000.0:
+        r.err(f"second turn gap_ms={st.rows[1][2]['gap_ms']!r}, expected 5000.0")
+
+    # 3. TRUNCATION IS RECORDED. A capped answer that does not say so reads
+    # later as a short answer, which is a different measurement.
+    t = Turn(question="q", answer="x" * (MAX_TEXT + 10), outcome="answered")
+    if not t.truncated or len(t.answer) != MAX_TEXT:
+        r.err("an over-length answer was capped without setting `truncated`.")
+    if Turn(question="q", answer="short", outcome="answered").truncated:
+        r.err("a short answer was flagged truncated.")
+
+    # 4. A STORE FAILURE NEVER RAISES, AND IS COUNTED. Background bookkeeping
+    # must not fail a good turn -- but an unexplained gap with no counter is
+    # indistinguishable from a quiet period.
+    class _Broken:
+        def append(self, *a, **k): raise RuntimeError("disk full")
+    seen: list = []
+    br = BaselineRecorder(_Broken(), _Clock(), on_error=seen.append)
+    try:
+        out = br.record(Turn(question="q", answer="a", outcome="answered"))
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"a store failure raised into the turn: {exc!r}")
+        out = None
+    if out is not None:
+        r.err("a failed append returned a truthy result.")
+    if br.stats()["failed"] != 1 or len(seen) != 1:
+        r.err(f"a failed append was not counted or surfaced: {br.stats()}")
+
+    # 5. THE RECORDER HOLDS NO OPINION ABOUT WHAT IS WORTH KEEPING. Selection
+    # at write time would make the corpus a product of its own filtering.
+    src = (REPO / "core" / "baseline.py").read_text()
+    for banned in ("import re", "ModelGateway", "def complete(",
+                   "interesting", "importance"):
+        if banned in src:
+            r.err(f"core/baseline.py references {banned!r}. Capture is total; "
+                  "selection happens at projection where it stays auditable "
+                  "because the unselected material still exists.")
+
+    r.note("outcome closed over 3 values and refused for 5; first gap None not "
+           "0; truncation flagged; a broken store returns None, counts and "
+           "surfaces; no selection at write time")
+    return r
+
+
 def check_difficulty_classifies_up() -> "Result":
     """The classifier may raise freely and must not lower without a signal.
 
@@ -4527,6 +4720,9 @@ CHECK_FNS = {
     "intake-is-modality-neutral": check_intake_is_modality_neutral,
     "persona-is-a-contract": check_persona_is_a_contract,
     "difficulty-classifies-up": check_difficulty_classifies_up,
+    "barge-in-never-swallows-a-halt": check_barge_in_never_swallows_a_halt,
+    "baseline-records-what-cannot-be-rebuilt":
+        check_baseline_records_what_cannot_be_rebuilt,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,
