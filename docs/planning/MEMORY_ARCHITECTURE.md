@@ -387,12 +387,44 @@ detector, useless to a thief.
    rank 5, separately, or the system permanently promotes its guesses to the
    owner's word.
 
-**Proposed, needs the owner's call — these are policy, not engineering:**
+**Decided by the owner 2026-08-29 — nothing further is refused:**
 
-4. Medical detail
-5. Financial account detail, as distinct from credentials
-6. Substantive content about identifiable third parties
-7. Anything said while the owner has marked the moment private
+Medical detail, financial account detail and content about third parties are
+all **recorded**. The owner's reasoning: it is a private assistant, and models
+receive material like this in ordinary use regardless.
+
+One consequence, recorded once rather than argued: **content about third
+parties now reaches the GitHub backup and replicates to every node**, including
+machines with different protections. A private repo is access control, not
+encryption. That is other people's information leaving this machine, and it is
+the only refusal question whose consequence lands on someone who is not the
+owner.
+
+**What this does to the quarantine.** With only credentials refused, the
+quarantine holds very little, and its second purpose — making a systematically
+wrong RULE visible as a pattern — has almost nothing to work with. It stays,
+because the credential detector still needs auditing and because a future
+refusal rule would need somewhere to land. Its value is now mostly latent.
+
+### Off the record
+
+The owner-driven path replaces the policy-driven one. A fixed phrase list —
+"off the record", "forget this", "don't remember that" — marks a moment as
+unrecorded. Same mechanism as `core/barge_in.py`: deterministic, no model, no
+inference about what the moment contained.
+
+### Said once isn't a trait
+
+The accuracy half of the same problem, and it is a RANKING rule rather than a
+refusal. "I hate this project", said in frustration, must not become a durable
+fact that the owner hates that project. It stays one observation with a
+timestamp; only repetition promotes an observation toward a trait.
+
+**This needs no detection of mood at all**, which is the point. The system never
+has to judge how something was said — it only has to decline to generalise from
+a single utterance. Every design that tried to read tone needed a model in the
+capture path, and a model in the capture path is the same defect as one in the
+redactor.
 
 **Deliberately NOT on this list**, because a plausible-sounding rule that fires
 wrongly is worse than a missing one: no refusal on "emotional content", none on
@@ -806,8 +838,6 @@ not optional.
 
 ## Undecided
 
-- **What the updater refuses** beyond credentials — items 4-7 above are
-  policy, awaiting the owner.
 - **Filter thresholds** — how loud a thing must be to wake VESPER. The mechanism
   is cheap and the dials need the corpus; sane defaults, tuned from the discard
   log.
