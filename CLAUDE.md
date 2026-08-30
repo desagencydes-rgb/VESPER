@@ -64,14 +64,23 @@ renders it.
 had. Use `python3.13` (`~/.local/bin/python3.13`). Verified 2026-08-23.
 
 ```sh
-python3.13 tools/ci/checks.py all       # 47 checks
-python3.13 tools/ci/self_test.py        # red-then-green, 160 cases
+python3.13 tools/ci/checks.py all       # 56 checks
+python3.13 tools/ci/self_test.py        # red-then-green, 206 cases
 python3.13 tools/traceability_lint.py
 python3.13 tools/reference_lint.py
 python3.13 verification/run_f0_acceptance.py   # ... f1 .. f6
 python3.13 verification/stress_placement.py    # 160k property assertions
 python3.13 verification/stress_fabric.py        # 180k property assertions
 ```
+
+**Corrected 2026-08-30:** they read 47 and 160 while the commands printed 56
+and 206 -- the memory system landed overnight and brought nine checks with it
+(`CI-074` and `CI-076`..`CI-082`, plus the redactor's check, which runs and is
+deliberately unregistered). **Fifth drift of this pair.** Four of the five have
+now been found by someone reading the file rather than by the file being wrong
+in a way that broke something, which is the whole argument for the rule at the
+top of this document: a number nobody acts on is a number nobody re-reads, and
+these two are quoted far more often than they are checked.
 
 **Corrected 2026-08-29:** they read 45 and 154 while the commands printed 47
 and 160 -- `CI-072` (the mid-hold interruption classifier) and `CI-073` (the
@@ -126,6 +135,22 @@ is next; `SR-034` is held below `SPECIFIED` deliberately and permanently.
   the machine and needs a held power button.
 - **ICMP is blocked both ways on this network.** Ping proves nothing. Test
   TCP/22.
+- **A TCC prompt must be triggered with `open -n`, never from a shell.** Run
+  `app/VESPER.app/Contents/MacOS/VESPER --speech-consent` from a terminal and it
+  prints `requesting as: ai.vesper.island` -- correct, and not evidence. TCC
+  attributes to the RESPONSIBLE PROCESS, which is the shell: the microphone came
+  back "granted" with no dialog because it inherited the terminal's grant, and
+  the speech request killed the process with SIGABRT complaining about a usage
+  description that was demonstrably present. `Bundle.main.bundleIdentifier`
+  cannot detect the difference. Measured 2026-08-30.
+- **Mic and speech-recognition consent are granted** (2026-08-30). On-device
+  recognition is available for `en-US` and NOT for `ar-MA`, `ar-SA` or `fr-FR`
+  -- those route audio to Apple's servers, which is egress outside
+  `ModelGateway` and therefore outside the redactor.
+- **This host runs on battery more often than you would assume.** 2026-08-30,
+  mid-build: `power_source = battery`, 53%, discharging, no charger attached.
+  `core/host_probes.py` reads it; `world.current_host.power_source` carries it.
+  Check it before starting anything long rather than after.
 - **`/code-review ultra` cannot run on this repo** — too large. Use a
   path-scoped local review and never gate a day on it.
 

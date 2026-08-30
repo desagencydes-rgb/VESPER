@@ -198,6 +198,64 @@ Owner's phone (always on) · iPhone · Samsung Galaxy J3 (2016, 360×640 @ dpr 2
 
 ---
 
+### L2's query latency, and the row the handoff quoted — MEASURED 2026-08-30
+
+`tools/spike/l2_query_probe.py`, this host, python3.13. Raw output is stored at
+`docs/spikes/data/l2_query_probe.txt` — it was the only probe in the corpus
+writing none, which is why the figure below travelled without its source.
+
+| facts | full-text match | FULL select d1 | d2 | d3 |
+|---|---|---|---|---|
+| 10,000 | 1.49 ms | 3.50 ms | 6.62 ms | 9.97 ms |
+| 100,000 | **18.57 ms** | **31.55 ms** | **50.36 ms** | **87.35 ms** |
+
+**`HANDOFF_MEMORY_BUILD.md` quotes "~18 ms over 100k facts" as step 1's
+justification, and that is the full-text stage IN ISOLATION** — the bolded 18.57
+above. The block-B query that actually runs on every turn is the FULL select
+row, and at 100k it is over the 25 ms budget **at every depth, including depth
+1**. The probe flags it itself.
+
+**The consequence, which is not written down anywhere else: the compactor is
+load-bearing for LATENCY, not only for context size.** `MEMORY_ARCHITECTURE.md`
+specifies L2 at 10⁴–10⁵, so the design is comfortable at the bottom of its own
+stated range and misses its budget at the top. If L2 is allowed to grow, block B
+misses on every turn however well selection ranks.
+
+The measured schema also lacks `trust_class`, which `core/memory.py` adds. These
+numbers therefore describe a schema one column narrower than the one that
+shipped, and that is stated rather than quietly ignored.
+
+### Erasure does not reach L3, and the storage layer forbids it — 2026-08-30
+
+`UPDATE` and `DELETE` against the `log` store are both refused **at the storage
+layer** (ADR-002 D9), verified directly. So `Forgetter.erase()` removes the L2
+projection and the value remains in the append-only log. Two consequences:
+
+- **A reprojection resurrects it** unless it consults the tombstones. `Compactor`
+  does, gated by `CI-080`, and it is the kind of thing a maintenance pass would
+  otherwise undo silently while reporting success.
+- **A credential that reached L2 must be ROTATED, not erased.** Erasing it is
+  housekeeping, not containment.
+
+Three ways of testing the erasure turned out to be untestable: a rowid lookup on
+`fact_fts` is vacuous (external-content tables resolve through the base table),
+and both a raw `MATCH` and a scan of the `fact_fts_data` shadow blocks are
+**non-deterministic** — identical erasures disagreed depending only on what else
+had been written first, because FTS5 segment merging decides when a term leaves
+index storage. Do not re-add those assertions; they pass for reasons unrelated
+to the property.
+
+### This host is often on battery — 2026-08-30
+
+Measured mid-build by `core/host_probes.py`: `power_source = battery`, 53%,
+discharging, **no charger attached**, on the machine running an unattended
+overnight session with idle sleep disabled. `world.current_host.power_source`
+now carries it. Check it before starting anything long.
+
+`caffeinate -is` keeps the system awake **and lets the display sleep**;
+`caffeinate -dimsu` does not — `-d` and `-u` both hold the screen on and cost
+real power for nothing.
+
 ## 2. Mistakes already made — do not remake them
 
 | # | The mistake | The correction |
@@ -212,6 +270,37 @@ Owner's phone (always on) · iPhone · Samsung Galaxy J3 (2016, 360×640 @ dpr 2
 | 8 | Eyeballed a colour palette instead of running the validator | Three rounds of failures. Run the checker |
 
 ---
+
+### The measuring instrument's own convenience is not a contract — 2026-08-30
+
+`tools/spike/l2_query_probe.py` supplied L2's schema, its FTS5 configuration and
+its traversal query, and carried two things that would have become design
+defects if copied without reading:
+
+- `reach` unions on `(id, d)`, so an entity reached at depth 0 **and** depth 1 is
+  two rows and the join returns each of its facts twice. Block B holds 3–5
+  facts; two of them being the same fact is worse than returning four.
+- `WHERE f.privacy = 'private'` — a benchmark needs a filter of stable
+  cardinality and any constant serves. Carried into the design it makes a
+  `personal` fact permanently unreachable. The probe also used a privacy
+  vocabulary (`private`/`shareable`) that `core/privacy.py` does not define.
+
+**Neither was visible to the probe**, because `stage_full` counted rows and a
+duplicate count reads as a hit. This is the third instrument in this corpus to
+fail in the direction that flatters the result, after the Darija scorer and the
+truncation probe.
+
+### TCC attributes to the responsible process, and the bundle id is not evidence — 2026-08-30
+
+Running `app/VESPER.app/Contents/MacOS/VESPER --speech-consent` from a terminal
+prints `requesting as: ai.vesper.island` — correct — while TCC attributes the
+request to the **shell**. The microphone returned `granted` with no dialog at all
+because it inherited the terminal's existing grant, and the speech request killed
+the process with SIGABRT and `namespace: TCC`, complaining that the usage
+description was missing from an `Info.plist` that demonstrably contained it.
+**Both readings failed in the direction that looks like success.** `open -n` is
+the fix. `Bundle.main.bundleIdentifier` cannot detect the difference, which is
+why the finding lives in `SpeechConsent.swift` where the next reader hits it.
 
 ## 3. Doctrine that keeps getting rediscovered
 

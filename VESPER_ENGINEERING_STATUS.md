@@ -1,6 +1,6 @@
 # VESPER — Engineering Status
 
-**Updated:** 2026-08-24, after the router was found not to be routing and the first real model call crossed the choke point · **Maintained continuously.** If another engineer or agent takes over tomorrow, this file plus `docs/DECISION_LOG.md` is the handoff.
+**Updated:** 2026-08-30, after the memory system was built end to end and wired into the running process · **Maintained continuously.** If another engineer or agent takes over tomorrow, this file plus `docs/DECISION_LOG.md` is the handoff.
 
 > **Read `MEMORY.md` first.** It carries what is *not* derivable from this file, the code or the
 > git history: the measured numbers with their provenance, the **bandwidth law** that governs
@@ -11,6 +11,28 @@
 ---
 
 ## Current position
+
+**MEMORY LANDED 2026-08-29/30, ALL SEVEN BUILD-ORDER STEPS, WIRED.** `core/memory.py`
+(L2 graph over SQLite, FTS5 + bounded recursive CTE), `core/redact.py`,
+`core/updater.py` (updater + miss recorder), `core/blocks.py` (L1 block A/B),
+`core/chooser.py`, `core/arbiter.py`, `core/forgetter.py`, `core/compactor.py`,
+`core/sensors.py` and `core/host_probes.py`. All reached from
+`tools/ops/vesper_runtime.py`'s live turn; `l2.db` is created by the supervised
+runtime. **56 checks, 206 self-tests, both lints.** Five invariants gained a CI
+enforcer, two of which previously had only an acceptance test: `INV-MEM-1` and
+`INV-EVID-3`. Details and the findings are in `OVERNIGHT_REPORT_2026-08-30.md`.
+
+**Two things that change plans rather than just adding code.** The `~18 ms`
+quoted for L2 in `HANDOFF_MEMORY_BUILD.md` is the full-text stage alone; the
+actual block-B query is 31.55/50.36/87.35 ms at 100k facts, over the 25 ms
+budget at every depth — so **the compactor is load-bearing for latency**, not
+only for context size. And **erase does not destroy content**: `UPDATE`/`DELETE`
+on the `log` store are refused at the storage layer, so an erased value stays in
+L3 and a credential that reached L2 must be **rotated**, not merely erased.
+
+**Voice is unblocked at the front edge.** Microphone and speech-recognition
+consent are granted to `ai.vesper.island` as of 2026-08-30. On-device
+recognition is available for `en-US` and NOT for `ar-MA`/`ar-SA`/`fr-FR`.
 
 | | |
 |---|---|
