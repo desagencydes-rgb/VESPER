@@ -48,7 +48,9 @@ from core.home_state import HomeState                           # noqa: E402
 from core.intake import Intake                                  # noqa: E402
 from core.chooser import Chooser                                # noqa: E402
 from core import host_probes                                    # noqa: E402
-from core.sensors import Sensor, SensorRegistry, TIMER          # noqa: E402
+from core.autonomy import AutonomyLoop, PredicateEvaluator      # noqa: E402
+from core.forgetter import expiry_trigger                       # noqa: E402
+from core.sensors import Sensor, SensorRegistry, SWEEP, TIMER   # noqa: E402
 from core.world import WorldModel                               # noqa: E402
 from core.difficulty import classify                            # noqa: E402
 from core.effort import EXPECTED_OUTPUT                         # noqa: E402
@@ -166,6 +168,30 @@ def build(node: str = "vesper-runtime"):
     sensors.register(Sensor("host-disk", "current_host", "disk_free_ratio",
                             host_probes.disk_free_ratio, TIMER,
                             period_ms=300_000, ttl_ms=900_000))
+    # THE SWEEP. Nothing EMITS an event when a fact lapses -- time alone makes
+    # it true -- so the only way to see it is to ask. `expired_present` is the
+    # term `trg_fact_expiry_sweep` reads, and it cannot be expressed as a dotted
+    # world term any other way: a predicate snapshot resolves `subject.attribute`
+    # through `read()`, and "any fact" is not that shape.
+    sensors.register(Sensor("fact-expiry", "world.facts", "expired_present",
+                            world.expired_present, SWEEP, period_ms=30_000))
+
+    # THE AUTONOMY LOOP. `tick()` DECIDES AND PUBLISHES; IT DOES NOT ACT --
+    # actuation is a separate concern with its own gate, and the interlock is
+    # what will stand in front of it. Wiring the decision half now means the
+    # eight triggers stop evaluating over an empty world, and every firing
+    # arrives with the snapshot that is its evidence (A-029 Part 2) and with
+    # `model_involved_in_decision: False` (INV-AUTO-2), which the evaluator
+    # enforces structurally rather than reporting.
+    #
+    # ONE TRIGGER IS WIRED HERE AND SEVEN ARE NOT, and that is honest rather
+    # than partial: the other seven read terms nothing populates yet
+    # (`nodes.reachable_set`, `proposals.count`, `world.owner.attention_state`).
+    # A trigger registered over a term no sensor writes evaluates UNKNOWN and
+    # never fires, which looks identical to one that is working and quiet.
+    autonomy = AutonomyLoop(bus, world, PredicateEvaluator(bus, world),
+                            now_ms=lambda: int(time.time() * 1000))
+    autonomy.register(expiry_trigger())
 
     memory = renderer = updater = misses = None
     try:
@@ -183,7 +209,7 @@ def build(node: str = "vesper-runtime"):
                     component="runtime")
 
     return (bus, gw, router, home, intake, triage, report, persona, bench,
-            renderer, updater, misses, chooser, world, sensors)
+            renderer, updater, misses, chooser, world, sensors, autonomy)
 
 
 def answer(gw, router, persona, utterance, renderer=None,
@@ -340,7 +366,7 @@ def answer(gw, router, persona, utterance, renderer=None,
 
 def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          once: bool = False, renderer=None, updater=None,
-         misses=None, chooser=None, sensors=None) -> int:
+         misses=None, chooser=None, sensors=None, autonomy=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     # SENSORS FIRST, AND THE PERIOD DECIDES WHETHER ANYTHING ACTUALLY RUNS.
     # `poll()` returns immediately for any sensor that is not due, so calling it
@@ -357,6 +383,15 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             sensors.poll()
         except Exception as exc:                   # noqa: BLE001
             bus.publish("sensors.loop_failed", subject="sensors",
+                        payload={"error": repr(exc)}, component="runtime")
+    # AFTER THE SENSORS, because a predicate should read the world as it is now
+    # and not as it was one pass ago. Same rule as the sensors above: a failure
+    # here is recorded and does not take the turn with it.
+    if autonomy is not None:
+        try:
+            autonomy.tick()
+        except Exception as exc:                   # noqa: BLE001
+            bus.publish("autonomy.loop_failed", subject="autonomy",
                         payload={"error": repr(exc)}, component="runtime")
     OUTBOX.touch(exist_ok=True)
     seen = int(OFFSET.read_text()) if OFFSET.exists() else 0
@@ -464,7 +499,8 @@ def main() -> int:
     args = ap.parse_args()
 
     (bus, gw, router, home, intake, triage, report, persona, bench,
-     renderer, updater, misses, chooser, world, sensors) = build()
+     renderer, updater, misses, chooser, world, sensors,
+     autonomy) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -486,7 +522,8 @@ def main() -> int:
     if args.once or args.say:
         n = pump(bus, gw, router, persona, bench, home, intake, transcript,
                  once=True, renderer=renderer, updater=updater,
-                 misses=misses, chooser=chooser, sensors=sensors)
+                 misses=misses, chooser=chooser, sensors=sensors,
+                 autonomy=autonomy)
         # THE SAME HONESTY THE INTERRUPT PATH APPLIES. A one-shot run that exits
         # leaving `thinking` on disk reports work that is not happening; the
         # 90 s staleness fallback would correct it eventually, and eventually is
@@ -528,7 +565,7 @@ def main() -> int:
         try:
             pump(bus, gw, router, persona, bench, home, intake, transcript,
                  renderer=renderer, updater=updater, misses=misses,
-                 chooser=chooser, sensors=sensors)
+                 chooser=chooser, sensors=sensors, autonomy=autonomy)
             # THE PLUMBING USED TO COST MORE THAN THE MODEL. 0.5 s here plus
             # 0.7 s in the chrome's own timer is up to 1.2 s of pure polling
             # around a call that now returns in ~0.7 s -- the transport was the

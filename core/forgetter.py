@@ -84,6 +84,43 @@ ERASE = "erase"
 MODE_ACTOR = {APPEND: (SYSTEM, OWNER), SUPERSEDE: (OWNER,), ERASE: (OWNER,)}
 
 
+# The term the trigger reads. Written by a SWEEP-class sensor, because nothing
+# EMITS an event when a fact lapses -- time alone makes it true, which is the
+# definition of the sweep class.
+EXPIRY_TERM = "world.facts.expired_present"
+
+
+def expiry_trigger():
+    """`trg_fact_expiry_sweep`, as a callable predicate.
+
+    WIRED AS A TRIGGER RATHER THAN AS A TIMER, for the reason `core/alarm.py`
+    gives about its own: a hand-rolled "every N seconds, sweep" bypasses
+    `CI-026`'s anti-cron probe entirely. The probe evaluates the predicate with
+    every clock term TRUE and every state term FALSE; if it still fires, the
+    clock alone was sufficient and the thing is cron whatever its label says.
+    This predicate has NO clock term, so it cannot fire on time alone -- a fact
+    has to have actually lapsed.
+
+    IT FIRES ON EXPIRY, NOT ON AN INTERVAL. `MEMORY_ARCHITECTURE.md` is explicit
+    that this is the distinction: "Fires because a fact EXPIRED, not because a
+    sweep interval elapsed."
+    """
+    from .autonomy import Trigger
+
+    def predicate(s: dict) -> bool:
+        return bool(s.get(EXPIRY_TERM))
+
+    return Trigger(
+        trigger_id="trg_fact_expiry_sweep",
+        predicate_class="STATE",
+        predicate=predicate,
+        clock_terms=(),
+        state_terms=(EXPIRY_TERM,),
+        enabled=True,
+        debounce_s=0,
+    )
+
+
 class ForgetRefused(Exception):
     """A removal the caller is not entitled to make, or cannot describe."""
 
