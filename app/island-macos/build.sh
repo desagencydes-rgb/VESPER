@@ -27,7 +27,7 @@ HOME_SRC=../home-macos
 # CGWindowListCreateImage obsoleted=15.0. Every call above 13.0 in these
 # sources is already behind #available, so the floor costs nothing.
 swiftc -O -swift-version 5 -target arm64-apple-macosx13.0 \
-  main.swift FaceRenderer.swift Behaviour.swift \
+  main.swift FaceRenderer.swift Behaviour.swift SpeechConsent.swift \
   "$HOME_SRC/Home.swift" "$HOME_SRC/HomeAmbience.swift" "$HOME_SRC/SpaceWatch.swift" \
   "$HOME_SRC/HomeVerify.swift" "$HOME_SRC/GlassGuard.swift" \
   "$HOME_SRC/HomeChrome.swift" "$HOME_SRC/HomeSurfaces.swift" "$HOME_SRC/RuntimeHost.swift" "$HOME_SRC/HomeCost.swift" \
@@ -103,6 +103,19 @@ cat > "$APP/Contents/Info.plist" <<PLIST
        take a Dock slot. -->
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <!-- TCC PROMPTS CANNOT BE REQUESTED WITHOUT THESE, and their absence is not
+       an error anywhere: the request simply returns "denied" and speech looks
+       broken rather than unpermitted. Measured 2026-08-30 on this Mac, before
+       these existed: SFSpeechRecognizer.authorizationStatus() == 0
+       (notDetermined) with no way to move it.
+
+       The strings are the only explanation the owner ever sees, in a dialog
+       with no context around it, so they say where the audio actually goes.
+       On-device recognition is available here for en-US and NOT for ar-MA,
+       ar-SA or fr-FR (measured same day) -- so the second string must not
+       claim everything stays on the machine, because for Darija it does not. -->
+  <key>NSMicrophoneUsageDescription</key><string>VESPER listens for what you say to it. Nothing is captured until you allow this.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>VESPER turns speech into text so it can answer. English is recognised on this Mac; other languages are sent to a transcription service.</string>
 </dict>
 </plist>
 PLIST

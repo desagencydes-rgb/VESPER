@@ -903,6 +903,14 @@ if args.contains("--reinstall-login-item") {
     exit(0)
 }
 
+if args.contains("--speech-consent") {
+    // Deliberately before NSApplication.shared: the prompt is the whole job,
+    // and bringing up the island's window layer to ask for a permission would
+    // put VESPER's face over the owner's Desktop for no reason.
+    requestSpeechConsent()
+    exit(0)
+}
+
 if args.contains("--uninstall-login-item") {
     if #available(macOS 13.0, *) {
         try? SMAppService.agent(plistName: "ai.vesper.island.plist").unregister()
