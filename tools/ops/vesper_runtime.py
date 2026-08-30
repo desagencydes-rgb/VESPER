@@ -144,7 +144,7 @@ def build(node: str = "vesper-runtime"):
 
 
 def answer(gw, router, persona, utterance, renderer=None,
-           updater=None) -> str:
+           updater=None, misses=None) -> str:
     """One request across the ladder. Difficulty routes it; the ladder serves it.
 
     `privacy_class` IS NOT PASSED, and that is the point of the default. Anything
@@ -238,11 +238,55 @@ def answer(gw, router, persona, utterance, renderer=None,
             kwargs={"event_id": utterance.hlc or f"turn:{task}",
                     "source": utterance.source},
             daemon=True, name="updater-capture").start()
+
+    # THE MISS RECORD, AND IT IS THE ONLY REASON ANY OF THIS CAN BE JUDGED.
+    # A memory miss produces NO EVENT: no query returns empty, nothing raises,
+    # VESPER simply does not know and answers anyway, fluently. It is catchable
+    # only retrospectively, by pairing what VESPER did with what memory held --
+    # and that pairing exists no other way.
+    #
+    # TWO DETECTORS RUN HERE AND NEITHER NEEDS A MODEL. Repetition asks whether
+    # memory ALREADY held what the owner just said, which is a selection miss
+    # rather than a capture miss and is a different defect. Explicit absence
+    # reads VESPER's own reply for it saying it did not know -- the one miss
+    # that announces itself.
+    #
+    # ALSO ON A THREAD, for the same reason the capture is: a turn must not wait
+    # on its own bookkeeping, and this runs an FTS query.
+    if misses is not None:
+        def _record_miss():
+            try:
+                hit = misses.repetition(utterance.text)
+                if hit:
+                    misses.record(
+                        detector=hit["detector"],
+                        situation=f"owner restated something memory held: "
+                                  f"{utterance.text[:120]}",
+                        layer_consulted="L2 select, ceiling=private",
+                        what_was_found={"fact_id": hit["held_fact_id"],
+                                        "rank": hit["rank"]},
+                        what_vesper_did=reply[:200])
+                absent = misses.explicit_absence(reply)
+                if absent:
+                    misses.record(
+                        detector=absent["detector"],
+                        situation=utterance.text[:120],
+                        layer_consulted="L2 select, ceiling=private",
+                        what_was_found=None,
+                        what_vesper_did=reply[:200])
+            except Exception:                      # noqa: BLE001
+                # The corpus is worth less if a miss recorder crash can take a
+                # turn with it. Losing one record is survivable; losing the turn
+                # is the failure this whole layer is forbidden to cause.
+                pass
+        threading.Thread(target=_record_miss, daemon=True,
+                         name="miss-recorder").start()
     return reply
 
 
 def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
-         once: bool = False, renderer=None, updater=None) -> int:
+         once: bool = False, renderer=None, updater=None,
+         misses=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     OUTBOX.touch(exist_ok=True)
     seen = int(OFFSET.read_text()) if OFFSET.exists() else 0
@@ -285,7 +329,8 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             home.set_transcript(list(transcript))
             if res["outcome"] == "dispatched":
                 reply = answer(gw, router, persona, intake.history[-1],
-                               renderer=renderer, updater=updater)
+                               renderer=renderer, updater=updater,
+                               misses=misses)
                 # VESPER'S REPLY IS NOT AN UTTERANCE, and the first version put
                 # it into `intake.history` as one. `Intake` is the record of
                 # things said TO VESPER -- its confidence, its partials and its
@@ -345,7 +390,8 @@ def main() -> int:
 
     if args.once or args.say:
         n = pump(bus, gw, router, persona, bench, home, intake, transcript,
-                 once=True, renderer=renderer, updater=updater)
+                 once=True, renderer=renderer, updater=updater,
+                 misses=misses)
         # THE SAME HONESTY THE INTERRUPT PATH APPLIES. A one-shot run that exits
         # leaving `thinking` on disk reports work that is not happening; the
         # 90 s staleness fallback would correct it eventually, and eventually is
@@ -386,7 +432,7 @@ def main() -> int:
     while True:
         try:
             pump(bus, gw, router, persona, bench, home, intake, transcript,
-                 renderer=renderer, updater=updater)
+                 renderer=renderer, updater=updater, misses=misses)
             # THE PLUMBING USED TO COST MORE THAN THE MODEL. 0.5 s here plus
             # 0.7 s in the chrome's own timer is up to 1.2 s of pure polling
             # around a call that now returns in ~0.7 s -- the transport was the
