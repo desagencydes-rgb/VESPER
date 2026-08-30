@@ -199,8 +199,24 @@ def classify(text: str) -> Floor:
     """Decide what a mid-hold utterance does to the work in flight.
 
     Whole-utterance match first, then a contained-phrase match limited to short
-    utterances. The length limit is what stops "I need to stop by the shop"
-    reading as a halt while still catching "ok stop".
+    utterances, then a narrower halt-word scan over long ones.
+
+    THE LENGTH LIMIT DOES NOT DO WHAT AN EARLIER VERSION OF THIS DOCSTRING
+    CLAIMED. It said the limit "stops 'I need to stop by the shop' reading as a
+    halt"; measured 2026-08-30, that sentence returns BREAK. Seven words is
+    over `_MAX_CONTROL_WORDS`, so it never reaches the contained-phrase branch
+    -- and the LONG branch below then scans it for halt words and breaks anyway,
+    deliberately.
+
+    THAT IS THE RIGHT BEHAVIOUR AND THE WRONG COMMENT. The asymmetry is stated
+    where the long branch is written: a sentence wrongly broken can be re-read
+    from the queue afterwards, and work that should have stopped cannot be
+    un-run. So a halt word inside a long utterance stops the work even at the
+    cost of the occasional shop errand, and only an explicit negation ("don't
+    stop") suppresses it.
+
+    What the length limit actually buys is the SHORT branch: within six words,
+    an unrecognised utterance breaks through rather than being swallowed.
     """
     flat = _normalise(text)
     if not flat:

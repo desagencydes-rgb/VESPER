@@ -780,10 +780,11 @@ enforces = ["INV-HOLD-1"]
 kind = "runtime-fixture"
 impl = "tools/ci/checks.py barge-in-never-swallows-a-halt"
 blocking = "pr"
-self_test = """Make the halt group swallow; make the ambiguity default swallow
-rather than break; delete the negated-halt group so "don't stop" cancels."""
-self_test_evidence = """tools/ci/self_test.py barge-in-never-swallows-a-halt --
-3 cases, red then green, 2026-08-29."""
+self_test = """Make a halt swallowable; make a negated halt break; swallow a
+liveness check; and over the LONG branch: stop scanning long utterances for halt
+words, treat every long utterance as a halt, and ignore the negation guard."""
+self_test_evidence = """tools/ci/self_test.py barge-in-never-swallows-a-halt
+-- 3 cases red then green 2026-08-29; 3 more for the long branch 2026-08-30."""
 subject = "core/barge_in.py"
 note = """Measured need: told to hold the floor while the chooser works, the
 system must distinguish "take your time" from "stop". Conversation analysis

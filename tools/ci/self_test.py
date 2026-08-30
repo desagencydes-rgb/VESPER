@@ -1685,6 +1685,25 @@ CASES += [
      "cannot read is answered at the weakest tier the ladder offers"),
 
     ("barge-in-never-swallows-a-halt", BARGE_IN,
+     _sub("        for phrase in _HALT + _SILENCE + _URGENT:\n"
+          "            if re.search(rf\"\\b{re.escape(phrase)}\\b\", flat):\n"
+          "                return Floor.BREAK",
+          "        pass", 1),
+     "a halt word inside a LONG utterance stops breaking the work: \"I need you "
+     "to stop what you are doing right now\" is queued instead of obeyed, and "
+     "work that should have stopped cannot be un-run"),
+
+    ("barge-in-never-swallows-a-halt", BARGE_IN,
+     _sub("    return Floor.QUEUE", "    return Floor.BREAK", 1),
+     "every long utterance treated as a halt, so saying anything substantive "
+     "while VESPER is working cancels it -- the owner is punished for talking"),
+
+    ("barge-in-never-swallows-a-halt", BARGE_IN,
+     _sub("    if not _NEGATED.search(flat):", "    if True:", 1),
+     "an explicitly negated halt inside a long utterance breaks the work: "
+     "\"please don't stop\" is the owner granting time, and cancelling on it "
+     "punishes them for being explicit"),
+    ("barge-in-never-swallows-a-halt", BARGE_IN,
      _sub("    (_HALT, Floor.BREAK), (_REVERSE, Floor.BREAK), (_RECORRECT, Floor.BREAK),",
           "    (_HALT, Floor.SWALLOW), (_REVERSE, Floor.BREAK), (_RECORRECT, Floor.BREAK),", 1),
      "halts reclassified as cooperative -- the owner says `stop` while the "

@@ -4245,6 +4245,34 @@ def check_barge_in_never_swallows_a_halt() -> "Result":
             r.err(f"{u!r} classified {got.value}, must be status. A liveness "
                   "check seeks neither the floor nor to encourage.")
 
+    # 4b. THE LONG BRANCH, WHICH NOTHING COVERED UNTIL 2026-08-30 -- and it is
+    #     the branch whose behaviour this module's own docstring described
+    #     incorrectly, citing a sentence that does the opposite of what it said.
+    #
+    #     A long utterance is a new request and belongs in the QUEUE. A long
+    #     utterance CONTAINING a halt word still breaks: the sentence can be
+    #     re-read from the queue afterwards, and work that should have stopped
+    #     cannot be un-run. An explicit negation suppresses it.
+    for u in ("could you also look at the calendar for next week sometime",
+              "I was thinking about the flight and the hotel booking as well"):
+        if classify(u) is not Floor.QUEUE:
+            r.err(f"a long utterance with no control word gave "
+                  f"{classify(u).name} rather than QUEUE. Discarding it loses "
+                  "real content, and treating it as a halt punishes the owner "
+                  "for saying something substantive.")
+    for u in ("I need you to stop what you are doing right now please",
+              "actually stop that and look at the other thing instead"):
+        if classify(u) is not Floor.BREAK:
+            r.err(f"a long utterance containing a halt word gave "
+                  f"{classify(u).name} rather than BREAK. A halt inside a "
+                  "sentence is still a halt -- the sentence can be re-read "
+                  "from the queue, and work that should have stopped cannot be "
+                  "un-run.")
+    if classify("please don't stop what you are doing on my account") is Floor.BREAK:
+        r.err("an explicitly NEGATED halt inside a long utterance broke the "
+              "work. 'don't stop' is the owner granting time, and cancelling "
+              "on it punishes them for being explicit.")
+
     # 5. AMBIGUITY BREAKS THROUGH. An unrecognised SHORT utterance is more
     # likely an attempt to intervene than a stray thought.
     for u in ("blorp", "zzz", "qq"):
