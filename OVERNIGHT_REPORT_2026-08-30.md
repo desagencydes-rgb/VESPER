@@ -113,6 +113,25 @@ one topic. And its middle-is-empty assertion tested that block B led and the
 question trailed, both of which stay true while arbitrary content sits between
 them. A negative control that passes is a defect, not a relief.
 
+**`FAILING` is a dead clause in `trg_placement_reevaluate`.** Its predicate
+reads `world.current_host.health in { DEGRADED, FAILING }`. `DEGRADED` is an
+`SM-DEVICE` state; **`FAILING` appears in exactly one place in the whole corpus
+— that line.** No state machine defines it, no code produces it, nothing else
+mentions it. The clause is unreachable by construction, which does not break the
+trigger (the `OR` simply never fires on that branch) but makes it narrower than
+it reads: anyone reading the predicate would believe VESPER reacts to a failing
+host. Either `SM-DEVICE` gains the state or the clause goes — both are changes
+to governed surfaces, so neither is mine.
+
+**And my own probe made the same class of mistake in the other direction.**
+`host_health()` shipped returning `nominal`/`constrained`, invented in the probe,
+while the predicate reads `DEGRADED`. The trigger could never have fired however
+degraded the host got, and nothing would have reported it because both halves
+were internally consistent — the same defect as `l2_query_probe.py` inventing
+`private`/`shareable` for a column `core/privacy.py` already owned. Fixed to
+`SM-DEVICE`'s vocabulary, and `CI-082` now asserts the returned value is an
+`SM-DEVICE` state so the class of error is caught rather than remembered.
+
 ## Waiting on the owner
 
 1. **The scoping decision, and it is the big one.** The source requirement set

@@ -967,6 +967,7 @@ FORGETTER_PY = "core/forgetter.py"
 COMPACTOR_PY = "core/compactor.py"
 CHOOSER_PY = "core/chooser.py"
 SENSORS_PY = "core/sensors.py"
+HOST_PROBES_PY = "core/host_probes.py"
 FLOOR_PY = "core/floor.py"
 GATEWAY_PY = "core/gateway.py"
 ROUTER = "core/router.py"
@@ -1033,6 +1034,14 @@ CASES += [
 
 CASES += [
     # ---------------------------------------------------------------- CI-082
+    ("sensors-never-reach-a-model", HOST_PROBES_PY,
+     _sub("    return DEGRADED if constrained else ONLINE",
+          "    return 'constrained' if constrained else 'nominal'", 1),
+     "the probe invents its own health vocabulary again: "
+     "`trg_placement_reevaluate` reads `health in { DEGRADED, FAILING }`, so "
+     "the trigger can never fire however degraded the host gets, and nothing "
+     "reports it because both halves stay internally consistent"),
+
     ("sensors-never-reach-a-model", SENSORS_PY,
      _sub("            with decision_path.entered(self._bus, f\"sensor:{sensor.name}\"):\n"
           "                value = sensor.probe()",

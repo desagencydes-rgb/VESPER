@@ -109,13 +109,34 @@ def disk_free_ratio(path: str = "/") -> float:
     return round(usage.free / usage.total, 4)
 
 
+# THE VOCABULARY IS SM-DEVICE'S, NOT THIS FILE'S. The first version of
+# `host_health()` returned `nominal`/`constrained`, invented here -- and
+# `trg_placement_reevaluate` reads `world.current_host.health in { DEGRADED,
+# FAILING }`, so the trigger could never have fired however degraded the host
+# got. That is the same defect as `l2_query_probe.py` inventing
+# `private`/`shareable` for a column `core/privacy.py` already owned: a probe
+# that defines its own vocabulary produces readings nothing can act on, and
+# nothing reports the mismatch because both halves are internally consistent.
+#
+# `spec/state-machines/INDEX.toml` `SM-DEVICE` owns these.
+ONLINE = "ONLINE"
+DEGRADED = "DEGRADED"
+
+
 def host_health() -> str:
-    """`nominal` or `constrained`. A CLASS, because the inputs are not a number.
+    """`ONLINE` or `DEGRADED`, from SM-DEVICE. A CLASS, because the inputs are
+    not a number.
 
     DELIBERATELY NOT A SCORE. Battery charge, power source and free disk do not
     share a unit, and a weighted number over them would look like a measurement
     while being a preference. A class is honest about being a judgement, and
     `INV-HW-1` wants the profile anyway.
+
+    `FAILING` IS NOT RETURNED BECAUSE IT DOES NOT EXIST. The predicate names it;
+    it appears nowhere else in the corpus -- not in SM-DEVICE, not in any
+    contract, not in any code. This probe will not invent a state to satisfy a
+    clause, because a value produced only to make a predicate reachable is a
+    declared reading, and the clause is the thing that is wrong.
     """
     constrained = []
     try:
@@ -128,7 +149,7 @@ def host_health() -> str:
             constrained.append("power")
     except ProbeUnavailable:
         pass
-    return "constrained" if constrained else "nominal"
+    return DEGRADED if constrained else ONLINE
 
 
 def tcp_reachable(host: str, port: int = 22, timeout: float = 1.5) -> bool:

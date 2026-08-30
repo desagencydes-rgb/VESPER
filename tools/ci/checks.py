@@ -5888,6 +5888,27 @@ def check_sensors_never_reach_a_model() -> Result:
               "memory miss is -- the discard log is the only thing that makes "
               "the thresholds tunable.")
 
+    # 3b. A PROBE MAY NOT INVENT A VOCABULARY A CONTRACT ALREADY OWNS, which is
+    #     how the first version of `host_health()` shipped: it returned
+    #     `nominal`/`constrained` while `trg_placement_reevaluate` reads
+    #     `world.current_host.health in { DEGRADED, FAILING }`, so the trigger
+    #     could never have fired however degraded the host got. Nothing reported
+    #     it because both halves were internally consistent -- the same defect
+    #     as the L2 probe inventing `private`/`shareable` for a column
+    #     `core/privacy.py` already owned.
+    import tomllib
+    from core import host_probes
+    sm = tomllib.loads((REPO / "spec" / "state-machines" / "INDEX.toml")
+                       .read_text(encoding="utf-8"))
+    device_states = set(sm["state_machines"]["SM-DEVICE"]["states"])
+    health = host_probes.host_health()
+    if health not in device_states:
+        r.err(f"host_health() returned {health!r}, which is not an SM-DEVICE "
+              f"state ({sorted(device_states)}). A probe that defines its own "
+              "vocabulary produces readings no predicate can act on, and "
+              "nothing reports the mismatch because both halves are internally "
+              "consistent.")
+
     # 4. A SENSOR WHOSE CLASS IS UNKNOWN IS REFUSED. The class decides the
     #    mechanism, so guessing it schedules by guesswork.
     try:
