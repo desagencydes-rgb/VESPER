@@ -1009,3 +1009,45 @@ zero because it rebuilds the shadow tables as a side effect; the explicit index
 delete and rebuild are kept because VACUUM is a maintenance operation, not a
 semantic one, and whoever removes it for being slow would take the erasure
 guarantee with it."""
+
+[checks.CI-080]
+name = "reprojection-never-resurrects"
+enforces = ["INV-PRIV-5", "INV-EVID-1"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py reprojection-never-resurrects"
+blocking = "pr"
+self_test = """Stop consulting the tombstones; project a rank 6 model prior;
+take the least private class instead of the most; resolve an unrecognised
+privacy class permissively; make verify() always report convergence."""
+self_test_evidence = """tools/ci/self_test.py reprojection-never-resurrects
+-- 5 cases, red then green, 2026-08-30."""
+subject = "core/compactor.py"
+note = """L1(n+1) = project(L3), never compact(L1(n)). Compacting the previous
+compaction is the natural implementation and it kills four things silently:
+generation drift, poisoning, uncorrectable corrections, and unrecoverable bugs.
+Re-deriving from a log that CONTAINS the owner's correction just works, with no
+special case."""
+discriminators = """THE RESURRECTION ARRIVES AS MAINTENANCE, which is what makes
+it worth a gate. L3 is append-only -- refused at the storage layer, not by
+convention -- so an erased fact's value is still in the log after the owner has
+removed it from L2. A projection reading the log alone brings it back during a
+routine compaction pass and reports success, and nothing notices because the
+result is internally consistent. The projection is a function of the log AND the
+tombstones.
+
+THE SURVIVORS ARE ASSERTED AS HARD AS THE ERASURE. A reprojection that drops
+everything resurrects nothing and would pass the resurrection test perfectly
+while destroying the memory it rebuilt.
+
+DIVERGENCE IS FAILURE MODE 9 AND verify() IS THE ONLY INSTRUMENT FOR IT. Two
+nodes both append and both project; if projection is not pure they disagree
+while the log agrees, and each node's L2 looks correct from inside. The
+self-test makes verify() always return converged, because an instrument that
+cannot report a fault is worse than no instrument.
+
+PRIVACY IS RECOMPUTED, NEVER INHERITED, and the mutation takes the minimum
+instead of the maximum. That is the aggregation failure arriving as a summary:
+three innocuous facts compact into a security profile carrying the least private
+of their labels. Monotonic sensitivity subsumes it without needing to detect it
+-- you do not have to catch every sensitive thing, you have to never classify
+downward."""

@@ -5473,6 +5473,147 @@ def check_forgetter_never_edits_in_place() -> Result:
     return r
 
 
+def check_reprojection_never_resurrects() -> Result:
+    """L2 is a pure function of the log AND the tombstones.
+
+    THE RESURRECTION IS THE FAILURE AND IT ARRIVES AS MAINTENANCE. L3 is
+    append-only -- verified at the storage layer, not by convention -- so an
+    erased fact's value is STILL IN THE LOG after the owner has removed it from
+    L2. A projection that reads the log alone brings it back, silently, during a
+    routine compaction pass. The owner's erasure is undone by housekeeping, and
+    nothing reports it because the projection is internally consistent.
+
+    DIVERGENCE IS FAILURE MODE 9. Two nodes both append and both project; if
+    projection is not a pure function of its inputs they disagree while the log
+    agrees, and each node's L2 looks perfectly correct from inside.
+
+    PRIVACY IS RECOMPUTED, NEVER INHERITED. A compacted node takes the MAXIMUM
+    sensitivity of its inputs, which subsumes the aggregation failure without
+    detecting it: three innocuous facts compacting into a security profile is
+    simply "the result was raised". You do not have to catch every sensitive
+    thing -- you have to never classify downward.
+    """
+    r = Result("reprojection-never-resurrects")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        import tempfile
+        from core.store import StoreSet
+        from core.hlc import HybridLogicalClock
+        from core.memory import MemoryGraph
+        from core.forgetter import Forgetter, OWNER
+        from core.compactor import Compactor, strictest
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.compactor did not import: {exc!r}")
+        return r
+
+    store = StoreSet(tempfile.mkdtemp(), node_id="ci")
+    clock = HybridLogicalClock(node_id="ci")
+    mem = MemoryGraph(store)
+    fg = Forgetter(mem, store, clock)
+    cp = Compactor(mem, store, clock,
+                   summariser=lambda vals: " | ".join(v[:20] for v in vals))
+
+    MARKER = "zanzibar-erased-marker"
+    for subj, attr, val, priv in (
+            ("work", "deadline", "ships on the twelfth", "private"),
+            ("work", "deadline", "confirmed by the team", "personal"),
+            ("work", "deadline", "posted publicly", "public"),
+            ("travel", "flight", "Tuesday morning", "private")):
+        mem.remember(subject=subj, attribute=attr, value=val, rank=4,
+                     privacy=priv, trust_class="owner_utterance",
+                     at=clock.now())
+    leak = mem.remember(subject="notes", attribute="pasted", value=MARKER,
+                        rank=4, privacy="private", trust_class="owner_utterance",
+                        at=clock.now())
+
+    if not cp.verify()["converged"]:
+        r.err("L2 and the projection of L3 disagree before anything was done "
+              "to either. The write path and the projection path do not produce "
+              "the same thing, so one of them is wrong from the first fact.")
+
+    # 1. THE RESURRECTION.
+    fg.erase(fact_id=leak.id, actor=OWNER, reason="recorded in error")
+    if not any(MARKER in str(rec.body)
+               for rec in store.read("log", kind="memory.fact")):
+        r.err("the erased value is not in L3 at all, so this check is no longer "
+              "testing the resurrection -- it can only happen because the log "
+              "is append-only and still holds what L2 dropped.")
+    out = cp.reproject()
+    if any(MARKER in row[0] for row in mem._conn.execute(  # noqa: SLF001
+            "SELECT value FROM fact")):
+        r.err("reprojection RESURRECTED an erased fact. L3 is append-only, so "
+              "the value is still in the log; a projection that reads the log "
+              "alone undoes the owner's erasure during routine maintenance and "
+              "reports success.")
+    if mem.select(["zanzibar", "pasted"]):
+        r.err("the resurrected fact is reachable from selection")
+    if not out.get("erased_skipped"):
+        r.err("reprojection reported skipping no erasures while a tombstone "
+              "exists; it is not consulting them at all and passed by luck")
+
+    # 2. THE SURVIVORS SURVIVE. A reprojection that drops everything also fails
+    #    to resurrect anything, and would pass item 1 perfectly.
+    kept = {row[0] for row in mem._conn.execute(     # noqa: SLF001
+        "SELECT value FROM fact")}
+    for must in ("ships on the twelfth", "Tuesday morning", "posted publicly"):
+        if must not in kept:
+            r.err(f"reprojection lost {must!r}. Dropping everything satisfies "
+                  "the resurrection test and destroys the memory it rebuilt.")
+    if not cp.verify()["converged"]:
+        r.err("L2 does not match its own projection immediately after a "
+              "reprojection")
+
+    # 3. DIVERGENCE IS DETECTABLE, or `verify()` is decorative.
+    mem._conn.execute(                              # noqa: SLF001
+        """INSERT INTO fact(subject_id, attribute, value, rank, observed_at_hlc,
+                            privacy, trust_class, log_seq)
+           VALUES(1,'ghost','a row the log never saw',4,'x','private','o',9999)""")
+    mem._conn.commit()                              # noqa: SLF001
+    if cp.verify()["converged"]:
+        r.err("a row that no log record produced did not register as "
+              "divergence. Two nodes projecting independently would disagree "
+              "while the log agrees, and each would look correct from inside.")
+
+    # 4. AND REPROJECTION RECOVERS FROM IT -- including from the corrupt index
+    #    that a stray row leaves behind, which is a state this method exists
+    #    to repair rather than one it may assume away.
+    cp.reproject()
+    if not cp.verify()["converged"]:
+        r.err("reprojection did not restore convergence from a diverged L2")
+
+    # 5. PRIVACY IS THE MAXIMUM OF THE INPUTS.
+    comp = cp.compact("work", "deadline")
+    if comp.get("privacy") != "private":
+        r.err(f"a compaction over public+personal+private inputs produced "
+              f"{comp.get('privacy')!r}. A compacted node inherits the MAXIMUM "
+              "sensitivity of its inputs; classifying downward is how three "
+              "innocuous facts become a security profile nobody labelled.")
+    if strictest(["public", "personal"]) != "personal":
+        r.err("strictest() is not taking the most private class")
+    if strictest(["nonsense"]) != "private":
+        r.err("an unrecognised privacy class did not resolve to private. The "
+              "permissive reading is the one that cannot be undone.")
+
+    # 6. A MODEL PRIOR IS NOT PROJECTED (INV-EVID-1), even if one reached L3.
+    store.append("log", "memory.fact",
+                 {"subject": "guess", "attribute": "x", "value": "a prior",
+                  "rank": 6, "privacy": "private", "trust_class": "model"},
+                 clock.now())
+    if any(f["value"] == "a prior" for f in cp.project()):
+        r.err("a rank 6 model_prior was projected into L2. INV-EVID-1 is "
+              "applied at the write path AND at projection, because a record "
+              "that reached the log by any other route would otherwise arrive "
+              "in memory as fact.")
+
+    r.note(f"projection converges with L2; an erased fact is not resurrected "
+           f"({out.get('erased_skipped')} skipped) while survivors are kept; "
+           f"divergence is detected and repaired; compaction over "
+           f"{comp.get('input_classes')} yields {comp.get('privacy')!r}; a "
+           f"model prior in the log is not projected")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -5522,6 +5663,7 @@ CHECK_FNS = {
     "l1-blocks-hold-index-not-knowledge": check_l1_blocks_hold_index_not_knowledge,
     "arbiter-never-picks-silently": check_arbiter_never_picks_silently,
     "forgetter-never-edits-in-place": check_forgetter_never_edits_in_place,
+    "reprojection-never-resurrects": check_reprojection_never_resurrects,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

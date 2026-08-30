@@ -26,6 +26,26 @@ content. The audit trail is then FALSE rather than missing -- every record still
 present, every timestamp still plausible, and the history it describes never
 happened. `INV-LOSS-3` depends on that trail being real.
 
+ERASE DOES NOT REACH L3, AND THE ARCHITECTURE CURRENTLY FORBIDS IT DOING SO.
+Measured 2026-08-30: `UPDATE` and `DELETE` on the `log` store are both refused
+at the STORAGE layer by ADR-002 D9, not by convention. So `erase()` removes the
+L2 projection and the value remains readable in the append-only log, which means
+two things that must not be discovered later:
+
+    "content destroyed" IS TRUE OF THE PROJECTION AND NOT OF THE SOURCE. For the
+    case erase exists for -- a leaked credential -- the credential is still in
+    L3. It must be ROTATED. Erasing it is housekeeping, not containment.
+
+    A REPROJECTION WOULD RESURRECT IT unless it consults the tombstones, which
+    is why `core/compactor.py` reads them and why that is gated rather than
+    remembered.
+
+The fix is an owner-authorised path through the append-only guard -- the same
+shape as the 2026-08-28 downgrade of "record format permanence", which concluded
+that the system appends while the OWNER may rewrite. That path does not exist,
+building it means changing a storage-layer invariant, and it is not a decision
+this file gets to make.
+
 ERASE EXISTS BECAUSE SUPERSESSION IS NOT ENOUGH. Some content should never have
 existed: a leaked key, something recorded in error. Superseding it leaves it
 readable in L3 forever. The tombstone keeps "something was removed here"

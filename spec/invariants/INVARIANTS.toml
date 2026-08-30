@@ -466,7 +466,7 @@ kind = "structural"
 [invariants.INV-EVID-1]
 statement = "No model_prior claim is emitted as an assertion in research, memory writes, world facts, or inputs to consequential actions."
 owner_rem = "REM-010"
-enforced_by = ["CI-033", "CI-074", "CI-076", "A-003"]
+enforced_by = ["CI-033", "CI-074", "CI-076", "CI-080", "A-003"]
 kind = "structural"
 
 [invariants.INV-EVID-2]
@@ -552,7 +552,7 @@ kind = "structural"
 [invariants.INV-PRIV-5]
 statement = "Deletion removes derived artifacts, not only raw media; the event skeleton and correlation chain survive purge."
 owner_rem = "REM-011"
-enforced_by = ["A-037", "A-039"]
+enforced_by = ["CI-080", "A-037", "A-039"]
 kind = "runtime"
 
 [invariants.INV-HW-1]

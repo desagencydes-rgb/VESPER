@@ -964,11 +964,53 @@ UPDATER_PY = "core/updater.py"
 BLOCKS_PY = "core/blocks.py"
 ARBITER_PY = "core/arbiter.py"
 FORGETTER_PY = "core/forgetter.py"
+COMPACTOR_PY = "core/compactor.py"
 GATEWAY_PY = "core/gateway.py"
 ROUTER = "core/router.py"
 LATENCY = "core/latency.py"
 SUPPLY_PY = "routing/supply.py"
 RUNTIME = "tools/ops/vesper_runtime.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-080
+    ("reprojection-never-resurrects", COMPACTOR_PY,
+     _sub("            if rec.seq in erased:\n"
+          "                continue                 # the owner removed this; it stays gone",
+          "            if False:\n"
+          "                continue", 1),
+     "the projection stops consulting the tombstones: L3 is append-only, so a "
+     "routine compaction pass silently undoes the owner's erasure and reports "
+     "success"),
+
+    ("reprojection-never-resurrects", COMPACTOR_PY,
+     _sub("            if int(b.get(\"rank\", MODEL_PRIOR)) == MODEL_PRIOR:\n"
+          "                continue                 # INV-EVID-1, applied at projection too",
+          "            if False:\n"
+          "                continue", 1),
+     "a rank 6 model_prior reaching the log by any route is projected into "
+     "memory as fact, where nothing downstream can tell it from the owner's "
+     "own word"),
+
+    ("reprojection-never-resurrects", COMPACTOR_PY,
+     _sub("    return max(known, key=PRIVACY_CLASSES.index)",
+          "    return min(known, key=PRIVACY_CLASSES.index)", 1),
+     "compaction classifies DOWNWARD, so three innocuous facts merge into a "
+     "security profile carrying the least private of their labels -- the "
+     "aggregation failure, arriving as a summary"),
+
+    ("reprojection-never-resurrects", COMPACTOR_PY,
+     _sub('        return "private"', '        return "public"', 1),
+     "an unrecognised privacy class resolves permissively; unlabelled content "
+     "is private everywhere else in this system precisely because the "
+     "permissive reading is the one that cannot be undone"),
+
+    ("reprojection-never-resurrects", COMPACTOR_PY,
+     _sub('        return {"converged": expected == actual,',
+          '        return {"converged": True,', 1),
+     "verify() always reports convergence: two nodes projecting independently "
+     "diverge while the log agrees, and the only instrument that could see it "
+     "says everything is fine"),
+]
 
 CASES += [
     # ---------------------------------------------------------------- CI-079
