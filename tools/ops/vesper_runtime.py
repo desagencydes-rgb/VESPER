@@ -46,6 +46,7 @@ from core.gateway import AllProvidersExhausted, ModelGateway    # noqa: E402
 from core.hlc import HybridLogicalClock                         # noqa: E402
 from core.home_state import HomeState                           # noqa: E402
 from core.intake import Intake                                  # noqa: E402
+from core.chooser import Chooser                                # noqa: E402
 from core.difficulty import classify                            # noqa: E402
 from core.effort import EXPECTED_OUTPUT                         # noqa: E402
 from core.narration import Announcer                            # noqa: E402
@@ -124,6 +125,15 @@ def build(node: str = "vesper-runtime"):
     # looks exactly like a turn answered with it -- fluent, confident, and
     # missing whatever it should have known. So the failure is published, and
     # `renderer is None` is what every downstream branch reads.
+    # THE CHOOSER WITH NO ESCALATOR IS EXACTLY TODAY'S BEHAVIOUR, which is
+    # what makes wiring it now safe rather than premature. It runs the same
+    # deterministic classifier the runtime already called, reports the same
+    # difficulty, and calls nothing -- while putting the escalation path,
+    # the raise-only rule and the hold threshold in place for the moment a
+    # rung is chosen to serve it. `MEMORY_ARCHITECTURE.md` puts the chooser on
+    # Groq at 0.42-0.67 s measured, which is a decision with a cost and is the
+    # owner's to take.
+    chooser = Chooser(bus=bus)
     memory = renderer = updater = misses = None
     try:
         memory = MemoryGraph(store, path=str(STATE / "l2.db"))
@@ -140,11 +150,11 @@ def build(node: str = "vesper-runtime"):
                     component="runtime")
 
     return (bus, gw, router, home, intake, triage, report, persona, bench,
-            renderer, updater, misses)
+            renderer, updater, misses, chooser)
 
 
 def answer(gw, router, persona, utterance, renderer=None,
-           updater=None, misses=None) -> str:
+           updater=None, misses=None, chooser=None) -> str:
     """One request across the ladder. Difficulty routes it; the ladder serves it.
 
     `privacy_class` IS NOT PASSED, and that is the point of the default. Anything
@@ -158,7 +168,18 @@ def answer(gw, router, persona, utterance, renderer=None,
     checked per provider at the choke point, before quota is even consulted.
     """
     task = utterance.hlc or "typed"
-    kind = classify(utterance.text)
+    # THROUGH THE CHOOSER, NOT classify() DIRECTLY. Same answer today -- with
+    # no escalator it IS the deterministic classifier -- but the confidence
+    # flag now reaches something that acts on it, and the raise-only rule sits
+    # between a model's future opinion and the routed difficulty rather than
+    # being added afterwards, when the call site would already look finished.
+    if chooser is not None:
+        choice = chooser.choose(utterance.text)
+        kind = classify(utterance.text)
+        difficulty = choice.difficulty
+    else:
+        kind = classify(utterance.text)
+        difficulty = kind.difficulty
     try:
         # PREFER LATENCY, BECAUSE THE OWNER IS LOOKING AT THE SCREEN. That is
         # the whole justification and it is situational, which is why it is an
@@ -167,7 +188,7 @@ def answer(gw, router, persona, utterance, renderer=None,
         # `speech_end_to_response_onset` at 1200 ms, and this path was measured
         # at 25.9 s and 68.7 s on 2026-08-26 -- a 20-57x miss on a budget whose
         # `on_miss.prohibited` list starts with "relax budget_ms".
-        decision = router.select(kind.difficulty, prefer="latency", task_id=task)
+        decision = router.select(difficulty, prefer="latency", task_id=task)
     except NoRouteAvailable as e:
         return f"no route: {e}"
 
@@ -206,8 +227,8 @@ def answer(gw, router, persona, utterance, renderer=None,
         # withheld from the next request, which is why this looked free.
         out = gw.complete(request, task_id=task, system=system,
                           profile_id=decision.profile_id, prefer="latency",
-                          expected_output_tokens=EXPECTED_OUTPUT[kind.difficulty],
-                          difficulty=kind.difficulty)
+                          expected_output_tokens=EXPECTED_OUTPUT[difficulty],
+                          difficulty=difficulty)
     except AllProvidersExhausted:
         # NOT AN ERROR STRING. The narration layer has already spoken the real
         # sentence; this is what the transcript shows, and it says the true
@@ -286,7 +307,7 @@ def answer(gw, router, persona, utterance, renderer=None,
 
 def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          once: bool = False, renderer=None, updater=None,
-         misses=None) -> int:
+         misses=None, chooser=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     OUTBOX.touch(exist_ok=True)
     seen = int(OFFSET.read_text()) if OFFSET.exists() else 0
@@ -330,7 +351,7 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             if res["outcome"] == "dispatched":
                 reply = answer(gw, router, persona, intake.history[-1],
                                renderer=renderer, updater=updater,
-                               misses=misses)
+                               misses=misses, chooser=chooser)
                 # VESPER'S REPLY IS NOT AN UTTERANCE, and the first version put
                 # it into `intake.history` as one. `Intake` is the record of
                 # things said TO VESPER -- its confidence, its partials and its
@@ -369,7 +390,7 @@ def main() -> int:
     args = ap.parse_args()
 
     (bus, gw, router, home, intake, triage, report, persona, bench,
-     renderer, updater, misses) = build()
+     renderer, updater, misses, chooser) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -391,7 +412,7 @@ def main() -> int:
     if args.once or args.say:
         n = pump(bus, gw, router, persona, bench, home, intake, transcript,
                  once=True, renderer=renderer, updater=updater,
-                 misses=misses)
+                 misses=misses, chooser=chooser)
         # THE SAME HONESTY THE INTERRUPT PATH APPLIES. A one-shot run that exits
         # leaving `thinking` on disk reports work that is not happening; the
         # 90 s staleness fallback would correct it eventually, and eventually is
@@ -432,7 +453,8 @@ def main() -> int:
     while True:
         try:
             pump(bus, gw, router, persona, bench, home, intake, transcript,
-                 renderer=renderer, updater=updater, misses=misses)
+                 renderer=renderer, updater=updater, misses=misses,
+                 chooser=chooser)
             # THE PLUMBING USED TO COST MORE THAN THE MODEL. 0.5 s here plus
             # 0.7 s in the chrome's own timer is up to 1.2 s of pure polling
             # around a call that now returns in ~0.7 s -- the transport was the
