@@ -1090,3 +1090,49 @@ THE 600 ms THRESHOLD IS WHEN TO SPEAK, NOT WHEN TO STOP, so the slow case
 asserts BOTH that the announcement fires and that the choice still completes at
 the escalated difficulty. A version that cancelled would satisfy the first
 assertion alone."""
+
+[checks.CI-082]
+name = "sensors-never-reach-a-model"
+enforces = ["INV-EVID-3"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py sensors-never-reach-a-model"
+blocking = "pr"
+self_test = """Remove the decision-path guard from the probe path; poll gated
+sources; return a stale value instead of UNKNOWN on failure; write UNKNOWN into
+the world model as a value; accept an unrecognised source class."""
+self_test_evidence = """tools/ci/self_test.py sensors-never-reach-a-model
+-- 5 cases, red then green, 2026-08-30."""
+subject = "core/sensors.py"
+note = """The trigger predicates were already correct and already evaluating
+over an empty world: trigger_registry.toml reads world.owner.attention_state,
+world.current_host.health, world.current_host.power_source and
+nodes.reachable_set, and nothing populated any of them, so INV-TRIG-4 kept every
+one of them from firing. Sensors are the input side, not a new subsystem. One
+registry serves both callers -- the verifier is fact->probe->cost->freshness and
+a sensor is source->probe->cost->period; two registries would drift and the
+scheduled and on-demand readings of one fact would disagree while both looked
+right."""
+discriminators = """THE MODEL BAN IS ENFORCED AT THE GATEWAY, NOT ASSERTED IN A
+COMMENT. Every probe runs inside decision_path.entered, so a probe reaching
+ModelGateway.complete is refused there and the attempt is published. This is the
+failure decision_path was written for and measured on 2026-08-24: a predicate
+closing over a gateway fired True, one model call got through, and zero
+violation events were emitted -- the reporting mechanism had been proven and the
+path had not. The check therefore asserts the gateway answers NORMALLY outside a
+probe first, or the refusal would only prove the fixture is broken.
+
+AND IT IS NOT ONLY COST. A REGEX CANNOT BE PROMPT-INJECTED. Sensors read SMS,
+calendar invites, screens and pages found during research -- text an outsider
+can put in front of VESPER. A model in the filter makes the filter the
+vulnerability it exists to prevent, and "let us just have a small model watch
+for interesting things" is the most natural next suggestion anyone will make.
+
+A FAILED PROBE IS UNKNOWN AND IS NOT APPLIED, which is INV-EVID-3 at the world
+model: an empty retrieval is never coerced into an answer. Two separate
+mutations cover it, because returning a stale value and writing UNKNOWN as a
+value are different defects -- the first is unreadable as a failure, the second
+makes a broken probe indistinguishable from a fact that legitimately expired.
+
+THE FILTER LOGS WHAT IT DISCARDED. A filter deciding what reaches VESPER is
+deciding what VESPER KNOWS, and a filter bug produces SILENCE -- undetectable in
+exactly the way a memory miss is."""

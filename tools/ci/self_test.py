@@ -966,11 +966,47 @@ ARBITER_PY = "core/arbiter.py"
 FORGETTER_PY = "core/forgetter.py"
 COMPACTOR_PY = "core/compactor.py"
 CHOOSER_PY = "core/chooser.py"
+SENSORS_PY = "core/sensors.py"
 GATEWAY_PY = "core/gateway.py"
 ROUTER = "core/router.py"
 LATENCY = "core/latency.py"
 SUPPLY_PY = "routing/supply.py"
 RUNTIME = "tools/ops/vesper_runtime.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-082
+    ("sensors-never-reach-a-model", SENSORS_PY,
+     _sub("            with decision_path.entered(self._bus, f\"sensor:{sensor.name}\"):\n"
+          "                value = sensor.probe()",
+          "            value = sensor.probe()", 1),
+     "the decision-path guard removed from the probe path: a sensor may then "
+     "ask a model 'is there anything worth doing', which is a chatbot talking "
+     "to itself and a filter that can be prompt-injected by the SMS it reads"),
+
+    ("sensors-never-reach-a-model", SENSORS_PY,
+     _sub("            if s.source_class not in POLLABLE:", "            if False:", 1),
+     "gated sources put on a timer: the camera and the microphone run on an "
+     "interval rather than for a reason, which is the design the source classes "
+     "exist to prevent and the one power cannot afford"),
+
+    ("sensors-never-reach-a-model", SENSORS_PY,
+     _sub("            self._discard(sensor.name, \"probe_failed\", repr(exc))\n"
+          "            return UNKNOWN, elapsed",
+          "            return getattr(self, '_last_value', 'ac'), elapsed", 1),
+     "a failed probe returns a stale value instead of UNKNOWN: the reading "
+     "renders identically to a fresh one, no predicate over it can tell, and "
+     "the failure is never logged"),
+
+    ("sensors-never-reach-a-model", SENSORS_PY,
+     _sub("            if value is UNKNOWN:", "            if False:", 1),
+     "UNKNOWN written into the world model as a value, making a failed probe "
+     "indistinguishable from a fact that legitimately expired"),
+
+    ("sensors-never-reach-a-model", SENSORS_PY,
+     _sub("        if self.source_class not in SOURCE_CLASSES:", "        if False:", 1),
+     "a sensor registered with an unrecognised source class, so the thing that "
+     "decides its MECHANISM is a typo and it is scheduled by guesswork"),
+]
 
 CASES += [
     # ---------------------------------------------------------------- CI-081

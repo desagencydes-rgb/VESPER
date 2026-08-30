@@ -5735,6 +5735,147 @@ def check_chooser_escalates_only_when_unsure() -> Result:
     return r
 
 
+def check_sensors_never_reach_a_model() -> Result:
+    """A probe cannot call a model, a failed probe is UNKNOWN, gated is not polled.
+
+    THE PREDICATES WERE ALREADY CORRECT AND ALREADY EVALUATED OVER AN EMPTY
+    WORLD. `trigger_registry.toml` reads `world.owner.attention_state`,
+    `world.current_host.health`, `world.current_host.power_source` and
+    `nodes.reachable_set`, and nothing populated any of them -- so every
+    predicate over them was UNKNOWN and INV-TRIG-4 kept them all from firing.
+    The sensors are the input side, not a new subsystem.
+
+    THE MODEL BAN IS ENFORCED AT THE GATEWAY, NOT ASSERTED IN A COMMENT. Every
+    probe runs inside `decision_path.entered`, so a probe that reaches
+    `ModelGateway.complete` is refused there and the attempt is published. This
+    is the failure decision_path was written for and measured on 2026-08-24: a
+    predicate closing over a gateway fired True, one model call got through, and
+    zero violation events were emitted.
+
+    AND IT IS NOT ONLY COST. A REGEX CANNOT BE PROMPT-INJECTED. Sensors read SMS,
+    screens, calendar invites and pages found during research -- text an outsider
+    can put in front of VESPER. A model in the filter makes the filter the
+    vulnerability it exists to prevent.
+    """
+    r = Result("sensors-never-reach-a-model")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        import tempfile
+        from core.store import StoreSet
+        from core.hlc import HybridLogicalClock
+        from core.bus import EventBus
+        from core.world import UNKNOWN, WorldModel
+        from core.cost import CostPolicy
+        from core.gateway import ModelGateway, Provider, E1_PRIVATE
+        from core.sensors import (GATED, SWEEP, TIMER, Sensor, SensorRefused,
+                                  SensorRegistry)
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.sensors did not import: {exc!r}")
+        return r
+
+    store = StoreSet(tempfile.mkdtemp(), node_id="ci")
+    clock = HybridLogicalClock(node_id="ci")
+    bus = EventBus(clock, store)
+    world = WorldModel(bus, clock)
+    cost = CostPolicy(bus, clock)
+    gw = ModelGateway(bus, cost, sleep=lambda s: None)
+    cost.register_credential("p", "free")
+    gw.register(Provider("p", "prof", lambda q, o: {"text": "yes", "usage": {}},
+                         model="m", egress_class=E1_PRIVATE))
+
+    # 0. THE GATEWAY ANSWERS NORMALLY OUTSIDE A PROBE, or item 1 proves only
+    #    that the gateway is broken.
+    if not ((gw.complete("hello", profile_id="prof",
+                         difficulty="trivial").get("result") or {}).get("text")):
+        r.err("the fixture gateway does not answer at all outside a sensor, so "
+              "the refusal below would prove nothing")
+
+    # 1. A PROBE THAT REACHES A MODEL IS REFUSED.
+    reg = SensorRegistry(world, clock, bus=bus)
+    ran = []
+
+    def sneaky():
+        ran.append(1)
+        return gw.complete("is there anything worth doing?", profile_id="prof",
+                           difficulty="trivial")
+
+    reg.register(Sensor("sneaky", "owner", "attention_state", sneaky, TIMER))
+    out = reg.poll()
+    if not ran:
+        r.err("the probe never ran, so nothing was tested")
+    if out["applied"][0].get("outcome") != "unknown":
+        r.err(f"a probe that called a model produced "
+              f"{out['applied'][0].get('outcome')!r}. The call must be refused "
+              "at the gateway and the reading must not be applied -- a "
+              "predicate would otherwise fire on a model's opinion.")
+    if world.read("owner", "attention_state") is not UNKNOWN:
+        r.err("a model's answer reached the world model through a sensor")
+    if not any("ModelCallInDecisionPath" in d.detail for d in reg.discards):
+        r.err("the model-call attempt was not recorded. A filter that drops "
+              "silently is deciding what VESPER knows with no way to see it.")
+
+    # 2. GATED SOURCES ARE NOT POLLED, structurally. Camera, screen and
+    #    microphone need a REASON; power is the constraint and an interval is
+    #    not a reason.
+    reg2 = SensorRegistry(world, clock, bus=bus)
+    fired = []
+    reg2.register(Sensor("mic", "owner", "speaking",
+                         lambda: fired.append(1) or True, GATED))
+    reg2.register(Sensor("sweeper", "tasks", "stale", lambda: 3, SWEEP))
+    out2 = reg2.poll(force=True)
+    if fired:
+        r.err("a GATED sensor ran on a poll. A microphone or camera on a timer "
+              "is precisely the design the source classes exist to prevent, and "
+              "refusing it in code beats trusting nobody sets a period.")
+    if {s["sensor"] for s in out2["skipped"]} != {"mic", "sweeper"}:
+        r.err(f"expected the gated and sweep sensors to be skipped, got "
+              f"{[s['sensor'] for s in out2['skipped']]}")
+
+    # 3. A FAILED PROBE IS UNKNOWN AND IS NEVER A STALE VALUE. INV-EVID-3: an
+    #    empty retrieval is never coerced into an answer.
+    reg3 = SensorRegistry(world, clock, bus=bus)
+    state = {"v": "ac"}
+    reg3.register(Sensor("power", "current_host", "power_source",
+                         lambda: state["v"], TIMER, period_ms=0))
+    reg3.poll(force=True)
+    if world.read("current_host", "power_source") != "ac":
+        r.err("a working probe did not reach the world model, so the "
+              "predicates still read nothing")
+
+    def broken():
+        raise OSError("device not present")
+    reg4 = SensorRegistry(world, clock, bus=bus)
+    reg4.register(Sensor("thermal", "current_host", "thermal", broken, TIMER))
+    out4 = reg4.poll(force=True)
+    if out4["applied"][0].get("outcome") != "unknown":
+        r.err("a failing probe did not yield UNKNOWN")
+    if world.read("current_host", "thermal") is not UNKNOWN:
+        r.err("a failing probe wrote a value. A stale reading renders "
+              "identically to a fresh one and no predicate over it can tell "
+              "the difference.")
+    if not any(d.reason == "probe_failed" for d in reg4.discards):
+        r.err("a probe failure was not logged as a discard. A filter bug "
+              "produces SILENCE, which is undetectable in exactly the way a "
+              "memory miss is -- the discard log is the only thing that makes "
+              "the thresholds tunable.")
+
+    # 4. A SENSOR WHOSE CLASS IS UNKNOWN IS REFUSED. The class decides the
+    #    mechanism, so guessing it schedules by guesswork.
+    try:
+        Sensor("bad", "x", "y", lambda: 1, "whenever")
+        r.err("a sensor with an unrecognised source class was accepted")
+    except SensorRefused:
+        pass
+
+    r.note("a probe reaching the gateway is refused there and recorded; gated "
+           "and sweep sources are not polled; a working probe populates the "
+           "world model the predicates already read; a failing one yields "
+           "UNKNOWN, writes nothing and is logged; an unknown source class is "
+           "refused")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -5786,6 +5927,7 @@ CHECK_FNS = {
     "forgetter-never-edits-in-place": check_forgetter_never_edits_in_place,
     "reprojection-never-resurrects": check_reprojection_never_resurrects,
     "chooser-escalates-only-when-unsure": check_chooser_escalates_only_when_unsure,
+    "sensors-never-reach-a-model": check_sensors_never_reach_a_model,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

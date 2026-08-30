@@ -478,7 +478,7 @@ kind = "runtime"
 [invariants.INV-EVID-3]
 statement = "UNKNOWN is a first-class return value across BAG, world model and memory. An empty retrieval is never coerced into an answer."
 owner_rem = "REM-010"
-enforced_by = ["A-003"]
+enforced_by = ["CI-082", "A-003"]
 kind = "runtime"
 
 [invariants.INV-VERIF-1]
