@@ -32,12 +32,38 @@ what is waiting on the owner.
 | 6 | Compactor · arbiter · forgetter | done | `CI-080` · `CI-078` · `CI-079` |
 | 7 | Sensors | done, wired | `CI-082` |
 
-**Gates: 56 checks, 206 self-tests, both lints green.** Every check landed with
+**Gates: 57 checks, 218 self-tests, both lints green.** Every check landed with
 an executed red run in `self_test.py`; nothing was declared.
 
 Memory runs in the live app. `~/Library/Application Support/VESPER/l2.db` was
 created by the supervised runtime, carries the full schema, and no
 `memory.unavailable` event was published.
+
+## Voice, and autonomy
+
+**Speech-in is built.** `app/island-macos/Listener.swift`, `--listen --locale
+en-US`. `requiresOnDeviceRecognition = true` is set explicitly — the API default
+is false, transcription is equally good either way, and omitting it silently
+sends every word spoken in the room to Apple. It **refuses** a locale with no
+on-device support rather than degrading. Spoken input routes through
+`Intake.spoken()`, so a 61%-confident "delete the archive" is reflected back
+rather than executed.
+
+**`core/floor.py`** closes the gap between the chooser's 600 ms announcement and
+`core/barge_in.py`, which had 242 phrases, a gate, and no caller. `INV-HOLD-1`
+has four clauses and CI-072 could only reach one — "discarded", "answered
+without cancelling" and "queued and delivered afterwards" are behaviours a
+classifier cannot perform.
+
+**VESPER made its first autonomous decision.** A probe stops answering → the
+reading lapses → the world reads `UNKNOWN` → a sweep sees it → the trigger
+fires, with a snapshot that replays TRUE and `model_involved_in_decision:
+False`. One trigger of eight is wired; the other seven read terms nothing
+populates yet, and registering them would produce triggers that evaluate UNKNOWN
+forever and look identical to working ones.
+
+`tick()` **decides and publishes; it does not act.** Actuation is a separate
+concern and the interlock is what will stand in front of it.
 
 ## Invariants that gained a CI enforcer tonight
 
@@ -48,6 +74,7 @@ created by the supervised runtime, carries the full schema, and no
 | `INV-DIFF-1` | `CI-069` | `CI-081` |
 | `INV-PRIV-5` | `A-037`, `A-039` | `CI-080` |
 | `INV-LOSS-3` | `CI-049`, `A-050` | `CI-079` |
+| `INV-HOLD-1` | `CI-072` (one clause of four) | `CI-083` |
 
 ## Findings — the useful half
 
@@ -131,6 +158,15 @@ were internally consistent — the same defect as `l2_query_probe.py` inventing
 `private`/`shareable` for a column `core/privacy.py` already owned. Fixed to
 `SM-DEVICE`'s vocabulary, and `CI-082` now asserts the returned value is an
 `SM-DEVICE` state so the class of error is caught rather than remembered.
+
+**An event on every pump pass filled 86% of the log before anything failed.**
+`sensors.poll()` published whether or not a probe ran: 9,152 of 10,609 records
+in twenty minutes, ~8/second, into a store that is append-only and cannot be
+cleaned. The cost is not disk — the log is what every miss record and every
+replayed snapshot reads back, and 86% noise makes it a log nobody will read.
+Fixed and gated. **The ~9k junk records are permanent**, for the same reason the
+erased credential is: `DELETE` on the `log` store is refused at the storage
+layer. They are harmless and they are there.
 
 ## Waiting on the owner
 
