@@ -58,6 +58,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from . import decision_path
+from .redact import redact
 from .bus import EventBus
 from .cost import CostPolicy, CostPolicyViolation
 from .effort import Effort, for_difficulty, guard_response
@@ -537,6 +538,56 @@ class ModelGateway:
         # a legitimate request.
         if decision_path.active():
             decision_path.refuse("gateway.complete")
+
+        # THE REDACTOR, AT THE CHOKE POINT AND NOWHERE ELSE. `INV-COST-3`
+        # already guarantees no path reaches a provider adapter without passing
+        # through here, so this is the one place a guard cannot be bypassed --
+        # including by subsystems written later by someone who never read the
+        # memory architecture. Nine callers today; the count is not the point,
+        # the singularity of the path is.
+        #
+        # BEFORE THE COST CHECK AND BEFORE ANY PROVIDER IS CHOSEN, for the same
+        # reason INV-AUTO-2 is checked first: a credential that got as far as
+        # being priced has already been handled as legitimate freight. There is
+        # no recall once it goes -- "make the model forget it" does not exist,
+        # the bytes are transmitted and the provider's log holds them -- so the
+        # only moment this can work is before the request is built.
+        #
+        # DETERMINISTIC ONLY. Asking a model whether the text contains a secret
+        # IS the leak; core/redact.py carries the full argument.
+        #
+        # HISTORY IS REDACTED TOO, and forgetting it would be the natural bug:
+        # conversation history is the one field that carries text the owner
+        # typed turns ago, when nothing was watching, and it is replayed to a
+        # provider on every subsequent turn rather than once.
+        _leaks: list = []
+        prompt, _f = redact(prompt, source="prompt")
+        _leaks += _f
+        if system is not None:
+            system, _f = redact(system, source="system")
+            _leaks += _f
+        if history:
+            _clean_history = []
+            for _turn in history:
+                if isinstance(_turn, dict) and isinstance(_turn.get("content"), str):
+                    _text, _f = redact(_turn["content"], source="history")
+                    _leaks += _f
+                    _turn = {**_turn, "content": _text}
+                _clean_history.append(_turn)
+            history = _clean_history
+        if _leaks:
+            # RECORDED WITHOUT THE VALUE. `Finding` has no field the secret
+            # could travel in, which is what makes this event safe to keep and
+            # safe to ship in a bug report.
+            self._bus.publish(
+                "gateway.redacted", subject=task_id or "unassigned",
+                payload={"task_id": task_id, "count": len(_leaks),
+                         "findings": [f.to_dict() for f in _leaks],
+                         "note": ("credential-shaped material was removed before "
+                                  "egress; the values are deliberately absent "
+                                  "from this record")},
+                component="gateway")
+
         options = options or {}
         with self._lock:
             providers = list(self._providers)

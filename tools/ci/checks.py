@@ -4794,6 +4794,124 @@ def check_memory_projects_from_the_log() -> Result:
     return r
 
 
+def check_redactor_precedes_every_provider() -> Result:
+    """No credential-shaped string reaches a provider adapter. Ever.
+
+    THE ASYMMETRY THAT DECIDES THE DESIGN. Every other guard in this corpus can
+    be retried: a wrong route is re-routed, a refused request is re-asked, a bad
+    record is superseded. This one cannot. Text inside an outbound request is
+    transmitted and written to the provider's log the instant it goes, and there
+    is no recall -- "make the model forget it" is not a thing that exists. So
+    the guard runs BEFORE the request is built, at the one place INV-COST-3
+    guarantees every call passes through.
+
+    THE CHECK DRIVES THE REAL CHOKE POINT rather than calling `redact()`. A test
+    that only exercises the detector proves the detector works and proves
+    nothing about whether anything calls it -- which is exactly the gap
+    CI-020 exists for on the cost side: `core/privacy.py` and the supplier
+    classes were both correct for weeks while nothing joined them.
+    """
+    r = Result("redactor-precedes-every-provider")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.gateway import ModelGateway, Provider, E1_PRIVATE
+        from core.quota import QuotaLedger
+        from core.redact import scan, Finding
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the gateway or redactor did not import: {exc!r}")
+        return r
+
+    SECRET = "AKIAIOSFODNN7EXAMPLE"
+    seen: list = []
+
+    def _gw():
+        del seen[:]
+        ledger = QuotaLedger()
+        bus, cost, gw = _gateway(ledger)
+        cost.register_credential("p", "free")
+
+        def adapter(q, o):
+            # WHAT THE PROVIDER ACTUALLY RECEIVED. Everything before this point
+            # is intent; this is egress.
+            seen.append({"prompt": q, "options": o})
+            return {"text": "answered", "usage": {}}
+
+        gw.register(Provider("p", "prof", adapter, model="m",
+                             egress_class=E1_PRIVATE))
+        return gw
+
+    def _went_out() -> str:
+        return " ".join(str(x) for x in seen)
+
+    # 1. THE PROMPT.
+    _gw().complete(f"deploy with {SECRET} please", task_id="r1",
+                   profile_id="prof", difficulty="trivial")
+    if SECRET in _went_out():
+        r.err(f"the credential reached the provider adapter in the PROMPT. It "
+              "is now in that provider's logs and nothing recalls it.")
+
+    # 2. THE SYSTEM TURN.
+    _gw().complete("hello", system=f"the key is {SECRET}", task_id="r2",
+                   profile_id="prof", difficulty="trivial")
+    if SECRET in _went_out():
+        r.err("the credential reached the provider in the SYSTEM turn, which is "
+              "assembled by VESPER rather than typed by the owner and is "
+              "therefore the half nobody thinks to check.")
+
+    # 3. HISTORY -- the field that carries what the owner typed TURNS AGO and
+    #    replays it to a provider on every subsequent turn rather than once.
+    _gw().complete("and now?", task_id="r3", profile_id="prof",
+                   difficulty="trivial",
+                   history=[{"role": "user", "content": f"my key is {SECRET}"}])
+    if SECRET in _went_out():
+        r.err("the credential reached the provider in HISTORY. A secret typed "
+              "once is then re-sent on every turn of the conversation, so this "
+              "is the leak that repeats.")
+
+    # 4. THE NEGATIVE CONTROL, and it is not optional. A redactor that removes
+    #    everything passes items 1-3 perfectly and destroys every request.
+    _gw().complete("core/memory.py holds the L2 projection, see "
+                   "docs/planning/MEMORY_ARCHITECTURE.md",
+                   task_id="r4", profile_id="prof", difficulty="trivial")
+    out = _went_out()
+    for must_survive in ("core/memory.py", "MEMORY_ARCHITECTURE.md", "L2"):
+        if must_survive not in out:
+            r.err(f"{must_survive!r} did not survive redaction. Over-redaction "
+                  "corrupts the request the owner actually asked for, and it "
+                  "presents as VESPER talking nonsense about its own files "
+                  "rather than as a security control working.")
+
+    # 5. A FINDING MAY NOT CARRY THE VALUE. The tombstone has to be safe to
+    #    keep, safe to count, and useless to whoever steals the store it is in.
+    if "value" in Finding.__dataclass_fields__:
+        r.err("Finding gained a `value` field. The quarantine and the redaction "
+              "record would then hold every credential VESPER has ever seen, "
+              "gathered in the one place built to be the low-security bin.")
+    for f in scan(f"key {SECRET} here"):
+        if SECRET in str(f.to_dict()):
+            r.err("a finding's dict carries the matched secret; the audit "
+                  "record becomes the thing being protected against")
+
+    # 6. THE DETECTOR ITSELF MUST STILL DETECT. Positive controls, because a
+    #    scanner that has only ever returned "clean" is indistinguishable from
+    #    one that is broken -- this corpus has that failure twice already.
+    for name, probe in (
+            ("aws", "AKIAIOSFODNN7EXAMPLE"),
+            ("github", "ghp_016C7869C1D9A1B2C3D4E5F6a7b8c9d0e1f2"),
+            ("openai_style", "sk-proj-abc123XYZ789def456GHI012jkl345MNO"),
+            ("google", "AIzaSyD-1234567890abcdefghijklmnopqrstu"),
+            ("private_key", "-----BEGIN RSA PRIVATE KEY-----"),
+            ("assignment", 'GROQ_API_KEY="gsk_9xKq2mVn4pLw8zRt1cYb3dHf"')):
+        if not scan(probe):
+            r.err(f"the detector no longer fires on a {name} credential")
+
+    r.note("prompt, system turn and history all cleared before the adapter; "
+           "paths and prose survive; findings carry no value; six credential "
+           "shapes still detected")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -4838,6 +4956,7 @@ CHECK_FNS = {
     "baseline-records-what-cannot-be-rebuilt":
         check_baseline_records_what_cannot_be_rebuilt,
     "memory-projects-from-the-log": check_memory_projects_from_the_log,
+    "redactor-precedes-every-provider": check_redactor_precedes_every_provider,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

@@ -959,10 +959,47 @@ DIFFICULTY = "core/difficulty.py"
 BARGE_IN = "core/barge_in.py"
 BASELINE = "core/baseline.py"
 MEMORY_PY = "core/memory.py"
+REDACT_PY = "core/redact.py"
+GATEWAY_PY = "core/gateway.py"
 ROUTER = "core/router.py"
 LATENCY = "core/latency.py"
 SUPPLY_PY = "routing/supply.py"
 RUNTIME = "tools/ops/vesper_runtime.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-075
+    ("redactor-precedes-every-provider", GATEWAY_PY,
+     _sub('        prompt, _f = redact(prompt, source="prompt")',
+          '        _f = []', 1),
+     "the prompt no longer redacted at the choke point: the owner pastes a key "
+     "into a question and it is in the provider's log before anything else in "
+     "this corpus gets a chance to object"),
+
+    ("redactor-precedes-every-provider", GATEWAY_PY,
+     _sub("            history = _clean_history", "            pass", 1),
+     "history left unredacted -- the field that replays what the owner typed "
+     "turns ago to a provider on EVERY subsequent turn, so one paste leaks "
+     "once per turn for the rest of the conversation"),
+
+    ("redactor-precedes-every-provider", REDACT_PY,
+     _sub("    for f in sorted(findings, key=lambda f: f.start, reverse=True):",
+          "    for f in []:", 1),
+     "redact() detects and then substitutes nothing: every caller sees a "
+     "findings list that says it worked, and the text goes out intact"),
+
+    ("redactor-precedes-every-provider", REDACT_PY,
+     _sub("    for kind, pat in PATTERNS:", "    for kind, pat in ():", 1),
+     "the pattern floor removed, leaving only the entropy net -- which by\n"
+     "     construction cannot see a PEM header or any other low-entropy\n"
+     "     credential, and reports a clean scan while missing them"),
+
+    ("redactor-precedes-every-provider", REDACT_PY,
+     _sub("        if _is_benign(tok) or not _charset_mixed(tok):",
+          "        if False:", 1),
+     "the entropy net widened until it eats ordinary text: file paths and "
+     "prose are redacted out of every request, which presents as VESPER "
+     "talking nonsense about its own files rather than as a guard working"),
+]
 
 CASES += [
     # ---------------------------------------------------------------- CI-074
