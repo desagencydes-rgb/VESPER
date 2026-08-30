@@ -50,6 +50,7 @@ from core.chooser import Chooser                                # noqa: E402
 from core import host_probes                                    # noqa: E402
 from core.autonomy import AutonomyLoop, PredicateEvaluator      # noqa: E402
 from core.devices import CONTINUITY_CRITICAL, DeviceRegistry    # noqa: E402
+from core.repair import RepairAgent                             # noqa: E402
 from core.forgetter import expiry_trigger                       # noqa: E402
 from core.sensors import Sensor, SensorRegistry, SWEEP, TIMER   # noqa: E402
 from core.world import WorldModel                               # noqa: E402
@@ -169,6 +170,21 @@ def build(node: str = "vesper-runtime"):
     sensors.register(Sensor("host-disk", "current_host", "disk_free_ratio",
                             host_probes.disk_free_ratio, TIMER,
                             period_ms=300_000, ttl_ms=900_000))
+    # REPAIR, OVER THE FAILURES TRIAGE IS ALREADY COLLECTING. `TriageQueue`
+    # has been grading provider failures into an open list since it was wired,
+    # and nothing has ever tried to fix one -- so the queue is a record of
+    # things that went wrong and stayed wrong.
+    #
+    # THE MODULE IS ALREADY HONEST ABOUT ITS LIMITS, which is why wiring it is
+    # safe: tier 1 is autonomous and reversible (rotate to a sibling credential,
+    # stand a rung down until a stated time); tier 2 is PROPOSED and never
+    # applied, because INV-SELF-1..7 forbid the runtime writing a governed path
+    # in the running artifact; tier 3 says plainly that it cannot be fixed from
+    # in here. A repair layer that pretended otherwise would produce a sequence
+    # of confident-looking actions that change nothing, followed by the same
+    # failure.
+    repairer = RepairAgent(gateway=gw, bus=bus)
+
     # THE DEVICE REGISTRY, AND THIS NODE IN IT, MEASURED. `INV-HW-2`: a
     # capability is measured at enrollment or it is UNAVAILABLE, and
     # `DeviceProfile.capability()` returns None for anything whose `measured`
@@ -239,7 +255,7 @@ def build(node: str = "vesper-runtime"):
 
     return (bus, gw, router, home, intake, triage, report, persona, bench,
             renderer, updater, misses, chooser, world, sensors, autonomy,
-            devices)
+            devices, repairer)
 
 
 def answer(gw, router, persona, utterance, renderer=None,
@@ -396,7 +412,8 @@ def answer(gw, router, persona, utterance, renderer=None,
 
 def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          once: bool = False, renderer=None, updater=None,
-         misses=None, chooser=None, sensors=None, autonomy=None) -> int:
+         misses=None, chooser=None, sensors=None, autonomy=None,
+         triage=None, repairer=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     # SENSORS FIRST, AND THE PERIOD DECIDES WHETHER ANYTHING ACTUALLY RUNS.
     # `poll()` returns immediately for any sensor that is not due, so calling it
@@ -422,6 +439,33 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             autonomy.tick()
         except Exception as exc:                   # noqa: BLE001
             bus.publish("autonomy.loop_failed", subject="autonomy",
+                        payload={"error": repr(exc)}, component="runtime")
+
+    # ONE REPAIR ATTEMPT PER PASS, OLDEST FIRST, AND NEVER A SWEEP. Repairing
+    # everything open on every pass would retry a dead provider several times a
+    # second -- which is not repair, it is the failure again at a higher rate,
+    # and it is what the module's own header calls theatre. One item per pass
+    # means a queue of ten drains over ten passes and a permanently broken rung
+    # is retried at the pump's cadence rather than in a loop.
+    if repairer is not None and triage is not None:
+        try:
+            # GRADE BEFORE REPAIRING, because `grade_all()` was called by
+            # NOTHING and an ungraded item is one the repairer correctly
+            # refuses: "only a failure that is down AND will stay down is
+            # repaired unattended". Triage collected failures, repair declined
+            # every one of them for want of a grade, and the step between them
+            # existed and was reached by neither side.
+            #
+            # Its docstring says "called when a rung reports healthy", which is
+            # the cheaper trigger; the pump is the honest one until a rung
+            # actually reports.
+            triage.grade_all()
+            for item in (triage.open_items() or [])[:1]:
+                out = repairer.repair(item)
+                bus.publish("repair.attempted", subject=item.provider_id,
+                            payload=out.to_dict(), component="runtime")
+        except Exception as exc:                   # noqa: BLE001
+            bus.publish("repair.pass_failed", subject="repair",
                         payload={"error": repr(exc)}, component="runtime")
     OUTBOX.touch(exist_ok=True)
     seen = int(OFFSET.read_text()) if OFFSET.exists() else 0
@@ -530,7 +574,7 @@ def main() -> int:
 
     (bus, gw, router, home, intake, triage, report, persona, bench,
      renderer, updater, misses, chooser, world, sensors,
-     autonomy, devices) = build()
+     autonomy, devices, repairer) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -553,7 +597,7 @@ def main() -> int:
         n = pump(bus, gw, router, persona, bench, home, intake, transcript,
                  once=True, renderer=renderer, updater=updater,
                  misses=misses, chooser=chooser, sensors=sensors,
-                 autonomy=autonomy)
+                 autonomy=autonomy, triage=triage, repairer=repairer)
         # THE SAME HONESTY THE INTERRUPT PATH APPLIES. A one-shot run that exits
         # leaving `thinking` on disk reports work that is not happening; the
         # 90 s staleness fallback would correct it eventually, and eventually is
@@ -595,7 +639,8 @@ def main() -> int:
         try:
             pump(bus, gw, router, persona, bench, home, intake, transcript,
                  renderer=renderer, updater=updater, misses=misses,
-                 chooser=chooser, sensors=sensors, autonomy=autonomy)
+                 chooser=chooser, sensors=sensors, autonomy=autonomy,
+                 triage=triage, repairer=repairer)
             # THE PLUMBING USED TO COST MORE THAN THE MODEL. 0.5 s here plus
             # 0.7 s in the chrome's own timer is up to 1.2 s of pure polling
             # around a call that now returns in ~0.7 s -- the transport was the
