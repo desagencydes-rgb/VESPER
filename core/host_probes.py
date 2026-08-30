@@ -164,3 +164,92 @@ def tcp_reachable(host: str, port: int = 22, timeout: float = 1.5) -> bool:
             return True
     except OSError:
         return False
+
+
+# ---------------------------------------------------------------------------
+# The node's own profile, measured. `core/devices.py` owns the vocabularies.
+# ---------------------------------------------------------------------------
+
+def audio_channels() -> tuple:
+    """`(inputs, outputs)` counted from the system's own audio inventory.
+
+    COUNTED, NOT ASSUMED. "It is a laptop, of course it has a microphone" is a
+    declaration, and `INV-HW-2` refuses those -- a headless node, a machine with
+    the microphone disabled in firmware, and this one are the same code path.
+    The inventory names hardware; only the COUNTS are returned, because
+    `INV-HW-1` wants the profile and never the device.
+    """
+    text = _run(["system_profiler", "SPAudioDataType"], timeout=8.0)
+    ins = sum(1 for line in text.splitlines() if "Input Channels" in line)
+    outs = sum(1 for line in text.splitlines() if "Output Channels" in line)
+    return ins, outs
+
+
+def key_storage_class() -> str:
+    """The most conservative class this node can be SHOWN to have.
+
+    `os_keychain` AND NOT `hardware_backed`, deliberately. The two differ by a
+    trust ZONE -- Z1 against Z0 -- and `INV-TRUST-2` decides what may be held on
+    a node from that. A keychain demonstrably exists, so `os_keychain` is
+    evidenced. `hardware_backed` requires showing a key actually resident in a
+    secure element, which nothing here has done, and claiming it would buy this
+    node a trust zone on an assumption about its silicon.
+
+    RAISING THIS IS A PROMOTION AND BELONGS TO THE OWNER, like every other
+    contract change: `CLAUDE.md` records that `profile_node.py` deliberately has
+    no write path into `capability_profiles.toml`.
+    """
+    text = _run(["security", "list-keychains"], timeout=4.0)
+    if "keychain" not in text.lower():
+        raise ProbeUnavailable("no keychain listed")
+    return "os_keychain"
+
+
+def device_profile(node_id: str):
+    """This node as a `DeviceProfile`, from measurement only.
+
+    `availability_class = on_demand`, and the reasoning matters because
+    `is_survival_host()` reads it. Not `always_on`: this machine sleeps, and it
+    was measured on battery with no charger attached while running unattended.
+    Not `foreground_only`: it supervises a LaunchAgent that restores itself, so
+    it is not a thing that dies when a screen is swiped away. `on_demand` is the
+    honest middle, and it is what makes this a survival host -- which it
+    factually is today, being the only node the memory lives on.
+
+    EVERY CAPABILITY CARRIES ITS `measured` FLAG. `DeviceProfile.capability()`
+    returns None for anything unmeasured rather than the declared value, so a
+    capability this probe could not establish is UNAVAILABLE and not assumed.
+    """
+    from .devices import DeviceProfile
+
+    caps: dict = {}
+    measured: dict = {}
+    try:
+        ins, outs = audio_channels()
+        caps["audio_inputs"], measured["audio_inputs"] = ins, True
+        caps["audio_outputs"], measured["audio_outputs"] = outs, True
+    except ProbeUnavailable:
+        measured["audio_inputs"] = measured["audio_outputs"] = False
+    try:
+        caps["disk_free_ratio"] = disk_free_ratio()
+        measured["disk_free_ratio"] = True
+    except ProbeUnavailable:
+        measured["disk_free_ratio"] = False
+
+    # NOT MEASURED HERE AND NOT DECLARED EITHER. MEMORY.md records that this
+    # host's inference throughput has never been measured, and INV-HW-2 makes
+    # UNKNOWN mean UNAVAILABLE rather than "probably fine".
+    measured["sustained_tokens_per_sec"] = False
+
+    return DeviceProfile(
+        node_id=node_id,
+        availability_class="on_demand",
+        key_storage_class=key_storage_class(),
+        # `voice_only` is about SPATIAL sensing -- volumetric, planar, linear --
+        # and this node has none of it. A microphone is not a spatial sense.
+        spatial_class="none",
+        has_microphone=caps.get("audio_inputs", 0) > 0,
+        has_speaker=caps.get("audio_outputs", 0) > 0,
+        capabilities=caps,
+        measured=measured,
+    )

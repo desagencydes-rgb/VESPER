@@ -49,6 +49,7 @@ from core.intake import Intake                                  # noqa: E402
 from core.chooser import Chooser                                # noqa: E402
 from core import host_probes                                    # noqa: E402
 from core.autonomy import AutonomyLoop, PredicateEvaluator      # noqa: E402
+from core.devices import CONTINUITY_CRITICAL, DeviceRegistry    # noqa: E402
 from core.forgetter import expiry_trigger                       # noqa: E402
 from core.sensors import Sensor, SensorRegistry, SWEEP, TIMER   # noqa: E402
 from core.world import WorldModel                               # noqa: E402
@@ -168,6 +169,34 @@ def build(node: str = "vesper-runtime"):
     sensors.register(Sensor("host-disk", "current_host", "disk_free_ratio",
                             host_probes.disk_free_ratio, TIMER,
                             period_ms=300_000, ttl_ms=900_000))
+    # THE DEVICE REGISTRY, AND THIS NODE IN IT, MEASURED. `INV-HW-2`: a
+    # capability is measured at enrollment or it is UNAVAILABLE, and
+    # `DeviceProfile.capability()` returns None for anything whose `measured`
+    # flag is False rather than the declared value. Registering this node is
+    # what lets `INV-TRUST-2` be checked at all -- no continuity-critical
+    # capability on a foreground-only node -- and it is checked here rather than
+    # assumed because there is exactly one node today and that is precisely when
+    # the assumption is invisible.
+    #
+    # A FAILURE HERE DOES NOT STOP THE PROCESS. An unregistered device means
+    # placement cannot be reasoned about; it does not mean VESPER cannot answer.
+    devices = DeviceRegistry(bus)
+    try:
+        profile = devices.register(host_probes.device_profile(node))
+        devices.assign("memory", [node])
+        bus.publish("devices.self_registered", subject=node,
+                    payload={**profile.to_dict(),
+                             "survival_host": profile.is_survival_host(),
+                             "trust_zone_ceiling": profile.trust_zone_ceiling()},
+                    component="runtime")
+    except Exception as exc:                       # noqa: BLE001
+        bus.publish("devices.self_registration_failed", subject=node,
+                    payload={"error": repr(exc),
+                             "note": ("placement cannot be reasoned about "
+                                      "without a profile; answering is "
+                                      "unaffected")},
+                    component="runtime")
+
     # THE SWEEP. Nothing EMITS an event when a fact lapses -- time alone makes
     # it true -- so the only way to see it is to ask. `expired_present` is the
     # term `trg_fact_expiry_sweep` reads, and it cannot be expressed as a dotted
@@ -209,7 +238,8 @@ def build(node: str = "vesper-runtime"):
                     component="runtime")
 
     return (bus, gw, router, home, intake, triage, report, persona, bench,
-            renderer, updater, misses, chooser, world, sensors, autonomy)
+            renderer, updater, misses, chooser, world, sensors, autonomy,
+            devices)
 
 
 def answer(gw, router, persona, utterance, renderer=None,
@@ -500,7 +530,7 @@ def main() -> int:
 
     (bus, gw, router, home, intake, triage, report, persona, bench,
      renderer, updater, misses, chooser, world, sensors,
-     autonomy) = build()
+     autonomy, devices) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.

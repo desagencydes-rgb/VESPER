@@ -1034,6 +1034,20 @@ CASES += [
 
 CASES += [
     # ---------------------------------------------------------------- CI-082
+    ("sensors-never-reach-a-model", HOST_PROBES_PY,
+     _sub('    measured["sustained_tokens_per_sec"] = False',
+          '    caps["sustained_tokens_per_sec"] = 42\n'
+          '    measured["sustained_tokens_per_sec"] = True', 1),
+     "a throughput this host has never measured declared as measured: INV-HW-2 "
+     "exists for exactly this number, and MEMORY.md records that it is still "
+     "unmeasured on this node"),
+
+    ("sensors-never-reach-a-model", HOST_PROBES_PY,
+     _sub('    return "os_keychain"', '    return "hardware_backed"', 1),
+     "the node claims hardware-backed key storage on the strength of a keychain "
+     "existing, buying itself trust zone Z0 -- which decides what "
+     "continuity-critical state INV-TRUST-2 permits it to hold"),
+
     ("sensors-never-reach-a-model", SENSORS_PY,
      _sub("            return Reading.unavailable(\n"
           "                key, f\"sensor:{name}\",\n"

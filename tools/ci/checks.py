@@ -6043,6 +6043,34 @@ def check_sensors_never_reach_a_model() -> Result:
                   "cannot explain itself to the owner and an absent value "
                   "renders identically to a present one")
 
+    # 3f. THIS NODE'S OWN PROFILE IS MEASURED, NOT DECLARED. INV-HW-2: an
+    #     unmeasured capability is UNAVAILABLE, and `capability()` returns None
+    #     for one rather than the declared value.
+    from core.devices import AVAILABILITY, KEY_STORAGE, SPATIAL
+    prof = host_probes.device_profile("ci-node")
+    for field, vocab in (("availability_class", AVAILABILITY),
+                         ("key_storage_class", KEY_STORAGE),
+                         ("spatial_class", SPATIAL)):
+        if getattr(prof, field) not in vocab:
+            r.err(f"{field}={getattr(prof, field)!r} is outside core/devices.py's "
+                  f"vocabulary {vocab}")
+    if prof.capability("sustained_tokens_per_sec") is not None:
+        r.err("an unmeasured capability returned a value. INV-HW-2: UNKNOWN "
+              "means UNAVAILABLE, and a declared throughput is exactly the "
+              "number that invariant exists to refuse.")
+    if prof.key_storage_class == "hardware_backed":
+        r.err("this node claims hardware_backed key storage, which buys it "
+              "trust zone Z0. Nothing has shown a key resident in a secure "
+              "element; a keychain existing evidences os_keychain and no more, "
+              "and raising it is a promotion that belongs to the owner.")
+    blob = str(prof.to_dict())
+    for name in ("MacBook", "Apple", "Intel", "iPhone"):
+        if name in blob:
+            r.err(f"the device profile carries the product name {name!r}. "
+                  "INV-HW-1: write the profile, never the device -- the "
+                  "registry is the most natural place in a system to record a "
+                  "product name and the place it does the most damage.")
+
     # 4. A SENSOR WHOSE CLASS IS UNKNOWN IS REFUSED. The class decides the
     #    mechanism, so guessing it schedules by guesswork.
     try:
