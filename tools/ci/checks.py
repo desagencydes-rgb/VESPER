@@ -5904,6 +5904,115 @@ def check_sensors_never_reach_a_model() -> Result:
     return r
 
 
+def check_floor_never_swallows_or_drops() -> Result:
+    """The four barge-in outcomes differ in BEHAVIOUR, not only in name.
+
+    THIS IS THE LINK BETWEEN TWO THINGS THAT EXISTED AND DID NOTHING TOGETHER.
+    `core/chooser.py` sets `announce` past 600 ms; `core/barge_in.py` classifies
+    what the owner says during such a hold, carries 242 phrases and a gate, and
+    was called by nothing. An announcement with no way to respond is a status
+    line; a classifier nothing feeds is a table.
+
+    SWALLOW IS THE OUTCOME MOST LIKELY TO BE BUILT WRONG, because answering is
+    polite. "Take your time" met with "certainly, I'll continue" is VESPER
+    interrupting the owner's permission not to be interrupted -- a cooperative
+    interruption supports the current speaker, and responding to one takes the
+    floor the owner just declined.
+
+    AND A DROPPED QUEUE IS INDISTINGUISHABLE FROM A SWALLOW from where the owner
+    is standing. They said something during a hold and it never arrived; whether
+    it was classified wrongly or delivered nowhere is invisible, and either way
+    they learn that speaking during a hold loses what they said.
+    """
+    r = Result("floor-never-swallows-or-drops")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.floor import FloorHolder, Held
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.floor did not import: {exc!r}")
+        return r
+
+    LONG_A = "could you also look at the hotel booking while you are in there"
+    LONG_B = "and I was wondering about the flight times for next Tuesday as well"
+
+    # 1. OUTSIDE A HOLD, AN UTTERANCE IS NOT A BARGE-IN.
+    f = FloorHolder()
+    try:
+        f.offer("stop")
+        r.err("an utterance was classified as a barge-in with no floor held. "
+              "Outside a hold it is an ordinary request and belongs in Intake; "
+              "routing it here sends normal speech through a table that only "
+              "knows how to stop work.")
+    except Held:
+        pass
+
+    # 2. A HALT BREAKS, AND RELEASES THE FLOOR.
+    f.hold("checking the calendar")
+    v = f.offer("stop")
+    if not v.acted or f.holding:
+        r.err(f"'stop' during a hold gave acted={v.acted}, still "
+              f"holding={f.holding}. A system that cannot be stopped is one "
+              "nobody will leave running.")
+    if not f.broken:
+        r.err("the break was not recorded, so the caller cannot tell an "
+              "abandoned hold from a completed one")
+
+    # 3. SWALLOW IS SILENT. All three effects must be false together.
+    f2 = FloorHolder()
+    f2.hold("working")
+    for u in ("take your time", "no rush", "mhm"):
+        v = f2.offer(u)
+        if v.acted:
+            r.err(f"{u!r} cancelled the work it was granting time for. The "
+                  "owner is punished for being polite.")
+        if v.answer:
+            r.err(f"{u!r} produced an answer. Responding to a cooperative "
+                  "interruption takes the floor the owner just declined to "
+                  "take -- VESPER interrupting permission not to be "
+                  "interrupted.")
+        if v.queued:
+            r.err(f"{u!r} was queued and will be delivered later as though it "
+                  "were a request")
+
+    # 4. STATUS ANSWERS AND DOES NOT CANCEL. Both halves, because answering by
+    #    stopping is the natural wrong implementation.
+    for u in ("how long", "still there?"):
+        v = f2.offer(u)
+        if not v.answer:
+            r.err(f"{u!r} got no answer. A liveness check is the owner asking "
+                  "whether the silence is work or a hang.")
+        if v.acted or not f2.holding:
+            r.err(f"{u!r} cancelled the work. The answer to 'are you still "
+                  "there' must not be to stop being there.")
+    if not f2.status_line():
+        r.err("the status line is empty, so a liveness check is answered with "
+              "nothing")
+
+    # 5. QUEUE DELIVERS, ONCE.
+    f3 = FloorHolder()
+    f3.hold("thinking")
+    for u in (LONG_A, LONG_B):
+        if not f3.offer(u).queued:
+            r.err(f"a long request was not queued: {u[:40]!r}")
+    delivered = f3.release()
+    if len(delivered) != 2:
+        r.err(f"release() delivered {len(delivered)} of 2 queued utterances. A "
+              "dropped queue is indistinguishable from a swallow from where "
+              "the owner is standing.")
+    if f3.release():
+        r.err("release() delivered the same queue twice, so a retrying caller "
+              "would replay the owner's words as new requests")
+    if f3.holding:
+        r.err("the floor is still held after release()")
+
+    r.note("an utterance outside a hold is refused; a halt breaks and releases; "
+           "cooperative interruptions are silent in all three effects; a "
+           "liveness check is answered without cancelling; a long request is "
+           "queued and delivered exactly once")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -5956,6 +6065,7 @@ CHECK_FNS = {
     "reprojection-never-resurrects": check_reprojection_never_resurrects,
     "chooser-escalates-only-when-unsure": check_chooser_escalates_only_when_unsure,
     "sensors-never-reach-a-model": check_sensors_never_reach_a_model,
+    "floor-never-swallows-or-drops": check_floor_never_swallows_or_drops,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

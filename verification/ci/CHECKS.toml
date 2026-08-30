@@ -1137,3 +1137,38 @@ makes a broken probe indistinguishable from a fact that legitimately expired.
 THE FILTER LOGS WHAT IT DISCARDED. A filter deciding what reaches VESPER is
 deciding what VESPER KNOWS, and a filter bug produces SILENCE -- undetectable in
 exactly the way a memory miss is."""
+
+[checks.CI-083]
+name = "floor-never-swallows-or-drops"
+enforces = ["INV-HOLD-1"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py floor-never-swallows-or-drops"
+blocking = "pr"
+self_test = """Answer a cooperative interruption; stop a halt from releasing the
+floor; empty the queue without delivering it; return the queue without clearing
+it; classify an utterance with no floor held; cancel the work on a liveness
+check."""
+self_test_evidence = """tools/ci/self_test.py floor-never-swallows-or-drops
+-- 6 cases, red then green, 2026-08-30."""
+subject = "core/floor.py"
+note = """INV-HOLD-1 has four clauses and CI-072 could only ever reach one of
+them. `core/barge_in.py` CLASSIFIES; "discarded", "answered without
+cancelling", "stops the work" and "queued and delivered afterwards" are
+BEHAVIOURS, and until `core/floor.py` existed nothing performed any of them --
+the classifier was called by nothing at all."""
+discriminators = """SWALLOW IS THE CLAUSE MOST LIKELY TO BE BUILT WRONG, because
+answering is polite. "Take your time" met with "certainly, I'll continue" is
+VESPER interrupting the owner's permission not to be interrupted: a cooperative
+interruption supports the current speaker, and responding to one takes the floor
+they just declined to take. The check asserts all three effects are false
+together -- not acted, not answered, not queued -- because a version that
+queues a swallow delivers "mhm" as a request later.
+
+A DROPPED QUEUE IS INDISTINGUISHABLE FROM A SWALLOW from where the owner is
+standing: they said something during a hold and it never arrived. So `release()`
+returns and clears in ONE call, and two mutations cover it -- clearing without
+delivering, and delivering without clearing, which replays the owner's words as
+new requests on any retry.
+
+"ANSWERED WITHOUT CANCELLING" IS TWO ASSERTIONS. Answering by stopping is the
+natural wrong implementation and satisfies the first half perfectly."""

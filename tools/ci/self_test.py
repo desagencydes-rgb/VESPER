@@ -967,11 +967,69 @@ FORGETTER_PY = "core/forgetter.py"
 COMPACTOR_PY = "core/compactor.py"
 CHOOSER_PY = "core/chooser.py"
 SENSORS_PY = "core/sensors.py"
+FLOOR_PY = "core/floor.py"
 GATEWAY_PY = "core/gateway.py"
 ROUTER = "core/router.py"
 LATENCY = "core/latency.py"
 SUPPLY_PY = "routing/supply.py"
 RUNTIME = "tools/ops/vesper_runtime.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-083
+    ("floor-never-swallows-or-drops", FLOOR_PY,
+     _sub("            v = Verdict(floor=verdict.value, text=text, acted=False,\n"
+          "                        answer=False, queued=False)\n"
+          "        elif verdict is Floor.STATUS:",
+          "            v = Verdict(floor=verdict.value, text=text, acted=False,\n"
+          "                        answer=True, queued=False)\n"
+          "        elif verdict is Floor.STATUS:", 1),
+     "a cooperative interruption gets answered: 'take your time' met with a "
+     "reply is VESPER interrupting the owner's permission not to be "
+     "interrupted, and it takes the floor they just declined to take"),
+
+    ("floor-never-swallows-or-drops", FLOOR_PY,
+     _sub("        if verdict is Floor.BREAK:\n"
+          "            with self._lock:\n"
+          "                self.broken = True\n"
+          "                self._held = False",
+          "        if verdict is Floor.BREAK:\n"
+          "            with self._lock:\n"
+          "                self.broken = False", 1),
+     "a halt no longer releases the floor or records the break, so 'stop' is "
+     "classified correctly and changes nothing -- a system that cannot be "
+     "stopped is one nobody will leave running"),
+
+    ("floor-never-swallows-or-drops", FLOOR_PY,
+     _sub("            queued, self._queue = list(self._queue), []",
+          "            queued, self._queue = [], self._queue", 1),
+     "the queue is emptied without being delivered: from where the owner is "
+     "standing that is identical to having been swallowed, and they learn that "
+     "speaking during a hold loses what they said"),
+
+    ("floor-never-swallows-or-drops", FLOOR_PY,
+     _sub("            queued, self._queue = list(self._queue), []",
+          "            queued = list(self._queue)", 1),
+     "release() returns the queue without clearing it, so a caller that "
+     "releases twice replays the owner's words as new requests"),
+
+    ("floor-never-swallows-or-drops", FLOOR_PY,
+     _sub("            if not self._held:\n                raise Held(",
+          "            if False:\n                raise Held(", 1),
+     "an utterance outside a hold is classified as a barge-in, routing ordinary "
+     "speech through a table that only knows how to stop work"),
+
+    ("floor-never-swallows-or-drops", FLOOR_PY,
+     _sub("            v = Verdict(floor=verdict.value, text=text, acted=False,\n"
+          "                        answer=True, queued=False)\n"
+          "        else:",
+          "            v = Verdict(floor=verdict.value, text=text, acted=True,\n"
+          "                        answer=True, queued=False)\n"
+          "            with self._lock:\n"
+          "                self._held = False\n"
+          "        else:", 1),
+     "a liveness check cancels the work: the answer to 'are you still there' "
+     "must not be to stop being there"),
+]
 
 CASES += [
     # ---------------------------------------------------------------- CI-082

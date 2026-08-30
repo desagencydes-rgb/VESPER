@@ -942,7 +942,7 @@ why_live_outranks_the_sweep = "The supply sweep measures each rung once. For a r
 [invariants.INV-HOLD-1]
 statement = "While the system holds the floor, inbound utterances are classified and not obeyed. A cooperative interruption is discarded, a liveness check is answered without cancelling, a competitive one stops the work, and anything else is queued and delivered afterwards. Under ambiguity the classification is BREAK. The classifier has no path to a model."
 owner_rem = "REM-007"
-enforced_by = ["CI-072"]
+enforced_by = ["CI-072", "CI-083"]
 kind = "mechanism"
 note = "The asymmetry is the property, not the accuracy: a wrong break-through costs one preparation cycle, a wrong swallow means the owner said stop and was ignored. The absence of a model path is what makes the classifier both cheap enough to run on every inbound token and impossible to talk out of stopping -- a regex cannot be prompt-injected."
 
