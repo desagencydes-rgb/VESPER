@@ -143,7 +143,14 @@ is next; `SR-034` is held below `SPECIFIED` deliberately and permanently.
   the speech request killed the process with SIGABRT complaining about a usage
   description that was demonstrably present. `Bundle.main.bundleIdentifier`
   cannot detect the difference. Measured 2026-08-30.
-- **Mic and speech-recognition consent are granted** (2026-08-30). On-device
+- **TCC consent does not survive a rebuild.** Grants for an **ad-hoc-signed**
+  app are keyed to its cdhash and `build.sh` re-signs every build, so each build
+  is a new app to TCC. Measured 2026-08-30: granted at cdhash `6bd67687...`,
+  `notDetermined` at `59b04339...` five builds later. Re-grant with `open -n
+  app/VESPER.app --args --speech-consent`; read it without prompting via
+  `--speech-status`. This is the second concrete argument for a Developer ID
+  certificate, alongside the login-item one `build.sh` already makes.
+- **On-device speech recognition** (2026-08-30). On-device
   recognition is available for `en-US` and NOT for `ar-MA`, `ar-SA` or `fr-FR`
   -- those route audio to Apple's servers, which is egress outside
   `ModelGateway` and therefore outside the redactor.

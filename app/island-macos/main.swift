@@ -903,6 +903,21 @@ if args.contains("--reinstall-login-item") {
     exit(0)
 }
 
+if args.contains("--listen") {
+    // Ahead of NSApplication for the same reason --speech-consent is: this is
+    // a microphone session, not a window.
+    let locale = args.firstIndex(of: "--locale").map { args[args.index(after: $0)] } ?? "en-US"
+    let seconds = args.firstIndex(of: "--seconds").flatMap { Double(args[args.index(after: $0)]) } ?? 20
+    runListener(locale: locale, seconds: seconds,
+                diagnose: args.contains("--diagnose"))
+    exit(0)
+}
+
+if args.contains("--speech-status") {
+    speechStatus()
+    exit(0)
+}
+
 if args.contains("--speech-consent") {
     // Deliberately before NSApplication.shared: the prompt is the whole job,
     // and bringing up the island's window layer to ask for a permission would

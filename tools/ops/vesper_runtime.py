@@ -372,7 +372,32 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             text = (obj.get("text") or "").strip()
             if not text:
                 continue
-            res = intake.typed(text)
+            # SPOKEN AND TYPED TAKE DIFFERENT DOORS, and `Intake` has had both
+            # since it was written -- `spoken()` exists precisely so that voice
+            # arriving later is a SOURCE and not a rewrite. Until now nothing
+            # called it.
+            #
+            # THE DIFFERENCE IS NOT THE DEVICE. A typed utterance is certain and
+            # complete the moment the owner presses return. A spoken one arrives
+            # in fragments, each revising the last, every word carrying a
+            # confidence that may be low. `spoken()` buffers the partials and
+            # gates the finals; routing voice through `typed()` would assert
+            # certainty the recogniser never claimed, and a 61%-sure "delete the
+            # archive" would execute instead of being reflected back.
+            if obj.get("source") == "spoken":
+                res = intake.spoken(
+                    text,
+                    confidence=float(obj.get("confidence") or 0.0),
+                    final=bool(obj.get("final", True)))
+                if res["outcome"] in ("buffered", "reflected", "ignored"):
+                    # NOT DISPATCHED, AND THE OWNER STILL SEES IT. A partial is
+                    # the recogniser thinking out loud; a reflected utterance is
+                    # heard-but-not-acted-on. Both belong on the stage, and
+                    # neither may reach the gateway.
+                    home.set_partial(text) if hasattr(home, "set_partial") else None
+                    continue
+            else:
+                res = intake.typed(text)
             said.append({"who": "owner", "text": text,
                          "source": res["utterance"]["source"],
                          "certain": res["utterance"]["certain"]})

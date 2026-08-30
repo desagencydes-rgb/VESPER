@@ -245,6 +245,27 @@ had been written first, because FTS5 segment merging decides when a term leaves
 index storage. Do not re-add those assertions; they pass for reasons unrelated
 to the property.
 
+### TCC consent does not survive a rebuild — MEASURED 2026-08-30
+
+`build.sh` re-signs the bundle ad-hoc on every build, and TCC keys an
+**ad-hoc-signed** app's grants to its **cdhash**. So every build is a new app as
+far as TCC is concerned, and every grant is gone.
+
+    granted     cdhash 6bd676874929132374bb531524dd138b957cb4ec
+    five builds later, same app, same bundle id:
+                cdhash 59b043391d1446f9148f756ebf554d44ce2ac445
+                speech: notDetermined · microphone: NOT authorized
+
+**This was reported as "consent is done, voice unblocked" and it was wrong
+within the hour**, because the reporter kept building. Re-grant with `open -n
+app/VESPER.app --args --speech-consent`; read the state without prompting anyone
+with `--speech-status`.
+
+`build.sh`'s header already argues for a **Developer ID certificate** on
+login-item grounds. This is the second and sharper reason: without a stable
+identity, every voice change costs the owner two dialogs, and any claim that
+consent is held expires at the next build.
+
 ### This host is often on battery — 2026-08-30
 
 Measured mid-build by `core/host_probes.py`: `power_source = battery`, 53%,

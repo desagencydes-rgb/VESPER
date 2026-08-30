@@ -65,6 +65,28 @@ private func speechStatusName(_ s: SFSpeechRecognizerAuthorizationStatus) -> Str
     }
 }
 
+/// Read the grants back WITHOUT requesting anything.
+///
+/// EXISTS BECAUSE THE GRANT DOES NOT SURVIVE A REBUILD, and checking used to
+/// mean popping two dialogs at whoever was sitting there. TCC keys an
+/// ad-hoc-signed app's permissions to its CDHASH; `build.sh` re-signs on every
+/// build, so every build is a new app as far as TCC is concerned and the
+/// consent is gone. Measured 2026-08-30: granted at cdhash 6bd67687..., and
+/// five rebuilds later at cdhash 59b04339... the same app reads notDetermined.
+///
+/// `build.sh`'s own header names the fix and now has a second reason for it: a
+/// Developer ID certificate gives a STABLE identity, and without one every
+/// voice change costs the owner two dialogs.
+func speechStatus() {
+    let bundle = Bundle.main.bundleIdentifier ?? "NOT IN A BUNDLE"
+    report("bundle: \(bundle)")
+    report("speech recognition: \(speechStatusName(SFSpeechRecognizer.authorizationStatus()))")
+    let mic = AVCaptureDevice.authorizationStatus(for: .audio)
+    report("microphone: \(mic == .authorized ? "authorized" : "NOT authorized (\(mic.rawValue))")")
+    report("note: run this with `open -n`. From a shell TCC answers for the "
+         + "shell, not for VESPER.")
+}
+
 func requestSpeechConsent() {
     let bundle = Bundle.main.bundleIdentifier ?? "NOT IN A BUNDLE"
     report("requesting as: \(bundle)")

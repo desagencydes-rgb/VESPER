@@ -27,7 +27,7 @@ HOME_SRC=../home-macos
 # CGWindowListCreateImage obsoleted=15.0. Every call above 13.0 in these
 # sources is already behind #available, so the floor costs nothing.
 swiftc -O -swift-version 5 -target arm64-apple-macosx13.0 \
-  main.swift FaceRenderer.swift Behaviour.swift SpeechConsent.swift \
+  main.swift FaceRenderer.swift Behaviour.swift SpeechConsent.swift Listener.swift \
   "$HOME_SRC/Home.swift" "$HOME_SRC/HomeAmbience.swift" "$HOME_SRC/SpaceWatch.swift" \
   "$HOME_SRC/HomeVerify.swift" "$HOME_SRC/GlassGuard.swift" \
   "$HOME_SRC/HomeChrome.swift" "$HOME_SRC/HomeSurfaces.swift" "$HOME_SRC/RuntimeHost.swift" "$HOME_SRC/HomeCost.swift" \

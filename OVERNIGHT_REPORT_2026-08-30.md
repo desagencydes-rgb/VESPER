@@ -4,11 +4,19 @@
 into the running process.** What follows is what landed, what was found, and
 what is waiting on the owner.
 
-**Read this first if you read nothing else:** this machine was on **battery,
-53%, discharging, no charger attached** at 01:5x while running unattended with
-idle sleep disabled. `core/host_probes.py` found it — the first real reading the
-new sensor layer took was about its own host. Plug it in before the next long
-run.
+**Read this first if you read nothing else:**
+
+1. This machine was on **battery, 53%, discharging, no charger attached** at
+   01:5x while running unattended with idle sleep disabled.
+   `core/host_probes.py` found it — the first real reading the new sensor layer
+   took was about its own host. Plug it in before the next long run.
+2. **Mic and speech consent need granting again**, and earlier in this report I
+   said otherwise. TCC keys an ad-hoc-signed app's grants to its cdhash and
+   every rebuild resets them. One command, once, and it holds until the next
+   build:
+   ```
+   open -n ~/Projects/VESPER/app/VESPER.app --args --speech-consent
+   ```
 
 ---
 
@@ -75,6 +83,21 @@ been written first, because FTS5 segment merging decides when a term leaves
 index storage. The gate asserts `select()`, the only deterministic path; the
 residue limit is recorded in `core/forgetter.py` rather than gated.
 
+**TCC CONSENT DOES NOT SURVIVE A REBUILD, AND THIS CORRECTS SOMETHING I
+REPORTED EARLIER TONIGHT.** I obtained microphone and speech-recognition consent
+at ~01:0x and reported voice as unblocked. It is not. TCC keys an
+**ad-hoc-signed** app's grants to its **cdhash**, `build.sh` re-signs on every
+build, and I rebuilt five more times after that (memory wiring, chooser,
+sensors, listener ×2). Measured: granted at cdhash `6bd67687...`; at cdhash
+`59b04339...` the same app reads `notDetermined` and `NOT authorized`. **The
+consent is gone and needs granting again** — `open -n .../VESPER.app --args
+--speech-consent`, and it will hold until the next build.
+
+`build.sh`'s header already argues for a Developer ID certificate on
+launch-item grounds. This is a second, sharper reason: without a stable
+identity, **every voice change costs the owner two dialogs**. Use
+`--speech-status` to read the grants without requesting anything.
+
 **The TCC responsible-process trap**, walked into immediately after writing the
 warning about it. Running the bundle's executable from a shell prints the
 correct bundle identifier and TCC still attributes to the shell: the microphone
@@ -110,7 +133,16 @@ them. A negative control that passes is a defect, not a relief.
    it will say most often once the corpus fills.
 4. **STT route.** Recommended and unconfirmed: Groq for Darija, Apple on-device
    for `en-US`. `ar-MA` is not available on-device here, so Apple's own path
-   egresses outside `ModelGateway` and outside the redactor.
+   egresses outside `ModelGateway` and outside the redactor. **The English half
+   is built**: `app/island-macos/Listener.swift`, `--listen --locale en-US`,
+   with `requiresOnDeviceRecognition = true` set explicitly — the API default is
+   false, transcription is equally good either way, and omitting it silently
+   sends every word spoken in the room to Apple. It **refuses** a locale with no
+   on-device support rather than degrading to servers, because that would be a
+   change in where your voice goes decided by a library at runtime with no
+   event. Spoken input now routes through `Intake.spoken()` — which has existed
+   since the intake layer was written and was called by nothing — so a
+   61%-confident "delete the archive" is reflected back rather than executed.
 5. **A log-backed span type.** `Claim.support` wants a `SourceSpan` — a byte
    range in a file with a `verify()` that re-reads it. An L2 fact's provenance
    is a log sequence. They do not compose, so memory-derived claims carry no
