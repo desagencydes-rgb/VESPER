@@ -47,6 +47,9 @@ from core.hlc import HybridLogicalClock                         # noqa: E402
 from core.home_state import HomeState                           # noqa: E402
 from core.intake import Intake                                  # noqa: E402
 from core.chooser import Chooser                                # noqa: E402
+from core import host_probes                                    # noqa: E402
+from core.sensors import Sensor, SensorRegistry, TIMER          # noqa: E402
+from core.world import WorldModel                               # noqa: E402
 from core.difficulty import classify                            # noqa: E402
 from core.effort import EXPECTED_OUTPUT                         # noqa: E402
 from core.narration import Announcer                            # noqa: E402
@@ -134,6 +137,30 @@ def build(node: str = "vesper-runtime"):
     # Groq at 0.42-0.67 s measured, which is a decision with a cost and is the
     # owner's to take.
     chooser = Chooser(bus=bus)
+
+    # THE WORLD MODEL AND ITS SENSORS. `trigger_registry.toml`'s predicates read
+    # `world.current_host.power_source` and `world.current_host.health`; nothing
+    # has ever written them, so every predicate over them has been UNKNOWN and
+    # INV-TRIG-4 has correctly stopped all eight triggers from firing. These are
+    # the first two facts that make any of them evaluable.
+    #
+    # TIMER CLASS, GENEROUS PERIODS, AND NOT BECAUSE THE PROBES ARE SLOW. They
+    # take microseconds. The period is about not waking a sleeping machine to
+    # ask it how it feels -- MEMORY.md records the owner's instruction not to
+    # stress this host, and a sensor loop is exactly the kind of thing that
+    # looks free and is not.
+    world = WorldModel(bus, clock)
+    sensors = SensorRegistry(world, clock, bus=bus)
+    sensors.register(Sensor("host-power", "current_host", "power_source",
+                            host_probes.power_source, TIMER,
+                            period_ms=60_000, ttl_ms=300_000))
+    sensors.register(Sensor("host-health", "current_host", "health",
+                            host_probes.host_health, TIMER,
+                            period_ms=120_000, ttl_ms=600_000))
+    sensors.register(Sensor("host-disk", "current_host", "disk_free_ratio",
+                            host_probes.disk_free_ratio, TIMER,
+                            period_ms=300_000, ttl_ms=900_000))
+
     memory = renderer = updater = misses = None
     try:
         memory = MemoryGraph(store, path=str(STATE / "l2.db"))
@@ -150,7 +177,7 @@ def build(node: str = "vesper-runtime"):
                     component="runtime")
 
     return (bus, gw, router, home, intake, triage, report, persona, bench,
-            renderer, updater, misses, chooser)
+            renderer, updater, misses, chooser, world, sensors)
 
 
 def answer(gw, router, persona, utterance, renderer=None,
@@ -307,8 +334,24 @@ def answer(gw, router, persona, utterance, renderer=None,
 
 def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          once: bool = False, renderer=None, updater=None,
-         misses=None, chooser=None) -> int:
+         misses=None, chooser=None, sensors=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
+    # SENSORS FIRST, AND THE PERIOD DECIDES WHETHER ANYTHING ACTUALLY RUNS.
+    # `poll()` returns immediately for any sensor that is not due, so calling it
+    # every pass costs a dictionary lookup rather than a probe. Before the turn,
+    # because a predicate that fires during this pass should read the world as
+    # it is now and not as it was one pass ago.
+    #
+    # NEVER FAILS THE PUMP. Sensor failures are already UNKNOWN-and-logged
+    # inside the registry; this catch is for the registry itself going wrong,
+    # and the rule is the same one the updater follows -- bookkeeping may not
+    # take a turn with it.
+    if sensors is not None:
+        try:
+            sensors.poll()
+        except Exception as exc:                   # noqa: BLE001
+            bus.publish("sensors.loop_failed", subject="sensors",
+                        payload={"error": repr(exc)}, component="runtime")
     OUTBOX.touch(exist_ok=True)
     seen = int(OFFSET.read_text()) if OFFSET.exists() else 0
     handled = 0
@@ -390,7 +433,7 @@ def main() -> int:
     args = ap.parse_args()
 
     (bus, gw, router, home, intake, triage, report, persona, bench,
-     renderer, updater, misses, chooser) = build()
+     renderer, updater, misses, chooser, world, sensors) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -412,7 +455,7 @@ def main() -> int:
     if args.once or args.say:
         n = pump(bus, gw, router, persona, bench, home, intake, transcript,
                  once=True, renderer=renderer, updater=updater,
-                 misses=misses, chooser=chooser)
+                 misses=misses, chooser=chooser, sensors=sensors)
         # THE SAME HONESTY THE INTERRUPT PATH APPLIES. A one-shot run that exits
         # leaving `thinking` on disk reports work that is not happening; the
         # 90 s staleness fallback would correct it eventually, and eventually is
@@ -454,7 +497,7 @@ def main() -> int:
         try:
             pump(bus, gw, router, persona, bench, home, intake, transcript,
                  renderer=renderer, updater=updater, misses=misses,
-                 chooser=chooser)
+                 chooser=chooser, sensors=sensors)
             # THE PLUMBING USED TO COST MORE THAN THE MODEL. 0.5 s here plus
             # 0.7 s in the chrome's own timer is up to 1.2 s of pure polling
             # around a call that now returns in ~0.7 s -- the transport was the
