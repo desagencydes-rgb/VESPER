@@ -965,11 +965,47 @@ BLOCKS_PY = "core/blocks.py"
 ARBITER_PY = "core/arbiter.py"
 FORGETTER_PY = "core/forgetter.py"
 COMPACTOR_PY = "core/compactor.py"
+CHOOSER_PY = "core/chooser.py"
 GATEWAY_PY = "core/gateway.py"
 ROUTER = "core/router.py"
 LATENCY = "core/latency.py"
 SUPPLY_PY = "routing/supply.py"
 RUNTIME = "tools/ops/vesper_runtime.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-081
+    ("chooser-escalates-only-when-unsure", CHOOSER_PY,
+     _sub("        if c.confident:", "        if False:", 1),
+     "the confidence flag stops gating escalation, so a paid network call runs "
+     "in front of every 'hello' -- inside the latency path, on the owner's "
+     "critical path, forever"),
+
+    ("chooser-escalates-only-when-unsure", CHOOSER_PY,
+     _sub("        if DIFFICULTY.index(answer) < DIFFICULTY.index(c.difficulty):",
+          "        if False:", 1),
+     "a model allowed to LOWER the difficulty below the deterministic floor: "
+     "too low takes `low` reasoning effort and comes back confidently wrong, "
+     "which is the failure this corpus is organised against"),
+
+    ("chooser-escalates-only-when-unsure", CHOOSER_PY,
+     _sub("        if answer not in DIFFICULTY:", "        if False:", 1),
+     "an escalator's answer used without checking it is a difficulty at all, so "
+     "a malformed reply routes the turn at a level that does not exist"),
+
+    ("chooser-escalates-only-when-unsure", CHOOSER_PY,
+     _sub("        except Exception as exc:                   # noqa: BLE001\n"
+          "            # A DEAD ESCALATOR IS NOT A DEAD TURN.",
+          "        except ZeroDivisionError as exc:           # noqa: BLE001\n"
+          "            # A DEAD ESCALATOR IS NOT A DEAD TURN.", 1),
+     "a provider failure inside the chooser propagates into the turn: the "
+     "deterministic answer was already computed and already routable, and the "
+     "escalation was an improvement on it rather than a dependency of it"),
+
+    ("chooser-escalates-only-when-unsure", CHOOSER_PY,
+     _sub("announce=elapsed >= ANNOUNCE_MS", "announce=False", 1),
+     "the hold announcement never fires, so a wait past the point where a pause "
+     "stops reading as thinking and starts reading as broken passes in silence"),
+]
 
 CASES += [
     # ---------------------------------------------------------------- CI-080

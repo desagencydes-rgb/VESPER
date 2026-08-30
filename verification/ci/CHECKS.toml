@@ -1051,3 +1051,42 @@ three innocuous facts compact into a security profile carrying the least private
 of their labels. Monotonic sensitivity subsumes it without needing to detect it
 -- you do not have to catch every sensitive thing, you have to never classify
 downward."""
+
+[checks.CI-081]
+name = "chooser-escalates-only-when-unsure"
+enforces = ["INV-DIFF-1"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py chooser-escalates-only-when-unsure"
+blocking = "pr"
+self_test = """Stop gating escalation on the confidence flag; let a model lower
+the difficulty below the floor; use an escalator's answer without checking it is
+a difficulty; let a provider failure propagate into the turn; never fire the
+hold announcement."""
+self_test_evidence = """tools/ci/self_test.py chooser-escalates-only-when-unsure
+-- 5 cases, red then green, 2026-08-30."""
+subject = "core/chooser.py"
+note = """INV-DIFF-1 requires the classification to REPORT whether it was
+confident. Until the chooser existed, exactly one thing in this repository read
+that flag: the check asserting it was there. A signal nothing consumes can rot
+without anyone noticing, and CI-069 would still have been green."""
+discriminators = """THE ASYMMETRY HAS TO CROSS THE ESCALATION BOUNDARY OR IT IS
+NOT THE ASYMMETRY. CI-069 gates it inside classify(); this gates it at the point
+a MODEL's opinion arrives and could quietly undo it. Too high costs a stronger
+rung. Too low takes `low` reasoning effort and comes back confidently wrong,
+which core/effort.py refuses rather than clamps for the same reason.
+
+THE FIXTURE IS CHECKED FOR AMBIGUITY BEFORE BEING USED AS AN AMBIGUOUS ONE. If
+the classifier ever becomes confident about that sentence, the escalation half
+of this check would pass by testing nothing -- so the check asserts
+`classify(fixture).confident is False` first, and fails loudly rather than
+quietly succeeding.
+
+FOUR WAYS THE ESCALATOR CAN FAIL ARE ALL TESTED: raising, returning nonsense,
+returning None, and not existing. All four must land on the deterministic
+answer, which was already computed before the escalation was attempted. The
+chooser is an improvement on the floor and never a dependency of it.
+
+THE 600 ms THRESHOLD IS WHEN TO SPEAK, NOT WHEN TO STOP, so the slow case
+asserts BOTH that the announcement fires and that the choice still completes at
+the escalated difficulty. A version that cancelled would satisfy the first
+assertion alone."""

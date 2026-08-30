@@ -924,7 +924,7 @@ why_the_image_wire_is_excluded = "An image request has no system role. Prependin
 [invariants.INV-DIFF-1]
 statement = "Request difficulty is classified asymmetrically: it may be raised on a single marker and may be lowered only on a positive, narrow signal. Absence of any signal yields the same middle difficulty a constant would, and the classification reports whether it was confident."
 owner_rem = "REM-010"
-enforced_by = ["CI-069"]
+enforced_by = ["CI-069", "CI-081"]
 kind = "runtime"
 why_it_was_missing = "tools/ops/vesper_runtime.py passed difficulty=\"moderate\" on every request, with a comment honest about being a placeholder: nothing had measured how hard a request is. The constant cost twice -- `moderate` floors at the `standard` tier, so a greeting could not be answered by anything cheaper and took 25.9 s on 2026-08-26; and it floors at `medium` effort, reserving 2048 tokens of reasoning headroom to say hello back."
 why_asymmetric = "The two errors are not priced alike. Classifying too high costs a stronger rung. Classifying too low strips the reasoning budget and returns a confidently wrong answer, which is precisely the failure core/effort.py raises rather than clamps to avoid. So the fallback is the constant it replaced: the worst case of the classifier must be the status quo."

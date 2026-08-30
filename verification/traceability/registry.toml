@@ -158,7 +158,7 @@ tests = ["A-022"]
 contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json"]
 decision_functions = ["DF-PROVIDER-ADMIT"]
 invariants = ["INV-HW-1", "INV-DIFF-1", "INV-PERF-2"]
-ci = ["CI-007", "CI-069", "CI-071"]
+ci = ["CI-007", "CI-069", "CI-071", "CI-081"]
 status = "SPECIFIED"
 raised = "2026-08-26: `sends EASY tasks to SMALLER models` was enforced on the routing half and unenforced on the classifying half, because nothing classified. tools/ops/vesper_runtime.py passed difficulty=\"moderate\" on every request, so the mapping ran correctly over a constant input and a greeting was routed to the same tier as a design question. CI-069 covers the classification; CI-071 covers what happens when the tier that satisfies the floor is not the one that answers fastest -- on a remote rung a stronger tier is somebody else's accelerator and is not bought with our seconds at all."
 

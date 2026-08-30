@@ -5614,6 +5614,127 @@ def check_reprojection_never_resurrects() -> Result:
     return r
 
 
+def check_chooser_escalates_only_when_unsure() -> Result:
+    """A model runs only on the ambiguous middle, and may raise but never lower.
+
+    INV-DIFF-1 REQUIRES THE CLASSIFICATION TO REPORT WHETHER IT WAS CONFIDENT,
+    and until the chooser existed exactly one thing in this repository read that
+    flag: the check asserting it was there. A signal nothing consumes is a
+    signal that can rot without anyone noticing.
+
+    THE ASYMMETRY CROSSES THE ESCALATION BOUNDARY OR IT IS NOT THE ASYMMETRY.
+    CI-069 gates it inside `classify()`; this gates it at the point a MODEL's
+    opinion arrives and could quietly undo it. Too high costs a stronger rung;
+    too low gets `low` reasoning effort and comes back confidently wrong.
+
+    AND A MODEL ON EVERY TURN IS THE THING BEING AVOIDED. "Ask a model how hard
+    this is" is one line and puts a paid network call in front of "hello",
+    inside the latency path. The check counts the calls.
+    """
+    r = Result("chooser-escalates-only-when-unsure")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.chooser import (ANNOUNCE_MS, Chooser, DETERMINISTIC,
+                                  ESCALATED, FELL_BACK)
+        from core.difficulty import DIFFICULTY, classify
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.chooser did not import: {exc!r}")
+        return r
+
+    calls: list = []
+
+    def counting(answer):
+        def esc(text):
+            calls.append(text)
+            return answer
+        return esc
+
+    # 1. NO MODEL ON A CONFIDENT CLASSIFICATION.
+    del calls[:]
+    ch = Chooser(escalate=counting("hard"))
+    for text in ("hello", "thanks", "def f(x): return x / 0  # core/memory.py"):
+        out = ch.choose(text)
+        if out.path != DETERMINISTIC:
+            r.err(f"{text[:24]!r} took the {out.path} path. It is classified "
+                  "confidently, and escalating it puts a paid network call "
+                  "inside the latency path for a greeting.")
+    if calls:
+        r.err(f"the escalator was called {len(calls)} time(s) on confidently "
+              "classified input")
+
+    # 2. THE AMBIGUOUS MIDDLE DOES ESCALATE -- or the whole subsystem is inert
+    #    and item 1 passes trivially.
+    ambiguous = "could you look at the thing we discussed and see if it holds"
+    if classify(ambiguous).confident:
+        r.err("the fixture chosen as ambiguous is classified confidently, so "
+              "this check is no longer testing escalation at all")
+    del calls[:]
+    out = Chooser(escalate=counting("hard")).choose(ambiguous)
+    if out.path != ESCALATED or not calls:
+        r.err(f"an unconfident classification did not escalate (path "
+              f"{out.path!r}, {len(calls)} call(s))")
+    if out.difficulty != "hard":
+        r.err(f"the escalator raised to 'hard' and the choice is "
+              f"{out.difficulty!r}")
+
+    # 3. RAISE YES, LOWER NEVER.
+    low = Chooser(escalate=counting("trivial")).choose(ambiguous)
+    floor = classify(ambiguous).difficulty
+    if DIFFICULTY.index(low.difficulty) < DIFFICULTY.index(floor):
+        r.err(f"a model lowered the difficulty below the deterministic floor "
+              f"({floor!r} -> {low.difficulty!r}). Too low gets `low` reasoning "
+              "effort and a confidently wrong answer, which is the failure this "
+              "corpus is organised against.")
+    if not low.overruled:
+        r.err("a downgrade was refused without being recorded as an overrule. "
+              "A model whose answer is being discarded every time is a cost "
+              "with no benefit, and nothing would show it.")
+
+    # 4. NOTHING HERE MAY FAIL A TURN. Three ways the escalator can fail, and
+    #    all three must land on the deterministic answer.
+    def boom(_):
+        raise RuntimeError("provider down")
+    for esc, label in ((boom, "an escalator that raises"),
+                       (lambda _: "banana", "an escalator returning nonsense"),
+                       (lambda _: None, "an escalator returning None")):
+        out = Chooser(escalate=esc).choose(ambiguous)
+        if out.path != FELL_BACK:
+            r.err(f"{label} produced path {out.path!r} instead of falling back")
+        if out.difficulty != floor:
+            r.err(f"{label} changed the difficulty to {out.difficulty!r}; the "
+                  f"deterministic floor {floor!r} was already computed and is "
+                  "already routable")
+    out = Chooser().choose(ambiguous)
+    if out.difficulty != floor or out.path != DETERMINISTIC:
+        r.err("with no escalator configured the chooser did not simply use the "
+              "deterministic answer")
+
+    # 5. THE HOLD ANNOUNCEMENT IS A THRESHOLD, NOT A TIMEOUT. The work is not
+    #    cancelled; the owner is told it is still happening.
+    import time as _t
+
+    def slow(_):
+        _t.sleep((ANNOUNCE_MS + 60) / 1000.0)
+        return "hard"
+    out = Chooser(escalate=slow).choose(ambiguous)
+    if not out.announce:
+        r.err(f"a {out.elapsed_ms:.0f} ms choice did not set announce past the "
+              f"{ANNOUNCE_MS} ms threshold. Below it VESPER says nothing, "
+              "because announcing every delay makes it apologise constantly for "
+              "waits nobody perceives.")
+    if out.difficulty != "hard":
+        r.err("the slow escalation was cancelled rather than announced; the "
+              "threshold is when to SPEAK, not when to stop")
+
+    r.note("confident input never reaches a model; the ambiguous middle "
+           "escalates; a downgrade is refused and recorded; a raising, "
+           "nonsense-returning, None-returning or absent escalator all fall "
+           "back to the deterministic floor; a slow choice announces and "
+           "completes")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -5664,6 +5785,7 @@ CHECK_FNS = {
     "arbiter-never-picks-silently": check_arbiter_never_picks_silently,
     "forgetter-never-edits-in-place": check_forgetter_never_edits_in_place,
     "reprojection-never-resurrects": check_reprojection_never_resurrects,
+    "chooser-escalates-only-when-unsure": check_chooser_escalates_only_when_unsure,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,
