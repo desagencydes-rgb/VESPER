@@ -1035,6 +1035,16 @@ CASES += [
 CASES += [
     # ---------------------------------------------------------------- CI-082
     ("sensors-never-reach-a-model", SENSORS_PY,
+     _sub("            return Reading.unavailable(\n"
+          "                key, f\"sensor:{name}\",\n"
+          "                f\"probe returned no value after {ms:.1f} ms\")",
+          "            return Reading(key=key, source=f\"sensor:{name}\",\n"
+          "                           value=\"UNKNOWN\")", 1),
+     "a failed probe returns a Reading carrying the string UNKNOWN as its "
+     "VALUE: it reads as known, renders like a measurement, and carries no "
+     "reason a surface could show instead"),
+
+    ("sensors-never-reach-a-model", SENSORS_PY,
      _sub("        if applied:\n            self._emit(\"sensors.polled\", out)",
           "        self._emit(\"sensors.polled\", out)", 1),
      "an event published on every poll whether or not a probe ran: measured at "

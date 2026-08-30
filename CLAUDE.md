@@ -65,7 +65,7 @@ had. Use `python3.13` (`~/.local/bin/python3.13`). Verified 2026-08-23.
 
 ```sh
 python3.13 tools/ci/checks.py all       # 57 checks
-python3.13 tools/ci/self_test.py        # red-then-green, 218 cases
+python3.13 tools/ci/self_test.py        # red-then-green, 221 cases
 python3.13 tools/traceability_lint.py
 python3.13 tools/reference_lint.py
 python3.13 verification/run_f0_acceptance.py   # ... f1 .. f6
@@ -74,7 +74,7 @@ python3.13 verification/stress_fabric.py        # 180k property assertions
 ```
 
 **Corrected 2026-08-30:** they read 47 and 160 while the commands printed 57
-and 218 -- the memory system landed overnight and brought ten checks with it
+and 221 -- the memory system landed overnight and brought ten checks with it
 (`CI-074` and `CI-076`..`CI-082`, plus the redactor's check, which runs and is
 deliberately unregistered). **Fifth drift of this pair.** Four of the five have
 now been found by someone reading the file rather than by the file being wrong

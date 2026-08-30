@@ -51,6 +51,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from . import decision_path
+from .projection import Reading
 from .world import UNKNOWN, Observation
 
 # The five source classes, which differ by WHAT MAKES THEM HAPPEN -- and that is
@@ -168,16 +169,36 @@ class SensorRegistry:
             return UNKNOWN, elapsed
         return value, (time.perf_counter() - started) * 1000.0
 
-    def read(self, name: str) -> dict:
-        """The VERIFIER's caller: probe now, on demand, before trusting a fact."""
+    def read(self, name: str) -> Reading:
+        """The VERIFIER's caller: probe now, on demand, before trusting a fact.
+
+        RETURNS A `Reading`, NOT A DICT, and that is not a type preference.
+        `HANDOFF_MEMORY_BUILD` names `core/projection.py` as "the freshness
+        machinery the verifier registry ... needs", and the first version of
+        this method ignored it and returned `{"value": ..., "known": ...}` --
+        two fields a caller can read independently, so `value` survives a
+        `known=False` and gets rendered.
+
+        A `Reading` CANNOT HOLD A VALUE WITHOUT PROVENANCE, or a reason without
+        a value, or both, or neither -- `__post_init__` refuses all four. The
+        failure it prevents is the one drawn in the owner's own reference: a
+        status column reading `41 °C` on a host that exposes no temperature,
+        because the column looked empty without one. An unavailable reading here
+        is `unavailable()` and carries WHY, which is what lets a surface explain
+        itself instead of rendering a blank that looks like a measurement.
+        """
         with self._lock:
             sensor = self._sensors.get(name)
         if sensor is None:
             raise SensorRefused(f"no sensor {name!r}")
         value, ms = self._run(sensor)
-        return {"sensor": name, "subject": sensor.subject,
-                "attribute": sensor.attribute, "value": value,
-                "measured_ms": round(ms, 2), "known": value is not UNKNOWN}
+        key = f"{sensor.subject}.{sensor.attribute}"
+        if value is UNKNOWN:
+            return Reading.unavailable(
+                key, f"sensor:{name}",
+                f"probe returned no value after {ms:.1f} ms")
+        return Reading(key=key, source=f"sensor:{name}", value=value,
+                       observed_at=self._clock.now(), ttl_ms=sensor.ttl_ms)
 
     def poll(self, *, force: bool = False) -> dict:
         """The SCHEDULER's caller: run every due timer sensor, apply the results.

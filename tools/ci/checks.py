@@ -6018,6 +6018,31 @@ def check_sensors_never_reach_a_model() -> Result:
               "several times a second forever and drowns the events the log "
               "exists to hold.")
 
+    # 3e. THE VERIFIER CALLER RETURNS A `Reading`, NOT A DICT.
+    #     HANDOFF_MEMORY_BUILD names core/projection.py as "the freshness
+    #     machinery the verifier registry needs", and the first version of
+    #     `read()` ignored it and returned `{"value": ..., "known": ...}` -- two
+    #     fields a caller reads independently, so a value survives `known=False`
+    #     and gets rendered. A Reading cannot hold a value without provenance,
+    #     nor a reason without a value, nor both, nor neither.
+    from core.projection import Reading
+    okr = reg3.read("power")
+    if not isinstance(okr, Reading):
+        r.err(f"read() returned {type(okr).__name__}, not a Reading. A dict "
+              "lets `value` and `known` disagree, which is how a placeholder "
+              "gets rendered as a measurement.")
+    elif not okr.known or okr.source == "unknown":
+        r.err("a working probe produced a Reading with no value or no source")
+    badr = reg4.read("thermal")
+    if isinstance(badr, Reading):
+        if badr.known or badr.value is not None:
+            r.err("a failed probe produced a Reading carrying a value. UNKNOWN "
+                  "means UNAVAILABLE, and the last reading is never offered.")
+        if not badr.unavailable_reason:
+            r.err("an unavailable Reading carries no reason, so a surface "
+                  "cannot explain itself to the owner and an absent value "
+                  "renders identically to a present one")
+
     # 4. A SENSOR WHOSE CLASS IS UNKNOWN IS REFUSED. The class decides the
     #    mechanism, so guessing it schedules by guesswork.
     try:

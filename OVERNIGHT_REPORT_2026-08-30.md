@@ -32,7 +32,7 @@ what is waiting on the owner.
 | 6 | Compactor · arbiter · forgetter | done | `CI-080` · `CI-078` · `CI-079` |
 | 7 | Sensors | done, wired | `CI-082` |
 
-**Gates: 57 checks, 218 self-tests, both lints green.** Every check landed with
+**Gates: 57 checks, 221 self-tests, both lints green.** Every check landed with
 an executed red run in `self_test.py`; nothing was declared.
 
 Memory runs in the live app. `~/Library/Application Support/VESPER/l2.db` was
@@ -167,6 +167,24 @@ replayed snapshot reads back, and 86% noise makes it a log nobody will read.
 Fixed and gated. **The ~9k junk records are permanent**, for the same reason the
 erased credential is: `DELETE` on the `log` store is refused at the storage
 layer. They are harmless and they are there.
+
+**I used neither `taint.py` nor `projection.py`, which the handoff named
+specifically**, and checking that at the end found the worst defect of the
+night. Every trust class my code wrote was invented — `owner_utterance`,
+`extractor_reading`, `compaction`, `calendar` — because `remember()` validated
+privacy against its contract and checked trust only for non-emptiness.
+`_weakest()` maps an unknown class to rank 0, so **the owner's own words ranked
+below `retrieved_external`**, and nothing in memory ever carried the one class
+`INV-AUTH-6` is about. The compactor also set `trust_class="compaction"`,
+destroying the inputs' classes at the exact moment content merges. Both fixed:
+memory refuses anything outside `taint`'s vocabulary, and compaction inherits
+through `taint.summarise()` — verified, `owner` + `retrieved_external` now
+yields `retrieved_external`. `SensorRegistry.read()` returns a `projection.Reading`,
+which structurally cannot hold a value without provenance.
+
+**That was the third invented vocabulary in one night** — after the L2 probe's
+`private`/`shareable` and `host_health`'s `nominal`/`constrained`. Each looked
+reasonable read on its own, and none of them failed anything.
 
 ## Waiting on the owner
 
