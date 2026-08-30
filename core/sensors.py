@@ -228,7 +228,21 @@ class SensorRegistry:
                             "value": value, "measured_ms": round(ms, 2)})
         out = {"applied": applied, "skipped": skipped,
                "discards": len(self.discards)}
-        self._emit("sensors.polled", out)
+        # PUBLISHED ONLY WHEN A PROBE ACTUALLY RAN, and this is not tidiness.
+        # `poll()` is called on every pump pass and returns immediately for
+        # anything not due -- which is correct and costs a dict lookup. Emitting
+        # an event anyway put 9,152 records into the APPEND-ONLY log in twenty
+        # minutes: 86.3% of the entire log, 7.8 MB, and growing at roughly eight
+        # records a second forever.
+        #
+        # THE COST IS NOT DISK. It is that the log is EVIDENCE -- the thing every
+        # miss record, every replayed snapshot and every audit reads back -- and
+        # a heartbeat nobody asked for buries the events that matter under a
+        # hundred to one. `skipped` is deliberately not a reason to emit either:
+        # a GATED sensor is skipped on every single pass, forever, and that is
+        # the design working rather than news.
+        if applied:
+            self._emit("sensors.polled", out)
         return out
 
     def _discard(self, sensor: str, reason: str, detail: str = "") -> None:

@@ -1035,6 +1035,13 @@ CASES += [
 CASES += [
     # ---------------------------------------------------------------- CI-082
     ("sensors-never-reach-a-model", SENSORS_PY,
+     _sub("        if applied:\n            self._emit(\"sensors.polled\", out)",
+          "        self._emit(\"sensors.polled\", out)", 1),
+     "an event published on every poll whether or not a probe ran: measured at "
+     "9,152 records in twenty minutes, 86.3% of the entire append-only log, "
+     "burying the evidence every miss record and replayed snapshot reads back"),
+
+    ("sensors-never-reach-a-model", SENSORS_PY,
      _sub("            deadline = (self._world.now_ms() + s.ttl_ms\n"
           "                        if s.ttl_ms is not None else None)",
           "            deadline = s.ttl_ms", 1),

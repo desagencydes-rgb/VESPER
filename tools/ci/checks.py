@@ -5951,6 +5951,25 @@ def check_sensors_never_reach_a_model() -> Result:
         r.err("`expired_present()` is False over a lapsed fact, so "
               "`trg_fact_expiry_sweep` can never fire")
 
+    # 3d. A POLL THAT RAN NOTHING PUBLISHES NOTHING. `poll()` is called on
+    #     every pump pass; emitting an event regardless put 9,152 records into
+    #     the append-only log in twenty minutes -- 86.3% of the whole log. The
+    #     cost is not disk: the log is the evidence every miss record and every
+    #     replayed snapshot reads back, and a heartbeat nobody asked for buries
+    #     what matters a hundred to one.
+    quiet = SensorRegistry(world, clock, bus=bus)
+    quiet.register(Sensor("nothing-due", "current_host", "spare",
+                          lambda: 1, TIMER, period_ms=10_000_000))
+    quiet.poll(force=True)                      # first call: it IS due
+    seen_before = sum(1 for _ in store.read("log", kind="sensors.polled"))
+    quiet.poll()                                # second: nothing due
+    seen_after = sum(1 for _ in store.read("log", kind="sensors.polled"))
+    if seen_after != seen_before:
+        r.err("a poll that ran no probe still published an event. `poll()` runs "
+              "on every pump pass, so this writes to an APPEND-ONLY store "
+              "several times a second forever and drowns the events the log "
+              "exists to hold.")
+
     # 4. A SENSOR WHOSE CLASS IS UNKNOWN IS REFUSED. The class decides the
     #    mechanism, so guessing it schedules by guesswork.
     try:
