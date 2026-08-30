@@ -502,7 +502,7 @@ kind = "runtime"
 [invariants.INV-MEM-1]
 statement = "Three-way disagreement across memory authority ranks 2-4 produces a user-facing question, never a silent pick."
 owner_rem = "REM-010"
-enforced_by = ["A-003"]
+enforced_by = ["CI-078", "A-003"]
 kind = "runtime"
 
 [invariants.INV-PERF-1]

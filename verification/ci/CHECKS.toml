@@ -929,3 +929,41 @@ that block B led the prompt and the question trailed it. Both remain true while
 arbitrary content sits between them, which is exactly the weak middle being
 filled. The check now compares the whole prompt against block B and the question
 concatenated."""
+
+[checks.CI-078]
+name = "arbiter-never-picks-silently"
+enforces = ["INV-MEM-1"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py arbiter-never-picks-silently"
+blocking = "pr"
+self_test = """Take the highest rank instead of asking; stop detecting
+contradictions; drop memory_rank in the translation to Claim; make the open
+questions unreachable."""
+self_test_evidence = """tools/ci/self_test.py arbiter-never-picks-silently
+-- 4 cases, red then green, 2026-08-30."""
+subject = "core/arbiter.py"
+note = """INV-MEM-1 had one enforcer and it was an acceptance test.
+`resolve_memory_conflict` has implemented DF-MEMORY-AUTHORITY since A-003 and
+was reachable from nothing in the runtime -- called only by run_f1_acceptance.
+The arbiter finds contradictions in L2 and hands them to it; it does not
+reimplement the ladder, because two rank tables in one corpus would drift and
+the one that drifted would be the one nobody was watching."""
+discriminators = """THE SILENT PICK IS INVISIBLE BY CONSTRUCTION, which is what
+makes it worth a check. Taking the highest rank, the most recent, or the last to
+arrive all produce a fluent confident answer and no event; the owner finds out
+when the action taken on it turns out wrong, and nothing records that a choice
+was made. The first self-test case is exactly that build, and it looks entirely
+reasonable in the diff.
+
+AGREEMENT IS TESTED AS HARD AS DISAGREEMENT. Without it, every fact corroborated
+by a second source becomes an interruption, the owner learns to dismiss the
+questions, and the mechanism is disabled more thoroughly than by never having
+been built.
+
+AN ASK CARRYING A VALUE IS ANSWERED. The check asserts both the outcome and the
+absence of a value, because every caller downstream will read a value if one is
+there and skip the question that came with it.
+
+REACHABILITY IS SEPARATE FROM OUTCOME. A conflict that resolves to ASK and is
+then dropped from `open_questions()` reaches the owner exactly as often as a
+silent pick does, which is never."""

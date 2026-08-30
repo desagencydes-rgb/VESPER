@@ -5204,6 +5204,111 @@ def check_l1_blocks_hold_index_not_knowledge() -> Result:
     return r
 
 
+def check_arbiter_never_picks_silently() -> Result:
+    """Ranks 2-4 disagreeing produces a question. Never a value.
+
+    THE SILENT PICK IS THE FAILURE, and it is invisible by construction. Taking
+    the highest rank, or the most recent, or the one that arrived last, all
+    produce a fluent confident answer and no event. The owner finds out when the
+    action taken on it turns out to be wrong, and by then nothing records that a
+    choice was ever made.
+
+    REM-010 4.6 CALLS ASKING "THE SPECIFIED DEFAULT, NOT AN IMPLEMENTATION
+    CHOICE", which is why this is a check rather than a preference. The
+    asymmetry is the usual one: a question costs the owner a moment; acting on
+    the wrong flight time costs whatever that costs, and produces nothing anyone
+    can learn from.
+
+    THE LADDER IS NOT REIMPLEMENTED IN THE ARBITER. `resolve_memory_conflict`
+    has owned DF-MEMORY-AUTHORITY since A-003 and was reachable from nothing but
+    an acceptance runner. Two rank tables in one corpus would drift, and the one
+    that drifted would be the one nobody was watching -- so this check drives
+    the arbiter and asserts the RESOLVER's outcomes.
+    """
+    r = Result("arbiter-never-picks-silently")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        import tempfile
+        from core.store import StoreSet
+        from core.hlc import HybridLogicalClock
+        from core.memory import MemoryGraph
+        from core.arbiter import Arbiter
+        from core.bus import EventBus
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.arbiter did not import: {exc!r}")
+        return r
+
+    store = StoreSet(tempfile.mkdtemp(), node_id="ci")
+    clock = HybridLogicalClock(node_id="ci")
+    mem = MemoryGraph(store)
+    bus = EventBus(clock, store)
+    seen = []
+    bus.subscribe("memory.conflict", lambda e: seen.append(e),
+                  name="ci-arbiter", idempotency_key=lambda e: str(id(e)))
+    arb = Arbiter(mem, bus=bus)
+
+    def fact(subject, attribute, value, rank, trust):
+        mem.remember(subject=subject, attribute=attribute, value=value,
+                     rank=rank, privacy="private", trust_class=trust,
+                     at=clock.now())
+
+    # THE WORKED EXAMPLE. Owner says Tuesday (rank 4, user_statement); the
+    # calendar says Wednesday (rank 2, source_of_record).
+    fact("flight", "departs", "Tuesday morning", 4, "owner_utterance")
+    fact("flight", "departs", "Wednesday morning", 2, "calendar")
+
+    found = arb.contradictions()
+    if not any(c["subject"] == "flight" and c["attribute"] == "departs"
+               for c in found):
+        r.err("the contradiction was not detected at all. Two values for one "
+              "(subject, attribute) is the input to the whole ladder; missing "
+              "it means the resolver is never consulted and the pick is made "
+              "by whichever row selection happened to return first.")
+
+    res = arb.resolve("flight", "departs")
+    if res.get("outcome") != "ASK":
+        r.err(f"ranks 2 and 4 disagreed and the outcome was "
+              f"{res.get('outcome')!r} carrying {res.get('value')!r}. "
+              "INV-MEM-1: a three-way disagreement across ranks 2-4 produces a "
+              "user-facing question, never a silent pick. Taking the higher "
+              "rank is still a pick.")
+    if res.get("value") not in (None, "UNKNOWN"):
+        r.err(f"an ASK outcome carried a value ({res.get('value')!r}). A "
+              "question with an answer attached is answered, and every caller "
+              "downstream will read the value and skip the question.")
+    if not seen:
+        r.err("no `memory.conflict` event was published. A conflict nobody can "
+              "observe is resolved silently even when the return value says "
+              "ASK -- the event is how the question reaches a surface.")
+
+    # AGREEMENT IS NOT A CONFLICT. Without this, every fact confirmed by a
+    # second source becomes an interruption, and the owner learns to dismiss
+    # the questions -- which disables the mechanism far more thoroughly than
+    # not having built it.
+    fact("hotel", "city", "Casablanca", 4, "owner_utterance")
+    fact("hotel", "city", "Casablanca", 2, "booking")
+    agree = arb.resolve("hotel", "city")
+    if agree.get("outcome") != "RESOLVED":
+        r.err(f"two sources AGREEING produced {agree.get('outcome')!r}. "
+              "Distinct ranks holding the same value is corroboration.")
+
+    # THE QUESTION MUST BE REACHABLE AS A QUESTION, not merely returned once.
+    opens = arb.open_questions()
+    if not any(q["subject"] == "flight" for q in opens):
+        r.err("the unresolved conflict does not appear in open_questions(). A "
+              "conflict that resolves to ASK and is then unreachable has been "
+              "silently dropped rather than silently picked, which produces the "
+              "same outcome for the owner.")
+    if any(q["subject"] == "hotel" for q in opens):
+        r.err("an agreeing pair appeared as an open question")
+
+    r.note(f"{len(found)} contradiction(s) detected; rank 2 vs rank 4 asks and "
+           f"carries no value; the conflict is published; agreement resolves; "
+           f"{len(opens)} open question(s) reachable")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -5251,6 +5356,7 @@ CHECK_FNS = {
     "redactor-precedes-every-provider": check_redactor_precedes_every_provider,
     "updater-refuses-and-ranks": check_updater_refuses_and_ranks,
     "l1-blocks-hold-index-not-knowledge": check_l1_blocks_hold_index_not_knowledge,
+    "arbiter-never-picks-silently": check_arbiter_never_picks_silently,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

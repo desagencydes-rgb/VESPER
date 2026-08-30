@@ -962,11 +962,45 @@ MEMORY_PY = "core/memory.py"
 REDACT_PY = "core/redact.py"
 UPDATER_PY = "core/updater.py"
 BLOCKS_PY = "core/blocks.py"
+ARBITER_PY = "core/arbiter.py"
 GATEWAY_PY = "core/gateway.py"
 ROUTER = "core/router.py"
 LATENCY = "core/latency.py"
 SUPPLY_PY = "routing/supply.py"
 RUNTIME = "tools/ops/vesper_runtime.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-078
+    ("arbiter-never-picks-silently", ARBITER_PY,
+     _sub("        claims = self.claims_for(subject, attribute)\n"
+          "        return resolve_memory_conflict(",
+          "        claims = self.claims_for(subject, attribute)\n"
+          "        if claims:\n"
+          "            return {'outcome': 'RESOLVED', 'value': claims[0].text,\n"
+          "                    'reason': 'highest rank wins'}\n"
+          "        return resolve_memory_conflict(", 1),
+     "the arbiter takes the highest rank instead of asking: the single most "
+     "natural wrong answer here, it looks entirely reasonable, and REM-010 4.6 "
+     "calls asking the specified default rather than a design choice"),
+
+    ("arbiter-never-picks-silently", ARBITER_PY,
+     _sub("               HAVING vals > 1", "               HAVING vals > 99", 1),
+     "contradictions stop being detected, so the resolver is never consulted "
+     "and the value used is whichever row selection happened to return first"),
+
+    ("arbiter-never-picks-silently", ARBITER_PY,
+     _sub("        return [Claim(text=r[0], memory_rank=r[1], trust_class=r[2])",
+          "        return [Claim(text=r[0], trust_class=r[2])", 1),
+     "memory_rank dropped in translation, so every candidate arrives at the "
+     "resolver as the default rank 5 and no rank 2/3/4 disagreement can ever "
+     "be seen -- the ladder is intact and nothing reaches it"),
+
+    ("arbiter-never-picks-silently", ARBITER_PY,
+     _sub('        return [r for r in self.sweep(ceiling=ceiling) if r["outcome"] == "ASK"]',
+          "        return []", 1),
+     "the questions become unreachable: a conflict that resolves to ASK and is "
+     "then dropped produces the same outcome for the owner as a silent pick"),
+]
 
 CASES += [
     # ---------------------------------------------------------------- CI-077
