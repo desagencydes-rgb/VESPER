@@ -1628,8 +1628,8 @@ CASES += [
      "budget does not shorten the answer, it returns NO answer with a 200"),
 
     ("system-turn-reaches-the-wire", RUNTIME,
-     _sub("        out = gw.complete(utterance.text, task_id=task, system=system,",
-          "        out = gw.complete(utterance.text, task_id=task,", 1),
+     _sub("        out = gw.complete(request, task_id=task, system=system,",
+          "        out = gw.complete(request, task_id=task,", 1),
      "the runtime stops passing a persona: both contracts still load, both "
      "still validate, and nothing reaches a provider"),
 ]

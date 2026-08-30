@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -49,6 +50,9 @@ from core.difficulty import classify                            # noqa: E402
 from core.effort import EXPECTED_OUTPUT                         # noqa: E402
 from core.narration import Announcer                            # noqa: E402
 from core.persona import Persona, Situation                     # noqa: E402
+from core.blocks import L1Renderer                              # noqa: E402
+from core.memory import MemoryGraph                             # noqa: E402
+from core.updater import MissRecorder, Updater                  # noqa: E402
 from core.quota import QuotaLedger                              # noqa: E402
 from core.router import NoRouteAvailable, Router                # noqa: E402
 from core.store import StoreSet                                 # noqa: E402
@@ -106,10 +110,41 @@ def build(node: str = "vesper-runtime"):
     # time somebody forgets.
     bench = Workbench()
     bench.attach(bus)
-    return bus, gw, router, home, intake, triage, report, persona, bench
+
+    # MEMORY DEGRADES; IT DOES NOT STOP THE PROCESS, and that is a different
+    # decision from the one made about the persona ten lines up. A runtime with
+    # no persona answers fluently and namelessly, which is indistinguishable
+    # from working and is the state this system was in until 2026-08-26 -- so
+    # that one raises. A runtime with no MEMORY is a well-defined thing:
+    # `core/baseline.py` exists precisely to record what VESPER answers without
+    # it, and that record is the comparison every question about this design
+    # depends on.
+    #
+    # WHAT MAY NOT HAPPEN IS DEGRADING SILENTLY. A turn answered without memory
+    # looks exactly like a turn answered with it -- fluent, confident, and
+    # missing whatever it should have known. So the failure is published, and
+    # `renderer is None` is what every downstream branch reads.
+    memory = renderer = updater = misses = None
+    try:
+        memory = MemoryGraph(store, path=str(STATE / "l2.db"))
+        renderer = L1Renderer(persona, memory)
+        updater = Updater(memory, store, clock, bus=bus)
+        misses = MissRecorder(memory, store, clock, bus=bus)
+    except Exception as exc:                       # noqa: BLE001
+        bus.publish("memory.unavailable", subject="l2",
+                    payload={"error": repr(exc),
+                             "note": ("answering WITHOUT memory. This is the "
+                                      "baseline condition, and it is published "
+                                      "because a turn without memory is "
+                                      "indistinguishable from one with it.")},
+                    component="runtime")
+
+    return (bus, gw, router, home, intake, triage, report, persona, bench,
+            renderer, updater, misses)
 
 
-def answer(gw, router, persona, utterance) -> str:
+def answer(gw, router, persona, utterance, renderer=None,
+           updater=None) -> str:
     """One request across the ladder. Difficulty routes it; the ladder serves it.
 
     `privacy_class` IS NOT PASSED, and that is the point of the default. Anything
@@ -139,7 +174,23 @@ def answer(gw, router, persona, utterance) -> str:
     # THE SITUATION IS DERIVED, NOT STORED (DR-028's third layer). `normal`
     # because a typed request with the owner waiting is exactly that; the alarm
     # path builds its own and does not come through here.
-    system, _ = persona.compose(Situation(urgency="normal"))
+    situation = Situation(urgency="normal")
+
+    # L1, IF MEMORY IS UP. Block A goes in the system position and is the cached
+    # prefix -- it already CONTAINS the composed persona, which is what lifts
+    # persona over the cache minimum it sits below on its own. Block B goes at
+    # the end of the prompt, against the question, and nothing goes between.
+    #
+    # WITH NO MEMORY THIS IS THE BASELINE PATH, unchanged from what it was
+    # before any of this existed, which is exactly what makes the two
+    # comparable. `core/baseline.py` records that condition on purpose.
+    if renderer is not None:
+        rendered = renderer.render(utterance.text, situation=situation)
+        system, request = rendered.system(), rendered.prompt()
+        bus_payload = rendered.to_dict()
+    else:
+        system, _ = persona.compose(situation)
+        request, bus_payload = utterance.text, None
 
     t0 = time.perf_counter()
     try:
@@ -153,7 +204,7 @@ def answer(gw, router, persona, utterance) -> str:
         # 2026-08-26 read `Limit 8000, Used 5118, Requested 3155` for a turn
         # that came back twelve words long. The budget is not spent -- it is
         # withheld from the next request, which is why this looked free.
-        out = gw.complete(utterance.text, task_id=task, system=system,
+        out = gw.complete(request, task_id=task, system=system,
                           profile_id=decision.profile_id, prefer="latency",
                           expected_output_tokens=EXPECTED_OUTPUT[kind.difficulty],
                           difficulty=kind.difficulty)
@@ -168,11 +219,30 @@ def answer(gw, router, persona, utterance) -> str:
         # know. Recording only successes would let a supplier that times out
         # keep its enrolment-day estimate forever.
         router.observe(decision.profile_id, time.perf_counter() - t0)
-    return ((out.get("result") or {}).get("text") or "").strip()
+
+    reply = ((out.get("result") or {}).get("text") or "").strip()
+
+    # CAPTURE AFTER THE ANSWER, ON ITS OWN THREAD, AND NEVER IN THE WAY. The
+    # turn must not wait on its own bookkeeping -- a turn that does is slower
+    # than one with no memory at all -- and a capture that fails must not turn a
+    # good answer into an error. `Updater.capture` already swallows and records
+    # its own exceptions; the thread is what guarantees the owner never waits
+    # for a disk write.
+    #
+    # KEYED ON THE HLC, because delivery is at-least-once and the same utterance
+    # arriving twice must not become two facts. The HLC is the only identifier
+    # that survives a redelivery.
+    if updater is not None:
+        threading.Thread(
+            target=updater.capture, args=(utterance.text,),
+            kwargs={"event_id": utterance.hlc or f"turn:{task}",
+                    "source": utterance.source},
+            daemon=True, name="updater-capture").start()
+    return reply
 
 
 def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
-         once: bool = False) -> int:
+         once: bool = False, renderer=None, updater=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     OUTBOX.touch(exist_ok=True)
     seen = int(OFFSET.read_text()) if OFFSET.exists() else 0
@@ -214,7 +284,8 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             said = []
             home.set_transcript(list(transcript))
             if res["outcome"] == "dispatched":
-                reply = answer(gw, router, persona, intake.history[-1])
+                reply = answer(gw, router, persona, intake.history[-1],
+                               renderer=renderer, updater=updater)
                 # VESPER'S REPLY IS NOT AN UTTERANCE, and the first version put
                 # it into `intake.history` as one. `Intake` is the record of
                 # things said TO VESPER -- its confidence, its partials and its
@@ -252,7 +323,8 @@ def main() -> int:
     ap.add_argument("--status", action="store_true")
     args = ap.parse_args()
 
-    bus, gw, router, home, intake, triage, report, persona, bench = build()
+    (bus, gw, router, home, intake, triage, report, persona, bench,
+     renderer, updater, misses) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -272,7 +344,8 @@ def main() -> int:
                                 "final": True}) + "\n")
 
     if args.once or args.say:
-        n = pump(bus, gw, router, persona, bench, home, intake, transcript, once=True)
+        n = pump(bus, gw, router, persona, bench, home, intake, transcript,
+                 once=True, renderer=renderer, updater=updater)
         # THE SAME HONESTY THE INTERRUPT PATH APPLIES. A one-shot run that exits
         # leaving `thinking` on disk reports work that is not happening; the
         # 90 s staleness fallback would correct it eventually, and eventually is
@@ -312,7 +385,8 @@ def main() -> int:
     home.write()
     while True:
         try:
-            pump(bus, gw, router, persona, bench, home, intake, transcript)
+            pump(bus, gw, router, persona, bench, home, intake, transcript,
+                 renderer=renderer, updater=updater)
             # THE PLUMBING USED TO COST MORE THAN THE MODEL. 0.5 s here plus
             # 0.7 s in the chrome's own timer is up to 1.2 s of pure polling
             # around a call that now returns in ~0.7 s -- the transport was the

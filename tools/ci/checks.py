@@ -5100,7 +5100,7 @@ def check_l1_blocks_hold_index_not_knowledge() -> Result:
         from core.hlc import HybridLogicalClock
         from core.memory import MemoryGraph
         from core.persona import Persona
-        from core.blocks import L1Renderer, BLOCK_B_HEADER
+        from core.blocks import L1Renderer, BLOCK_A_HEADER, BLOCK_B_HEADER
     except Exception as exc:                       # noqa: BLE001
         r.err(f"core.blocks did not import: {exc!r}")
         return r
@@ -5126,7 +5126,11 @@ def check_l1_blocks_hold_index_not_knowledge() -> Result:
               "turn, and resident personal memory is topically related and "
               "mostly irrelevant -- the exact distractor class measured to harm "
               "more than unrelated filler does.")
-    if "facts under" not in out.block_a:
+    # MATCHED ON THE HEADER, NOT ON "facts under". The index renders "1 fact
+    # under" for a single-fact node, so a substring match on the plural passes
+    # or fails depending on how much the owner happened to say about one topic
+    # -- a check whose result depends on fixture data it does not control.
+    if BLOCK_A_HEADER not in out.block_a:
         r.err("block A carries no index. Without it a fact that was not "
               "selected leaves VESPER CONFIDENTLY ignorant, which produces no "
               "event and cannot be noticed -- unlike a miss, which can.")
