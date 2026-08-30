@@ -893,3 +893,39 @@ THE CREDENTIAL CLASS IS THE INVERSION AND IS TESTED TWICE: refused, and its
 tombstone checked for the value. Quarantining it in full would gather every
 credential VESPER has ever seen into the one store built to be low-security --
 a better target than the vault those credentials were taken out of."""
+
+[checks.CI-077]
+name = "l1-blocks-hold-index-not-knowledge"
+enforces = ["INV-EVID-2"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py l1-blocks-hold-index-not-knowledge"
+blocking = "pr"
+self_test = """Put the facts into block A instead of the index; add a per-turn
+value to block A's front; drop the persona preamble; insert content between
+block B and the question; quote block B facts with no pointer."""
+self_test_evidence = """tools/ci/self_test.py l1-blocks-hold-index-not-knowledge
+-- 5 cases, red then green, 2026-08-30."""
+subject = "core/blocks.py"
+note = """One block cannot satisfy both constraints. Prefix caching wants stable
+content FIRST; long-context attention wants important content at the EDGES,
+because the middle degrades by more than 30%. Ordering purely for the cache
+buries the facts in the worst position available. A leads, B sits against the
+question, and the middle stays empty."""
+discriminators = """INV-EVID-2 IS THE ONLY CLAIM. Block B quoting each fact with
+its log pointer is the resolvable span the invariant requires; a fact quoted
+without one can only be asserted, never cited. The cache and attention
+properties this check also guards have no registered invariant, are tested
+anyway, and are claimed as covering nothing.
+
+THE CACHE PROPERTY IS TESTED BY COMPARING BYTES, not by reading the code, because
+a per-turn value in block A costs full freight on every later turn while the
+output looks exactly as it did before. Both directions are asserted: identical
+across two turns with unchanged memory, AND different after memory gains a node
+-- because a block A that is merely frozen reports an index for a memory that no
+longer exists.
+
+ADJACENCY, NOT ORDER, AND THE RED RUN IS WHY. The first version asserted only
+that block B led the prompt and the question trailed it. Both remain true while
+arbitrary content sits between them, which is exactly the weak middle being
+filled. The check now compares the whole prompt against block B and the question
+concatenated."""

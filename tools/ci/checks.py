@@ -5071,6 +5071,135 @@ def check_updater_refuses_and_ranks() -> Result:
     return r
 
 
+def check_l1_blocks_hold_index_not_knowledge() -> Result:
+    """Block A carries what memory CONTAINS; block B carries what this turn needs.
+
+    THE TWO-BLOCK SHAPE RESOLVES A CONFLICT ONE BLOCK CANNOT. Prefix caching
+    wants stable content first; long-context attention wants important content
+    at the EDGES, because the middle degrades by more than 30%. Ordering purely
+    for the cache buries the facts in the worst position available. A leads, B
+    sits against the question, and the weak middle is left empty.
+
+    BLOCK A HOLDING THE INDEX IS NOT A SIZE OPTIMISATION. Degradation is driven
+    by distractors as much as by length, and topically related but irrelevant
+    content harms MORE than unrelated filler -- which is exactly what resident
+    personal memory is. Carrying every fact resident maximises the most harmful
+    kind of context available.
+
+    THE CACHE PROPERTY IS CHECKED BY COMPARING BYTES rather than by reading the
+    code. One per-turn value in block A -- a timestamp, a turn counter, the
+    question -- invalidates the prefix and costs full freight on every turn
+    afterwards, and NOTHING ABOUT THE OUTPUT LOOKS DIFFERENT when it happens.
+    """
+    r = Result("l1-blocks-hold-index-not-knowledge")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        import tempfile
+        from core.store import StoreSet
+        from core.hlc import HybridLogicalClock
+        from core.memory import MemoryGraph
+        from core.persona import Persona
+        from core.blocks import L1Renderer, BLOCK_B_HEADER
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.blocks did not import: {exc!r}")
+        return r
+
+    store = StoreSet(tempfile.mkdtemp(), node_id="ci")
+    clock = HybridLogicalClock(node_id="ci")
+    mem = MemoryGraph(store)
+    MARKER = "zanzibar-quintuplicate-marker"
+    for subj, attr, val in (
+            ("work", "deadline", f"the deadline is {MARKER}"),
+            ("work", "mode", "voice is primary and text is the fallback"),
+            ("travel", "flight", "the flight is Tuesday morning")):
+        mem.remember(subject=subj, attribute=attr, value=val, rank=4,
+                     privacy="private", trust_class="owner_utterance",
+                     at=clock.now())
+
+    ren = L1Renderer(Persona.load(), mem)
+    out = ren.render("when is the deadline")
+
+    # 1. THE INDEX, NOT THE KNOWLEDGE.
+    if MARKER in out.block_a:
+        r.err("a fact's VALUE appeared in block A. Block A is resident on every "
+              "turn, and resident personal memory is topically related and "
+              "mostly irrelevant -- the exact distractor class measured to harm "
+              "more than unrelated filler does.")
+    if "facts under" not in out.block_a:
+        r.err("block A carries no index. Without it a fact that was not "
+              "selected leaves VESPER CONFIDENTLY ignorant, which produces no "
+              "event and cannot be noticed -- unlike a miss, which can.")
+
+    # 2. THE CACHE PREFIX. Two different questions, unchanged memory.
+    other = ren.render("something else entirely, about flights")
+    if other.block_a != out.block_a:
+        r.err("block A differed between two turns with unchanged memory. The "
+              "provider discount is prefix-keyed on BYTES, so one per-turn "
+              "value at the front costs full freight on every later turn while "
+              "the output looks identical.")
+
+    # 3. AND NOT MERELY FROZEN. A stale index reports a memory that is gone.
+    mem.remember(subject="newnode", attribute="a", value="b", rank=4,
+                 privacy="private", trust_class="owner_utterance",
+                 at=clock.now())
+    if L1Renderer(Persona.load(), mem).render("x").block_a == out.block_a:
+        r.err("block A did not change after memory gained a node. It is cached "
+              "rather than rendered, so the index describes a memory that no "
+              "longer exists.")
+
+    # 4. THE PERSONA HALF SURVIVES -- it is what makes block A cacheable at all.
+    persona_only, _sel = Persona.load().compose(None)
+    first_line = persona_only.strip().splitlines()[0]
+    if first_line not in out.block_a:
+        r.err("block A does not carry the persona preamble. Persona alone is "
+              "~1,590 tokens, below every published cache minimum, and can "
+              "never be discounted on its own.")
+
+    # 5. THE MIDDLE IS EMPTY.
+    prompt = out.prompt()
+    if not prompt.startswith(BLOCK_B_HEADER):
+        r.err("something precedes block B in the prompt. The U-curve's weak "
+              "middle is empty on purpose; filling it undoes the only reason "
+              "there are two blocks.")
+    if not prompt.rstrip().endswith(out.question):
+        r.err("the question is not last. Block B sits against it because that "
+              "is the other high-attention position.")
+    # ADJACENCY, NOT MERELY ORDER. The first version of this check asserted only
+    # that block B led and the question trailed -- both of which stay true while
+    # arbitrary content sits between them, which is precisely the weak middle
+    # being filled. The red run caught it: a negative control that passes is a
+    # defect, not a relief.
+    if prompt != f"{out.block_b}\n\n{out.question}":
+        between = prompt[len(out.block_b):-len(out.question)]
+        r.err(f"content sits between block B and the question: {between!r}. "
+              "The U-curve's middle degrades by more than 30% and is left "
+              "empty on purpose -- anything placed there is both the least "
+              "attended and a distractor.")
+
+    # 6. EVERY QUOTED FACT CARRIES ITS POINTER (INV-EVID-2).
+    for line in out.block_b.splitlines()[1:]:
+        if line.startswith("- ") and "->log:" not in line:
+            r.err(f"a block B line carries no pointer: {line[:60]!r}")
+
+    # 7. BOUNDED. An unbounded block B is the resident design this replaced.
+    for n in range(12):
+        mem.remember(subject="work", attribute=f"a{n}",
+                     value=f"deadline related fact number {n}", rank=4,
+                     privacy="private", trust_class="owner_utterance",
+                     at=clock.now())
+    wide = L1Renderer(Persona.load(), mem).render("deadline")
+    if len(wide.selected) > 5:
+        r.err(f"block B returned {len(wide.selected)} facts; it is 3-5 by "
+              "design, and that bound is what keeps the turn's context small")
+
+    r.note(f"block A indexes {out.index_nodes} nodes and carries no fact "
+           f"values; byte-identical across turns and responsive to a new node; "
+           f"persona preamble present; middle empty; every quoted fact carries "
+           f"a pointer; block B bounded at {len(wide.selected)}")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -5117,6 +5246,7 @@ CHECK_FNS = {
     "memory-projects-from-the-log": check_memory_projects_from_the_log,
     "redactor-precedes-every-provider": check_redactor_precedes_every_provider,
     "updater-refuses-and-ranks": check_updater_refuses_and_ranks,
+    "l1-blocks-hold-index-not-knowledge": check_l1_blocks_hold_index_not_knowledge,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

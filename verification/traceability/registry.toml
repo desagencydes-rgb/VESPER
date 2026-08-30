@@ -675,7 +675,7 @@ contracts = ["contracts/results/result.schema.json"]
 decision_functions = ["DF-OUTPUT-GATE"]
 invariants = ["INV-EVID-2", "INV-EVID-3"]
 tests = ["A-003", "A-006"]
-ci = ["CI-033", "CI-074"]
+ci = ["CI-033", "CI-074", "CI-077"]
 status = "SPECIFIED"
 
 [requirements.SR-053]

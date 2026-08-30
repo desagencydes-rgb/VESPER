@@ -961,11 +961,52 @@ BASELINE = "core/baseline.py"
 MEMORY_PY = "core/memory.py"
 REDACT_PY = "core/redact.py"
 UPDATER_PY = "core/updater.py"
+BLOCKS_PY = "core/blocks.py"
 GATEWAY_PY = "core/gateway.py"
 ROUTER = "core/router.py"
 LATENCY = "core/latency.py"
 SUPPLY_PY = "routing/supply.py"
 RUNTIME = "tools/ops/vesper_runtime.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-077
+    ("l1-blocks-hold-index-not-knowledge", BLOCKS_PY,
+     _sub("            lines.append(f\"- {n['facts']} {noun} under \\\"{n['node']}\\\" \"\n"
+          "                         f\"({n['kind']}) ->log:{n['pointer']}\")",
+          "            for _f in self._memory.select([n['node']], limit=99):\n"
+          "                lines.append(f\"- {_f.value}\")", 1),
+     "block A carries the FACTS instead of the index: resident personal memory "
+     "is topically related and mostly irrelevant to any one turn, which is the "
+     "distractor class measured to harm more than unrelated filler"),
+
+    ("l1-blocks-hold-index-not-knowledge", BLOCKS_PY,
+     _sub('        lines = [preamble.rstrip(), "", BLOCK_A_HEADER]',
+          '        import time as _t\n'
+          '        lines = [preamble.rstrip(), f"turn at {_t.time()}", BLOCK_A_HEADER]', 1),
+     "one per-turn value at the front of block A: the prefix cache is keyed on "
+     "bytes, so every turn now pays full freight and the output looks exactly "
+     "the same as when it did not"),
+
+    ("l1-blocks-hold-index-not-knowledge", BLOCKS_PY,
+     _sub("        preamble, _sel = self._persona.compose(situation)",
+          "        preamble = ''", 1),
+     "the persona preamble dropped from block A: persona alone is ~1,590 "
+     "tokens, below every published cache minimum, so it can never be "
+     "discounted on its own -- and VESPER answers fluent and nameless"),
+
+    ("l1-blocks-hold-index-not-knowledge", BLOCKS_PY,
+     _sub('        return f"{self.block_b}\\n\\n{self.question}" if self.block_b else self.question',
+          '        return f"{self.block_b}\\n\\n(recent context omitted)\\n\\n{self.question}" if self.block_b else self.question', 1),
+     "content inserted between block B and the question, filling the U-curve's "
+     "weak middle that the two-block split exists to leave empty"),
+
+    ("l1-blocks-hold-index-not-knowledge", BLOCKS_PY,
+     _sub('            lines.append(f"- {f.subject}/{f.attribute}: {f.value} "\n'
+          '                         f"[rank {f.rank} ->log:{f.log_seq}]")',
+          '            lines.append(f"- {f.subject}/{f.attribute}: {f.value}")', 1),
+     "block B quotes facts with no pointer: INV-EVID-2 needs a resolvable span, "
+     "and a fact without one can only be asserted, never cited"),
+]
 
 CASES += [
     # ---------------------------------------------------------------- CI-076
