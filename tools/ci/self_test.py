@@ -963,11 +963,71 @@ REDACT_PY = "core/redact.py"
 UPDATER_PY = "core/updater.py"
 BLOCKS_PY = "core/blocks.py"
 ARBITER_PY = "core/arbiter.py"
+FORGETTER_PY = "core/forgetter.py"
 GATEWAY_PY = "core/gateway.py"
 ROUTER = "core/router.py"
 LATENCY = "core/latency.py"
 SUPPLY_PY = "routing/supply.py"
 RUNTIME = "tools/ops/vesper_runtime.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-079
+    ("forgetter-never-edits-in-place", FORGETTER_PY,
+     _sub("        fact = self._memory.remember(\n"
+          "            subject=subject, attribute=attribute, value=new_value, rank=rank,\n"
+          "            privacy=privacy, trust_class=trust_class, at=self._clock.now())",
+          "        self._memory._conn.execute(\n"
+          "            'UPDATE fact SET value = ? WHERE id = ?', (new_value, prior[0]))\n"
+          "        self._memory._conn.commit()\n"
+          "        fact = self._memory.remember(\n"
+          "            subject=subject, attribute=attribute, value=new_value, rank=rank,\n"
+          "            privacy=privacy, trust_class=trust_class, at=self._clock.now())", 1),
+     "the one-line wrong answer: an edit done in place, so observed_at_hlc "
+     "claims a time belonging to different content and the audit trail becomes "
+     "false rather than missing"),
+
+    ("forgetter-never-edits-in-place", FORGETTER_PY,
+     _sub("        seq = self._store.append(\"tombstones\", \"memory.erased\", tomb,\n"
+          "                                 self._clock.now())",
+          "        seq = 0", 1),
+     "an erasure with no tombstone: the content is gone and nothing records "
+     "that anything was there, which is indistinguishable from data loss when "
+     "the owner asks where it went"),
+
+    ("forgetter-never-edits-in-place", FORGETTER_PY,
+     _sub('                "at": str(self._clock.now()),\n'
+          '                "note": ("the erased VALUE is deliberately absent. A tombstone "',
+          '                "at": str(self._clock.now()),\n'
+          '                "value": self._memory._conn.execute(\n'
+          '                    "SELECT value FROM fact WHERE id = ?", (fact_id,)).fetchone()[0],\n'
+          '                "note": ("the erased VALUE is deliberately absent. A tombstone "', 1),
+     "the tombstone keeps what it erased, which is diligence-shaped and erases "
+     "nothing at all"),
+
+    ("forgetter-never-edits-in-place", FORGETTER_PY,
+     _sub('                "DELETE FROM fact WHERE id = ?", (fact_id,))',
+          '                "SELECT ?", (fact_id,))', 1),
+     "erase writes its tombstone and then does not remove the row: it reports "
+     "success, the audit says the content is gone, and selection still returns "
+     "it -- the failure mode where the record and the reality disagree and the "
+     "record is the one that gets believed"),
+
+    ("forgetter-never-edits-in-place", FORGETTER_PY,
+     _sub("        if actor not in MODE_ACTOR[SUPERSEDE]:", "        if False:", 1),
+     "the system allowed to supersede the owner's own statements, which is a "
+     "system that corrects the owner rather than one that remembers them"),
+
+    ("forgetter-never-edits-in-place", FORGETTER_PY,
+     _sub('                 "note": "a ranking input, not a deletion candidate"}',
+          '                 "note": "a ranking input, not a deletion candidate"}\n'
+          '                for r in [] or self._purge(older_than_seq)]  # noqa\n'
+          '        return [{"fact_id": r[0], "subject": r[1], "attribute": r[2],\n'
+          '                 "rank": r[3], "log_seq": r[4],\n'
+          '                 "note": "deleted"}', 1),
+     "expiry made to delete: nothing expires by deletion in this design, and a "
+     "sweep that removed would need a model to rescue the commonest case there "
+     "is -- a fact that is simply old and still true"),
+]
 
 CASES += [
     # ---------------------------------------------------------------- CI-078

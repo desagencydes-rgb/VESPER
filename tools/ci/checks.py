@@ -5309,6 +5309,170 @@ def check_arbiter_never_picks_silently() -> Result:
     return r
 
 
+def check_forgetter_never_edits_in_place() -> Result:
+    """An edit is a new record. An erasure leaves a tombstone that names it.
+
+    THE ONE-LINE WRONG ANSWER IS `UPDATE fact SET value = ?`. It reads as
+    correct, it is what every other system does, and it leaves
+    `observed_at_hlc` claiming a time that belongs to different content. The
+    audit trail is then FALSE rather than missing -- every record still present,
+    every timestamp still plausible, and the history it describes never
+    happened. `INV-LOSS-3` depends on that trail being real.
+
+    ERASE IS TESTED IN BOTH DIRECTIONS because both halves can fail silently.
+    Content that survives an erasure defeats the operation; a tombstone carrying
+    the erased value defeats it just as completely while looking like diligence.
+
+    NOBODY NOTICES AN ABSENCE. That is why the tombstone is written BEFORE the
+    row is removed, and why this check reads the tombstone back rather than
+    trusting that erase() returned.
+    """
+    r = Result("forgetter-never-edits-in-place")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        import tempfile
+        from core.store import StoreSet
+        from core.hlc import HybridLogicalClock
+        from core.memory import MemoryGraph
+        from core.forgetter import Forgetter, ForgetRefused, SYSTEM, OWNER
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.forgetter did not import: {exc!r}")
+        return r
+
+    store = StoreSet(tempfile.mkdtemp(), node_id="ci")
+    clock = HybridLogicalClock(node_id="ci")
+    mem = MemoryGraph(store)
+    fg = Forgetter(mem, store, clock)
+
+    original = mem.remember(subject="flight", attribute="departs",
+                            value="Tuesday morning", rank=4, privacy="private",
+                            trust_class="owner_utterance", at=clock.now())
+    before = mem._conn.execute(                     # noqa: SLF001
+        "SELECT value, observed_at_hlc, rank FROM fact WHERE id = ?",
+        (original.id,)).fetchone()
+
+    # 1. SUPERSESSION LEAVES THE EARLIER ROW BYTE-FOR-BYTE ALONE.
+    rec = fg.supersede(subject="flight", attribute="departs",
+                       new_value="Wednesday morning", actor=OWNER,
+                       reason="the airline moved it")
+    after = mem._conn.execute(                      # noqa: SLF001
+        "SELECT value, observed_at_hlc, rank FROM fact WHERE id = ?",
+        (original.id,)).fetchone()
+    if after is None:
+        r.err("the superseded fact was DELETED. Supersession keeps both "
+              "records: the owner may want the earlier one back, and a "
+              "projection re-derived from the log has to see the history it "
+              "is projecting.")
+    elif before != after:
+        r.err(f"the earlier row was modified in place: {before} -> {after}. "
+              "`observed_at_hlc` now claims a time belonging to different "
+              "content, which makes the audit trail false rather than missing.")
+    values = {row[0] for row in mem._conn.execute(  # noqa: SLF001
+        "SELECT value FROM fact")}
+    if "Tuesday morning" not in values or "Wednesday morning" not in values:
+        r.err(f"both values should remain readable after a supersession; "
+              f"found {values}")
+    if not rec.get("superseded_fact_id"):
+        r.err("the audit record does not name what was superseded, so the "
+              "chain from the new value back to the old one is unrecoverable")
+
+    # 2. ONLY THE OWNER EDITS. Append-only is about the SYSTEM.
+    try:
+        fg.supersede(subject="flight", attribute="departs", new_value="Friday",
+                     actor=SYSTEM, reason="looked wrong")
+        r.err("the SYSTEM superseded an owner statement. A system that can "
+              "rewrite the owner's stated facts is correcting them, which is a "
+              "different product than the one specified.")
+    except ForgetRefused:
+        pass
+
+    # 3. ERASE REMOVES THE CONTENT -- including from the search index, which is
+    #    the copy an implementation forgets and which would keep it findable.
+    leak = mem.remember(subject="notes", attribute="pasted",
+                        value="a value that should never have existed",
+                        rank=4, privacy="private",
+                        trust_class="owner_utterance", at=clock.now())
+    fg.erase(fact_id=leak.id, actor=OWNER, reason="recorded in error")
+    if mem._conn.execute(                           # noqa: SLF001
+            "SELECT COUNT(*) FROM fact WHERE id = ?", (leak.id,)).fetchone()[0]:
+        r.err("the erased fact is still in `fact`")
+    # THE SEARCHABILITY ASSERTION IS `select()`, WHICH IS THE PATH ANYTHING
+    # REAL USES. It is also the only index property here that is deterministic.
+    #
+    # TWO WEAKER ASSERTIONS WERE TRIED AND BOTH REMOVED, which is worth stating
+    # so they are not re-added by someone who thinks they were forgotten:
+    #
+    #   `SELECT COUNT(*) FROM fact_fts WHERE rowid = ?` is VACUOUS. `fact_fts`
+    #   is an external-content table, so a rowid lookup resolves through `fact`
+    #   -- once the base row is gone that count reads 0 whether or not the index
+    #   was ever cleaned, and the assertion cannot fail.
+    #
+    #   A raw `fact_fts MATCH` and a scan of the `fact_fts_data` shadow blocks
+    #   are both NON-DETERMINISTIC. Measured 2026-08-30: identical erasures
+    #   disagreed depending only on what else had been written first, because
+    #   FTS5 segment merging decides when a term leaves the index storage. A
+    #   gate that passes for that reason is not evidence, and it would be flaky
+    #   in the direction of false confidence.
+    #
+    # `core/forgetter.py` records what erasure can and cannot promise as a
+    # result. The residue limit is real; it is simply not gateable.
+    if mem.select(["quintuplicate", "pasted"]):
+        r.err("the erased fact is still returned by selection -- the path every "
+              "real caller uses. Whatever happened to the index, the content is "
+              "still reaching block B.")
+    # NOT ASSERTED: whether the term survives in the `fact_fts_data` shadow
+    # blocks. Measured 2026-08-30 and it is NON-DETERMINISTIC -- it depends on
+    # FTS5 segment merging, which depends on what else has been written since.
+    # Two runs of the same erasure, differing only in whether another fact had
+    # been stored, disagreed. A check that passes for that reason is not
+    # evidence of anything, and asserting it would make this gate flaky in the
+    # direction of false confidence. `core/forgetter.py` records the limit.
+
+    # 4. AND THE TOMBSTONE DOES NOT CARRY WHAT IT ERASED.
+    tombs = [rec.body for rec in store.read("tombstones", kind="memory.erased")]
+    if not tombs:
+        r.err("nothing was tombstoned. INV-LOSS-3: with a deletion audit VESPER "
+              "NAMES the removal; with nothing it says nothing -- and an "
+              "unrecorded erasure is indistinguishable from data loss.")
+    blob = str(tombs)
+    if "should never have existed" in blob:
+        r.err("the tombstone carries the erased value. A tombstone holding what "
+              "it erased has not erased it.")
+    for field in ("subject", "attribute", "reason"):
+        if tombs and field not in tombs[0]:
+            r.err(f"the tombstone omits {field!r}; without the shape of what "
+                  "went, the record cannot be audited")
+
+    # 5. ERASURE IS THE OWNER'S ALONE AND NEEDS A STATED REASON.
+    for kwargs, why in (({"actor": SYSTEM, "reason": "x"}, "a system actor"),
+                        ({"actor": OWNER, "reason": "   "}, "a blank reason")):
+        try:
+            fg.erase(fact_id=original.id, **kwargs)
+            r.err(f"erasure accepted with {why}. It is the one operation that "
+                  "cannot be undone and whose wrongness leaves no evidence.")
+        except ForgetRefused:
+            pass
+
+    # 6. NOTHING EXPIRES BY DELETION. Staleness ranks; it does not remove.
+    n_before = mem.counts()["fact"]
+    stale = fg.stale(older_than_seq=10_000)
+    if mem.counts()["fact"] != n_before:
+        r.err("the staleness sweep removed rows. Nothing expires by deletion: "
+              "staleness is a ranking input, and a sweep that deleted would "
+              "need a model to rescue the commonest case there is -- a fact "
+              "that is simply old and still true.")
+    if not stale:
+        r.err("the staleness sweep reported nothing at all over facts that all "
+              "predate the bound")
+
+    r.note(f"supersession left the earlier row byte-identical and both values "
+           f"readable; the system may not edit; erasure cleared `fact` and the "
+           f"FTS index while the tombstone kept the shape and withheld the "
+           f"value; {len(stale)} stale rows reported and none removed")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -5357,6 +5521,7 @@ CHECK_FNS = {
     "updater-refuses-and-ranks": check_updater_refuses_and_ranks,
     "l1-blocks-hold-index-not-knowledge": check_l1_blocks_hold_index_not_knowledge,
     "arbiter-never-picks-silently": check_arbiter_never_picks_silently,
+    "forgetter-never-edits-in-place": check_forgetter_never_edits_in_place,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

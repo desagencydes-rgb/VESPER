@@ -825,7 +825,7 @@ kind = "structural"
 [invariants.INV-LOSS-3]
 statement = "VESPER never presents a known cause as forgetting. With no tombstone it says nothing; with a deletion audit it names the removal."
 owner_rem = "REM-016"
-enforced_by = ["CI-049", "A-050"]
+enforced_by = ["CI-049", "CI-079", "A-050"]
 kind = "runtime"
 
 [invariants.INV-LOSS-4]

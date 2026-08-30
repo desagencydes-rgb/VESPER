@@ -967,3 +967,45 @@ there and skip the question that came with it.
 REACHABILITY IS SEPARATE FROM OUTCOME. A conflict that resolves to ASK and is
 then dropped from `open_questions()` reaches the owner exactly as often as a
 silent pick does, which is never."""
+
+[checks.CI-079]
+name = "forgetter-never-edits-in-place"
+enforces = ["INV-LOSS-3"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py forgetter-never-edits-in-place"
+blocking = "pr"
+self_test = """Do the edit in place; erase with no tombstone; put the erased
+value into the tombstone; write the tombstone and skip the row removal; let the
+system supersede the owner; make the staleness sweep delete."""
+self_test_evidence = """tools/ci/self_test.py forgetter-never-edits-in-place
+-- 6 cases, red then green, 2026-08-30."""
+subject = "core/forgetter.py"
+note = """"Append-only" is about the SYSTEM, not the owner: the system appends,
+the owner may supersede or erase. An edit is a NEW record and both remain
+readable -- `UPDATE fact SET value = ?` is one line, reads as correct, and
+leaves observed_at_hlc claiming a time that belongs to different content, which
+makes the audit trail FALSE rather than missing."""
+discriminators = """WHAT THIS CHECK DELIBERATELY DOES NOT ASSERT, recorded so it
+is not re-added as an oversight. Three index properties were tried:
+
+  `COUNT(*) FROM fact_fts WHERE rowid = ?` is vacuous -- fact_fts is
+  external-content, so the lookup resolves through `fact` and reads 0 once the
+  base row is gone, cleaned or not.
+
+  A raw `fact_fts MATCH`, and a scan of the `fact_fts_data` shadow blocks, are
+  both NON-DETERMINISTIC. Measured 2026-08-30: identical erasures disagreed
+  depending only on what else had been written first, because FTS5 segment
+  merging decides when a term leaves index storage. A gate that passes for that
+  reason is not evidence and would be flaky toward false confidence.
+
+So the searchability assertion is `select()` -- the path every real caller uses,
+and the only deterministic one. The residue limit is real and is recorded in
+core/forgetter.py rather than gated: erase removes the content from every
+logical path into it and cannot promise the bytes are unrecoverable from the
+file. A credential that reached L2 should be ROTATED, not merely erased.
+
+THE REDUNDANCY IN erase() IS DELIBERATE. VACUUM alone takes the match count to
+zero because it rebuilds the shadow tables as a side effect; the explicit index
+delete and rebuild are kept because VACUUM is a maintenance operation, not a
+semantic one, and whoever removes it for being slow would take the erasure
+guarantee with it."""
