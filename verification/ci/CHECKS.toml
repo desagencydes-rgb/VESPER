@@ -858,3 +858,38 @@ which returns an entity's facts once per depth that reaches it. Neither was
 visible to the probe: `stage_full` counted rows, and a duplicate count reads as
 a hit. Carried into the design, the first makes a whole privacy class
 permanently unreachable and the second spends block B's 3-5 slots on repeats."""
+
+[checks.CI-076]
+name = "updater-refuses-and-ranks"
+enforces = ["INV-EVID-1"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py updater-refuses-and-ranks"
+blocking = "pr"
+self_test = """Remove the credential scan from the capture path; put the raw
+text into the tombstone; ignore the off-the-record phrase list; let the
+extractor choose its own rank; drop idempotency on the event id; accept an
+unnamed miss detector."""
+self_test_evidence = """tools/ci/self_test.py updater-refuses-and-ranks
+-- 6 cases, red then green, 2026-08-30."""
+subject = "core/updater.py"
+note = """The updater captures indiscriminately BY DESIGN -- a capture path that
+records only what seemed significant has VESPER's blind spots built into it, and
+blind spots are what a net is for. That makes the refusal list the entire safety
+argument: it is the only thing between a safety net and a file that quietly
+accumulates everything said near a microphone."""
+discriminators = """INV-EVID-1 IS THE CLAIM, AND IT IS THE NARROW ONE. This
+check enforces exactly one invariant -- that a model's reading of an utterance
+cannot be stored as the owner's word -- and the other five cases guard
+properties that no registered invariant covers. They are tested anyway and
+claimed as nothing.
+
+REFUSING IS NOT DELETING, so each refusal is tested for WHERE the material went
+and not only for whether it was refused. Without a quarantine an over-refusal is
+a silent permanent loss and nobody notices an absence; without a countable
+record, a systematically wrong RULE is invisible, because one refusal is an
+event and five hundred of the same shape is a pattern.
+
+THE CREDENTIAL CLASS IS THE INVERSION AND IS TESTED TWICE: refused, and its
+tombstone checked for the value. Quarantining it in full would gather every
+credential VESPER has ever seen into the one store built to be low-security --
+a better target than the vault those credentials were taken out of."""

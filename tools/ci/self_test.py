@@ -960,11 +960,56 @@ BARGE_IN = "core/barge_in.py"
 BASELINE = "core/baseline.py"
 MEMORY_PY = "core/memory.py"
 REDACT_PY = "core/redact.py"
+UPDATER_PY = "core/updater.py"
 GATEWAY_PY = "core/gateway.py"
 ROUTER = "core/router.py"
 LATENCY = "core/latency.py"
 SUPPLY_PY = "routing/supply.py"
 RUNTIME = "tools/ops/vesper_runtime.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-076
+    ("updater-refuses-and-ranks", UPDATER_PY,
+     _sub("        findings = scan(text, generous=True, source=source)",
+          "        findings = []", 1),
+     "the credential refusal removed from the capture path: the updater writes "
+     "indiscriminately by design, so a key spoken once becomes a permanent "
+     "memory record of a secret"),
+
+    ("updater-refuses-and-ranks", UPDATER_PY,
+     _sub('                 "findings": [f.to_dict() for f in findings],',
+          '                 "findings": [f.to_dict() for f in findings], "text": text,', 1),
+     "the tombstone gains the raw text: the low-security bin becomes the one "
+     "place every credential VESPER has ever seen is gathered, which is a "
+     "better target than the vault it was protecting"),
+
+    ("updater-refuses-and-ranks", UPDATER_PY,
+     _sub("        if any(p in low for p in OFF_THE_RECORD):",
+          "        if False:", 1),
+     "off-the-record ignored -- the owner's explicit, deterministic instruction "
+     "not to record a moment, overridden by the capture path it was written to "
+     "override"),
+
+    ("updater-refuses-and-ranks", UPDATER_PY,
+     _sub("                        rank=RANK_DERIVED, privacy=privacy,",
+          "                        rank=reading.get('rank', RANK_DERIVED), privacy=privacy,", 1),
+     "the extractor allowed to choose its own rank: a model's reading of an "
+     "utterance can then claim rank 4 and become indistinguishable from the "
+     "owner's own word, permanently and with nothing to see"),
+
+    ("updater-refuses-and-ranks", UPDATER_PY,
+     _sub("            if event_id in self._seen:", "            if False:", 1),
+     "idempotency dropped: delivery is at-least-once, so one redelivered "
+     "capture writes the same fact twice and repetition -- which is what "
+     "promotes an observation to a trait -- becomes an artifact of the "
+     "transport"),
+
+    ("updater-refuses-and-ranks", UPDATER_PY,
+     _sub("        if detector not in (self.REPETITION, self.CORRECTION,",
+          "        if False and detector not in (self.REPETITION, self.CORRECTION,", 1),
+     "an unnamed miss detector accepted, so no detector's false-positive rate "
+     "can be counted and the thresholds can never be tuned from the corpus"),
+]
 
 CASES += [
     # ---------------------------------------------------------------- CI-075

@@ -4912,6 +4912,165 @@ def check_redactor_precedes_every_provider() -> Result:
     return r
 
 
+def check_updater_refuses_and_ranks() -> Result:
+    """The capture path's refusals hold, and the extractor cannot become the owner.
+
+    THE UPDATER CAPTURES INDISCRIMINATELY BY DESIGN, which makes its refusal
+    list the entire safety argument -- the only thing between a safety net and a
+    file that quietly accumulates everything said near a microphone. So every
+    refusal is tested for what it refuses AND for where the refused material
+    went, because "refusing is not deleting" is the property that makes an
+    over-refusal recoverable and a wrong rule visible.
+
+    THE CREDENTIAL CLASS IS TESTED TWICE OVER. It must be refused, and its
+    tombstone must not contain it -- a quarantine holding every credential
+    VESPER has ever seen is a more attractive target than the vault, because it
+    is the one place they are gathered and it was built to be the low-security
+    bin.
+    """
+    r = Result("updater-refuses-and-ranks")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        import tempfile
+        from core.store import StoreSet
+        from core.hlc import HybridLogicalClock
+        from core.memory import MemoryGraph
+        from core.updater import (Updater, MissRecorder, RANK_USER_STATEMENT,
+                                  RANK_DERIVED)
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.updater did not import: {exc!r}")
+        return r
+
+    SECRET = "AKIAIOSFODNN7EXAMPLE"
+
+    def fresh(**kw):
+        store = StoreSet(tempfile.mkdtemp(), node_id="ci")
+        clock = HybridLogicalClock(node_id="ci")
+        mem = MemoryGraph(store)
+        return store, clock, mem, Updater(mem, store, clock, **kw)
+
+    # 1. CREDENTIALS ARE REFUSED, AND THE TOMBSTONE DOES NOT CARRY THEM.
+    store, clock, mem, up = fresh()
+    c = up.capture(f"my key is {SECRET} keep it safe", event_id="c1")
+    if c.outcome != "refused":
+        r.err(f"a credential-shaped utterance was captured ({c.outcome}). The "
+              "updater writes indiscriminately, so a credential it does not "
+              "refuse becomes a permanent memory record of a secret.")
+    if mem.counts()["fact"]:
+        r.err("the credential reached L2 despite the refusal")
+    bodies = str([rec.body for rec in store.read("tombstones")])
+    if SECRET in bodies:
+        r.err("the tombstone carries the credential value. What is kept must be "
+              "enough to audit the detector and useless to a thief; a store of "
+              "every credential VESPER has seen is a better target than the "
+              "vault.")
+    if not bodies.strip("[]"):
+        r.err("nothing was tombstoned. Refusing is not deleting -- without a "
+              "record, an over-refusal is a silent permanent loss and a "
+              "systematically wrong rule is invisible.")
+
+    # 2. OFF THE RECORD LEAVES NOTHING ANYWHERE, including the quarantine. A
+    #    phrase that marks a moment unrecorded must not have its own content
+    #    land in a store on the way past.
+    store, clock, mem, up = fresh()
+    up.capture("off the record, the client is impossible", event_id="o1")
+    leaked = (mem.counts()["fact"]
+              or len(list(store.read("workspace")))
+              or len(list(store.read("tombstones"))))
+    if leaked:
+        r.err("off-the-record material was written somewhere. The phrase list "
+              "is owner-driven and deterministic precisely so this outcome is "
+              "not a judgement call.")
+
+    # 3. OWNER-DESIGNATED SENSITIVE IS QUARANTINED IN FULL AND UNREACHABLE.
+    #    Both halves matter: releasable means the text survives, and refused
+    #    means no projection can reach it.
+    store, clock, mem, up = fresh()
+    up.capture("my diagnosis last year", event_id="s1", owner_sensitive=True)
+    if not any("diagnosis" in str(rec.body) for rec in store.read("workspace")):
+        r.err("owner-designated sensitive material was not quarantined in full. "
+              "A wrong refusal must be recoverable, and nobody notices an "
+              "absence.")
+    if mem.select(["diagnosis"]):
+        r.err("quarantined material is reachable from L2 selection. The "
+              "projections must never read the quarantine.")
+
+    # 4. RANK 4 AND RANK 5 ARE BOTH WRITTEN, AND SEPARATELY. INV-EVID-1: a
+    #    model extractor cannot produce rank 4.
+    store, clock, mem, up = fresh(
+        extractor=lambda t: [{"attribute": "deadline", "value": "2026-09-12"}])
+    c = up.capture("we ship on the twelfth", event_id="k1")
+    ranks = [row[0] for row in mem._conn.execute(   # noqa: SLF001
+        "SELECT rank FROM fact ORDER BY rank").fetchall()]
+    if ranks != [RANK_USER_STATEMENT, RANK_DERIVED]:
+        r.err(f"expected the verbatim utterance at rank {RANK_USER_STATEMENT} "
+              f"AND the reading at rank {RANK_DERIVED}, got {ranks}. Storing "
+              "only the reading permanently promotes the system's guesses to "
+              "the owner's word, and nothing downstream can separate them "
+              "afterwards.")
+
+    # 5. AN EXTRACTOR CLAIMING RANK 4 IS OVERRULED, not trusted.
+    store, clock, mem, up = fresh(
+        extractor=lambda t: [{"value": "a guess", "rank": 4,
+                              "attribute": "guessed"}])
+    up.capture("something else", event_id="k2")
+    derived = mem._conn.execute(                    # noqa: SLF001
+        "SELECT rank FROM fact WHERE value = 'a guess'").fetchone()
+    if derived and derived[0] != RANK_DERIVED:
+        r.err(f"the extractor set its own rank ({derived[0]}). An extractor "
+              "that can choose its rank can promote itself to the owner's word.")
+
+    # 6. THE TURN NEVER FAILS ON BACKGROUND WORK.
+    def boom(_):
+        raise RuntimeError("provider down")
+    store, clock, mem, up = fresh(extractor=boom)
+    c = up.capture("still capture me", event_id="b1")
+    if c.outcome != "stored" or len(c.fact_ids) != 1:
+        r.err(f"a failing extractor changed the capture outcome to "
+              f"{c.outcome!r}. The updater dying must not turn a good answer "
+              "into an error, and the verbatim half is the part that cannot be "
+              "reconstructed later.")
+
+    # 7. REDELIVERY IS IDEMPOTENT. Delivery is at-least-once, so the same
+    #    capture arriving twice must not produce two facts.
+    store, clock, mem, up = fresh()
+    up.capture("the same thing", event_id="d1")
+    again = up.capture("the same thing", event_id="d1")
+    if again.outcome != "duplicate" or mem.counts()["fact"] != 1:
+        r.err(f"a redelivered capture produced {mem.counts()['fact']} facts "
+              f"(outcome {again.outcome!r})")
+
+    # 8. THE MISS RECORDER WRITES WITHOUT A CORRECTION. Waiting for one would
+    #    record only the misses corrected promptly -- a corpus biased in the
+    #    direction of looking better than the truth.
+    store, clock, mem, up = fresh()
+    mr = MissRecorder(mem, store, clock)
+    mr.record(detector=MissRecorder.EXPLICIT_ABSENCE, situation="asked",
+              layer_consulted="L2", what_was_found=None,
+              what_vesper_did="said it had no record")
+    misses = [rec.body for rec in store.read("audit", kind="memory.miss")]
+    if not misses:
+        r.err("an uncorrected miss was not recorded. Every blocked question "
+              "about this design waits on records written here, and a corpus "
+              "of only-corrected misses answers a different question.")
+    try:
+        mr.record(detector="vibes", situation="x", layer_consulted="y",
+                  what_was_found=None, what_vesper_did="z")
+        r.err("an unnamed detector was accepted. A miss whose detector is not "
+              "named cannot be counted against that detector's false-positive "
+              "rate, which is the only way the thresholds ever get tuned.")
+    except ValueError:
+        pass
+
+    r.note("credentials tombstoned without their value; off-the-record leaves "
+           "no trace in any store; owner-sensitive quarantined in full and "
+           "unreachable; rank 4 and 5 both written and the extractor cannot "
+           "claim 4; a failing extractor does not fail the turn; redelivery is "
+           "idempotent; uncorrected misses are still recorded")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -4957,6 +5116,7 @@ CHECK_FNS = {
         check_baseline_records_what_cannot_be_rebuilt,
     "memory-projects-from-the-log": check_memory_projects_from_the_log,
     "redactor-precedes-every-provider": check_redactor_precedes_every_provider,
+    "updater-refuses-and-ranks": check_updater_refuses_and_ranks,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

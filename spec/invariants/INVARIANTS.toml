@@ -466,7 +466,7 @@ kind = "structural"
 [invariants.INV-EVID-1]
 statement = "No model_prior claim is emitted as an assertion in research, memory writes, world facts, or inputs to consequential actions."
 owner_rem = "REM-010"
-enforced_by = ["CI-033", "CI-074", "A-003"]
+enforced_by = ["CI-033", "CI-074", "CI-076", "A-003"]
 kind = "structural"
 
 [invariants.INV-EVID-2]

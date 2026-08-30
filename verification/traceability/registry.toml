@@ -493,7 +493,7 @@ tests = ["A-003", "A-036", "A-050"]
 contracts = ["contracts/results/result.schema.json", "contracts/entities/record_loss.schema.json"]
 decision_functions = ["DF-OUTPUT-GATE", "DF-MEMORY-AUTHORITY", "DF-LOSS-SURFACE", "DF-CONFLICT-DETECT"]
 invariants = ["INV-EVID-1", "INV-EVID-3", "INV-MEM-1", "INV-LOSS-3"]
-ci = ["CI-033", "CI-049", "CI-074"]
+ci = ["CI-033", "CI-049", "CI-074", "CI-076"]
 status = "SPECIFIED"
 
 [requirements.SR-042]
