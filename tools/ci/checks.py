@@ -4740,7 +4740,7 @@ def check_memory_projects_from_the_log() -> Result:
 
     def _fact(**kw):
         base = dict(subject="work", attribute="deadline", value="ships on the twelfth",
-                    rank=4, privacy="private", trust_class="owner_utterance",
+                    rank=4, privacy="private", trust_class="owner",
                     at=clock.now())
         base.update(kw)
         return m.remember(**base)
@@ -4782,6 +4782,29 @@ def check_memory_projects_from_the_log() -> Result:
               "prior at either promotes a guess to the owner's word.")
     except MemoryContractViolation:
         pass
+
+    # 3b. TRUST CLASS COMES FROM core/taint.py, WHICH OWNS THE VOCABULARY.
+    #     Until 2026-08-30 this only checked the string was non-empty, and every
+    #     caller invented one: `owner_utterance`, `extractor_reading`,
+    #     `compaction`, `calendar`. The effect was the reverse of the intent --
+    #     `_weakest()` maps an unknown class to rank 0, so the owner's own words
+    #     ranked BELOW retrieved_external, and nothing in memory ever carried
+    #     the one class INV-AUTH-6 is about.
+    from core.taint import ALLOWED_LEVEL
+    try:
+        _fact(trust_class="owner_utterance")
+        r.err("an invented trust class was accepted. It ranks below "
+              "retrieved_external under `_weakest`, making whatever it labels "
+              "the least trusted thing present -- and it makes INV-AUTH-6 "
+              "unenforceable, because the class that invariant names never "
+              "appears in memory at all.")
+    except MemoryContractViolation:
+        pass
+    for good in sorted(ALLOWED_LEVEL):
+        try:
+            _fact(trust_class=good, attribute=f"probe_{good}")
+        except MemoryContractViolation as exc:
+            r.err(f"a real taint class {good!r} was refused: {exc}")
 
     # 4. THE PRIVACY CEILING SELECTS AT OR BELOW, NEVER BY EQUALITY. The probe
     #    this query came from filtered `privacy = 'private'` to get a stable
@@ -5142,7 +5165,7 @@ def check_l1_blocks_hold_index_not_knowledge() -> Result:
             ("work", "mode", "voice is primary and text is the fallback"),
             ("travel", "flight", "the flight is Tuesday morning")):
         mem.remember(subject=subj, attribute=attr, value=val, rank=4,
-                     privacy="private", trust_class="owner_utterance",
+                     privacy="private", trust_class="owner",
                      at=clock.now())
 
     ren = L1Renderer(Persona.load(), mem)
@@ -5173,7 +5196,7 @@ def check_l1_blocks_hold_index_not_knowledge() -> Result:
 
     # 3. AND NOT MERELY FROZEN. A stale index reports a memory that is gone.
     mem.remember(subject="newnode", attribute="a", value="b", rank=4,
-                 privacy="private", trust_class="owner_utterance",
+                 privacy="private", trust_class="owner",
                  at=clock.now())
     if L1Renderer(Persona.load(), mem).render("x").block_a == out.block_a:
         r.err("block A did not change after memory gained a node. It is cached "
@@ -5218,7 +5241,7 @@ def check_l1_blocks_hold_index_not_knowledge() -> Result:
     for n in range(12):
         mem.remember(subject="work", attribute=f"a{n}",
                      value=f"deadline related fact number {n}", rank=4,
-                     privacy="private", trust_class="owner_utterance",
+                     privacy="private", trust_class="owner",
                      at=clock.now())
     wide = L1Renderer(Persona.load(), mem).render("deadline")
     if len(wide.selected) > 5:
@@ -5283,8 +5306,8 @@ def check_arbiter_never_picks_silently() -> Result:
 
     # THE WORKED EXAMPLE. Owner says Tuesday (rank 4, user_statement); the
     # calendar says Wednesday (rank 2, source_of_record).
-    fact("flight", "departs", "Tuesday morning", 4, "owner_utterance")
-    fact("flight", "departs", "Wednesday morning", 2, "calendar")
+    fact("flight", "departs", "Tuesday morning", 4, "owner")
+    fact("flight", "departs", "Wednesday morning", 2, "retrieved_local")
 
     found = arb.contradictions()
     if not any(c["subject"] == "flight" and c["attribute"] == "departs"
@@ -5314,8 +5337,8 @@ def check_arbiter_never_picks_silently() -> Result:
     # second source becomes an interruption, and the owner learns to dismiss
     # the questions -- which disables the mechanism far more thoroughly than
     # not having built it.
-    fact("hotel", "city", "Casablanca", 4, "owner_utterance")
-    fact("hotel", "city", "Casablanca", 2, "booking")
+    fact("hotel", "city", "Casablanca", 4, "owner")
+    fact("hotel", "city", "Casablanca", 2, "retrieved_local")
     agree = arb.resolve("hotel", "city")
     if agree.get("outcome") != "RESOLVED":
         r.err(f"two sources AGREEING produced {agree.get('outcome')!r}. "
@@ -5375,7 +5398,7 @@ def check_forgetter_never_edits_in_place() -> Result:
 
     original = mem.remember(subject="flight", attribute="departs",
                             value="Tuesday morning", rank=4, privacy="private",
-                            trust_class="owner_utterance", at=clock.now())
+                            trust_class="owner", at=clock.now())
     before = mem._conn.execute(                     # noqa: SLF001
         "SELECT value, observed_at_hlc, rank FROM fact WHERE id = ?",
         (original.id,)).fetchone()
@@ -5420,7 +5443,7 @@ def check_forgetter_never_edits_in_place() -> Result:
     leak = mem.remember(subject="notes", attribute="pasted",
                         value="a value that should never have existed",
                         rank=4, privacy="private",
-                        trust_class="owner_utterance", at=clock.now())
+                        trust_class="owner", at=clock.now())
     fg.erase(fact_id=leak.id, actor=OWNER, reason="recorded in error")
     if mem._conn.execute(                           # noqa: SLF001
             "SELECT COUNT(*) FROM fact WHERE id = ?", (leak.id,)).fetchone()[0]:
@@ -5549,10 +5572,10 @@ def check_reprojection_never_resurrects() -> Result:
             ("work", "deadline", "posted publicly", "public"),
             ("travel", "flight", "Tuesday morning", "private")):
         mem.remember(subject=subj, attribute=attr, value=val, rank=4,
-                     privacy=priv, trust_class="owner_utterance",
+                     privacy=priv, trust_class="owner",
                      at=clock.now())
     leak = mem.remember(subject="notes", attribute="pasted", value=MARKER,
-                        rank=4, privacy="private", trust_class="owner_utterance",
+                        rank=4, privacy="private", trust_class="owner",
                         at=clock.now())
 
     if not cp.verify()["converged"]:
@@ -5617,6 +5640,31 @@ def check_reprojection_never_resurrects() -> Result:
               f"{comp.get('privacy')!r}. A compacted node inherits the MAXIMUM "
               "sensitivity of its inputs; classifying downward is how three "
               "innocuous facts become a security profile nobody labelled.")
+    # 5b. TRUST IS INHERITED THROUGH core/taint.py, NOT REPLACED. The first
+    #     version set `trust_class="compaction"`, destroying the inputs' classes
+    #     at exactly the moment content is merged: a summary of one owner
+    #     statement and one retrieved page came out labelled `compaction`, and
+    #     `retrieved_external` -- the class INV-AUTH-6 exists for -- vanished.
+    mem.remember(subject="mixed", attribute="note", value="the owner said this",
+                 rank=4, privacy="private", trust_class="owner", at=clock.now())
+    mem.remember(subject="mixed", attribute="note", value="this came off a page",
+                 rank=5, privacy="private", trust_class="retrieved_external",
+                 at=clock.now())
+    mixed = cp.compact("mixed", "note")
+    # READ BACK FROM THE STORE, NOT FROM THE RETURN VALUE. The first version
+    # asserted on `mixed["trust_class"]` -- the report the method makes about
+    # itself -- and a mutation that changed what was STORED while leaving the
+    # report intact passed cleanly. An instrument's self-report is not evidence.
+    stored = mem._conn.execute(                     # noqa: SLF001
+        "SELECT trust_class FROM fact WHERE id = ?",
+        (mixed.get("fact_id"),)).fetchone()
+    if not stored or stored[0] != "retrieved_external":
+        r.err(f"a summary of owner content and retrieved_external content was "
+              f"STORED as {(stored or ['<missing>'])[0]!r}. A summary of tainted "
+              "content is tainted, and taint is contagious rather than "
+              "averaged -- HANDOFF_MEMORY_BUILD names this by saying not to "
+              "write a second sensitivity system.")
+
     if strictest(["public", "personal"]) != "personal":
         r.err("strictest() is not taking the most private class")
     if strictest(["nonsense"]) != "private":

@@ -148,7 +148,7 @@ class Updater:
 
     def capture(self, text: str, *, event_id: str, subject: str = "owner",
                 attribute: str = "said", source: str = "typed",
-                privacy: str = "private", trust_class: str = "owner_utterance",
+                privacy: str = "private", trust_class: str = "owner",
                 owner_sensitive: bool = False) -> Capture:
         """Take one utterance. Returns what was decided and why; never raises.
 
@@ -264,7 +264,10 @@ class Updater:
                         # itself to the owner's word, and nothing downstream
                         # would be able to tell.
                         rank=RANK_DERIVED, privacy=privacy,
-                        trust_class="extractor_reading",
+                        # `model_generated`, from core/taint.py. An extractor IS
+                        # a model, and calling its output anything else hides
+                        # that from every trust computation downstream.
+                        trust_class="model_generated",
                         at=self._clock.now())
                     ids.append(derived.id)
                 except (MemoryContractViolation, KeyError) as exc:

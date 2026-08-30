@@ -139,7 +139,7 @@ class Forgetter:
 
     def supersede(self, *, subject: str, attribute: str, new_value: str,
                   actor: str, rank: int = 4, privacy: str = "private",
-                  trust_class: str = "owner_utterance",
+                  trust_class: str = "owner",
                   reason: str = "") -> dict:
         """The owner's edit. A NEW record; the old one remains readable.
 

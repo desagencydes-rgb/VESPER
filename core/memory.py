@@ -68,6 +68,7 @@ from typing import Any
 
 from .hlc import HybridLogicalClock  # noqa: F401  (type reference only)
 from .privacy import PRIVACY_CLASSES
+from .taint import ALLOWED_LEVEL
 
 # DF-MEMORY-AUTHORITY. Ordered: 1 wins. Rank 6 is in the vocabulary so that a
 # model prior can be NAMED, never so that it can be stored — see MODEL_PRIOR.
@@ -202,10 +203,31 @@ class MemoryGraph:
             raise MemoryContractViolation(
                 f"privacy {privacy!r} not in {PRIVACY_CLASSES} (core/privacy.py "
                 "owns this vocabulary; L2 does not define its own)")
-        if not str(trust_class).strip():
+        # VALIDATED AGAINST `core/taint.py`, WHICH OWNS THIS VOCABULARY, and it
+        # was not until 2026-08-30. Before that this only checked the string was
+        # non-empty, and every caller in this repository duly invented one:
+        # `owner_utterance`, `extractor_reading`, `compaction`, `calendar`.
+        #
+        # THE CONSEQUENCE WAS THE OPPOSITE OF THE INTENT. `taint._weakest()`
+        # maps an unknown class to rank 0 -- fail-closed, and correct -- so
+        # `owner_utterance` ranked as LESS trusted than `retrieved_external`,
+        # and the owner's own words were the least trusted thing in any set
+        # containing them. Meanwhile nothing in memory ever carried
+        # `retrieved_external`, so `INV-AUTH-6` -- that class must never reach
+        # the planner context -- had nothing to act on.
+        #
+        # This is the same defect as `l2_query_probe.py` inventing
+        # `private`/`shareable`, and as `host_health()` inventing
+        # `nominal`/`constrained`. Three times in one night, each time because
+        # the invented value looked reasonable on its own.
+        if trust_class not in ALLOWED_LEVEL:
             raise MemoryContractViolation(
-                "trust_class is required. An unlabelled fact defaults to "
-                "trusted wherever it is read, which is the wrong direction.")
+                f"trust_class {trust_class!r} is not in core/taint.py's "
+                f"vocabulary {sorted(ALLOWED_LEVEL)}. An invented class ranks "
+                "BELOW retrieved_external under `_weakest`, so it makes the "
+                "content it labels the least trusted thing present -- and it "
+                "makes INV-AUTH-6 unenforceable, because the class it names "
+                "never appears.")
 
         body = {"subject": subject, "attribute": attribute, "value": value,
                 "rank": rank, "privacy": privacy, "trust_class": trust_class}

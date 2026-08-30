@@ -1129,6 +1129,14 @@ CASES += [
 CASES += [
     # ---------------------------------------------------------------- CI-080
     ("reprojection-never-resurrects", COMPACTOR_PY,
+     _sub("            rank=5, privacy=ceiling, trust_class=tainted.trust_class,",
+          "            rank=5, privacy=ceiling, trust_class='verified_local',", 1),
+     "the compaction replaces its inputs' trust instead of inheriting it: a "
+     "summary of an owner statement and a retrieved web page loses "
+     "retrieved_external at exactly the moment content is merged, which is what "
+     "core/taint.py was written to prevent"),
+
+    ("reprojection-never-resurrects", COMPACTOR_PY,
      _sub("            if rec.seq in erased:\n"
           "                continue                 # the owner removed this; it stays gone",
           "            if False:\n"
@@ -1380,6 +1388,15 @@ CASES += [
 
 CASES += [
     # ---------------------------------------------------------------- CI-074
+    ("memory-projects-from-the-log", MEMORY_PY,
+     _sub("        if trust_class not in ALLOWED_LEVEL:",
+          "        if not str(trust_class).strip():", 1),
+     "trust_class validated for non-emptiness instead of against the vocabulary "
+     "core/taint.py owns: an invented class ranks BELOW retrieved_external under "
+     "_weakest, so the owner's own words become the least trusted thing present, "
+     "and INV-AUTH-6 has nothing to act on because the class it names never "
+     "appears"),
+
     ("memory-projects-from-the-log", MEMORY_PY,
      _sub('        seq = int(self._store.append("log", "memory.fact", body, at))',
           '        seq = 0', 1),

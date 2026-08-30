@@ -50,6 +50,7 @@ from typing import Any, Callable
 
 from .memory import MODEL_PRIOR, MemoryGraph
 from .privacy import PRIVACY_CLASSES
+from .taint import Tainted, summarise
 
 FACT_KIND = "memory.fact"
 ERASED_KIND = "memory.erased"
@@ -202,15 +203,32 @@ class Compactor:
                              "not; the deterministic half works without one")}
 
         ceiling = strictest([f["privacy"] for f in inputs])
-        text = self._summariser([f["value"] for f in inputs])
+
+        # TRUST IS INHERITED THROUGH `core/taint.py`, NOT INVENTED HERE. The
+        # first version set `trust_class="compaction"`, which destroyed the
+        # inputs' classes at exactly the moment content is merged: a summary of
+        # one owner statement and one retrieved web page came out labelled
+        # `compaction`, and `retrieved_external` -- the class INV-AUTH-6 says
+        # must never reach the planner context -- simply vanished.
+        #
+        # `summarise()` exists for this. Its whole point, in its own words, is
+        # that a summary of tainted content is tainted, and that the result
+        # takes the WEAKEST of its inputs rather than an average. Writing a
+        # second implementation here is what HANDOFF_MEMORY_BUILD warned
+        # against by name: "Do not write a second sensitivity system."
+        tainted = summarise(
+            [Tainted(f["value"], f["trust_class"]) for f in inputs],
+            lambda vals: self._summariser(vals))
+        text = tainted.value
         fact = self._memory.remember(
             subject=subject, attribute=attribute, value=str(text),
-            rank=5, privacy=ceiling, trust_class="compaction",
+            rank=5, privacy=ceiling, trust_class=tainted.trust_class,
             at=self._clock.now())
         out = {"outcome": "compacted", "subject": subject, "attribute": attribute,
                "inputs": len(inputs), "privacy": ceiling,
                "input_classes": sorted({f["privacy"] for f in inputs}),
-               "fact_id": fact.id,
+               "fact_id": fact.id, "trust_class": tainted.trust_class,
+               "input_trust": sorted({f["trust_class"] for f in inputs}),
                "note": ("privacy is the MAXIMUM of the inputs, recomputed and "
                         "never inherited: three innocuous facts compacting into "
                         "a security profile is just 'the result was raised'")}
