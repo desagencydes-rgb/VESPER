@@ -1034,6 +1034,15 @@ CASES += [
 
 CASES += [
     # ---------------------------------------------------------------- CI-082
+    ("sensors-never-reach-a-model", SENSORS_PY,
+     _sub("            deadline = (self._world.now_ms() + s.ttl_ms\n"
+          "                        if s.ttl_ms is not None else None)",
+          "            deadline = s.ttl_ms", 1),
+     "the TTL passed straight into `valid_until_ms`, which is an ABSOLUTE "
+     "stamp: a five-minute reading is stamped as expiring five minutes after "
+     "the epoch, and whether that reads as always-expired or never-expired "
+     "depends on which clock the world model happened to be given"),
+
     ("sensors-never-reach-a-model", HOST_PROBES_PY,
      _sub("    return DEGRADED if constrained else ONLINE",
           "    return 'constrained' if constrained else 'nominal'", 1),

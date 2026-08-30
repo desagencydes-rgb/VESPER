@@ -62,9 +62,22 @@ GATED = "gated"              # expensive, needs a REASON: camera, screen, microp
 SWEEP = "sweep"              # nothing happens; time alone makes it true
 SOURCE_CLASSES = (INTERRUPT, QUEUE, TIMER, GATED, SWEEP)
 
-# Only these may be polled on a schedule. GATED is absent on purpose and its
-# absence is the enforcement.
-POLLABLE = (TIMER,)
+# Which classes may be polled on a schedule. GATED is absent ON PURPOSE and its
+# absence is the enforcement: a camera or a microphone needs a REASON, and an
+# interval is not a reason.
+#
+# SWEEP WAS ABSENT BY MISTAKE, and the mistake was lumping it in with GATED
+# because both are "not TIMER". `MEMORY_ARCHITECTURE.md` is explicit that a
+# sweep IS scheduled -- "no sensor exists; scheduled L2 query", "a scheduled
+# query over VESPER's own memory ... seeded by time instead of by an utterance."
+# The sweep row has no SENSOR because there is nothing to sense; it still has a
+# PERIOD. Excluding it made `trg_fact_expiry_sweep` unreachable, which is the
+# trigger whose whole class this is.
+#
+# INTERRUPT and QUEUE stay out because they are PUSHED. Polling for something
+# that pushes is a second, slower path to the same event, and the two would
+# disagree about when it happened.
+POLLABLE = (TIMER, SWEEP)
 
 
 class SensorRefused(Exception):
@@ -196,10 +209,19 @@ class SensorRegistry:
                 applied.append({"sensor": s.name, "outcome": "unknown",
                                 "measured_ms": round(ms, 2)})
                 continue
+            # ABSOLUTE, AND ON THE WORLD'S OWN CLOCK. `valid_until_ms` is a
+            # STAMP, not a duration -- the first version of this line passed
+            # `s.ttl_ms` straight through, so a sensor with a five-minute TTL
+            # produced a fact stamped as expiring five minutes after the epoch.
+            # Whether that read as "always expired" or "never expired" depended
+            # on what clock the world model happened to be given, and both look
+            # identical from outside.
+            deadline = (self._world.now_ms() + s.ttl_ms
+                        if s.ttl_ms is not None else None)
             obs = Observation(subject=s.subject, attribute=s.attribute,
                               value=value, observed_at_hlc=self._clock.now(),
                               source=f"sensor:{s.name}",
-                              valid_until_ms=s.ttl_ms,
+                              valid_until_ms=deadline,
                               trust_class=s.trust_class)
             res = self._world.apply(obs)
             applied.append({"sensor": s.name, "outcome": res.get("outcome", "applied"),

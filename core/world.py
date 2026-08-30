@@ -196,6 +196,40 @@ class WorldModel:
             d["reason"] = "sources disagree; no value was picked"
         return d
 
+    def now_ms(self) -> int:
+        """The clock expiry is judged against. Exposed so it can be SHARED.
+
+        WHOEVER SETS A `valid_until_ms` MUST USE THIS CLOCK. The field is an
+        ABSOLUTE stamp, not a duration, and `_expired()` compares it against
+        this reader -- so a caller computing deadlines from `time.time()` while
+        this returns a counter produces facts that expire immediately or never,
+        and both look identical from outside. `core/sensors.py` had exactly that
+        bug: it passed a TTL straight into `valid_until_ms`, so a 300-second
+        sensor reading was stamped as expiring 300 seconds after the epoch.
+
+        Making the clock readable is what turns "use the same clock" from a
+        comment into something a caller cannot get wrong by accident.
+        """
+        return int(self._now_ms())
+
+    def expired_present(self) -> bool:
+        """Does the world hold any fact whose validity has lapsed?
+
+        THE TERM `trg_fact_expiry_sweep` READS. Its predicate is
+        `world.facts.any(valid_until_passed AND value != UNKNOWN)`, and a
+        predicate snapshot is built from DOTTED TERMS resolved by `read()` --
+        there is no way to express "any fact" as one. So the question is
+        answered here and published as a fact like any other, which is what a
+        SWEEP-class sensor is for: nothing emits an event when a fact lapses,
+        and time alone makes it true.
+
+        `value != UNKNOWN` IS THE HALF THAT MATTERS. A fact already reading
+        UNKNOWN has been swept; one holding a value whose validity has passed
+        has not, and is the thing a predicate over it would act on wrongly.
+        """
+        with self._lock:
+            return any(self._expired(f) for f in self._facts.values())
+
     def sweep_expired(self) -> list:
         """Report which facts have expired. Does NOT delete them.
 

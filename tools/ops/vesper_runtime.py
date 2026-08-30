@@ -149,7 +149,13 @@ def build(node: str = "vesper-runtime"):
     # ask it how it feels -- MEMORY.md records the owner's instruction not to
     # stress this host, and a sensor loop is exactly the kind of thing that
     # looks free and is not.
-    world = WorldModel(bus, clock)
+    # THE CLOCK IS NOT OPTIONAL AND ITS DEFAULT IS `lambda: 0`. Without it
+    # `_expired()` compares `0 >= valid_until_ms` and NOTHING EVER EXPIRES: the
+    # world model happily reports a reading from an hour ago as current,
+    # INV-COORD-2 is vacuously satisfied, and `trg_fact_expiry_sweep` can never
+    # fire. Every freshness property in the design is inert without this line,
+    # and nothing anywhere would say so.
+    world = WorldModel(bus, clock, now_ms=lambda: int(time.time() * 1000))
     sensors = SensorRegistry(world, clock, bus=bus)
     sensors.register(Sensor("host-power", "current_host", "power_source",
                             host_probes.power_source, TIMER,

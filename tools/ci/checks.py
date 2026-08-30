@@ -5850,14 +5850,27 @@ def check_sensors_never_reach_a_model() -> Result:
     fired = []
     reg2.register(Sensor("mic", "owner", "speaking",
                          lambda: fired.append(1) or True, GATED))
-    reg2.register(Sensor("sweeper", "tasks", "stale", lambda: 3, SWEEP))
+    swept = []
+    reg2.register(Sensor("sweeper", "tasks", "stale",
+                         lambda: swept.append(1) or 3, SWEEP))
     out2 = reg2.poll(force=True)
+    # A SWEEP IS SCHEDULED AND MUST RUN. The first version of this check
+    # asserted the opposite, because the registry lumped SWEEP in with GATED on
+    # the grounds that neither is TIMER. `MEMORY_ARCHITECTURE.md`: a sweep is "a
+    # scheduled query over VESPER's own memory, seeded by time instead of by an
+    # utterance" -- it has no SENSOR because there is nothing to sense, and it
+    # still has a PERIOD. Excluding it made `trg_fact_expiry_sweep` unreachable,
+    # which is the trigger whose entire class it is.
+    if not swept:
+        r.err("a SWEEP sensor did not run on a poll. Nothing emits an event "
+              "when an idea has been unresolved for three weeks -- time alone "
+              "makes it true, and a scheduled query is the only way to see it.")
     if fired:
         r.err("a GATED sensor ran on a poll. A microphone or camera on a timer "
               "is precisely the design the source classes exist to prevent, and "
               "refusing it in code beats trusting nobody sets a period.")
-    if {s["sensor"] for s in out2["skipped"]} != {"mic", "sweeper"}:
-        r.err(f"expected the gated and sweep sensors to be skipped, got "
+    if {s["sensor"] for s in out2["skipped"]} != {"mic"}:
+        r.err(f"expected only the GATED sensor to be skipped, got "
               f"{[s['sensor'] for s in out2['skipped']]}")
 
     # 3. A FAILED PROBE IS UNKNOWN AND IS NEVER A STALE VALUE. INV-EVID-3: an
@@ -5909,6 +5922,35 @@ def check_sensors_never_reach_a_model() -> Result:
               "nothing reports the mismatch because both halves are internally "
               "consistent.")
 
+    # 3c. A TTL MUST ACTUALLY EXPIRE, and until 2026-08-30 none of them could.
+    #     `valid_until_ms` is an ABSOLUTE stamp; `sensors.py` passed the TTL
+    #     straight into it, so a five-minute reading was stamped as expiring
+    #     five minutes after the epoch. And `WorldModel`'s clock defaults to
+    #     `lambda: 0`, which the runtime accepted -- so `_expired()` compared
+    #     `0 >= deadline` and NOTHING could ever expire. Every freshness
+    #     property in the design was inert, INV-COORD-2 was vacuously satisfied,
+    #     and no gate said a word.
+    import time as _time
+    fresh_world = WorldModel(bus, clock,
+                             now_ms=lambda: int(_time.time() * 1000))
+    reg5 = SensorRegistry(fresh_world, clock, bus=bus)
+    reg5.register(Sensor("ttl", "current_host", "health",
+                         lambda: "ONLINE", TIMER, period_ms=0, ttl_ms=40))
+    reg5.poll(force=True)
+    if fresh_world.read("current_host", "health") != "ONLINE":
+        r.err("a freshly polled reading did not read back as its value")
+    if fresh_world.expired_present():
+        r.err("a reading was expired the moment it was written -- the TTL is "
+              "being used as an absolute stamp rather than added to now")
+    _time.sleep(0.09)
+    if fresh_world.read("current_host", "health") is not UNKNOWN:
+        r.err("a reading past its TTL still reads as its value. INV-COORD-2: "
+              "past valid_until the only readable value is UNKNOWN, and the "
+              "last known value is never offered as a fallback.")
+    if not fresh_world.expired_present():
+        r.err("`expired_present()` is False over a lapsed fact, so "
+              "`trg_fact_expiry_sweep` can never fire")
+
     # 4. A SENSOR WHOSE CLASS IS UNKNOWN IS REFUSED. The class decides the
     #    mechanism, so guessing it schedules by guesswork.
     try:
@@ -5917,8 +5959,8 @@ def check_sensors_never_reach_a_model() -> Result:
     except SensorRefused:
         pass
 
-    r.note("a probe reaching the gateway is refused there and recorded; gated "
-           "and sweep sources are not polled; a working probe populates the "
+    r.note("a probe reaching the gateway is refused there and recorded; a "
+           "GATED source is not polled and a SWEEP is; a working probe populates the "
            "world model the predicates already read; a failing one yields "
            "UNKNOWN, writes nothing and is logged; an unknown source class is "
            "refused")
