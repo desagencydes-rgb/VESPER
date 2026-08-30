@@ -825,3 +825,36 @@ nothing downstream separates a choice from a failure afterwards. Similarly the
 first-turn gap must be None rather than 0: zero asserts that no time passed,
 which is a claim about the world, where None says there was no previous turn,
 which is a fact about the record."""
+
+[checks.CI-074]
+name = "memory-projects-from-the-log"
+enforces = ["INV-EVID-2", "INV-EVID-1"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py memory-projects-from-the-log"
+blocking = "pr"
+self_test = """Write L2 without the L3 append; make the pointer guard inspect
+the pointer's shape instead of resolving it; restore the probe's
+`privacy = 'private'` equality; drop the DISTINCT from the reach join; drop the
+model_prior refusal."""
+self_test_evidence = """tools/ci/self_test.py memory-projects-from-the-log
+-- 5 cases, red then green, 2026-08-30."""
+subject = "core/memory.py"
+note = """L2 is a PROJECTION of L3, never a second primary store. L3 takes the
+append and returns a seq; only then may an L2 row exist carrying it. A
+graph-first write interrupted between the two leaves a fact with no provenance,
+and the surviving row is indistinguishable from a correct one."""
+discriminators = """`log_seq INTEGER NOT NULL` IS NOT THIS CHECK, and mistaking
+it for one is the whole trap: a 0, a stale seq, or a seq from another store all
+satisfy the constraint, because every wrong pointer in this schema is a
+well-formed integer. So the check resolves the pointer against L3 rather than
+inspecting it, and case 2 mutates the guard into a shape test to prove the
+detector can detect.
+
+TWO CASES CAME OUT OF THE MEASURING INSTRUMENT ITSELF, not out of the code.
+`tools/spike/l2_query_probe.py` supplied this schema and its query, and carried
+both a `privacy = 'private'` predicate -- a benchmark needs a filter of stable
+cardinality and any constant serves -- and a `reach` CTE unioned on (id, d),
+which returns an entity's facts once per depth that reaches it. Neither was
+visible to the probe: `stage_full` counted rows, and a duplicate count reads as
+a hit. Carried into the design, the first makes a whole privacy class
+permanently unreachable and the second spends block B's 3-5 slots on repeats."""

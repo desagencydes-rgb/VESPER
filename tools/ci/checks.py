@@ -4680,6 +4680,120 @@ def check_latency_preference_reorders() -> "Result":
     return r
 
 
+def check_memory_projects_from_the_log() -> Result:
+    """L2 may not hold a fact whose provenance does not resolve.
+
+    THE ORDER IS THE PROPERTY, not the presence of a column. `MEMORY_ARCHITECTURE`
+    states it as "not dual-write -- PROJECT": L3 takes the append and returns a
+    seq, and only then may an L2 row exist carrying that seq. A graph-first write
+    interrupted between the two stores leaves a fact with no provenance, and the
+    surviving row is indistinguishable from a correct one.
+
+    `log_seq INTEGER NOT NULL` IS NOT THIS CHECK, which is why the check reads
+    the pointer back out of L3 instead of inspecting its shape. A 0, a stale seq,
+    or a seq belonging to another store all satisfy NOT NULL -- every wrong
+    pointer in this schema is a well-formed integer.
+    """
+    r = Result("memory-projects-from-the-log")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        import tempfile
+        from core.store import StoreSet
+        from core.hlc import HybridLogicalClock
+        from core.memory import MemoryGraph, MemoryContractViolation, MODEL_PRIOR
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.memory did not import: {exc!r}")
+        return r
+
+    store = StoreSet(tempfile.mkdtemp(), node_id="ci")
+    clock = HybridLogicalClock(node_id="ci")
+    m = MemoryGraph(store)
+
+    def _fact(**kw):
+        base = dict(subject="work", attribute="deadline", value="ships on the twelfth",
+                    rank=4, privacy="private", trust_class="owner_utterance",
+                    at=clock.now())
+        base.update(kw)
+        return m.remember(**base)
+
+    # 1. THE PROJECTION ORDER. A remembered fact must point at a real L3 record.
+    f = _fact()
+    seqs = {rec.seq for rec in store.read("log", kind="memory.fact")}
+    if f.log_seq not in seqs:
+        r.err(f"log_seq {f.log_seq} does not resolve to an L3 record. The fact "
+              "was projected without its append, so memory is asserting "
+              "something it cannot show the origin of (INV-EVID-2).")
+    if not seqs:
+        r.err("nothing was appended to the log at all -- L2 was written as a "
+              "primary store rather than as a projection of L3.")
+
+    # 2. THE GUARD ITSELF MUST WORK, or item 1 is unfalsifiable. A check whose
+    #    detector cannot detect is the negative control that passes.
+    if m.unresolved_pointers():
+        r.err(f"unresolved_pointers() reported {m.unresolved_pointers()} on a "
+              "cleanly projected store")
+    m._conn.execute(                                # noqa: SLF001
+        "UPDATE fact SET log_seq = 999999 WHERE id = ?", (f.id,))
+    m._conn.commit()                                # noqa: SLF001
+    if not m.unresolved_pointers():
+        r.err("a fact pointing at seq 999999 -- a record that was never written "
+              "-- was NOT reported. The guard inspects the pointer's shape "
+              "rather than resolving it, so it cannot tell a real pointer from "
+              "a plausible one, and every wrong pointer here is plausible.")
+    m._conn.execute("UPDATE fact SET log_seq = ? WHERE id = ?",  # noqa: SLF001
+                    (f.log_seq, f.id))
+    m._conn.commit()                                # noqa: SLF001
+
+    # 3. INV-EVID-1. A model prior may not be asserted into memory at all.
+    try:
+        _fact(rank=MODEL_PRIOR)
+        r.err(f"rank {MODEL_PRIOR} (model_prior) was stored. INV-EVID-1 forbids "
+              "a model prior asserted into memory: the extractor's reading of "
+              "an utterance is rank 5, the utterance is rank 4, and admitting a "
+              "prior at either promotes a guess to the owner's word.")
+    except MemoryContractViolation:
+        pass
+
+    # 4. THE PRIVACY CEILING SELECTS AT OR BELOW, NEVER BY EQUALITY. The probe
+    #    this query came from filtered `privacy = 'private'` to get a stable
+    #    cardinality to time; carried into the design that predicate makes a
+    #    `personal` fact permanently unreachable by block B.
+    _fact(subject="work", attribute="mode", value="voice is primary",
+          privacy="personal")
+    at_private = {f.privacy for f in m.select(["voice", "deadline"],
+                                              ceiling="private")}
+    if "personal" not in at_private:
+        r.err("a `personal` fact was not selected under a `private` ceiling. "
+              "The filter is comparing for equality rather than selecting at or "
+              "below the ceiling, so a whole privacy class can never reach "
+              "block B and nothing reports its absence.")
+    at_public = {f.privacy for f in m.select(["voice", "deadline"],
+                                             ceiling="public")}
+    if at_public - {"public"}:
+        r.err(f"a ceiling of `public` selected {at_public}. The ceiling leaks "
+              "upward, which is the direction that puts private material in "
+              "front of a public surface.")
+
+    # 5. SELECTION RETURNS EACH FACT ONCE. `reach` unions on (id, d), so an
+    #    entity reached at two depths is two rows and the join multiplies every
+    #    fact it owns. Block B holds 3-5 facts; two of them being the same fact
+    #    is worse than returning four.
+    m.relate("work", "about", "hardware")
+    _fact(subject="hardware", attribute="host", value="the deadline build runs here")
+    sel = m.select(["deadline", "voice", "host"], depth=2)
+    if len({x.id for x in sel}) != len(sel):
+        r.err(f"select() returned {len(sel)} rows for "
+              f"{len({x.id for x in sel})} distinct facts. Duplicates consume "
+              "block B's slots, and a row count alone cannot see it -- which is "
+              "why the probe this query came from did not.")
+
+    r.note(f"projected {m.counts()['fact']} facts, all pointers resolve; guard "
+           "detects a fabricated pointer; model_prior refused; ceiling selects "
+           "at-or-below and does not leak upward; selection is duplicate-free")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -4723,6 +4837,7 @@ CHECK_FNS = {
     "barge-in-never-swallows-a-halt": check_barge_in_never_swallows_a_halt,
     "baseline-records-what-cannot-be-rebuilt":
         check_baseline_records_what_cannot_be_rebuilt,
+    "memory-projects-from-the-log": check_memory_projects_from_the_log,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

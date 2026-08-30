@@ -958,10 +958,45 @@ VOICE_TOML = "contracts/policy/voice.toml"
 DIFFICULTY = "core/difficulty.py"
 BARGE_IN = "core/barge_in.py"
 BASELINE = "core/baseline.py"
+MEMORY_PY = "core/memory.py"
 ROUTER = "core/router.py"
 LATENCY = "core/latency.py"
 SUPPLY_PY = "routing/supply.py"
 RUNTIME = "tools/ops/vesper_runtime.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-074
+    ("memory-projects-from-the-log", MEMORY_PY,
+     _sub('        seq = int(self._store.append("log", "memory.fact", body, at))',
+          '        seq = 0', 1),
+     "L2 written as a primary store: the fact lands with a pointer that never "
+     "had an append behind it, and the row is indistinguishable from a correct "
+     "one afterwards"),
+
+    ("memory-projects-from-the-log", MEMORY_PY,
+     _sub("if s not in live", "if s is None", 1),
+     "the guard inspects the pointer's SHAPE instead of resolving it -- which "
+     "is exactly what NOT NULL already does, and every wrong pointer in this "
+     "schema is a well-formed integer"),
+
+    ("memory-projects-from-the-log", MEMORY_PY,
+     _sub("    return PRIVACY_CLASSES[:PRIVACY_CLASSES.index(ceiling) + 1]",
+          "    return (ceiling,)", 1),
+     "the probe's `privacy = 'private'` predicate restored as an equality: a "
+     "`personal` fact becomes permanently unreachable by block B and nothing "
+     "reports the absence"),
+
+    ("memory-projects-from-the-log", MEMORY_PY,
+     _sub("                  JOIN (SELECT DISTINCT id FROM reach) r ON f.subject_id = r.id",
+          "                  JOIN reach r ON f.subject_id = r.id", 1),
+     "the reach CTE's duplicates return: an entity reached at two depths "
+     "multiplies its facts, and block B spends its 3-5 slots on repeats"),
+
+    ("memory-projects-from-the-log", MEMORY_PY,
+     _sub("        if rank == MODEL_PRIOR:", "        if False:", 1),
+     "INV-EVID-1 dropped: a model prior is asserted into memory, where nothing "
+     "downstream can tell it from the owner's own word"),
+]
 
 CASES += [
     ("face-follows-activity", HOME_STATE,
