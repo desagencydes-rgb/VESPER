@@ -32,7 +32,7 @@ what is waiting on the owner.
 | 6 | Compactor · arbiter · forgetter | done | `CI-080` · `CI-078` · `CI-079` |
 | 7 | Sensors | done, wired | `CI-082` |
 
-**Gates: 57 checks, 221 self-tests, both lints green.** Every check landed with
+**Gates: 57 checks, 223 self-tests, both lints green.** Every check landed with
 an executed red run in `self_test.py`; nothing was declared.
 
 Memory runs in the live app. `~/Library/Application Support/VESPER/l2.db` was
@@ -185,6 +185,29 @@ which structurally cannot hold a value without provenance.
 **That was the third invented vocabulary in one night** — after the L2 probe's
 `private`/`shareable` and `host_health`'s `nominal`/`constrained`. Each looked
 reasonable read on its own, and none of them failed anything.
+
+## Three more modules wired after the first wrap-up
+
+**`devices`** — this node had never described itself, so `INV-TRUST-2` (no
+continuity-critical capability on a foreground-only node) had nothing to check.
+With one node that question is never asked, which is exactly when the answer
+stops being checked. Registered from **measurement**: audio inputs and outputs
+counted from the system inventory rather than assumed from the form factor,
+`sustained_tokens_per_sec` recorded as **unmeasured** so `capability()` returns
+None for it, and `key_storage_class = os_keychain` **not** `hardware_backed` —
+the two differ by a trust zone, a keychain existing evidences the first and
+nothing has shown a key in a secure element. Raising it is your promotion to
+make.
+
+**`repair` + the grading step between it and triage.** Three real provider
+failures were sitting in the queue ungraded, and `RepairAgent` declines an
+ungraded item on purpose. `grade_all()` was called by **nothing** — its
+docstring says "called when a rung reports healthy" and no rung ever reported.
+So the chain was collect → gap → decline, and the decline looked like the
+repairer working. Now: `claude-sub/server_error` grades `NO_FIX_NEEDED`,
+`groq-strong/server_error` grades `CRITICAL_DEFERRED`, `groq-strong/budget_too_large`
+grades `CAN_WAIT`, and all three are declined **because none is CRITICAL_NOW** —
+a stated conclusion instead of an unexamined queue.
 
 ## Waiting on the owner
 
