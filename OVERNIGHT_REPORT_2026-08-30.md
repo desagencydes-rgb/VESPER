@@ -101,8 +101,13 @@ them. A negative control that passes is a defect, not a relief.
    registered in `CHECKS.toml`, because registering it means declaring an
    invariant it enforces and inventing one is the manufactured claim
    `ci-registry` exists to refuse. Ratify it and the check registers.
-3. **Darija voice quality** — needs your ears. One Arabic voice on this machine
-   (`Majed`, MSA) against a Latin-script Darija decision.
+3. **Darija voice quality** — needs your ears, and it is **rendered and waiting**:
+   run `~/VESPER-darija-ab/play.sh`. Four voices (`Majed` ar_001 MSA, `Thomas`
+   fr_FR, `Amelie` fr_CA, `Samantha` en_US as the floor) across four lines,
+   grouped by line so you hear the same sentence four ways. All 16 files
+   verified as real audio with `afinfo`, not with an exit code. The `recall`
+   line matters most — it is VESPER reading a memory back to you, which is what
+   it will say most often once the corpus fills.
 4. **STT route.** Recommended and unconfirmed: Groq for Darija, Apple on-device
    for `en-US`. `ar-MA` is not available on-device here, so Apple's own path
    egresses outside `ModelGateway` and outside the redactor.
