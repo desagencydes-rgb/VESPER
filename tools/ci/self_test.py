@@ -2874,19 +2874,19 @@ CASES += [
 CASES += [
     # ---------------------------------------------------------------- CI-089
     ("documented-counts-match-commands", "CLAUDE.md",
-     _sub("python3.13 tools/ci/checks.py all       # 79 checks",
+     _sub("python3.13 tools/ci/checks.py all       # 80 checks",
           "python3.13 tools/ci/checks.py all       # 57 checks", 1),
      "CLAUDE.md's check count goes stale again -- the eighth drift, and the "
      "first one a gate can see"),
 
     ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
-     _sub("tools/ci/self_test.py                         PASS   342/342",
+     _sub("tools/ci/self_test.py                         PASS   345/345",
           "tools/ci/self_test.py                         PASS   295/295", 1),
      "the status table's self-test count goes stale: it had been four sessions "
      "wrong before this gate existed"),
 
     ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
-     _sub("tools/ci/checks.py status                            69/89 check IDs implemented, 20 PENDING",
+     _sub("tools/ci/checks.py status                            70/89 check IDs implemented, 19 PENDING",
           "tools/ci/checks.py status                            61/89 check IDs implemented, 28 PENDING", 1),
      "the PENDING count goes stale -- the figure that matters most, because a "
      "PENDING entry looks exactly like enforcement in any listing that does "
@@ -2935,6 +2935,43 @@ CASES += [
           '        return self.state == "TRUSTED"', 1),
      "a TRUSTED node with no MEASURED throughput becomes routable, so work is "
      "sent to a node on a number nobody took -- INV-HW-2 inside enrollment"),
+]
+
+
+CASES += [
+    # --------------------------------------------------------------- CI-046b
+    #
+    # A MUTATION MUST NOT WRITE ANY FILE BUT THE ONE IT MUTATES. The harness
+    # restores the mutated path and nothing else, so a mutation whose code RUNS
+    # and overwrites another file leaves that file destroyed after the case --
+    # which is what the first version of the case below did to
+    # contracts/policy/tunables.toml, taking it from 8577 bytes to 9. Restored
+    # from HEAD. CI-046b is a SOURCE SCAN, so introducing the pattern in a
+    # function nobody calls tests exactly what the check tests and executes
+    # nothing.
+    ("tunable-range-immutable-runtime", PLACE_PY,
+     _sub("def load_placement_tunables(",
+          "def _widen_the_range() -> None:\n"
+          "    TUNABLES.write_text(\"# widened\", encoding=\"utf-8\")\n"
+          "\n"
+          "\n"
+          "def load_placement_tunables(", 1),
+     "a runtime module gains a path that writes the tunables artifact: a system "
+     "that can widen its own range has no range, and self-tuning stops being "
+     "HOW OFTEN and becomes WHAT IT IS ALLOWED TO DO"),
+
+    ("tunable-range-immutable-runtime", PLACE_PY,
+     _sub("        gain = float(t[\"relocation_gain_threshold\"][\"default\"])",
+          "        t[\"relocation_gain_threshold\"][\"max\"] = 9.0\n"
+          "        gain = float(t[\"relocation_gain_threshold\"][\"default\"])", 1),
+     "a declared max is assigned to in memory without the file ever being "
+     "opened -- mutating the parsed dict widens the range just as effectively, "
+     "and a scan for file writes alone would never see it"),
+
+    ("tunable-range-immutable-runtime", "contracts/policy/tunables.toml",
+     _sub("[tunable.revisit_after]\nmin = 3600", "[tunable.revisit_after]\nmin = 700000", 1),
+     "a declared default falls outside its own range, so the value the runtime "
+     "reads is already out of bounds before anything tunes it"),
 ]
 
 

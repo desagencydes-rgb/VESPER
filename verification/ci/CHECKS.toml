@@ -997,10 +997,48 @@ note = "COVERS THE DECLARATION HALF. The runtime half -- a code path writing a d
 name = "tunable-range-immutable-runtime"
 enforces = ["INV-TUNE-1"]
 kind = "structural"
-impl = "PENDING"
+impl = "tools/ci/checks.py tunable-range-immutable-runtime"
 blocking = "pr"
-self_test = "Add a runtime code path that writes a tunable declared min or max."
-note = "Split from CI-046 for the same reason CI-034b was split from CI-034."
+self_test = """Add a runtime path that writes the tunables artifact; assign a
+declared max in memory without opening the file; move a declared default outside
+its own range."""
+self_test_evidence = """tools/ci/self_test.py tunable-range-immutable-runtime
+-- 3 cases, red then green, 2026-08-31."""
+subject = "core/placement.py, core/host_probes.py, contracts/policy/tunables.toml"
+note = """Split from CI-046 for the same reason CI-034b was split from CI-034.
+IMPLEMENTED 2026-08-31.
+
+CI-046 covers the DECLARATION half -- no runtime state in the artifact, the
+not-tunable list intact, no default outside its own range. Its note said the
+other half "needs source code and is tracked as CI-046b": a code path that
+writes a declared min or max.
+
+THE RANGE IS NOT ITSELF A TUNABLE, and the artifact says why in its own header:
+"a system that can widen its own range has no range." Self-tuning is VESPER
+adjusting HOW OFTEN it does something, never WHAT IT IS ALLOWED TO DO."""
+discriminators = """STRUCTURAL FIRST, BEHAVIOURAL SECOND. What is wanted is that
+no write path EXISTS, not that the one we thought of is refused -- a runtime
+check can only refuse the writer it is asked about. So the check scans core/,
+tools/ and routing/ for a write idiom on a line naming the artifact, and asserts
+it found readers, or the scan is looking at nothing and would not see a writer
+either.
+
+WRITING THE FILE IS NOT THE ONLY WAY TO WIDEN A RANGE. Mutating the parsed dict
+and serialising it elsewhere does it just as effectively, so `["min"] =` and
+`["max"] =` are scanned for separately -- a file-write scan alone would never
+see that, and it is its own red-run case.
+
+THE DEFAULTS ARE RE-CHECKED THROUGH THE LOADERS, not only in the artifact.
+CI-046 asserts the artifact is internally consistent; a loader reading the wrong
+key would satisfy that and still hand the runtime a value from outside its
+range.
+
+AND A SELF-TEST MUTATION MUST NOT WRITE ANY FILE BUT THE ONE IT MUTATES. The
+first version of the first case ran code that overwrote
+contracts/policy/tunables.toml, taking it from 8577 bytes to 9; the harness
+restores the mutated path and nothing else. Since this check is a source scan,
+the mutation now introduces the pattern in a function nobody calls -- testing
+exactly what the check tests and executing nothing."""
 
 [checks.CI-047]
 name = "idea-retirement-reason"

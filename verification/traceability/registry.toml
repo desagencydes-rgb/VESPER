@@ -354,7 +354,7 @@ state_machines = ["SM-IDEA"]
 decision_functions = ["DF-IDEA-REVISIT", "DF-TUNABLE"]
 invariants = ["INV-IDEA-1", "INV-IDEA-3", "INV-TUNE-1"]
 tests = ["A-016", "A-040", "A-049"]
-ci = ["CI-046", "CI-047"]
+ci = ["CI-046", "CI-046b", "CI-047"]
 status = "SPECIFIED"
 
 [requirements.SR-028]

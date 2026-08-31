@@ -9846,6 +9846,149 @@ def check_z2_capability_bound() -> Result:
     return r
 
 
+def check_tunable_range_immutable_runtime() -> Result:
+    """CI-046b: the RUNTIME half of INV-TUNE-1, which CI-046 does not cover.
+
+    CI-046 checks the DECLARATION -- that `tunables.toml` holds no runtime
+    state, that the not-tunable list is intact, that no default sits outside its
+    own range. Its note says the other half "needs source code and is tracked as
+    CI-046b": a code path that writes a declared min or max.
+
+    THE RANGE IS NOT ITSELF A TUNABLE, and the artifact says why in its own
+    header: "a system that can widen its own range has no range." Self-tuning is
+    VESPER adjusting HOW OFTEN it does something, never WHAT IT IS ALLOWED TO
+    DO -- idle time expands available time, never authority.
+
+    SO THIS IS STRUCTURAL FIRST AND BEHAVIOURAL SECOND. The guarantee wanted is
+    that no code path exists, not that the one we know about is refused; a
+    runtime check can only refuse the writer it is asked about.
+    """
+    r = Result("tunable-range-immutable-runtime")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile
+    try:
+        from core.bus import EventBus
+        from core.hlc import HybridLogicalClock
+        from core.selfmod import (SelfModificationBoundary,
+                                  SelfModificationRefused)
+        from core.store import StoreSet
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.selfmod did not import: {exc!r}")
+        return r
+
+    ARTIFACT = "contracts/policy/tunables.toml"
+    if not (REPO / ARTIFACT).exists():
+        r.err(f"{ARTIFACT} does not exist")
+        return r
+
+    # 1. NO WRITE PATH EXISTS. A module that reads the artifact is expected; one
+    #    that opens it for writing is the defect, whatever it intends to change.
+    writers = []
+    readers = 0
+    write_idioms = re.compile(
+        r"write_text\s*\(|write_bytes\s*\(|open\s*\([^)]*['\"][wa]\+?['\"]|"
+        r"\.dump\s*\(|shutil\.(copy|move)\s*\(")
+    for base in ("core", "tools", "routing"):
+        d = REPO / base
+        if not d.exists():
+            continue
+        for f in sorted(d.rglob("*.py")):
+            if f.name in ("checks.py", "self_test.py"):
+                continue                    # the gates themselves, not runtime
+            text = f.read_text(encoding="utf-8", errors="replace")
+            if "tunables.toml" not in text and "TUNABLES" not in text:
+                continue
+            readers += 1
+            for i, line in enumerate(text.splitlines(), 1):
+                st = line.strip()
+                if st.startswith("#"):
+                    continue
+                if ("TUNABLES" in st or "tunables.toml" in st) and write_idioms.search(st):
+                    writers.append(f"{f.relative_to(REPO)}:{i}")
+    if writers:
+        r.err(f"a runtime module writes the tunables artifact at {writers}. The "
+              "range is not itself a tunable -- a system that can widen its own "
+              "range has no range.")
+    if readers < 1:
+        r.err("no module references the tunables artifact at all, so this scan "
+              "is looking at nothing and would not see a writer either")
+
+    # 2. THE `min`/`max` KEYS ARE NEVER ASSIGNED TO. Reading them is the whole
+    #    point; writing one is the invariant's exact prohibition, and it can
+    #    happen without ever opening the file -- mutate the parsed dict and
+    #    re-serialise it somewhere else.
+    assigns = []
+    assign_pat = re.compile(r"\[\s*['\"](?:min|max)['\"]\s*\]\s*=[^=]")
+    for base in ("core", "tools", "routing"):
+        d = REPO / base
+        if not d.exists():
+            continue
+        for f in sorted(d.rglob("*.py")):
+            if f.name in ("checks.py", "self_test.py"):
+                continue
+            for i, line in enumerate(
+                    f.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+                if line.strip().startswith("#"):
+                    continue
+                if assign_pat.search(line):
+                    assigns.append(f"{f.relative_to(REPO)}:{i}")
+    if assigns:
+        r.err(f"a declared min or max is assigned to at {assigns}. This does "
+              "not require writing the file: mutating the parsed dict and "
+              "serialising it elsewhere widens the range just as effectively.")
+
+    # 3. AND THE ARTIFACT IS A GOVERNED SURFACE, so a writer added tomorrow is
+    #    refused at runtime rather than merely absent today. Structure says "no
+    #    such path exists"; this says "and one would not work".
+    store = StoreSet(Path(tempfile.mkdtemp()), node_id="ci")
+    bus = EventBus(HybridLogicalClock("ci"), store)
+    boundary = SelfModificationBoundary(bus, repo_root=REPO)
+    if not boundary.is_governed(ARTIFACT):
+        r.err(f"{ARTIFACT} is not a governed surface, so nothing would stop a "
+              "runtime write path added later")
+    try:
+        boundary.check_write(REPO / ARTIFACT, level="L5")
+        r.err("a write to the tunables artifact was permitted at L5")
+    except SelfModificationRefused:
+        pass
+
+    # 4. THE DEFAULTS THE RUNTIME ACTUALLY READS ARE INSIDE THEIR OWN RANGES.
+    #    CI-046 asserts this over the artifact; here it is asserted over what
+    #    the loaders return, because a loader that reads the wrong key would
+    #    satisfy the artifact check and hand the runtime a value from outside.
+    doc = tomllib.loads((REPO / ARTIFACT).read_text(encoding="utf-8"))
+    tunables = doc.get("tunable", {})
+    if not tunables:
+        r.err("the tunables artifact declares nothing")
+    for name, spec in sorted(tunables.items()):
+        lo, hi, default = spec.get("min"), spec.get("max"), spec.get("default")
+        if lo is None or hi is None or default is None:
+            r.err(f"tunable {name!r} is missing min, max or default; a tunable "
+                  "without a range is not bounded by anything")
+            continue
+        if not lo <= default <= hi:
+            r.err(f"tunable {name!r} defaults to {default}, outside [{lo},{hi}]")
+
+    from core.placement import load_placement_tunables
+    gain, dwell = load_placement_tunables()
+    for name, got in (("relocation_gain_threshold", gain),
+                      ("placement_min_dwell_s", dwell)):
+        spec = tunables.get(name, {})
+        if spec and not spec["min"] <= got <= spec["max"]:
+            r.err(f"the loader returns {got} for {name!r}, outside its declared "
+                  f"[{spec['min']},{spec['max']}] -- the artifact is correct and "
+                  "the value reaching the runtime is not")
+
+    r.note(f"no runtime module writes the tunables artifact ({readers} read it) "
+           f"and no declared min or max is assigned to anywhere -- which does "
+           f"not require writing the file; the artifact is a governed surface "
+           f"and a write to it is refused at L5; and all {len(tunables)} "
+           f"declared defaults sit inside their own ranges, checked again "
+           f"against the values the placement loader actually returns")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -9921,6 +10064,7 @@ CHECK_FNS = {
     "tombstone-on-durable-write": check_tombstone_on_durable_write,
     "documented-counts-match-commands": check_documented_counts_match_commands,
     "z2-capability-bound": check_z2_capability_bound,
+    "tunable-range-immutable-runtime": check_tunable_range_immutable_runtime,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,
