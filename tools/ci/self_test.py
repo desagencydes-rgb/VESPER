@@ -3415,6 +3415,14 @@ CASES += [
      "the contracts, the invariants and the checks become writable on standing "
      "authority: the gates are editable by the thing they gate"),
 
+    ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
+     _sub("timeout=timeout, check=False, cwd=str(REPO))",
+          "timeout=timeout, check=False)", 1),
+     "the working directory is inherited again. `workspace/` and `contracts/` "
+     "are the whole basis of the level rules and they are relative, so the tree "
+     "a command acts on becomes a function of who started the runtime -- a path "
+     "levelled as a harmless workspace file, executed somewhere else"),
+
     ("capabilities-registered-and-levelled-by-argument", ACTOR_PY,
      _sub('STANDING_LEVEL = "L2"', 'STANDING_LEVEL = "L4"', 1),
      "VESPER holds standing L4. Every stop-and-ask this ladder exists for is "

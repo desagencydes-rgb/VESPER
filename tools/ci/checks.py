@@ -10998,6 +10998,12 @@ def _swift_code(text: str) -> str:
 
     A trailing `//` is only treated as a comment when the quotes before it on
     that line are balanced, so a `//` inside a string literal survives.
+
+    LIMIT, STATED RATHER THAN LEFT TO BE FOUND: block comments (`/* ... */`) are
+    NOT stripped. Nothing in the Swift this check reads uses them -- the corpus
+    is `///` and `//` throughout -- so the hole is currently empty. If one
+    appears, an assertion could match text inside it and this docstring is the
+    warning that it would.
     """
     out = []
     for line in text.splitlines():
@@ -11134,18 +11140,45 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
               "starter's check can only cover the paths it knows about; this one "
               "cannot be bypassed by any other way of launching home")
 
+    # `--fn-fire` IS A TEST DOOR AND IT SHIPS. It calls the real
+    # `launchVesper()`, which is the only way to confirm the single-instance
+    # guard without synthesising a key event -- and that needs the same
+    # Accessibility grant the watcher is waiting on. What makes it safe is
+    # ORDER: home's own refusal is evaluated before it, so even a script calling
+    # `--fn-fire` in a loop cannot produce a second home.
+    if "--fn-fire" in main:
+        guard_at = main.find('args.contains("--home") && homeIsRunning()')
+        door_at = main.find('args.contains("--fn-fire")')
+        if guard_at < 0 or guard_at > door_at:
+            r.err("the `--fn-fire` test door is reachable before home's own "
+                  "single-instance guard, so repeated calls can start more than "
+                  "one home -- a door that ships must be bounded by the guard "
+                  "it exists to test")
+
     # AUTOSTART. A check that asserts everything about the listener's behaviour
     # and nothing about it being LAUNCHED stays green on a feature that never
     # runs. The owner asked for "no buttons", which is an autostart requirement.
     if "startWakeWordInProcess()" not in main:
         r.err("nothing starts the wake listener: it has to be launched by hand, "
               "so it does not survive a crash, a logout or a reboot")
-    # THE LABEL, not the substring. `$ID.fnwatch.plist.disabled` still contains
-    # "fnwatch" while naming a file launchd will never load.
+    # THE FILENAME BUILD.SH WRITES, COMPARED TO THE ONE main.swift REGISTERS.
+    # Asserting the Label alone was not enough: the mutation renamed the FILE to
+    # `.plist.disabled`, leaving the Label intact inside a plist that
+    # `SMAppService` would never find. The two names have to agree, and only a
+    # comparison across the two files can see that.
     if "<key>Label</key><string>$ID.fnwatch</string>" not in build:
-        r.err("the globe-key watcher has no LaunchAgent, so it too must be "
-              "started by hand -- and its whole job is to start home when "
-              "nothing else is running")
+        r.err("the globe-key watcher's LaunchAgent has no label, so nothing "
+              "identifies the job to launchd")
+    import re as _re
+    written = set(_re.findall(r'LaunchAgents/([^"\s]+\.plist)', build))
+    registered = set(_re.findall(r'agent\(plistName:\s*"([^"]+)"\)', main))
+    expanded = {w.replace("$ID", "ai.vesper.island") for w in written}
+    missing = registered - expanded
+    if missing:
+        r.err(f"main.swift registers {sorted(missing)} but build.sh writes "
+              f"{sorted(expanded)}. The watcher whose job is to start home when "
+              "nothing is running is registered under a name that does not "
+              "exist in the bundle, so launchd loads nothing")
 
     # 7. THE GLOBE KEY IS DISCRIMINATED FROM ORDINARY FUNCTION KEYS. `.function`
     #    is raised by every arrow press, so watching the flag alone would start
@@ -11261,6 +11294,21 @@ def check_capabilities_registered_and_levelled_by_argument() -> Result:
             r.err(f"fs.write({governed!r}) is below L5 -- the gates would be "
                   "editable by the thing they gate")
 
+    # 6b. A RELATIVE PATH MEANS NOTHING WITHOUT A ROOT, and the level rules are
+    #     entirely about relative prefixes -- `workspace/` is L2, `contracts/`
+    #     is L5. If the root is whatever working directory the process inherited,
+    #     the same argument is levelled against one tree and executed against
+    #     another.
+    csrc = (REPO / "core" / "capabilities.py").read_text(encoding="utf-8")
+    if "cwd=str(REPO)" not in csrc:
+        r.err("shell.run inherits its working directory, so the tree it acts on "
+              "depends on who started the runtime rather than on anything the "
+              "level rules can see")
+    got = caps.resolve("workspace/x.txt")
+    if not str(got).startswith(str(REPO)):
+        r.err(f"a relative path resolves to {got}, outside the root the level "
+              "rules reason about")
+
     # 7. THE STANDING GRANT IS SMALL AND SAYS SO.
     rank = {"L0": 0, "L1": 1, "L2": 2, "L3": 3, "L4": 4, "L5": 5}
     if rank.get(actor_mod.STANDING_LEVEL, 9) > 2:
@@ -11285,11 +11333,29 @@ def check_capabilities_registered_and_levelled_by_argument() -> Result:
         r.err("a write is not verified by reading the world back, so the record "
               "of what happened is the actor's own account of itself")
     else:
-        ok = caps.verify_fs_write({"path": "/nonexistent/never",
-                                   "intended_sha256": "x"})
-        if ok.get("verified"):
+        # TWO INPUTS, BECAUSE THEY EXERCISE DIFFERENT LINES. The missing-file
+        # case returns before the hash comparison is ever reached, so it alone
+        # left the comparison untested -- a mutation replacing it with a
+        # constant `True` stayed green. The second input is a file that EXISTS
+        # and whose contents do not match the claim, which is the only one that
+        # reaches the comparison.
+        if caps.verify_fs_write({"path": "/nonexistent/never",
+                                 "intended_sha256": "x"}).get("verified"):
             r.err("the write verifier reports success for a file that does not "
                   "exist -- a verifier that cannot fail is not evidence")
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as fh:
+            fh.write("what is actually on the disk")
+            probe = fh.name
+        try:
+            lied = caps.verify_fs_write({"path": probe,
+                                         "intended_sha256": "0" * 64})
+            if lied.get("verified"):
+                r.err("the write verifier agrees with the actor about a file "
+                      "whose contents do not match the claim. It is not reading "
+                      "the world back -- it is restating what it was told")
+        finally:
+            Path(probe).unlink(missing_ok=True)
     if "why_not" not in src:
         r.err("a capability with no independent verifier reports silently, so "
               "'nothing checked this' is indistinguishable from 'this checked out'")

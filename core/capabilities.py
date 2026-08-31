@@ -47,6 +47,22 @@ from typing import Any
 
 from core.capability import CapabilityRegistry, LevelRule
 
+# THE ROOT THE LEVEL RULES ARE TALKING ABOUT, stated rather than inherited.
+# `fs_write_level("workspace/x")` returns L2 and `("contracts/policy/y")`
+# returns L5 -- both readings of a RELATIVE path, which mean nothing without a
+# root. Until this was written the root was whatever working directory the
+# process happened to have: `$REPO` under the LaunchAgent, and something else
+# for anyone running the runtime by hand. So the same argument could be levelled
+# as a harmless workspace file and then executed against a different tree.
+# The classifier and the implementation now resolve against the same constant.
+REPO = pathlib.Path(__file__).resolve().parents[1]
+
+
+def resolve(path: str) -> pathlib.Path:
+    """`~` expanded, relative paths taken against the repository root."""
+    p = pathlib.Path(os.path.expanduser(str(path or "")))
+    return p if p.is_absolute() else (REPO / p)
+
 # ---------------------------------------------------------------- shell.run
 
 # Verbs that cannot alter the machine no matter what they are pointed at. Kept
@@ -102,11 +118,15 @@ def shell_run(args: dict) -> dict:
     No shell. `shell=True` would re-introduce every chaining form the level
     rules just spent their effort excluding -- the classifier would be reasoning
     about one language and the execution happening in another.
+
+    `cwd` IS STATED for the same reason: a relative path means nothing without a
+    root, and inheriting one makes the level a function of who started the
+    process.
     """
     cmd = str(args.get("cmd") or "")
     timeout = float(args.get("timeout") or 20.0)
     p = subprocess.run(shlex.split(cmd), capture_output=True, text=True,
-                       timeout=timeout, check=False)
+                       timeout=timeout, check=False, cwd=str(REPO))
     return {"exit_code": p.returncode,
             "stdout": p.stdout[:4000],
             "stderr": p.stderr[:2000]}
@@ -157,7 +177,7 @@ def fs_write_level(args: dict) -> str:
 
 
 def fs_read(args: dict) -> dict:
-    path = pathlib.Path(os.path.expanduser(str(args.get("path") or "")))
+    path = resolve(args.get("path"))
     limit = int(args.get("limit") or 20000)
     text = path.read_text(encoding="utf-8", errors="replace")[:limit]
     return {"path": str(path), "text": text, "bytes": path.stat().st_size}
@@ -172,7 +192,7 @@ def fs_write(args: dict) -> dict:
     actor would be grading its own homework and the two values could never
     disagree.
     """
-    path = pathlib.Path(os.path.expanduser(str(args.get("path") or "")))
+    path = resolve(args.get("path"))
     content = str(args.get("content") or "")
     path.parent.mkdir(parents=True, exist_ok=True)
     previous = path.read_text(encoding="utf-8") if path.exists() else None
@@ -190,7 +210,7 @@ def fs_write_compensator(args: dict, result: Any) -> dict:
     fsevent fired, a watcher may have run -- which is exactly why the
     reversibility is `compensatable` and not `reversible`.
     """
-    path = pathlib.Path(os.path.expanduser(str(args.get("path") or "")))
+    path = resolve(args.get("path"))
     prev = (result or {}).get("previous")
     if prev is None:
         path.unlink(missing_ok=True)
