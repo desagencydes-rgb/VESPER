@@ -2899,7 +2899,7 @@ CASES += [
      "wrong before this gate existed"),
 
     ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
-     _sub("tools/ci/checks.py status                            71/89 check IDs implemented, 18 PENDING",
+     _sub("tools/ci/checks.py status                            75/93 check IDs implemented, 18 PENDING",
           "tools/ci/checks.py status                            61/89 check IDs implemented, 28 PENDING", 1),
      "the PENDING count goes stale -- the figure that matters most, because a "
      "PENDING entry looks exactly like enforcement in any listing that does "

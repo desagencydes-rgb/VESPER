@@ -962,3 +962,38 @@ owner_rem = "REM-012"
 enforced_by = ["CI-073"]
 kind = "mechanism"
 note = "Declined and could_not are the same event in a log and nothing downstream separates a choice from a failure afterwards, so the field cannot carry a default. Capture is total because a recorder that filters at write time makes the corpus a product of its own filtering, and the corpus is the only evidence by which the memory system can ever be judged."
+
+# ---------------------------------------------------------------------------
+# RATIFIED 2026-08-31 BY OWNER DECISION. Four checks had been running, passing
+# and carrying red-run evidence while enforcing no ratified invariant -- so they
+# officially guarded nothing, and deleting the code they check would have made
+# no gate complain. The rules were real; only their authority was missing.
+# ---------------------------------------------------------------------------
+
+[invariants.INV-NARRATE-2]
+statement = "Script conversion for speech happens at the speech boundary only. Transliterated text is never persisted, never written to memory, and never replaces what the owner typed on any surface they can read."
+owner_rem = "REM-007"
+enforced_by = ["CI-090", "A-009"]
+kind = "runtime"
+note = "The owner's own framing: the script on screen and the script in the speaker need not be the same. The conversion exists because a TTS engine reads Latin-typed Darija digits (3, 7, 9) as English numerals; converting to Arabic script fixes the pronunciation and is confirmed by ear on 2026-08-31. Persisting the converted form would make the transliteration authoritative over what the owner actually wrote, and every later reader -- search, recall, the owner -- would see a machine's guess in place of their own words. The converter also marks itself UNMEASURED (INV-HW-2's shape) because its accuracy has not been quantified, only listened to."
+
+[invariants.INV-PRIV-8]
+statement = "A presence declaration is cleared only by the owner, never by elapsed time. While it stands, an unidentified person is present for routing purposes."
+owner_rem = "REM-011"
+enforced_by = ["CI-091", "A-035"]
+kind = "runtime"
+note = "The deliberate inverse of INV-COORD-2, which refuses to read an expired fact as current. Presence must not expire, because expiry fails in the disclosing direction: a TTL lapsing means VESPER returns to speaking freely in a room the owner never said had emptied. INV-PRIV-1 already routes away from an unknown person in the space and had nothing able to tell it one was there; this is that input. The owner ends it, because only the owner knows the room."
+
+[invariants.INV-MEM-2]
+statement = "An owner instruction about context is applied at selection time, not after. A dropped subject is not re-selected by the automatic path, and a later pin never overrides an earlier drop."
+owner_rem = "REM-010"
+enforced_by = ["CI-092", "A-032"]
+kind = "runtime"
+note = "SR-008's manual mode. The failure it excludes is the instruction that is honoured once and then undone by the next automatic selection -- indistinguishable to the owner from not being heard at all. Drop outranks pin because the two can match the same subject and the drop is the narrower, more recent intent; resolving it the other way lets a broad pin silently readmit something the owner named and removed."
+
+[invariants.INV-PROC-4]
+statement = "Every figure a normative document quotes from a command matches what that command produces. A number with no consumer is not a record, it is a claim."
+owner_rem = "REM-013"
+enforced_by = ["CI-089"]
+kind = "process"
+note = "Ratified after the same pair of figures in CLAUDE.md drifted SEVEN times. Every correction was made by a person noticing, and four of the seven were found by someone reading the file rather than by anything breaking -- which is the argument: a number nobody acts on is a number nobody re-reads. The fix was never a more careful correction, it was to give the numbers a consumer. Identical in shape to INV-HW-2 for throughput: stop declaring, start measuring. Historical milestone records are exempt, narrowly and visibly, because rewriting them to match today would destroy the only record of what the corpus looked like then."

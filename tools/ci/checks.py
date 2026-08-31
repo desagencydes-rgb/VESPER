@@ -9598,15 +9598,11 @@ def check_tombstone_on_durable_write() -> Result:
 def check_documented_counts_match_commands() -> Result:
     """The two numbers in CLAUDE.md have drifted SEVEN times. Make it a gate.
 
-    DELIBERATELY UNREGISTERED. This check runs and blocks nothing: there is no
-    ratified invariant it enforces. INV-PROC-1..3 cover the SR registry, ADRs
-    and write scope; "a figure a document quotes from a command must match that
-    command" is a new rule about documentation integrity, and adding an
-    invariant is a spec change that belongs to the owner. It follows the same
-    pattern as the redactor's check and the three from earlier in this session
-    -- it runs, it is honest about what it enforces, and it stays out of the
-    registry until its invariant exists. Registering it against an invented
-    INV-PROC-4 would be exactly the false trace `ci-registry` refuses.
+    RATIFIED AS INV-PROC-4 ON 2026-08-31. This check ran unregistered for a day
+    -- it enforced a real rule that the rulebook did not contain, and pointing
+    it at an invented ID would have been exactly the false trace `ci-registry`
+    refuses. The owner ratified the invariant rather than leaving it that way,
+    so it is now registered as CI-089 and blocks at PR.
 
     CLAUDE.md's own opening line is "if a statement here contradicts a command's
     output, the command wins and this file is stale". The check counts and the

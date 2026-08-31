@@ -2102,3 +2102,122 @@ green, because span_for re-hashes at read time and refuses the same node a step
 later. The read-time hash is load-bearing; the stale filter exists to avoid
 READING a file already known to have moved. The check now asserts that -- a
 stale node is neither served nor read."""
+
+# ---------------------------------------------------------------------------
+# RATIFIED 2026-08-31. These four ran, passed and carried red-run evidence
+# while enforcing no ratified invariant -- deliberately held out of this
+# registry rather than pointed at an invented ID, which is the false trace
+# ci-registry refuses. The owner ratified INV-NARRATE-2, INV-PRIV-8, INV-MEM-2
+# and INV-PROC-4 on 2026-08-31 and they are now registered.
+# ---------------------------------------------------------------------------
+
+[checks.CI-089]
+name = "documented-counts-match-commands"
+enforces = ["INV-PROC-4"]
+kind = "structural"
+impl = "tools/ci/checks.py documented-counts-match-commands"
+blocking = "pr"
+self_test = """Stale the check count in CLAUDE.md; stale the self-test count in
+the status table; stale the PENDING count; delete one of the anchored
+patterns."""
+self_test_evidence = """tools/ci/self_test.py documented-counts-match-commands
+-- 4 cases, red then green, 2026-08-31."""
+subject = "CLAUDE.md, VESPER_ENGINEERING_STATUS.md"
+note = """The two figures in CLAUDE.md drifted SEVEN times, every correction made
+by a person noticing. This is the eighth response and the first that can fail.
+On its first run it found four stale figures, then two more the patterns had not
+covered -- "41 of 56 CI checks unimplemented" and "18 of 118 invariants
+enforced", both live claims in a table headed "every number below is produced by
+a command"."""
+discriminators = """THE REQUIREMENT IS DERIVED FROM THE DOCUMENTS, NOT FROM THE
+PATTERN LIST, and two earlier designs failed. A total-count threshold was too
+weak: dropping one pattern took the total from 5 to 4 and a `< 4` guard stayed
+green. Asserting each pattern individually was also too weak, because the loop
+iterates over `patterns` -- deleting an entry deletes its own guard. Any line in
+either document quoting one of these commands WITH A NUMBER must now be covered
+by some pattern, so deleting a pattern leaves an uncovered line and fails. A
+guard that can be removed by removing what it guards is not a guard.
+
+THE PHASE TABLE IS EXEMPT, NARROWLY AND VISIBLY. "Phase 3c executes 47 red runs"
+was true at Phase 3c; rewriting it to today's count would destroy the only
+record of what the corpus looked like then.
+
+AND THE COUNT INCLUDES ALL FOUR CASE LISTS. The first version counted only
+`CASES` and reported 311 where the runner printed 337 -- a check whose own
+arithmetic is wrong is worse than none, because it makes a correct document look
+stale."""
+
+[checks.CI-090]
+name = "arabizi-preserves-and-marks-itself"
+enforces = ["INV-NARRATE-2"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py arabizi-preserves-and-marks-itself"
+blocking = "pr"
+self_test = """Persist the transliterated form; drop the MEASURED=False marker;
+convert an English time-of-day token; lose an unmapped character; make the
+mapping order-dependent so a longer sequence loses to a shorter prefix."""
+self_test_evidence = """tools/ci/self_test.py arabizi-preserves-and-marks-itself
+-- 5 cases, red then green, 2026-08-31."""
+subject = "core/arabizi.py"
+note = """The owner's framing: the script on screen and the script in the
+speaker need not be the same. Latin-typed Darija digits (3, 7, 9) are read as
+English numerals by the TTS engine; Arabic script fixes the pronunciation,
+confirmed by ear 2026-08-31."""
+discriminators = """LONGEST MATCH FIRST, or a two-character sequence loses to
+its own one-character prefix and the output is silently wrong in a way only a
+Darija speaker hears.
+
+DIGIT-BEARING TOKENS ARE NOT ALL ARABIZI. "9am", "3rd" and "5kg" are English;
+the check plants each, because a converter that treats every digit as a Darija
+letter mangles ordinary English in the same sentence.
+
+AND IT MARKS ITSELF UNMEASURED. Its accuracy has been listened to, not
+quantified -- INV-HW-2's shape applied to a transform rather than a
+throughput."""
+
+[checks.CI-091]
+name = "presence-withholds-and-never-expires"
+enforces = ["INV-PRIV-8"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py presence-withholds-and-never-expires"
+blocking = "pr"
+self_test = """Drop the unknown person from persons(); give the declaration a
+TTL; let ordinary speech clear it; stop routing away from the unknown person."""
+self_test_evidence = """tools/ci/self_test.py presence-withholds-and-never-expires
+-- 4 cases, red then green, 2026-08-31."""
+subject = "core/presence.py"
+note = """INV-PRIV-1 has always routed away from an unknown person in the space
+and has never had anything able to tell it one was there. This is that input,
+and it is owner-declared rather than sensed."""
+discriminators = """NO TTL, AND THAT IS THE DELIBERATE INVERSE OF INV-COORD-2.
+Everywhere else an expired fact must not be read as current; here expiry fails
+in the DISCLOSING direction -- a TTL lapsing means VESPER returns to speaking
+freely in a room the owner never said had emptied. The red-run case adds a TTL
+and the check refuses it.
+
+ORDINARY SPEECH MUST NOT CLEAR IT either, or the declaration is revoked by the
+next sentence the owner happens to say."""
+
+[checks.CI-092]
+name = "context-control-reaches-selection"
+enforces = ["INV-MEM-2"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py context-control-reaches-selection"
+blocking = "pr"
+self_test = """Make a drop stop removing anything; match only Fragment field
+names so memory facts are invisible; implement a drop as an un-pin; stop block B
+honouring the exclusion; remove the over-selection under manual control."""
+self_test_evidence = """tools/ci/self_test.py context-control-reaches-selection
+-- 5 cases, red then green, 2026-08-31."""
+subject = "core/context_control.py, core/blocks.py"
+note = """SR-008's manual mode. The surface existed and nothing had ever reached
+it -- the instruction was parsed and the selection never saw it."""
+discriminators = """DROP OUTRANKS A LATER PIN. The two can match the same
+subject, and resolving it the other way lets a broad pin silently readmit
+something the owner named and removed. A drop implemented as an un-pin is a
+red-run case: the fragment simply returns to the automatic selector, which picks
+it again immediately.
+
+MANUAL CONTROL OVER-SELECTS. Dropping two of five from a limit-five selection
+would otherwise leave the turn three facts where five were available -- the
+owner punished for narrowing the focus. The automatic path is untouched."""
