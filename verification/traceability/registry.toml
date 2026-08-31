@@ -704,9 +704,9 @@ ic = ["IC-007"]
 contracts = ["contracts/results/result.schema.json"]
 decision_functions = ["DF-VERIFY-SELECT"]
 state_machines = ["SM-TASK"]
-invariants = ["INV-VERIF-1"]
+invariants = ["INV-VERIF-1", "INV-VERIF-2"]
 tests = ["A-003", "A-023"]
-ci = ["CI-010"]
+ci = ["CI-010", "CI-087"]
 status = "SPECIFIED"
 
 [requirements.SR-056]

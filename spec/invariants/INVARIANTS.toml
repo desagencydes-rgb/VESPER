@@ -494,13 +494,13 @@ kind = "runtime"
 [invariants.INV-VERIF-1]
 statement = "Verifier failure implies BLOCKED, never SUCCEEDED. Retry-until-agreement is prohibited."
 owner_rem = "REM-010"
-enforced_by = ["CI-010", "A-023"]
+enforced_by = ["CI-010", "CI-087", "A-023"]
 kind = "runtime"
 
 [invariants.INV-VERIF-2]
 statement = "A free-time task whose acceptance condition is not machine-checkable is ineligible for autonomous completion; it queues."
 owner_rem = "REM-010"
-enforced_by = ["A-023", "A-011"]
+enforced_by = ["CI-087", "A-023", "A-011"]
 kind = "runtime"
 
 [invariants.INV-VERIF-3]

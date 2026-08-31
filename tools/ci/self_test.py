@@ -974,6 +974,8 @@ PRESENCE_PY = "core/presence.py"
 CTRL_PY = "core/context_control.py"
 CACHE_PY = "core/cache.py"
 EVID_PY = "core/evidence.py"
+VERIFY_PY = "core/verify.py"
+VERIFIERS_PY = "core/verifiers.py"
 ARB_PY = "core/arbiter.py"
 BLOCKS3_PY = "core/blocks.py"
 BLOCKS2_PY = "core/blocks.py"
@@ -2213,6 +2215,62 @@ CASES += [
      "the withheld facts are dropped silently: the turn is missing the fact "
      "that answered it and looks exactly like a turn where memory had nothing, "
      "which is A-032's named degradation failure"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-087
+    ("machine-checkable-means-registered", VERIFY_PY,
+     _sub("                and criteria.get(\"kind\") not in self.available())",
+          "                and criteria.get(\"kind\") not in MACHINE_CHECKABLE)", 1),
+     "eligibility read off the declared name again: a free-time task naming a "
+     "strategy nothing implements is not deferred, runs, and is BLOCKED against "
+     "a condition this process could never check -- INV-VERIF-2 says it queues"),
+
+    ("machine-checkable-means-registered", VERIFIERS_PY,
+     _sub("    checks = [k for k in ASSERTIONS if k in criteria]\n"
+          "    if not checks:\n"
+          "        return False, (",
+          "    checks = [k for k in ASSERTIONS if k in criteria]\n"
+          "    if False:\n"
+          "        return False, (", 1),
+     "zero assertions passes vacuously: a task whose criteria key was "
+     "misspelled has nothing checked and reports SUCCEEDED in FREE_TIME, "
+     "unattended, and the verdict is indistinguishable from a real one"),
+
+    ("machine-checkable-means-registered", VERIFIERS_PY,
+     _sub('        if not claims:\n'
+          '            return False, (\n'
+          '                "no claims to check: an output whose assertions were never "\n'
+          '                "extracted has had nothing verified, and a pass here would be "\n'
+          '                "most confident about the outputs least understood")',
+          '        if not claims:\n'
+          '            return True, "nothing to check"', 1),
+     "an output nobody extracted claims from verifies, so the grounded strategy "
+     "is most confident about exactly the outputs it understood least"),
+
+    ("machine-checkable-means-registered", VERIFIERS_PY,
+     _sub("        except Unsupported as exc:", "        except _NeverRaised as exc:", 1),
+     "the gated refusal escapes as an exception and Verifier reports 'verifier "
+     "raised Unsupported' -- an ungrounded OUTPUT read as a broken VERIFIER, "
+     "which sends the next reader to fix the checker instead of the work"),
+
+    ("machine-checkable-means-registered", VERIFIERS_PY,
+     _sub("    if checker is not None:\n"
+          '        verifier.register("retrieval_grounded", grounded(checker))\n'
+          '        return ("deterministic", "retrieval_grounded")',
+          '    if True:\n'
+          '        verifier.register("retrieval_grounded", grounded(checker))\n'
+          '        return ("deterministic", "retrieval_grounded")', 1),
+     "retrieval_grounded registered with no ClaimChecker behind it, so a "
+     "memory-less runtime reports the strategy available and every task using "
+     "it fails inside the verifier rather than queueing"),
+
+    ("machine-checkable-means-registered", "tools/ops/vesper_runtime.py",
+     _sub("    available = register_all(verifier, checker)", "    available = ()", 1),
+     "the runtime stops registering any strategy: every verifier above is still "
+     "correct and gated, and the running system defers all free-time work "
+     "because nothing reached it -- the defect one layer up"),
 ]
 
 

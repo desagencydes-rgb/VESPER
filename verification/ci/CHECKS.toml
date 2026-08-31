@@ -1331,3 +1331,65 @@ AND THE WITHHOLDING IS REPORTED IN THE PROMPT, not only on the bus. A-032
 requires degradation to be visible; the model is the party about to answer and
 the one that needs to know memory came back thinner than it looks. An event
 nobody reads mid-turn records the degradation without reporting it."""
+
+[checks.CI-087]
+name = "machine-checkable-means-registered"
+enforces = ["INV-VERIF-1", "INV-VERIF-2"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py machine-checkable-means-registered"
+blocking = "pr"
+self_test = """Read eligibility off the declared kind again instead of the
+registry; let zero assertions pass vacuously; verify an output with no claims;
+let the gated refusal escape as an exception so an ungrounded output reads as a
+broken verifier; register retrieval_grounded with no ClaimChecker behind it;
+stop the runtime registering anything."""
+self_test_evidence = """tools/ci/self_test.py machine-checkable-means-registered
+-- 6 cases, red then green, 2026-08-31."""
+subject = "core/verifiers.py, core/verify.py, tools/ops/vesper_runtime.py"
+note = """MACHINE_CHECKABLE named two strategies and Verifier was a registry with
+nothing registered in it. That failed safe on the VERDICT -- no verifier means
+passed=False, so INV-VERIF-1 held and nothing looked wrong, which is exactly why
+it survived a build and two reviews. What was lost was INV-VERIF-2: a free-time
+task naming either strategy was not deferred, so it ran, produced work, and came
+back BLOCKED against an acceptance condition nothing in the process could check.
+A queued task runs again when a verifier appears; a blocked one is a failure
+record about the work.
+
+DF-VERIFY-SELECT takes `available_verifiers` as an input and should_defer
+consulted only the declared kind -- the same shape as INV-HW-2, a declared
+capability standing in for an available one, and fixed the same way.
+
+retrieval_grounded is what the strategy always meant and could not do until a
+memory-derived claim could carry support (CI-086): every assertion in the output
+resolves to a span that re-reads, or the task is not verified. It stays
+unregistered when there is no ClaimChecker, because a runtime with no memory
+genuinely cannot ground anything and saying so is what lets those tasks queue.
+
+AND THE RUNTIME REGISTERS THEM. Verifier was constructed only by tests and the
+F1 runner until now -- the same defect one layer up: a subsystem correct, gated
+and reached by nothing. Registering in build() is what makes should_defer's new
+answer mean anything in the running system, and the check asserts that wiring
+rather than trusting this commit to stay."""
+discriminators = """ZERO ASSERTIONS IS NOT A PASS, and the natural
+implementation makes it one: walk the declared assertions, return all(results),
+and `all([])` is True. A task whose criteria key was misspelled then has nothing
+checked and reports SUCCEEDED in FREE_TIME, unattended. Vacuous truth is the
+most dangerous verdict this module can produce because it is indistinguishable
+from a real pass. The same rule applies to an output with no claims extracted:
+passing there makes the grounded strategy most confident about exactly the
+outputs it understood least.
+
+AN UNGROUNDED OUTPUT IS NOT A BROKEN VERIFIER. ClaimChecker RAISES in a gated
+policy class -- that is its contract and it is right -- and Verifier.verify
+converts any exception into "verifier raised X". Letting the refusal escape
+therefore reports the instrument as faulty when the work is unsupported, and
+sends the next reader to fix the checker instead of the task.
+
+THE REGISTRY CHECK MUST CUT BOTH WAYS. A should_defer that defers everything
+unconditionally passes the empty-registry assertion, so the check also asserts
+that registering a strategy makes it eligible -- otherwise nothing is ever
+admitted and the verifier is a machine for refusing work.
+
+RETRY-UNTIL-AGREEMENT IS RE-ASSERTED THROUGH THE NEW PATH. A-023's shape -- the
+same task 20 times, never SUCCEEDED -- is run against the grounded verifier
+here, because a new strategy is a new way for repetition to buy an opinion."""

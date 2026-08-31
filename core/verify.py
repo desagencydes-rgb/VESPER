@@ -166,7 +166,28 @@ class Verifier:
     def attempts(self, task_id: str) -> int:
         return self._attempts.get(task_id, 0)
 
+    def available(self) -> tuple:
+        """The strategies that can actually run here, not the ones named.
+
+        `DF-VERIFY-SELECT` takes `available_verifiers` as an input, and the
+        distinction is the point: a strategy NAME is not a strategy.
+        """
+        return tuple(sorted(set(self._strategies) & set(MACHINE_CHECKABLE)))
+
     def should_defer(self, criteria: dict, period: str) -> bool:
-        """A-023.5: unverifiable work in FREE_TIME is deferred, not completed."""
+        """A-023.5: unverifiable work in FREE_TIME is deferred, not completed.
+
+        MACHINE-CHECKABLE *HERE*, NOT MACHINE-CHECKABLE IN PRINCIPLE. This read
+        only the declared kind, and `MACHINE_CHECKABLE` lists two strategies
+        that had no implementation -- so a free-time task naming either passed
+        as verifiable, reached `verify()`, found nothing registered and came
+        back BLOCKED. `INV-VERIF-1` held and nothing looked broken, which is why
+        it survived; what was lost was `INV-VERIF-2`, because a QUEUED task runs
+        again when a verifier appears and a BLOCKED one is a failure record
+        against work that was never checkable in this process.
+
+        The same shape as `INV-HW-2`: a declared capability standing in for an
+        available one, fail-closed by asking what is registered.
+        """
         return (period == "FREE_TIME"
-                and criteria.get("kind") not in MACHINE_CHECKABLE)
+                and criteria.get("kind") not in self.available())

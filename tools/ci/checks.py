@@ -6936,6 +6936,172 @@ def check_memory_citations_resolve_or_are_withheld() -> Result:
     return r
 
 
+def check_machine_checkable_means_registered() -> Result:
+    """A strategy NAME is not a strategy, and zero assertions is not a pass.
+
+    `core/verify.py` declares `MACHINE_CHECKABLE = ("deterministic",
+    "retrieval_grounded")` and `Verifier` was a registry with nothing in it.
+    That failed safe on the verdict -- no verifier registered means
+    `passed=False`, so `INV-VERIF-1` held and nothing looked wrong, which is why
+    it survived. What was lost was `INV-VERIF-2`: a free-time task naming either
+    strategy was NOT deferred, so it ran, produced work, and came back BLOCKED
+    against an acceptance condition nothing in this process could ever check. A
+    queued task runs again when a verifier appears; a blocked one is a failure
+    record about the work.
+
+    `DF-VERIFY-SELECT` TAKES `available_verifiers` AS AN INPUT and `should_defer`
+    consulted only the declared kind -- the same shape as `INV-HW-2`, a declared
+    capability standing in for an available one.
+
+    AND THE VACUOUS PASS IS THE OTHER HALF. A deterministic verifier that walks
+    its declared assertions and returns `all(results)` returns True for ZERO
+    assertions. A task whose criteria key was misspelled then has nothing
+    checked and reports SUCCEEDED in FREE_TIME, unattended -- the most dangerous
+    verdict available, because it is indistinguishable from a real pass.
+    """
+    r = Result("machine-checkable-means-registered")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile
+    try:
+        from core.bus import EventBus
+        from core.evidence import Claim, ClaimChecker
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+        from core.verify import MACHINE_CHECKABLE, NEVER_ACCEPTS, Verifier
+        from core.verifiers import ASSERTIONS, deterministic, register_all
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the verification path did not import: {exc!r}")
+        return r
+
+    root = Path(tempfile.mkdtemp())
+    store = StoreSet(root, node_id="ci")
+    clock = HybridLogicalClock("ci")
+    bus = EventBus(clock, store)
+
+    # 1. AN EMPTY REGISTRY DEFERS EVERYTHING IN FREE_TIME, including the two
+    #    strategies the constant calls machine-checkable.
+    empty = Verifier(bus)
+    for kind in MACHINE_CHECKABLE:
+        if not empty.should_defer({"kind": kind}, "FREE_TIME"):
+            r.err(f"{kind!r} is not deferred in FREE_TIME with no verifier "
+                  f"registered for it. The task runs, produces work, and is "
+                  f"BLOCKED against a condition nothing here can check -- "
+                  f"INV-VERIF-2 says it queues.")
+    if empty.available():
+        r.err(f"an empty registry reports {empty.available()} available")
+
+    # 2. REGISTERING CHANGES THE ANSWER, or the check above passes because
+    #    should_defer defers everything unconditionally.
+    v = Verifier(bus)
+    registered = register_all(v)
+    if "deterministic" not in registered:
+        r.err("deterministic was not registered")
+    if v.should_defer({"kind": "deterministic"}, "FREE_TIME"):
+        r.err("a registered strategy is still deferred, so should_defer ignores "
+              "the registry in the other direction and nothing is ever eligible")
+
+    # 3. WITHOUT A CHECKER, `retrieval_grounded` GENUINELY IS NOT AVAILABLE --
+    #    a runtime with no memory, which vesper_runtime supports and records.
+    if "retrieval_grounded" in registered:
+        r.err("retrieval_grounded was registered with no ClaimChecker to run it")
+    if not v.should_defer({"kind": "retrieval_grounded"}, "FREE_TIME"):
+        r.err("retrieval_grounded is eligible in a runtime with no memory to "
+              "ground against")
+
+    # 4. ZERO ASSERTIONS FAILS. The natural `all([])` is True.
+    ok, detail = deterministic("any output at all", {"kind": "deterministic"})
+    if ok:
+        r.err("a criteria dict with no assertion PASSED. Vacuous truth is the "
+              "most dangerous verdict here: a misspelled criteria key means "
+              "nothing was checked and the task reports success unattended in "
+              "FREE_TIME.")
+    if not any(a in detail for a in ASSERTIONS):
+        r.err("the empty-criteria refusal does not name what was expected, so "
+              "the next reader cannot tell a typo from a missing feature")
+
+    # 5. THE ASSERTIONS ACTUALLY DISCRIMINATE, or every task fails and the
+    #    verifier is a machine for refusing work.
+    if not deterministic("the alarm rang at 09:00", {"contains": "alarm"})[0]:
+        r.err("a satisfied assertion did not pass")
+    if deterministic("silence", {"contains": "alarm"})[0]:
+        r.err("an unsatisfied assertion passed")
+    if deterministic("hello", {"not_contains": "hello"})[0]:
+        r.err("not_contains passed with the string present")
+
+    # 6. THE GROUNDED VERIFIER RESOLVES REAL SPANS AND REFUSES INVENTED ONES,
+    #    which is what the strategy meant and could not do until a
+    #    memory-derived claim could carry support.
+    from core.arbiter import Arbiter
+    from core.memory import MemoryGraph
+    mem = MemoryGraph(store)
+    mem.remember(subject="world.owner", attribute="task",
+                 value="call your brother", rank=2, privacy="private",
+                 trust_class="owner", at=clock.now())
+    checker = ClaimChecker(bus, REPO, store=store)
+    v2 = Verifier(bus)
+    if "retrieval_grounded" not in register_all(v2, checker):
+        r.err("retrieval_grounded was not registered with a ClaimChecker present")
+    if v2.should_defer({"kind": "retrieval_grounded"}, "FREE_TIME"):
+        r.err("retrieval_grounded is still deferred once it can actually run")
+
+    real = Arbiter(mem).claims_for("world.owner", "task")
+    good = v2.verify("t-good", {"claims": real}, {"kind": "retrieval_grounded"})
+    if not good.passed:
+        r.err(f"output whose claims resolve was not verified: {good.detail}")
+
+    bad = v2.verify("t-bad", {"claims": [Claim(text="I checked and it is fine")]},
+                    {"kind": "retrieval_grounded"})
+    if bad.passed:
+        r.err("an output whose claim has no support was verified")
+    if "raised" in bad.detail:
+        r.err(f"an ungrounded OUTPUT is reported as a broken VERIFIER: "
+              f"{bad.detail[:80]!r}. ClaimChecker raises by contract in a gated "
+              "class and Verifier turns any exception into 'verifier raised X', "
+              "which sends the reader to fix the checker instead of the work.")
+
+    # 7. NO CLAIMS IS NOT A PASS -- the strategy must not be most confident
+    #    about the outputs it understood least.
+    if v2.verify("t-empty", {"text": "trust me"},
+                 {"kind": "retrieval_grounded"}).passed:
+        r.err("an output with no claims extracted was verified: nothing was "
+              "checked and the verdict says otherwise")
+
+    # 8. RETRY-UNTIL-AGREEMENT STILL CANNOT HAPPEN through the new verifiers.
+    #    A-023 runs the same task 20 times and requires it never succeed.
+    outcomes = {v2.verify("t-bad", {"claims": [Claim(text="I checked and it is fine")]},
+                          {"kind": "retrieval_grounded"}).passed
+                for _ in range(20)}
+    if outcomes != {False}:
+        r.err("repetition against unchanged output produced a new verdict -- "
+              "retry-until-agreement, which INV-VERIF-1 prohibits")
+
+    # 9. AND THE RUNTIME ACTUALLY REGISTERS THEM. Every assertion above is
+    #    about a Verifier this check built itself; none of them says the
+    #    RUNNING system has one. `Verifier` was constructed only by tests until
+    #    now, which is the same defect one layer up -- a subsystem that is
+    #    correct, gated, and reached by nothing.
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if "register_all(" not in rt:
+        r.err("tools/ops/vesper_runtime.py does not register any verification "
+              "strategy, so should_defer defers all free-time work and the "
+              "verifiers exist only for the tests that check them")
+    if "ClaimChecker(" not in rt:
+        r.err("the runtime builds no ClaimChecker, so retrieval_grounded can "
+              "never be available in the running system")
+
+    r.note(f"an empty registry defers {list(MACHINE_CHECKABLE)} in FREE_TIME and "
+           f"registration changes that; retrieval_grounded stays unavailable "
+           f"without a ClaimChecker; zero assertions fails rather than passing "
+           f"vacuously; the grounded verifier admits resolving claims, refuses "
+           f"invented ones as ungrounded OUTPUT rather than a broken verifier, "
+           f"refuses an output with no claims, and 20 retries on unchanged bad "
+           f"output never agreed; {list(NEVER_ACCEPTS)} still cannot close a task; "
+           f"and the runtime registers them rather than leaving the registry "
+           f"empty in the running system")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -6994,6 +7160,7 @@ CHECK_FNS = {
     "context-control-reaches-selection": check_context_control_reaches_selection,
     "cache-preserves-taint-and-content-keys": check_cache_preserves_taint_and_content_keys,
     "memory-citations-resolve-or-are-withheld": check_memory_citations_resolve_or_are_withheld,
+    "machine-checkable-means-registered": check_machine_checkable_means_registered,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

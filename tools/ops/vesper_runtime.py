@@ -61,12 +61,15 @@ from core.persona import Persona, Situation                     # noqa: E402
 from core.context_control import ContextCommands                # noqa: E402
 from core.presence import Presence                              # noqa: E402
 from core.blocks import L1Renderer                              # noqa: E402
+from core.evidence import ClaimChecker                          # noqa: E402
 from core.memory import MemoryGraph                             # noqa: E402
 from core.updater import MissRecorder, Updater                  # noqa: E402
 from core.quota import QuotaLedger                              # noqa: E402
 from core.router import NoRouteAvailable, Router                # noqa: E402
 from core.store import StoreSet                                 # noqa: E402
 from core.triage import TriageQueue                             # noqa: E402
+from core.verify import Verifier                                # noqa: E402
+from core.verifiers import register_all                         # noqa: E402
 from core.workbench import Workbench                            # noqa: E402
 from routing import supply                                      # noqa: E402
 from routing.supply import for_egress, load_rows, measured_profiles  # noqa: E402
@@ -276,9 +279,32 @@ def build(node: str = "vesper-runtime"):
                                       "indistinguishable from one with it.")},
                     component="runtime")
 
+    # VERIFICATION, REGISTERED RATHER THAN DECLARED. `core/verify.py` listed two
+    # machine-checkable strategies and `Verifier` was a registry with nothing in
+    # it, so every task naming one reached a verdict of "no verifier registered"
+    # -- fail-closed, therefore invisible. `should_defer` now asks the registry,
+    # which means a runtime that registers nothing DEFERS free-time work instead
+    # of running it into a BLOCKED verdict; that only helps if something
+    # actually registers here.
+    #
+    # THE CHECKER IS PASSED ONLY WHEN MEMORY LOADED. Without it
+    # `retrieval_grounded` cannot ground anything, and claiming it is available
+    # would put the runtime back in the state this replaced.
+    verifier = Verifier(bus)
+    checker = (ClaimChecker(bus, REPO, store=store)
+               if memory is not None else None)
+    available = register_all(verifier, checker)
+    bus.publish("verify.registry", subject="startup",
+                payload={"available": list(available),
+                         "note": ("what can actually be checked here. A "
+                                  "strategy name is not a strategy, and "
+                                  "DF-VERIFY-SELECT takes available_verifiers "
+                                  "as an input for this reason.")},
+                component="runtime")
+
     return (bus, gw, router, home, intake, triage, report, persona, bench,
             renderer, updater, misses, chooser, world, sensors, autonomy,
-            devices, repairer, presence, context_cmds)
+            devices, repairer, presence, context_cmds, verifier)
 
 
 def answer(gw, router, persona, utterance, renderer=None,
@@ -609,7 +635,7 @@ def main() -> int:
 
     (bus, gw, router, home, intake, triage, report, persona, bench,
      renderer, updater, misses, chooser, world, sensors,
-     autonomy, devices, repairer, presence, context_cmds) = build()
+     autonomy, devices, repairer, presence, context_cmds, verifier) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
