@@ -35,6 +35,7 @@
 // the callback handed us.
 
 import Foundation
+import AppKit
 import AVFoundation
 import Speech
 
@@ -87,6 +88,27 @@ func speechStatus() {
          + "shell, not for VESPER.")
 }
 
+
+/// Wait WITHOUT BLOCKING THE MAIN THREAD.
+///
+/// THE BUG THIS EXISTS TO FIX, measured 2026-08-31: consent was requested on a
+/// `DispatchSemaphore.wait()` before `NSApplication.shared` was ever touched.
+/// TCC presents its dialog on the main run loop, and a blocked main thread has
+/// no run loop to present it on -- so NOTHING APPEARED, the process sat for the
+/// full 120s, timed out, and exited reporting no answer. It looked exactly like
+/// an owner who ignored a dialog, and there was no dialog.
+///
+/// The old comment was right that asking for a permission must not put the
+/// island's face over the Desktop, and wrong that this meant no NSApplication
+/// at all. `.accessory` is the resolution: a real app object with a real run
+/// loop, no Dock tile and no window.
+private func pumpUntil(_ deadline: Date, _ done: () -> Bool) -> Bool {
+    while !done() && Date() < deadline {
+        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+    }
+    return done()
+}
+
 func requestSpeechConsent() {
     let bundle = Bundle.main.bundleIdentifier ?? "NOT IN A BUNDLE"
     report("requesting as: \(bundle)")
@@ -96,24 +118,30 @@ func requestSpeechConsent() {
         return
     }
 
+    // A HOST FOR THE DIALOG. No Dock tile, no window, no island -- but a real
+    // run loop, which is the thing TCC needs and the semaphore denied it.
+    let app = NSApplication.shared
+    app.setActivationPolicy(.accessory)
+    app.activate(ignoringOtherApps: true)
+
     // Microphone first: it is the permission that gates capture, and a speech
     // grant without it authorises transcribing audio that can never be read.
-    let micGate = DispatchSemaphore(value: 0)
     var micGranted = false
+    var micDone = false
     AVCaptureDevice.requestAccess(for: .audio) { granted in
         micGranted = granted
-        micGate.signal()
+        micDone = true
     }
     // A dialog the owner never answers must not hang a supervised process.
-    if micGate.wait(timeout: .now() + 120) == .timedOut {
-        report("microphone: NO ANSWER within 120s -- nothing was granted")
-    } else {
+    if pumpUntil(Date().addingTimeInterval(120), { micDone }) {
         report("microphone: \(micGranted ? "granted" : "DENIED")")
+    } else {
+        report("microphone: NO ANSWER within 120s -- nothing was granted")
     }
 
-    let speechGate = DispatchSemaphore(value: 0)
-    SFSpeechRecognizer.requestAuthorization { _ in speechGate.signal() }
-    if speechGate.wait(timeout: .now() + 120) == .timedOut {
+    var speechDone = false
+    SFSpeechRecognizer.requestAuthorization { _ in speechDone = true }
+    if !pumpUntil(Date().addingTimeInterval(120), { speechDone }) {
         report("speech recognition: NO ANSWER within 120s")
     }
 
