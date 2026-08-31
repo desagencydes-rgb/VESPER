@@ -129,7 +129,7 @@ def _escapes(raw: str, resolved: pathlib.Path) -> bool:
 READ_ONLY_VERBS = frozenset({
     "ls", "pwd", "whoami", "date", "uname", "hostname", "id",
     "cat", "head", "tail", "wc", "file", "stat", "du", "df",
-    "echo", "which", "type", "env", "uptime", "ps",
+    "echo", "which", "type", "uptime", "ps",
 })
 
 # Anything that could introduce a SECOND command. Checked before the verb, so a
@@ -143,6 +143,20 @@ DESTRUCTIVE_MARKERS = (
     "chmod", "chown", "diskutil", "launchctl", "defaults write", "pkill",
     ":(){", "sudo", "curl", "wget", "nc ", "ssh ",
 )
+
+
+LEVEL_RANK = {"L0": 0, "L1": 1, "L2": 2, "L3": 3, "L4": 4, "L5": 5}
+
+
+def _looks_like_path(tok: str) -> bool:
+    """A token naming a file, as opposed to a flag or a bare word."""
+    if not tok or tok.startswith("-"):
+        return False
+    return "/" in tok or tok.startswith("~") or tok.startswith(".")
+
+
+def _worst(a: str, b: str) -> str:
+    return a if LEVEL_RANK.get(a, 5) >= LEVEL_RANK.get(b, 5) else b
 
 
 def shell_level(args: dict) -> str:
@@ -165,9 +179,22 @@ def shell_level(args: dict) -> str:
         parts = shlex.split(cmd)
     except ValueError:
         return "L5"                      # unbalanced quoting: not analysable
-    if parts and parts[0] in READ_ONLY_VERBS:
-        return "L1"
-    return "L3"
+    base = "L1" if (parts and parts[0] in READ_ONLY_VERBS) else "L3"
+
+    # THE SAME FILE MUST NOT BE CHEAPER THROUGH THIS DOOR. `fs.read` refuses a
+    # credential at L5, and `shell.run("cat ~/.ssh/id_rsa")` was returning L1 --
+    # `cat` is allowlisted and nothing looked at what it was pointed AT. The
+    # protection was real and there were two ways in, which is the defect this
+    # module has now hit three times: a level about a VERB while the effect is
+    # about a TARGET.
+    #
+    # So every path-shaped argument is levelled by the rules that already govern
+    # reading it, and the command inherits the worst answer. One classifier for
+    # "what does this touch", used by both doors.
+    for tok in parts[1:]:
+        if _looks_like_path(tok):
+            base = _worst(base, fs_read_level({"path": tok}))
+    return base
 
 
 def shell_run(args: dict) -> dict:

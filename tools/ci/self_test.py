@@ -3386,6 +3386,15 @@ CASES += [
 CASES += [
     # ------------------------------------------------- capabilities and acting
     ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
+     _sub("    for tok in parts[1:]:\n"
+          "        if _looks_like_path(tok):\n"
+          "            base = _worst(base, fs_read_level({\"path\": tok}))\n", "", 1),
+     "`shell.run(\"cat ~/.ssh/id_rsa\")` drops back to L1 while `fs.read` of the "
+     "same file stays L5. The credential rule is real and there are two doors "
+     "to it, so every path protection on the read side is bypassed by asking "
+     "for the file as a command instead"),
+
+    ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
      _sub('    if any(m in low for m in DESTRUCTIVE_MARKERS):\n        return "L5"\n',
           "", 1),
      "`rm -rf ~` stops resolving to L5 -- and A-013's OWN ASSERTION STILL "

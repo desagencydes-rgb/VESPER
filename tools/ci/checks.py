@@ -11335,6 +11335,29 @@ def check_capabilities_registered_and_levelled_by_argument() -> Result:
             r.err(f"fs.write({governed!r}) is below L5 -- the gates would be "
                   "editable by the thing they gate")
 
+    rank = {"L0": 0, "L1": 1, "L2": 2, "L3": 3, "L4": 4, "L5": 5}
+
+    # 5b. NO CHEAPER DOOR TO THE SAME FILE. `fs.read` refuses a credential at
+    #     L5 and `shell.run("cat ~/.ssh/id_rsa")` returned L1: `cat` is
+    #     allowlisted and nothing looked at what it was pointed AT. The
+    #     protection was real and there were two ways in. Stated as the general
+    #     property rather than as a list of commands -- reading a file by
+    #     running a command must never cost less than reading it directly.
+    for probe in ("~/.ssh/id_rsa", "~/.config/vesper/secrets.env",
+                  "/etc/passwd", "~/Documents/notes.txt",
+                  "~/.aws/credentials", "README.md"):
+        direct = caps.fs_read_level({"path": probe})
+        viacmd = caps.shell_level({"cmd": f"cat {probe}"})
+        if rank.get(viacmd, 9) < rank.get(direct, 9):
+            r.err(f"shell.run('cat {probe}') is {viacmd} while "
+                  f"fs.read({probe!r}) is {direct}. The same file is cheaper "
+                  "through the command door, so every path rule the read side "
+                  "enforces is bypassed by asking the other way")
+    if "env" in caps.READ_ONLY_VERBS:
+        r.err("`env` is treated as read-only inspection, but it prints the "
+              "process environment -- which is where credentials live when "
+              "anything exports them")
+
     # 6a. THE LEVEL IS ABOUT THE TARGET, NOT THE STRING. `workspace/../../../..
     #     /etc/passwd` BEGINS with `workspace/`, so a classifier reading the
     #     string calls it VESPER's own scratch space -- L2 to write, L1 to read
@@ -11388,7 +11411,6 @@ def check_capabilities_registered_and_levelled_by_argument() -> Result:
               "the write, the hash and the verification all say it succeeded")
 
     # 7. THE STANDING GRANT IS SMALL AND SAYS SO.
-    rank = {"L0": 0, "L1": 1, "L2": 2, "L3": 3, "L4": 4, "L5": 5}
     if rank.get(actor_mod.STANDING_LEVEL, 9) > 2:
         r.err(f"the standing grant is {actor_mod.STANDING_LEVEL}. Anything above "
               "L2 means VESPER touches the owner's documents, or runs commands "
