@@ -11316,12 +11316,19 @@ def check_capabilities_registered_and_levelled_by_argument() -> Result:
     # `VESPER.app`, which `build.sh` rewrites every time. Measured 2026-08-31: a
     # note written correctly, verified correctly, into a directory the next
     # build deletes.
+    # ASKED AS "NOT ANCHORED TO THE CODE", not as "not inside a .app". Run from
+    # the repository a module-relative workspace looks perfectly healthy -- the
+    # defect only appears in the BUNDLE, where the same expression points inside
+    # `VESPER.app`. A check that looks for `.app/` therefore cannot see it from
+    # here, and stayed green under exactly that mutation. What has to hold
+    # everywhere is that the durable space does not move when the code is copied.
     ws = caps.resolve("workspace/note.txt")
-    if ".app/" in str(ws) or "Resources/runtime" in str(ws):
-        r.err(f"the workspace resolves to {ws}, inside the app bundle. Every "
-              "build deletes it, so a note VESPER saves is destroyed by the next "
-              "rebuild while the write, the hash and the verification all say it "
-              "succeeded")
+    code_root = Path(caps.__file__).resolve().parents[1]
+    if str(ws).startswith(str(code_root)):
+        r.err(f"the workspace resolves to {ws}, under the code at {code_root}. "
+              "The bundle carries a COPY of the runtime and every build rewrites "
+              "it, so a note VESPER saves is destroyed by the next rebuild while "
+              "the write, the hash and the verification all say it succeeded")
 
     # 7. THE STANDING GRANT IS SMALL AND SAYS SO.
     rank = {"L0": 0, "L1": 1, "L2": 2, "L3": 3, "L4": 4, "L5": 5}
