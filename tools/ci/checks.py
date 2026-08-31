@@ -8890,6 +8890,156 @@ def check_leased_write_epoch() -> Result:
     return r
 
 
+def check_task_transition_table() -> Result:
+    """CI-010, declared with the registry and never implemented until now.
+
+    INV-TASK-1: there is no RUNNING -> SUCCEEDED transition. SUCCEEDED is
+    reachable only through VERIFYING with a passing strategy, because FINISHING
+    EXECUTION IS NOT EVIDENCE THE WORK WAS DONE -- and the natural
+    implementation of a task runner marks success exactly when the run returns.
+
+    THE TABLE *IS* THE INVARIANT, and `core/tasks.py` says so: "enforced by the
+    shape of this dict, not by a check that could be forgotten at one call
+    site." So this reads the table structurally as well as exercising it. A
+    guard in `transition` that rejected the edge while the table still contained
+    it would pass every behavioural fixture and leave the invariant one
+    refactor from being lost.
+
+    AND THE STATES MUST MATCH SM-TASK. A state machine specified in
+    `spec/state-machines/INDEX.toml` and implemented with a different set is two
+    state machines, and the one the reviewer reads is not the one that runs.
+    """
+    r = Result("task-transition-table")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile
+    try:
+        from core.bus import EventBus
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+        from core.tasks import (ALLOWED, STATES, TERMINAL, IllegalTransition,
+                                TaskStore, VerificationRequired)
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.tasks did not import: {exc!r}")
+        return r
+
+    # 1. THE EDGE IS ABSENT FROM THE TABLE. Structural, and the assertion that
+    #    survives a refactor of `transition`.
+    if "SUCCEEDED" in ALLOWED.get("RUNNING", ()):
+        r.err("RUNNING -> SUCCEEDED is present in the transition table. "
+              "INV-TASK-1 is enforced by the shape of that dict precisely so it "
+              "cannot be forgotten at a call site; a guard elsewhere is one a "
+              "refactor removes.")
+
+    # 2. SUCCEEDED IS REACHABLE ONLY FROM VERIFYING. Checking the one edge is
+    #    not enough -- any other state gaining it would be the same defect
+    #    wearing a different name.
+    sources = sorted(s for s, tos in ALLOWED.items() if "SUCCEEDED" in tos)
+    if sources != ["VERIFYING"]:
+        r.err(f"SUCCEEDED is reachable from {sources}, not from VERIFYING "
+              "alone. Every one of those is a path to success that never ran a "
+              "verifier.")
+
+    # 3. TERMINAL STATES ARE TERMINAL. A terminal state with an outgoing edge
+    #    is a task that can be un-finished, and every count taken from the
+    #    store becomes a moving number.
+    for t in TERMINAL:
+        if ALLOWED.get(t):
+            r.err(f"terminal state {t} has outgoing edges {ALLOWED[t]}")
+
+    # 4. THE TABLE COVERS EXACTLY THE DECLARED STATES, in both directions. A
+    #    state with no row is one `transition` raises KeyError on; a row for a
+    #    state that does not exist is a transition to nowhere.
+    if set(ALLOWED) != set(STATES):
+        r.err(f"the table's states {sorted(set(ALLOWED) ^ set(STATES))} differ "
+              "from STATES")
+    for src, tos in ALLOWED.items():
+        for to in tos:
+            if to not in STATES:
+                r.err(f"{src} -> {to}, which is not a declared state")
+
+    # 5. AND THEY MATCH SM-TASK. Two state machines with the same name is worse
+    #    than one: the reviewer reads the spec and the process runs the code.
+    sm = tomllib.loads(
+        (REPO / "spec" / "state-machines" / "INDEX.toml").read_text(
+            encoding="utf-8"))["state_machines"]["SM-TASK"]
+    if set(sm["states"]) != set(STATES):
+        r.err(f"SM-TASK declares {sorted(set(sm['states']) ^ set(STATES))} "
+              "differently from core/tasks.py. The spec and the implementation "
+              "are two state machines, and only one of them runs.")
+
+    # 6. THE RUNTIME REFUSES THE EDGE, and says which invariant it is refusing
+    #    for -- a refusal the author cannot look up is one they route around.
+    root = Path(tempfile.mkdtemp())
+    store = StoreSet(root, node_id="ci")
+    clock = HybridLogicalClock("ci")
+    bus = EventBus(clock, store)
+    # THE LEASE MANAGER IS REQUIRED, not optional: every task write is fenced
+    # through `_epoch()`, which is INV-OWN-3 reaching into this module. A
+    # TaskStore that could be built without one would write unfenced.
+    from core.lease import LeaseManager
+    leases = LeaseManager(store, clock, bus, node_id="ci")
+    leases.acquire(TaskStore.DOMAIN)
+    ts = TaskStore(store, clock, bus, leases)
+
+    t = ts.create("do the thing", {"kind": "deterministic", "contains": "x"})
+    ts.transition(t, "READY")
+    ts.transition(t, "RUNNING")
+    try:
+        ts.transition(t, "SUCCEEDED")
+        r.err("RUNNING -> SUCCEEDED was permitted at runtime. Finishing "
+              "execution is not evidence the work was done.")
+    except IllegalTransition as exc:
+        if "INV-TASK-1" not in str(exc):
+            r.err("the refusal does not name INV-TASK-1, so an author who hits "
+                  "it has nothing to look up and will route around it")
+
+    # 7. VERIFYING -> SUCCEEDED STILL NEEDS A PASSING VERDICT (INV-VERIF-1).
+    #    The table makes the path unique; it cannot make the verdict true.
+    ts.transition(t, "VERIFYING")
+    try:
+        ts.transition(t, "SUCCEEDED")
+        r.err("SUCCEEDED was reached from VERIFYING with no evidence at all: "
+              "the path is right and nothing was verified")
+    except VerificationRequired:
+        pass
+    try:
+        ts.transition(t, "SUCCEEDED",
+                      evidence={"passed": True, "verified_by": "none_declared"})
+        r.err("'none_declared' was accepted as a verification strategy. It is "
+              "the absence of one, and accepting it makes every other verifier "
+              "optional.")
+    except VerificationRequired:
+        pass
+    try:
+        ts.transition(t, "SUCCEEDED",
+                      evidence={"passed": False, "verified_by": "deterministic"})
+        r.err("a FAILING verdict closed the task: INV-VERIF-1 says verifier "
+              "failure implies BLOCKED, never SUCCEEDED")
+    except VerificationRequired:
+        pass
+
+    # 8. AND A PASSING VERDICT DOES CLOSE IT, or every assertion above holds
+    #    for a store that never succeeds and the ladder is a wall.
+    done = ts.transition(t, "SUCCEEDED",
+                         evidence={"passed": True, "verified_by": "deterministic"})
+    if done.state != "SUCCEEDED":
+        r.err("a task with a passing verdict from a named strategy did not "
+              "reach SUCCEEDED")
+    if done.verified_by != "deterministic":
+        r.err("the closing verifier was not recorded on the task, so nothing "
+              "later can say what admitted it")
+
+    r.note(f"RUNNING -> SUCCEEDED is absent from the table and SUCCEEDED is "
+           f"reachable from VERIFYING alone; {list(TERMINAL)} have no outgoing "
+           f"edges; the table covers exactly {len(STATES)} declared states and "
+           f"matches SM-TASK; the runtime refuses the edge naming INV-TASK-1; "
+           f"and VERIFYING -> SUCCEEDED still refuses no evidence, a "
+           f"'none_declared' verifier and a failing verdict, while a passing "
+           f"one closes the task and is recorded on it")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -8959,6 +9109,7 @@ CHECK_FNS = {
     "no-runtime-governed-write": check_no_runtime_governed_write,
     "placement-not-pinned": check_placement_not_pinned,
     "leased-write-epoch": check_leased_write_epoch,
+    "task-transition-table": check_task_transition_table,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

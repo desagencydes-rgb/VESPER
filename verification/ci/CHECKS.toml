@@ -187,10 +187,46 @@ returning ex-owner through with a number that looks current."""
 [checks.CI-010]
 name = "task-transition-table"
 enforces = ["INV-TASK-1", "INV-VERIF-1"]
-kind = "structural"
-impl = "PENDING"
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py task-transition-table"
 blocking = "pr"
-self_test = "Add a RUNNING -> SUCCEEDED edge to the task state machine."
+self_test = """Add a RUNNING -> SUCCEEDED edge; make SUCCEEDED reachable from a
+second state; give a terminal state an outgoing edge; drop the passing-verdict
+requirement; accept 'none_declared' as a strategy; stop naming INV-TASK-1 in the
+refusal."""
+self_test_evidence = """tools/ci/self_test.py task-transition-table
+-- 6 cases, red then green, 2026-08-31."""
+subject = "core/tasks.py"
+note = """DECLARED WITH THE REGISTRY AND IMPLEMENTED 2026-08-31. The table was
+written correctly from the start; nothing gated that it stayed that way.
+
+INV-TASK-1: there is no RUNNING -> SUCCEEDED transition, because FINISHING
+EXECUTION IS NOT EVIDENCE THE WORK WAS DONE -- and the natural implementation of
+a task runner marks success exactly when the run returns. SUCCEEDED is reachable
+only through VERIFYING with a passing strategy."""
+discriminators = """THE TABLE IS THE INVARIANT, and core/tasks.py says so:
+"enforced by the shape of this dict, not by a check that could be forgotten at
+one call site." So the check reads the table structurally as well as exercising
+the runtime. A guard inside `transition` that rejected the edge while the table
+still contained it would pass every behavioural fixture and leave the invariant
+one refactor from being lost.
+
+CHECKING THE ONE EDGE IS NOT ENOUGH. The check asserts SUCCEEDED is reachable
+from VERIFYING ALONE -- any other state gaining that edge is the same defect
+under a different name, and a mutation adding it to BLOCKED is one of the
+red-run cases.
+
+THE PATH BEING UNIQUE CANNOT MAKE THE VERDICT TRUE, so INV-VERIF-1 is exercised
+on top of it: VERIFYING -> SUCCEEDED refuses no evidence, refuses a
+'none_declared' verifier (which is the ABSENCE of a strategy, and accepting it
+makes every other verifier optional), and refuses a failing verdict. A passing
+one closes the task and is recorded on it, or the whole ladder is a wall and
+every refusal above passes for the wrong reason.
+
+THE SPEC AND THE CODE MUST DECLARE THE SAME STATES. SM-TASK in
+spec/state-machines/INDEX.toml and STATES in core/tasks.py are compared
+directly: two state machines with one name is worse than one, because the
+reviewer reads the spec and the process runs the code."""
 
 # ---------------------------------------------------------- authorization
 [checks.CI-011]

@@ -989,6 +989,7 @@ GW_PY = "core/gateway.py"
 SELFMOD_PY = "core/selfmod.py"
 PLACE_PY = "core/placement.py"
 STORE_PY = "core/store.py"
+TASKS_PY = "core/tasks.py"
 COST_PY = "core/cost.py"
 EXEC_PY = "core/executor.py"
 CAP_PY = "core/capability.py"
@@ -2705,6 +2706,46 @@ CASES += [
           "        payload = json.dumps(body, sort_keys=True)", 1),
      "an unknown domain is accepted, so a typo creates a domain nobody leases "
      "and nothing fences -- fenced-looking writes to an unfenced place"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-010
+    ("task-transition-table", TASKS_PY,
+     _sub('    "RUNNING":   ("WAITING", "VERIFYING", "RESUMABLE", "BLOCKED",',
+          '    "RUNNING":   ("SUCCEEDED", "WAITING", "VERIFYING", "RESUMABLE", "BLOCKED",', 1),
+     "a RUNNING -> SUCCEEDED edge is added: finishing execution becomes "
+     "evidence the work was done, which is exactly the equivalence INV-TASK-1 "
+     "exists to break"),
+
+    ("task-transition-table", TASKS_PY,
+     _sub('    "BLOCKED":   ("READY", "RUNNING", "FAILED", "CANCELLED", "RESUMABLE"),',
+          '    "BLOCKED":   ("READY", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED", "RESUMABLE"),', 1),
+     "SUCCEEDED becomes reachable from a second state: checking only the "
+     "RUNNING edge would miss it, and a blocked task can now close itself "
+     "without a verifier ever running"),
+
+    ("task-transition-table", TASKS_PY,
+     _sub('    "SUCCEEDED": (),', '    "SUCCEEDED": ("RUNNING",),', 1),
+     "a terminal state gains an outgoing edge, so a finished task can be "
+     "un-finished and every count taken from the store becomes a moving number"),
+
+    ("task-transition-table", TASKS_PY,
+     _sub('            if not (evidence or {}).get("passed"):', "            if False:", 1),
+     "SUCCEEDED no longer requires a passing verdict: the path through "
+     "VERIFYING is preserved and nothing is verified along it"),
+
+    ("task-transition-table", TASKS_PY,
+     _sub('            if task.verified_by in (None, "none_declared"):',
+          "            if False:", 1),
+     "'none_declared' is accepted as a verification strategy -- it is the "
+     "absence of one, and accepting it makes every other verifier optional"),
+
+    ("task-transition-table", TASKS_PY,
+     _sub('                extra = (" -- INV-TASK-1: there is NO RUNNING->SUCCEEDED edge. "',
+          '                extra = (" -- not permitted. "', 1),
+     "the refusal stops naming INV-TASK-1, so an author who hits it has nothing "
+     "to look up and routes around a rule they cannot read"),
 ]
 
 
