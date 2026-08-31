@@ -157,6 +157,28 @@ cat > "$APP/Contents/Library/LaunchAgents/$ID.plist" <<PLIST
 </dict></plist>
 PLIST
 
+# THE GLOBE-KEY WATCHER IS ITS OWN AGENT, and it has to be. Its whole job is to
+# start home when home is down, so it cannot live inside home. It also cannot
+# share the island's Label: booting the island out to test something would take
+# the starter down with it, and the starter is what brings the island back.
+cat > "$APP/Contents/Library/LaunchAgents/$ID.fnwatch.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$ID.fnwatch</string>
+  <key>ProgramArguments</key><array>
+    <string>$APP/Contents/MacOS/VESPER</string>
+    <string>--fn-watch</string>
+  </array>
+  <key>WorkingDirectory</key><string>$REPO</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>$HOME/Library/Application Support/VESPER/fnwatch.out</string>
+  <key>StandardErrorPath</key><string>$HOME/Library/Application Support/VESPER/fnwatch.err</string>
+</dict></plist>
+PLIST
+
 # AD-HOC, AND THAT IS A MEASURED DECISION, NOT A DEFAULT.
 #
 # A self-signed certificate gives a stable identity so TCC grants survive rebuilds.

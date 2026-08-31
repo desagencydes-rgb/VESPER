@@ -11014,6 +11014,7 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
         if not f.exists():
             r.err(f"{f.relative_to(REPO)} does not exist")
             return r
+    build = (REPO / "app" / "island-macos" / "build.sh").read_text(encoding="utf-8")
     w = wake.read_text(encoding="utf-8")
     t = fn.read_text(encoding="utf-8")
     p = rt.read_text(encoding="utf-8")
@@ -11078,7 +11079,6 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
         r.err("the starter does not check whether VESPER is already running, so "
               "a second runtime races the first for the same input file")
     else:
-        build = (REPO / "app" / "island-macos" / "build.sh").read_text(encoding="utf-8")
         ids = [ln.split("=", 1)[1].strip().strip('"\'')
                for ln in build.splitlines() if ln.strip().startswith("ID=")]
         if not ids:
@@ -11088,10 +11088,36 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
             r.err(f"the starter asks whether {ids[0]!r} is running -- but that is "
                   "not the identifier it queries. It asks about a bundle nothing "
                   "publishes, always answers no, and never refuses a second copy")
-    if "createsNewApplicationInstance = false" not in t:
-        r.err("the starter permits a new application instance, which is the "
-              "same defect one layer down -- `open -n` is how two copies were "
-              "started by hand earlier today")
+    # NOT `createsNewApplicationInstance = false`. That was asserted here until
+    # 2026-08-31 and it was WRONG: `false` means "activate an existing instance
+    # of this bundle", and the wake listener is an instance of this bundle -- so
+    # the triple-tap raised the listener and never launched home. The single
+    # instance is enforced by identity instead, in two places.
+    if "homeIsRunning()" not in t:
+        r.err("the starter asks whether ANY process from this bundle is running "
+              "rather than whether HOME is. The wake listener shares the bundle, "
+              "so in the intended steady state the triple-tap answers 'already "
+              "running' and starts nothing -- the trigger is dead exactly when "
+              "the wake word is working")
+    if "CFMessagePortCreateRemote" not in t:
+        r.err("the liveness question is not asked of something that dies with "
+              "the process; anything else has to be validated against staleness")
+    main = (REPO / "app" / "island-macos" / "main.swift").read_text(encoding="utf-8")
+    if 'args.contains("--home") && homeIsRunning()' not in main:
+        r.err("home does not refuse to start when home is already running. The "
+              "starter's check can only cover the paths it knows about; this one "
+              "cannot be bypassed by any other way of launching home")
+
+    # AUTOSTART. A check that asserts everything about the listener's behaviour
+    # and nothing about it being LAUNCHED stays green on a feature that never
+    # runs. The owner asked for "no buttons", which is an autostart requirement.
+    if "startWakeWordInProcess()" not in main:
+        r.err("nothing starts the wake listener: it has to be launched by hand, "
+              "so it does not survive a crash, a logout or a reboot")
+    if "fnwatch" not in build:
+        r.err("the globe-key watcher has no LaunchAgent, so it too must be "
+              "started by hand -- and its whole job is to start home when "
+              "nothing else is running")
 
     # 7. THE GLOBE KEY IS DISCRIMINATED FROM ORDINARY FUNCTION KEYS. `.function`
     #    is raised by every arrow press, so watching the flag alone would start
@@ -11107,10 +11133,11 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
            "machine cannot honour it, so nothing leaves until the wake word; "
            "the listener holds no credential and only records; the queue is "
            "offset-tracked, names its instrument, deletes the audio after use "
-           "and records a discard rather than retrying forever; and the starter "
-           "asks the system whether VESPER is running rather than a pid file, "
-           "refusing a second instance and discriminating the globe key from "
-           "ordinary function keys")
+           "and records a discard rather than retrying forever; the single "
+           "instance is asked of HOME by a port that dies with it, refused "
+           "again by home itself, and not left to `createsNewApplicationInstance` "
+           "which would raise the wake listener instead of launching home; and "
+           "both listeners are started by something rather than by hand")
     return r
 
 

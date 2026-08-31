@@ -15,6 +15,7 @@
 // laptop, which is exactly what INV-PLACE-3 refuses.
 
 import AppKit
+import Speech
 import QuartzCore
 import ServiceManagement
 
@@ -913,6 +914,29 @@ if args.contains("--listen") {
     exit(0)
 }
 
+if args.contains("--home") && homeIsRunning() {
+    // THE AUTHORITATIVE SINGLE-INSTANCE GUARD, held by home itself. The starter
+    // checks too, but it can only check what it can see; this one cannot be
+    // bypassed by any other way of launching home, including `open -n` by hand.
+    print("home is already running -- not starting a second one")
+    exit(0)
+}
+
+if args.contains("--fn-status") {
+    // NO PROMPT. `AXIsProcessTrustedWithOptions([prompt: true])` changes what it
+    // measures; this reads it. And it must be run with `open -n`: from a shell
+    // the answer is the SHELL's grant, the same trap that made --speech-status
+    // report notDetermined while VESPER itself was authorized.
+    print("bundle: \(Bundle.main.bundleIdentifier ?? "NOT IN A BUNDLE")")
+    print("accessibility (globe key): \(AXIsProcessTrusted() ? "trusted" : "NOT trusted")")
+    print("speech recognition: \(SFSpeechRecognizer.authorizationStatus() == .authorized ? "authorized" : "not authorized")")
+    print("home running: \(homeIsRunning())")
+    let out = "/tmp/vesper-fn-status.txt"
+    try? ("accessibility: \(AXIsProcessTrusted())\nspeech: \(SFSpeechRecognizer.authorizationStatus() == .authorized)\nhome: \(homeIsRunning())\n")
+        .write(toFile: out, atomically: true, encoding: .utf8)
+    exit(0)
+}
+
 if args.contains("--fn-fire") {
     // THE TRIPLE-TAP'S CONSEQUENCE, WITHOUT THE TAP. Not a convenience: it is
     // the only way to confirm the single-instance guard without synthesising a
@@ -920,7 +944,7 @@ if args.contains("--fn-fire") {
     // waiting on. It calls the SAME `launchVesper()` the tap handler calls, so
     // what it proves is about the real door -- and the caller then counts
     // processes rather than believing the message this prints.
-    print("running before: \(vesperIsRunning())")
+    print("home running before: \(homeIsRunning())")
     launchVesper()
     Thread.sleep(forTimeInterval: 2.0)
     exit(0)
@@ -1892,6 +1916,21 @@ func startHome() {
     print("      \(Ambience.modes().count) modes loaded from modes.json")
     if Ambience.repoRoot() == nil {
         print("      *** no repo found: wallpapers and modes are UNAVAILABLE ***")
+    }
+}
+
+if args.contains("--home") {
+    // WHAT MAKES THE WAKE WORD A FEATURE RATHER THAN A DEMO. Started by hand it
+    // does not survive a crash, a logout or a reboot, and the owner asked for
+    // "no buttons" -- which is an autostart requirement, not just a recogniser.
+    // Home is the process the LaunchAgent keeps alive, so it is the right host.
+    publishHomeMarker()
+    startWakeWordInProcess()
+    // Self-installing, because "no buttons" means the owner does not run an
+    // install step either. Idempotent: register() on an already-registered
+    // service is a no-op that throws, which is why the result is discarded.
+    if #available(macOS 13.0, *) {
+        try? SMAppService.agent(plistName: "ai.vesper.island.fnwatch.plist").register()
     }
 }
 

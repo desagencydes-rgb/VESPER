@@ -185,6 +185,47 @@ private func appendHeard(_ obj: [String: Any]) {
     }
 }
 
+/// The wake listener held by the HOME process.
+private var inProcessWake: WakeListener?
+
+/// Start the wake listener INSIDE home: non-blocking, and it never calls exit().
+///
+/// WHY IN-PROCESS RATHER THAN A SECOND LAUNCHAGENT. A separate process from
+/// this bundle is what broke the globe key's guard (see `homeIsRunning`), and
+/// two processes from one bundle both holding the microphone is a race with no
+/// upside. Home is already the long-lived process the LaunchAgent keeps alive,
+/// so the wake word inherits that lifetime for free.
+///
+/// `runWakeWord` stays for `--wake`, which is a diagnostic: it blocks on its
+/// own run loop and exits with a code, both wrong inside a host application.
+@discardableResult
+func startWakeWordInProcess() -> Bool {
+    guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
+        note("wake word OFF: speech recognition is not authorized. Grant it "
+           + "with `open -n app/VESPER.app --args --speech-consent` -- from a "
+           + "shell TCC answers for the shell, not for VESPER.")
+        return false
+    }
+    guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+        note("wake word OFF: the microphone is not authorized")
+        return false
+    }
+    guard let w = WakeListener(diagnose: false) else {
+        note("wake word OFF: on-device recognition is unavailable, and this "
+           + "listener will not fall back to sending the room to a server")
+        return false
+    }
+    do {
+        try w.start()
+    } catch {
+        note("wake word OFF: could not start audio: \(error)")
+        return false
+    }
+    inProcessWake = w
+    note("wake word ON: listening on-device")
+    return true
+}
+
 func runWakeWord(diagnose: Bool) {
     guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
         note("speech recognition is not authorized. Run --speech-consent with "

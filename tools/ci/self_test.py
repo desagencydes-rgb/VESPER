@@ -43,6 +43,7 @@ import itertools
 import os
 import time
 import subprocess
+import re
 import sys
 from pathlib import Path
 
@@ -138,6 +139,23 @@ def _sub(old: str, new: str, count: int = 0):
     """Build a mutation that must actually change the text."""
     def apply(text: str) -> str:
         return text.replace(old, new) if count == 0 else text.replace(old, new, count)
+    return apply
+
+
+def _renumber(prefix: str, new: str):
+    """Mutate the NUMBER that follows a fixed prefix, whatever it currently is.
+
+    WHY NOT `_sub` WITH THE LITERAL. Three of these cases encoded the counts
+    themselves -- "# 85 checks", "PASS 381/381" -- so every time the corpus grew
+    they stopped applying, and a self-test that does not apply reports the
+    artifact changed shape rather than that the check is fine. That is the
+    documented-counts drift arriving one layer down, in the very cases written to
+    catch it. The mutation should depend on the SHAPE of the line, not on today's
+    value of the number it carries.
+    """
+    pat = re.compile(re.escape(prefix) + r"(\d+)")
+    def apply(text: str) -> str:
+        return pat.sub(lambda m: prefix + new, text, count=1)
     return apply
 
 
@@ -1005,6 +1023,7 @@ MEMORY_PY = "core/memory.py"
 INTBUD_TOML = "contracts/policy/interruption_budget.toml"
 WAKE_SWIFT = "app/island-macos/WakeWord.swift"
 FN_SWIFT = "app/island-macos/FnTrigger.swift"
+MAIN_SWIFT = "app/island-macos/main.swift"
 RUNTIME_PY = "tools/ops/vesper_runtime.py"
 CHECKS_PY = "tools/ci/checks.py"
 COST_PY = "core/cost.py"
@@ -1694,7 +1713,7 @@ CASES += [
      "an unvetted endpoint is trusted by omission rather than by decision"),
 
     ("intake-is-modality-neutral", INTAKE,
-     _sub("        return self.confidence >= CONFIDENCE_FLOOR",
+     _sub("        return self.confidence >= floor_for(self.meta)",
           "        return True", 1),
      "the confidence gate removed -- a 61%-sure `delete the archive` is "
      "executed instead of reflected, and the owner finds out from the result"),
@@ -2910,14 +2929,12 @@ CASES += [
 CASES += [
     # ---------------------------------------------------------------- CI-089
     ("documented-counts-match-commands", "CLAUDE.md",
-     _sub("python3.13 tools/ci/checks.py all       # 85 checks",
-          "python3.13 tools/ci/checks.py all       # 57 checks", 1),
+     _renumber("python3.13 tools/ci/checks.py all       # ", "57"),
      "CLAUDE.md's check count goes stale again -- the eighth drift, and the "
      "first one a gate can see"),
 
     ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
-     _sub("tools/ci/self_test.py                         PASS   381/381",
-          "tools/ci/self_test.py                         PASS   295/295", 1),
+     _renumber("tools/ci/self_test.py                         PASS   ", "295"),
      "the status table's self-test count goes stale: it had been four sessions "
      "wrong before this gate existed"),
 
@@ -3311,11 +3328,41 @@ CASES += [
      "a wake word that was never heard at all"),
 
     ("wake-word-listens-locally-and-starts-once", FN_SWIFT,
-     _sub("cfg.createsNewApplicationInstance = false", "cfg.createsNewApplicationInstance = true", 1),
-     "each triple-tap starts ANOTHER VESPER. Two runtimes share one input file "
-     "and one offset, so the second silently eats turns the first is waiting "
-     "for -- which is exactly the `handled 0` confusion that cost an hour on "
-     "2026-08-31, arriving this time by design"),
+     _sub("func homeIsRunning() -> Bool {",
+          "func homeIsRunning() -> Bool {\n    let me = ProcessInfo.processInfo.processIdentifier\n"
+          "    return NSRunningApplication.runningApplications(withBundleIdentifier: \"ai.vesper.island\")\n"
+          "        .contains { $0.processIdentifier != me && !$0.isTerminated }\n"
+          "    // unreachable:", 1),
+     "the guard goes back to asking whether ANY process from this bundle is "
+     "running. The wake listener shares the bundle, so with the wake word doing "
+     "its job the triple-tap answers 'already running' and starts nothing -- "
+     "measured dead on 2026-08-31, and invisible to the negative control "
+     "because that control ran with zero processes, in a state the bug cannot "
+     "occur in"),
+
+    ("wake-word-listens-locally-and-starts-once", FN_SWIFT,
+     _sub("CFMessagePortCreateRemote", "CFMessagePortCreateRemoteX", 1),
+     "liveness stops being asked of something that dies with the process, so "
+     "the answer needs validating against staleness and nothing validates it"),
+
+    ("wake-word-listens-locally-and-starts-once", MAIN_SWIFT,
+     _sub('if args.contains("--home") && homeIsRunning() {',
+          'if args.contains("--home") && false {', 1),
+     "home stops refusing to start when home is already running, leaving the "
+     "starter's check as the only guard -- and it can only cover the launch "
+     "paths it knows about, not `open -n` by hand"),
+
+    ("wake-word-listens-locally-and-starts-once", MAIN_SWIFT,
+     _sub("    startWakeWordInProcess()\n", "", 1),
+     "nothing starts the wake listener. It runs only when launched by hand, so "
+     "it does not survive a crash, a logout or a reboot -- a feature that is "
+     "fully correct and never running, which every behavioural assertion in "
+     "this check would still pass"),
+
+    ("wake-word-listens-locally-and-starts-once", "app/island-macos/build.sh",
+     _sub("$ID.fnwatch.plist", "$ID.fnwatch.plist.disabled", 1),
+     "the globe-key watcher loses its LaunchAgent, so the one thing whose job "
+     "is to start home when nothing is running must itself be started by hand"),
 
     ("wake-word-listens-locally-and-starts-once", FN_SWIFT,
      _sub(".runningApplications(withBundleIdentifier: \"ai.vesper.island\")",

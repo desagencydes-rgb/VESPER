@@ -28,16 +28,47 @@ private let TRIPLE_WINDOW_S = 1.2
 
 private var taps: [Date] = []
 
-func vesperIsRunning() -> Bool {
-    let me = ProcessInfo.processInfo.processIdentifier
-    return NSRunningApplication
-        .runningApplications(withBundleIdentifier: "ai.vesper.island")
-        .contains { $0.processIdentifier != me && !$0.isTerminated }
+/// The name a LIVE home process holds. A Mach port name, not a pid file: it is
+/// held by a running process and vanishes with it, so there is no staleness to
+/// validate and nothing to clean up after a crash -- which was the whole
+/// objection to a pid file, answered without giving up specificity.
+private let HOME_PORT_NAME = "ai.vesper.island.home" as CFString
+
+private var homeMarkerPort: CFMessagePort?
+
+/// Called by the home process at startup. Idempotent.
+func publishHomeMarker() {
+    guard homeMarkerPort == nil else { return }
+    homeMarkerPort = CFMessagePortCreateLocal(kCFAllocatorDefault, HOME_PORT_NAME,
+                                              nil, nil, nil)
+    if homeMarkerPort == nil {
+        note("could not publish the home marker -- the globe key cannot tell "
+           + "whether home is up, and will refuse to start it")
+    }
+}
+
+/// IS **HOME** RUNNING -- not "is any process from this bundle running".
+///
+/// THE BUG THIS REPLACES, measured 2026-08-31. The old form asked
+/// `NSRunningApplication.runningApplications(withBundleIdentifier:)` and
+/// excluded only its own pid. `--wake` and `--fn-watch` run from the SAME
+/// bundle, so in the intended steady state -- wake listener up, home down -- a
+/// triple-tap answered "already running" and started nothing. The trigger was
+/// dead exactly when the wake word was doing its job.
+///
+/// It was not caught by the negative control, because that control ran with
+/// zero processes, BEFORE the wake listener was launched. A control that
+/// establishes the absence of a bug in a state the bug cannot occur in has
+/// established nothing.
+func homeIsRunning() -> Bool {
+    guard let port = CFMessagePortCreateRemote(kCFAllocatorDefault, HOME_PORT_NAME)
+    else { return false }
+    return CFMessagePortIsValid(port)
 }
 
 func launchVesper() {
-    if vesperIsRunning() {
-        note("globe x3 -- VESPER is already running, not starting a second one")
+    if homeIsRunning() {
+        note("globe x3 -- VESPER home is already running, not starting a second one")
         return
     }
     let app = URL(fileURLWithPath: CommandLine.arguments[0])
@@ -47,7 +78,16 @@ func launchVesper() {
     note("globe x3 -- starting VESPER")
     let cfg = NSWorkspace.OpenConfiguration()
     cfg.arguments = ["--home", "--on-empty-desktop", "--mode", "Home", "--chrome"]
-    cfg.createsNewApplicationInstance = false      // never a second copy
+    // TRUE, AND THAT IS NOT A LOOSENING. `false` means "activate an existing
+    // instance of this bundle instead of launching" -- and the wake listener is
+    // an instance of this bundle. So the triple-tap raised the LISTENER and
+    // never launched home: measured 2026-08-31, "starting VESPER" printed and
+    // nothing started. The coarse mechanism was doing the single-instance job
+    // badly AND blocking the launch; now that `homeIsRunning()` answers the
+    // real question, this one only gets in the way. Exactly one home is
+    // enforced twice over: here before launching, and by home itself refusing
+    // to start when the marker is already held.
+    cfg.createsNewApplicationInstance = true
     NSWorkspace.shared.openApplication(at: app, configuration: cfg) { _, err in
         if let err { note("could not start VESPER: \(err)") }
     }
