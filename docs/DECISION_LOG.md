@@ -302,3 +302,118 @@ than deleted, because the reasoning for holding a row is worth more than the row
 `ci-registry` 1/1 with the decision-function count 33 → 37. `ENFORCED TODAY` is unchanged at
 **17/118** — this pass added contracts and decision functions, not CI checks, and the figure
 counts only invariants named by an implemented, red-run, non-vacuous check.
+
+---
+
+# Owner decisions — 2026-08-31
+
+Taken in conversation, recorded here so the next session does not re-derive or
+re-open them. Thirteen days to the 2026-09-12 deadline at the time of writing.
+
+## Scope — all five remaining capabilities are IN
+
+The owner's judgement, against my read that two of the five are large: *"all in
+this time, all doable fast, it's not a nuclear powerplant to take more than that
+time, doable in hours or days."* So the fourteen-day set is the full one.
+
+Build order chosen to bank the small ones first: manual context control and the
+self-check step, then the cache layers, then multiple agents and the mapping
+system over files and code.
+
+## Voice
+
+| | Decision |
+|---|---|
+| Speech-IN, English | The machine's own recogniser, on-device. Already built. |
+| Speech-IN, Darija | Our own route, through the gateway. Apple has no on-device Darija and its own path bypasses the redactor. |
+| Speech-OUT | **One voice across both languages** if a service can do it; otherwise two matched closely enough to be near-indistinguishable. |
+| English reference voice | **Daniel, `jarvis-1-neutral`** — as he ships, near-default pace. Either the final voice or the target a service voice is matched against. |
+
+**Apple cannot speak Darija and this is measured, not assumed.** Its voices read
+`3`, `7`, `9` as NUMBERS rather than as the letters they are in Arabizi -- "3awd"
+becomes "three-awd". No voice selection fixes that; the engine does not know the
+convention.
+
+**TTS IS EGRESS.** Text sent to a speech service leaves the machine, and spoken
+answers carry memory content. So a TTS provider is a rung like any other: same
+choke point, same redactor, same egress class, same quota pool. It is not a
+separate routing system.
+
+## Identity and presence
+
+**The layered per-turn check is DROPPED.** Camera, then voice, then a fingerprint
+prompt, on every interaction: too much time per run and too much load, correctly.
+
+**Near term:** the owner tells VESPER when someone is with them. Fixed phrase,
+deterministic, no model -- the same mechanism as "off the record".
+
+**Long term:** the owner's vision design, recorded in full at
+`docs/design/VISION-IDENTITY.md`. It is about PEOPLE, not nodes, and is not bound
+to any device.
+
+## The redactor takes no model at all
+
+`MEMORY_ARCHITECTURE.md` says *"a model may be a second pass; never the first"*.
+**That line is wrong and is superseded here.** The owner's argument: a second
+pass can only add value by catching what the deterministic pass MISSED, and
+catching it means transmitting it. If the first pass were perfect the second
+would be unnecessary; since it is not, the second leaks exactly what it is meant
+to find.
+
+The only coherent model pass is over ALREADY-REDACTED text, checking for
+OVER-redaction -- it sees no secrets by construction. That is not detection and
+needs no key on the critical path.
+
+## Key storage stays `os_keychain`
+
+Not merely because it is what could be evidenced. **Hardware-backed key storage
+is incompatible with the credential replication decision of 2026-08-28** ("every
+node, same copy"): a key that cannot leave its chip cannot be on every node.
+The owner's criterion -- *"highest security means also actually never losing them
+at any situation"* -- and the replication decision point the same way.
+
+## Provider accounts — per subsystem, not per design minimum
+
+My recommendation of nine was rejected on operational experience: each routing
+system will use more than estimated. The owner's allocation:
+
+| Subsystem | Accounts | Providers |
+|---|---|---|
+| Main | existing | as already set up |
+| Chooser | 4 | every private provider except Google |
+| Updater | 4 | every private provider |
+| Compactor | 2 | biggest quota, best models |
+| Miss recorder | 1 | biggest quota, best models |
+| Arbiter | 1 + Claude | API key as fallback |
+| Forgetter | 1 + Claude | API key as fallback |
+| Redactor | **0** | takes no model, see above |
+| Verifier · sensors | 0 | probes and regex, no inference |
+
+**13 new accounts.** All subsystems additionally carry Claude and ChatGPT as
+shared backups, governed by `core/quota.py`'s shared pool so that seven
+subsystems naming one subscription compete for one declared ceiling rather than
+each believing it owns the whole thing.
+
+**Groq is the SMALL quota, not the big one** -- 8,000 tokens/minute, and
+`MEMORY.md` records probe calls alone rate-limiting it. Mistral at 250k/min is
+where "biggest quota" points.
+
+**Five of the thirteen are held.** Cloudflare and Ollama Cloud cannot be measured
+-- Cloudflare reported `prompt=0, completion=0` on three working calls, Ollama
+returns no rate-limit headers -- and unmeasurable spend is unusable under
+fail-closed doctrine. Their accounts wait on an alternative accounting route.
+
+## Smaller, settled
+
+- **`INV-PRIV-7` ratified.** No credential-shaped material crosses any boundary
+  off this machine, whatever the provider's egress class.
+- **`FAILING` and `battery_critical` are DEFINED, not deleted.** Both were
+  written for a good reason -- the trigger's own note is *"waiting politely while
+  the host dies is the wrong failure direction"* -- and both were undefined
+  everywhere else, leaving `trg_placement_reevaluate` unable to fire at all.
+- **Receipts are built.** A memory VESPER can use but cannot show the origin of
+  is one the owner can only argue with.
+- **The battery's 80% charge cap stays.** 14.6% capacity lost at 184 cycles with
+  a 42 C lifetime peak says calendar and state-of-charge ageing dominate, not
+  cycling -- which is exactly what the cap mitigates, and is unrelated to whether
+  local models run.
