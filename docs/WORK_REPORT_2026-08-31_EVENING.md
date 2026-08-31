@@ -170,7 +170,16 @@ in-process wake listener is new code and has only ever taken its refusal branch,
 because the grant was already dead by the time it was wired in.
 
 For the globe key, Accessibility is a separate grant and dies the same way on
-each build. To check what VESPER itself sees, without triggering a prompt:
+each build. **The watcher itself is installed and running** — it registered its
+own LaunchAgent and both jobs are live (`ai.vesper.island` and
+`ai.vesper.island.fnwatch`). Its log says exactly what it needs:
+
+> Accessibility permission is needed to watch the globe key. Grant VESPER in
+> System Settings › Privacy & Security › Accessibility, then run this again.
+> watching the globe key: three taps within 1.2s starts VESPER
+
+So the globe key is one toggle away, not one build away. To check what VESPER
+itself sees, without triggering a prompt:
 
 ```bash
 open -n /Users/macbook/Projects/VESPER/app/VESPER.app --args --fn-status && cat /tmp/vesper-fn-status.txt
