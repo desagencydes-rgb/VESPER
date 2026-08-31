@@ -33,6 +33,7 @@ when nothing else is available", which is when it would actually get used.
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
@@ -66,6 +67,51 @@ class Unsupported(Exception):
 
 
 @dataclass(frozen=True, slots=True)
+class SpanVerdict:
+    """Whether a span re-reads, AND why not when it does not.
+
+    `verify() -> bool` was enough while every span was a file: the reason was
+    always "those bytes changed". With two backing stores the reasons diverge --
+    a fabricated sequence number, a citation into the wrong store, a record that
+    exists and does not say what was quoted -- and collapsing them to False
+    reports a citation problem as a byte problem.
+    """
+
+    ok: bool
+    reason: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceResolver:
+    """What a span needs to re-read itself. Each span asks for its own half.
+
+    THE ALTERNATIVE WAS AN `isinstance` LADDER IN `ClaimChecker`, which works
+    for two span types and rots on the third -- and `SpanIndex` promises that a
+    real retriever "slots in behind the same interface", which a type switch in
+    the checker quietly revokes. Here the checker calls one method and the span
+    decides what it needs.
+
+    `store` IS OPTIONAL AND ITS ABSENCE IS A REFUSAL, NOT A PASS. A resolver
+    built with a filesystem root alone cannot resolve a log receipt, and the
+    tempting behaviour -- skip what cannot be checked -- would make every
+    memory-derived citation verify by default in exactly the configuration that
+    cannot check it.
+    """
+
+    root: Path
+    store: Any = None
+
+    @classmethod
+    def of(cls, x: "EvidenceResolver | Path | str") -> "EvidenceResolver":
+        """Accept a bare root for the file-only callers that predate this type.
+
+        Safe precisely because `LogReceipt` refuses a store-less resolver: a
+        receipt handed a bare path fails loudly instead of passing silently.
+        """
+        return x if isinstance(x, cls) else cls(Path(x))
+
+
+@dataclass(frozen=True, slots=True)
 class SourceSpan:
     """A byte-exact, re-readable region of a real file.
 
@@ -79,17 +125,147 @@ class SourceSpan:
     sha256: str
     text: str
 
-    def verify(self, root: Path) -> bool:
+    def resolve(self, resolver: "EvidenceResolver | Path") -> SpanVerdict:
         """Re-read the bytes and confirm they are still what was cited."""
-        f = root / self.path
+        r = EvidenceResolver.of(resolver)
+        f = r.root / self.path
         if not f.exists():
-            return False
+            return SpanVerdict(False, f"{self.path} no longer exists")
         raw = f.read_bytes()[self.start:self.end]
-        return hashlib.sha256(raw).hexdigest() == self.sha256
+        if hashlib.sha256(raw).hexdigest() != self.sha256:
+            return SpanVerdict(
+                False, f"{self.path}:{self.start}-{self.end} no longer hashes "
+                       "to what was cited")
+        return SpanVerdict(True)
+
+    def verify(self, resolver: "EvidenceResolver | Path") -> bool:
+        return self.resolve(resolver).ok
+
+    def cite(self) -> str:
+        return f"{self.path}:{self.start}-{self.end}"
 
     def to_dict(self) -> dict:
         return {"path": self.path, "start": self.start, "end": self.end,
                 "sha256": self.sha256, "bytes": self.end - self.start}
+
+
+@dataclass(frozen=True, slots=True)
+class LogReceipt:
+    """A citation into L3: the span type an L2 fact can actually produce.
+
+    THE GAP THIS CLOSES was recorded in `core/arbiter.py` rather than worked
+    around: `SourceSpan` is a byte range in a file, an L2 fact's provenance is a
+    log SEQUENCE in SQLite, and manufacturing a path from a seq would yield a
+    citation that looks resolvable and is not -- worse than none, and precisely
+    what `INV-EVID-2` refuses. `Claim.supported()` was therefore False for every
+    memory-derived claim, so the arbiter could pick a winner and not cite it.
+
+    `quoted` IS THE FIELD THAT MAKES THIS MORE THAN A HASH, and omitting it is
+    the easy mistake. A receipt asserting only "record 412 exists and its body
+    hashes to X" verifies perfectly while the claim built on it misquotes the
+    record -- which is the failure this module's own header names: a mostly
+    grounded answer carrying ONE unsupported specific. So the quoted text must
+    be FOUND in the resolved record, not merely accompanied by it.
+
+    WHAT VERIFICATION ACTUALLY CATCHES DEPENDS ON THE STORE, and the honest
+    accounting matters because otherwise a case is written that can never fire.
+    `log`, `audit` and `tombstones` are append-only at the storage layer --
+    UPDATE and DELETE are refused by trigger -- so a body there cannot change
+    under a correct citation and the hash comparison is a belt on a fastened
+    seatbelt. What the hash defends against there is a WRONGLY BUILT receipt,
+    and what genuinely fires is a FABRICATED seq, a seq pointing into the wrong
+    store or kind, and quoted text that is not in the record. In `state` and
+    `workspace`, which are mutable, the hash does its ordinary work.
+    """
+
+    store: str
+    seq: int
+    kind: str
+    sha256: str
+    quoted: str
+    text: str = ""
+
+    # `Claim.to_dict` and the checker's messages read `path`; a receipt names
+    # its store and sequence in the same slot so neither has to branch on type.
+    @property
+    def path(self) -> str:
+        return f"{self.store}#{self.seq}"
+
+    @staticmethod
+    def body_hash(body: dict) -> str:
+        """Hash the CANONICAL rendering, the same one `StoreSet.append` stores.
+
+        Any other rendering makes the receipt un-reproducible for a reason that
+        has nothing to do with the record: dict ordering.
+        """
+        return hashlib.sha256(
+            json.dumps(body, sort_keys=True).encode()).hexdigest()
+
+    @classmethod
+    def of(cls, store: str, record: Any, quoted: str) -> "LogReceipt":
+        return cls(store=store, seq=int(record.seq), kind=record.kind,
+                   sha256=cls.body_hash(record.body), quoted=quoted,
+                   text=json.dumps(record.body, sort_keys=True)[:400])
+
+    def resolve(self, resolver: "EvidenceResolver | Path") -> SpanVerdict:
+        r = EvidenceResolver.of(resolver)
+        if r.store is None:
+            # NOT A SKIP. A resolver that cannot reach L3 cannot confirm this
+            # citation, and treating unverifiable as verified would make every
+            # memory-derived claim pass in exactly the configuration unable to
+            # check it. UNKNOWN is UNAVAILABLE here as everywhere else.
+            return SpanVerdict(
+                False, "no L3 store on the resolver, so this receipt cannot be "
+                       "re-read; unverifiable is not verified")
+        rec = r.store.record(self.store, self.seq)
+        if rec is None:
+            return SpanVerdict(
+                False, f"{self.store}#{self.seq} does not exist: a sequence "
+                       "number is a plausible integer whether or not a record "
+                       "was ever written at it")
+        if rec.kind != self.kind:
+            return SpanVerdict(
+                False, f"{self.store}#{self.seq} is {rec.kind!r}, not "
+                       f"{self.kind!r} -- the citation resolves to a different "
+                       "record than the one it names")
+        if self.body_hash(rec.body) != self.sha256:
+            return SpanVerdict(
+                False, f"{self.store}#{self.seq} no longer hashes to what was "
+                       "cited")
+        if not _contains(rec.body, self.quoted):
+            return SpanVerdict(
+                False, f"{self.quoted!r} does not appear in {self.store}#"
+                       f"{self.seq}. The record is real and does not say this: "
+                       "one unsupported specific inside an otherwise grounded "
+                       "answer is the case a hash-only receipt waves through.")
+        return SpanVerdict(True)
+
+    def verify(self, resolver: "EvidenceResolver | Path") -> bool:
+        return self.resolve(resolver).ok
+
+    def cite(self) -> str:
+        return f"{self.store}#{self.seq}"
+
+    def to_dict(self) -> dict:
+        return {"path": self.path, "store": self.store, "seq": self.seq,
+                "kind": self.kind, "sha256": self.sha256,
+                "quoted": self.quoted}
+
+
+def _contains(body: Any, needle: str) -> bool:
+    """Is `needle` present in any leaf of the record body?
+
+    Walks nested values rather than matching the rendered JSON, so a quote can
+    never be satisfied by a KEY NAME or by punctuation the renderer inserted
+    between two unrelated fields.
+    """
+    if needle == "":
+        return False
+    if isinstance(body, dict):
+        return any(_contains(v, needle) for v in body.values())
+    if isinstance(body, (list, tuple)):
+        return any(_contains(v, needle) for v in body)
+    return needle in str(body)
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,9 +351,11 @@ class SpanIndex:
 class ClaimChecker:
     """Per-claim grounding. The unit is the claim, never the response."""
 
-    def __init__(self, bus: EventBus, root: Path) -> None:
+    def __init__(self, bus: EventBus, root: Path, store: Any = None) -> None:
         self._bus = bus
         self._root = Path(root)
+        # One resolver, built once. Each span asks it for the half it needs.
+        self._resolver = EvidenceResolver(Path(root), store)
         self.unsupported_claims = 0
         self.total_claims = 0
 
@@ -193,11 +371,12 @@ class ClaimChecker:
                 reasons.append("no support: a claim with no retrieved span is "
                                "invented, whatever the rest of the response does")
             for sp in cl.support:
-                if not sp.verify(self._root):
+                v = sp.resolve(self._resolver)
+                if not v.ok:
                     reasons.append(
-                        f"span {sp.path}:{sp.start}-{sp.end} does not re-read to "
-                        "its recorded hash -- a citation that cannot be "
-                        "reproduced is not grounding (INV-EVID-2)")
+                        f"span {sp.cite()} does not re-read: {v.reason} -- a "
+                        "citation that cannot be reproduced is not grounding "
+                        "(INV-EVID-2)")
             # INV-EVID-1 / A-003.3: model_prior is never an assertion in a
             # gated class, however confident and however well it reads.
             if cl.memory_rank == NEVER_AUTHORITATIVE and policy_class in GATED_POLICY_CLASSES:

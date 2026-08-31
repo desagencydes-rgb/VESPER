@@ -482,7 +482,7 @@ kind = "structural"
 [invariants.INV-EVID-2]
 statement = "No answer cites a source it did not retrieve; a similarity score is never sufficient grounding. Every source_ref resolves to a reproducible retrieved span."
 owner_rem = "REM-010"
-enforced_by = ["CI-074", "CI-077", "A-003", "A-006"]
+enforced_by = ["CI-074", "CI-077", "CI-086", "A-003", "A-006"]
 kind = "runtime"
 
 [invariants.INV-EVID-3]

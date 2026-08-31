@@ -973,6 +973,9 @@ ARABIZI_PY = "core/arabizi.py"
 PRESENCE_PY = "core/presence.py"
 CTRL_PY = "core/context_control.py"
 CACHE_PY = "core/cache.py"
+EVID_PY = "core/evidence.py"
+ARB_PY = "core/arbiter.py"
+BLOCKS3_PY = "core/blocks.py"
 BLOCKS2_PY = "core/blocks.py"
 GATEWAY_PY = "core/gateway.py"
 ROUTER = "core/router.py"
@@ -1385,8 +1388,10 @@ CASES += [
      "and the value used is whichever row selection happened to return first"),
 
     ("arbiter-never-picks-silently", ARBITER_PY,
-     _sub("        return [Claim(text=r[0], memory_rank=r[1], trust_class=r[2])",
-          "        return [Claim(text=r[0], trust_class=r[2])", 1),
+     _sub("            claims.append(Claim(text=value, memory_rank=rank,\n"
+          "                                trust_class=trust_class, support=support))",
+          "            claims.append(Claim(text=value,\n"
+          "                                trust_class=trust_class, support=support))", 1),
      "memory_rank dropped in translation, so every candidate arrives at the "
      "resolver as the default rank 5 and no rank 2/3/4 disagreement can ever "
      "be seen -- the ladder is intact and nothing reaches it"),
@@ -2153,6 +2158,61 @@ CASES += [
      "the embedding tier accepted: nothing here produces an embedding, so it "
      "can never register a hit, and accepting it makes the five specified tiers "
      "look complete while one of them is decorative"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-086
+    ("memory-citations-resolve-or-are-withheld", EVID_PY,
+     _sub("        if not _contains(rec.body, self.quoted):", "        if False:", 1),
+     "the receipt asserts only that the record exists and hashes correctly, so "
+     "a claim that misquotes a real record cites it successfully -- one "
+     "unsupported specific inside an otherwise grounded answer, which is the "
+     "failure this module's own header names"),
+
+    ("memory-citations-resolve-or-are-withheld", EVID_PY,
+     _sub('            return SpanVerdict(\n'
+          '                False, "no L3 store on the resolver, so this receipt cannot be "\n'
+          '                       "re-read; unverifiable is not verified")',
+          "            return SpanVerdict(True)", 1),
+     "unverifiable treated as verified: with no L3 handle every memory-derived "
+     "citation passes, and the guard disappears in exactly the configuration "
+     "that cannot perform it"),
+
+    ("memory-citations-resolve-or-are-withheld", EVID_PY,
+     _sub("    if isinstance(body, dict):\n"
+          "        return any(_contains(v, needle) for v in body.values())\n"
+          "    if isinstance(body, (list, tuple)):\n"
+          "        return any(_contains(v, needle) for v in body)\n"
+          "    return needle in str(body)",
+          "    return needle in json.dumps(body, sort_keys=True)", 1),
+     "the quote matched against rendered JSON instead of the record's leaves, "
+     "so a KEY NAME grounds a fact and punctuation between two unrelated fields "
+     "can satisfy a quotation"),
+
+    ("memory-citations-resolve-or-are-withheld", ARB_PY,
+     _sub('                support = (LogReceipt.of("log", rec, value),)',
+          '                support = (LogReceipt.of("log", rec, rec.body["value"]),)', 1),
+     "the receipt quotes the record instead of the L2 value, so it agrees with "
+     "itself by construction and detects nothing: memory that has drifted from "
+     "the log it was projected from cites that log happily"),
+
+    ("memory-citations-resolve-or-are-withheld", BLOCKS3_PY,
+     _sub("        store = getattr(self._memory, \"_store\", None)\n"
+          "        if store is None:\n"
+          "            return [], list(facts)",
+          "        store = getattr(self._memory, \"_store\", None)\n"
+          "        if store is None:\n"
+          "            return list(facts), []", 1),
+     "block B fails OPEN with no reachable log: every fact is quoted into the "
+     "context unchecked, which is the one configuration where none of them can "
+     "be shown to come from anywhere"),
+
+    ("memory-citations-resolve-or-are-withheld", BLOCKS3_PY,
+     _sub('        if ungrounded:\n', '        if False:\n', 1),
+     "the withheld facts are dropped silently: the turn is missing the fact "
+     "that answered it and looks exactly like a turn where memory had nothing, "
+     "which is A-032's named degradation failure"),
 ]
 
 

@@ -90,6 +90,11 @@ class Rendered:
     truncated: bool = False
     selection_ms: float = 0.0
     index_nodes: int = 0
+    # Facts selected and then REFUSED because their L3 pointer did not resolve.
+    # Reported rather than merely dropped: A-032 requires degradation to be
+    # visible, and a turn quietly missing the one fact that answered it looks
+    # exactly like a turn where memory had nothing.
+    ungrounded: tuple = ()
 
     def system(self) -> str:
         """Block A. Goes in the system position and is the cached prefix."""
@@ -108,7 +113,9 @@ class Rendered:
                 "budget_ms": SELECTION_BUDGET_MS,
                 "index_nodes": self.index_nodes,
                 "approx_index_tokens": self.index_nodes * APPROX_TOKENS_PER_NODE,
-                "approx_is_an_estimate": True}
+                "approx_is_an_estimate": True,
+                "ungrounded": [f.to_dict() for f in self.ungrounded],
+                "ungrounded_count": len(self.ungrounded)}
 
 
 class L1Renderer:
@@ -184,11 +191,25 @@ class L1Renderer:
             if pinned:
                 facts.sort(key=lambda f: (f.id not in pinned,))
         facts = facts[:limit]
+
+        # GROUNDED BEFORE QUOTED. The line below prints `->log:42` as the
+        # fact's provenance, and until now it printed it whether or not record
+        # 42 existed -- which `core/memory.py`'s header says in as many words is
+        # the trap: a `0`, a seq from another store, and a seq for a record
+        # never written are all well-formed integers, and every wrong pointer
+        # here is PLAUSIBLE. A pointer that is only printed is not a citation.
+        #
+        # AN UNGROUNDED FACT IS DROPPED, NOT ANNOTATED. Quoting it with a note
+        # would put the content in the context anyway, where the model uses it;
+        # the caveat travels in the prompt and the content travels into the
+        # answer.
+        facts, ungrounded = self._ground(facts)
+
         elapsed = (time.perf_counter() - started) * 1000.0
         truncated = elapsed > SELECTION_BUDGET_MS
 
         if not facts:
-            return "", (), truncated, elapsed
+            return "", (), truncated, elapsed, tuple(ungrounded)
         lines = [BLOCK_B_HEADER]
         for f in facts:
             # EVERY LINE CARRIES ITS POINTER. `INV-EVID-2` needs a resolvable
@@ -201,7 +222,40 @@ class L1Renderer:
             lines.append(f"- (selection took {elapsed:.1f} ms against a "
                          f"{SELECTION_BUDGET_MS} ms budget; this may be fewer "
                          "facts than the question deserved)")
-        return "\n".join(lines), tuple(facts), truncated, elapsed
+        if ungrounded:
+            # SAID IN THE PROMPT, not only on the bus. The model is the one
+            # about to answer, and it is the party that needs to know memory
+            # came back thinner than it looks -- an event nobody reads mid-turn
+            # is a record of the degradation, not a report of it.
+            lines.append(f"- ({len(ungrounded)} further fact(s) were withheld: "
+                         "their record in the log could not be re-read, so they "
+                         "cannot be cited)")
+        return "\n".join(lines), tuple(facts), truncated, elapsed, tuple(ungrounded)
+
+    def _ground(self, facts: list) -> tuple:
+        """Split into (citable, ungrounded) by re-reading each L3 pointer.
+
+        FAIL-CLOSED ON A MISSING STORE. With no L3 handle nothing can be
+        re-read, and the tempting behaviour -- pass everything through, since
+        checking is impossible -- would make the guard vanish in exactly the
+        configuration that cannot check. Memory with no reachable log is memory
+        that cannot cite, so it does not get quoted.
+        """
+        store = getattr(self._memory, "_store", None)
+        if store is None:
+            return [], list(facts)
+        good, bad = [], []
+        for f in facts:
+            rec = store.record("log", f.log_seq)
+            if rec is None or not _quoted_in(rec.body, f.value):
+                # TWO DIFFERENT FAULTS, ONE ANSWER. A pointer to nothing is a
+                # fabricated citation; a record that does not contain the value
+                # is L2 having drifted from the log it was projected from. Both
+                # mean this fact cannot be shown to come from anywhere.
+                bad.append(f)
+            else:
+                good.append(f)
+        return good, bad
 
     # ----------------------------------------------------------------- render
 
@@ -215,12 +269,29 @@ class L1Renderer:
         mechanism, not two, and it is why this argument exists at all.
         """
         a, nodes = self.block_a(situation)
-        b, facts, truncated, ms = self.block_b(
+        b, facts, truncated, ms, ungrounded = self.block_b(
             terms if terms is not None else _terms(question),
             ceiling=ceiling, depth=depth, limit=limit, control=control)
         return Rendered(block_a=a, block_b=b, question=question,
                         selected=facts, truncated=truncated,
-                        selection_ms=ms, index_nodes=nodes)
+                        selection_ms=ms, index_nodes=nodes,
+                        ungrounded=ungrounded)
+
+
+def _quoted_in(body: Any, needle: str) -> bool:
+    """Is the fact's value actually present in the record it points at?
+
+    Walks leaves rather than matching rendered JSON, so a value can never be
+    satisfied by a KEY NAME -- `{"value": ...}` must not ground the fact whose
+    value is the word "value".
+    """
+    if needle == "":
+        return False
+    if isinstance(body, dict):
+        return any(_quoted_in(v, needle) for v in body.values())
+    if isinstance(body, (list, tuple)):
+        return any(_quoted_in(v, needle) for v in body)
+    return needle in str(body)
 
 
 def _terms(text: str) -> list:

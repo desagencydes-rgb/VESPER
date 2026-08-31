@@ -213,6 +213,29 @@ class StoreSet:
             yield Record(row[0], row[1], json.loads(row[2]),
                          HLC(row[3], row[4], row[5]), row[6])
 
+    def record(self, store: str, seq: int) -> "Record | None":
+        """One record by sequence number. None if there is no such record.
+
+        A POINT LOOKUP, NOT A SCAN. `read()` is the only other way in and it
+        walks the log in HLC order to find one row -- fine for a replay, and
+        O(log size) per citation when the caller is resolving evidence, which is
+        the one place it gets called once per claim.
+
+        CITED BY `seq`, WHICH IS THE PRIMARY KEY AND NEVER MOVES. A later reader
+        will be tempted to make this an HLC lookup because HLC is the total
+        order everywhere else. It must not be: `INV-COORD-4` says the clock
+        orders, and a citation does not want an order -- it wants the one
+        immutable identity of the record it names. Two records can share an HLC
+        physical millisecond; none can share a seq.
+        """
+        row = self._conns[store].execute(
+            "SELECT seq, kind, body, hlc_physical_ms, hlc_logical, hlc_node_id, "
+            "lease_epoch FROM records WHERE seq = ?", (int(seq),)).fetchone()
+        if row is None:
+            return None
+        return Record(row[0], row[1], json.loads(row[2]),
+                      HLC(row[3], row[4], row[5]), row[6])
+
     def count(self, store: str, kind: str | None = None) -> int:
         if kind is None:
             return int(self._conns[store].execute(

@@ -40,7 +40,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .evidence import Claim, resolve_memory_conflict
+from .evidence import Claim, LogReceipt, resolve_memory_conflict
 from .memory import MemoryGraph
 
 # The ranks whose disagreement must be surfaced rather than settled. Imported
@@ -94,28 +94,40 @@ class Arbiter:
                 WHERE en.name = ? AND f.attribute = ?
              ORDER BY f.rank ASC, f.log_seq DESC""",
             (subject, attribute)).fetchall()
-        # SUPPORT IS EMPTY HERE, AND THAT IS A RECORDED GAP RATHER THAN AN
-        # OVERSIGHT. `SourceSpan` is a byte range in a FILE -- path, start, end,
-        # sha256 -- and its `verify()` re-reads those bytes to confirm the
-        # citation still says what it said. An L2 fact's provenance is an L3 LOG
-        # SEQUENCE, in a SQLite store with no file offsets to point at. The two
-        # grounding models do not compose, and manufacturing a SourcePath from a
-        # seq would produce a span that cannot verify: a citation that looks
-        # resolvable and is not, which is worse than none at all and is exactly
-        # what INV-EVID-2 exists to refuse.
+        # SUPPORT IS A LOG RECEIPT, closing the gap this comment used to
+        # record. The old note stood correctly for as long as `SourceSpan` was
+        # the only span type: it is a byte range in a FILE, an L2 fact's
+        # provenance is an L3 log SEQUENCE, and manufacturing a path from a seq
+        # would have produced a citation that looks resolvable and is not --
+        # worse than none, and what `INV-EVID-2` exists to refuse. The cost was
+        # stated rather than discovered: `Claim.supported()` was False for every
+        # memory-derived claim, so the arbiter could pick a winner and not cite
+        # it. `LogReceipt` is the log-backed span the note asked for.
         #
-        # WHAT THIS COSTS, stated rather than discovered later: `Claim.supported()`
-        # is False for every memory-derived claim, so `ClaimChecker` will refuse
-        # these under a gated policy class. Arbitration itself is unaffected --
-        # `resolve_memory_conflict` reads `memory_rank` and `text` and never
-        # touches support -- so the "never a silent pick" guarantee holds in
-        # full. What does not yet work is CITING the winner downstream.
+        # THE RECEIPT QUOTES THE L2 VALUE AND RESOLVES AGAINST THE L3 RECORD,
+        # which is the whole point and not a formality: those two are written by
+        # different code paths, and a receipt whose quoted value is absent from
+        # the record it names is memory that has drifted from its own log. A
+        # receipt built only from the record would agree with itself and detect
+        # nothing.
         #
-        # The fix is a log-backed span type that can re-read a record by seq and
-        # hash its body, alongside the file-backed one. That is a change to the
-        # evidence contract and belongs to the owner, not to this file.
-        return [Claim(text=r[0], memory_rank=r[1], trust_class=r[2])
-                for r in rows]
+        # A POINTER THAT DOES NOT RESOLVE YIELDS NO SUPPORT, not a receipt that
+        # fails later. `memory.py`'s header is explicit that `NOT NULL` cannot
+        # tell a real seq from a plausible one, so the arbiter reads it back
+        # here and an unresolvable pointer leaves the claim unsupported -- which
+        # `ClaimChecker` then refuses in a gated policy class. That is the
+        # fail-closed direction: silence about the origin, never a citation that
+        # cannot be produced.
+        store = self._memory._store                 # noqa: SLF001
+        claims = []
+        for value, rank, trust_class, log_seq in rows:
+            rec = store.record("log", log_seq)
+            support = ()
+            if rec is not None:
+                support = (LogReceipt.of("log", rec, value),)
+            claims.append(Claim(text=value, memory_rank=rank,
+                                trust_class=trust_class, support=support))
+        return claims
 
     def resolve(self, subject: str, attribute: str) -> dict:
         """Resolve one contradiction, or produce the question. Never a pick."""

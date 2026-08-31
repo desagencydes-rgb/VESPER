@@ -1267,3 +1267,67 @@ is therefore reserved for absent or unrecognised provenance, the one case where
 fetching again establishes the class rather than re-deriving it -- and the check
 asserts REFETCH still fires there, or "never REFETCH" would pass the other two
 assertions as a different bug."""
+
+[checks.CI-086]
+name = "memory-citations-resolve-or-are-withheld"
+enforces = ["INV-EVID-2"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py memory-citations-resolve-or-are-withheld"
+blocking = "pr"
+self_test = """Drop the quoted-text assertion so a misquote of a real record
+verifies; treat a store-less resolver as verified; match the quote against
+rendered JSON so a key name grounds a fact; build the arbiter's receipt from the
+record instead of the L2 value so it agrees with itself; fail open in block B
+when no log is reachable; withhold facts without saying so."""
+self_test_evidence = """tools/ci/self_test.py memory-citations-resolve-or-are-withheld
+-- 6 cases, red then green, 2026-08-31."""
+subject = "core/evidence.py, core/arbiter.py, core/blocks.py, core/store.py"
+note = """A POINTER THAT IS PRINTED IS NOT A CITATION, and both halves of this
+gap were recorded in the corpus rather than hidden. `core/blocks.py` printed
+`->log:42` beside every fact under a comment saying INV-EVID-2 needs a
+resolvable span, and never resolved one. `core/arbiter.py` carried the matching
+note from the other side: SourceSpan is a byte range in a FILE, an L2 fact's
+provenance is an L3 log SEQUENCE, the two grounding models do not compose, and
+manufacturing a path from a seq would yield a citation that looks resolvable and
+is not. The stated cost was that `Claim.supported()` was False for every
+memory-derived claim, so the arbiter could pick a winner and not cite it.
+
+`LogReceipt` is the log-backed span that note asked for, and `EvidenceResolver`
+is the seam that lets both span types coexist: each span asks the resolver for
+the half it needs. The alternative was an isinstance ladder in ClaimChecker,
+which works for two span types and rots on the third -- and SpanIndex promises a
+real retriever "slots in behind the same interface", which a type switch in the
+checker quietly revokes.
+
+This is SR-052's requirement -- source-grounded retrieval, no guessing -- not
+SR-055's. It unblocks SR-055 by giving Claim.support something a memory-derived
+claim can actually carry, and SR-055's own self-check remains unbuilt."""
+discriminators = """THE MISQUOTE IS THE CASE A HASH-ONLY RECEIPT WAVES THROUGH.
+"Record 412 exists and its body hashes to X" verifies perfectly while the claim
+built on it says something the record does not -- a mostly grounded answer
+carrying ONE unsupported specific, which is the failure core/evidence.py's own
+header names. The quoted text must be FOUND in the resolved record, and found in
+a LEAF of it: matching the rendered JSON would let a key name ground a fact.
+
+THE RECEIPT QUOTES THE L2 VALUE AND RESOLVES AGAINST THE L3 RECORD. Those are
+written by different code paths, so a receipt whose quoted value is absent from
+the record it names is memory that has drifted from its own log. A receipt built
+from the record alone would agree with itself and detect nothing -- which is a
+mutation here, because it is the version that looks tidier.
+
+WHAT VERIFICATION CATCHES DEPENDS ON THE STORE, and the accounting matters or a
+case gets written that can never fire. `log`, `audit` and `tombstones` are
+append-only at the storage layer -- UPDATE and DELETE refused by trigger -- so a
+body there cannot change under a correct citation and the hash comparison can
+never go red on tampering. What fires on those paths is a fabricated seq, a seq
+into the wrong kind, and a quote absent from the record. In `state` and
+`workspace`, which are mutable, the hash does its ordinary work.
+
+UNVERIFIABLE IS NOT VERIFIED, in both the receipt and block B. With no L3 handle
+the tempting behaviour is to skip the check that cannot run, which removes the
+guard in precisely the configuration unable to perform it.
+
+AND THE WITHHOLDING IS REPORTED IN THE PROMPT, not only on the bus. A-032
+requires degradation to be visible; the model is the party about to answer and
+the one that needs to know memory came back thinner than it looks. An event
+nobody reads mid-turn records the degradation without reporting it."""

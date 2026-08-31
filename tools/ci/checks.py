@@ -6746,6 +6746,196 @@ def check_cache_preserves_taint_and_content_keys() -> Result:
     return r
 
 
+def check_memory_citations_resolve_or_are_withheld() -> Result:
+    """A pointer that is printed is not a citation.
+
+    `core/memory.py`'s header says it plainly: `log_seq INTEGER NOT NULL` is not
+    the guard, because a `0`, a seq from another store, and a seq for a record
+    that was never written all satisfy NOT NULL -- and every wrong pointer in
+    this schema is a PLAUSIBLE integer. Block B printed `->log:42` beside each
+    fact under a comment saying `INV-EVID-2` needs a resolvable span, and never
+    resolved one. `core/arbiter.py` recorded the same gap from the other side:
+    support was empty for every memory-derived claim, so the arbiter could pick
+    a winner it could not cite.
+
+    THE MISQUOTE IS THE CASE A HASH-ONLY RECEIPT WAVES THROUGH. "Record 412
+    exists and hashes to X" verifies perfectly while the claim built on it says
+    something the record does not -- which is this module's own named failure, a
+    mostly grounded answer carrying ONE unsupported specific. So the quoted text
+    must be FOUND in the resolved record, and found in a LEAF of it: matching
+    the rendered JSON would let a key name ground a fact.
+
+    AND UNVERIFIABLE IS NOT VERIFIED. Both the receipt and block B refuse when
+    there is no L3 handle to read. The tempting behaviour -- skip the check that
+    cannot run -- removes the guard in exactly the configuration unable to
+    perform it.
+    """
+    r = Result("memory-citations-resolve-or-are-withheld")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import dataclasses
+    import tempfile
+    try:
+        from core.arbiter import Arbiter
+        from core.blocks import L1Renderer
+        from core.bus import EventBus
+        from core.evidence import (ClaimChecker, EvidenceResolver, LogReceipt,
+                                   Unsupported)
+        from core.hlc import HybridLogicalClock
+        from core.memory import MemoryGraph
+        from core.persona import Persona
+        from core.store import APPEND_ONLY, StoreSet
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the citation path did not import: {exc!r}")
+        return r
+
+    root = Path(tempfile.mkdtemp())
+    store = StoreSet(root, node_id="ci")
+    clock = HybridLogicalClock("ci")
+    bus = EventBus(clock, store)
+    mem = MemoryGraph(store)
+    for value in ("call your brother", "buy milk"):
+        mem.remember(subject="world.owner", attribute="task", value=value,
+                     rank=2, privacy="private", trust_class="owner",
+                     at=clock.now())
+
+    rec = store.record("log", 1)
+    if rec is None:
+        r.err("StoreSet.record could not fetch a record that was just appended")
+        return r
+
+    # 1. AN HONEST RECEIPT RESOLVES -- or every assertion below passes for the
+    #    wrong reason, and the whole check is a machine for refusing everything.
+    good = LogReceipt.of("log", rec, rec.body["value"])
+    resolver = EvidenceResolver(REPO, store)
+    if not good.resolve(resolver).ok:
+        r.err(f"an honest receipt did not resolve: "
+              f"{good.resolve(resolver).reason}")
+
+    # 2. THE MISQUOTE. The record is real, the hash matches, and the claim says
+    #    something the record does not.
+    v = dataclasses.replace(good, quoted="call your sister").resolve(resolver)
+    if v.ok:
+        r.err("a receipt whose quoted text is absent from the record it cites "
+              "still verified. That is the failure this module exists for: one "
+              "unsupported specific inside an otherwise grounded answer, and a "
+              "hash-only receipt cannot see it.")
+
+    # 3. A FABRICATED SEQUENCE NUMBER, which is what an invented citation looks
+    #    like -- a plausible integer.
+    if dataclasses.replace(good, seq=999_999).resolve(resolver).ok:
+        r.err("a receipt citing a record that was never written verified")
+    if dataclasses.replace(good, kind="memory.other").resolve(resolver).ok:
+        r.err("a receipt resolving to a record of a different kind verified: "
+              "the citation names one record and lands on another")
+
+    # 4. NO STORE IS A REFUSAL, NOT A SKIP.
+    if good.resolve(EvidenceResolver(REPO)).ok:
+        r.err("a receipt verified against a resolver with no L3 store. "
+              "Unverifiable is not verified, and passing here removes the guard "
+              "in precisely the configuration that cannot check it.")
+
+    # 5. A KEY NAME IS NOT A QUOTE. `{"value": "..."}` must not ground a fact
+    #    whose value is the word "value" -- which matching the rendered JSON
+    #    would allow.
+    if dataclasses.replace(good, quoted="value").resolve(resolver).ok:
+        r.err("a key name in the record body satisfied the quote, so the "
+              "receipt matches rendered JSON rather than the record's leaves")
+
+    # 6. THE ARBITER CITES ITS CLAIMS, closing the gap its own comment recorded.
+    mem.remember(subject="world.owner", attribute="task",
+                 value="text your brother", rank=3,
+                 privacy="private", trust_class="model_generated",
+                 at=clock.now())
+    arb = Arbiter(mem, bus=bus)
+    claims = arb.claims_for("world.owner", "task")
+    if not claims:
+        r.err("the arbiter returned no claims for a contradicted attribute")
+    unsupported = [c for c in claims if not c.supported()]
+    if unsupported:
+        r.err(f"{len(unsupported)} of {len(claims)} memory-derived claims carry "
+              "no support, so the arbiter can still pick a winner it cannot "
+              "cite -- the gap core/arbiter.py recorded")
+    checker = ClaimChecker(bus, REPO, store=store)
+    checker.check(claims, policy_class="world_fact")
+
+    # 7. L2 DRIFTING FROM L3 IS CAUGHT, and it is why the receipt quotes the L2
+    #    value and resolves against the L3 record rather than being built from
+    #    the record alone. A receipt built from the record would agree with
+    #    itself and detect nothing.
+    mem._conn.execute(                              # noqa: SLF001
+        "UPDATE fact SET value='call your cousin' WHERE value='call your brother'")
+    mem._conn.commit()                              # noqa: SLF001
+    try:
+        checker.check(arb.claims_for("world.owner", "task"),
+                      policy_class="world_fact")
+        r.err("L2 was edited to say something its L3 record does not, and the "
+              "gated check passed. Memory that has drifted from its own log is "
+              "asserting an origin it does not have.")
+    except Unsupported:
+        pass
+
+    # 8. BLOCK B WITHHOLDS AN UNGROUNDED FACT *AND SAYS SO*. Dropping silently
+    #    is A-032's named failure: a turn missing the one fact that answered it
+    #    looks exactly like a turn where memory had nothing.
+    mem2 = MemoryGraph(store)
+    for value in ("call your brother", "buy milk"):
+        mem2.remember(subject="world.owner", attribute="task", value=value,
+                      rank=2, privacy="private", trust_class="owner",
+                      at=clock.now())
+    render = L1Renderer(Persona.load(), mem2)
+    before = render.render("what tasks do I have")
+    if before.ungrounded:
+        r.err("facts with intact pointers were withheld")
+    if len(before.selected) < 2:
+        r.err("grounding dropped facts that resolve")
+    mem2._conn.execute(                             # noqa: SLF001
+        "UPDATE fact SET log_seq=999999 WHERE value='buy milk'")
+    mem2._conn.commit()                             # noqa: SLF001
+    after = render.render("what tasks do I have")
+    if any(f.value == "buy milk" for f in after.selected):
+        r.err("a fact whose pointer resolves to nothing was still quoted into "
+              "block B, under a comment saying INV-EVID-2 needs a resolvable "
+              "span")
+    if not after.ungrounded:
+        r.err("the withheld fact was not reported on the Rendered payload")
+    if "withheld" not in after.block_b:
+        r.err("block B dropped a fact without saying so IN THE PROMPT. The "
+              "model is the party about to answer and the one that needs to "
+              "know memory came back thinner than it looks; an event nobody "
+              "reads mid-turn records the degradation without reporting it.")
+
+    # 9. NO STORE MEANS NOTHING IS CITABLE, in block B too.
+    class _NoStore:
+        """A memory whose L3 handle is gone -- the configuration the fail-open
+        version of `_ground` would wave through wholesale."""
+
+        _store = None
+
+        def select(self, *a: Any, **k: Any) -> list:
+            return list(before.selected)
+
+        def index(self, *a: Any, **k: Any) -> list:
+            return []
+
+    blind = L1Renderer(Persona.load(), _NoStore())
+    out = blind.render("what tasks do I have")
+    if out.selected:
+        r.err("with no reachable L3, block B quoted facts anyway. Memory that "
+              "cannot re-read its own log cannot cite, so it does not get "
+              "quoted -- the fail-open version deletes the guard exactly where "
+              "it cannot run.")
+
+    r.note(f"receipts resolve against L3 by seq and refuse a fabricated seq, a "
+           f"wrong kind, a misquote, a key-name quote and a store-less "
+           f"resolver; the arbiter's memory-derived claims now carry support "
+           f"and L2/L3 drift raises Unsupported in a gated class; block B "
+           f"withholds an unresolvable fact and reports the degradation in the "
+           f"prompt; append-only stores are {APPEND_ONLY}, so on those paths "
+           f"the fabricated seq and the misquote are what fire, not the hash")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -6803,6 +6993,7 @@ CHECK_FNS = {
     "presence-withholds-and-never-expires": check_presence_withholds_and_never_expires,
     "context-control-reaches-selection": check_context_control_reaches_selection,
     "cache-preserves-taint-and-content-keys": check_cache_preserves_taint_and_content_keys,
+    "memory-citations-resolve-or-are-withheld": check_memory_citations_resolve_or_are_withheld,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,
