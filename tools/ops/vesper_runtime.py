@@ -587,7 +587,13 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                 res = intake.spoken(
                     text,
                     confidence=float(obj.get("confidence") or 0.0),
-                    final=bool(obj.get("final", True)))
+                    final=bool(obj.get("final", True)),
+                    # WHICH INSTRUMENT MEASURED IT. Apple's recogniser and the
+                    # transcriber report confidence on different scales, so the
+                    # floor is chosen by who produced the number. An utterance
+                    # that does not say is judged against the stricter default.
+                    meta={"instrument": obj.get("instrument")}
+                    if obj.get("instrument") else None)
                 if res["outcome"] in ("buffered", "reflected", "ignored"):
                     # NOT DISPATCHED, AND THE OWNER STILL SEES IT. A partial is
                     # the recogniser thinking out loud; a reflected utterance is
@@ -738,11 +744,14 @@ def main() -> int:
         with OUTBOX.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"text": heard.text, "source": "spoken",
                                 "final": True,
-                                "confidence": heard.confidence},
+                                "confidence": heard.confidence,
+                                "instrument": "transcriber"},
                                ensure_ascii=False) + "\n")
-        if heard.confidence < 0.75:
-            print(f"  (below the 0.75 action floor -- VESPER will ask you to "
-                  f"repeat rather than act on it)")
+        from core.intake import floor_for as _floor
+        _f = _floor({"instrument": "transcriber"})
+        if heard.confidence < _f:
+            print(f"  (below the {_f} action floor for this instrument -- "
+                  f"VESPER will ask you to repeat rather than act on it)")
 
     if args.say:
         OUTBOX.parent.mkdir(parents=True, exist_ok=True)

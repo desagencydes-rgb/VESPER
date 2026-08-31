@@ -998,6 +998,7 @@ CONFIRM_PY = "core/confirm.py"
 SPEECH_PY = "core/speech.py"
 EXTRACT_PY = "core/extract.py"
 TRANSCRIBE_PY = "core/transcribe.py"
+INTAKE_PY = "core/intake.py"
 SUPPLY_TOML = "contracts/policy/provider_supply.toml"
 UPDATER_PY = "core/updater.py"
 MEMORY_PY = "core/memory.py"
@@ -2912,7 +2913,7 @@ CASES += [
      "first one a gate can see"),
 
     ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
-     _sub("tools/ci/self_test.py                         PASS   378/378",
+     _sub("tools/ci/self_test.py                         PASS   381/381",
           "tools/ci/self_test.py                         PASS   295/295", 1),
      "the status table's self-test count goes stale: it had been four sessions "
      "wrong before this gate existed"),
@@ -3239,6 +3240,28 @@ CASES += [
           "        pass", 1),
      "silence scores like speech: a segment the model itself thinks is probably "
      "not speech contributes its token confidence unchanged"),
+
+    ("speech-in-declares-language-and-measures-confidence", INTAKE_PY,
+     _sub("TRANSCRIBED_CONFIDENCE_FLOOR = 0.37", "TRANSCRIBED_CONFIDENCE_FLOOR = 0.75", 1),
+     "the transcriber is held to the on-device recogniser's floor again. The "
+     "two report confidence on different scales, so a CORRECT Darija "
+     "transcription scores 0.48 and is reflected as a mishearing -- nothing "
+     "wrong with the transcription, the wrong ruler"),
+
+    ("speech-in-declares-language-and-measures-confidence", INTAKE_PY,
+     _sub('    if (meta or {}).get("instrument") == "transcriber":\n'
+          "        return TRANSCRIBED_CONFIDENCE_FLOOR\n"
+          "    return CONFIDENCE_FLOOR",
+          "    return TRANSCRIBED_CONFIDENCE_FLOOR", 1),
+     "every utterance gets the permissive floor, including one from an "
+     "instrument that never named itself -- an unnamed instrument must be "
+     "judged by the stricter default, not given the benefit of the looser one"),
+
+    ("speech-in-declares-language-and-measures-confidence", INTAKE_PY,
+     _sub("TRANSCRIBED_CONFIDENCE_FLOOR_MEASURED = False",
+          "TRANSCRIBED_CONFIDENCE_FLOOR_MEASURED = True", 1),
+     "a floor anchored on a published convention is marked MEASURED, so a "
+     "citation can be quoted as a finding about this owner's voice in this room"),
 
     ("speech-in-declares-language-and-measures-confidence", TRANSCRIBE_PY,
      _sub('    return locale not in ON_DEVICE_LOCALES', "    return True", 1),

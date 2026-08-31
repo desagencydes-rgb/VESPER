@@ -10919,9 +10919,36 @@ def check_speech_in_declares_language_and_measures_confidence() -> Result:
         r.err("no_speech_prob does not discount the confidence, so silence "
               "scores like speech")
 
+    # 5b. THE FLOOR BELONGS TO THE INSTRUMENT, NOT TO SPEECH. Apple's on-device
+    #     recogniser and the transcriber report confidence on different scales,
+    #     and one floor for both made the second unusable: a CORRECT Darija
+    #     transcription scored 0.48 against a 0.75 floor built for the other
+    #     instrument and was reflected as though it had been misheard. Nothing
+    #     was wrong with the transcription.
+    from core.intake import (CONFIDENCE_FLOOR_MEASURED,
+                             TRANSCRIBED_CONFIDENCE_FLOOR,
+                             TRANSCRIBED_CONFIDENCE_FLOOR_MEASURED, floor_for)
+    if floor_for({"instrument": "transcriber"}) >= floor_for(None):
+        r.err("the transcriber is held to the on-device recogniser's floor. "
+              "The two report on different scales, so one threshold cannot "
+              "serve both -- and this one rejects correct transcriptions.")
+    if floor_for(None) != CONFIDENCE_FLOOR:
+        r.err("an utterance that does not name its instrument is not judged "
+              "against the stricter default; an unnamed instrument must not be "
+              "given the benefit of the more permissive floor")
+    if TRANSCRIBED_CONFIDENCE_FLOOR_MEASURED or CONFIDENCE_FLOOR_MEASURED:
+        r.err("a confidence floor is marked MEASURED. Neither has been measured "
+              "on this owner's voice in this room; the transcriber's is anchored "
+              "on the model's own failed-transcription convention, which is a "
+              "citation and not a measurement.")
+
     # 6. AND THE MEASURED NUMBER REACHES INTAKE. The runtime writes it into the
     #    same input file typing uses; without it the reader defaults to 0.0.
     rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if '"instrument": "transcriber"' not in rt:
+        r.err("--hear does not name the instrument, so its confidence is judged "
+              "against the on-device recogniser's floor and correct Darija is "
+              "reflected as a mishearing")
     if '"confidence": heard.confidence' not in rt:
         r.err("--hear does not write the measured confidence, so Intake sees "
               "0.0 and reflects every spoken turn back unanswered")
@@ -10951,7 +10978,10 @@ def check_speech_in_declares_language_and_measures_confidence() -> Result:
            f"confidence is computed from the transcriber's own avg_logprob, "
            f"falls below Intake's {CONFIDENCE_FLOOR} floor for a poor segment, "
            f"is discounted by no_speech_prob and is 0.0 when nothing measured "
-           f"it; the runtime passes it through; and the redactor refuses a "
+           f"it; the floor is chosen by INSTRUMENT ({floor_for(None)} for the "
+           f"on-device recogniser, {TRANSCRIBED_CONFIDENCE_FLOOR} for the "
+           f"transcriber, both marked unmeasured); the runtime passes both "
+           f"through; and the redactor refuses a "
            f"credential-shaped transcript on the ordinary path")
     return r
 

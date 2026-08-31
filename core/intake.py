@@ -56,6 +56,39 @@ SOURCES = (TYPED, SPOKEN, SCHEDULED)
 CONFIDENCE_FLOOR = 0.75
 CONFIDENCE_FLOOR_MEASURED = False
 
+# ONE FLOOR CANNOT SERVE TWO INSTRUMENTS, and assuming it could made the second
+# one unusable. The comment above says "this recogniser" -- singular -- because
+# when it was written there was one: Apple's on-device recogniser, which reports
+# a confidence of its own construction. Darija now arrives through a
+# transcriber that reports `avg_logprob`, and `exp` of that is a geometric mean
+# token probability. THE TWO NUMBERS ARE NOT ON THE SAME SCALE.
+#
+# Measured 2026-08-31: a correct Darija transcription -- "salam a vesper,
+# kidayr" read back recognisably -- scored 0.48 and was reflected as though it
+# had been misheard. Nothing was wrong with the transcription; the floor was
+# built for a different instrument.
+#
+# 0.37 is `exp(-1.0)`, and `avg_logprob < -1.0` is the failed-transcription
+# heuristic Whisper implementations use by convention. That is an anchor from
+# the instrument's own literature rather than a number chosen to make this
+# sample pass -- and it is STILL a declared number, marked so below, because
+# nothing has measured it on this owner's voice either.
+TRANSCRIBED_CONFIDENCE_FLOOR = 0.37
+TRANSCRIBED_CONFIDENCE_FLOOR_MEASURED = False
+
+# Which floor applies to an utterance, by the instrument that produced it.
+def floor_for(meta: dict | None) -> float:
+    """The floor for the instrument that produced this utterance.
+
+    KEYED ON THE INSTRUMENT, NOT THE LANGUAGE. A future on-device Darija
+    recogniser would report on Apple's scale and belongs under the default
+    floor; a transcriber handling English would report on Whisper's and belongs
+    here. The question is who measured the confidence, not what was said.
+    """
+    if (meta or {}).get("instrument") == "transcriber":
+        return TRANSCRIBED_CONFIDENCE_FLOOR
+    return CONFIDENCE_FLOOR
+
 
 class IntakeRefused(Exception):
     """An utterance could not be accepted. Never silently dropped."""
@@ -95,7 +128,7 @@ class Utterance:
         """Is this safe to act on without reflecting it back first?"""
         if self.confidence is None:
             return True              # the channel does not admit uncertainty
-        return self.confidence >= CONFIDENCE_FLOOR
+        return self.confidence >= floor_for(self.meta)
 
     def to_dict(self) -> dict:
         return {"text": self.text, "source": self.source, "final": self.final,
@@ -159,7 +192,7 @@ class Intake:
                 self._emit("intake.reflected", u)
                 return {"outcome": "reflected", "utterance": u.to_dict(),
                         "note": (f"confidence {u.confidence} is below the floor "
-                                 f"{CONFIDENCE_FLOOR}"
+                                 f"{floor_for(u.meta)}"
                                  + ("" if CONFIDENCE_FLOOR_MEASURED
                                     else " (UNMEASURED -- the floor's shape is "
                                          "right and its value has not been "
@@ -179,10 +212,18 @@ class Intake:
         return self.offer(Utterance(text=text, source=TYPED))
 
     def spoken(self, text: str, *, confidence: float, final: bool,
-               stream_id: str = "mic") -> dict:
-        """The path a recogniser will use. Exists now so it is not a rewrite."""
+               stream_id: str = "mic", meta: dict | None = None) -> dict:
+        """The path a recogniser uses.
+
+        `meta` NAMES THE INSTRUMENT, and that is what decides which floor
+        applies. Two recognisers report confidence on different scales, so an
+        utterance that does not say which one measured it is judged against the
+        stricter default -- an unnamed instrument is not given the benefit of
+        the more permissive floor.
+        """
         return self.offer(Utterance(text=text, source=SPOKEN,
-                                    final=final, confidence=confidence),
+                                    final=final, confidence=confidence,
+                                    meta=dict(meta or {})),
                           stream_id=stream_id)
 
     def transcript(self, limit: int = 40) -> list:
