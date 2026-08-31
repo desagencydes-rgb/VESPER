@@ -23,15 +23,30 @@ resolve and says so in the prompt, and `build()` registers the verifiers it can
 actually run.
 
 **THE NUMBER WORTH WATCHING IS NOW `impl = "PENDING"`, NOT THE CHECK COUNT.**
-28 of 89 registered checks are still PENDING, and a PENDING entry looks exactly
-like enforcement in every listing that does not read the `impl` field. Six were
-implemented on 2026-08-31 — `CI-004`, `CI-011`, `CI-012`, `CI-013`, `CI-020`,
-`CI-033` — and every one of them guards a subsystem that has been complete and
-correct since it was built. `core/bus.py`, `core/taint.py`, `core/authorize.py`,
-`core/capability.py`, `core/evidence.py` and the gateway's cost choke point were
-each protected by nothing. Enforced invariants went 52 → 63 of 140 in one
-session without a line of new subsystem code, which is the clearest measure so
-far that **wiring and gating, not building, is where this corpus loses ground.**
+A PENDING entry looks exactly like enforcement in every listing that does not
+read the `impl` field. Fifteen were implemented on 2026-08-31 — `CI-004`,
+`CI-009`, `CI-010`, `CI-011`, `CI-012`, `CI-013`, `CI-015`, `CI-020`, `CI-024`,
+`CI-033`, `CI-035`, `CI-040`, `CI-045`, `CI-046b`, `CI-049` — and all but one
+guard a subsystem that has been complete and correct since it was built.
+`core/bus.py`, `core/store.py`, `core/tasks.py`, `core/taint.py`,
+`core/authorize.py`, `core/capability.py`, `core/evidence.py`, `core/selfmod.py`,
+`core/telemetry.py`, `core/enrollment.py`, `core/placement.py`,
+`core/forgetter.py` and the gateway's cost choke point were each protected by
+nothing.
+
+`CI-024` is the exception: `INV-TRIG-5` had **no enforcement of any kind**, so
+`assert_terminating` in `core/autonomy.py` was written as part of landing it.
+
+**Enforced invariants went 52 → 73 of 140 in one session, with one subsystem's
+worth of new code.** That is the clearest measure so far that **wiring and
+gating, not building, is where this corpus loses ground.**
+
+**And the two counts that had drifted seven times now have a gate.**
+`documented-counts-match-commands` reads every figure this file and `CLAUDE.md`
+quote from a command and compares it to what the command produces. It found two
+further live claims stale by years on its first run — *"41 of 56 CI checks
+unimplemented"* and *"18 of 118 invariants enforced"* — in the table below that
+says every number in it is produced by a command.
 
 **One security question is open and deliberately undecided** — see
 `CI-013`'s note in `verification/ci/CHECKS.toml`. Grant consumption keys on

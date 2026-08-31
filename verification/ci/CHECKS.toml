@@ -1716,6 +1716,17 @@ violation events were emitted -- the reporting mechanism had been proven and the
 path had not. The check therefore asserts the gateway answers NORMALLY outside a
 probe first, or the refusal would only prove the fixture is broken.
 
+AND THE HEALTH BRANCHES ARE DRIVEN RATHER THAN OBSERVED, corrected 2026-08-31.
+Calling `host_health()` on the live machine tests exactly ONE return path, and
+which one depends on the battery: at 20% charge `power_source()` returns
+`battery_critical`, the function returns FAILING before reaching `return
+ONLINE`, and the red-run case that replaces ONLINE with an invented value stayed
+GREEN. A gate whose result depends on how charged the laptop is is not a gate.
+All three branches are now driven with controlled inputs, and each is asserted
+to produce its own SM-DEVICE state -- which also pins the ordering, since losing
+power is not a degree of impairment and a check ordered the other way reports
+DEGRADED for a machine with minutes left.
+
 AND IT IS NOT ONLY COST. A REGEX CANNOT BE PROMPT-INJECTED. Sensors read SMS,
 calendar invites, screens and pages found during research -- text an outsider
 can put in front of VESPER. A model in the filter makes the filter the

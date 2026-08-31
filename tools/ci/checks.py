@@ -5962,13 +5962,41 @@ def check_sensors_never_reach_a_model() -> Result:
     sm = tomllib.loads((REPO / "spec" / "state-machines" / "INDEX.toml")
                        .read_text(encoding="utf-8"))
     device_states = set(sm["state_machines"]["SM-DEVICE"]["states"])
-    health = host_probes.host_health()
-    if health not in device_states:
-        r.err(f"host_health() returned {health!r}, which is not an SM-DEVICE "
-              f"state ({sorted(device_states)}). A probe that defines its own "
-              "vocabulary produces readings no predicate can act on, and "
-              "nothing reports the mismatch because both halves are internally "
-              "consistent.")
+    #     EVERY BRANCH IS DRIVEN, NOT WHICHEVER ONE THIS HOST HAPPENS TO TAKE.
+    #     Calling `host_health()` on the live machine tests exactly one return
+    #     path -- and which one depends on the battery. Found 2026-08-31 at
+    #     20% charge: `power_source()` returned `battery_critical`, the function
+    #     returned FAILING before reaching `return ONLINE`, and the red-run case
+    #     that replaces ONLINE with an invented value stayed GREEN. A gate whose
+    #     result depends on how charged the laptop is is not a gate.
+    real_power = host_probes.power_source
+    real_disk = host_probes.disk_free_ratio
+    branches = {
+        "FAILING": ("battery_critical", 0.90),
+        "DEGRADED": ("battery", 0.05),
+        "ONLINE": ("ac", 0.90),
+    }
+    try:
+        for expected, (power, disk) in branches.items():
+            host_probes.power_source = lambda p=power: p
+            host_probes.disk_free_ratio = lambda d=disk: d
+            health = host_probes.host_health()
+            if health not in device_states:
+                r.err(f"host_health() returned {health!r} on the {expected} "
+                      f"branch, which is not an SM-DEVICE state "
+                      f"({sorted(device_states)}). A probe that defines its own "
+                      "vocabulary produces readings no predicate can act on, "
+                      "and nothing reports the mismatch because both halves are "
+                      "internally consistent.")
+            elif health != expected:
+                r.err(f"power_source={power!r} with disk_free={disk} produced "
+                      f"{health!r}, not {expected!r}. The ordering matters: "
+                      "losing power is not a degree of impairment, it is the "
+                      "end of the host, and a check ordered the other way "
+                      "reports DEGRADED for a machine with minutes left.")
+    finally:
+        host_probes.power_source = real_power
+        host_probes.disk_free_ratio = real_disk
 
     # 3c. A TTL MUST ACTUALLY EXPIRE, and until 2026-08-30 none of them could.
     #     `valid_until_ms` is an ABSOLUTE stamp; `sensors.py` passed the TTL
