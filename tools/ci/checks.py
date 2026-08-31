@@ -7102,6 +7102,207 @@ def check_machine_checkable_means_registered() -> Result:
     return r
 
 
+def check_map_navigates_and_never_carries_content() -> Result:
+    """SR-007: a map INSTEAD of dumping the corpus, and it must stay one.
+
+    THE SCHEMA EXCLUDES A CONTENT FIELD AND PREDICTS WHY IT WOULD RETURN: "if
+    the map could carry content, the first implementation under memory pressure
+    would populate it, and the map would become the token dump SR-007 exists to
+    replace." That prediction is about the implementation this check guards, so
+    the check validates the serialised node against the contract rather than
+    reading the dataclass and agreeing with itself.
+
+    A SUMMARY IS NAVIGATION METADATA AND IS NEVER CITABLE. The shortcut that
+    erases the whole design is available and cheap: the map already holds a
+    one-line summary of every node, so returning summaries would answer most
+    questions without reading anything. That is a RAG pipeline under another
+    name, which SR-052 -- "BAG instead of RAG, NO GUESSING" -- forbids, and
+    INV-EVID-2 refuses in as many words: a summary-of-a-summary is not a
+    retrieved span. So retrieval must return spans that RE-READ.
+
+    AND A MISS IS UNKNOWN. `coverage_ratio` is nullable and null means
+    UNMEASURED; an unmeasured map is incomplete, so finding nothing in it says
+    nothing about the corpus. Returning `[]` invites the caller to report
+    absence -- the same error as a declared throughput under INV-HW-2.
+    """
+    r = Result("map-navigates-and-never-carries-content")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile
+    try:
+        from core.evidence import EvidenceResolver, SourceSpan
+        from core.knowledge_map import UNKNOWN, KnowledgeMap, MapNode
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.knowledge_map did not import: {exc!r}")
+        return r
+
+    schema = json.loads((REPO / "contracts" / "entities" /
+                         "knowledge_map.schema.json").read_text(encoding="utf-8"))
+    node_schema = schema["properties"]["nodes"]["items"]
+
+    root = Path(tempfile.mkdtemp())
+    (root / "alarm.py").write_text(
+        '"""Holds the 09:00 alarm."""\n\n\ndef ring(node):\n'
+        '    """Ring the alarm on the node that holds it."""\n'
+        '    return node\n', encoding="utf-8")
+    (root / "notes.md").write_text("# Field notes\n\nICMP proves nothing.\n",
+                                   encoding="utf-8")
+    km = KnowledgeMap(root, root_ref="fixture").build()
+
+    if not km.nodes:
+        r.err("the map built no nodes over a corpus with two files")
+        return r
+
+    # 1. NO CONTENT FIELD, checked against the CONTRACT rather than against the
+    #    dataclass -- a field added in a hurry must fail here, not be agreed with.
+    allowed = set(node_schema["properties"])
+    if node_schema.get("additionalProperties") is not False:
+        r.err("the node schema stopped forbidding extra properties, so nothing "
+              "prevents a content field from being added")
+    for nid, n in km.nodes.items():
+        extra = set(n.to_dict()) - allowed
+        if extra:
+            r.err(f"node {nid!r} serialises {sorted(extra)}, which the contract "
+                  f"does not allow. The schema excludes an embedded content "
+                  f"field by design: a map that can carry content becomes the "
+                  f"token dump SR-007 replaces.")
+            break
+        missing = set(node_schema["required"]) - set(n.to_dict())
+        if missing:
+            r.err(f"node {nid!r} is missing required {sorted(missing)}")
+            break
+    if any(hasattr(n, "content") or hasattr(n, "text") for n in km.nodes.values()):
+        r.err("a MapNode carries content or text on the object itself")
+
+    doc = km.to_dict(built_at_hlc="0.0.ci", valid_until="2026-12-31T00:00:00Z")
+    for key in schema["required"]:
+        if key not in doc:
+            r.err(f"the serialised map is missing required {key!r}")
+    if set(doc) - set(schema["properties"]):
+        r.err(f"the map serialises {sorted(set(doc) - set(schema['properties']))}, "
+              "which the contract does not allow")
+    rc = doc.get("retrieval_contract", {})
+    if rc.get("returns_spans") is not True or rc.get("span_reproducible") is not True:
+        r.err("retrieval_contract is not fixed true; the schema fixes both as "
+              "consts because a map whose retrieval returns prose is a RAG "
+              "pipeline with a different name")
+
+    # 2. RETRIEVAL RETURNS SPANS THAT RE-READ, never summaries.
+    spans = km.retrieve("ring the alarm")
+    if spans is UNKNOWN or not spans:
+        r.err("retrieval found nothing for a query matching a real symbol")
+    else:
+        resolver = EvidenceResolver(root)
+        for s in spans:
+            if not isinstance(s, SourceSpan):
+                r.err(f"retrieval returned {type(s).__name__}, not a SourceSpan. "
+                      "The map's summaries are navigation metadata and are "
+                      "never citable evidence (INV-EVID-2).")
+                break
+            if not s.verify(resolver):
+                r.err(f"a returned span does not re-read from {s.path}: the "
+                      "citation is not byte-reproducible, which is the whole "
+                      "enforceable content of 'BAG not RAG'")
+                break
+        else:
+            summaries = {n.summary for n in km.nodes.values()}
+            if any(s.text.strip() in summaries for s in spans):
+                r.err("a returned span is exactly a node summary, so the map is "
+                      "serving its own navigation metadata as evidence")
+
+    # 3. A MISS IS UNKNOWN, NOT AN EMPTY LIST.
+    miss = km.retrieve("thermonuclear pastry stapler")
+    if miss is not UNKNOWN:
+        r.err(f"a query matching nothing returned {miss!r}, not UNKNOWN. An "
+              "empty list invites the caller to report absence, and with "
+              "coverage unmeasured the map cannot support that claim "
+              "(INV-EVID-3).")
+
+    # 4. COVERAGE IS MEASURED OR NULL, NEVER ASSUMED.
+    fresh = KnowledgeMap(root)
+    if fresh.coverage_ratio is not None:
+        r.err(f"an unbuilt map reports coverage {fresh.coverage_ratio!r}. Null "
+              "means UNMEASURED and an unmeasured map is treated as incomplete; "
+              "a default of 1.0 is a declared number standing in for a counted "
+              "one, which is INV-HW-2's shape.")
+
+    # 5. STALENESS IS DETECTED BY HASH AND A STALE NODE IS NOT SERVED.
+    (root / "alarm.py").write_text(
+        '"""Holds the 09:00 alarm."""\n\n\ndef ring(node):\n'
+        '    """Ring the alarm on the node that holds it."""\n'
+        '    return None\n', encoding="utf-8")
+    gone = km.refresh()
+    if not gone:
+        r.err("editing a file left every node fresh: refresh() is not "
+              "re-hashing the locators, so the map serves what used to be true")
+    if not any(n.node_id.endswith("::ring") for n in gone):
+        r.err("the edited symbol did not go stale, only its file, so the map "
+              "cannot say WHICH node to re-read")
+    after = km.retrieve("ring the alarm")
+    if after is not UNKNOWN:
+        for s in (after or []):
+            if s.path == "alarm.py":
+                r.err("a stale node was served: its recorded hash no longer "
+                      "matches the file, so anything read through it is cited "
+                      "against a hash that is already wrong")
+                break
+
+    #    THE TWO GUARDS ARE NOT THE SAME GUARD, and the first attempt at this
+    #    assertion could not tell them apart. Removing the `stale` filter from
+    #    `retrieve` left the check green, because `span_for` re-hashes at read
+    #    time and refuses the same node a step later. The read-time hash is the
+    #    load-bearing one; the `stale` filter's job is to avoid READING a file
+    #    already known to have moved. So assert what it actually does.
+    reads: list = []
+    original = km.span_for
+    km.span_for = lambda n: (reads.append(n.node_id), original(n))[1]  # type: ignore[method-assign]
+    try:
+        km.retrieve("ring the alarm")
+    finally:
+        del km.span_for
+    if any(nid.startswith("alarm.py") for nid in reads):
+        r.err(f"retrieve() read {[n for n in reads if n.startswith('alarm.py')]} "
+              "although the map already knows those nodes are stale. The "
+              "read-time hash would still refuse the citation, so this is not a "
+              "correctness hole -- it is the map paying for a file read whose "
+              "result it has already decided to discard, once per stale node "
+              "per query.")
+
+    # 6. AND THE READ-TIME HASH IS A SECOND GUARD, not a restatement of the
+    #    first: a node the map still believes fresh must not produce a span if
+    #    the bytes moved under it.
+    km2 = KnowledgeMap(root).build()
+    node = next(n for n in km2.nodes.values() if n.kind == "symbol")
+    (root / "alarm.py").write_text("# emptied\n", encoding="utf-8")
+    if km2.span_for(node) is not None:
+        r.err("span_for returned a span for a node whose bytes changed since "
+              "the map was built, without refresh() having run. The map's "
+              "recorded hash says what WAS there; a citation must reproduce "
+              "from the source.")
+
+    # 7. THE MAP IS MATERIALLY SMALLER THAN THE CORPUS -- the comparison SR-007
+    #    exists to make. Asserted on this repo's own core/, not the fixture,
+    #    because two toy files prove nothing about a large project.
+    real = KnowledgeMap(REPO).build("core")
+    corpus = sum(len(p.read_bytes()) for p in (REPO / "core").rglob("*.py")) // 4
+    cost = real.approx_tokens()
+    if cost >= corpus:
+        r.err(f"the map costs ~{cost} tokens against a corpus of ~{corpus}: it "
+              "is not a replacement for dumping the files, which is the whole "
+              "of SR-007")
+
+    r.note(f"nodes validate against knowledge_map.schema.json with "
+           f"additionalProperties false and carry no content field; retrieval "
+           f"returns SourceSpans that re-read, never summaries; a miss is "
+           f"UNKNOWN and coverage is null until counted; an edit makes both the "
+           f"file and the edited symbol stale, stale nodes are neither "
+           f"served nor read (two separate guards -- the read-time hash is the "
+           f"load-bearing one); "
+           f"span_for re-hashes at read time; over this repo's core/ the map is "
+           f"~{cost} tokens against ~{corpus} for the sources it indexes")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -7161,6 +7362,7 @@ CHECK_FNS = {
     "cache-preserves-taint-and-content-keys": check_cache_preserves_taint_and_content_keys,
     "memory-citations-resolve-or-are-withheld": check_memory_citations_resolve_or_are_withheld,
     "machine-checkable-means-registered": check_machine_checkable_means_registered,
+    "map-navigates-and-never-carries-content": check_map_navigates_and_never_carries_content,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

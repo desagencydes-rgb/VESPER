@@ -482,13 +482,13 @@ kind = "structural"
 [invariants.INV-EVID-2]
 statement = "No answer cites a source it did not retrieve; a similarity score is never sufficient grounding. Every source_ref resolves to a reproducible retrieved span."
 owner_rem = "REM-010"
-enforced_by = ["CI-074", "CI-077", "CI-086", "A-003", "A-006"]
+enforced_by = ["CI-074", "CI-077", "CI-086", "CI-088", "A-003", "A-006"]
 kind = "runtime"
 
 [invariants.INV-EVID-3]
 statement = "UNKNOWN is a first-class return value across BAG, world model and memory. An empty retrieval is never coerced into an answer."
 owner_rem = "REM-010"
-enforced_by = ["CI-082", "A-003"]
+enforced_by = ["CI-088", "CI-082", "A-003"]
 kind = "runtime"
 
 [invariants.INV-VERIF-1]

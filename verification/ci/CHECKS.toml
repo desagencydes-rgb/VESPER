@@ -1393,3 +1393,64 @@ admitted and the verifier is a machine for refusing work.
 RETRY-UNTIL-AGREEMENT IS RE-ASSERTED THROUGH THE NEW PATH. A-023's shape -- the
 same task 20 times, never SUCCEEDED -- is run against the grounded verifier
 here, because a new strategy is a new way for repetition to buy an opinion."""
+
+[checks.CI-088]
+name = "map-navigates-and-never-carries-content"
+enforces = ["INV-EVID-2", "INV-EVID-3"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py map-navigates-and-never-carries-content"
+blocking = "pr"
+self_test = """Serialise a content field on a map node; return the map's own
+summaries instead of spans; return an empty list rather than UNKNOWN on a miss;
+serve stale nodes; drop the read-time hash check; default coverage_ratio to
+complete instead of null."""
+self_test_evidence = """tools/ci/self_test.py map-navigates-and-never-carries-content
+-- 6 cases, red then green, 2026-08-31."""
+subject = "core/knowledge_map.py"
+note = """SR-007 had NO CI check at all -- a ratified requirement with a written
+contract, a decision function, an acceptance test and no enforcement. Its
+registry row records why the gap was easy to miss: A-006 already asserted exact
+spans without loading the repository and INV-EVID-2 already forbade citing an
+unretrieved source, so the requirement looked covered by things that covered
+neighbouring ground.
+
+The map holds locators, hashes and one-line summaries. Over this repository's
+own core/ it is roughly 31k tokens against roughly 211k for the sources it
+indexes, and a query returns a handful of spans rather than either figure --
+which is the comparison SR-007 exists to make.
+
+Summaries are taken from the artifact's own docstring, not written by a model.
+DF-BAG-RETRIEVE is model_access = false, and a model-written summary would put
+model output into the navigation layer, where every later decision about what to
+read would rest on it."""
+discriminators = """THE SCHEMA EXCLUDES AN EMBEDDED CONTENT FIELD AND PREDICTS
+ITS RETURN: "if the map could carry content, the first implementation under
+memory pressure would populate it, and the map would become the token dump
+SR-007 exists to replace." That prediction is about the code this check guards,
+so the check validates the SERIALISED node against knowledge_map.schema.json --
+required keys and additionalProperties false -- rather than reading the
+dataclass and agreeing with itself.
+
+A SUMMARY IS NAVIGATION METADATA AND IS NEVER CITABLE. The shortcut that erases
+the design is cheap and available: the map already holds a one-line summary of
+every node, so returning summaries answers most questions without reading
+anything. That is a RAG pipeline under another name, which SR-052 forbids, and a
+summary-of-a-summary standing in for a retrieval, which INV-EVID-2 refuses in as
+many words.
+
+A MISS IS UNKNOWN, NOT AN EMPTY LIST. coverage_ratio is nullable and null means
+UNMEASURED; an unmeasured map is incomplete, so finding nothing in it says
+nothing about the corpus. An empty list invites the caller to report absence --
+the same error as a declared throughput under INV-HW-2, which is also why
+coverage defaults to null rather than 1.0.
+
+STALENESS IS BY HASH, NOT BY AGE. valid_until schedules the next rebuild; it
+does not decide what is true now, and under a time-based rule a file edited one
+second after a rebuild reads as fresh for the rest of the window.
+
+AND THE TWO STALENESS GUARDS ARE NOT ONE GUARD, which the first version of this
+check could not tell apart: removing the stale filter from retrieve left it
+green, because span_for re-hashes at read time and refuses the same node a step
+later. The read-time hash is load-bearing; the stale filter exists to avoid
+READING a file already known to have moved. The check now asserts that -- a
+stale node is neither served nor read."""

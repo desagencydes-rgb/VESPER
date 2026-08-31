@@ -136,6 +136,7 @@ ic = ["IC-006"]
 tests = ["A-006"]
 contracts = ["contracts/entities/knowledge_map.schema.json"]
 decision_functions = ["DF-BAG-RETRIEVE"]
+ci = ["CI-088"]
 invariants = ["INV-EVID-2", "INV-EVID-3"]
 status = "SPECIFIED"
 raised = "2026-08-12: A-006 already asserted exact spans retrieved without loading the repository, and INV-EVID-2 already forbade citing an unretrieved source. Neither had an artifact. The map schema forbids an embedded content field, so the token dump SR-007 replaces is unexpressible."

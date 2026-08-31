@@ -976,6 +976,7 @@ CACHE_PY = "core/cache.py"
 EVID_PY = "core/evidence.py"
 VERIFY_PY = "core/verify.py"
 VERIFIERS_PY = "core/verifiers.py"
+KMAP_PY = "core/knowledge_map.py"
 ARB_PY = "core/arbiter.py"
 BLOCKS3_PY = "core/blocks.py"
 BLOCKS2_PY = "core/blocks.py"
@@ -2271,6 +2272,57 @@ CASES += [
      "the runtime stops registering any strategy: every verifier above is still "
      "correct and gated, and the running system defers all free-time work "
      "because nothing reached it -- the defect one layer up"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-088
+    ("map-navigates-and-never-carries-content", KMAP_PY,
+     _sub('             "edges": [{"to": t, "relation": r} for t, r in self.edges],',
+          '             "edges": [{"to": t, "relation": r} for t, r in self.edges],\n'
+          '             "content": "",', 1),
+     "a content field added to the serialised node: the schema forbids it and "
+     "says why -- the first implementation under memory pressure populates it, "
+     "and the map becomes the token dump SR-007 exists to replace"),
+
+    ("map-navigates-and-never-carries-content", KMAP_PY,
+     _sub("        spans = []\n"
+          "        for _, n in scored[:budget]:\n"
+          "            span = self.span_for(n)\n"
+          "            if span is not None:\n"
+          "                spans.append(span)",
+          "        spans = [n.summary for _, n in scored[:budget]]", 1),
+     "retrieval returns the map's own summaries instead of spans read from the "
+     "locator: a RAG pipeline under another name, and a summary-of-a-summary "
+     "standing in for a retrieval, which INV-EVID-2 refuses in as many words"),
+
+    ("map-navigates-and-never-carries-content", KMAP_PY,
+     _sub("        if not spans:\n", "        if False:\n", 1),
+     "a miss returns an empty list rather than UNKNOWN, inviting the caller to "
+     "report that the thing does not exist -- which a map of unmeasured "
+     "coverage cannot support about its own corpus"),
+
+    ("map-navigates-and-never-carries-content", KMAP_PY,
+     _sub("            if n.stale or n.kind == \"directory\":",
+          "            if n.kind == \"directory\":", 1),
+     "stale nodes served: the recorded hash no longer matches the file, so "
+     "anything read through one is cited against a hash that is already wrong"),
+
+    ("map-navigates-and-never-carries-content", KMAP_PY,
+     _sub("        if _hash(chunk) != n.content_hash:\n"
+          "            # The node is stale and `refresh()` has not run. Refusing here means\n"
+          "            # a map that is merely out of date cannot produce a wrong citation.\n"
+          "            return None\n", "", 1),
+     "the read-time hash check dropped, so a map that is merely out of date "
+     "produces a citation whose bytes moved under it -- the span carries the "
+     "hash it just computed and nothing compares it to what was indexed"),
+
+    ("map-navigates-and-never-carries-content", KMAP_PY,
+     _sub("        self.coverage_ratio: float | None = None",
+          "        self.coverage_ratio: float | None = 1.0", 1),
+     "coverage defaults to complete instead of UNMEASURED: a declared number "
+     "standing in for a counted one, and an unbuilt map claims to cover its "
+     "corpus entirely"),
 ]
 
 
