@@ -858,10 +858,46 @@ enforcement_correction = "2026-08-12: was INV-PERF-1, which is latency-budget im
 [checks.CI-040]
 name = "telemetry-sensitivity-enforced"
 enforces = ["INV-OBS-1"]
-kind = "structural"
-impl = "PENDING"
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py telemetry-sensitivity-enforced"
 blocking = "pr"
-self_test = "Write a telemetry record containing a secret through the ordinary writer."
+self_test = """Stop redacting on the write path; match field names exactly
+instead of by substring; stop walking lists; stop walking nested dicts; accept
+an inline payload at a forbidden sensitivity; accept an undeclared
+sensitivity."""
+self_test_evidence = """tools/ci/self_test.py telemetry-sensitivity-enforced
+-- 6 cases, red then green, 2026-08-31."""
+subject = "core/telemetry.py, core/bus.py"
+note = """DECLARED WITH THE REGISTRY AND IMPLEMENTED 2026-08-31. Both writers
+were correct; nothing gated them.
+
+INV-OBS-1's last clause is the invariant: sensitivity is enforced at write time
+by the telemetry writer, NEVER BY CALLER DISCIPLINE. Caller discipline is what
+every codebase has by default -- a convention that secrets are not logged, held
+by whoever remembers it, at every call site forever. It fails silently and it
+fails once. The writer is the only place the rule can be unconditional."""
+discriminators = """SUBSTRINGS, NOT EXACT NAMES, and core/telemetry.py says why:
+"the failure mode is a field called `user_password_hint`, not one called exactly
+`password`." The check plants both that and `X-Authorization-Header`.
+
+THE STRUCTURE IS WALKED, and lists and dicts are separate mutations. A
+credential inside a list of attempt records is the ordinary shape of a request
+log, and a redactor that inspects only the top level passes every flat fixture
+anyone would think to write.
+
+REDACTION IS UNCONDITIONAL, NOT KEYED ON THE DECLARED SENSITIVITY. A writer that
+redacts only when the caller says "sensitive" is caller discipline with extra
+steps -- and the caller who mislabels is exactly the caller this invariant
+addresses. The check writes a password under sensitivity="public".
+
+A POSITIVE CASE GUARDS THE REST: an unrelated field must SURVIVE. A writer that
+redacts everything is not enforcing sensitivity, it is discarding telemetry, and
+it would pass every leak assertion above.
+
+AND THE PAYLOAD/REFERENCE SPLIT IS TESTED BOTH WAYS: the forbidden classes
+refuse an inline payload AND must still publish by reference, or the rule is
+"these classes cannot be published at all" and the separation that makes purge
+enforceable does nothing."""
 
 [checks.CI-045]
 name = "placement-not-pinned"

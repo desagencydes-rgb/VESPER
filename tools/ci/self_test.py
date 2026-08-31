@@ -991,6 +991,7 @@ PLACE_PY = "core/placement.py"
 STORE_PY = "core/store.py"
 TASKS_PY = "core/tasks.py"
 AUTON_PY = "core/autonomy.py"
+TELEM_PY = "core/telemetry.py"
 COST_PY = "core/cost.py"
 EXEC_PY = "core/executor.py"
 CAP_PY = "core/capability.py"
@@ -2792,6 +2793,45 @@ CASES += [
      "a predicate that RAISES on a legitimate snapshot registers: it does not "
      "evaluate to False, it takes the tick down and every other trigger in "
      "that tick with it"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-040
+    ("telemetry-sensitivity-enforced", TELEM_PY,
+     _sub('            "fields": _redact(fields),', '            "fields": fields,', 1),
+     "the writer stops redacting: secrets reach the audit store in the clear "
+     "and INV-OBS-1 falls back to caller discipline, which is a convention "
+     "held at every call site forever and fails silently and once"),
+
+    ("telemetry-sensitivity-enforced", TELEM_PY,
+     _sub("            if any(s in str(k).lower() for s in REDACT_SUBSTRINGS):",
+          "            if str(k).lower() in REDACT_SUBSTRINGS:", 1),
+     "matching moves from substring to exact name, so `user_password_hint` and "
+     "`X-Authorization-Header` leak -- which is the real shape of the failure, "
+     "not a field called exactly `password`"),
+
+    ("telemetry-sensitivity-enforced", TELEM_PY,
+     _sub("    if isinstance(obj, (list, tuple)):\n"
+          "        return [_redact(v, depth + 1) for v in obj]\n", "", 1),
+     "lists stop being walked, so a credential inside a list of attempt records "
+     "-- the ordinary shape of a request log -- survives every flat fixture"),
+
+    ("telemetry-sensitivity-enforced", TELEM_PY,
+     _sub("                out[k] = _redact(v, depth + 1)", "                out[k] = v", 1),
+     "nested dicts stop being walked: only the top level is inspected, and a "
+     "secret one level down is indistinguishable from one that was never there"),
+
+    ("telemetry-sensitivity-enforced", BUS_PY,
+     _sub("        if sensitivity in PAYLOAD_FORBIDDEN and payload:", "        if False:", 1),
+     "an inline payload is accepted at `sensitive` and `secret`, so a purge can "
+     "no longer remove content while leaving the skeleton and correlation chain "
+     "intact"),
+
+    ("telemetry-sensitivity-enforced", BUS_PY,
+     _sub("        if sensitivity not in SENSITIVITY:", "        if False:", 1),
+     "an invented sensitivity is accepted, and a class no rule names is a class "
+     "no rule restricts"),
 ]
 
 

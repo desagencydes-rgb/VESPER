@@ -9254,6 +9254,147 @@ def check_predicate_totality() -> Result:
     return r
 
 
+def check_telemetry_sensitivity_enforced() -> Result:
+    """CI-040: INV-OBS-1, "enforced at write time by the telemetry writer,
+    NEVER BY CALLER DISCIPLINE."
+
+    That last clause is the whole invariant and the whole difficulty. Caller
+    discipline is what every codebase has by default -- a convention that
+    secrets are not logged, held by whoever remembers it, at every call site
+    forever. It fails silently and it fails once. The writer is the only place
+    the rule can be made unconditional.
+
+    SUBSTRINGS, NOT EXACT NAMES, and `core/telemetry.py` says why: "the failure
+    mode is a field called `user_password_hint`, not one called exactly
+    `password`."
+
+    AND THE STRUCTURE IS WALKED, not just the top level. A secret nested inside
+    a list of dicts is the ordinary shape of a request log, and a redactor that
+    only inspects top-level keys passes every test written with a flat fixture.
+    """
+    r = Result("telemetry-sensitivity-enforced")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile
+    try:
+        from core.bus import (PAYLOAD_FORBIDDEN, SENSITIVITY, ContractViolation,
+                              EventBus)
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+        from core.telemetry import REDACT_SUBSTRINGS, REDACTED, Telemetry
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.telemetry did not import: {exc!r}")
+        return r
+
+    store = StoreSet(Path(tempfile.mkdtemp()), node_id="ci")
+    clock = HybridLogicalClock("ci")
+    tel = Telemetry(store, clock)
+
+    def written() -> str:
+        return json.dumps([rec.body for rec in store.read("audit")])
+
+    # 1. A SECRET GOES IN THROUGH THE ORDINARY WRITER AND DOES NOT COME OUT.
+    #    The check's declared self_test, and the case caller discipline loses.
+    tel.record("probe.flat", {"api_key": "sk-live-DEADBEEF",
+                              "note": "harmless"})
+    blob = written()
+    if "sk-live-DEADBEEF" in blob:
+        r.err("a secret written through the ordinary telemetry writer reached "
+              "the audit store in the clear. INV-OBS-1 exists because caller "
+              "discipline -- a convention held at every call site forever -- "
+              "fails silently and fails once.")
+    if REDACTED not in blob:
+        r.err("nothing was marked redacted, so the value may have been dropped "
+              "rather than replaced and nothing records that a field was there")
+    if "harmless" not in blob:
+        r.err("an unrelated field was redacted too: a writer that redacts "
+              "everything is not enforcing sensitivity, it is discarding "
+              "telemetry")
+
+    # 2. SUBSTRINGS, NOT EXACT NAMES. `user_password_hint` is the real shape.
+    tel.record("probe.substring", {"user_password_hint": "hunter2",
+                                   "X-Authorization-Header": "Bearer zzz"})
+    blob = written()
+    for leaked in ("hunter2", "Bearer zzz"):
+        if leaked in blob:
+            r.err(f"{leaked!r} survived under a field name that CONTAINS a "
+                  "redacted substring rather than equalling one. The failure "
+                  "mode is `user_password_hint`, not `password`.")
+
+    # 3. NESTED STRUCTURE IS WALKED. A secret inside a list of dicts is the
+    #    ordinary shape of a request log, and a top-level-only redactor passes
+    #    every flat fixture ever written.
+    tel.record("probe.nested",
+               {"attempts": [{"provider": "p1", "credential": "SECRET-NESTED"}],
+                "outer": {"inner": {"session_key": "SECRET-DEEP"}}})
+    blob = written()
+    for leaked in ("SECRET-NESTED", "SECRET-DEEP"):
+        if leaked in blob:
+            r.err(f"{leaked!r} survived inside a nested structure: the "
+                  "redactor inspects only the top level, which every flat test "
+                  "fixture would miss")
+
+    # 4. THE VOCABULARY IS CLOSED AND THE FORBIDDEN CLASSES ARE A SUBSET OF IT.
+    #    A sensitivity outside the vocabulary sorts as unknown wherever it is
+    #    compared, which is how a class that forbids inline payloads stops
+    #    forbidding anything.
+    if not set(PAYLOAD_FORBIDDEN) <= set(SENSITIVITY):
+        r.err(f"{sorted(set(PAYLOAD_FORBIDDEN) - set(SENSITIVITY))} is "
+              "forbidden-from-payload but is not a declared sensitivity")
+
+    # 5. THE BUS REFUSES AN INLINE PAYLOAD AT THOSE CLASSES -- content/reference
+    #    separation is what makes retention and purge enforceable, and it is
+    #    enforced by the WRITER here too, not by the publisher remembering.
+    bus = EventBus(clock, store)
+    for cls in PAYLOAD_FORBIDDEN:
+        try:
+            bus.publish("probe.leak", subject="s", payload={"body": "content"},
+                        sensitivity=cls, component="ci")
+            r.err(f"an inline payload was accepted at sensitivity {cls!r}. "
+                  "Content/reference separation is what lets a purge remove "
+                  "content while the skeleton and correlation chain survive.")
+        except ContractViolation:
+            pass
+        # ...and the same class with a REFERENCE is accepted, or the rule is
+        # "these classes cannot be published at all" and the split does nothing.
+        try:
+            bus.publish("probe.ref", subject="s", payload={},
+                        sensitivity=cls, component="ci",
+                        payload_ref="audit#1")
+        except ContractViolation as exc:
+            r.err(f"sensitivity {cls!r} cannot be published even by reference "
+                  f"({exc}), so the class is unusable rather than separated")
+
+    # 6. AN UNDECLARED SENSITIVITY IS REFUSED, so a typo cannot invent a class
+    #    that no rule mentions and therefore no rule restricts.
+    try:
+        bus.publish("probe.bad", subject="s", payload={"a": 1},
+                    sensitivity="kind-of-private", component="ci")
+        r.err("an undeclared sensitivity was accepted: an invented class is "
+              "restricted by nothing, because every rule names the classes it "
+              "governs")
+    except ContractViolation:
+        pass
+
+    # 7. THE REDACTION IS UNCONDITIONAL, NOT KEYED ON THE DECLARED SENSITIVITY.
+    #    A writer that only redacts when the caller says "sensitive" is caller
+    #    discipline with extra steps.
+    tel.record("probe.public", {"password": "PUBLIC-DECLARED"},
+               sensitivity="public")
+    if "PUBLIC-DECLARED" in written():
+        r.err("redaction was skipped because the caller declared the record "
+              "'public'. That is caller discipline with extra steps -- the "
+              "caller who mislabels is exactly the caller INV-OBS-1 addresses.")
+
+    r.note(f"a secret written through the ordinary writer is replaced by "
+           f"{REDACTED!r} while unrelated fields survive; {len(REDACT_SUBSTRINGS)} "
+           f"substrings match inside longer field names; nested lists and dicts "
+           f"are walked; redaction does not depend on the caller's declared "
+           f"sensitivity; {list(PAYLOAD_FORBIDDEN)} refuse an inline payload but "
+           f"publish by reference; and an undeclared class is refused")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -9325,6 +9466,7 @@ CHECK_FNS = {
     "leased-write-epoch": check_leased_write_epoch,
     "task-transition-table": check_task_transition_table,
     "predicate-totality": check_predicate_totality,
+    "telemetry-sensitivity-enforced": check_telemetry_sensitivity_enforced,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,
