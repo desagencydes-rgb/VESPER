@@ -207,18 +207,22 @@ This is now the third concrete argument for a Developer ID certificate.
 
 ## State of the gates
 
-- **87 checks pass.** **404 of 405** self-test cases go red under deliberate
-  violation and green after restore. The one that does not is named below — it
-  is pre-existing and not from tonight's work, and stating "405" here while
-  disclosing a hole four lines down would be two claims that cannot both be
-  true.
+- **87 checks pass.** **405 of 405** self-test cases go red under deliberate
+  violation and green after restore.
 - Traceability and reference lints pass. F0–F6 acceptance pass. Placement and
   fabric stress pass.
-- **One known hole, pre-existing and not mine:** `context-control-reaches-selection`
-  has a case — "no over-selection under manual control" — that stays **green
-  under deliberate violation**. By this corpus's own rule that check is not
-  evidence for that property. I left it rather than spend the session's
-  remaining time on it; it is worth a look.
+- **The one hole I had disclosed is now closed.**
+  `context-control-reaches-selection` had a case — "no over-selection under
+  manual control" — that stayed **green under deliberate violation**, so by this
+  corpus's own rule that check was not evidence for the property.
+
+  The cause was the fixture, not the assertion: it held **three** facts, and the
+  turn asks for more than three. A corpus smaller than the limit can never have
+  more candidates than the turn wants, so over-selecting made no difference and
+  nothing could fail. The fixture is now seven facts deep and the count is
+  asserted at three separate limits. Under the deliberate violation, dropping
+  one subject leaves the turn one fact short at every one of them — you ask for
+  a subject to be left out and get silently charged a fact for asking.
 - `--fn-fire` is a **test door that ships**. It calls the real launch path,
   because that is the only way to confirm the single-instance guard without
   synthesising a key event — which needs the same grant the watcher is waiting

@@ -6512,9 +6512,18 @@ def check_context_control_reaches_selection() -> Result:
     store = StoreSet(tempfile.mkdtemp(), node_id="ci")
     clock = HybridLogicalClock(node_id="ci")
     mem = MemoryGraph(store)
+    # DEEPER THAN THE LIMIT, DELIBERATELY. With only three facts the corpus can
+    # never have more candidates than the turn asks for, so over-selection makes
+    # no difference and the assertion below cannot fail. That is exactly why it
+    # stayed green under violation: the fixture was too small to contain the
+    # defect, not the check too weak to see it.
     for subj, attr, val in (("travel", "flight", "the flight is Tuesday"),
                             ("work", "calendar", "the calendar has three meetings"),
-                            ("work", "note", "an unrelated note")):
+                            ("work", "note", "an unrelated note"),
+                            ("travel", "hotel", "the hotel is booked"),
+                            ("travel", "gate", "the gate is B12"),
+                            ("work", "standup", "standup is at nine"),
+                            ("work", "review", "the review is Thursday")):
         mem.remember(subject=subj, attribute=attr, value=val, rank=4,
                      privacy="private", trust_class="owner", at=clock.now())
     ren = L1Renderer(Persona.load(), mem)
@@ -6534,6 +6543,25 @@ def check_context_control_reaches_selection() -> Result:
               "drop below would prove nothing")
     drop = ContextCommands(); drop.offer("drop the calendar")
     got = {f.attribute for f in ren.render(Q, control=drop).selected}
+
+    # 2b. NARROWING THE FOCUS MUST NOT SHRINK THE TURN. A drop removes facts
+    #     AFTER selection, so selecting exactly `limit` and then dropping one
+    #     hands the turn fewer facts than were available -- the owner asks for
+    #     one subject to be left out and is silently charged a fact for it.
+    #     Measured at three limits, because the shortfall is one fact at each
+    #     and a single limit could coincide with the corpus size.
+    for lim in (2, 3, 4):
+        auto_n = len(ren.render(Q, limit=lim).selected)
+        d2 = ContextCommands(); d2.offer("drop the calendar")
+        drop_n = len(ren.render(Q, control=d2, limit=lim).selected)
+        if auto_n != lim:
+            r.err(f"the fixture yields {auto_n} facts at limit={lim}, so it is "
+                  "not deep enough for the next assertion to be able to fail")
+        elif drop_n < auto_n:
+            r.err(f"at limit={lim}, dropping one subject left {drop_n} facts "
+                  f"where {auto_n} were available. The owner is punished for "
+                  "narrowing the focus: a drop costs a fact instead of "
+                  "exchanging one")
     if "calendar" in got:
         r.err("a dropped subject still reached block B. The command is "
               "ignored, which is indistinguishable from not having it.")
