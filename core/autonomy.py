@@ -33,6 +33,9 @@ death) tests.
 
 from __future__ import annotations
 
+import ast
+import inspect
+import textwrap
 import threading
 import time
 from collections import deque
@@ -82,6 +85,113 @@ class Trigger:
     def __post_init__(self) -> None:
         if self.predicate_class not in PREDICATE_CLASSES:
             raise ValueError(f"predicate_class must be one of {PREDICATE_CLASSES}")
+
+
+class NonTerminatingPredicate(Exception):
+    """A predicate that cannot be shown to terminate. Refused at registration."""
+
+
+# The value shapes a predicate must survive. Not exhaustive -- a predicate is
+# TOTAL over its declared terms, and these are the shapes those terms actually
+# take in this system: a fact, a missing fact, a boolean and a number.
+_PROBE_SHAPES = (True, False, None, 0, "", UNKNOWN)
+_PROBE_DEADLINE_S = 2.0
+
+
+def assert_terminating(predicate: Callable[[dict], bool],
+                       terms: tuple = ()) -> dict:
+    """INV-TRIG-5, at the only moment it is cheap: registration.
+
+    A SUFFICIENT CONDITION, NOT A DECISION PROCEDURE, and saying so is part of
+    the contract. The halting problem forbids deciding termination in general,
+    so this accepts only predicates whose termination is STRUCTURALLY EVIDENT --
+    no `while`, no self-recursion -- and then corroborates with a bounded probe.
+    A predicate that needs a `while` loop is refused and must be rewritten,
+    which is the right trade for a callable that runs unattended in a decision
+    path at 03:00.
+
+    SOURCE THAT CANNOT BE READ IS A REFUSAL, not a pass. A predicate built by
+    `exec`, or a C callable, cannot be shown to terminate by any means available
+    here, and `UNKNOWN` means `UNAVAILABLE` in this corpus as everywhere else.
+
+    TOTALITY IS PROBED OVER THE DECLARED TERMS, because that is the contract:
+    `PredicateEvaluator.evaluate` always passes every declared term, so probing
+    with an empty dict would refuse correct predicates for a call that cannot
+    happen.
+
+    THE PROBE THREAD CANNOT BE KILLED. Python offers no way, so a predicate that
+    hangs leaves a daemon thread behind for the life of the process. That is
+    itself the argument for refusing at REGISTRATION rather than at tick time:
+    one leaked thread at startup is a bounded cost, and one per tick is not.
+    """
+    findings = {"structural": "ok", "probe": "ok"}
+
+    try:
+        src = textwrap.dedent(inspect.getsource(predicate))
+    except (OSError, TypeError) as exc:
+        raise NonTerminatingPredicate(
+            f"the predicate's source cannot be read ({exc!r}), so its "
+            "termination cannot be shown by any means available here. UNKNOWN "
+            "is UNAVAILABLE: a predicate that cannot be inspected is refused "
+            "rather than trusted.") from exc
+
+    try:
+        tree = ast.parse(src)
+    except SyntaxError:
+        # A nested def often dedents to something unparseable on its own.
+        # Wrapping is not a workaround -- it restores the context the source
+        # was written in.
+        try:
+            tree = ast.parse("if True:\n" + textwrap.indent(src, "    "))
+        except SyntaxError as exc:
+            raise NonTerminatingPredicate(
+                f"the predicate's source does not parse ({exc}), so nothing "
+                "can be established about it") from exc
+
+    own_names = {n.name for n in ast.walk(tree)
+                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.While):
+            raise NonTerminatingPredicate(
+                "the predicate contains a `while` loop. Termination is not "
+                "decidable in general, so registration accepts only predicates "
+                "whose termination is structurally evident -- rewrite it as a "
+                "bounded `for` or a direct expression (INV-TRIG-5).")
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \
+                and node.func.id in own_names:
+            raise NonTerminatingPredicate(
+                f"the predicate calls itself ({node.func.id!r}). Recursion "
+                "depth here is a function of world state, which is exactly the "
+                "input a predicate must not be able to diverge on.")
+
+    # THE BOUNDED PROBE IS CORROBORATION, NOT PROOF. It catches the shapes the
+    # structural rules cannot see -- a `for` over an unbounded generator, a
+    # blocking call -- and it cannot catch a predicate that diverges only on a
+    # world state this probe did not construct.
+    for shape in _PROBE_SHAPES:
+        snapshot = {t: shape for t in (terms or ("probe.term",))}
+        done: list = []
+
+        def _run(snap: dict = snapshot) -> None:
+            try:
+                done.append(bool(predicate(snap)))
+            except Exception as exc:                  # noqa: BLE001
+                done.append(exc)
+
+        th = threading.Thread(target=_run, daemon=True)
+        th.start()
+        th.join(_PROBE_DEADLINE_S)
+        if th.is_alive():
+            raise NonTerminatingPredicate(
+                f"the predicate did not return within {_PROBE_DEADLINE_S}s on "
+                f"a snapshot of {shape!r}.")
+        if done and isinstance(done[0], Exception):
+            raise NonTerminatingPredicate(
+                f"the predicate raised {done[0]!r} on a snapshot of {shape!r}. "
+                "A predicate is TOTAL over its declared terms: one that raises "
+                "on a legitimate value does not evaluate to False, it takes the "
+                "tick down with it.")
+    return findings
 
 
 class PredicateEvaluator:
@@ -245,6 +355,12 @@ class AutonomyLoop:
         Same construction as the constant-level capability in F2: the only
         moment the mistake is cheap is before it is in the system.
         """
+        # INV-TRIG-5 FIRST. A predicate that may not terminate must not be run,
+        # and `anti_cron_probe` RUNS it -- so checking cron-disguise first would
+        # hang the registration on exactly the predicate this refuses.
+        assert_terminating(trigger.predicate,
+                           tuple(trigger.clock_terms) + tuple(trigger.state_terms))
+
         probe = anti_cron_probe(trigger)
         if probe["fires_on_clock_alone"] and trigger.predicate_class != "SCHEDULE":
             self._bus.publish("autonomy.cron_disguise_refused",

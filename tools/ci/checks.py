@@ -9040,6 +9040,220 @@ def check_task_transition_table() -> Result:
     return r
 
 
+def check_predicate_totality() -> Result:
+    """CI-024: INV-TRIG-5, which had no enforcement of any kind until now.
+
+    "Every predicate is total and provably terminating; non-terminating
+    predicates are rejected at registration." `AutonomyLoop.register` refused a
+    cron-in-disguise and checked nothing about termination, so the invariant was
+    a sentence in a TOML file.
+
+    A SUFFICIENT CONDITION, NOT A DECISION PROCEDURE, and the check asserts that
+    framing rather than pretending otherwise. The halting problem forbids
+    deciding termination in general, so registration accepts only predicates
+    whose termination is STRUCTURALLY EVIDENT -- no `while`, no self-recursion --
+    and corroborates with a bounded probe. A predicate that needs a `while` loop
+    is refused and must be rewritten, which is the right trade for a callable
+    that runs unattended in a decision path at 03:00.
+
+    TOTAL MEANS IT RETURNS RATHER THAN RAISES. A predicate that raises does not
+    evaluate to False -- it takes the tick down with it, and every OTHER trigger
+    in that tick with it.
+
+    ORDER MATTERS AND IS THE SUBTLE PART: the termination check must run BEFORE
+    `anti_cron_probe`, because that probe RUNS the predicate. Checking cron
+    disguise first would hang the registration on exactly the predicate this
+    exists to refuse.
+    """
+    r = Result("predicate-totality")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile
+    try:
+        from core.autonomy import (AutonomyLoop, NonTerminatingPredicate,
+                                   PredicateEvaluator, Trigger,
+                                   assert_terminating)
+        from core.bus import EventBus
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+        from core.world import WorldModel
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the autonomy path did not import: {exc!r}")
+        return r
+
+    store = StoreSet(Path(tempfile.mkdtemp()), node_id="ci")
+    clock = HybridLogicalClock("ci")
+    bus = EventBus(clock, store)
+    world = WorldModel(bus, clock)
+    loop = AutonomyLoop(bus, world, PredicateEvaluator(bus, world),
+                        now_ms=lambda: 0)
+
+    def trig(pid: str, pred: Any) -> Trigger:
+        return Trigger(trigger_id=pid, predicate_class="STATE", predicate=pred,
+                       state_terms=("world.owner.attention_state",))
+
+    # REGISTRATION IS ATTEMPTED UNDER THIS CHECK'S OWN DEADLINE, and that is
+    # not defensive padding -- it is required for the check to be able to FAIL.
+    # `register` calls `anti_cron_probe`, which RUNS the predicate. Remove the
+    # termination guard and registering a `while True` predicate never returns,
+    # so a check that called `register` directly would HANG rather than report,
+    # and its own self-test could never go red. Found by that self-test hanging.
+    import threading as _th
+
+    def register_bounded(t: Trigger, deadline: float = 30.0) -> str:
+        """Returns 'ok', 'refused', or 'hung'."""
+        out: list = []
+
+        def _go() -> None:
+            try:
+                loop.register(t)
+                out.append("ok")
+            except NonTerminatingPredicate:
+                out.append("refused")
+            except RecursionError:
+                out.append("refused")
+            except Exception as exc:                # noqa: BLE001
+                out.append(f"error:{type(exc).__name__}")
+
+        th = _th.Thread(target=_go, daemon=True)
+        th.start()
+        th.join(deadline)
+        return out[0] if out else "hung"
+
+    # 1. A STRUCTURALLY EVIDENT PREDICATE REGISTERS. Without this every refusal
+    #    below passes against a loop that refuses everything -- and a decision
+    #    path that can register nothing is not safer, it is off.
+    def good(s: dict) -> bool:
+        return bool(s.get("world.owner.attention_state"))
+
+    if register_bounded(trig("t-good", good)) != "ok":
+        r.err("a plainly terminating predicate did not register")
+
+    # 2. AN UNBOUNDED LOOP IS REFUSED AT REGISTRATION -- the moment it is cheap.
+    #    THE FIXTURE SLEEPS RATHER THAN SPINS, and that is not cosmetic. A
+    #    refused predicate's probe thread cannot be killed -- Python offers no
+    #    way -- so it is left as a daemon and outlives the assertion. A busy
+    #    `while True: pass` then competes for the interpreter for the rest of
+    #    the run and starves the deadlines of every case after it, which is how
+    #    the first version of this check reported "hung" for a predicate the
+    #    guard was refusing correctly in 2.0s. Sleeping is equally
+    #    non-terminating and costs nothing.
+    #
+    #    AND IT RECORDS WHETHER IT RAN. The structural rules and the bounded
+    #    probe both REFUSE a `while` predicate, so refusal alone cannot tell
+    #    them apart -- deleting the structural rule left this case green. What
+    #    the structural rule uniquely gives is refusal WITHOUT EXECUTING the
+    #    predicate, which is the whole point: running an unknown callable is
+    #    the risk, and every probe of one that hangs leaks a thread that cannot
+    #    be killed. So the fixture reports whether it was entered at all.
+    import time as _time
+    entered: list = []
+
+    def looper(s: dict) -> bool:
+        entered.append("looper")
+        while True:
+            _time.sleep(0.05)
+
+    v = register_bounded(trig("t-while", looper))
+    if v != "refused":
+        r.err(f"a predicate containing an unbounded `while` was {v}. It runs "
+              "unattended in the decision path, and the tick that reaches it "
+              "never returns -- 'hung' here means registration itself is where "
+              "it stops.")
+    if entered:
+        r.err("the `while` predicate was EXECUTED before being refused. The "
+              "structural rule exists so it never runs: the probe would refuse "
+              "it too, two seconds later and one unkillable daemon thread "
+              "poorer, and that thread outlives the process's usefulness.")
+
+    # 3. AND SO IS SELF-RECURSION, whose depth is a function of world state --
+    #    exactly the input a predicate must not be able to diverge on.
+    ran_recur: list = []
+
+    def recur(s: dict) -> bool:
+        ran_recur.append(1)
+        return recur(s)
+
+    v = register_bounded(trig("t-rec", recur))
+    if v != "refused":
+        r.err(f"a self-recursive predicate was {v}")
+    if ran_recur:
+        r.err("the self-recursive predicate was EXECUTED before being refused. "
+              "It is refused structurally so it never runs -- the probe would "
+              "catch it only by exhausting the stack, which is a crash the "
+              "registration is supposed to prevent, not survive.")
+
+    # 4. A PARTIAL PREDICATE IS REFUSED. "Total" is the other half of the
+    #    invariant and the easier one to forget: raising is not returning False.
+    def partial(s: dict) -> bool:
+        return s["a key that is not a declared term"]          # noqa: F821
+
+    v = register_bounded(trig("t-partial", partial))
+    if v != "refused":
+        r.err(f"a predicate that raises on a legitimate snapshot was {v}. It "
+              "does not evaluate to False -- it takes the tick down, and every "
+              "other trigger in that tick with it.")
+
+    # 5. UNREADABLE SOURCE IS A REFUSAL, NOT A PASS. A predicate built by
+    #    `exec` cannot be shown to terminate by any means available here, and
+    #    UNKNOWN is UNAVAILABLE in this corpus.
+    ns: dict = {}
+    exec("def opaque(s):\n    return True", ns)     # noqa: S102
+    try:
+        assert_terminating(ns["opaque"], ("world.owner.attention_state",))
+        r.err("a predicate whose source cannot be read was accepted. Nothing "
+              "can be established about it, and accepting it makes the whole "
+              "check optional for anyone who builds a predicate dynamically.")
+    except NonTerminatingPredicate:
+        pass
+
+    # 6. THE ORDER IS TERMINATION FIRST, THEN CRON DISGUISE. `anti_cron_probe`
+    #    RUNS the predicate, so the other order hangs registration on exactly
+    #    the predicate being refused -- a check that deadlocks instead of
+    #    reporting.
+    src = (REPO / "core" / "autonomy.py").read_text(encoding="utf-8")
+    body = src[src.index("    def register(self, trigger: Trigger)"):]
+    body = body[:body.index("\n    def ", 1)]
+    if "assert_terminating(" not in body:
+        r.err("register() does not check termination, so INV-TRIG-5 is "
+              "enforced nowhere")
+    elif body.index("assert_terminating(") > body.index("anti_cron_probe("):
+        r.err("the cron-disguise probe runs BEFORE the termination check. That "
+              "probe evaluates the predicate, so a non-terminating one hangs "
+              "registration instead of being refused by it.")
+
+    # 7. THE BOUNDED PROBE CATCHES WHAT THE STRUCTURE CANNOT -- a `for` over an
+    #    unbounded generator has no `while` and no recursion.
+    #    `_time` IS BOUND EXPLICITLY. The first version wrote a bare `time`,
+    #    which this module does not import -- so the predicate raised NameError
+    #    instead of hanging, and the case silently exercised TOTALITY rather
+    #    than the deadline it was written for. The mutation removing the
+    #    deadline stayed green because the exception branch refused it anyway.
+    def unbounded_for(s: dict) -> bool:
+        import itertools
+        for _ in itertools.count():
+            _time.sleep(0.05)
+        return True
+
+    v = register_bounded(trig("t-forever", unbounded_for))
+    if v != "refused":
+        r.err(f"a `for` over an unbounded generator was {v}: it has no `while` "
+              "and no recursion, so the structural rules cannot see it and only "
+              "the bounded probe can")
+
+    r.note("a structurally evident predicate registers; an unbounded `while`, "
+           "self-recursion, a predicate that raises on a legitimate snapshot, "
+           "one whose source cannot be read, and a `for` over an unbounded "
+           "generator are each refused AT REGISTRATION -- the first two without "
+           "being EXECUTED at all, which is what separates the structural rules "
+           "from the probe; and the termination "
+           "check runs before anti_cron_probe, which evaluates the predicate. "
+           "This is a SUFFICIENT condition and not a decision procedure -- the "
+           "halting problem forbids one, so only structurally evident "
+           "termination is accepted and the probe is corroboration")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -9110,6 +9324,7 @@ CHECK_FNS = {
     "placement-not-pinned": check_placement_not_pinned,
     "leased-write-epoch": check_leased_write_epoch,
     "task-transition-table": check_task_transition_table,
+    "predicate-totality": check_predicate_totality,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

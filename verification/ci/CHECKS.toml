@@ -609,10 +609,56 @@ note = "Two halves. The import boundary keeps model capability out of the evalua
 [checks.CI-024]
 name = "predicate-totality"
 enforces = ["INV-TRIG-5"]
-kind = "structural"
-impl = "PENDING"
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py predicate-totality"
 blocking = "pr"
-self_test = "Register a predicate containing an unbounded loop."
+self_test = """Remove the termination check from register(); accept a `while`;
+accept self-recursion; wave through a predicate whose source cannot be read;
+remove the probe deadline; accept a predicate that raises."""
+self_test_evidence = """tools/ci/self_test.py predicate-totality
+-- 6 cases, red then green, 2026-08-31."""
+subject = "core/autonomy.py"
+note = """INV-TRIG-5 HAD NO ENFORCEMENT OF ANY KIND until 2026-08-31 -- not a
+PENDING check standing in front of built code, but a sentence in a TOML file.
+`AutonomyLoop.register` refused a cron-in-disguise and checked nothing about
+termination, so `assert_terminating` was written here as part of landing the
+check. That makes this the one gate tonight that added enforcement rather than
+gating enforcement that existed.
+
+A SUFFICIENT CONDITION, NOT A DECISION PROCEDURE, and the check asserts that
+framing rather than pretending otherwise. The halting problem forbids deciding
+termination in general, so registration accepts only predicates whose
+termination is STRUCTURALLY EVIDENT -- no `while`, no self-recursion -- and
+corroborates with a bounded probe over the declared terms. A predicate that
+needs a `while` loop is refused and must be rewritten, which is the right trade
+for a callable that runs unattended in a decision path at 03:00."""
+discriminators = """ORDER IS THE SUBTLE PART: the termination check runs BEFORE
+anti_cron_probe, because that probe RUNS the predicate. The other order hangs
+registration on exactly the predicate being refused -- a gate that deadlocks
+instead of reporting.
+
+THE STRUCTURAL RULES AND THE PROBE BOTH REFUSE, so refusal alone cannot tell
+them apart, and deleting the structural rules left this check green. What they
+uniquely give is refusal WITHOUT EXECUTING the predicate: running an unknown
+callable is the risk, and every probe of one that hangs leaks a daemon thread
+Python cannot kill. So the fixtures record whether they were ENTERED, and a
+`while` or self-recursive predicate that ran before being refused is a failure
+even though it was refused.
+
+TOTAL IS THE OTHER HALF AND THE EASIER ONE TO FORGET. A predicate that raises
+does not evaluate to False -- it takes the tick down, and every other trigger in
+that tick with it. Totality is probed over the DECLARED terms, because that is
+the contract `evaluate` upholds; probing an empty dict would refuse correct
+predicates for a call that cannot happen.
+
+UNREADABLE SOURCE IS A REFUSAL. A predicate built by `exec` cannot be shown to
+terminate by any means available here, and accepting it makes the whole check
+optional for anyone who builds one dynamically.
+
+THE CHECK REGISTERS UNDER ITS OWN DEADLINE. Without that it could not FAIL:
+remove the guard and registering a non-terminating predicate never returns, so
+the check would hang rather than report, and its own self-test could never go
+red. Found by that self-test hanging."""
 
 [checks.CI-025]
 name = "action-has-trigger"

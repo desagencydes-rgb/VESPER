@@ -990,6 +990,7 @@ SELFMOD_PY = "core/selfmod.py"
 PLACE_PY = "core/placement.py"
 STORE_PY = "core/store.py"
 TASKS_PY = "core/tasks.py"
+AUTON_PY = "core/autonomy.py"
 COST_PY = "core/cost.py"
 EXEC_PY = "core/executor.py"
 CAP_PY = "core/capability.py"
@@ -2746,6 +2747,51 @@ CASES += [
           '                extra = (" -- not permitted. "', 1),
      "the refusal stops naming INV-TASK-1, so an author who hits it has nothing "
      "to look up and routes around a rule they cannot read"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-024
+    ("predicate-totality", AUTON_PY,
+     _sub("        assert_terminating(trigger.predicate,\n"
+          "                           tuple(trigger.clock_terms) + tuple(trigger.state_terms))\n",
+          "", 1),
+     "registration stops checking termination, so INV-TRIG-5 is enforced "
+     "nowhere and a predicate that never returns takes the tick with it"),
+
+    ("predicate-totality", AUTON_PY,
+     _sub("        if isinstance(node, ast.While):", "        if False:", 1),
+     "an unbounded `while` is accepted: the one construct whose termination "
+     "cannot be read off the source is the one no longer looked for"),
+
+    ("predicate-totality", AUTON_PY,
+     _sub("        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) \\\n"
+          "                and node.func.id in own_names:",
+          "        if False:", 1),
+     "self-recursion is accepted, and its depth is a function of world state -- "
+     "the exact input a predicate must not be able to diverge on"),
+
+    ("predicate-totality", AUTON_PY,
+     _sub("    except (OSError, TypeError) as exc:\n"
+          "        raise NonTerminatingPredicate(",
+          "    except (OSError, TypeError) as exc:\n"
+          "        return {\"structural\": \"unreadable\", \"probe\": \"skipped\"}\n"
+          "        raise NonTerminatingPredicate(", 1),
+     "a predicate whose source cannot be read is waved through instead of "
+     "refused: anyone building a predicate dynamically opts out of the whole "
+     "check, and UNKNOWN stops meaning UNAVAILABLE"),
+
+    ("predicate-totality", AUTON_PY,
+     _sub("        if th.is_alive():", "        if False:", 1),
+     "the bounded probe stops refusing a predicate that never returns, so a "
+     "`for` over an unbounded generator registers -- it has no `while` and no "
+     "recursion, and the structural rules cannot see it"),
+
+    ("predicate-totality", AUTON_PY,
+     _sub("        if done and isinstance(done[0], Exception):", "        if False:", 1),
+     "a predicate that RAISES on a legitimate snapshot registers: it does not "
+     "evaluate to False, it takes the tick down and every other trigger in "
+     "that tick with it"),
 ]
 
 

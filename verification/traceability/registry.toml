@@ -508,8 +508,8 @@ decision_functions = ["DF-TRIGGER-EVAL", "DF-GOVERNED-WRITE", "DF-AUTONOMY-ELIGI
 # is anything worth doing, so the evaluator's lack of model capability belongs
 # with it. A-011 and A-029, INV-TRIG-2's other declared enforcers, are both
 # already listed here.
-invariants = ["INV-SELF-7", "INV-AUTO-1", "INV-AUTO-5", "INV-TRIG-2"]
-ci = ["CI-015", "CI-026", "CI-023"]
+invariants = ["INV-SELF-7", "INV-AUTO-1", "INV-AUTO-5", "INV-TRIG-2", "INV-TRIG-5"]
+ci = ["CI-015", "CI-024", "CI-026", "CI-023"]
 state_machines = ["SM-TRIGGER"]
 status = "SPECIFIED"
 
