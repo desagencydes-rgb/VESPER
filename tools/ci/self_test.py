@@ -978,6 +978,7 @@ VERIFY_PY = "core/verify.py"
 VERIFIERS_PY = "core/verifiers.py"
 KMAP_PY = "core/knowledge_map.py"
 AUTHZ_PY = "core/authorize.py"
+TAINT_PY = "core/taint.py"
 EXEC_PY = "core/executor.py"
 CAP_PY = "core/capability.py"
 ARB_PY = "core/arbiter.py"
@@ -2376,6 +2377,118 @@ CASES += [
      "the adversarial probe is dropped, so a capability that declares two rules "
      "and returns one level registers: constant in fact whatever it claims in "
      "shape, and after this point every call site trusts it"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-012
+    ("taint-propagation", TAINT_PY,
+     _sub("    return Tainted(value=out, trust_class=_weakest(classes), origin=origin,",
+          "    return out  # type: ignore[return-value]\n"
+          "    return Tainted(value=out, trust_class=_weakest(classes), origin=origin,", 1),
+     "the summariser returns a plain string: the taint is lost not through "
+     "malice but through the ordinary shape of the operation, which is the "
+     "sentence REM-003 calls the whole defence and the one an implementation "
+     "omits"),
+
+    ("taint-propagation", TAINT_PY,
+     _sub("    return min(classes, key=lambda c: LEVEL_RANK.get(ALLOWED_LEVEL.get(c, \"L0\"), 0))",
+          "    return max(classes, key=lambda c: LEVEL_RANK.get(ALLOWED_LEVEL.get(c, \"L0\"), 0))", 1),
+     "the STRONGEST input decides instead of the weakest: nine trusted "
+     "paragraphs and one retrieved page summarise as owner content, and one "
+     "hostile input is diluted by the company it keeps"),
+
+    ("taint-propagation", TAINT_PY,
+     _sub("        return min((f.ceiling() for f in fragments),\n"
+          "                   key=lambda l: LEVEL_RANK[l])",
+          "        return max((f.ceiling() for f in fragments),\n"
+          "                   key=lambda l: LEVEL_RANK[l])", 1),
+     "the context ceiling is the highest fragment rather than the lowest, so "
+     "one trusted fragment in context raises the ceiling over everything "
+     "external beside it"),
+
+    ("taint-propagation", TAINT_PY,
+     _sub("        self.proposals.append(proposal)", "        pass", 1),
+     "the above-ceiling action is dropped instead of queued as a proposal: a "
+     "silent capability loss (RB-022), and the control disappears in exactly "
+     "the case the owner needs to see it"),
+
+    ("taint-propagation", TAINT_PY,
+     _sub("        if has_external:\n", "        if False:\n", 1),
+     "no injection_suspected event while external content is in context and an "
+     "above-ceiling action is requested: the refusal happens and nothing "
+     "reports it, which is indistinguishable from an action never attempted"),
+
+    ("taint-propagation", TAINT_PY,
+     _sub("        bad = [f for f in planner_fragments if f.trust_class == EXTERNAL]",
+          "        bad = []", 1),
+     "the planner context stops being checked for external content, so raw "
+     "retrieved text reaches the planner and INV-AUTH-6 is documented rather "
+     "than enforced"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-033
+    ("claim-support-required", EVID_PY,
+     _sub("            if cl.memory_rank == NEVER_AUTHORITATIVE and policy_class in GATED_POLICY_CLASSES:",
+          "            if False:", 1),
+     "a model_prior claim becomes an assertion in a gated class as long as it "
+     "is cited: INV-EVID-1 is not a grounding rule, and rank 6 is never "
+     "authoritative however well it reads or how neatly it is sourced"),
+
+    ("claim-support-required", EVID_PY,
+     _sub("            if not cl.supported():", "            if False:", 1),
+     "empty support stops being a problem, so a claim with no retrieved span "
+     "is emitted -- and it is invented whatever the rest of the response does"),
+
+    ("claim-support-required", EVID_PY,
+     _sub("        if bad and policy_class in GATED_POLICY_CLASSES:",
+          "        if bad and policy_class not in GATED_POLICY_CLASSES:", 1),
+     "the gate fires everywhere EXCEPT the classes it exists for: research, "
+     "memory writes, world facts and consequential actions pass freely while "
+     "casual chat is refused"),
+
+    ("claim-support-required", EVID_PY,
+     _sub("            self._bus.publish(\"evidence.unsupported_claims\", subject=subject,",
+          "            pass\n        if False:\n"
+          "            self._bus.publish(\"evidence.unsupported_claims\", subject=subject,", 1),
+     "the refusal stops being published: the rate exists only inside the "
+     "checker, and a gate nobody can see the firing of cannot show a slow drift "
+     "upward"),
+
+    ("claim-support-required", EVID_PY,
+     _sub("            self.total_claims += 1", "            pass", 1),
+     "claims stop being counted, so A-003's release metric -- tracked as a "
+     "RATE precisely because pass/fail hides drift -- has no denominator"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-011
+    ("capability-argument-sensitivity", CAP_PY,
+     _sub("        if len(seen) < 2:\n", "        if len(rules) < 2:\n", 1),
+     "the adversarial probe becomes a rule COUNT: a declared_level that reads "
+     "its arguments and returns the same level for every declared example "
+     "registers -- constant in fact whatever it claims in shape, and the "
+     "declaration is the thing being checked"),
+
+    ("capability-argument-sensitivity", CAP_PY,
+     _sub("        if len(rules) < 2:\n"
+          "            raise ConstantLevelRefused(", "        if False:\n"
+          "            raise ConstantLevelRefused(", 1),
+     "a single-rule capability registers, so a constant level is expressible "
+     "again rather than unrepresentable"),
+
+    ("capability-argument-sensitivity", CAP_PY,
+     _sub("            if lvl not in LEVELS:", "            if False:", 1),
+     "a rule producing a level outside the vocabulary registers: it is compared "
+     "with LEVEL_RANK at every call site and sorts as unknown there"),
+
+    ("capability-argument-sensitivity", CAP_PY,
+     _sub("    example: dict", "    example: dict = None  # type: ignore[assignment]", 1),
+     "LevelRule.example gains a default, so a rule can be declared without one "
+     "and the adversarial probe silently becomes a probe of nothing"),
 ]
 
 

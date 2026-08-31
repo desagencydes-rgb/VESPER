@@ -130,18 +130,94 @@ self_test = "Add a RUNNING -> SUCCEEDED edge to the task state machine."
 [checks.CI-011]
 name = "capability-argument-sensitivity"
 enforces = ["INV-AUTH-5"]
-kind = "structural"
-impl = "PENDING"
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py capability-argument-sensitivity"
 blocking = "pr"
-self_test = "Register a capability whose declared_level returns a constant."
+self_test = """Turn the adversarial probe into a rule count; drop the minimum
+rule count; accept a level outside the vocabulary; give LevelRule.example a
+default so the probe examines nothing."""
+self_test_evidence = """tools/ci/self_test.py capability-argument-sensitivity
+-- 4 cases, red then green, 2026-08-31."""
+subject = "core/capability.py"
+note = """DECLARED WITH THE REGISTRY AND IMPLEMENTED 2026-08-31. The refusal was
+written and correct; nothing gated it.
+
+INV-AUTH-5 exists for one sentence in core/capability.py: a capability whose
+level does not depend on its arguments cannot distinguish `ls` from `rm -rf ~`.
+A-024.5 puts the refusal at REGISTRATION rather than at call time, because after
+registration every call site trusts the declaration -- it is the only moment
+where refusing costs nothing."""
+discriminators = """THE PROBE IS ADVERSARIAL, NOT STRUCTURAL, and that is the
+assertion a rule-count implementation fails. The check registers a function that
+READS its arguments and returns the same level for every declared example --
+constant in FACT whatever it claims in SHAPE. Counting rules cannot see it; only
+calling the real function with each rule's own example can. That is also why
+LevelRule.example is required with no default: without it the probe degrades to
+trusting the declaration, and the declaration is the thing being checked.
+
+AND THE DIAGNOSIS MUST MATCH THE DEFECT. The two refusals coincide on a
+single-rule declaration -- the probe sees one level either way -- so the first
+version of that assertion could not tell them apart. What the rule count adds is
+that it says TOO FEW RULES, where the probe's message says the function returns
+one level for every example and sends the author to inspect a function that is
+correct. A refusal that misdiagnoses is a refusal the author argues with, so the
+check reads the message.
+
+A POSITIVE CASE GUARDS THE REST: an argument-sensitive capability must register
+and must answer differently for its two examples, or every refusal above passes
+against a registry that refuses everything."""
 
 [checks.CI-012]
 name = "taint-propagation"
 enforces = ["INV-AUTH-3", "INV-ACT-3"]
-kind = "structural"
-impl = "PENDING"
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py taint-propagation"
 blocking = "pr"
-self_test = "Write a summariser that returns a string without propagating trust_class."
+self_test = """Return a plain string from the summariser; take the STRONGEST
+input class instead of the weakest; take the highest fragment ceiling instead of
+the lowest; drop the above-ceiling action instead of queueing it; stop emitting
+injection_suspected; stop checking the planner context for external content."""
+self_test_evidence = """tools/ci/self_test.py taint-propagation
+-- 6 cases, red then green, 2026-08-31."""
+subject = "core/taint.py"
+note = """DECLARED SINCE THE REGISTRY WAS WRITTEN AND IMPLEMENTED 2026-08-31.
+core/taint.py was complete the whole time; the gate was not, so a regression in
+the single sentence REM-003 calls the whole defence would have been caught by
+nothing.
+
+That sentence, quoted at the top of the module: "taint propagates through
+summarisation, embedding, and cache reuse. A summary of tainted content is
+tainted. This single sentence is the whole defence, and it is the one an
+implementation will omit, BECAUSE SUMMARISATION NATURALLY PRODUCES A
+CLEAN-LOOKING NEW STRING."
+
+INV-ACT-3 is the same rule pointed at screens: OCR output, UI labels and command
+output are retrieved_external and may never raise the authority of an action. An
+instruction read off a screen is an untrusted input, not a directive. The check
+asserts structurally that retrieved_external remains the LOWEST ceiling in the
+lattice, because an invented class ranks below it under `_weakest` and would
+make the rule unenforceable -- the name it checks would never appear."""
+discriminators = """THE WEAKEST INPUT DECIDES, NOT THE AVERAGE AND NOT THE
+MAJORITY, and the majority is the plausible wrong answer because it looks like
+considered judgement. Nine trusted paragraphs and one retrieved page summarise
+as retrieved_external. The check asserts BOTH directions -- a summary with no
+external input must NOT come back external -- or a function returning a constant
+passes the first assertion.
+
+A PROPOSAL RETURNED IS NOT A PROPOSAL QUEUED, and the first version of this
+check could not tell them apart: it read the returned dict, so removing the
+append left it green. Only the queue survives the call. A caller that ignores
+the return value has silently dropped the action, and nothing later can put it
+in front of the owner -- which is RB-022 exactly.
+
+ASKING FOR A SMALL ACTION DOES NOT BYPASS THE CEILING (A-025.9). The ceiling is
+not a budget a modest request can afford, so an L2 ask under an L1 ceiling is
+refused -- and an L1 ask under an L1 ceiling is still ALLOWED, or the ceiling
+blocks everything and nothing is being discriminated.
+
+AND THE REFUSAL MUST REPORT. security.injection_suspected fires when external
+content is in context and an above-ceiling action is requested; a refusal nobody
+recorded is indistinguishable from an action never attempted."""
 
 [checks.CI-013]
 name = "no-ambient-authority"
@@ -426,10 +502,44 @@ note = "Follows the $ref and checks the target is not itself a bare string. A $r
 [checks.CI-033]
 name = "claim-support-required"
 enforces = ["INV-EVID-1"]
-kind = "structural"
-impl = "PENDING"
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py claim-support-required"
 blocking = "pr"
-self_test = "Emit an assertion in policy class research with no support array."
+self_test = """Let a model_prior claim assert in a gated class; stop treating
+empty support as a problem; invert the gated-class test so the gate fires
+everywhere except where it matters; stop publishing the refusal; stop counting
+claims so the rate has no denominator."""
+self_test_evidence = """tools/ci/self_test.py claim-support-required
+-- 5 cases, red then green, 2026-08-31."""
+subject = "core/evidence.py"
+note = """DECLARED WITH THE REGISTRY AND IMPLEMENTED 2026-08-31. ClaimChecker
+was written, correct and gated by nothing.
+
+INV-EVID-1 is narrow and absolute: no model_prior claim is emitted as an
+assertion in research, memory writes, world facts, or inputs to consequential
+actions. Rank 6 is the bottom of REM-010 4.6's total order and is never
+authoritative -- a recollection that sounds right is the exact input the ladder
+exists to keep out of a decision."""
+discriminators = """RANK 6 IS REFUSED EVEN WITH A SPAN THAT RE-READS, and that
+case is what separates INV-EVID-1 from a grounding rule. A check that only
+exercised unsupported claims would pass against an implementation that had
+dropped the rank test entirely, because grounding would catch its fixtures for
+the wrong reason.
+
+THE UNIT IS THE CLAIM, NEVER THE RESPONSE. Nine grounded claims must not carry
+one invented one -- a mostly-grounded answer containing ONE unsupported specific
+is the failure core/evidence.py names in its opening lines, and response-level
+judging scores that answer as good because almost all of it is.
+
+THE GATED CLASSES MUST DO WORK IN BOTH DIRECTIONS. A model_prior claim is still
+REPORTED as a problem outside them even though it may be emitted there; without
+that assertion the rule could be a blanket ban and the policy class would be
+decorative.
+
+AND THE RATE IS TRACKED AND PUBLISHED. A-003 makes it a rate rather than
+pass/fail because "did this response pass" hides a slow drift upward -- which is
+how an evidence gate stops working without ever failing -- and a rate that never
+leaves the checker cannot be seen drifting."""
 
 # ---------------------------------------------------------- hardware / world
 [checks.CI-007]
