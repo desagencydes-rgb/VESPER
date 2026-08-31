@@ -969,11 +969,44 @@ CHOOSER_PY = "core/chooser.py"
 SENSORS_PY = "core/sensors.py"
 HOST_PROBES_PY = "core/host_probes.py"
 FLOOR_PY = "core/floor.py"
+ARABIZI_PY = "core/arabizi.py"
 GATEWAY_PY = "core/gateway.py"
 ROUTER = "core/router.py"
 LATENCY = "core/latency.py"
 SUPPLY_PY = "routing/supply.py"
 RUNTIME = "tools/ops/vesper_runtime.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-085
+    ("arabizi-preserves-and-marks-itself", ARABIZI_PY,
+     _sub("_ORDERED = sorted(_MAP, key=len, reverse=True)",
+          "_ORDERED = sorted(_MAP, key=len)", 1),
+     "longest-match-first dropped, so `ch` is consumed as `c`+`h`: every "
+     "digraph becomes two wrong sounds and the word is not the word"),
+
+    ("arabizi-preserves-and-marks-itself", ARABIZI_PY,
+     _sub('    "2": "ء", "3": "ع", "5": "خ", "6": "ط", "7": "ح", "8": "غ", "9": "ق",',
+          '    "8": "غ",', 1),
+     "the digit convention removed: 3, 7 and 9 reach the speech engine as "
+     "digits and are read as numbers, which is exactly why Apple's voices "
+     "cannot speak Darija"),
+
+    ("arabizi-preserves-and-marks-itself", ARABIZI_PY,
+     _sub("\nMEASURED = False\n", "\nMEASURED = True\n", 1),
+     "a heuristic transliteration claiming verification nobody performed -- "
+     "only a Darija speaker can grade it, and a plausible-looking diff is "
+     "exactly what ships wrong"),
+
+    ("arabizi-preserves-and-marks-itself", ARABIZI_PY,
+     _sub("        if letters and letters not in _EN_UNITS:", "        if letters:", 1),
+     "every English token mixing a digit with letters read as Darija, so "
+     "'meet me at 9am' is transliterated into nonsense"),
+
+    ("arabizi-preserves-and-marks-itself", ARABIZI_PY,
+     _sub("        else:\n            out.append(ch); i += 1", "        else:\n            i += 1", 1),
+     "unrecognised characters silently dropped: the speech engine says a "
+     "shorter, different sentence and nothing reports the deletion"),
+]
 
 CASES += [
     # ---------------------------------------------------------------- CI-083

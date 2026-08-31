@@ -6250,6 +6250,113 @@ def check_floor_never_swallows_or_drops() -> Result:
     return r
 
 
+def check_arabizi_preserves_and_marks_itself() -> Result:
+    """The digit convention converts, nothing is dropped, and it admits it is a guess.
+
+    THE DIGITS ARE THE ONLY PART THAT MUST BE RIGHT. Arabizi has no standard --
+    vowels are written by feel and the same sound has several spellings -- but
+    3, 7, 9, 2, 5 and 6 stand for letters Latin has no glyph for, and they are
+    exactly the characters that break a speech engine. Apple reads `3awd` as
+    "three-awd", which is why it cannot speak Darija at all.
+
+    NOTHING MAY BE DROPPED. A transliterator that silently discarded what it
+    could not map would delete content, which is worse than leaving a character
+    alone -- the speech engine would say a shorter, different sentence and
+    nothing would report it.
+
+    IT MUST SAY IT IS UNVERIFIED. `MEASURED = False` until a Darija speaker has
+    graded the output. INV-HW-2's habit applies to language as much as to
+    throughput: a transliteration that looks plausible in a diff is exactly the
+    kind of thing that ships wrong, and only the owner can grade it.
+    """
+    r = Result("arabizi-preserves-and-marks-itself")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core import arabizi
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.arabizi did not import: {exc!r}")
+        return r
+
+    # 1. THE DIGIT CONVENTION.
+    for digit, letter, word in (("3", "ع", "3awd"), ("7", "ح", "7it"),
+                                ("9", "ق", "n9ol"), ("5", "خ", "5obz"),
+                                ("2", "ء", "2ana"), ("6", "ط", "6abla")):
+        got = arabizi.transliterate(word)
+        if letter not in got:
+            r.err(f"{word!r} -> {got!r} does not contain {letter!r}. The digit "
+                  f"{digit} is a LETTER in Arabizi; a speech engine handed it "
+                  "unconverted reads it as a number, which is the entire "
+                  "failure this module exists to prevent.")
+        if digit in got:
+            r.err(f"{word!r} -> {got!r} still contains the digit {digit!r}")
+
+    # 2. LONGEST MATCH FIRST. `ch` is one sound; consumed as `c`+`h` it is two
+    #    wrong ones, and the word is not the word.
+    if arabizi.transliterate("chi") != "شي":
+        r.err(f"'chi' -> {arabizi.transliterate('chi')!r}, expected 'شي'. The "
+              "digraph was split, which means single letters are being matched "
+              "before longer keys.")
+    for pair in ("kh", "gh", "sh", "th", "dh"):
+        got = arabizi.transliterate(pair)
+        if len(got) != 1:
+            r.err(f"digraph {pair!r} produced {len(got)} characters ({got!r})")
+    # ASSERTED ON THE ORDER ITSELF, not only on its effect. `_MAP`'s insertion
+    # order already happens to put digraphs before single letters, so a mutation
+    # replacing the sort with the dict's own order is a no-op TODAY and a bug
+    # the moment anyone adds a key in the wrong place. The invariant is that the
+    # matcher is length-ordered, and that is what this checks.
+    lens = [len(k) for k in arabizi._ORDERED]      # noqa: SLF001
+    if lens != sorted(lens, reverse=True):
+        r.err("the match order is not longest-first. It works only while the "
+              "dict happens to be written in a helpful order, and the next key "
+              "added out of place silently splits a digraph.")
+
+    # 3. NOTHING IS DROPPED, and the fixtures must actually REACH the
+    #    fall-through. Every a-z letter is mapped and the three punctuation
+    #    marks are handled, so a test built from ordinary words never exercises
+    #    the branch that keeps an unrecognised character -- the first version of
+    #    this assertion was vacuous for exactly that reason. These are
+    #    characters with no mapping: sentence punctuation and non-convention
+    #    digits.
+    for ch in (".", "!", "-", "0", "1", "4", "%"):
+        got = arabizi.transliterate(f"sbah{ch}lkhir")
+        if ch not in got:
+            r.err(f"{ch!r} was dropped during transliteration. An unmapped "
+                  "character must pass through: dropping it makes the speech "
+                  "engine say a shorter, different sentence, and nothing "
+                  "anywhere reports the deletion.")
+    for text in ("hello 3awd", "at 9am", "شي حاجة", "a, b; c?"):
+        if not arabizi.transliterate(text).strip():
+            r.err(f"{text!r} transliterated to nothing")
+    # Arabic already present passes through untouched.
+    if arabizi.transliterate("شي حاجة") != "شي حاجة":
+        r.err("existing Arabic script was altered; the function must pass it "
+              "through, or a re-run would corrupt its own output")
+
+    # 4. IT ADMITS IT IS A GUESS.
+    if getattr(arabizi, "MEASURED", True):
+        r.err("MEASURED is True. Nothing has graded this against a Darija "
+              "speaker's ear, and a transliterator that claims verification it "
+              "does not have is the declared reading INV-HW-2 refuses.")
+
+    # 5. DETECTION USES THE DIGIT SIGNAL, not the mere presence of a digit.
+    if not arabizi.looks_arabizi("3awd 3afak"):
+        r.err("digit-bearing Darija was not detected as Arabizi")
+    if arabizi.looks_arabizi("meet me at 9am tomorrow"):
+        r.err("ordinary English with a digit was detected as Arabizi. A "
+              "digit-bearing token is Arabizi unless its letters are a known "
+              "English unit -- 9am, 3pm, 1st, 5kg -- because otherwise every "
+              "English sentence carrying a time would be transliterated into "
+              "nonsense.")
+
+    r.note("six digit-letters convert and none survives as a digit; digraphs "
+           "match before single letters; Arabic passes through unchanged; "
+           "nothing is dropped; MEASURED is False; a digit-bearing token is "
+           "Arabizi unless its letters are a known English unit")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -6303,6 +6410,7 @@ CHECK_FNS = {
     "chooser-escalates-only-when-unsure": check_chooser_escalates_only_when_unsure,
     "sensors-never-reach-a-model": check_sensors_never_reach_a_model,
     "floor-never-swallows-or-drops": check_floor_never_swallows_or_drops,
+    "arabizi-preserves-and-marks-itself": check_arabizi_preserves_and_marks_itself,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,
