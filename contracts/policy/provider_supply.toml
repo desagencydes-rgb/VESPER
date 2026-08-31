@@ -409,3 +409,350 @@ measured_note = """MEASURED live 2026-08-25: HTTP 200 in 1.7s, a 1024x1024 JPEG
 of 265,231 bytes, and `usage.neurons = 172.8` -- which matches the published
 formula exactly. This is the only row in the table whose spend is genuinely
 measured from the provider's own accounting."""
+
+
+##############################################################################
+
+# PER-SUBSYSTEM LADDERS -- owner's allocation, 2026-08-31.
+#
+# WHY EACH SUBSYSTEM GETS ITS OWN ACCOUNT and not just its own row: isolation is
+# per-ACCOUNT, so the updater running hot cannot starve the chooser only if they
+# hold different credentials on different accounts. Two rows sharing one key
+# share one quota and buy nothing.
+#
+# `purpose` IS THE MECHANISM AND IT ALREADY EXISTED -- rows, profile ids and
+# `quota.reserve(account, purpose, fraction)` all carry it, and `image` was
+# already using it. These rows add no machinery; they populate what was there.
+#
+# RUNG ORDER IS PER SUBSYSTEM, because what each one needs differs. The chooser
+# sits inside the latency path, so the fast rung leads even though its quota is
+# the smallest -- 8,000 tok/min on Groq, and MEMORY.md records probe calls alone
+# rate-limiting it. The updater is high-volume background where latency is
+# irrelevant, so the largest measured quota leads instead.
+
+##############################################################################
+
+
+[[provider]]
+id = "groq-chooser"
+tier = "strong"
+purpose = "chooser"
+supports = ["reasoning_effort"]
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free account, no payment method attached. E1 permission additionally requires Zero Data Retention enabled on the account -- owner confirmed 2026-08-25."
+credential_env = "GROQ_API_KEY_CHOOSER"
+endpoint = "https://api.groq.com/openai/v1/chat/completions"
+model = "openai/gpt-oss-120b"
+wire = "openai_chat"
+quota_unit = "tokens"
+quota_published = 200000
+quota_window_seconds = 86400
+quota_note = """Own account for the chooser. Token-bound, not request-bound: the 1,000 req/day ceiling never
+binds first. Completion tokens INCLUDE reasoning tokens -- measured 57 of 64 on
+a seven-character answer -- so a ledger counting output length undercounts real
+spend by roughly 8x on small calls."""
+usage_reporting = "reliable"
+
+[[provider]]
+id = "mistral-chooser"
+tier = "standard"
+purpose = "chooser"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free plan is credit-bound at $10/month with no card attached. E1 permission additionally requires the training opt-out (Admin -> Privacy -> Anonymous improvement data) -- owner confirmed 2026-08-25; the free tier defaults INTO training."
+credential_env = "MISTRAL_API_KEY_CHOOSER"
+endpoint = "https://api.mistral.ai/v1/chat/completions"
+model = "mistral-medium-latest"
+wire = "openai_chat"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 2592000
+quota_note = """Own account for the chooser. Credit-bound, not request- or token-bound: $10/month of API
+credits. There is no request ceiling to count against, so the ledger holds no
+measured limit and this is opportunistic like Ollama."""
+
+[[provider]]
+id = "cf-chooser"
+tier = "strong"
+purpose = "chooser"
+rung = 3
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free account, no payment method attached; the tier refuses at the ceiling rather than billing over it. Re-verify if a card is ever added."
+credential_env = "CLOUDFLARE_API_TOKEN_CHOOSER"
+account_env = "CLOUDFLARE_ACCOUNT_ID_CHOOSER"
+endpoint = "https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model}"
+model = "@cf/openai/gpt-oss-120b"
+wire = "cf_responses"
+quota_unit = "neurons"
+quota_published = 10000
+quota_window_seconds = 86400
+quota_note = """Own account for the chooser. ONE POOL SHARED WITH IMAGE GENERATION. MULTI_ROUTE.md SS3: text
+and image draw the same 10,000 neurons/day, so the ledger for this account is
+per-ACCOUNT and never per-modality. Separate modality ledgers would each
+believe they held the whole pool."""
+usage_reporting = "unreliable"
+
+[[provider]]
+id = "ollama-chooser"
+tier = "strong"
+purpose = "chooser"
+rung = 4
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free plan, no payment method. No privacy step required: no logging, no training and zero retention are published, and required of their GPU partners."
+credential_env = "OLLAMA_API_KEY_CHOOSER"
+endpoint = "https://ollama.com/v1/chat/completions"
+model = "gpt-oss:20b"
+wire = "openai_chat"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 18000
+quota_note = """Own account for the chooser. QUOTA IS UNPUBLISHED AND THAT IS THE ROW'S DEFINING FACT. The
+plan says only "light usage", metered in GPU-time on a rolling 5-hour window
+rather than in tokens or requests. `quota_published = 0` is NOT a limit-0
+refusal -- it means NOTHING WAS PUBLISHED, and the loader must register this
+with limit=None so the ledger books it as an unmeasured ceiling. VESPER uses
+this"""
+
+[[provider]]
+id = "mistral-updater"
+tier = "standard"
+purpose = "updater"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free plan is credit-bound at $10/month with no card attached. E1 permission additionally requires the training opt-out (Admin -> Privacy -> Anonymous improvement data) -- owner confirmed 2026-08-25; the free tier defaults INTO training."
+credential_env = "MISTRAL_API_KEY_UPDATER"
+endpoint = "https://api.mistral.ai/v1/chat/completions"
+model = "mistral-medium-latest"
+wire = "openai_chat"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 2592000
+quota_note = """Own account for the updater. Credit-bound, not request- or token-bound: $10/month of API
+credits. There is no request ceiling to count against, so the ledger holds no
+measured limit and this is opportunistic like Ollama."""
+
+[[provider]]
+id = "cf-updater"
+tier = "strong"
+purpose = "updater"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free account, no payment method attached; the tier refuses at the ceiling rather than billing over it. Re-verify if a card is ever added."
+credential_env = "CLOUDFLARE_API_TOKEN_UPDATER"
+account_env = "CLOUDFLARE_ACCOUNT_ID_UPDATER"
+endpoint = "https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model}"
+model = "@cf/openai/gpt-oss-120b"
+wire = "cf_responses"
+quota_unit = "neurons"
+quota_published = 10000
+quota_window_seconds = 86400
+quota_note = """Own account for the updater. ONE POOL SHARED WITH IMAGE GENERATION. MULTI_ROUTE.md SS3: text
+and image draw the same 10,000 neurons/day, so the ledger for this account is
+per-ACCOUNT and never per-modality. Separate modality ledgers would each
+believe they held the whole pool."""
+usage_reporting = "unreliable"
+
+[[provider]]
+id = "groq-updater"
+tier = "strong"
+purpose = "updater"
+supports = ["reasoning_effort"]
+rung = 3
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free account, no payment method attached. E1 permission additionally requires Zero Data Retention enabled on the account -- owner confirmed 2026-08-25."
+credential_env = "GROQ_API_KEY_UPDATER"
+endpoint = "https://api.groq.com/openai/v1/chat/completions"
+model = "openai/gpt-oss-120b"
+wire = "openai_chat"
+quota_unit = "tokens"
+quota_published = 200000
+quota_window_seconds = 86400
+quota_note = """Own account for the updater. Token-bound, not request-bound: the 1,000 req/day ceiling never
+binds first. Completion tokens INCLUDE reasoning tokens -- measured 57 of 64 on
+a seven-character answer -- so a ledger counting output length undercounts real
+spend by roughly 8x on small calls."""
+usage_reporting = "reliable"
+
+[[provider]]
+id = "ollama-updater"
+tier = "strong"
+purpose = "updater"
+rung = 4
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free plan, no payment method. No privacy step required: no logging, no training and zero retention are published, and required of their GPU partners."
+credential_env = "OLLAMA_API_KEY_UPDATER"
+endpoint = "https://ollama.com/v1/chat/completions"
+model = "gpt-oss:20b"
+wire = "openai_chat"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 18000
+quota_note = """Own account for the updater. QUOTA IS UNPUBLISHED AND THAT IS THE ROW'S DEFINING FACT. The
+plan says only "light usage", metered in GPU-time on a rolling 5-hour window
+rather than in tokens or requests. `quota_published = 0` is NOT a limit-0
+refusal -- it means NOTHING WAS PUBLISHED, and the loader must register this
+with limit=None so the ledger books it as an unmeasured ceiling. VESPER uses
+this"""
+
+[[provider]]
+id = "mistral-compactor"
+tier = "standard"
+purpose = "compactor"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free plan is credit-bound at $10/month with no card attached. E1 permission additionally requires the training opt-out (Admin -> Privacy -> Anonymous improvement data) -- owner confirmed 2026-08-25; the free tier defaults INTO training."
+credential_env = "MISTRAL_API_KEY_COMPACTOR"
+endpoint = "https://api.mistral.ai/v1/chat/completions"
+model = "mistral-medium-latest"
+wire = "openai_chat"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 2592000
+quota_note = """Own account for the compactor. Credit-bound, not request- or token-bound: $10/month of API
+credits. There is no request ceiling to count against, so the ledger holds no
+measured limit and this is opportunistic like Ollama."""
+
+[[provider]]
+id = "cf-compactor"
+tier = "strong"
+purpose = "compactor"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free account, no payment method attached; the tier refuses at the ceiling rather than billing over it. Re-verify if a card is ever added."
+credential_env = "CLOUDFLARE_API_TOKEN_COMPACTOR"
+account_env = "CLOUDFLARE_ACCOUNT_ID_COMPACTOR"
+endpoint = "https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model}"
+model = "@cf/openai/gpt-oss-120b"
+wire = "cf_responses"
+quota_unit = "neurons"
+quota_published = 10000
+quota_window_seconds = 86400
+quota_note = """Own account for the compactor. ONE POOL SHARED WITH IMAGE GENERATION. MULTI_ROUTE.md SS3: text
+and image draw the same 10,000 neurons/day, so the ledger for this account is
+per-ACCOUNT and never per-modality. Separate modality ledgers would each
+believe they held the whole pool."""
+usage_reporting = "unreliable"
+
+[[provider]]
+id = "mistral-missrecorder"
+tier = "standard"
+purpose = "miss_recorder"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free plan is credit-bound at $10/month with no card attached. E1 permission additionally requires the training opt-out (Admin -> Privacy -> Anonymous improvement data) -- owner confirmed 2026-08-25; the free tier defaults INTO training."
+credential_env = "MISTRAL_API_KEY_MISSRECORDER"
+endpoint = "https://api.mistral.ai/v1/chat/completions"
+model = "mistral-medium-latest"
+wire = "openai_chat"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 2592000
+quota_note = """Own account for the miss_recorder. Credit-bound, not request- or token-bound: $10/month of API
+credits. There is no request ceiling to count against, so the ledger holds no
+measured limit and this is opportunistic like Ollama."""
+
+[[provider]]
+id = "claude-arbiter"
+tier = "strong"
+purpose = "arbiter"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CLAUDE_CONFIG_DIR"
+endpoint = "claude"
+model = "subscription-default"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18000
+quota_note = """Own account for the arbiter. DEDICATED ACCOUNT, NO FAILOVER EDGE TO THE OWNER'S. Bound by
+CLAUDE_CONFIG_DIR to a separate account (verified: a per-config-dir keychain
+entry, so credentials are genuinely isolated). When this account is spent the
+ladder falls THROUGH to the next rung and never sideways to the owner's --
+failover between two accounts triggered by exhaustion is limit evasion, and it
+i"""
+
+[[provider]]
+id = "mistral-arbiter"
+tier = "standard"
+purpose = "arbiter"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free plan is credit-bound at $10/month with no card attached. E1 permission additionally requires the training opt-out (Admin -> Privacy -> Anonymous improvement data) -- owner confirmed 2026-08-25; the free tier defaults INTO training."
+credential_env = "MISTRAL_API_KEY_ARBITER"
+endpoint = "https://api.mistral.ai/v1/chat/completions"
+model = "mistral-medium-latest"
+wire = "openai_chat"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 2592000
+quota_note = """Own account for the arbiter. Credit-bound, not request- or token-bound: $10/month of API
+credits. There is no request ceiling to count against, so the ledger holds no
+measured limit and this is opportunistic like Ollama."""
+
+[[provider]]
+id = "claude-forgetter"
+tier = "strong"
+purpose = "forgetter"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CLAUDE_CONFIG_DIR"
+endpoint = "claude"
+model = "subscription-default"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18000
+quota_note = """Own account for the forgetter. DEDICATED ACCOUNT, NO FAILOVER EDGE TO THE OWNER'S. Bound by
+CLAUDE_CONFIG_DIR to a separate account (verified: a per-config-dir keychain
+entry, so credentials are genuinely isolated). When this account is spent the
+ladder falls THROUGH to the next rung and never sideways to the owner's --
+failover between two accounts triggered by exhaustion is limit evasion, and it"""
+
+[[provider]]
+id = "mistral-forgetter"
+tier = "standard"
+purpose = "forgetter"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free plan is credit-bound at $10/month with no card attached. E1 permission additionally requires the training opt-out (Admin -> Privacy -> Anonymous improvement data) -- owner confirmed 2026-08-25; the free tier defaults INTO training."
+credential_env = "MISTRAL_API_KEY_FORGETTER"
+endpoint = "https://api.mistral.ai/v1/chat/completions"
+model = "mistral-medium-latest"
+wire = "openai_chat"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 2592000
+quota_note = """Own account for the forgetter. Credit-bound, not request- or token-bound: $10/month of API
+credits. There is no request ceiling to count against, so the ledger holds no
+measured limit and this is opportunistic like Ollama."""

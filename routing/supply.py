@@ -75,7 +75,14 @@ def read_secrets(path: Path | None = None) -> dict:
     if not p.exists():
         return out
     for line in p.read_text(encoding="utf-8").splitlines():
-        m = re.match(r"\s*export\s+([A-Z0-9_]+)=(.*)", line)
+        # `export` IS OPTIONAL, AND MAKING IT MANDATORY WAS A SILENT TRAP.
+        # A line reading `MISTRAL_API_KEY_CHOOSER=sk-...` is a valid, obvious
+        # way to write a credential, and this regex skipped it without a word --
+        # so seventeen keys the owner had pasted correctly were invisible to the
+        # runtime on 2026-08-31 and every row naming them was dropped as "no
+        # credential". A credential file is edited by hand under time pressure;
+        # the parser is the wrong place to be strict about shell syntax.
+        m = re.match(r"\s*(?:export\s+)?([A-Z0-9_]+)\s*=(.*)", line)
         if not m:
             continue
         v = m.group(2).split("#", 1)[0].strip().strip('"').strip("'")

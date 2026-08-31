@@ -87,19 +87,21 @@ IMAGE_PROMPT = "a single grey square on a white background"
 
 
 def load_secrets() -> dict:
-    """Read the owner's credential file. NEVER printed, only read."""
-    out = {}
-    if not SECRETS.exists():
-        return out
-    for line in SECRETS.read_text(encoding="utf-8").splitlines():
-        m = re.match(r'\s*export\s+([A-Z0-9_]+)=(.*)', line)
-        if not m:
-            continue
-        v = m.group(2).split("#", 1)[0].strip().strip('"').strip("'")
-        if v.startswith("$"):                      # alias to another var
-            v = out.get(v.lstrip("$"), "")
-        out[m.group(1)] = v
-    return out
+    """The credential file, read by `routing.supply` and not by a copy here.
+
+    THIS FUNCTION USED TO HAVE ITS OWN PARSER, and it carried the same defect:
+    a regex requiring every line to begin with `export`, so a credential written
+    `MISTRAL_API_KEY_CHOOSER=...` was skipped in silence. Two readers of one file
+    is one too many -- they drifted the moment the file grew, and the probe
+    reported seventeen working keys as "no credential" on 2026-08-31 while the
+    keys sat in the file, correct.
+    """
+    import sys as _sys
+    root = str(Path(__file__).resolve().parents[2])
+    if root not in _sys.path:
+        _sys.path.insert(0, root)
+    from routing.supply import read_secrets
+    return read_secrets(SECRETS)
 
 
 def _post(url: str, payload: dict, headers: dict, timeout: float = 90.0):
