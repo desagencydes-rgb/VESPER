@@ -314,8 +314,28 @@ class MemoryGraph:
                   -- counted rows, and the duplicate count looked like a hit.
                   JOIN (SELECT DISTINCT id FROM reach) r ON f.subject_id = r.id
                   JOIN entity en ON en.id = f.subject_id
+                  -- THE SCORE WAS COMPUTED AND THROWN AWAY. `hit` ranks by
+                  -- bm25 and the old ORDER BY used authority alone, so a fact
+                  -- that ANSWERED the question lost every slot to facts that
+                  -- merely outranked it. Measured 2026-08-31: asked when Sami
+                  -- goes to school, block B returned five `owner/said` rows at
+                  -- rank 4 and left `sami/school_day` at rank 5 out entirely --
+                  -- the fact was in memory and could not be retrieved.
+                  --
+                  -- AUTHORITY AND RELEVANCE ANSWER DIFFERENT QUESTIONS, and
+                  -- conflating them is the defect. Authority decides which of
+                  -- two CONFLICTING facts to believe, and `core/arbiter.py`
+                  -- still does that untouched. Relevance decides which few
+                  -- facts are worth the block's slots. Ordering the second by
+                  -- the first means the most authoritative facts crowd out the
+                  -- ones that were actually asked about -- and `owner` is a hub,
+                  -- so every `said` row is reachable from any owner fact.
+                  LEFT JOIN hit ON hit.id = f.id
                  WHERE f.privacy IN ({holes})
-                 ORDER BY f.rank ASC, f.log_seq DESC
+                 ORDER BY (hit.id IS NULL) ASC,   -- direct matches before hub siblings
+                          hit.score ASC,          -- then how well they matched
+                          f.rank ASC,             -- then authority
+                          f.log_seq DESC          -- then recency
                  LIMIT ?""",
                 (match, depth, *allowed, limit)).fetchall()
         return [MemoryFact(id=r[0], subject=r[1], attribute=r[2], value=r[3],

@@ -10674,6 +10674,163 @@ def check_speech_is_egress_and_says_so() -> Result:
     return r
 
 
+def check_memory_stores_facts_not_only_transcript() -> Result:
+    """A memory that records what was SAID and not what is KNOWN.
+
+    `core/updater.py` has always had an `extractor` slot and nothing ever filled
+    it, so every utterance landed as `owner/said` at rank 4 and nothing else.
+    Found by the owner on 2026-08-31: they stated a fact about Sami, asked
+    VESPER to remember it, and were answered UNKNOWN. Sixteen rows in memory,
+    every one of them `owner/said`. The sentence was there and the FACT was not.
+
+    RETRIEVAL IS WHY IT MATTERS. Block B selects on the question's own words. A
+    sentence filed under `owner/said` is found only by someone who already
+    remembers the sentence; a fact filed under `sami/school_day` is found by
+    asking about Sami.
+
+    AND THE SECOND HALF WAS AN ORDERING BUG. `select()` computed a bm25
+    relevance score and then discarded it, ordering by authority alone -- so
+    once the fact existed it was STILL not retrievable: five rank-4 `said` rows
+    filled every slot and left the rank-5 fact out. Authority decides which of
+    two CONFLICTING facts to believe, which is the arbiter's job and is
+    untouched. Relevance decides which few facts are worth the block's slots.
+    Ordering the second by the first lets the most authoritative facts crowd out
+    the ones actually asked about -- and `owner` is a hub, so every `said` row
+    is reachable from any owner fact.
+    """
+    r = Result("memory-stores-facts-not-only-transcript")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile
+    import uuid
+    try:
+        from core.bus import EventBus
+        from core.extract import (REMEMBER_PHRASES, is_remember_instruction,
+                                  parse)
+        from core.hlc import HybridLogicalClock
+        from core.memory import MemoryGraph
+        from core.store import StoreSet
+        from core.updater import Updater
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the memory path did not import: {exc!r}")
+        return r
+
+    store = StoreSet(Path(tempfile.mkdtemp()), node_id="ci")
+    clock = HybridLogicalClock("ci")
+    bus = EventBus(clock, store)
+    mem = MemoryGraph(store)
+
+    SENTENCE = "sami ghadi lmdrasa nhar sebt m3a 3 dial l3chia"
+
+    # A deterministic stand-in for the model. The extractor's PROMPT is not
+    # assertable; what it does with a reading is, and that is what breaks.
+    def fake_extractor(text: str) -> list:
+        if "sami" in text.lower():
+            return [{"subject": "sami", "attribute": "school_day",
+                     "value": "lmdrasa nhar sebt m3a 3 dial l3chia"}]
+        return []
+
+    up = Updater(mem, store, clock, bus=bus, extractor=fake_extractor)
+
+    # 1. AN UTTERANCE PRODUCES BOTH ROWS: the owner's words AND the reading.
+    cap = up.capture(SENTENCE, event_id=str(uuid.uuid4()))
+    if cap.outcome != "stored":
+        r.err(f"the utterance was not stored: {cap.outcome}/{cap.reason}")
+        return r
+    if len(cap.fact_ids) < 2:
+        r.err("only one row was written, so nothing was extracted: memory is a "
+              "transcript and a question about Sami cannot reach it")
+
+    rows = mem._conn.execute(                       # noqa: SLF001
+        """SELECT e.name, f.attribute, f.rank, f.trust_class FROM fact f
+             JOIN entity e ON e.id = f.subject_id ORDER BY f.id""").fetchall()
+    subjects = {x[0] for x in rows}
+    if "sami" not in subjects:
+        r.err(f"no fact is ABOUT sami; subjects are {sorted(subjects)}. The "
+              "sentence is in memory and the fact is not, which is exactly "
+              "what the owner hit.")
+
+    # 2. THE READING IS RANK 5 AND model_generated, WHATEVER IT CLAIMED. An
+    #    extractor that could set its own rank could promote itself to the
+    #    owner's word, and nothing downstream could tell.
+    for name, attr, rank, trust in rows:
+        if name == "sami":
+            if rank != 5:
+                r.err(f"the extracted reading landed at rank {rank}, not 5")
+            if trust != "model_generated":
+                r.err(f"the reading is {trust!r}, not model_generated -- an "
+                      "extractor IS a model and calling it anything else hides "
+                      "that from every trust computation downstream")
+        if name == "owner" and attr == "said" and rank != 4:
+            r.err(f"the verbatim row landed at rank {rank}, not 4")
+
+    # 3. AND THE READING IS RETRIEVABLE, which is the half that stayed broken
+    #    after extraction worked. `owner` is a hub: fill memory with `said`
+    #    rows and the ordering decides whether the fact survives selection.
+    for i in range(8):
+        up.capture(f"chi haja wa7da {i} 3la nhar sebt", event_id=str(uuid.uuid4()))
+    picked = mem.select(["sami", "lmdrasa"], ceiling="private", limit=5)
+    if not any(f.subject == "sami" for f in picked):
+        r.err(f"asking about sami selected {[(f.subject, f.attribute) for f in picked]} "
+              "and not the sami fact. The score is computed by the FTS stage and "
+              "discarded by the ORDER BY, so authority crowds out relevance and "
+              "the fact is unreachable even though it exists.")
+
+    # 4. AUTHORITY STILL ORDERS WITHIN EQUAL RELEVANCE, or the fix has traded
+    #    one broken ordering for another and the ladder means nothing.
+    src = (REPO / "core" / "memory.py").read_text(encoding="utf-8")
+    body = src[src.index("    def select("):]
+    body = body[:body.index("\n    def ", 1)]
+    if "f.rank ASC" not in body:
+        r.err("authority dropped out of the selection ordering entirely; "
+              "relevance replacing it is as wrong as it replacing relevance")
+    if "hit.score" not in body:
+        r.err("the bm25 score is still not used in the ordering, so relevance "
+              "is computed and thrown away")
+
+    # 5. AN EXPLICIT INSTRUCTION TO REMEMBER IS RECOGNISED, in the spellings
+    #    the owner actually types. Darija in Latin script has no fixed
+    #    orthography -- `sjl`, `sejjel`, `sjjl` are one word -- so exact-token
+    #    matching would miss most of them.
+    for said in ("sjlha fmemory daba", "39l 3liha", "hadi m3loma jdida",
+                 "remember this", "note this"):
+        if not is_remember_instruction(said):
+            r.err(f"{said!r} was not recognised as an instruction to remember")
+    for ordinary in ("kidayr?", "wach kayn chi haja?", "gol sir"):
+        if is_remember_instruction(ordinary):
+            r.err(f"{ordinary!r} was treated as an instruction to remember; a "
+                  "phrase that fires on everything marks nothing")
+
+    # 6. THE PARSER DROPS WHAT IT CANNOT READ rather than guessing. A model
+    #    wraps JSON in prose and fences often enough that not handling it is
+    #    choosing to fail; a malformed reading is dropped, never repaired.
+    good = parse('here you go:\\n```json\\n[{"subject":"sami","attribute":"school day",'
+                 '"value":"sebt"}]\\n```')
+    if len(good) != 1 or good[0]["attribute"] != "school_day":
+        r.err(f"a fenced JSON array was not read correctly: {good}")
+    for bad in ("I don't know", "{}", '[{"value":"no subject"}]', '["a string"]',
+                '[{"subject":"x"}]'):
+        if parse(bad):
+            r.err(f"{bad!r} produced a reading; malformed output must be "
+                  "dropped rather than guessed at")
+
+    # 7. AND THE RUNTIME ACTUALLY PASSES AN EXTRACTOR. The slot existed for
+    #    weeks and stayed empty, which is the whole defect.
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if "extractor=" not in rt:
+        r.err("tools/ops/vesper_runtime.py builds the Updater without an "
+              "extractor, so memory is a transcript again")
+
+    r.note(f"an utterance produces the owner's verbatim row at rank 4 AND a "
+           f"reading about its real subject at rank 5 as model_generated; the "
+           f"reading survives selection against eight competing hub rows, "
+           f"because relevance is back in the ordering with authority as the "
+           f"tiebreaker; {len(REMEMBER_PHRASES)} explicit remember-phrases are "
+           f"recognised and ordinary speech is not; malformed model output is "
+           f"dropped; and the runtime passes an extractor")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -10753,6 +10910,7 @@ CHECK_FNS = {
     "outbox-before-effect": check_outbox_before_effect,
     "confirmation-stops-explains-and-asks": check_confirmation_stops_explains_and_asks,
     "speech-is-egress-and-says-so": check_speech_is_egress_and_says_so,
+    "memory-stores-facts-not-only-transcript": check_memory_stores_facts_not_only_transcript,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

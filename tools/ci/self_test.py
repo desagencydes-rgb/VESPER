@@ -996,6 +996,9 @@ FORGET_PY = "core/forgetter.py"
 ENROL_PY = "core/enrollment.py"
 CONFIRM_PY = "core/confirm.py"
 SPEECH_PY = "core/speech.py"
+EXTRACT_PY = "core/extract.py"
+UPDATER_PY = "core/updater.py"
+MEMORY_PY = "core/memory.py"
 INTBUD_TOML = "contracts/policy/interruption_budget.toml"
 CHECKS_PY = "tools/ci/checks.py"
 COST_PY = "core/cost.py"
@@ -2901,13 +2904,13 @@ CASES += [
 CASES += [
     # ---------------------------------------------------------------- CI-089
     ("documented-counts-match-commands", "CLAUDE.md",
-     _sub("python3.13 tools/ci/checks.py all       # 83 checks",
+     _sub("python3.13 tools/ci/checks.py all       # 84 checks",
           "python3.13 tools/ci/checks.py all       # 57 checks", 1),
      "CLAUDE.md's check count goes stale again -- the eighth drift, and the "
      "first one a gate can see"),
 
     ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
-     _sub("tools/ci/self_test.py                         PASS   368/368",
+     _sub("tools/ci/self_test.py                         PASS   374/374",
           "tools/ci/self_test.py                         PASS   295/295", 1),
      "the status table's self-test count goes stale: it had been four sessions "
      "wrong before this gate existed"),
@@ -3163,6 +3166,54 @@ CASES += [
      "the runtime stops passing presence to the speech plan, so a private reply "
      "is read aloud with a stranger in the room -- the module is wired and the "
      "one input that makes speaking safe is not"),
+]
+
+
+CASES += [
+    # ------------------------------------------- memory stores facts
+    ("memory-stores-facts-not-only-transcript", UPDATER_PY,
+     _sub("        if self._extractor is not None:\n"
+          "            for reading in self._readings(text):", "        if False:\n"
+          "            for reading in self._readings(text):", 1),
+     "readings stop being written, so memory holds only the owner's sentences "
+     "verbatim. A question about Sami reaches nothing -- the sentence is there "
+     "and the fact is not, which is what the owner hit"),
+
+    ("memory-stores-facts-not-only-transcript", MEMORY_PY,
+     _sub("                 ORDER BY (hit.id IS NULL) ASC,   -- direct matches before hub siblings\n"
+          "                          hit.score ASC,          -- then how well they matched\n"
+          "                          f.rank ASC,             -- then authority\n"
+          "                          f.log_seq DESC          -- then recency",
+          "                 ORDER BY f.rank ASC, f.log_seq DESC", 1),
+     "relevance is computed by the FTS stage and discarded by the ORDER BY "
+     "again, so the extracted fact exists and cannot be retrieved: rank-4 hub "
+     "rows fill every slot and the rank-5 answer is left out"),
+
+    ("memory-stores-facts-not-only-transcript", UPDATER_PY,
+     _sub("                        rank=RANK_DERIVED, privacy=privacy,",
+          "                        rank=RANK_USER_STATEMENT, privacy=privacy,", 1),
+     "a model's reading is stored at the owner's own rank, so an extractor can "
+     "promote itself to the owner's word and nothing downstream can tell them "
+     "apart"),
+
+    ("memory-stores-facts-not-only-transcript", UPDATER_PY,
+     _sub('                        trust_class="model_generated",',
+          '                        trust_class=trust_class,', 1),
+     "the reading inherits the owner's trust class, hiding from every trust "
+     "computation downstream that a model produced it"),
+
+    ("memory-stores-facts-not-only-transcript", EXTRACT_PY,
+     _sub("        if not value or not subject:\n            continue",
+          "        if not value:\n            continue", 1),
+     "a reading with no subject is kept, so the fact is filed under an empty "
+     "name and is retrievable by nothing"),
+
+    ("memory-stores-facts-not-only-transcript", EXTRACT_PY,
+     _sub('    start, end = text.find("["), text.rfind("]")',
+          '    start, end = text.find("{"), text.rfind("}")', 1),
+     "the parser locates an OBJECT instead of an ARRAY, so a single malformed "
+     "reading arrives shaped like a list of them and one bad response becomes "
+     "a fact"),
 ]
 
 

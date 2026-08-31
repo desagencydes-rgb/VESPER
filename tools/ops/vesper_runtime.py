@@ -64,6 +64,7 @@ from core.speech import Speech, speech_rows                     # noqa: E402
 from core.blocks import L1Renderer                              # noqa: E402
 from core.evidence import ClaimChecker                          # noqa: E402
 from core.memory import MemoryGraph                             # noqa: E402
+from core.extract import FactExtractor                          # noqa: E402
 from core.updater import MissRecorder, Updater                  # noqa: E402
 from core.quota import QuotaLedger                              # noqa: E402
 from core.router import NoRouteAvailable, Router                # noqa: E402
@@ -269,7 +270,17 @@ def build(node: str = "vesper-runtime"):
     try:
         memory = MemoryGraph(store, path=str(STATE / "l2.db"))
         renderer = L1Renderer(persona, memory)
-        updater = Updater(memory, store, clock, bus=bus)
+        # THE EXTRACTOR, without which memory is a transcript. `Updater` has
+        # always had this slot and nothing ever filled it, so every fact landed
+        # as `owner/said` at rank 4 -- the owner's sentence, verbatim, findable
+        # only by someone who already remembered the sentence. Told a fact
+        # about Sami on 2026-08-31 and asked to recall it, VESPER answered
+        # UNKNOWN: the words were in memory and the FACT was not.
+        #
+        # Its readings land at rank 5 as `model_generated`, so a wrong reading
+        # can never outrank the verbatim row sitting beside it.
+        updater = Updater(memory, store, clock, bus=bus,
+                          extractor=FactExtractor(gw, bus=bus))
         misses = MissRecorder(memory, store, clock, bus=bus)
     except Exception as exc:                       # noqa: BLE001
         bus.publish("memory.unavailable", subject="l2",
