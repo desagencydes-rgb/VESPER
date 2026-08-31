@@ -993,6 +993,7 @@ TASKS_PY = "core/tasks.py"
 AUTON_PY = "core/autonomy.py"
 TELEM_PY = "core/telemetry.py"
 FORGET_PY = "core/forgetter.py"
+ENROL_PY = "core/enrollment.py"
 CHECKS_PY = "tools/ci/checks.py"
 COST_PY = "core/cost.py"
 EXEC_PY = "core/executor.py"
@@ -2873,19 +2874,19 @@ CASES += [
 CASES += [
     # ---------------------------------------------------------------- CI-089
     ("documented-counts-match-commands", "CLAUDE.md",
-     _sub("python3.13 tools/ci/checks.py all       # 78 checks",
+     _sub("python3.13 tools/ci/checks.py all       # 79 checks",
           "python3.13 tools/ci/checks.py all       # 57 checks", 1),
      "CLAUDE.md's check count goes stale again -- the eighth drift, and the "
      "first one a gate can see"),
 
     ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
-     _sub("tools/ci/self_test.py                         PASS   337/337",
+     _sub("tools/ci/self_test.py                         PASS   342/342",
           "tools/ci/self_test.py                         PASS   295/295", 1),
      "the status table's self-test count goes stale: it had been four sessions "
      "wrong before this gate existed"),
 
     ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
-     _sub("tools/ci/checks.py status                            68/89 check IDs implemented, 21 PENDING",
+     _sub("tools/ci/checks.py status                            69/89 check IDs implemented, 20 PENDING",
           "tools/ci/checks.py status                            61/89 check IDs implemented, 28 PENDING", 1),
      "the PENDING count goes stale -- the figure that matters most, because a "
      "PENDING entry looks exactly like enforcement in any listing that does "
@@ -2899,6 +2900,41 @@ CASES += [
      "DOCUMENTS, not from the pattern list: the line it used to cover is now "
      "uncovered. A per-pattern guard could not see this -- deleting an entry "
      "deletes its own guard"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-035
+    ("z2-capability-bound", ENROL_PY,
+     _sub('Z2_FORBIDDEN = ("hold_state", "issue_command", "receive_secret")',
+          'Z2_FORBIDDEN = ("hold_state", "issue_command")', 1),
+     "receive_secret drops off the forbidden list: a credential can be sent to "
+     "a limited-trust node, which is the one of the three that puts a secret "
+     "somewhere it cannot be protected"),
+
+    ("z2-capability-bound", ENROL_PY,
+     _sub('        if n.trust_zone != "Z2":\n            return', "        return", 1),
+     "the bound stops firing entirely, so a Z2 node may hold state, issue "
+     "commands and receive secrets -- and the refusal event that would have "
+     "shown it never appears either"),
+
+    ("z2-capability-bound", ENROL_PY,
+     _sub("        if action not in Z2_FORBIDDEN:", "        if False:", 1),
+     "every action is refused for a Z2 node: limited trust becomes no trust, "
+     "and a node admitted to do something useful can do nothing"),
+
+    ("z2-capability-bound", ENROL_PY,
+     _sub('    "DISCOVERED":        ("PENDING_ADMISSION", "REVOKED"),',
+          '    "DISCOVERED":        ("PENDING_ADMISSION", "TRUSTED", "REVOKED"),', 1),
+     "DISCOVERED -> TRUSTED becomes reachable: admission stops being a gate, "
+     "and a node that has demonstrated only that it can send packets is trusted"),
+
+    ("z2-capability-bound", ENROL_PY,
+     _sub("        return (self.state == \"TRUSTED\"\n"
+          "                and self.measured_tokens_per_sec is not None)",
+          '        return self.state == "TRUSTED"', 1),
+     "a TRUSTED node with no MEASURED throughput becomes routable, so work is "
+     "sent to a node on a number nobody took -- INV-HW-2 inside enrollment"),
 ]
 
 

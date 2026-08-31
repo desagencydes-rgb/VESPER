@@ -9714,6 +9714,138 @@ def check_documented_counts_match_commands() -> Result:
     return r
 
 
+def check_z2_capability_bound() -> Result:
+    """CI-035: a Z2 node may not hold state, issue commands, or receive secrets.
+
+    THE THREE ARE CHECKED SEPARATELY BECAUSE THEY FAIL DIFFERENTLY, and
+    `core/enrollment.py` says so in its header: a single "is Z2 allowed" check
+    would let one of them through the day someone adds a fourth call site. State
+    on an untrusted node is data that outlives the trust decision; a command
+    from one is authority it was never granted; a secret sent to one is a
+    credential somewhere it cannot be protected.
+
+    ADMISSION IS A GATE, NOT A FORMALITY. DISCOVERED -> TRUSTED is unreachable:
+    a node that appeared on the network has demonstrated that it can send
+    packets and nothing else.
+
+    AND A NODE WITH NO MEASURED PROFILE IS NEVER ROUTED TO (A-042.4) --
+    `INV-HW-2` inside the enrollment path, where a declared throughput would let
+    a node be chosen for work it cannot do.
+    """
+    r = Result("z2-capability-bound")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile
+    try:
+        from core.bus import EventBus
+        from core.enrollment import (TRUST_ZONES, Z2_FORBIDDEN,
+                                     AdmissionRefused, EnrollmentRegistry,
+                                     Z2BoundViolation)
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.enrollment did not import: {exc!r}")
+        return r
+
+    store = StoreSet(Path(tempfile.mkdtemp()), node_id="ci")
+    bus = EventBus(HybridLogicalClock("ci"), store)
+    reg = EnrollmentRegistry(bus)
+
+    # 1. EVERY FORBIDDEN ACTION IS REFUSED, ONE BY ONE. Iterating the constant
+    #    rather than naming one means a fourth entry is covered the day it is
+    #    added -- and a THIRD removed from it fails here.
+    reg.discover("z2-node")
+    if len(Z2_FORBIDDEN) < 3:
+        r.err(f"Z2_FORBIDDEN is {list(Z2_FORBIDDEN)}; INV-TRUST-1 names three "
+              "capabilities and they fail in different ways")
+    for action in Z2_FORBIDDEN:
+        try:
+            reg.check_z2_bound("z2-node", action)
+            r.err(f"a Z2 node was permitted to {action!r}. INV-TRUST-1 refuses "
+                  "all three separately because a single 'is Z2 allowed' check "
+                  "lets one through the day a fourth call site is added.")
+        except Z2BoundViolation:
+            pass
+
+    # 2. AND THE REFUSAL IS PUBLISHED, or a node being pushed against its bound
+    #    is invisible to whoever would want to know.
+    seen: list = []
+    bus.subscribe("security.z2_bound_enforced", lambda e: seen.append(e.payload),
+                  name="ci-035-probe", idempotency_key=lambda e: e.event_id)
+    try:
+        reg.check_z2_bound("z2-node", Z2_FORBIDDEN[0])
+    except Z2BoundViolation:
+        pass
+    if not seen:
+        r.err("a Z2 refusal was not published")
+    elif seen[-1].get("action") != Z2_FORBIDDEN[0]:
+        r.err("the published refusal does not name which action was attempted, "
+              "so three different failures read identically")
+
+    # 3. AN UNRELATED ACTION IS PERMITTED, or the bound refuses everything and
+    #    a Z2 node is not limited-trust, it is disconnected.
+    try:
+        reg.check_z2_bound("z2-node", "report_telemetry")
+    except Z2BoundViolation:
+        r.err("an action outside Z2_FORBIDDEN was refused: Z2 is LIMITED trust, "
+              "not no trust, and a bound that refuses everything is a "
+              "disconnection")
+
+    # 4. AND A NON-Z2 NODE IS PERMITTED THE FORBIDDEN ACTIONS, or the check is
+    #    keyed on the action alone and the trust zone does no work.
+    reg.discover("z1-node")
+    reg.get("z1-node").trust_zone = "Z1"
+    for action in Z2_FORBIDDEN:
+        try:
+            reg.check_z2_bound("z1-node", action)
+        except Z2BoundViolation:
+            r.err(f"a Z1 node was refused {action!r}: the bound is keyed on the "
+                  "action alone and the trust zone is not being read")
+
+    # 5. ADMISSION IS A GATE. DISCOVERED -> TRUSTED is unreachable.
+    reg.discover("fresh")
+    try:
+        reg.transition("fresh", "TRUSTED")
+        r.err("DISCOVERED -> TRUSTED was permitted. A node that appeared on the "
+              "network has demonstrated that it can send packets and nothing "
+              "else (A-042.1).")
+    except AdmissionRefused:
+        pass
+
+    # 6. A NODE WITH NO MEASURED PROFILE IS NEVER ROUTED TO -- INV-HW-2 inside
+    #    enrollment, where a declared throughput would let a node be chosen for
+    #    work it cannot do.
+    # The real path, not a shortcut: DISCOVERED -> PENDING_ADMISSION ->
+    # LIMITED_TRUST -> TRUSTED. Every step exists because the one before it
+    # proved something.
+    reg.transition("fresh", "PENDING_ADMISSION")
+    reg.transition("fresh", "LIMITED_TRUST")
+    reg.transition("fresh", "TRUSTED")
+    node = reg.get("fresh")
+    if node.measured_tokens_per_sec is not None:
+        r.err("a freshly admitted node carries a throughput nobody measured")
+    if node.routable():
+        r.err("a TRUSTED node with no MEASURED throughput is routable. UNKNOWN "
+              "is UNAVAILABLE: a declared number here picks the node for work "
+              "it may not be able to do (A-042.4).")
+    node.measured_tokens_per_sec = 12.5
+    if not node.routable():
+        r.err("a TRUSTED node WITH a measured throughput is still not routable, "
+              "so nothing is ever routed and assertion 6 passes vacuously")
+
+    # 7. THE ZONE VOCABULARY IS CLOSED. An invented zone is neither Z2 (bound)
+    #    nor a host zone, so it slips between every rule that names one.
+    if set(TRUST_ZONES) != {"Z0", "Z1", "Z2"}:
+        r.err(f"the trust zone vocabulary is {list(TRUST_ZONES)}")
+
+    r.note(f"all {len(Z2_FORBIDDEN)} forbidden actions {list(Z2_FORBIDDEN)} are "
+           f"refused for a Z2 node and published with the action named, while "
+           f"an unrelated action and a Z1 node are permitted; DISCOVERED -> "
+           f"TRUSTED is unreachable; and a TRUSTED node is routable only once "
+           f"its throughput is MEASURED, not before")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -9788,6 +9920,7 @@ CHECK_FNS = {
     "telemetry-sensitivity-enforced": check_telemetry_sensitivity_enforced,
     "tombstone-on-durable-write": check_tombstone_on_durable_write,
     "documented-counts-match-commands": check_documented_counts_match_commands,
+    "z2-capability-bound": check_z2_capability_bound,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

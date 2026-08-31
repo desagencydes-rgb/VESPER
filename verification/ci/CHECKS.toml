@@ -815,10 +815,43 @@ note = "Split from CI-034 so an implemented policy half is never reported as cov
 [checks.CI-035]
 name = "z2-capability-bound"
 enforces = ["INV-TRUST-1"]
-kind = "structural"
-impl = "PENDING"
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py z2-capability-bound"
 blocking = "pr"
-self_test = "Issue a grant containing secret-read to a node in trust zone Z2."
+self_test = """Drop receive_secret from the forbidden list; stop the bound
+firing at all; refuse every action instead of the three; make DISCOVERED ->
+TRUSTED reachable; make an unmeasured TRUSTED node routable."""
+self_test_evidence = """tools/ci/self_test.py z2-capability-bound
+-- 5 cases, red then green, 2026-08-31."""
+subject = "core/enrollment.py"
+note = """DECLARED WITH THE REGISTRY AND IMPLEMENTED 2026-08-31.
+
+INV-TRUST-1: a node in trust zone Z2 may not hold state, issue commands, or
+receive secrets. core/enrollment.py refuses the three SEPARATELY and says why in
+its header -- a single "is Z2 allowed" check would let one of them through the
+day someone adds a fourth call site. They also fail differently: state on an
+untrusted node is data that outlives the trust decision; a command from one is
+authority it was never granted; a secret sent to one is a credential somewhere
+it cannot be protected."""
+discriminators = """THE CHECK ITERATES Z2_FORBIDDEN RATHER THAN NAMING AN
+ACTION, so a fourth entry is covered the day it is added and a third removed
+from it fails here -- which is the first red-run case.
+
+TWO POSITIVE CASES CARRY MOST OF THE WEIGHT. An action OUTSIDE the forbidden set
+must be permitted for a Z2 node, or the bound refuses everything and Z2 stops
+being LIMITED trust and becomes a disconnection. And a Z1 node must be permitted
+all three, or the check is keyed on the action alone and the trust zone is doing
+no work at all. Both mutations are red-run cases.
+
+ADMISSION IS A GATE, NOT A FORMALITY: DISCOVERED -> TRUSTED must be unreachable,
+because a node that appeared on the network has demonstrated that it can send
+packets and nothing else (A-042.1). The check walks the real path --
+DISCOVERED -> PENDING_ADMISSION -> LIMITED_TRUST -> TRUSTED -- rather than
+constructing an admitted node directly.
+
+AND INV-HW-2 REACHES INSIDE ENROLLMENT: a TRUSTED node with no MEASURED
+throughput is not routable, asserted in both directions so "nothing is ever
+routable" cannot pass for it."""
 
 # ---------------------------------------------------------- operations
 [checks.CI-036]
