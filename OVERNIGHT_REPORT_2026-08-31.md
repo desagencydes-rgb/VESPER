@@ -209,8 +209,9 @@ not read the `impl` field.
 | `CI-045` | `INV-PLACE-1/2` placement not pinned | `core/placement.py` |
 | `CI-046b` | `INV-TUNE-1` runtime half | `core/placement.py` |
 | `CI-049` | `INV-LOSS-3` tombstones | `core/forgetter.py` |
+| `CI-037` | `INV-EXT-1`, `INV-ACT-6` outbox before effect | `core/tasks.py` |
 
-**52 → 73 of 140 invariants enforced.** Nineteen checks remain PENDING; eight of
+**52 → 75 of 140 invariants enforced.** Eighteen checks remain PENDING; eight of
 those are `kind = "process"` and gate human steps whose infrastructure does not
 exist yet.
 
@@ -272,6 +273,22 @@ nothing else. Restored from HEAD and verified; the mutation is now inert.
 
 Both are recorded in memory. A line-ending diff against HEAD is now part of the
 end-of-work sweep.
+
+### One more thing the end-of-work sweep caught
+
+The full self-test read **344/345** where every individual run had been green.
+The failing case was `sensors-never-reach-a-model`, and the cause is worth
+recording: `CI-082` called `host_health()` on the **live machine**, which
+exercises exactly one of its three return paths — and which one depends on the
+battery. At 20% charge `power_source()` returned `battery_critical`, the
+function returned `FAILING` before reaching `return ONLINE`, and the red-run
+case that replaces `ONLINE` with an invented vocabulary stayed green.
+
+**A gate whose result depends on how charged the laptop is is not a gate** — and
+it would have come back on its own once the machine was plugged in, which is
+worse: an intermittent gate reads as flaky rather than broken. All three
+branches are now driven with controlled inputs, which also pins the ordering the
+original could not see.
 
 ### Waiting on the owner
 
