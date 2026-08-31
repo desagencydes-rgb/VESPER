@@ -971,11 +971,50 @@ HOST_PROBES_PY = "core/host_probes.py"
 FLOOR_PY = "core/floor.py"
 ARABIZI_PY = "core/arabizi.py"
 PRESENCE_PY = "core/presence.py"
+CTRL_PY = "core/context_control.py"
+BLOCKS2_PY = "core/blocks.py"
 GATEWAY_PY = "core/gateway.py"
 ROUTER = "core/router.py"
 LATENCY = "core/latency.py"
 SUPPLY_PY = "routing/supply.py"
 RUNTIME = "tools/ops/vesper_runtime.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-087
+    ("context-control-reaches-selection", CTRL_PY,
+     _sub("        return [f for f in fragments\n"
+          "                if not any(d and d in self._haystack(f) for d in drops)]",
+          "        return list(fragments)", 1),
+     "a drop stops removing anything: the owner says 'drop the calendar', the "
+     "calendar comes back on the next turn, and the command is "
+     "indistinguishable from not existing"),
+
+    ("context-control-reaches-selection", CTRL_PY,
+     _sub('        parts = [getattr(f, n, "") for n in\n'
+          '                 ("fragment_id", "id", "kind", "subject", "attribute", "text", "value")]',
+          '        parts = [getattr(f, n, "") for n in ("fragment_id", "text")]', 1),
+     "the matcher reads only Fragment's field names, so every command against a "
+     "MemoryFact matches nothing and silently does nothing at all"),
+
+    ("context-control-reaches-selection", CTRL_PY,
+     _sub("                        self.state.dropped.add(subj)\n"
+          "                        self.state.pinned.discard(subj)",
+          "                        self.state.pinned.discard(subj)", 1),
+     "a drop implemented as an un-pin: the fragment returns to the automatic "
+     "selector, which chooses it again immediately"),
+
+    ("context-control-reaches-selection", BLOCKS2_PY,
+     _sub("            facts = control.excluded(facts)", "            pass", 1),
+     "block B stops honouring the exclusion, so the control is wired and the "
+     "selection ignores it"),
+
+    ("context-control-reaches-selection", BLOCKS2_PY,
+     _sub("        want = limit if control is None else limit * 3",
+          "        want = limit", 1),
+     "no over-selection under manual control: dropping two of five leaves the "
+     "turn three facts where five were available, and the owner is punished "
+     "for narrowing the focus"),
+]
 
 CASES += [
     # ---------------------------------------------------------------- CI-086

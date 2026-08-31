@@ -6445,6 +6445,119 @@ def check_presence_withholds_and_never_expires() -> Result:
     return r
 
 
+def check_context_control_reaches_selection() -> Result:
+    """A drop stays dropped, a pin survives the cut, and neither needs a model.
+
+    SR-008 ASKS FOR MANUAL MODE SWITCHABLE BY COMMAND, AND MANUAL MODE WAS NEVER
+    THE MISSING PART. `ContextBudgetManager.assemble(manual=[...])` has pinned
+    fragments first and refused to drop them since it was written. What was
+    missing is that nothing reached it -- it is constructed in exactly one place
+    in this repository, an acceptance runner -- and that there was no surface the
+    owner could speak to.
+
+    A DROP IS NOT AN UNPIN, and building it as one is the failure this check
+    exists for. Un-pinning returns a fragment to the automatic selector, which
+    may choose it again immediately; the owner who said "drop the calendar" and
+    saw it return next turn would conclude the command does nothing.
+
+    THE MATCHER MUST WORK ON WHAT IT IS ACTUALLY GIVEN. The first version read
+    `fragment_id` and `text`, which `Fragment` has and a `MemoryFact` does not --
+    so passing it memory facts matched nothing and every command silently did
+    nothing at all.
+    """
+    r = Result("context-control-reaches-selection")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        import tempfile
+        from core.store import StoreSet
+        from core.hlc import HybridLogicalClock
+        from core.memory import MemoryGraph
+        from core.persona import Persona
+        from core.blocks import L1Renderer
+        from core.context import ContextBudgetManager, Fragment
+        from core.context_control import AUTOMATIC, MANUAL, ContextCommands
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.context_control did not import: {exc!r}")
+        return r
+
+    store = StoreSet(tempfile.mkdtemp(), node_id="ci")
+    clock = HybridLogicalClock(node_id="ci")
+    mem = MemoryGraph(store)
+    for subj, attr, val in (("travel", "flight", "the flight is Tuesday"),
+                            ("work", "calendar", "the calendar has three meetings"),
+                            ("work", "note", "an unrelated note")):
+        mem.remember(subject=subj, attribute=attr, value=val, rank=4,
+                     privacy="private", trust_class="owner", at=clock.now())
+    ren = L1Renderer(Persona.load(), mem)
+    Q = "what about the flight and the calendar"
+
+    # 1. ORDINARY SPEECH IS NOT A COMMAND, or every sentence rearranges context.
+    cc = ContextCommands()
+    if cc.offer("what is on my calendar today") is not None:
+        r.err("an ordinary question was read as a context command")
+    if cc.state.mode != AUTOMATIC:
+        r.err("mode left manual after an utterance that was not a command")
+
+    # 2. A DROP REACHES SELECTION.
+    auto = {f.attribute for f in ren.render(Q).selected}
+    if "calendar" not in auto:
+        r.err("the fixture does not select the calendar automatically, so the "
+              "drop below would prove nothing")
+    drop = ContextCommands(); drop.offer("drop the calendar")
+    got = {f.attribute for f in ren.render(Q, control=drop).selected}
+    if "calendar" in got:
+        r.err("a dropped subject still reached block B. The command is "
+              "ignored, which is indistinguishable from not having it.")
+    if drop.state.mode != MANUAL:
+        r.err("a drop did not put the control into manual mode")
+
+    # 3. AND IT STAYS DROPPED -- it is not returned to the selector.
+    again = {f.attribute for f in ren.render(Q, control=drop).selected}
+    if "calendar" in again:
+        r.err("the dropped subject returned on the next turn. A drop that only "
+              "un-pins hands the fragment back to the automatic selector, which "
+              "chooses it again.")
+
+    # 4. A PIN SURVIVES THE CUT AND LEADS.
+    pin = ContextCommands(); pin.offer("focus on the flight")
+    sel = ren.render(Q, control=pin, limit=1).selected
+    if not sel or sel[0].attribute != "flight":
+        r.err(f"a pinned subject was not first, and at limit=1 that means it "
+              f"was cut entirely: got {[f.attribute for f in sel]}")
+
+    # 5. CLEARING RETURNS TO AUTOMATIC.
+    pin.offer("never mind")
+    if pin.state.mode != AUTOMATIC or pin.state.pinned or pin.state.dropped:
+        r.err(f"an explicit clear left {pin.state.to_dict()}")
+
+    # 6. THE MATCHER WORKS ON BOTH SHAPES. Fragment and MemoryFact name their
+    #    id and text differently, and reading only one shape's fields makes
+    #    every command against the other a silent no-op.
+    frag_drop = ContextCommands(); frag_drop.offer("drop the calendar")
+    kept = frag_drop.excluded([Fragment("f-cal", "ambient", "calendar stuff", 5),
+                               Fragment("f-x", "ambient", "other", 5)])
+    if {f.fragment_id for f in kept} != {"f-x"}:
+        r.err(f"the drop did not apply to Fragment objects: kept "
+              f"{[f.fragment_id for f in kept]}")
+
+    # 7. AND THE THING SR-008 NAMES STILL WORKS -- pinned fragments are never
+    #    dropped by the budget selector, even when they alone exceed it.
+    cbm = ContextBudgetManager(_StubBus(), budget_tokens=10)
+    big = [Fragment("f-huge", "ambient", "x", 100),
+           Fragment("f-small", "ambient", "y", 2)]
+    out = cbm.assemble(big, intent="answer", manual=["f-huge"])
+    if "f-huge" not in [f.fragment_id for f in out.fragments]:
+        r.err("a pinned fragment exceeding the budget was dropped. Manual mode "
+              "becomes a suggestion the moment the selector may overrule it.")
+
+    r.note("ordinary speech is not a command; a drop reaches selection and "
+           "stays dropped across turns; a pin leads and survives limit=1; a "
+           "clear returns to automatic; the matcher works on Fragment and "
+           "MemoryFact; an over-budget pin is still not dropped")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -6500,6 +6613,7 @@ CHECK_FNS = {
     "floor-never-swallows-or-drops": check_floor_never_swallows_or_drops,
     "arabizi-preserves-and-marks-itself": check_arabizi_preserves_and_marks_itself,
     "presence-withholds-and-never-expires": check_presence_withholds_and_never_expires,
+    "context-control-reaches-selection": check_context_control_reaches_selection,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

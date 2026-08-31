@@ -58,6 +58,7 @@ from core.difficulty import classify                            # noqa: E402
 from core.effort import EXPECTED_OUTPUT                         # noqa: E402
 from core.narration import Announcer                            # noqa: E402
 from core.persona import Persona, Situation                     # noqa: E402
+from core.context_control import ContextCommands                # noqa: E402
 from core.presence import Presence                              # noqa: E402
 from core.blocks import L1Renderer                              # noqa: E402
 from core.memory import MemoryGraph                             # noqa: E402
@@ -176,6 +177,12 @@ def build(node: str = "vesper-runtime"):
     # end instead of trusting that the facts were landing.
     world = WorldModel(bus, clock, now_ms=lambda: int(time.time() * 1000))
     presence = Presence(world, clock, bus=bus)
+    # SR-008's manual mode, reachable at last. `ContextBudgetManager` has pinned
+    # fragments and refused to drop them since it was written, and is
+    # constructed in exactly one place in this repository -- an acceptance
+    # runner. What was missing was never the mode; it was a surface the owner
+    # could speak to, and anything at all reaching it.
+    context_cmds = ContextCommands(bus=bus)
     sensors = SensorRegistry(world, clock, bus=bus)
     sensors.register(Sensor("host-power", "world.current_host", "power_source",
                             host_probes.power_source, TIMER,
@@ -271,11 +278,12 @@ def build(node: str = "vesper-runtime"):
 
     return (bus, gw, router, home, intake, triage, report, persona, bench,
             renderer, updater, misses, chooser, world, sensors, autonomy,
-            devices, repairer, presence)
+            devices, repairer, presence, context_cmds)
 
 
 def answer(gw, router, persona, utterance, renderer=None,
-           updater=None, misses=None, chooser=None) -> str:
+           updater=None, misses=None, chooser=None,
+           context_cmds=None) -> str:
     """One request across the ladder. Difficulty routes it; the ladder serves it.
 
     `privacy_class` IS NOT PASSED, and that is the point of the default. Anything
@@ -327,7 +335,8 @@ def answer(gw, router, persona, utterance, renderer=None,
     # before any of this existed, which is exactly what makes the two
     # comparable. `core/baseline.py` records that condition on purpose.
     if renderer is not None:
-        rendered = renderer.render(utterance.text, situation=situation)
+        rendered = renderer.render(utterance.text, situation=situation,
+                                   control=context_cmds)
         system, request = rendered.system(), rendered.prompt()
         bus_payload = rendered.to_dict()
     else:
@@ -429,7 +438,8 @@ def answer(gw, router, persona, utterance, renderer=None,
 def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          once: bool = False, renderer=None, updater=None,
          misses=None, chooser=None, sensors=None, autonomy=None,
-         triage=None, repairer=None, presence=None) -> int:
+         triage=None, repairer=None, presence=None,
+         context_cmds=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     # SENSORS FIRST, AND THE PERIOD DECIDES WHETHER ANYTHING ACTUALLY RUNS.
     # `poll()` returns immediately for any sensor that is not due, so calling it
@@ -521,6 +531,8 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             # VESPER someone is present is also a thing VESPER should hear.
             if presence is not None:
                 presence.offer(text)
+            if context_cmds is not None:
+                context_cmds.offer(text)
             if obj.get("source") == "spoken":
                 res = intake.spoken(
                     text,
@@ -556,7 +568,8 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             if res["outcome"] == "dispatched":
                 reply = answer(gw, router, persona, intake.history[-1],
                                renderer=renderer, updater=updater,
-                               misses=misses, chooser=chooser)
+                               misses=misses, chooser=chooser,
+                               context_cmds=context_cmds)
                 # VESPER'S REPLY IS NOT AN UTTERANCE, and the first version put
                 # it into `intake.history` as one. `Intake` is the record of
                 # things said TO VESPER -- its confidence, its partials and its
@@ -596,7 +609,7 @@ def main() -> int:
 
     (bus, gw, router, home, intake, triage, report, persona, bench,
      renderer, updater, misses, chooser, world, sensors,
-     autonomy, devices, repairer, presence) = build()
+     autonomy, devices, repairer, presence, context_cmds) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -620,7 +633,7 @@ def main() -> int:
                  once=True, renderer=renderer, updater=updater,
                  misses=misses, chooser=chooser, sensors=sensors,
                  autonomy=autonomy, triage=triage, repairer=repairer,
-                 presence=presence)
+                 presence=presence, context_cmds=context_cmds)
         # THE SAME HONESTY THE INTERRUPT PATH APPLIES. A one-shot run that exits
         # leaving `thinking` on disk reports work that is not happening; the
         # 90 s staleness fallback would correct it eventually, and eventually is
@@ -663,7 +676,8 @@ def main() -> int:
             pump(bus, gw, router, persona, bench, home, intake, transcript,
                  renderer=renderer, updater=updater, misses=misses,
                  chooser=chooser, sensors=sensors, autonomy=autonomy,
-                 triage=triage, repairer=repairer, presence=presence)
+                 triage=triage, repairer=repairer, presence=presence,
+                 context_cmds=context_cmds)
             # THE PLUMBING USED TO COST MORE THAN THE MODEL. 0.5 s here plus
             # 0.7 s in the chrome's own timer is up to 1.2 s of pure polling
             # around a call that now returns in ~0.7 s -- the transport was the

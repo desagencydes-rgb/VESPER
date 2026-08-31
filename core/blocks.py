@@ -158,7 +158,7 @@ class L1Renderer:
     # ---------------------------------------------------------------- block B
 
     def block_b(self, terms: list, *, ceiling: str = "private",
-                depth: int = 2, limit: int = TOP_N) -> tuple:
+                depth: int = 2, limit: int = TOP_N, control: Any = None) -> tuple:
         """The few facts this turn needs, deterministically selected.
 
         Returns `(text, facts, truncated, elapsed_ms)`. The budget is reported
@@ -167,8 +167,23 @@ class L1Renderer:
         it went long.
         """
         started = time.perf_counter()
-        facts = self._memory.select(terms, ceiling=ceiling, depth=depth,
-                                    limit=limit)
+        # OVER-SELECT WHEN THE OWNER HAS A HAND ON IT. A drop removes facts
+        # AFTER selection, so selecting exactly `limit` and then dropping two
+        # would hand the turn three facts where five were available. The
+        # automatic path is untouched: with no control, this is the same call
+        # it always was.
+        want = limit if control is None else limit * 3
+        facts = list(self._memory.select(terms, ceiling=ceiling, depth=depth,
+                                         limit=want))
+        if control is not None:
+            # DROPPED FIRST, THEN PINNED. An excluded fact must not be able to
+            # come back by being pinned -- the owner said to drop it, and a
+            # later pin matching the same words is the looser instruction.
+            facts = control.excluded(facts)
+            pinned = set(control.manual_ids(facts))
+            if pinned:
+                facts.sort(key=lambda f: (f.id not in pinned,))
+        facts = facts[:limit]
         elapsed = (time.perf_counter() - started) * 1000.0
         truncated = elapsed > SELECTION_BUDGET_MS
 
@@ -192,7 +207,7 @@ class L1Renderer:
 
     def render(self, question: str, *, situation: Any = None,
                terms: list | None = None, ceiling: str = "private",
-               depth: int = 2, limit: int = TOP_N) -> Rendered:
+               depth: int = 2, limit: int = TOP_N, control: Any = None) -> Rendered:
         """One turn's L1.
 
         `terms` defaults to the question's own words, which is the utterance-led
@@ -202,7 +217,7 @@ class L1Renderer:
         a, nodes = self.block_a(situation)
         b, facts, truncated, ms = self.block_b(
             terms if terms is not None else _terms(question),
-            ceiling=ceiling, depth=depth, limit=limit)
+            ceiling=ceiling, depth=depth, limit=limit, control=control)
         return Rendered(block_a=a, block_b=b, question=question,
                         selected=facts, truncated=truncated,
                         selection_ms=ms, index_nodes=nodes)
