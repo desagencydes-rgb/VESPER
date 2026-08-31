@@ -745,7 +745,7 @@ def main() -> int:
                  renderer=renderer, updater=updater, misses=misses,
                  chooser=chooser, sensors=sensors, autonomy=autonomy,
                  triage=triage, repairer=repairer, presence=presence,
-                 context_cmds=context_cmds)
+                 context_cmds=context_cmds, speech=speech)
             # THE PLUMBING USED TO COST MORE THAN THE MODEL. 0.5 s here plus
             # 0.7 s in the chrome's own timer is up to 1.2 s of pure polling
             # around a call that now returns in ~0.7 s -- the transport was the

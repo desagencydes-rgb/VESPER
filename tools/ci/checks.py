@@ -10640,6 +10640,20 @@ def check_speech_is_egress_and_says_so() -> Result:
     #    `presence.persons()` merely APPEARS in the file passes while the value
     #    is computed and thrown away -- which is what the red-run case does.
     #    What matters is that it reaches `plan()`.
+    #    EVERY pump() CALL SITE MUST PASS IT. There are two -- the one-shot
+    #    `--say` path and the main loop the daemon runs -- and only the first
+    #    got it when speech was wired. The one-shot spoke, the daemon did not,
+    #    and the owner heard silence from the VESPER that is actually running
+    #    while my test spoke perfectly. A wiring assertion that checks the
+    #    module is constructed is not the same as one that checks it ARRIVES.
+    calls = [m for m in re.finditer(r"(?<!def )\bpump\(", rt)]
+    passing = rt.count("speech=speech")
+    if len(calls) > passing:
+        r.err(f"{len(calls)} pump() call sites and only {passing} pass "
+              "speech=. The site that does not is silent, and if it is the "
+              "main loop then the running VESPER never speaks while a one-shot "
+              "test does.")
+
     plan_call = rt[rt.index("speech.plan("):] if "speech.plan(" in rt else ""
     plan_call = plan_call[:plan_call.index(")") + 1] if ")" in plan_call else ""
     if "persons=" not in plan_call:
