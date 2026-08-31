@@ -9547,6 +9547,173 @@ def check_tombstone_on_durable_write() -> Result:
     return r
 
 
+def check_documented_counts_match_commands() -> Result:
+    """The two numbers in CLAUDE.md have drifted SEVEN times. Make it a gate.
+
+    DELIBERATELY UNREGISTERED. This check runs and blocks nothing: there is no
+    ratified invariant it enforces. INV-PROC-1..3 cover the SR registry, ADRs
+    and write scope; "a figure a document quotes from a command must match that
+    command" is a new rule about documentation integrity, and adding an
+    invariant is a spec change that belongs to the owner. It follows the same
+    pattern as the redactor's check and the three from earlier in this session
+    -- it runs, it is honest about what it enforces, and it stays out of the
+    registry until its invariant exists. Registering it against an invented
+    INV-PROC-4 would be exactly the false trace `ci-registry` refuses.
+
+    CLAUDE.md's own opening line is "if a statement here contradicts a command's
+    output, the command wins and this file is stale". The check counts and the
+    self-test counts are quoted far more often than they are re-run, and every
+    correction so far has been made by a human noticing -- never by anything
+    failing. Four of the seven were found by someone reading the file rather
+    than by the file being wrong in a way that broke something, which is the
+    whole argument: a number nobody acts on is a number nobody re-reads.
+
+    SO THE FIX IS NOT ANOTHER CORRECTION. It is to give the numbers a consumer.
+    A figure a gate reads is a figure that cannot quietly rot, and this is the
+    same move `INV-HW-2` makes for throughput: stop declaring, start measuring.
+
+    IT COUNTS RATHER THAN RUNS. Invoking `checks.py all` from inside a check
+    would recurse; invoking the self-test would take minutes and mutate the
+    tree. Both counts are derived from the same structures the runners derive
+    them from -- the runnable registry here, and `CASES` there -- so the check
+    is fast and cannot deadlock on itself.
+    """
+    r = Result("documented-counts-match-commands")
+
+    runnable = len(CHECK_FNS)
+
+    # FOUR LISTS, NOT ONE, and the first version of this check counted only
+    # `CASES` -- reporting 311 where the runner prints 333. The harness also
+    # executes CREATE_CASES, SCENARIO_CASES and LINT_CASES, so the total is
+    # their sum. Importing the module is the only honest way to count any of
+    # them: `CASES` is built by ~38 successive `+=` blocks, and a regex over
+    # the source would count list literals rather than cases.
+    import importlib.util as _il                 # local, as elsewhere in this file
+    st_path = REPO / "tools" / "ci" / "self_test.py"
+    spec = _il.spec_from_file_location("_vesper_self_test", st_path)
+    if spec is None or spec.loader is None:
+        r.err("tools/ci/self_test.py could not be loaded to count its cases")
+        return r
+    mod = _il.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"tools/ci/self_test.py did not import: {exc!r}")
+        return r
+    case_lists = ("CASES", "CREATE_CASES", "SCENARIO_CASES", "LINT_CASES")
+    missing = [n for n in case_lists if not hasattr(mod, n)]
+    if missing:
+        r.err(f"self_test.py no longer defines {missing}; the case total would "
+              "be undercounted silently, which is exactly the drift this check "
+              "exists to stop")
+    cases = sum(len(getattr(mod, n, ())) for n in case_lists)
+
+    registry = _load(CHECKS).get("checks", {})
+    implemented = [c for c in registry.values() if c.get("impl") != "PENDING"]
+    pending = len(registry) - len(implemented)
+
+    # THE ENFORCED-INVARIANT FIGURE IS TAKEN FROM `ci-registry` ITSELF rather
+    # than recomputed here. That number is the output of a real analysis --
+    # implemented, bidirectionally consistent, red-run, non-vacuous -- and a
+    # second implementation of it would be a second opinion that could drift
+    # from the first, which is the defect this whole check is about.
+    enforced = None
+    try:
+        reg_note = " ".join(CHECK_FNS["ci-registry"]().notes)
+        m = re.search(r"ENFORCED TODAY:\s*(\d+)/(\d+)", reg_note)
+        if m:
+            enforced = (int(m.group(1)), int(m.group(2)))
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"ci-registry could not be consulted for the enforced figure: {exc!r}")
+
+    docs = {
+        "CLAUDE.md": REPO / "CLAUDE.md",
+        "VESPER_ENGINEERING_STATUS.md": REPO / "VESPER_ENGINEERING_STATUS.md",
+    }
+    # The exact strings each document uses to quote a figure. Anchored on the
+    # COMMAND that produces it, so a document quoting the number somewhere else
+    # in prose is not policed -- only the place that claims to report a run.
+    patterns = (
+        (r"tools/ci/checks\.py all\s*#\s*(\d+)\s*checks", runnable, "runnable checks"),
+        (r"tools/ci/self_test\.py\s*#\s*red-then-green,\s*(\d+)\s*cases", cases, "self-test cases"),
+        (r"tools/ci/checks\.py all\s+PASS\s+(\d+)/\d+\s+runnable checks", runnable, "runnable checks"),
+        (r"tools/ci/self_test\.py\s+PASS\s+(\d+)/\d+", cases, "self-test cases"),
+        (r"tools/ci/checks\.py status\s+(\d+)/(\d+) check IDs implemented, (\d+) PENDING",
+         (len(implemented), len(registry), pending),
+         "registry implemented/total/pending"),
+        (r"\*\*(\d+) of (\d+) CI checks unimplemented\*\*", (pending, len(registry)),
+         "unimplemented CI checks"),
+        (r"tools/ci/checks\.py ci-registry\s+ENFORCED TODAY: (\d+)/(\d+) invariants",
+         enforced, "invariants enforced"),
+    )
+
+    seen = 0
+    hits_per_pattern = {pat: 0 for pat, _, _ in patterns}
+    for label, path in docs.items():
+        if not path.exists():
+            r.err(f"{label} does not exist")
+            continue
+        text = path.read_text(encoding="utf-8")
+        for pat, expected, what in patterns:
+            if expected is None:
+                continue
+            for m in re.finditer(pat, text):
+                seen += 1
+                hits_per_pattern[pat] += 1
+                got = (tuple(int(g) for g in m.groups())
+                       if isinstance(expected, tuple) else int(m.group(1)))
+                if got != expected:
+                    r.err(f"{label} reports {got} {what}; the command produces "
+                          f"{expected}. CLAUDE.md's own first rule is that the "
+                          "command wins -- this is the eighth time this pair "
+                          "has drifted, and the first time anything could fail "
+                          "because of it.")
+
+    # EVERY PATTERN MUST FIND SOMETHING -- but that alone is not enough, and
+    # working out why took two attempts. A total-count threshold was too weak
+    # (dropping one pattern took the total from 5 to 4 and a `< 4` guard stayed
+    # green). Asserting each pattern individually is ALSO too weak, because the
+    # loop iterates over `patterns`: deleting an entry deletes its own guard.
+    for pat, _, what in patterns:
+        if not hits_per_pattern[pat]:
+            r.err(f"the pattern for {what} matched nothing in {list(docs)}. "
+                  "Either a document stopped quoting it in the form anchored on "
+                  "its command, or the pattern was removed.")
+
+    # SO THE REQUIREMENT IS DERIVED FROM THE DOCUMENTS, NOT FROM THE PATTERN
+    # LIST. Any line in either document that quotes one of these commands WITH
+    # A NUMBER must be covered by some pattern. Delete a pattern and the line it
+    # used to cover becomes uncovered, which fails here -- the guard cannot be
+    # removed by removing the thing it guards. That is the same blindness that
+    # let these figures drift for seven sessions: the only checks that survive
+    # are the ones whose subject is the artifact rather than the checker.
+    quoting = re.compile(r"tools/ci/(?:checks|self_test)\.py.*?\d")
+    for label, path in docs.items():
+        if not path.exists():
+            continue
+        for ln in path.read_text(encoding="utf-8").splitlines():
+            if not quoting.search(ln):
+                continue
+            # THE PHASE TABLE IS A DATED MILESTONE LOG, not a live reading. "47
+            # red runs" was true at Phase 3c and is supposed to stay written as
+            # it was -- rewriting history to match today's count would destroy
+            # the only record of what the corpus looked like then. Exempted
+            # explicitly rather than by weakening the pattern, so the exemption
+            # is visible and narrow.
+            if ln.lstrip().startswith("| **Phase "):
+                continue
+            if not any(re.search(pat, ln) for pat, _, _ in patterns):
+                r.err(f"{label} quotes a command figure that NO pattern covers: "
+                      f"{ln.strip()[:100]!r}. An uncovered figure is one that "
+                      "can go stale silently, which is the whole defect.")
+
+    r.note(f"{seen} documented figures across {len(docs)} documents match their "
+           f"commands: {runnable} runnable checks, {cases} self-test cases, "
+           f"{len(implemented)}/{len(registry)} registry entries implemented "
+           f"with {len(registry) - len(implemented)} PENDING")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -9620,6 +9787,7 @@ CHECK_FNS = {
     "predicate-totality": check_predicate_totality,
     "telemetry-sensitivity-enforced": check_telemetry_sensitivity_enforced,
     "tombstone-on-durable-write": check_tombstone_on_durable_write,
+    "documented-counts-match-commands": check_documented_counts_match_commands,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

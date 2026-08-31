@@ -64,8 +64,8 @@ renders it.
 had. Use `python3.13` (`~/.local/bin/python3.13`). Verified 2026-08-23.
 
 ```sh
-python3.13 tools/ci/checks.py all       # 70 checks
-python3.13 tools/ci/self_test.py        # red-then-green, 295 cases
+python3.13 tools/ci/checks.py all       # 78 checks
+python3.13 tools/ci/self_test.py        # red-then-green, 337 cases
 python3.13 tools/traceability_lint.py
 python3.13 tools/reference_lint.py
 python3.13 verification/run_f0_acceptance.py   # ... f1 .. f6
@@ -73,8 +73,18 @@ python3.13 verification/stress_placement.py    # 160k property assertions
 python3.13 verification/stress_fabric.py        # 180k property assertions
 ```
 
-**Corrected 2026-08-31:** they read 57 and 223 while the commands printed 70
-and 295. **Sixth drift, and the largest.** Thirteen checks landed overnight in
+**Corrected 2026-08-31, AND THEN GIVEN A GATE.** They read 57 and 223 while
+the commands printed 78 and 333. **Seventh drift, and the last one that can
+happen quietly:** `CI-089` now reads both figures out of this file and out of
+`VESPER_ENGINEERING_STATUS.md` and compares them to what the commands produce,
+so a stale number is a red gate rather than something a reader has to notice.
+
+That is the actual fix, and it took seven corrections to see it. Every previous
+one was made by a human reading the file; four of the seven were found that way
+rather than by anything breaking. A number nobody acts on is a number nobody
+re-reads -- so the answer was never a more careful correction, it was to give
+the numbers a CONSUMER. Same move `INV-HW-2` makes for throughput: stop
+declaring, start measuring. **Sixth drift, and the largest.** Thirteen checks landed overnight in
 two groups that are worth telling apart, because they say different things about
 where this corpus loses ground.
 

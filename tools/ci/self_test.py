@@ -993,6 +993,7 @@ TASKS_PY = "core/tasks.py"
 AUTON_PY = "core/autonomy.py"
 TELEM_PY = "core/telemetry.py"
 FORGET_PY = "core/forgetter.py"
+CHECKS_PY = "tools/ci/checks.py"
 COST_PY = "core/cost.py"
 EXEC_PY = "core/executor.py"
 CAP_PY = "core/capability.py"
@@ -2866,6 +2867,38 @@ CASES += [
      _sub("        if actor not in MODE_ACTOR[ERASE]:", "        if False:", 1),
      "any actor may erase: an unattended process can destroy content, and a "
      "wrong erasure leaves nothing behind to show it was wrong"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-089
+    ("documented-counts-match-commands", "CLAUDE.md",
+     _sub("python3.13 tools/ci/checks.py all       # 78 checks",
+          "python3.13 tools/ci/checks.py all       # 57 checks", 1),
+     "CLAUDE.md's check count goes stale again -- the eighth drift, and the "
+     "first one a gate can see"),
+
+    ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
+     _sub("tools/ci/self_test.py                         PASS   337/337",
+          "tools/ci/self_test.py                         PASS   295/295", 1),
+     "the status table's self-test count goes stale: it had been four sessions "
+     "wrong before this gate existed"),
+
+    ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
+     _sub("tools/ci/checks.py status                            68/89 check IDs implemented, 21 PENDING",
+          "tools/ci/checks.py status                            61/89 check IDs implemented, 28 PENDING", 1),
+     "the PENDING count goes stale -- the figure that matters most, because a "
+     "PENDING entry looks exactly like enforcement in any listing that does "
+     "not read the impl field"),
+
+    ("documented-counts-match-commands", CHECKS_PY,
+     _sub('        (r"tools/ci/self_test\\.py\\s*#\\s*red-then-green,\\s*(\\d+)\\s*cases", cases, "self-test cases"),\n',
+          "", 1),
+     "one of the anchored patterns is dropped, so that figure silently stops "
+     "being checked. Caught because the requirement is derived from the "
+     "DOCUMENTS, not from the pattern list: the line it used to cover is now "
+     "uncovered. A per-pattern guard could not see this -- deleting an entry "
+     "deletes its own guard"),
 ]
 
 
