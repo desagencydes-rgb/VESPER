@@ -211,3 +211,73 @@ essentially VESPER's shape, including the phone bridge the J3 is meant to be.
 Two of five are architectural wins we already had. One is an exact match and is
 the most valuable single thing to fix from this whole investigation, because it
 is a documented real-world failure of the nearest comparable system.
+
+---
+
+## TRIAGE OF THE REST (honest, rather than a section per name)
+
+- **Kimi** — Kimi Code CLI (Jan 2026), K2.6/K2.7 open weights (Modified MIT),
+  self-hostable. One harness idea worth the name: a **"swarm supervisor" wired in
+  by default**, i.e. multi-agent orchestration as the default posture rather
+  than an opt-in. Model weights matter to VESPER's supplier table, not its
+  harness.
+- **Grok** — has a CLI; nothing found that is a harness idea we do not already
+  have from Codex/Claude Code. Revisit if a specific claim surfaces.
+- **Hermes, Venice** — these are MODELS / inference providers, not agent
+  harnesses. There is no harness feature to take. Venice is interesting for a
+  different and narrower reason: privacy-positioned inference, which touches
+  VESPER's `E1_PRIVATE` supplier story, not its tooling.
+- **Gemini** — DEFERRED BY THE OWNER to the research phase. Note kept: Gemini CLI
+  is Apache-2.0 and its research/grounding behaviour is the thing to study when
+  we build VESPER's research capability.
+
+---
+
+## PROBE: can a poisoned memory steer an ACTION? (2026-09-01)
+
+Asked because OpenClaw's documented memory-poisoning risk is about changing
+BEHAVIOUR, and VESPER only started acting yesterday.
+
+`core/intent.py` references neither memory nor persona. `propose(text)` takes
+the raw utterance and nothing else, and the runtime calls
+`actor.maybe_act(intake.history[-1].text)`.
+
+**So memory reaches the ANSWER path and not the ACT path.** A poisoned fact can
+make VESPER say something wrong; it cannot make VESPER do something.
+
+This is real isolation and it was ACCIDENTAL -- I wrote the proposer that way
+for simplicity, not for this reason. It should be made deliberate and GATED,
+because the obvious future "improvement" is to give the proposer context so it
+proposes better actions, and that change would silently connect an
+attacker-influenceable store to the thing that runs commands.
+
+---
+
+## WHAT TO ACTUALLY BUILD, RANKED
+
+Ranked by the owner's own criterion -- reduce the chance of blowing a project --
+then by cost. All are Python-only unless marked.
+
+1. **Shadow-git checkpoint + undo** (from Cline). Commit every file-touching
+   action to a shadow repo; restore files, or the turn, or both. Nothing else on
+   this list buys as much safety per line.
+2. **Read-before-write, enforced** (from Claude Code). Refuse `fs.write` on an
+   existing file this turn has not read. Closes the probe above.
+3. **`fs.edit` — surgical old→new, unique-match-or-fail** (Claude Code / Codex
+   apply-patch). Removes whole-file replacement as the default way to change a
+   file.
+4. **Seatbelt containment for `shell.run`** (from Codex). `sandbox-exec` is
+   present and proven on this machine. Classification stops being the only
+   defence.
+5. **Credentials into the macOS Keychain** (from OpenClaw's real compromise).
+   Our plaintext `secrets.env` is the one exact match to a documented failure.
+6. **Negative examples in `LevelRule`, validated at registration** (from Codex
+   execpolicy `not_match`). Our own doctrine, not yet applied to level rules.
+7. **Capability policy into `contracts/policy/`** (from Claude Code hooks). The
+   owner cannot currently constrain VESPER without editing Python.
+8. **Gate the memory/act isolation** so it cannot be "improved" away.
+9. **Repo map** (from Aider) — tree-sitter + PageRank. Answers the handwritten
+   navigation requirement. Costs the stdlib-only rule; a real decision.
+10. **MCP client** — one protocol instead of bespoke code per integration.
+    Biggest multiplier for calendar/notes/messages, but it is surface area, so
+    it comes after containment.
