@@ -988,6 +988,7 @@ BUS_PY = "core/bus.py"
 GW_PY = "core/gateway.py"
 SELFMOD_PY = "core/selfmod.py"
 PLACE_PY = "core/placement.py"
+STORE_PY = "core/store.py"
 COST_PY = "core/cost.py"
 EXEC_PY = "core/executor.py"
 CAP_PY = "core/capability.py"
@@ -2666,6 +2667,44 @@ CASES += [
      "the gain threshold stops coming from the tunables artifact and is zero: "
      "the code still reads as though it damps, and A-048.3's control can no "
      "longer be built without editing the module"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-009
+    ("leased-write-epoch", STORE_PY,
+     _sub("                   WHERE domain_state.written_by_epoch <= excluded.written_by_epoch\"\"\"",
+          '                   \"\"\"', 1),
+     "the fencing predicate is dropped from the upsert: every stale write "
+     "lands, and a returning ex-owner overwrites the current holder's state "
+     "with decisions made before it lost the lease"),
+
+    ("leased-write-epoch", STORE_PY,
+     _sub("                new_epoch = int(row[0]) + 1", "                new_epoch = int(row[0])", 1),
+     "the epoch stops advancing on a claim, so the fencing token is reusable "
+     "and an ex-owner's writes pass the fence with a number that looks current"),
+
+    ("leased-write-epoch", STORE_PY,
+     _sub("            if cur.rowcount == 0:", "            if False:", 1),
+     "a refused write returns silently instead of raising: the stale writer "
+     "believes it succeeded and its next decision is built on that belief -- "
+     "worse than a rejection, because nothing anywhere records the divergence"),
+
+    ("leased-write-epoch", STORE_PY,
+     _sub("    def put_state(self, domain: str, key: str, body: dict, *,\n"
+          "                  lease_epoch: int, at: HLC) -> None:",
+          "    def put_state(self, domain: str, key: str, body: dict, *,\n"
+          "                  lease_epoch: int = 0, at: HLC = None) -> None:", 1),
+     "lease_epoch gains a default, so a caller that forgets it writes anyway "
+     "and fences against a number nobody chose"),
+
+    ("leased-write-epoch", STORE_PY,
+     _sub("        if domain not in DOMAINS:\n"
+          "            raise ValueError(f\"unknown domain {domain!r}\")\n"
+          "        payload = json.dumps(body, sort_keys=True)",
+          "        payload = json.dumps(body, sort_keys=True)", 1),
+     "an unknown domain is accepted, so a typo creates a domain nobody leases "
+     "and nothing fences -- fenced-looking writes to an unfenced place"),
 ]
 
 

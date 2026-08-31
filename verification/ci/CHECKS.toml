@@ -146,10 +146,43 @@ note = "Was PENDING on the ground that it needs git history. It does not. INV-AD
 [checks.CI-009]
 name = "leased-write-epoch"
 enforces = ["INV-OWN-3"]
-kind = "structural"
-impl = "PENDING"
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py leased-write-epoch"
 blocking = "pr"
-self_test = "Write to a leased domain without passing a lease_epoch."
+self_test = """Drop the fencing predicate from the upsert; stop advancing the
+epoch on a claim; return silently instead of raising on a refused write; give
+lease_epoch a default; accept an unknown domain."""
+self_test_evidence = """tools/ci/self_test.py leased-write-epoch
+-- 5 cases, red then green, 2026-08-31."""
+subject = "core/store.py"
+note = """DECLARED WITH THE REGISTRY AND IMPLEMENTED 2026-08-31. The fencing
+primitive was written and correct; nothing gated it.
+
+INV-OWN-3's last clause is the whole invariant: stale-epoch writes are rejected
+AT THE STORAGE LAYER. A check in application code is one a second writer can
+skip by not calling it, and a returning ex-owner is exactly the writer who will
+not call it."""
+discriminators = """THE GUARD AND THE WRITE ARE ONE STATEMENT, and this is the
+assertion no behavioural fixture can make. A read-then-write passes every
+single-threaded test and loses the race under contention -- SPIKE-008's control
+build MEASURED 119-3175 stale writes slipping through that window depending on
+machine speed. So the check reads the source and requires the epoch comparison
+to sit inside the upsert, then hammers it with 800 concurrent stale writes
+across four threads as corroboration. The concurrency half is corroboration and
+not proof: a race that does not reproduce proves nothing, which is why the
+structural assertion carries the weight.
+
+A REFUSED WRITE RAISES RATHER THAN RETURNING QUIETLY. A silently dropped write
+is worse than a rejected one: the ex-owner believes it succeeded, its next
+decision is built on that belief, and nothing anywhere records the divergence.
+
+AN UNFENCED WRITE IS NOT EXPRESSIBLE. lease_epoch is keyword-only with no
+default, so forgetting it is a TypeError at the call site rather than a write
+that fences against a number nobody chose -- the same discipline as
+CapabilityRegistry refusing a constant level at registration.
+
+AND THE EPOCH IS MONOTONIC BECAUSE IT IS THE TOKEN. One that is reused lets a
+returning ex-owner through with a number that looks current."""
 
 [checks.CI-010]
 name = "task-transition-table"

@@ -8740,6 +8740,156 @@ def check_placement_not_pinned() -> Result:
     return r
 
 
+def check_leased_write_epoch() -> Result:
+    """CI-009, declared with the registry and never implemented until now.
+
+    INV-OWN-3: every write to a leased domain carries a `lease_epoch`, and
+    stale-epoch writes are REJECTED AT THE STORAGE LAYER. The last clause is the
+    whole invariant. A check in application code is a check a second writer can
+    skip by not calling it, and a returning ex-owner is exactly the writer who
+    will not.
+
+    THE GUARD AND THE WRITE ARE ONE STATEMENT, and `core/store.py` says why: a
+    read-then-write leaves a window between the check and the write in which a
+    competing writer takes the lease, and SPIKE-008's control build MEASURED
+    119-3175 stale writes slipping through that window depending on machine
+    speed. So the assertion here is not only that a stale write is refused --
+    it is that the refusal and the write are the same SQL statement, which no
+    behavioural fixture on one thread can distinguish from a lucky read-check.
+
+    THE EPOCH IS MONOTONIC AND NEVER REUSED, because it is the fencing token: a
+    reused token lets a returning ex-owner's writes pass the fence with a number
+    that looks current.
+    """
+    r = Result("leased-write-epoch")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile
+    import threading as _th
+    try:
+        from core.hlc import HybridLogicalClock
+        from core.store import DOMAINS, StaleEpochWrite, StoreSet
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.store did not import: {exc!r}")
+        return r
+
+    store = StoreSet(Path(tempfile.mkdtemp()), node_id="ci")
+    clock = HybridLogicalClock("ci")
+    domain = DOMAINS[0]
+
+    # 1. CLAIMING BUMPS THE EPOCH, MONOTONICALLY. The epoch IS the fencing
+    #    token; one that is reused lets a returning ex-owner through with a
+    #    number that looks current.
+    e1 = store.claim_domain(domain, "node-a", clock.now())
+    e2 = store.claim_domain(domain, "node-b", clock.now())
+    if not e2 > e1:
+        r.err(f"claiming did not advance the epoch ({e1} -> {e2}): the fencing "
+              "token is reusable, so an ex-owner's writes pass the fence")
+
+    # 2. THE CURRENT HOLDER WRITES -- or every refusal below is a store that
+    #    refuses everything.
+    store.put_state(domain, "k", {"v": 1}, lease_epoch=e2, at=clock.now())
+    if (store.get_state(domain, "k") or {}).get("v") != 1:
+        r.err("a write under the current epoch did not land")
+
+    # 3. THE STALE WRITER IS REFUSED, AND REFUSED BY RAISING. A silently
+    #    dropped write is worse than a rejected one: the ex-owner believes it
+    #    succeeded and its next decision is built on that belief.
+    try:
+        store.put_state(domain, "k", {"v": 2}, lease_epoch=e1, at=clock.now())
+        r.err(f"a write at the stale epoch {e1} was accepted while the domain "
+              f"is at {e2}. This is the fence, and A-034 is the test it exists "
+              "for.")
+    except StaleEpochWrite:
+        pass
+    if (store.get_state(domain, "k") or {}).get("v") != 1:
+        r.err("the stale write changed the stored value even though it raised: "
+              "the refusal is reported after the damage")
+
+    # 4. AND A WRITE WITHOUT AN EPOCH IS NOT EXPRESSIBLE. `lease_epoch` is
+    #    keyword-only and has no default, so "forgot to pass it" is a TypeError
+    #    at the call site rather than a write that fences against nothing.
+    import inspect
+    sig = inspect.signature(store.put_state)
+    prm = sig.parameters.get("lease_epoch")
+    if prm is None:
+        r.err("put_state takes no lease_epoch, so a leased write carries no "
+              "fencing token at all")
+    else:
+        if prm.default is not inspect.Parameter.empty:
+            r.err(f"lease_epoch defaults to {prm.default!r}. A default means a "
+                  "caller that forgets it writes anyway, fencing against a "
+                  "number nobody chose -- the failure INV-OWN-3 exists to stop.")
+        if prm.kind is not inspect.Parameter.KEYWORD_ONLY:
+            r.err("lease_epoch is positional, so it can be supplied by accident "
+                  "from the wrong argument")
+
+    # 5. THE GUARD AND THE WRITE ARE ONE STATEMENT. This is the assertion that
+    #    behaviour cannot make: a read-then-write passes every single-threaded
+    #    fixture above and loses the race under contention -- measured at
+    #    119-3175 stale writes in SPIKE-008's control build.
+    src = (REPO / "core" / "store.py").read_text(encoding="utf-8")
+    body = src[src.index("    def put_state("):]
+    body = body[:body.index("\n    def ", 1)]
+    if "written_by_epoch <= excluded.written_by_epoch" not in body:
+        r.err("the epoch comparison is not inside put_state's write statement. "
+              "A read-then-write leaves a window between the check and the "
+              "write; SPIKE-008's control build measured 119-3175 stale writes "
+              "slipping through it depending on machine speed.")
+    guard = body.find("WHERE domain_state.written_by_epoch")
+    write = body.find("ON CONFLICT")
+    if guard < 0 or write < 0 or guard < write:
+        r.err("the fencing predicate is not part of the upsert that performs "
+              "the write")
+
+    # 6. AND IT HOLDS UNDER CONTENTION. Not proof of atomicity -- a race that
+    #    does not reproduce proves nothing -- but a stale writer hammering
+    #    concurrently must never land a value.
+    stale_landed: list = []
+
+    def hammer() -> None:
+        for _ in range(200):
+            try:
+                store.put_state(domain, "k", {"v": 99}, lease_epoch=e1,
+                                at=clock.now())
+                stale_landed.append(1)
+            except StaleEpochWrite:
+                pass
+            except Exception:                      # noqa: BLE001
+                pass
+
+    ts = [_th.Thread(target=hammer) for _ in range(4)]
+    for t in ts:
+        t.start()
+    for _ in range(200):
+        store.put_state(domain, "k", {"v": 1}, lease_epoch=e2, at=clock.now())
+    for t in ts:
+        t.join()
+    if stale_landed:
+        r.err(f"{len(stale_landed)} stale writes were accepted under contention")
+    if (store.get_state(domain, "k") or {}).get("v") != 1:
+        r.err("the stored value came from the stale writer after contention")
+
+    # 7. AN UNKNOWN DOMAIN IS REFUSED, so a typo does not create an unfenced
+    #    one on first write.
+    try:
+        store.put_state("not_a_domain", "k", {"v": 1}, lease_epoch=e2,
+                        at=clock.now())
+        r.err("a write to an unknown domain was accepted, creating a domain "
+              "nobody leases and nothing fences")
+    except ValueError:
+        pass
+
+    r.note(f"the epoch advances on every claim and a stale one is refused by "
+           f"raising, leaving the stored value untouched; lease_epoch is "
+           f"keyword-only with no default, so an unfenced write is not "
+           f"expressible; the epoch comparison is INSIDE the upsert rather than "
+           f"a read-then-write, which is the part no single-threaded fixture "
+           f"can see; 800 concurrent stale writes across 4 threads all refused; "
+           f"and an unknown domain is refused across {list(DOMAINS)}")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -8808,6 +8958,7 @@ CHECK_FNS = {
     "gateway-choke-point": check_gateway_choke_point,
     "no-runtime-governed-write": check_no_runtime_governed_write,
     "placement-not-pinned": check_placement_not_pinned,
+    "leased-write-epoch": check_leased_write_epoch,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,
