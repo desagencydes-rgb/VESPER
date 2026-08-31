@@ -987,6 +987,7 @@ TAINT_PY = "core/taint.py"
 BUS_PY = "core/bus.py"
 GW_PY = "core/gateway.py"
 SELFMOD_PY = "core/selfmod.py"
+PLACE_PY = "core/placement.py"
 COST_PY = "core/cost.py"
 EXEC_PY = "core/executor.py"
 CAP_PY = "core/capability.py"
@@ -2626,6 +2627,45 @@ CASES += [
      "the audit record drops the level that was CLAIMED, so an attempt at L5 "
      "reads identically to one at L1 -- and the parameter that exists only to "
      "be recorded is now ignored AND unrecorded"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-045
+    ("placement-not-pinned", PLACE_PY,
+     _sub("        best = max(hosts.values(), key=lambda p: p.score())",
+          '        best = hosts.get("alpha") or max(hosts.values(), key=lambda p: p.score())', 1),
+     "placement follows a node IDENTITY rather than a score, so a new node "
+     "cannot win on merit however good it is -- and a two-node fixture that "
+     "never swaps the names would not notice"),
+
+    ("placement-not-pinned", PLACE_PY,
+     _sub("            needed = cur.scalar_score() * (1.0 + self.relocation_gain)",
+          "            needed = 0.0", 1),
+     "the relocation gain threshold is removed: VESPER flaps between comparable "
+     "nodes because migration is treated as free, which is A-048.3's negative "
+     "control"),
+
+    ("placement-not-pinned", PLACE_PY,
+     _sub("            if hysteresis.since_last_move_s < self.min_dwell_s:",
+          "            if False:", 1),
+     "the minimum dwell disappears, so two comparable nodes can trade the host "
+     "back and forth as fast as the loop runs"),
+
+    ("placement-not-pinned", PLACE_PY,
+     _sub("        forced = (cur is None or not cur.reachable or cur.degraded\n"
+          "                  or not is_full_host(cur))",
+          "        forced = cur is None", 1),
+     "an unreachable or degraded current host no longer bypasses damping, so "
+     "VESPER politely stays on a dead node for the rest of the dwell window -- "
+     "the damping rule turned against the case it was never meant to cover"),
+
+    ("placement-not-pinned", PLACE_PY,
+     _sub('        gain = float(t["relocation_gain_threshold"]["default"])',
+          "        gain = 0.0", 1),
+     "the gain threshold stops coming from the tunables artifact and is zero: "
+     "the code still reads as though it damps, and A-048.3's control can no "
+     "longer be built without editing the module"),
 ]
 
 

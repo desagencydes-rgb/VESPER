@@ -751,11 +751,52 @@ self_test = "Write a telemetry record containing a secret through the ordinary w
 [checks.CI-045]
 name = "placement-not-pinned"
 enforces = ["INV-PLACE-1", "INV-PLACE-2"]
-kind = "structural"
-impl = "PENDING"
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py placement-not-pinned"
 blocking = "pr"
-self_test = "Add a code path selecting a host by node identity rather than through DF-PLACE; or remove the hysteresis terms and observe A-048.3 flap."
-note = "Declared by REM-014 CI-enforcement section and MISSING from this registry until 2026-08-12 -- a check a specification relied on that no gate would ever have run. Remains PENDING until the placement module exists."
+self_test = """Select the host by node id rather than by score; remove the
+relocation gain threshold; remove the minimum dwell; stop degradation and
+unreachability from bypassing damping; take the gain from a literal instead of
+the tunables artifact."""
+self_test_evidence = """tools/ci/self_test.py placement-not-pinned
+-- 5 cases, red then green, 2026-08-31."""
+subject = "core/placement.py"
+note = """Declared by REM-014's CI-enforcement section and MISSING from this
+registry until 2026-08-12 -- a check a specification relied on that no gate
+would ever have run. It then read "Remains PENDING until the placement module
+exists".
+
+IMPLEMENTED 2026-08-31, because that condition had been met and nobody re-read
+the note. core/placement.py exists and verification/stress_placement.py runs
+160,000 property assertions against it. This is the same failure mode as the
+drifting counts in CLAUDE.md: a line nobody acts on is a line nobody re-reads,
+and a PENDING held on a satisfied precondition looks exactly like a PENDING held
+on an unsatisfied one."""
+discriminators = """THE NODE IDS ARE SWAPPED AND THE ANSWER MUST FLIP. A module
+that special-cased an identity satisfies "the better node wins" on any single
+fixture; only running the same comparison with the ids exchanged separates
+selection-by-score from selection-by-name. That is INV-PLACE-1's structural
+half -- a new node joins the fabric and wins placement on merit -- and it is
+checked in the source too: no node name may appear in the module's code
+(INV-HW-1: write the profile, never the device).
+
+INV-PLACE-2 HAS TWO HALVES THAT PULL OPPOSITE WAYS. Dwell and gain stop flapping
+between comparable nodes; degradation or loss of the current host must bypass
+both. Testing only the first yields a system that politely stays on a dead node
+for the rest of the dwell window -- so an unreachable host AND a degraded host
+are each asserted to relocate immediately.
+
+THE FIXTURE ASSERTS THAT IT IS WHAT IT CLAIMS. The first version used Z2 nodes,
+which are neither host nor survival host (A-048.9), so every decision went down
+the SURVIVAL branch and the check reported on a code path it was not written
+for. `is_full_host` is now asserted on the fixture before anything else, and the
+check returns early if it fails rather than producing confident findings about
+the wrong function.
+
+AND THE THRESHOLDS COME FROM THE TUNABLES ARTIFACT, asserted against a default
+Placement -- a literal in the module would leave the code reading as though it
+damps while A-048.3's negative control could no longer be built without editing
+it."""
 
 [checks.CI-046]
 name = "tunable-range-immutable"

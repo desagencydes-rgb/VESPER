@@ -748,6 +748,7 @@ ic = ["IC-004", "IC-007"]
 contracts = ["contracts/entities/node_capability_profile.schema.json", "contracts/entities/checkpoint.schema.json"]
 state_machines = ["SM-DEVICE"]
 decision_functions = ["DF-PLACE", "DF-SURVIVAL-PROFILE"]
+ci = ["CI-045"]
 invariants = ["INV-PLACE-1", "INV-PLACE-2", "INV-PLACE-3", "INV-TRUST-2"]
 tests = ["A-017", "A-048"]
 status = "SPECIFIED"

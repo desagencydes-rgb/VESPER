@@ -8580,6 +8580,166 @@ def check_no_runtime_governed_write() -> Result:
     return r
 
 
+def check_placement_not_pinned() -> Result:
+    """CI-045, held PENDING on a condition that has since been met.
+
+    Its registry note read "Remains PENDING until the placement module exists"
+    -- and `core/placement.py` exists, with `verification/stress_placement.py`
+    running 160,000 property assertions against it. The precondition was
+    satisfied and nobody re-read the note, which is the same failure mode as the
+    drifting counts in CLAUDE.md: a line nobody acts on is a line nobody
+    re-reads. The note itself records that this check was declared by REM-014's
+    CI-enforcement section and was MISSING from the registry until 2026-08-12 --
+    a check a specification relied on that no gate would ever have run.
+
+    INV-PLACE-1: VESPER IS NOT PINNED TO ANY NODE. The structural half is that
+    no code path selects a host by node IDENTITY: selection is by score over
+    profiles, so a new node joins the fabric and wins placement on merit. A
+    module that special-cased a node id would satisfy every behavioural fixture
+    on a two-node fabric and violate the invariant the moment a third appeared.
+
+    INV-PLACE-2: RELOCATION IS DAMPED, AND THE DAMPING IS BYPASSED WHEN THE
+    CURRENT HOST IS LOST. Both halves matter and they pull opposite ways: dwell
+    and gain thresholds stop flapping between comparable nodes, and a degraded
+    or unreachable host must not be held onto by a timer. Testing only the first
+    yields a system that politely stays on a dead node for ten minutes.
+    """
+    r = Result("placement-not-pinned")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.placement import (Hysteresis, Keep, NodeProfile, Placement,
+                                    Relocate)
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.placement did not import: {exc!r}")
+        return r
+
+    def node(nid: str, ram: float, tps: float, **kw: Any) -> NodeProfile:
+        # Z1, NOT Z2. `is_full_host` requires a HOST_ZONES trust zone AND an
+        # availability class outside NON_CONTINUITY_CLASSES -- a Z2 node is
+        # neither host nor survival host (A-048.9), so a Z2 fixture sends every
+        # decision down the survival branch and every assertion below would be
+        # about a code path it was not written for.
+        d = dict(node_id=nid, trust_zone="Z1", availability_class="always_on",
+                 ram_gb=ram, storage_gb=500.0, accelerator="none",
+                 accelerator_memory_gb=0.0, network_class="lan",
+                 sustained_tokens_per_sec=tps, measured=True,
+                 survival_capable=True, reachable=True, degraded=False)
+        d.update(kw)
+        return NodeProfile(**d)
+
+    small, big = node("alpha", 16.0, 20.0), node("beta", 64.0, 90.0)
+    p = Placement()
+
+    # 0. THE FIXTURE IS WHAT IT CLAIMS TO BE. Without this, a profile that
+    #    fails `is_full_host` sends every decision below into the survival
+    #    branch, and the check reports on a path it was not written for --
+    #    which is exactly what the first version of this fixture did.
+    from core.placement import is_full_host
+    if not (is_full_host(small) and is_full_host(big)):
+        r.err("the fixture nodes are not full hosts, so every assertion below "
+              "exercises the survival branch instead of the placement one")
+        return r
+
+    # 1. THE BETTER NODE WINS FROM A STANDING START, whatever it is called.
+    d = p.decide(reachable={"alpha": small, "beta": big}, current="alpha",
+                 hysteresis=Hysteresis(since_last_move_s=10_000))
+    if not isinstance(d, Relocate) or d.target != "beta":
+        r.err(f"a materially better host did not win placement: {d}")
+
+    # 2. AND THE RESULT DOES NOT DEPEND ON THE NAMES. Renaming the nodes and
+    #    swapping which id holds which profile must flip the answer -- a module
+    #    that special-cased an identity passes assertion 1 and fails this.
+    lo, hi = node("beta", 16.0, 20.0), node("alpha", 64.0, 90.0)
+    d2 = p.decide(reachable={"beta": lo, "alpha": hi}, current="beta",
+                  hysteresis=Hysteresis(since_last_move_s=10_000))
+    if not isinstance(d2, Relocate) or d2.target != "alpha":
+        r.err("swapping which node id carries the better profile did not swap "
+              "the winner. Placement is following an IDENTITY rather than a "
+              "score, so a new node cannot win on merit (INV-PLACE-1).")
+
+    # 3. NO NODE IDENTITY IS WRITTEN INTO THE MODULE. The structural half:
+    #    a hard-coded id would satisfy a two-node fixture and break the moment
+    #    a third node appeared.
+    src = (REPO / "core" / "placement.py").read_text(encoding="utf-8")
+    code = "\n".join(
+        ln for ln in src.splitlines()
+        if not ln.strip().startswith("#"))
+    body = code.split('"""')
+    stripped = "".join(body[::2])          # drop docstrings, keep code
+    for name in ("node-1", "node1", "node_1", "macbook", "kali", "vesper-node"):
+        if name in stripped.lower():
+            r.err(f"the placement module names {name!r} in code. INV-PLACE-1 "
+                  "says VESPER is not pinned to any node, and INV-HW-1 says the "
+                  "profile is written, never the device.")
+
+    # 4. DAMPING HOLDS A MARGINAL MOVE (INV-PLACE-2). Migration is not free, so
+    #    a node that is barely better is not worth the move.
+    marginal = node("beta", 17.0, 21.0)
+    d3 = p.decide(reachable={"alpha": small, "beta": marginal}, current="alpha",
+                  hysteresis=Hysteresis(since_last_move_s=10_000))
+    if not isinstance(d3, Keep):
+        r.err(f"a marginally better node triggered a relocation: {d3}. Without "
+              "the gain threshold the system flaps between comparable nodes, "
+              "which is A-048.3's negative control.")
+
+    # 5. AND THE DWELL TIMER HOLDS A RECENT MOVE.
+    d4 = p.decide(reachable={"alpha": small, "beta": big}, current="alpha",
+                  hysteresis=Hysteresis(since_last_move_s=1.0))
+    if not isinstance(d4, Keep):
+        r.err(f"a move one second after the last one was allowed: {d4}. The "
+              "dwell minimum is what stops two comparable nodes trading the "
+              "host back and forth.")
+
+    # 6. BUT LOSING THE CURRENT HOST BYPASSES BOTH GATES. This is the half that
+    #    pulls the other way, and testing only 4 and 5 yields a system that
+    #    politely stays on a dead node for the rest of the dwell window.
+    dead = node("alpha", 16.0, 20.0, reachable=False)
+    d5 = p.decide(reachable={"alpha": dead, "beta": big}, current="alpha",
+                  hysteresis=Hysteresis(since_last_move_s=1.0))
+    if not isinstance(d5, Relocate):
+        r.err(f"an UNREACHABLE current host was kept because the dwell timer "
+              f"had not expired: {d5}. Degradation or loss bypasses damping "
+              "(INV-PLACE-2).")
+    degraded = node("alpha", 16.0, 20.0, degraded=True)
+    d6 = p.decide(reachable={"alpha": degraded, "beta": marginal},
+                  current="alpha", hysteresis=Hysteresis(since_last_move_s=1.0))
+    if not isinstance(d6, Relocate):
+        r.err(f"a DEGRADED current host was held by the gain threshold: {d6}. "
+              "The gain rule exists to avoid pointless moves between healthy "
+              "nodes, not to keep VESPER on a failing one.")
+
+    # 7. STAYING PUT WHEN ALREADY BEST IS NOT A RELOCATION, or assertion 1 is
+    #    satisfied by a module that relocates unconditionally.
+    d7 = p.decide(reachable={"alpha": small, "beta": big}, current="beta",
+                  hysteresis=Hysteresis(since_last_move_s=10_000))
+    if not isinstance(d7, Keep):
+        r.err(f"already on the best host and still relocating: {d7}")
+
+    # 8. THE THRESHOLDS COME FROM THE TUNABLES ARTIFACT, not from literals in
+    #    the module -- INV-TUNE-1's shape, and what makes A-048.3's control
+    #    constructible without editing code.
+    from core.placement import load_placement_tunables
+    gain, dwell = load_placement_tunables()
+    if not (gain > 0 and dwell > 0):
+        r.err(f"the placement tunables load as gain={gain}, dwell={dwell}; a "
+              "zero on either disables damping while the code still reads as "
+              "though it damps")
+    if abs(p.relocation_gain - gain) > 1e-9 or abs(p.min_dwell_s - dwell) > 1e-9:
+        r.err("a default Placement does not use the tunables artifact's values, "
+              "so the thresholds in force are not the ones the artifact "
+              "declares")
+
+    r.note(f"the better profile wins from a standing start AND when the node "
+           f"ids are swapped, so selection follows the score and not an "
+           f"identity; no node name appears in the module's code; a marginal "
+           f"gain and a recent move are both held at gain={gain:.0%} / "
+           f"dwell={dwell:.0f}s from the tunables artifact, while an "
+           f"unreachable OR degraded current host bypasses both; and already "
+           f"being best is a Keep rather than a relocation")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -8647,6 +8807,7 @@ CHECK_FNS = {
     "bus-consumer-idempotency": check_bus_consumer_idempotency,
     "gateway-choke-point": check_gateway_choke_point,
     "no-runtime-governed-write": check_no_runtime_governed_write,
+    "placement-not-pinned": check_placement_not_pinned,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,
