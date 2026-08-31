@@ -92,3 +92,68 @@ primitive exists.
 ### C4. Crates worth a second look
 `code-mode`, `agent-roles`, `agent-identity`, `agent-graph-store`,
 `codex-mcp`, `bwrap` (Linux containment), `cloud-tasks`.
+
+---
+
+## CLAUDE CODE (proprietary binary; read from my own tool contracts + public docs)
+
+### CC1. Read-before-edit is ENFORCED, and we have nothing like it
+`Edit`: *"You must Read the file in this conversation before editing, or the
+call will fail."* `Write`: *"Overwriting an existing file you haven't Read will
+fail."* Not advice — a refusal.
+
+`Edit` also requires the `old_string` to match **exactly and uniquely**; an
+ambiguous or absent match fails rather than guessing.
+
+**PROBE RUN AGAINST VESPER, 2026-09-01.** A five-line file in the workspace.
+`fs.write` with one line of content:
+  - level required: **L2** — silent, no permission asked
+  - prior read required: **none**
+  - independent verifier: **verified = True**
+
+The file went from five lines to one, and our verification CONFIRMED it. The
+verifier compares the disk to what the write INTENDED, so a truncated intent is
+a truncated success. This is exactly the owner's stated fear -- "one small
+mistake can blow the whole project" -- and it is reachable today with no
+confirmation.
+
+Three separate defences are missing: no read-before-write, no surgical edit, and
+a verifier that cannot tell destruction from intent.
+
+### CC2. Hooks — an OWNER-EDITABLE veto on every tool call
+Events: `SessionStart/End`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
+`PostToolUseFailure`, `PermissionRequest`, `PermissionDenied`, `PostToolBatch`,
+`Stop`, `StopFailure`. `PreToolUse` can DENY with a reason the model then sees;
+exit code 2 blocks unconditionally. Matchers select by tool name plus an `if`
+pattern on the arguments.
+
+**VESPER comparison — an architectural inconsistency of our own.** Our entire
+capability policy is HARD-CODED IN PYTHON: `READ_ONLY_VERBS`,
+`DESTRUCTIVE_MARKERS`, `SECRET_MARKERS`, `GOVERNED_PREFIXES` all live in
+`core/capabilities.py`. The owner cannot say "never touch this directory"
+without editing my code. That contradicts this corpus's own architecture, where
+policy lives in `contracts/policy/*.toml` and "promotion into a contract is a
+separate reviewed act". The capability policy is the one policy I did not put in
+a contract.
+
+`PostToolUse` for lint-after-write is the analogue of our independent verifiers,
+except theirs is owner-supplied and ours is a fixed table.
+
+### CC3. Mechanisms we have no equivalent for
+- **Deferred tool schemas (`ToolSearch`)** — tools listed by NAME, full schema
+  fetched on demand. This is literally the handwritten requirement: "instead of
+  tons of tokens/md/txt files/codebase ... a map where the model navigates."
+- **Permission modes** — default / plan / auto / bypassPermissions, as a session
+  stance, orthogonal to per-call levels.
+- **Plan mode** — propose a plan, get approval, then act. Partially overlaps our
+  stop-and-ask.
+- **Background execution + re-invocation on completion**; `Monitor` to wait on a
+  condition rather than poll.
+- **Scheduled work** (cron) — the owner's "work at night on its own".
+- **Subagents with git-worktree isolation** — parallel work that cannot collide.
+- **LSP** — real language diagnostics rather than grep.
+- **Skills** — packaged, named instruction sets loaded on demand.
+- **MCP** — one protocol for external tools, so calendar/notes/messages do not
+  each need bespoke code.
+- **File-state tracking** — the harness knows what has been read/edited, which is
+  what makes read-before-edit enforceable at all.
