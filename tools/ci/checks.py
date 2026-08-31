@@ -6357,6 +6357,94 @@ def check_arabizi_preserves_and_marks_itself() -> Result:
     return r
 
 
+def check_presence_withholds_and_never_expires() -> Result:
+    """Declaring company changes what a surface may show, and time never undeclares it.
+
+    THIS IS THE HALF SPEAKER VERIFICATION CANNOT REACH. Failure mode 8 has two
+    parts -- do not learn from a stranger as the owner, and do not disclose the
+    owner's memory in their presence -- and identifying who is SPEAKING answers
+    only the first. A perfectly verified owner can have someone standing beside
+    them.
+
+    `PrivacyRouter` HAS ALWAYS BEEN CORRECT AND HAD NOTHING TO TELL IT. It routes
+    on `privacy_class x persons x location_confidence` and resolves every
+    ambiguous cell toward the most private surface or WITHHOLD. `persons` was
+    supplied by callers who did not know either. This is that input, and the
+    reason no new routing rule was needed.
+
+    TIME MAY NOT CLEAR IT. A declaration that expired on a timer would return
+    VESPER to speaking freely in a room the owner never said had emptied, and
+    the owner would have no way to know it had happened. Only an explicit
+    statement clears it.
+    """
+    r = Result("presence-withholds-and-never-expires")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        import tempfile, time as _t
+        from core.store import StoreSet
+        from core.hlc import HybridLogicalClock
+        from core.bus import EventBus
+        from core.world import UNKNOWN_PERSON, WorldModel
+        from core.presence import ALONE, WITH_OTHERS, Presence
+        from core.privacy import PrivacyRouter
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.presence did not import: {exc!r}")
+        return r
+
+    store = StoreSet(tempfile.mkdtemp(), node_id="ci")
+    clock = HybridLogicalClock(node_id="ci")
+    bus = EventBus(clock, store)
+    world = WorldModel(bus, clock, now_ms=lambda: int(_t.time() * 1000))
+    pres = Presence(world, clock, bus=bus)
+    router = PrivacyRouter(bus)
+    SURFACES = ("shared_display", "personal_handheld")
+
+    # 1. IT CHANGES WHAT A SURFACE MAY SHOW, or it is inert.
+    alone_at = router.route(privacy_class="public", persons=pres.persons(),
+                            location_confidence="high", available=SURFACES).surface
+    pres.offer("someone is with me")
+    if pres.state != WITH_OTHERS:
+        r.err(f"a declaration did not set the flag (state {pres.state!r})")
+    with_at = router.route(privacy_class="public", persons=pres.persons(),
+                           location_confidence="high", available=SURFACES).surface
+    if alone_at == with_at:
+        r.err(f"routing was identical alone and with company (both {alone_at!r}). "
+              "The declaration reaches nothing, and the owner's private content "
+              "stays on whatever screen it was already on.")
+    if UNKNOWN_PERSON not in pres.persons():
+        r.err("persons() does not carry UNKNOWN_PERSON with company declared, "
+              "so PrivacyRouter's ambiguity rule -- the one that resolves every "
+              "uncertain cell toward the most private surface -- never fires.")
+
+    # 2. ORDINARY SPEECH IS NOT A DECLARATION. `offer` returns None so a caller
+    #    can pass every utterance through without branching, and the sentence is
+    #    still a sentence VESPER should hear.
+    before = pres.state
+    if pres.offer("what is on my calendar today") is not None:
+        r.err("an ordinary utterance was read as a presence declaration")
+    if pres.state != before:
+        r.err("an ordinary utterance changed the presence state")
+
+    # 3. TIME NEVER CLEARS IT. The fact carries no TTL, so it cannot expire into
+    #    UNKNOWN and quietly restore free speech.
+    fact = world.read_detail("world.owner", "presence")
+    if fact.get("valid_until_ms") is not None:
+        r.err("the presence fact carries a TTL. It would expire into UNKNOWN, "
+              "and a predicate or surface reading it would return to the "
+              "alone-behaviour in a room the owner never said had emptied.")
+
+    # 4. AND IT IS CLEARED EXPLICITLY.
+    pres.offer("ok they left")
+    if pres.state != ALONE:
+        r.err(f"an explicit all-clear did not clear the flag (state {pres.state!r})")
+
+    r.note("declaring company changes the routed surface and puts UNKNOWN_PERSON "
+           "in persons(); ordinary speech is not a declaration; the fact carries "
+           "no TTL so time cannot undeclare it; an explicit all-clear does")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -6411,6 +6499,7 @@ CHECK_FNS = {
     "sensors-never-reach-a-model": check_sensors_never_reach_a_model,
     "floor-never-swallows-or-drops": check_floor_never_swallows_or_drops,
     "arabizi-preserves-and-marks-itself": check_arabizi_preserves_and_marks_itself,
+    "presence-withholds-and-never-expires": check_presence_withholds_and_never_expires,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

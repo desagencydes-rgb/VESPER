@@ -970,11 +970,39 @@ SENSORS_PY = "core/sensors.py"
 HOST_PROBES_PY = "core/host_probes.py"
 FLOOR_PY = "core/floor.py"
 ARABIZI_PY = "core/arabizi.py"
+PRESENCE_PY = "core/presence.py"
 GATEWAY_PY = "core/gateway.py"
 ROUTER = "core/router.py"
 LATENCY = "core/latency.py"
 SUPPLY_PY = "routing/supply.py"
 RUNTIME = "tools/ops/vesper_runtime.py"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-086
+    ("presence-withholds-and-never-expires", PRESENCE_PY,
+     _sub('        return ("owner",) if self.state == ALONE else ("owner", UNKNOWN_PERSON)',
+          '        return ("owner",)', 1),
+     "UNKNOWN_PERSON dropped from persons(), so PrivacyRouter's ambiguity rule "
+     "never fires and the owner's content stays on whatever screen a stranger "
+     "is already looking at"),
+
+    ("presence-withholds-and-never-expires", PRESENCE_PY,
+     _sub("            observed_at_hlc=self._clock.now(), source=\"owner_declaration\",",
+          "            observed_at_hlc=self._clock.now(), source=\"owner_declaration\",\n"
+          "            valid_until_ms=60000,", 1),
+     "the declaration given a TTL: it expires into UNKNOWN and VESPER returns "
+     "to speaking freely in a room the owner never said had emptied"),
+
+    ("presence-withholds-and-never-expires", PRESENCE_PY,
+     _sub("        if any(p in flat for p in SOMEONE_PRESENT):", "        if False:", 1),
+     "the declaration phrase list ignored, so telling VESPER someone is in the "
+     "room does nothing at all -- which is the entire near-term mechanism"),
+
+    ("presence-withholds-and-never-expires", PRESENCE_PY,
+     _sub("        if any(p in flat for p in ALONE_AGAIN):", "        if True:", 1),
+     "every utterance read as an all-clear: the first thing the owner says "
+     "after declaring company silently undeclares it"),
+]
 
 CASES += [
     # ---------------------------------------------------------------- CI-085

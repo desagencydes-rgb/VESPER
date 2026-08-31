@@ -58,6 +58,7 @@ from core.difficulty import classify                            # noqa: E402
 from core.effort import EXPECTED_OUTPUT                         # noqa: E402
 from core.narration import Announcer                            # noqa: E402
 from core.persona import Persona, Situation                     # noqa: E402
+from core.presence import Presence                              # noqa: E402
 from core.blocks import L1Renderer                              # noqa: E402
 from core.memory import MemoryGraph                             # noqa: E402
 from core.updater import MissRecorder, Updater                  # noqa: E402
@@ -141,6 +142,12 @@ def build(node: str = "vesper-runtime"):
     # Groq at 0.42-0.67 s measured, which is a decision with a cost and is the
     # owner's to take.
     chooser = Chooser(bus=bus)
+    # PRESENCE, DECLARED BY THE OWNER. Costs a phrase-list match per utterance
+    # and nothing else -- the layered per-turn identity check was designed and
+    # dropped as too expensive, and this covers the same ground until cameras
+    # exist. `PrivacyRouter` has always resolved an unknown person toward the
+    # most private surface and has never had anything to tell it one was there.
+    presence = None
 
     # THE WORLD MODEL AND ITS SENSORS. `trigger_registry.toml`'s predicates read
     # `world.current_host.power_source` and `world.current_host.health`; nothing
@@ -168,6 +175,7 @@ def build(node: str = "vesper-runtime"):
     # and silent. Found 2026-08-31 by driving trg_placement_reevaluate end to
     # end instead of trusting that the facts were landing.
     world = WorldModel(bus, clock, now_ms=lambda: int(time.time() * 1000))
+    presence = Presence(world, clock, bus=bus)
     sensors = SensorRegistry(world, clock, bus=bus)
     sensors.register(Sensor("host-power", "world.current_host", "power_source",
                             host_probes.power_source, TIMER,
@@ -263,7 +271,7 @@ def build(node: str = "vesper-runtime"):
 
     return (bus, gw, router, home, intake, triage, report, persona, bench,
             renderer, updater, misses, chooser, world, sensors, autonomy,
-            devices, repairer)
+            devices, repairer, presence)
 
 
 def answer(gw, router, persona, utterance, renderer=None,
@@ -421,7 +429,7 @@ def answer(gw, router, persona, utterance, renderer=None,
 def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          once: bool = False, renderer=None, updater=None,
          misses=None, chooser=None, sensors=None, autonomy=None,
-         triage=None, repairer=None) -> int:
+         triage=None, repairer=None, presence=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     # SENSORS FIRST, AND THE PERIOD DECIDES WHETHER ANYTHING ACTUALLY RUNS.
     # `poll()` returns immediately for any sensor that is not due, so calling it
@@ -507,6 +515,12 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             # gates the finals; routing voice through `typed()` would assert
             # certainty the recogniser never claimed, and a 61%-sure "delete the
             # archive" would execute instead of being reflected back.
+            # OFFERED EVERY UTTERANCE, and it returns None for all but a
+            # declaration -- so this costs one phrase-list match and never
+            # branches the turn. The sentence still goes on to Intake: telling
+            # VESPER someone is present is also a thing VESPER should hear.
+            if presence is not None:
+                presence.offer(text)
             if obj.get("source") == "spoken":
                 res = intake.spoken(
                     text,
@@ -582,7 +596,7 @@ def main() -> int:
 
     (bus, gw, router, home, intake, triage, report, persona, bench,
      renderer, updater, misses, chooser, world, sensors,
-     autonomy, devices, repairer) = build()
+     autonomy, devices, repairer, presence) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -605,7 +619,8 @@ def main() -> int:
         n = pump(bus, gw, router, persona, bench, home, intake, transcript,
                  once=True, renderer=renderer, updater=updater,
                  misses=misses, chooser=chooser, sensors=sensors,
-                 autonomy=autonomy, triage=triage, repairer=repairer)
+                 autonomy=autonomy, triage=triage, repairer=repairer,
+                 presence=presence)
         # THE SAME HONESTY THE INTERRUPT PATH APPLIES. A one-shot run that exits
         # leaving `thinking` on disk reports work that is not happening; the
         # 90 s staleness fallback would correct it eventually, and eventually is
@@ -648,7 +663,7 @@ def main() -> int:
             pump(bus, gw, router, persona, bench, home, intake, transcript,
                  renderer=renderer, updater=updater, misses=misses,
                  chooser=chooser, sensors=sensors, autonomy=autonomy,
-                 triage=triage, repairer=repairer)
+                 triage=triage, repairer=repairer, presence=presence)
             # THE PLUMBING USED TO COST MORE THAN THE MODEL. 0.5 s here plus
             # 0.7 s in the chrome's own timer is up to 1.2 s of pure polling
             # around a call that now returns in ~0.7 s -- the transport was the
