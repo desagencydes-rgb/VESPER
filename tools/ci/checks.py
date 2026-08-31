@@ -11298,6 +11298,26 @@ def check_capabilities_registered_and_levelled_by_argument() -> Result:
             r.err(f"fs.write({governed!r}) is below L5 -- the gates would be "
                   "editable by the thing they gate")
 
+    # 6a. THE LEVEL IS ABOUT THE TARGET, NOT THE STRING. `workspace/../../../..
+    #     /etc/passwd` BEGINS with `workspace/`, so a classifier reading the
+    #     string calls it VESPER's own scratch space -- L2 to write, L1 to read
+    #     -- while the filesystem opens `/etc/passwd`. Measured on 2026-08-31:
+    #     both levels came back exactly that way. It is the same split
+    #     `shell_run` refuses `shell=True` to avoid, arriving through the path
+    #     door, and it defeats the claim this design rests on: that safety does
+    #     not depend on the proposer being right.
+    for escape in ("workspace/../../../tmp/x",
+                   "workspace/../../../../etc/passwd",
+                   "../../etc/passwd",
+                   "workspace/../../.ssh/id_rsa"):
+        got = caps.resolve(escape)
+        if caps.fs_write_level({"path": escape}) != "L5":
+            r.err(f"fs.write({escape!r}) is below L5 -- it resolves to {got}, "
+                  "outside the root its own prefix claimed, and a traversal "
+                  "argument is exactly what a wrong or steered proposer produces")
+        if caps.fs_read_level({"path": escape}) != "L5":
+            r.err(f"fs.read({escape!r}) is below L5 -- it resolves to {got}")
+
     # 6b. A RELATIVE PATH MEANS NOTHING WITHOUT A ROOT, and the level rules are
     #     entirely about relative prefixes -- `workspace/` is L2, `contracts/`
     #     is L5. If the root is whatever working directory the process inherited,

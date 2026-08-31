@@ -116,7 +116,19 @@ exists: deleting the destructive check leaves A-013's own assertion **passing**.
 
 ---
 
-## Three defects found by testing through the real door
+## Four defects found by testing through the real door
+
+**A path that levelled as VESPER's own scratch space and opened `/etc/passwd`.**
+`workspace/../../../../etc/passwd` *begins* with `workspace/`, so the classifier
+called it L2 to write and L1 to read — VESPER's own workspace, no question asked
+— while the filesystem would have opened the real file. The classifier was
+reading a **string** and the implementation was opening a **target**: the exact
+split `shell.run` refuses `shell=True` to avoid, arriving through the other door.
+It also defeated the one sentence this whole design rests on — that safety does
+not depend on the proposer being right — because a traversal argument is
+precisely what a wrong or steered proposer produces. Paths are now levelled
+after being fully resolved, and anything that ends up outside the root its own
+prefix claimed is top level.
 
 **A note that was written, verified, and doomed.** Asked in Darija to save a
 note, VESPER understood it, wrote the file, read the bytes back, matched the
@@ -191,7 +203,11 @@ This is now the third concrete argument for a Developer ID certificate.
 
 ## State of the gates
 
-- **87 checks pass**, 404 self-test cases red-then-green.
+- **87 checks pass.** **404 of 405** self-test cases go red under deliberate
+  violation and green after restore. The one that does not is named below — it
+  is pre-existing and not from tonight's work, and stating "405" here while
+  disclosing a hole four lines down would be two claims that cannot both be
+  true.
 - Traceability and reference lints pass. F0–F6 acceptance pass. Placement and
   fabric stress pass.
 - **One known hole, pre-existing and not mine:** `context-control-reaches-selection`

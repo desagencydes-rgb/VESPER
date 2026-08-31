@@ -3416,6 +3416,16 @@ CASES += [
      "authority: the gates are editable by the thing they gate"),
 
     ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
+     _sub("    target = resolve(raw)\n    if _escapes(raw, target):\n        return \"L5\"\n",
+          "    target = resolve(raw)\n", 1),
+     "`workspace/../../../../etc/passwd` levels as VESPER's own scratch space "
+     "because it BEGINS with `workspace/`, while the filesystem opens "
+     "/etc/passwd. The classifier reads a string and the implementation opens a "
+     "target -- the same split `shell_run` refuses `shell=True` to avoid, and it "
+     "defeats the one sentence this design rests on: that safety does not depend "
+     "on the proposer being right"),
+
+    ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
      _sub("    if parts and parts[0] == \"workspace\":\n"
           "        return WORKSPACE.joinpath(*parts[1:])\n", "", 1),
      "VESPER's writable space goes back to being module-relative, which inside "

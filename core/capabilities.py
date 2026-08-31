@@ -73,15 +73,53 @@ WORKSPACE = (pathlib.Path.home() / "Library" / "Application Support" /
 
 
 def resolve(path: str) -> pathlib.Path:
-    """`~` expanded; `workspace/` to the durable one; anything else to the repo."""
+    """`~` expanded; `workspace/` to the durable one; anything else to the repo.
+
+    FULLY NORMALISED, and that is not cosmetic. `..` and symlinks are collapsed
+    here so that the path the level rules judge is the path the implementation
+    opens. Without it the two reason about different filesystems -- the exact
+    split `shell_run` refuses `shell=True` to avoid.
+    """
     raw = str(path or "")
     p = pathlib.Path(os.path.expanduser(raw))
-    if p.is_absolute():
-        return p
+    if not p.is_absolute():
+        parts = pathlib.PurePosixPath(raw.replace("\\", "/")).parts
+        if parts and parts[0] == "workspace":
+            p = WORKSPACE.joinpath(*parts[1:])
+        else:
+            p = REPO / p
+    return pathlib.Path(os.path.normpath(str(p))).resolve()
+
+
+def _under(child: pathlib.Path, parent: pathlib.Path) -> bool:
+    try:
+        child.relative_to(pathlib.Path(os.path.normpath(str(parent))).resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _escapes(raw: str, resolved: pathlib.Path) -> bool:
+    """Did a relative path end up outside the root its own prefix claimed?
+
+    `workspace/../../../../etc/passwd` STARTS WITH `workspace/`, so a classifier
+    reading the string levels it as VESPER's own scratch space -- L2 to write,
+    L1 to read -- while the filesystem opens `/etc/passwd`. Measured
+    2026-08-31: both of those levels came back exactly that way.
+
+    This is the defect the whole module is written against, arriving through the
+    one door that was still classifying a STRING instead of a TARGET. It also
+    defeats the sentence this design rests on -- that safety does not depend on
+    the proposer being right -- because a traversal argument is precisely what a
+    wrong or steered proposer would produce.
+    """
+    if pathlib.PurePosixPath(raw.replace("\\", "/")).is_absolute():
+        return False
+    if raw.startswith("~"):
+        return False
     parts = pathlib.PurePosixPath(raw.replace("\\", "/")).parts
-    if parts and parts[0] == "workspace":
-        return WORKSPACE.joinpath(*parts[1:])
-    return REPO / p
+    claimed = WORKSPACE if (parts and parts[0] == "workspace") else REPO
+    return not _under(resolved, claimed)
 
 # ---------------------------------------------------------------- shell.run
 
@@ -171,27 +209,43 @@ def _norm(path: str) -> str:
 
 
 def fs_read_level(args: dict) -> str:
-    p = _norm(args.get("path")).lower()
-    if not p:
+    """Levelled on the RESOLVED target, never on the string that named it."""
+    raw = _norm(args.get("path"))
+    if not raw:
         return "L5"
+    target = resolve(raw)
+    if _escapes(raw, target):
+        return "L5"
+    p = str(target).lower()
     if any(m in p for m in SECRET_MARKERS):
         # READING a credential is not a lesser act than writing one. It is the
         # step that puts it in a context window, which is where it leaves.
         return "L5"
     if p.startswith(("/etc", "/private/etc", "/var/db", "/library/keychains")):
         return "L3"
-    return "L1"
+    if _under(target, WORKSPACE) or _under(target, REPO):
+        return "L1"
+    # Anywhere else on the machine is somebody's private business. Reading it is
+    # a question, not a default.
+    return "L3"
 
 
 def fs_write_level(args: dict) -> str:
-    p = _norm(args.get("path")).lower()
-    if not p:
+    """Levelled on the RESOLVED target, never on the string that named it."""
+    raw = _norm(args.get("path"))
+    if not raw:
         return "L5"
+    target = resolve(raw)
+    if _escapes(raw, target):
+        return "L5"
+    p = str(target).lower()
     if any(m in p for m in SECRET_MARKERS):
         return "L5"
-    if any(p.startswith(g) or f"/{g}" in p for g in GOVERNED_PREFIXES):
+    # GOVERNED IS ASKED OF THE ABSOLUTE PATH, so it still fires once the prefix
+    # has been resolved away: `contracts/` becomes `<repo>/contracts/`.
+    if any(f"/{g}" in p for g in GOVERNED_PREFIXES):
         return "L5"
-    if p.startswith("workspace/") or "/workspace/" in p:
+    if _under(target, WORKSPACE):
         return "L2"
     return "L3"
 
