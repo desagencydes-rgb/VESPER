@@ -10986,6 +10986,134 @@ def check_speech_in_declares_language_and_measures_confidence() -> Result:
     return r
 
 
+def check_wake_word_listens_locally_and_starts_once() -> Result:
+    """Always listening, nothing sent until it hears its name -- and one VESPER.
+
+    THE SPLIT IS WHAT MAKES ALWAYS-ON DEFENSIBLE. Continuous listening is only
+    acceptable if the continuous part is LOCAL, and it can be: `en-US` has
+    on-device recognition on this machine and "vesper" is an English-shaped
+    word, so the always-on recogniser sends nothing anywhere. Audio leaves only
+    AFTER the wake word, and then to the same E1_PRIVATE transcriber all private
+    content already uses.
+
+    The alternative -- streaming to a cloud recogniser and matching the wake
+    word there -- would put every conversation in the room, and every silence in
+    it, on someone else's machines. `Listener.swift` already refuses that for a
+    single Darija utterance; doing it continuously would be the same mistake at
+    a larger scale.
+
+    AND STARTING A SECOND VESPER IS REFUSED. Two runtimes share one input file
+    and one offset, so the second silently eats turns the first is waiting for --
+    which is exactly the `handled 0` confusion that cost an hour on 2026-08-31.
+    """
+    r = Result("wake-word-listens-locally-and-starts-once")
+    wake = REPO / "app" / "island-macos" / "WakeWord.swift"
+    fn = REPO / "app" / "island-macos" / "FnTrigger.swift"
+    rt = REPO / "tools" / "ops" / "vesper_runtime.py"
+    for f in (wake, fn, rt):
+        if not f.exists():
+            r.err(f"{f.relative_to(REPO)} does not exist")
+            return r
+    w = wake.read_text(encoding="utf-8")
+    t = fn.read_text(encoding="utf-8")
+    p = rt.read_text(encoding="utf-8")
+
+    # 1. THE ALWAYS-ON RECOGNISER IS ON-DEVICE, AND REFUSES IF IT CANNOT BE.
+    if "requiresOnDeviceRecognition = true" not in w:
+        r.err("the wake listener does not force on-device recognition, so a "
+              "continuously-open microphone streams the room to Apple's "
+              "servers -- egress that bypasses the redactor, permanently "
+              "rather than per utterance")
+    if "supportsOnDeviceRecognition" not in w:
+        r.err("the wake listener does not check that on-device recognition is "
+              "AVAILABLE before opening the microphone. Forcing the flag on a "
+              "machine that cannot honour it is a request that fails, and the "
+              "failure mode is a listener that quietly does nothing")
+
+    # 2. IT RECORDS AND DOES NOT TRANSCRIBE. The credential and the egress
+    #    decision belong in the runtime, not in the process holding the mic.
+    for leaked in ("api-key", "xi-api-key", "Authorization", "api.cloudflare"):
+        if leaked in w:
+            r.err(f"the wake listener references {leaked!r}; a process whose "
+                  "job is the microphone must not also hold a credential")
+
+    # 3. THE HANDOFF IS OFFSET-TRACKED, like the input file it feeds. Re-reading
+    #    from the top would answer every captured clip again on every pass.
+    if "_drain_heard" not in p:
+        r.err("the runtime never drains the wake queue, so a captured clip is "
+              "recorded and never answered")
+
+    # 4. A CLIP THAT WILL NOT TRANSCRIBE IS DROPPED, NOT RETRIED FOREVER.
+    drain = p[p.index("def _drain_heard"):]
+    drain = drain[:drain.index("\ndef ", 1)]
+    # ASKED OF THE DRAIN BODY, not of the file. `HEARD_OFFSET` appearing
+    # somewhere in the module is satisfied by the line that WRITES it; the
+    # property is that the read seeks to what was written. A self-test that
+    # replaced the read with `seen = 0` left the name in place and stayed green.
+    if "HEARD_OFFSET.read_text()" not in drain or "f.seek(seen)" not in drain:
+        r.err("the drain does not seek to the recorded offset, so every pass "
+              "re-answers every clip ever captured")
+    if "wake.discarded" not in drain:
+        r.err("a clip that fails to transcribe is not recorded as discarded; "
+              "silence in the log is indistinguishable from a clip that was "
+              "never captured")
+    if "unlink()" not in drain:
+        r.err("captured audio is not deleted after transcription. It is raw "
+              "recording of the room and INV-PRIV-3 says raw media is not kept "
+              "beyond the processing window")
+
+    # 5. AND THE TRANSCRIBED TURN NAMES ITS INSTRUMENT, or it is judged against
+    #    the on-device recogniser's floor and correct Darija is reflected.
+    if '"instrument": "transcriber"' not in drain:
+        r.err("the wake path does not name its instrument, so its confidence is "
+              "compared against the wrong floor")
+
+    # 6. ONE VESPER. Asked of the system, not of a pid file: a pid file outlives
+    #    a crash and would refuse to start after one.
+    # THE IDENTIFIER IS COMPARED TO build.sh, not spot-checked for shape. A
+    # running-check that asks about a bundle nothing publishes always answers
+    # "not running" and is indistinguishable from having no guard -- and it
+    # stayed green under exactly that mutation.
+    if "runningApplications" not in t:
+        r.err("the starter does not check whether VESPER is already running, so "
+              "a second runtime races the first for the same input file")
+    else:
+        build = (REPO / "app" / "island-macos" / "build.sh").read_text(encoding="utf-8")
+        ids = [ln.split("=", 1)[1].strip().strip('"\'')
+               for ln in build.splitlines() if ln.strip().startswith("ID=")]
+        if not ids:
+            r.err("build.sh declares no bundle identifier, so the running check "
+                  "cannot be compared against what the app publishes")
+        elif ids[0] not in t:
+            r.err(f"the starter asks whether {ids[0]!r} is running -- but that is "
+                  "not the identifier it queries. It asks about a bundle nothing "
+                  "publishes, always answers no, and never refuses a second copy")
+    if "createsNewApplicationInstance = false" not in t:
+        r.err("the starter permits a new application instance, which is the "
+              "same defect one layer down -- `open -n` is how two copies were "
+              "started by hand earlier today")
+
+    # 7. THE GLOBE KEY IS DISCRIMINATED FROM ORDINARY FUNCTION KEYS. `.function`
+    #    is raised by every arrow press, so watching the flag alone would start
+    #    VESPER while the owner scrolled.
+    # `keyCode` appears in the comment explaining the constant, which is what
+    # let the deleted guard pass. Require the COMPARISON.
+    if "ev.keyCode == FN_KEYCODE" not in t:
+        r.err("the trigger watches the .function flag without comparing the key "
+              "code, so an arrow press counts as a globe tap -- three quick "
+              "presses scrolling a document start VESPER")
+
+    r.note("the always-on recogniser is forced on-device and refuses if the "
+           "machine cannot honour it, so nothing leaves until the wake word; "
+           "the listener holds no credential and only records; the queue is "
+           "offset-tracked, names its instrument, deletes the audio after use "
+           "and records a discard rather than retrying forever; and the starter "
+           "asks the system whether VESPER is running rather than a pid file, "
+           "refusing a second instance and discriminating the globe key from "
+           "ordinary function keys")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -11067,6 +11195,7 @@ CHECK_FNS = {
     "speech-is-egress-and-says-so": check_speech_is_egress_and_says_so,
     "memory-stores-facts-not-only-transcript": check_memory_stores_facts_not_only_transcript,
     "speech-in-declares-language-and-measures-confidence": check_speech_in_declares_language_and_measures_confidence,
+    "wake-word-listens-locally-and-starts-once": check_wake_word_listens_locally_and_starts_once,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

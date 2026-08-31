@@ -1003,6 +1003,9 @@ SUPPLY_TOML = "contracts/policy/provider_supply.toml"
 UPDATER_PY = "core/updater.py"
 MEMORY_PY = "core/memory.py"
 INTBUD_TOML = "contracts/policy/interruption_budget.toml"
+WAKE_SWIFT = "app/island-macos/WakeWord.swift"
+FN_SWIFT = "app/island-macos/FnTrigger.swift"
+RUNTIME_PY = "tools/ops/vesper_runtime.py"
 CHECKS_PY = "tools/ci/checks.py"
 COST_PY = "core/cost.py"
 EXEC_PY = "core/executor.py"
@@ -3268,6 +3271,62 @@ CASES += [
      "English is routed off the machine too, sending audio away that has an "
      "on-device recogniser -- incurring the exact cost this route exists to "
      "avoid"),
+]
+
+
+CASES += [
+    # ------------------------------------------- wake word and single instance
+    ("wake-word-listens-locally-and-starts-once", WAKE_SWIFT,
+     _sub("req.requiresOnDeviceRecognition = true", "req.requiresOnDeviceRecognition = false", 1),
+     "the always-on listener streams to Apple's servers. This is the whole "
+     "difference between a microphone that is always on and a room that is "
+     "always broadcast: every conversation held near this machine, and every "
+     "silence between them, leaves it -- outside ModelGateway and so outside "
+     "the redactor, continuously rather than per utterance"),
+
+    ("wake-word-listens-locally-and-starts-once", WAKE_SWIFT,
+     _sub("guard r.supportsOnDeviceRecognition else {", "if false {", 1),
+     "the listener stops checking that on-device recognition is AVAILABLE "
+     "before opening the microphone. Forcing the flag on a machine that cannot "
+     "honour it is a request that fails, and its failure looks exactly like a "
+     "room where nobody said the wake word"),
+
+    ("wake-word-listens-locally-and-starts-once", RUNTIME_PY,
+     _sub("    seen = int(HEARD_OFFSET.read_text()) if HEARD_OFFSET.exists() else 0",
+          "    seen = 0", 1),
+     "the wake queue is re-read from the top on every pass, so every clip ever "
+     "captured is answered again on every pass -- the log fills with replies to "
+     "things said once, hours ago"),
+
+    ("wake-word-listens-locally-and-starts-once", RUNTIME_PY,
+     _sub('                pathlib.Path(path).unlink()     # the audio is not kept',
+          "                pass", 1),
+     "raw recordings of the room accumulate on disk after they have been "
+     "transcribed, past the processing window they were captured for"),
+
+    ("wake-word-listens-locally-and-starts-once", RUNTIME_PY,
+     _sub('bus.publish("wake.discarded"', 'bus.publish("wake.ok"', 1),
+     "a clip that would not transcribe leaves no discard record, so a wake word "
+     "that was heard and produced nothing is indistinguishable in the log from "
+     "a wake word that was never heard at all"),
+
+    ("wake-word-listens-locally-and-starts-once", FN_SWIFT,
+     _sub("cfg.createsNewApplicationInstance = false", "cfg.createsNewApplicationInstance = true", 1),
+     "each triple-tap starts ANOTHER VESPER. Two runtimes share one input file "
+     "and one offset, so the second silently eats turns the first is waiting "
+     "for -- which is exactly the `handled 0` confusion that cost an hour on "
+     "2026-08-31, arriving this time by design"),
+
+    ("wake-word-listens-locally-and-starts-once", FN_SWIFT,
+     _sub(".runningApplications(withBundleIdentifier: \"ai.vesper.island\")",
+          ".runningApplications(withBundleIdentifier: \"ai.vesper.absent\")", 1),
+     "the running check asks about a bundle identifier nothing publishes, so it "
+     "always answers no and the guard never fires"),
+
+    ("wake-word-listens-locally-and-starts-once", FN_SWIFT,
+     _sub("guard ev.keyCode == FN_KEYCODE else { return }", "", 1),
+     "the .function flag alone counts as a globe tap, and every arrow key raises "
+     "it -- three quick presses scrolling a document start VESPER"),
 ]
 
 

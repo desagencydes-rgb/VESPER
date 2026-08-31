@@ -913,6 +913,31 @@ if args.contains("--listen") {
     exit(0)
 }
 
+if args.contains("--fn-fire") {
+    // THE TRIPLE-TAP'S CONSEQUENCE, WITHOUT THE TAP. Not a convenience: it is
+    // the only way to confirm the single-instance guard without synthesising a
+    // key event, which needs the same Accessibility grant the watcher is
+    // waiting on. It calls the SAME `launchVesper()` the tap handler calls, so
+    // what it proves is about the real door -- and the caller then counts
+    // processes rather than believing the message this prints.
+    print("running before: \(vesperIsRunning())")
+    launchVesper()
+    Thread.sleep(forTimeInterval: 2.0)
+    exit(0)
+}
+
+if args.contains("--fn-watch") {
+    // The starter. Lives outside VESPER because it starts VESPER.
+    runFnWatch()
+    exit(0)
+}
+
+if args.contains("--wake") {
+    // Always listening, on-device only, nothing sent until the word is heard.
+    runWakeWord(diagnose: args.contains("--diagnose"))
+    exit(0)
+}
+
 if args.contains("--record") {
     // Records and does not recognise. See runRecorder for why it is separate
     // from --listen rather than a flag on it.

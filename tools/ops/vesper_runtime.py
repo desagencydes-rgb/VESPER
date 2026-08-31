@@ -80,6 +80,12 @@ from routing.supply import for_egress, load_rows, measured_profiles  # noqa: E40
 
 STATE = Path.home() / "Library" / "Application Support" / "VESPER"
 OUTBOX = STATE / "say.jsonl"
+# The wake listener records and queues; the runtime transcribes and
+# answers. The split is deliberate: the credential and the egress
+# decision live here, and the microphone lives in the app that holds
+# the permission for it.
+HEARD = STATE / "heard.jsonl"
+HEARD_OFFSET = STATE / "heard.offset"
 OFFSET = STATE / "say.offset"
 
 # How often the outbox is re-read. See the loop at the bottom for why it is
@@ -313,6 +319,7 @@ def build(node: str = "vesper-runtime"):
     # measured-throughput rule, which every synthesiser fails for a reason that
     # does not apply to it -- a voice is not routed by tokens per second.
     speech = Speech(bus, supply=speech_rows())
+    transcriber = Transcriber(bus, supply=transcribe_rows())
 
     verifier = Verifier(bus)
     checker = (ClaimChecker(bus, REPO, store=store)
@@ -328,7 +335,8 @@ def build(node: str = "vesper-runtime"):
 
     return (bus, gw, router, home, intake, triage, report, persona, bench,
             renderer, updater, misses, chooser, world, sensors, autonomy,
-            devices, repairer, presence, context_cmds, verifier, speech)
+            devices, repairer, presence, context_cmds, verifier, speech,
+            transcriber)
 
 
 def answer(gw, router, persona, utterance, renderer=None,
@@ -485,11 +493,70 @@ def answer(gw, router, persona, utterance, renderer=None,
     return reply
 
 
+def _drain_heard(bus, transcriber) -> int:
+    """Transcribe every clip the wake listener queued, into the ordinary input.
+
+    OFFSET-TRACKED LIKE `say.jsonl`, for the same reason: the queue is appended
+    by another process and read here, and re-reading it from the top would
+    answer every clip again on every pass.
+
+    A CLIP THAT WILL NOT TRANSCRIBE IS DROPPED AND SAID SO. Leaving it in the
+    queue would retry it on every pass forever, spending a transcription each
+    time on audio that has already failed.
+    """
+    if not HEARD.exists():
+        return 0
+    seen = int(HEARD_OFFSET.read_text()) if HEARD_OFFSET.exists() else 0
+    done = 0
+    with HEARD.open("r", encoding="utf-8") as f:
+        f.seek(seen)
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                break                      # torn last line; see the say.jsonl note
+            path = obj.get("audio") or ""
+            if not path or not pathlib.Path(path).exists():
+                continue
+            heard = transcriber.transcribe(path)
+            try:
+                pathlib.Path(path).unlink()     # the audio is not kept
+            except OSError:
+                pass
+            if not heard.ok or not heard.text.strip():
+                bus.publish("wake.discarded", subject="wake",
+                            payload={"reason": heard.reason or "empty",
+                                     "note": "dropped rather than retried; a "
+                                             "clip that failed once will fail "
+                                             "again and cost a transcription "
+                                             "every pass"},
+                            component="runtime")
+                continue
+            with OUTBOX.open("a", encoding="utf-8") as out:
+                out.write(json.dumps({"text": heard.text, "source": "spoken",
+                                      "final": True,
+                                      "confidence": heard.confidence,
+                                      "instrument": "transcriber"},
+                                     ensure_ascii=False) + "\n")
+            bus.publish("wake.heard", subject="wake",
+                        payload={"confidence": heard.confidence,
+                                 "language": heard.language,
+                                 "chars": len(heard.text)},
+                        component="runtime")
+            done += 1
+        seen = f.tell()
+    HEARD_OFFSET.write_text(str(seen))
+    return done
+
+
 def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          once: bool = False, renderer=None, updater=None,
          misses=None, chooser=None, sensors=None, autonomy=None,
          triage=None, repairer=None, presence=None,
-         context_cmds=None, speech=None) -> int:
+         context_cmds=None, speech=None, transcriber=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     # SENSORS FIRST, AND THE PERIOD DECIDES WHETHER ANYTHING ACTUALLY RUNS.
     # `poll()` returns immediately for any sensor that is not due, so calling it
@@ -543,6 +610,11 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
         except Exception as exc:                   # noqa: BLE001
             bus.publish("repair.pass_failed", subject="repair",
                         payload={"error": repr(exc)}, component="runtime")
+    # DRAIN WHAT THE WAKE LISTENER CAPTURED, before reading the input file --
+    # so a clip captured this pass is answered this pass rather than next.
+    if transcriber is not None:
+        _drain_heard(bus, transcriber)
+
     OUTBOX.touch(exist_ok=True)
     seen = int(OFFSET.read_text()) if OFFSET.exists() else 0
     handled = 0
@@ -702,7 +774,7 @@ def main() -> int:
     (bus, gw, router, home, intake, triage, report, persona, bench,
      renderer, updater, misses, chooser, world, sensors,
      autonomy, devices, repairer, presence, context_cmds, verifier,
-     speech) = build()
+     speech, transcriber) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -765,7 +837,7 @@ def main() -> int:
                  misses=misses, chooser=chooser, sensors=sensors,
                  autonomy=autonomy, triage=triage, repairer=repairer,
                  presence=presence, context_cmds=context_cmds,
-                 speech=speech)
+                 speech=speech, transcriber=transcriber)
         # THE SAME HONESTY THE INTERRUPT PATH APPLIES. A one-shot run that exits
         # leaving `thinking` on disk reports work that is not happening; the
         # 90 s staleness fallback would correct it eventually, and eventually is
@@ -809,7 +881,8 @@ def main() -> int:
                  renderer=renderer, updater=updater, misses=misses,
                  chooser=chooser, sensors=sensors, autonomy=autonomy,
                  triage=triage, repairer=repairer, presence=presence,
-                 context_cmds=context_cmds, speech=speech)
+                 context_cmds=context_cmds, speech=speech,
+                 transcriber=transcriber)
             # THE PLUMBING USED TO COST MORE THAN THE MODEL. 0.5 s here plus
             # 0.7 s in the chrome's own timer is up to 1.2 s of pure polling
             # around a call that now returns in ~0.7 s -- the transport was the

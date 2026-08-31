@@ -62,7 +62,10 @@ private func appendOutbox(_ obj: [String: Any]) {
 // is the buffered-probe failure this corpus already records.
 private let listenReport = URL(fileURLWithPath: "/tmp/vesper-listen.txt")
 
-private func note(_ line: String) {
+// INTERNAL, not private: `WakeWord.swift` reports through the same file. Two
+// reporters would mean two places to look when the listener goes quiet, and the
+// one nobody checked would be the one holding the answer.
+func note(_ line: String) {
     print(line)
     let stamped = line + "\n"
     if let h = try? FileHandle(forWritingTo: listenReport) {
@@ -197,38 +200,13 @@ func runRecorder(seconds: Double, out: String) {
         note("microphone is not authorized; run --speech-consent first")
         exit(1)
     }
-    let url = URL(fileURLWithPath: out)
-    let engine = AVAudioEngine()
-    let input = engine.inputNode
-    let format = input.outputFormat(forBus: 0)
-
-    var file: AVAudioFile
-    do {
-        // Caller-visible settings, written as the hardware actually runs so no
-        // resampling happens on this side. The transcriber takes what it gets.
-        file = try AVAudioFile(forWriting: url, settings: format.settings)
-    } catch {
-        note("could not open \(out) for writing: \(error)")
-        exit(3)
-    }
-    input.installTap(onBus: 0, bufferSize: 1024, format: format) { buf, _ in
-        try? file.write(from: buf)
-    }
-    engine.prepare()
-    do { try engine.start() } catch {
-        note("could not start audio: \(error)")
-        exit(3)
-    }
     note("recording \(seconds)s -> \(out)  -- speak now")
-    RunLoop.current.run(until: Date().addingTimeInterval(seconds))
-    engine.stop()
-    input.removeTap(onBus: 0)
-    // THE FILE'S OWN SIZE IS THE EVIDENCE, not the exit code. A tap that never
-    // fired leaves a valid, empty file and every status here would still say ok.
-    let bytes = (try? FileManager.default.attributesOfItem(atPath: out)[.size] as? Int) ?? 0
-    note("recorded \(bytes ?? 0) bytes")
-    if (bytes ?? 0) < 4096 {
-        note("WARNING: that is too small to contain speech -- the tap may not have fired")
+    // ONE RECORDER, in WakeWord.swift, shared with the wake path. Two would
+    // drift, and the one that drifted would be the one nobody ran by hand.
+    let bytes = recordClip(seconds: seconds, out: out)
+    note("recorded \(bytes) bytes")
+    if bytes < 4096 {
+        note("WARNING: too small to contain speech -- the tap may not have fired")
         exit(4)
     }
 }
