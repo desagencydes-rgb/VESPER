@@ -101,3 +101,81 @@ Ratifying them is the same one-line act `INV-PRIV-7` took.
    replies. If the Arabizi test passes, the next question is a paid tier.
 4. **The remaining scope items** are mine, not yours: self-check, cache tiers,
    multiple agents, the mapping system.
+
+---
+
+## Second half of the night — the five remaining capabilities, then the registry
+
+### Built and wired
+
+| What | Where | Gate |
+|---|---|---|
+| Cache tiers + `DF-CACHE-ADMIT` | `core/cache.py` | `CI-085`, 8 red-run cases |
+| Log receipts for `Claim.support` | `core/evidence.py`, `core/arbiter.py`, `core/blocks.py`, `core/store.py` | `CI-086`, 6 cases |
+| The two machine-checkable verifiers | `core/verifiers.py`, `core/verify.py`, runtime `build()` | `CI-087`, 6 cases |
+| SR-007 knowledge map | `core/knowledge_map.py` | `CI-088`, 6 cases |
+
+Every one is reached by the running system. That was the explicit bar, because
+the pattern this corpus keeps finding is a subsystem that is correct, gated, and
+called by nothing.
+
+### Six checks that had been declared since the registry was first written
+
+`CI-004`, `CI-011`, `CI-012`, `CI-013`, `CI-020`, `CI-033`. No new subsystem
+code — every one guards something already complete and correct, and every one
+was `impl = "PENDING"`, which looks like enforcement in any listing that does
+not read the `impl` field.
+
+**52 → 63 of 140 invariants enforced, in one session, without building a
+subsystem.** That is the sharpest evidence yet that wiring and gating is where
+the ground is lost, not building.
+
+### Findings
+
+**Five times, two guards turned out not to be one.** Each was found by a
+self-test case staying green under a mutation that should have broken it, and
+each time the fix was to test the guard through the door it actually defends:
+
+1. `retrieve`'s stale-node filter is redundant with `span_for`'s read-time hash
+   for *correctness*; its real job is not READING a file already known to have
+   moved. Asserted by counting reads.
+2. `attenuate`'s L4 clause is unreachable through an issued grant, because
+   `issue()` already refuses to create one. What it defends is a `Grant`
+   constructed directly. Asserted through that door.
+3. The cost policy's `_policy_loaded` branch is redundant with the lookup's
+   free-only default on an empty map. What it guarantees is free-only
+   *regardless of the map's contents* — a policy that parsed halfway.
+4. The rule-count and adversarial-probe refusals coincide on a single-rule
+   declaration. What the count adds is the **diagnosis**: it says too few rules,
+   where the probe sends the author to inspect a function that is correct.
+5. A proposal RETURNED is not a proposal QUEUED, and only the queue survives the
+   call.
+
+**Two of my own assertions were vacuous.** The concatenation-collision test
+compared summary keys, which hash content to a fixed 64 characters before
+joining, so removing the separator left it green — the reachable collision is
+`chunk_key`, whose parts are variable-width integers. And CI-020's structural
+scan looked for `.invoke(`, which appears nowhere in this codebase.
+
+**One mistake, caught and repaired.** A registry edit sliced from CI-033 to
+CI-034 and deleted `CI-007` in between; the file is grouped by topic, not sorted
+numerically. Restored verbatim from HEAD and confirmed by a parsed diff of the
+whole registry. A later edit dropped CI-020's original note recording the
+2026-08-12 reassignment from CI-021 — restored and quoted verbatim. Every
+subsequent registry edit used a bounded replacement of the exact entry text.
+
+### Open, and for the owner
+
+Grant consumption keys on `requires_owner_confirmation AND L4/L5` while
+`issue()` refuses an L4-delegable grant on the level alone. An L4 grant on a
+capability that does not declare owner confirmation is therefore **not spent by
+use** — verified empirically. `INV-AUTH-2`'s text mentions only the level.
+`CI-013` asserts neither reading, deliberately. A task chip was raised for the
+decision.
+
+### Verification at the end of the night
+
+```
+70 checks · 295 self-tests · both lints · F0–F6 · both stress runners — all green
+61/89 checks implemented, 28 PENDING · 63/140 invariants enforced
+```

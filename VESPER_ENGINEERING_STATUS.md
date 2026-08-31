@@ -1,6 +1,6 @@
 # VESPER — Engineering Status
 
-**Updated:** 2026-08-30, after the memory system was built end to end and wired into the running process · **Maintained continuously.** If another engineer or agent takes over tomorrow, this file plus `docs/DECISION_LOG.md` is the handoff.
+**Updated:** 2026-08-31, after the last five unbuilt source capabilities landed and six checks that had been declared since the registry was written were finally implemented · **Maintained continuously.** If another engineer or agent takes over tomorrow, this file plus `docs/DECISION_LOG.md` is the handoff.
 
 > **Read `MEMORY.md` first.** It carries what is *not* derivable from this file, the code or the
 > git history: the measured numbers with their provenance, the **bandwidth law** that governs
@@ -11,6 +11,37 @@
 ---
 
 ## Current position
+
+**2026-08-31. EVERY REMAINING UNBUILT SOURCE CAPABILITY IS BUILT AND GATED.**
+`core/cache.py` (SR-054's tiers plus DF-CACHE-ADMIT), `LogReceipt` in
+`core/evidence.py` (the log-backed span an L2 fact can actually produce),
+`core/verifiers.py` (the two machine-checkable strategies `core/verify.py` had
+declared and never implemented) and `core/knowledge_map.py` (SR-007, which had
+no CI check at all). Each is reached by the running system, not only by a test:
+the arbiter cites its winners, block B withholds a fact whose pointer does not
+resolve and says so in the prompt, and `build()` registers the verifiers it can
+actually run.
+
+**THE NUMBER WORTH WATCHING IS NOW `impl = "PENDING"`, NOT THE CHECK COUNT.**
+28 of 89 registered checks are still PENDING, and a PENDING entry looks exactly
+like enforcement in every listing that does not read the `impl` field. Six were
+implemented on 2026-08-31 — `CI-004`, `CI-011`, `CI-012`, `CI-013`, `CI-020`,
+`CI-033` — and every one of them guards a subsystem that has been complete and
+correct since it was built. `core/bus.py`, `core/taint.py`, `core/authorize.py`,
+`core/capability.py`, `core/evidence.py` and the gateway's cost choke point were
+each protected by nothing. Enforced invariants went 52 → 63 of 140 in one
+session without a line of new subsystem code, which is the clearest measure so
+far that **wiring and gating, not building, is where this corpus loses ground.**
+
+**One security question is open and deliberately undecided** — see
+`CI-013`'s note in `verification/ci/CHECKS.toml`. Grant consumption keys on
+`requires_owner_confirmation AND L4/L5` while `issue()` refuses an L4-delegable
+grant on the level alone, so an L4 grant on a capability that does not declare
+owner confirmation is not spent by use. `INV-AUTH-2`'s text mentions only the
+level. The check asserts neither reading: freezing the current behaviour would
+lock a possible gap into a gate, and asserting the strict one would change the
+security model without owner review.
+
 
 **MEMORY LANDED 2026-08-29/30, ALL SEVEN BUILD-ORDER STEPS, WIRED.** `core/memory.py`
 (L2 graph over SQLite, FTS5 + bounded recursive CTE), `core/redact.py`,
@@ -48,12 +79,12 @@ recognition is available for `en-US` and NOT for `ar-MA`/`ar-SA`/`fr-FR`.
 ```
 tools/traceability_lint.py                    PASS   0 errors, 0 warnings, 0 info
 tools/traceability_lint.py --profile release  FAIL   2 errors, DEPTH only (SR-017, SR-034)
-tools/reference_lint.py                       PASS   0 errors — 146 normative files scanned
-tools/reference_lint.py --self-test           PASS   5/5 red-then-green
-tools/ci/checks.py all                        PASS   32/32 runnable checks
-tools/ci/self_test.py                         PASS   80/80 red under violation, green after restore
-tools/ci/checks.py status                            23/57 check IDs implemented, 34 PENDING
-tools/ci/checks.py ci-registry                       ENFORCED TODAY: 27/121 invariants
+tools/reference_lint.py                       PASS   0 errors — 179 normative files scanned
+tools/reference_lint.py --self-test           PASS   6/6 red-then-green
+tools/ci/checks.py all                        PASS   70/70 runnable checks
+tools/ci/self_test.py                         PASS   295/295 red under violation, green after restore
+tools/ci/checks.py status                            61/89 check IDs implemented, 28 PENDING
+tools/ci/checks.py ci-registry                       ENFORCED TODAY: 63/140 invariants
 verification/run_f0_acceptance.py             PASS
 verification/run_f1_acceptance.py             PASS
 verification/run_f2_acceptance.py             PASS

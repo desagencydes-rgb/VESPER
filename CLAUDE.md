@@ -64,14 +64,39 @@ renders it.
 had. Use `python3.13` (`~/.local/bin/python3.13`). Verified 2026-08-23.
 
 ```sh
-python3.13 tools/ci/checks.py all       # 57 checks
-python3.13 tools/ci/self_test.py        # red-then-green, 223 cases
+python3.13 tools/ci/checks.py all       # 70 checks
+python3.13 tools/ci/self_test.py        # red-then-green, 295 cases
 python3.13 tools/traceability_lint.py
 python3.13 tools/reference_lint.py
 python3.13 verification/run_f0_acceptance.py   # ... f1 .. f6
 python3.13 verification/stress_placement.py    # 160k property assertions
 python3.13 verification/stress_fabric.py        # 180k property assertions
 ```
+
+**Corrected 2026-08-31:** they read 57 and 223 while the commands printed 70
+and 295. **Sixth drift, and the largest.** Thirteen checks landed overnight in
+two groups that are worth telling apart, because they say different things about
+where this corpus loses ground.
+
+Seven gate work that was BUILT that night: `CI-085` (cache tiers and
+DF-CACHE-ADMIT), `CI-086` (log receipts, so a memory-derived claim can carry
+support at all), `CI-087` (the two machine-checkable verification strategies),
+`CI-088` (the SR-007 knowledge map), and the three unregistered ones from
+earlier in the same session -- arabizi, presence, and context control -- which
+run and are held back from the registry until their invariants are ratified.
+
+Six were DECLARED WHEN THE REGISTRY WAS FIRST WRITTEN and never implemented:
+`CI-004`, `CI-011`, `CI-012`, `CI-013`, `CI-020`, `CI-033`. Every one guards a
+subsystem that has been complete and correct since it was built -- so a
+regression in `core/bus.py`, `core/taint.py`, `core/authorize.py`,
+`core/capability.py`, `core/evidence.py` or the gateway's cost choke point would
+have been caught by nothing at all. **28 of 89 registered checks are still
+`impl = "PENDING"`**, and that number is the one worth watching now: it is a
+better measure of this corpus's real coverage than the check count is, because
+a PENDING entry looks like enforcement in every listing that does not read the
+`impl` field. `python3.13 tools/ci/checks.py ci-registry` prints the honest
+figure -- **63 of 140 invariants** are named by an implemented, bidirectionally
+consistent, red-run, non-vacuous check.
 
 **Corrected 2026-08-30:** they read 47 and 160 while the commands printed 57
 and 223 -- the memory system landed overnight and brought ten checks with it
