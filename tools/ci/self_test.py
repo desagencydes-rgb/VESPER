@@ -986,6 +986,7 @@ AUTHZ_PY = "core/authorize.py"
 TAINT_PY = "core/taint.py"
 BUS_PY = "core/bus.py"
 GW_PY = "core/gateway.py"
+SELFMOD_PY = "core/selfmod.py"
 COST_PY = "core/cost.py"
 EXEC_PY = "core/executor.py"
 CAP_PY = "core/capability.py"
@@ -2578,6 +2579,53 @@ CASES += [
           "                    pass", 1),
      "attempts stop being counted at the boundary, so A-004.3's measurement of "
      "which cost classes are actually being reached has no denominator"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-015
+    ("no-runtime-governed-write", SELFMOD_PY,
+     _sub("        if not self.is_governed(rel):\n            return",
+          "        return\n        if not self.is_governed(rel):\n            return", 1),
+     "the boundary permits every write: the runtime can edit a governed surface "
+     "directly, which is self-merge into a running configuration and the thing "
+     "INV-SELF-1 says may never happen"),
+
+    ("no-runtime-governed-write", SELFMOD_PY,
+     _sub('        if not path.exists():\n            return (("",), ())',
+          "        if not path.exists():\n            return ((), ())", 1),
+     "a MISSING surfaces artifact governs NOTHING instead of everything: the "
+     "boundary opens when its configuration goes missing, which is worse than "
+     "no boundary because it still looks like it is working"),
+
+    ("no-runtime-governed-write", SELFMOD_PY,
+     _sub("        except (OSError, tomllib.TOMLDecodeError):\n"
+          '            return (("",), ())',
+          "        except (OSError, tomllib.TOMLDecodeError):\n"
+          "            return ((), ())", 1),
+     "a MALFORMED artifact is treated as an empty one, so a single typo in that "
+     "file silently disables the boundary"),
+
+    ("no-runtime-governed-write", SELFMOD_PY,
+     _sub("        exact.append(GOVERNED_SURFACES_ARTIFACT)\n", "", 1),
+     "the surfaces artifact stops governing itself, so the first governed write "
+     "the runtime attempts is the one that removes every other restriction"),
+
+    ("no-runtime-governed-write", SELFMOD_PY,
+     _sub('        raise SelfModificationRefused(\n'
+          '            f"deleting proposal {proposal_id!r} is refused; only the owner "\n'
+          '            "resolves a proposal")',
+          "        with self._lock:\n"
+          "            self._proposals.pop(proposal_id, None)", 1),
+     "the runtime can prune its own proposal queue: a refusal leaves no trace "
+     "and the same change returns tomorrow as though never considered"),
+
+    ("no-runtime-governed-write", SELFMOD_PY,
+     _sub('            payload={"path": rel, "claimed_level": level,',
+          '            payload={"path": rel,', 1),
+     "the audit record drops the level that was CLAIMED, so an attempt at L5 "
+     "reads identically to one at L1 -- and the parameter that exists only to "
+     "be recorded is now ignored AND unrecorded"),
 ]
 
 

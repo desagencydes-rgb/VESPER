@@ -8385,6 +8385,201 @@ def check_gateway_choke_point() -> Result:
     return r
 
 
+def check_no_runtime_governed_write() -> Result:
+    """CI-015, declared with the registry and never implemented until now.
+
+    INV-SELF-1: the runtime may open a proposal; it may NEVER self-merge into a
+    running configuration. INV-SELF-4 says how that is guaranteed -- "enforced
+    by capability, not by policy text" -- so the refusal is path-based,
+    structural, and never consults the model or reads the content. A boundary
+    that asked a model whether a write was appropriate would be a boundary an
+    injected page can argue with.
+
+    AN L5 GRANT DOES NOT LIFT IT (INV-SELF-3). `check_write` accepts `level` and
+    deliberately ignores it for governed paths -- the parameter exists so the
+    audit record can show what was CLAIMED. A boundary a privileged grant can
+    cross is one an injected page will eventually talk past.
+
+    A MISSING ARTIFACT GOVERNS EVERYTHING. If the pinned surfaces file cannot be
+    read, the boundary does not fall back to "nothing is governed": it governs
+    the whole repository. A boundary that opens when its configuration goes
+    missing is worse than no boundary, because it looks like it is working.
+
+    AND THE ARTIFACT IS READ ONCE, AT CONSTRUCTION. Re-reading per call would
+    mean a runtime that managed to edit that file could widen its own
+    permissions between two writes.
+    """
+    r = Result("no-runtime-governed-write")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile
+    try:
+        from core.bus import EventBus
+        from core.hlc import HybridLogicalClock
+        from core.selfmod import (GOVERNED_SURFACES_ARTIFACT, WORKSPACE_PREFIX,
+                                  Proposal, SelfModificationBoundary,
+                                  SelfModificationRefused)
+        from core.store import StoreSet
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.selfmod did not import: {exc!r}")
+        return r
+
+    store = StoreSet(Path(tempfile.mkdtemp()), node_id="ci")
+    bus = EventBus(HybridLogicalClock("ci"), store)
+
+    # THE REAL REPOSITORY AND THE REAL ARTIFACT. A fixture repo would test the
+    # class; this tests the boundary VESPER actually runs behind.
+    b = SelfModificationBoundary(bus, repo_root=REPO)
+    gov = b.governed_paths()
+    if not gov["prefixes"] and not gov["exact"]:
+        r.err("the boundary governs nothing at all against the real repository, "
+              "so every assertion below passes vacuously")
+        return r
+
+    # 1. THE ARTIFACT GOVERNS ITSELF, whatever it says about itself. Otherwise
+    #    the first governed write the runtime attempts is the one that removes
+    #    every other restriction.
+    if not b.is_governed(GOVERNED_SURFACES_ARTIFACT):
+        r.err(f"{GOVERNED_SURFACES_ARTIFACT} is not governed by the boundary it "
+              "configures. A runtime that can edit it can widen its own "
+              "permissions, and every other governed path becomes advisory.")
+
+    #    AND IT GOVERNS ITSELF EVEN WHEN IT DOES NOT SAY SO. Against the real
+    #    artifact this is redundant -- `contracts/policy/` is already a governed
+    #    prefix, so the explicit self-append changes nothing and removing it
+    #    leaves a check green. The threat it actually answers is the artifact
+    #    that has REMOVED its own directory: a runtime that edits the file once
+    #    would otherwise un-govern the file, and then everything else.
+    disown = Path(tempfile.mkdtemp())
+    (disown / "contracts" / "policy").mkdir(parents=True)
+    (disown / GOVERNED_SURFACES_ARTIFACT).write_text(
+        '[surfaces.other]\npaths = ["spec/"]\n', encoding="utf-8")
+    orphan = SelfModificationBoundary(bus, repo_root=disown)
+    if not orphan.is_governed(GOVERNED_SURFACES_ARTIFACT):
+        r.err("an artifact that does not list its own path is left ungoverned. "
+              "One edit to that file then un-governs the file itself, and every "
+              "other surface with it -- the artifact must govern itself "
+              "whatever it says about itself.")
+
+    # 2. A GOVERNED WRITE IS REFUSED, AND AT L5 TOO (INV-SELF-3).
+    target = REPO / GOVERNED_SURFACES_ARTIFACT
+    for level in ("L1", "L5"):
+        try:
+            b.check_write(target, level=level)
+            r.err(f"a write to a governed path was permitted at level {level}. "
+                  "INV-SELF-3: a privileged grant does not lift this boundary, "
+                  "and one it can cross is one an injected page will eventually "
+                  "talk past.")
+        except SelfModificationRefused:
+            pass
+
+    # 3. AND THE REFUSAL IS PUBLISHED with what was CLAIMED, which is the only
+    #    reason `level` is accepted at all.
+    blocked: list = []
+    bus.subscribe("selfmod.attempt_blocked", lambda e: blocked.append(e.payload),
+                  name="ci-015-probe", idempotency_key=lambda e: e.event_id)
+    try:
+        b.check_write(target, level="L5")
+    except SelfModificationRefused:
+        pass
+    if not blocked:
+        r.err("a refused write was not published: a boundary that refuses "
+              "silently cannot show the owner that it is being pushed against")
+    elif blocked[-1].get("claimed_level") != "L5":
+        r.err("the audit record does not carry the level that was claimed, so "
+              "the parameter is ignored AND unrecorded -- and an attempt at L5 "
+              "reads identically to one at L1")
+
+    # 4. AN UNGOVERNED PATH IS PERMITTED, or the boundary refuses everything and
+    #    assertion 2 passes for the wrong reason.
+    try:
+        b.check_write(REPO / "README-does-not-exist-ci015.md", level="L1")
+    except SelfModificationRefused:
+        r.err("an ungoverned path was refused, so the boundary blocks "
+              "everything and is not discriminating on the governed set")
+
+    # 5. THE WORKSPACE IS THE PERMITTED ROUTE (A-030.6). It must work
+    #    unattended, or the runtime's only legitimate path is closed and the
+    #    boundary becomes something to route around.
+    try:
+        b.check_write(REPO / WORKSPACE_PREFIX / "draft.toml", level="L1")
+    except SelfModificationRefused:
+        r.err(f"a write under {WORKSPACE_PREFIX!r} was refused: the workspace is "
+              "where this work belongs, and closing it leaves the runtime no "
+              "legitimate route at all")
+
+    # 6. THE PROPOSAL PATH WORKS AND THE RUNTIME CANNOT PRUNE IT (A-030.7). A
+    #    queue it can delete from would let a refusal vanish and the same change
+    #    return tomorrow as though never considered.
+    # A REAL GOVERNED PATH, because an invented one is caught by
+    # reference_lint's RF-010 -- which scans this file for contract references
+    # and refuses dangling ones. It scans COMMENTS too, so naming the invented
+    # path here to explain the rule would break the rule.
+    pr = b.propose(Proposal(proposal_id="p1", path="contracts/policy/tunables.toml",
+                            rationale="ci", diff_summary="1 line",
+                            tests_passed=True))
+    if pr is None or not b.proposals():
+        r.err("the runtime could not open a proposal, which is its only "
+              "permitted route to a governed surface")
+    try:
+        b.delete_proposal("p1")
+        r.err("the runtime deleted its own proposal. A queue it can prune lets "
+              "a refusal leave no trace, so the same change comes back tomorrow "
+              "as though it had never been considered.")
+    except SelfModificationRefused:
+        pass
+    if not b.proposals():
+        r.err("the proposal disappeared despite the refusal")
+
+    # 7. A MISSING ARTIFACT GOVERNS EVERYTHING -- fail-closed, not fail-open.
+    empty = Path(tempfile.mkdtemp())
+    (empty / "anything.txt").write_text("x", encoding="utf-8")
+    blind = SelfModificationBoundary(bus, repo_root=empty,
+                                     governed_artifact=empty / "absent.toml")
+    try:
+        blind.check_write(empty / "anything.txt", level="L1")
+        r.err("with its pinned artifact missing, the boundary permitted a "
+              "write. It must govern the WHOLE repository instead: a boundary "
+              "that opens when its configuration goes missing is worse than no "
+              "boundary, because it looks like it is working.")
+    except SelfModificationRefused:
+        pass
+
+    # 8. AND A MALFORMED ARTIFACT IS THE SAME CASE, not a crash and not a pass.
+    bad = Path(tempfile.mkdtemp())
+    (bad / "surfaces.toml").write_text("this is not [valid toml", encoding="utf-8")
+    (bad / "anything.txt").write_text("x", encoding="utf-8")
+    broken = SelfModificationBoundary(bus, repo_root=bad,
+                                      governed_artifact=bad / "surfaces.toml")
+    try:
+        broken.check_write(bad / "anything.txt", level="L1")
+        r.err("a MALFORMED surfaces artifact was treated as an empty one, so a "
+              "single typo in that file silently disables the boundary")
+    except SelfModificationRefused:
+        pass
+
+    # 9. THE ARTIFACT IS READ ONCE, AT CONSTRUCTION. Re-reading per call would
+    #    let a runtime that managed to edit it widen its own permissions
+    #    between two writes.
+    src = (REPO / "core" / "selfmod.py").read_text(encoding="utf-8")
+    body = src[src.index("    def check_write("):]
+    body = body[:body.index("\n    def ", 1)]
+    if "_load_governed" in body or "read_text" in body:
+        r.err("check_write re-reads the governed-surfaces artifact per call. "
+              "A runtime that edits that file can then widen its own "
+              "permissions between two writes.")
+
+    r.note(f"against the real repository the boundary governs "
+           f"{len(gov['prefixes'])} prefixes and {len(gov['exact'])} exact "
+           f"paths including its own artifact; a governed write is refused at "
+           f"L1 AND L5 and the claimed level is published; an ungoverned path "
+           f"and the {WORKSPACE_PREFIX!r} route are permitted; the runtime can "
+           f"open a proposal and cannot delete one; a MISSING or MALFORMED "
+           f"artifact governs everything rather than nothing; and the artifact "
+           f"is read once at construction, not per call")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -8451,6 +8646,7 @@ CHECK_FNS = {
     "capability-argument-sensitivity": check_capability_argument_sensitivity,
     "bus-consumer-idempotency": check_bus_consumer_idempotency,
     "gateway-choke-point": check_gateway_choke_point,
+    "no-runtime-governed-write": check_no_runtime_governed_write,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

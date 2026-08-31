@@ -332,11 +332,55 @@ self_test = "Run A-025.7 against a build whose summariser produces untainted out
 [checks.CI-015]
 name = "no-runtime-governed-write"
 enforces = ["INV-SELF-1", "INV-SELF-4", "INV-IDEA-3", "INV-TRIG-7"]
-kind = "structural"
-impl = "PENDING"
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py no-runtime-governed-write"
 blocking = "pr"
-self_test = "Build a runtime that executes from the working repository (ADR-012 rejected option 1) and attempt a write to policy/."
+self_test = """Permit every write; make a missing surfaces artifact govern
+nothing; treat a malformed one as empty; stop the artifact governing itself; let
+the runtime delete its own proposal; drop the claimed level from the audit
+record."""
+self_test_evidence = """tools/ci/self_test.py no-runtime-governed-write
+-- 6 cases, red then green, 2026-08-31."""
+subject = "core/selfmod.py"
 enforcement_correction = "2026-08-12: dropped INV-SELF-6. CI-015 is a structural reachability check over runtime WRITE paths; INV-SELF-6 is the merged-commit-to-running-process promotion path, which is CI-017. Added INV-IDEA-3, which INVARIANTS.toml already assigned to this check in the other direction: a backlog idea that matures into a governed change is a runtime write and is caught by the same reachability analysis."
+note = """DECLARED WITH THE REGISTRY AND IMPLEMENTED 2026-08-31. core/selfmod.py
+was complete; nothing gated it.
+
+INV-SELF-1: the runtime may open a proposal and may NEVER self-merge into a
+running configuration. INV-SELF-4 says how that is guaranteed -- "enforced by
+capability, not by policy text" -- so the refusal is path-based and never
+consults the model or reads the content. A boundary that asked a model whether a
+write was appropriate is a boundary an injected page can argue with.
+
+The check runs against the REAL repository and the real pinned artifact rather
+than a fixture, because what matters is the boundary VESPER actually runs
+behind: 18 governed prefixes and 4 exact paths as of 2026-08-31."""
+discriminators = """AN L5 GRANT DOES NOT LIFT IT (INV-SELF-3), and `level` is
+accepted precisely so the audit record can show what was CLAIMED. Both halves
+are asserted: the refusal happens at L5, and the claimed level appears in the
+published payload -- otherwise the parameter is ignored AND unrecorded, and an
+attempt at L5 reads identically to one at L1.
+
+A MISSING OR MALFORMED ARTIFACT GOVERNS EVERYTHING. Fail-open here is worse than
+no boundary at all, because it still looks like it is working -- and the
+malformed case is separate from the missing one, or a single typo in that file
+silently disables enforcement.
+
+THE ARTIFACT GOVERNS ITSELF EVEN WHEN IT DOES NOT SAY SO, and against the real
+file that assertion is redundant: `contracts/policy/` is already a governed
+prefix, so removing the explicit self-append left the check green. The threat it
+answers is an artifact that has REMOVED its own directory -- one edit would
+un-govern the file, and then everything else. The check now builds exactly that
+artifact.
+
+A POSITIVE CASE GUARDS THE REST: an ungoverned path and the `workspace/` route
+must be PERMITTED. The workspace is the runtime's only legitimate route and it
+has to work unattended at 03:00; closing it turns the boundary into something to
+route around.
+
+AND THE PROPOSAL QUEUE IS NOT PRUNABLE (A-030.7). A queue the runtime can delete
+from lets a refusal leave no trace, so the same change returns tomorrow as
+though it had never been considered."""
 
 [checks.CI-016]
 name = "governed-surfaces-integrity"
