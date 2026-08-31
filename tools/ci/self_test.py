@@ -997,6 +997,8 @@ ENROL_PY = "core/enrollment.py"
 CONFIRM_PY = "core/confirm.py"
 SPEECH_PY = "core/speech.py"
 EXTRACT_PY = "core/extract.py"
+TRANSCRIBE_PY = "core/transcribe.py"
+SUPPLY_TOML = "contracts/policy/provider_supply.toml"
 UPDATER_PY = "core/updater.py"
 MEMORY_PY = "core/memory.py"
 INTBUD_TOML = "contracts/policy/interruption_budget.toml"
@@ -2904,13 +2906,13 @@ CASES += [
 CASES += [
     # ---------------------------------------------------------------- CI-089
     ("documented-counts-match-commands", "CLAUDE.md",
-     _sub("python3.13 tools/ci/checks.py all       # 84 checks",
+     _sub("python3.13 tools/ci/checks.py all       # 85 checks",
           "python3.13 tools/ci/checks.py all       # 57 checks", 1),
      "CLAUDE.md's check count goes stale again -- the eighth drift, and the "
      "first one a gate can see"),
 
     ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
-     _sub("tools/ci/self_test.py                         PASS   374/374",
+     _sub("tools/ci/self_test.py                         PASS   378/378",
           "tools/ci/self_test.py                         PASS   295/295", 1),
      "the status table's self-test count goes stale: it had been four sessions "
      "wrong before this gate existed"),
@@ -3214,6 +3216,35 @@ CASES += [
      "the parser locates an OBJECT instead of an ARRAY, so a single malformed "
      "reading arrives shaped like a list of them and one bad response becomes "
      "a fact"),
+]
+
+
+CASES += [
+    # ------------------------------------------------------ speech in
+    ("speech-in-declares-language-and-measures-confidence", SUPPLY_TOML,
+     _sub('language = "ar"\n', "", 1),
+     "the transcriber stops declaring its language, so detection decides -- and "
+     "it returns FRENCH for Darija: a spoken greeting came back as 'Salam et "
+     "Vesper, qui dit le Besalik ?'"),
+
+    ("speech-in-declares-language-and-measures-confidence", TRANSCRIBE_PY,
+     _sub("    return round(weighted / total, 4) if total else 0.0",
+          "    return round(weighted / total, 4) if total else 0.9", 1),
+     "a response with no measured segments gets a confidence of 0.9, clearing "
+     "Intake's action floor on a number nothing produced -- the one fabricated "
+     "value that lets VESPER ACT on a mishearing"),
+
+    ("speech-in-declares-language-and-measures-confidence", TRANSCRIBE_PY,
+     _sub("        p *= (1.0 - min(max(float(sg.get(\"no_speech_prob\") or 0.0), 0.0), 1.0))",
+          "        pass", 1),
+     "silence scores like speech: a segment the model itself thinks is probably "
+     "not speech contributes its token confidence unchanged"),
+
+    ("speech-in-declares-language-and-measures-confidence", TRANSCRIBE_PY,
+     _sub('    return locale not in ON_DEVICE_LOCALES', "    return True", 1),
+     "English is routed off the machine too, sending audio away that has an "
+     "on-device recogniser -- incurring the exact cost this route exists to "
+     "avoid"),
 ]
 
 

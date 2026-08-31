@@ -10831,6 +10831,131 @@ def check_memory_stores_facts_not_only_transcript() -> Result:
     return r
 
 
+def check_speech_in_declares_language_and_measures_confidence() -> Result:
+    """Darija speech in, and the two things that made it useless at first.
+
+    DECISION_LOG 2026-08-31: "Speech-IN, Darija -- our own route, through the
+    gateway. Apple has no on-device Darija and its own path bypasses the
+    redactor." The island already refused to open the microphone for a locale
+    with no on-device recogniser, which is why that route had to exist.
+
+    THE LANGUAGE IS DECLARED, NOT DETECTED. Left to auto-detect, Darija comes
+    back as FRENCH: measured 2026-08-31, when a spoken Darija greeting
+    transcribed as "Salam et Vesper, qui dit le Besalik ?". Darija borrows
+    French vocabulary, so the detector has a real ambiguity and resolves it the
+    wrong way often enough to be useless. The owner speaks Darija; saying so
+    costs nothing.
+
+    AND THE CONFIDENCE IS MEASURED. `Intake` gates ACTION on confidence and
+    treats a missing one as 0.0, so the first version wrote none and every
+    spoken turn came back "I heard that, but not clearly enough to act on it" --
+    consumed, reflected, never answered. The fix is not a constant chosen to
+    clear the floor: `avg_logprob` is the transcriber's own report and `exp` of
+    it is a real probability. Inventing 0.9 here would let VESPER ACT on a
+    mishearing, which is the one place a fabricated number does damage.
+    """
+    r = Result("speech-in-declares-language-and-measures-confidence")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.intake import CONFIDENCE_FLOOR
+        from core.transcribe import (ON_DEVICE_LOCALES, TRANSCRIBE_PURPOSE,
+                                     Transcriber, _confidence, needs_our_route,
+                                     transcribe_rows)
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.transcribe did not import: {exc!r}")
+        return r
+
+    # 1. THE ROUTE EXISTS ONLY FOR WHAT THE MACHINE CANNOT DO ITSELF.
+    if needs_our_route("en-US"):
+        r.err("en-US is routed off the machine although it has on-device "
+              "recognition; sending audio away that need not go is the cost "
+              "this route exists to avoid, not to incur")
+    if not needs_our_route("ar-MA"):
+        r.err("ar-MA is treated as on-device, which it is not on this machine "
+              "-- measured 2026-08-30")
+
+    # 2. THE LANGUAGE IS DECLARED IN THE CONTRACT. Auto-detection is the
+    #    documented failure.
+    rows = transcribe_rows()
+    if not rows:
+        r.err("no transcriber is declared, so Darija speech has no route at all")
+    for row in rows:
+        if not row.get("language"):
+            r.err(f"transcriber {row.get('id')!r} declares no language, so "
+                  "detection decides -- and it returns French for Darija")
+        if row.get("egress_class") not in ("E1_PRIVATE", "E2_PUBLIC"):
+            r.err(f"transcriber {row.get('id')!r} has no egress class; audio "
+                  "carries whatever was said in the room and must obey the "
+                  "same rule as every other provider")
+
+    # 3. CONFIDENCE IS COMPUTED FROM WHAT THE TRANSCRIBER REPORTED.
+    sure = _confidence({"segments": [
+        {"avg_logprob": -0.22, "start": 0.0, "end": 4.0, "no_speech_prob": 0.0}]})
+    if not 0.75 <= sure <= 1.0:
+        r.err(f"a high-confidence segment scored {sure}, which does not clear "
+              f"Intake's {CONFIDENCE_FLOOR} floor -- every spoken turn would be "
+              "reflected instead of answered")
+    unsure = _confidence({"segments": [
+        {"avg_logprob": -2.5, "start": 0.0, "end": 4.0, "no_speech_prob": 0.0}]})
+    if unsure >= CONFIDENCE_FLOOR:
+        r.err(f"a poor segment scored {unsure}, at or above the floor: VESPER "
+              "would ACT on a mishearing rather than ask for it again")
+    if sure <= unsure:
+        r.err("confidence does not decrease with the model's own log "
+              "probability, so it is not reading the report at all")
+
+    # 4. NO SEGMENTS MEANS ZERO, not a comfortable default. Intake reflects what
+    #    it cannot trust, which is exactly right when nothing measured it.
+    if _confidence({}) != 0.0:
+        r.err("a response with no segments produced a non-zero confidence; a "
+              "fabricated number here is the one that lets VESPER act on a "
+              "mishearing")
+
+    # 5. A SEGMENT THE MODEL THINKS IS NOT SPEECH IS DISCOUNTED.
+    noise = _confidence({"segments": [
+        {"avg_logprob": -0.22, "start": 0.0, "end": 4.0, "no_speech_prob": 0.95}]})
+    if noise >= sure:
+        r.err("no_speech_prob does not discount the confidence, so silence "
+              "scores like speech")
+
+    # 6. AND THE MEASURED NUMBER REACHES INTAKE. The runtime writes it into the
+    #    same input file typing uses; without it the reader defaults to 0.0.
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if '"confidence": heard.confidence' not in rt:
+        r.err("--hear does not write the measured confidence, so Intake sees "
+              "0.0 and reflects every spoken turn back unanswered")
+
+    # 7. THE REDACTOR RUNS ON THE TRANSCRIPT. It is a text tool and this is
+    #    where it belongs -- a spoken credential is refused exactly where a
+    #    typed one is.
+    import tempfile
+    import uuid
+    from core.bus import EventBus
+    from core.hlc import HybridLogicalClock
+    from core.memory import MemoryGraph
+    from core.store import StoreSet
+    from core.updater import Updater
+    st = StoreSet(Path(tempfile.mkdtemp()), node_id="ci")
+    clk = HybridLogicalClock("ci")
+    up = Updater(MemoryGraph(st), st, clk, bus=EventBus(clk, st))
+    cap = up.capture("my api key is sk-live-ABCDEFGHIJKLMNOPQRST",
+                     event_id=str(uuid.uuid4()))
+    if cap.outcome != "refused":
+        r.err(f"a credential-shaped transcript was {cap.outcome}, not refused; "
+              "speech would be a way around the redactor")
+
+    r.note(f"the route covers only what this machine cannot transcribe itself "
+           f"({list(ON_DEVICE_LOCALES)} stay local); the language is declared "
+           f"in the contract because detection returns French for Darija; "
+           f"confidence is computed from the transcriber's own avg_logprob, "
+           f"falls below Intake's {CONFIDENCE_FLOOR} floor for a poor segment, "
+           f"is discounted by no_speech_prob and is 0.0 when nothing measured "
+           f"it; the runtime passes it through; and the redactor refuses a "
+           f"credential-shaped transcript on the ordinary path")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -10911,6 +11036,7 @@ CHECK_FNS = {
     "confirmation-stops-explains-and-asks": check_confirmation_stops_explains_and_asks,
     "speech-is-egress-and-says-so": check_speech_is_egress_and_says_so,
     "memory-stores-facts-not-only-transcript": check_memory_stores_facts_not_only_transcript,
+    "speech-in-declares-language-and-measures-confidence": check_speech_in_declares_language_and_measures_confidence,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

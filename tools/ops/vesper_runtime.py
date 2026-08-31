@@ -728,11 +728,21 @@ def main() -> int:
         if not heard.ok:
             print(f"heard nothing: {heard.reason}")
             return 1
-        print(f"  heard: {heard.text}")
+        print(f"  heard ({heard.language} {heard.confidence:.2f}): {heard.text}")
+        # THE MEASURED CONFIDENCE GOES WITH IT. `Intake` gates ACTION on this
+        # and treats a missing value as 0.0, so the first version of `--hear`
+        # wrote none and every spoken turn came back "I heard that, but not
+        # clearly enough to act on it" -- reflected, never answered. The number
+        # is the transcriber's own, not a constant chosen to clear the floor.
         OUTBOX.parent.mkdir(parents=True, exist_ok=True)
         with OUTBOX.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"text": heard.text, "source": "spoken",
-                                "final": True}, ensure_ascii=False) + "\n")
+                                "final": True,
+                                "confidence": heard.confidence},
+                               ensure_ascii=False) + "\n")
+        if heard.confidence < 0.75:
+            print(f"  (below the 0.75 action floor -- VESPER will ask you to "
+                  f"repeat rather than act on it)")
 
     if args.say:
         OUTBOX.parent.mkdir(parents=True, exist_ok=True)

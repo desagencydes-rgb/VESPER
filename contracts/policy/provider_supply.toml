@@ -816,3 +816,7 @@ account_env = "CLOUDFLARE_ACCOUNT_ID"
 endpoint = "https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model}"
 model = "@cf/openai/whisper-large-v3-turbo"
 wire = "cf_whisper"
+# DECLARED, NOT DETECTED. Left to auto-detect, Darija comes back as French --
+# it borrows French vocabulary and the detector resolves the ambiguity the
+# wrong way often enough to be useless. Measured 2026-08-31.
+language = "ar"

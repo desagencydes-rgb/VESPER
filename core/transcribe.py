@@ -19,13 +19,18 @@ typed message nobody reviewed it first. So this obeys the same rule as every
 other provider: `MAY_CARRY` decides which egress class may receive it, and the
 supply row carries that class. It is not a separate routing system.
 
-THE REDACTOR CANNOT READ AUDIO, and pretending otherwise would be the worse
-error. A credential spoken aloud is in the waveform and no deterministic pass
-over bytes will find it. What can be done is done: the TRANSCRIPT is redacted
-before it becomes memory, on the ordinary path every utterance takes. What
-cannot be done is stated here rather than glossed -- the audio itself reaches
-the provider unredacted, and that is the cost of speech input on a machine with
-no local Darija recogniser.
+THE REDACTOR IS A TEXT TOOL AND THE TRANSCRIPT IS WHERE IT BELONGS. It runs on
+the way into memory, on the ordinary path every utterance takes -- `core/updater.py`
+calls `redact.scan()` before anything is written -- so a credential that reaches
+here as speech is redacted exactly where a typed one is. That is the design, not
+a compromise.
+
+The one thing worth stating plainly: the AUDIO reaches the provider before any
+of that, and no deterministic pass over a waveform can find a spoken secret.
+That is a property of sending audio anywhere at all, not a gap in the redactor,
+and it is the reason this route is confined to the same E1_PRIVATE suppliers
+every other private content already goes to rather than the cheapest one
+available.
 
 WHAT COMES BACK IS ARABIC SCRIPT, which is what the transcriber produces for
 Darija and is the right thing to hand the rest of the system: the memory,
@@ -37,6 +42,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -59,6 +65,13 @@ class Transcript:
     seconds: float = 0.0
     ok: bool = True
     reason: str = ""
+    # MEASURED, NOT ASSUMED. `Intake` gates action on confidence and treats a
+    # missing one as 0.0, which reflects every utterance back. Inventing a
+    # number to get past that gate would be the declared-versus-measured error
+    # on the one signal that decides whether VESPER ACTS on what it misheard.
+    confidence: float = 0.0
+    language: str = ""
+    language_probability: float = 0.0
 
     def to_dict(self) -> dict:
         # THE TEXT IS NOT IN THE RECORD. What was said is memory's business, and
@@ -66,7 +79,10 @@ class Transcript:
         # planner makes in the other direction.
         return {"provider": self.provider, "egress_class": self.egress_class,
                 "chars": len(self.text), "seconds": self.seconds,
-                "ok": self.ok, "reason": self.reason}
+                "ok": self.ok, "reason": self.reason,
+                "confidence": round(self.confidence, 3),
+                "language": self.language,
+                "language_probability": round(self.language_probability, 3)}
 
 
 def needs_our_route(locale: str) -> bool:
@@ -137,7 +153,18 @@ class Transcriber:
                               reason="no credential for the transcriber")
         endpoint = (_field(row, "endpoint") or "").replace("{account}", account) \
                                                   .replace("{model}", _field(row, "model") or "")
-        body = json.dumps({"audio": base64.b64encode(data).decode()}).encode()
+        # THE LANGUAGE IS DECLARED, NOT DETECTED. Left to detect, Darija comes
+        # back as FRENCH -- measured 2026-08-31, when "salam a vesper, kidayr
+        # lbaraka" transcribed as "Salam et Vesper, qui dit le Besalik ?".
+        # Darija borrows French vocabulary and is written in Arabic script by
+        # this model, so the detector has a genuine ambiguity and resolves it
+        # the wrong way often enough to be useless. The owner speaks Darija;
+        # saying so costs nothing and removes the whole failure mode.
+        payload = {"audio": base64.b64encode(data).decode()}
+        lang = _field(row, "language") or ""
+        if lang:
+            payload["language"] = lang
+        body = json.dumps(payload).encode()
         req = urllib.request.Request(
             endpoint, data=body, method="POST",
             headers={"Authorization": f"Bearer {key}",
@@ -149,9 +176,18 @@ class Transcriber:
             self._emit("transcribe.failed", {"provider": rid, "error": repr(exc)})
             return Transcript("", rid, cls, ok=False, reason=repr(exc))
 
-        text = ((out or {}).get("result") or {}).get("text", "") or ""
-        t = Transcript(text.strip(), rid, cls, ok=bool(text.strip()),
-                       reason="" if text.strip() else "the transcriber returned nothing")
+        res = (out or {}).get("result") or {}
+        text = res.get("text", "") or ""
+        info = res.get("transcription_info") or {}
+        conf = _confidence(res)
+        t = Transcript(
+            text.strip(), rid, cls,
+            seconds=float(info.get("duration") or 0.0),
+            ok=bool(text.strip()),
+            reason="" if text.strip() else "the transcriber returned nothing",
+            confidence=conf,
+            language=str(info.get("language") or ""),
+            language_probability=float(info.get("language_probability") or 0.0))
         self._emit("transcribe.done", t.to_dict())
         return t
 
@@ -159,6 +195,37 @@ class Transcriber:
         if self._bus is not None:
             self._bus.publish(kind, subject="transcribe", payload=payload,
                               component="transcribe")
+
+
+def _confidence(result: dict) -> float:
+    """A confidence from what the transcriber actually reported.
+
+    `avg_logprob` is the mean log probability of the tokens in a segment, so
+    `exp` of it is the geometric mean probability -- a real measure of how sure
+    the model was, in the 0..1 range `Intake` compares against its floor.
+    Duration-weighted, because a half-second segment and a ten-second one are
+    not equal evidence.
+
+    NO SEGMENTS MEANS 0.0, and that is the honest answer rather than a
+    conservative-looking default: `Intake` reflects an utterance it cannot
+    trust, which is exactly right when nothing measured the confidence. A
+    fabricated 0.9 here would let VESPER act on a mishearing.
+
+    `no_speech_prob` DISCOUNTS IT. A segment the model thinks is probably not
+    speech should not contribute its token confidence as though it were.
+    """
+    segs = result.get("segments") or []
+    total = weighted = 0.0
+    for sg in segs:
+        lp = sg.get("avg_logprob")
+        if lp is None:
+            continue
+        dur = max(float(sg.get("end", 0)) - float(sg.get("start", 0)), 0.01)
+        p = math.exp(max(float(lp), -20.0))
+        p *= (1.0 - min(max(float(sg.get("no_speech_prob") or 0.0), 0.0), 1.0))
+        weighted += p * dur
+        total += dur
+    return round(weighted / total, 4) if total else 0.0
 
 
 def _field(row: Any, name: str, default: Any = None) -> Any:
