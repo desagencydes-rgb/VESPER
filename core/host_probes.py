@@ -55,8 +55,35 @@ def _run(cmd: list, timeout: float = 2.0) -> str:
     return out.stdout
 
 
+# The charge below which a host counts as about to stop. Read from
+# `contracts/policy/tunables.toml`, which owns it -- a threshold hard-coded here
+# would be a policy dial living outside the governed surface that exists for
+# policy dials, and `INV-TUNE-1` is the rule about exactly that.
+def _critical_ratio() -> float:
+    import tomllib
+    from pathlib import Path as _P
+    t = _P(__file__).resolve().parents[1] / "contracts" / "policy" / "tunables.toml"
+    try:
+        return float(tomllib.loads(t.read_text())["tunable"]["battery_critical_ratio"]["default"])
+    except Exception:                              # noqa: BLE001
+        # FAIL TOWARD FIRING. If the contract cannot be read, a host on battery
+        # is treated as critical sooner rather than later: the trigger this
+        # feeds exists to move work OFF a dying machine, and being early costs
+        # one relocation while being late costs the work.
+        return 0.20
+
+
 def power_source() -> str:
-    """`ac` or `battery`. The profile, not the hardware."""
+    """`ac`, `battery`, or `battery_critical`. The profile, not the hardware.
+
+    `battery_critical` EXISTS BECAUSE A PREDICATE ALREADY READ IT.
+    `trg_placement_reevaluate` has always tested
+    `world.current_host.power_source == battery_critical`, and until 2026-08-31
+    that value appeared nowhere else in the corpus -- no contract defined it and
+    this probe produced only `ac`/`battery`, so the clause could never match and
+    that third of the trigger was dead. The machine ran unattended to 27% on
+    battery the night before, which is precisely the state it was written for.
+    """
     system = platform.system()
     if system == "Darwin":
         text = _run(["pmset", "-g", "batt"])
@@ -64,12 +91,25 @@ def power_source() -> str:
         if "ac power" in low:
             return "ac"
         if "battery power" in low:
-            return "battery"
+            # THE CHARGE IS READ HERE RATHER THAN BY THE CALLER, because
+            # "on battery" and "on battery and about to stop" are different
+            # facts about the world and a caller comparing two readings could
+            # see them from different moments.
+            try:
+                return "battery_critical" if battery_ratio() < _critical_ratio() else "battery"
+            except ProbeUnavailable:
+                return "battery"
         raise ProbeUnavailable("pmset reported neither AC nor battery")
     if system == "Linux":
         for p in Path("/sys/class/power_supply").glob("A*/online"):
             try:
-                return "ac" if p.read_text().strip() == "1" else "battery"
+                if p.read_text().strip() == "1":
+                    return "ac"
+                try:
+                    return ("battery_critical"
+                            if battery_ratio() < _critical_ratio() else "battery")
+                except ProbeUnavailable:
+                    return "battery"
             except OSError:
                 continue
         raise ProbeUnavailable("no power_supply online node")
@@ -121,6 +161,7 @@ def disk_free_ratio(path: str = "/") -> float:
 # `spec/state-machines/INDEX.toml` `SM-DEVICE` owns these.
 ONLINE = "ONLINE"
 DEGRADED = "DEGRADED"
+FAILING = "FAILING"
 
 
 def host_health() -> str:
@@ -132,24 +173,36 @@ def host_health() -> str:
     while being a preference. A class is honest about being a judgement, and
     `INV-HW-1` wants the profile anyway.
 
-    `FAILING` IS NOT RETURNED BECAUSE IT DOES NOT EXIST. The predicate names it;
-    it appears nowhere else in the corpus -- not in SM-DEVICE, not in any
-    contract, not in any code. This probe will not invent a state to satisfy a
-    clause, because a value produced only to make a predicate reachable is a
-    declared reading, and the clause is the thing that is wrong.
+    THREE STATES, AND THE DIFFERENCE BETWEEN THE LAST TWO IS TIME.
+    `DEGRADED` is impaired and still working -- it can be lived with. `FAILING`
+    is about to stop, and it is the one `trg_placement_reevaluate` needs in
+    order to move work off this host while there is still a host to move it
+    from. The trigger's own note is "waiting politely while the host dies is the
+    wrong failure direction".
+
+    `FAILING` WAS ADDED TO SM-DEVICE ON 2026-08-31 rather than invented here.
+    Until then the predicate read a state no state machine defined, and this
+    probe deliberately refused to produce it -- a value made up only to satisfy
+    a clause is a declared reading, and inventing one would have hidden that the
+    contract was the thing missing.
     """
-    constrained = []
+    # FAILING FIRST. Losing power is not a degree of impairment, it is the end
+    # of the host, and a check ordered the other way would report DEGRADED for a
+    # machine with minutes left.
+    try:
+        if power_source() == "battery_critical":
+            return FAILING
+    except ProbeUnavailable:
+        pass
     try:
         if disk_free_ratio() < 0.10:
-            constrained.append("disk")
+            return DEGRADED
     except ProbeUnavailable:
         pass
-    try:
-        if power_source() == "battery" and battery_ratio() < 0.20:
-            constrained.append("power")
-    except ProbeUnavailable:
-        pass
-    return DEGRADED if constrained else ONLINE
+    # ON BATTERY IS NOT DEGRADED. A laptop away from a socket is a laptop, and
+    # reporting it impaired would make the ordinary state of this host an
+    # exception -- the earlier version did exactly that.
+    return ONLINE
 
 
 def tcp_reachable(host: str, port: int = 22, timeout: float = 1.5) -> bool:

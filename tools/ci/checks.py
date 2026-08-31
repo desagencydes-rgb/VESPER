@@ -6071,6 +6071,60 @@ def check_sensors_never_reach_a_model() -> Result:
                   "registry is the most natural place in a system to record a "
                   "product name and the place it does the most damage.")
 
+    # 3g. EVERY SENSOR THE RUNTIME REGISTERS MUST WRITE A TERM SOME PREDICATE
+    #     ACTUALLY READS. A predicate's snapshot resolves `world.current_host.health`
+    #     by splitting on the LAST dot -- subject `world.current_host`. Sensors
+    #     written against subject `current_host` populate a subject nothing can
+    #     read, so the world fills up correctly and every trigger over it stays
+    #     UNKNOWN and silent. That is what shipped on 2026-08-30 and it was
+    #     invisible: the sensors worked, the facts landed, and the triggers were
+    #     quiet for a reason no event reported.
+    reg_terms = set()
+    trig = tomllib.loads(TRIGGERS.read_text(encoding="utf-8"))
+    for t in (trig.get("triggers", {}) or {}).values():
+        for m in re.finditer(r"\b((?:world|nodes|tasks|memory|devices|proposals|alarms|autonomy)"
+                             r"(?:\.[a-z_]+)+)", t.get("predicate", "") or ""):
+            # SUBJECTS, NOT WHOLE TERMS, and the distinction is what makes this
+            # check true rather than merely strict. A sensor may legitimately
+            # write an attribute no predicate reads YET -- `disk_free_ratio`
+            # feeds `health` rather than a predicate -- and a predicate may
+            # express its term as a call, `world.facts.any(...)`. Neither is a
+            # defect. Writing to a SUBJECT nothing resolves is, because that is
+            # the whole subject silently unreadable.
+            reg_terms.add(m.group(1).rsplit(".", 1)[0])
+    import importlib.util as _il
+    spec = _il.spec_from_file_location("_vr", REPO / "tools" / "ops" / "vesper_runtime.py")
+    try:
+        vr = _il.module_from_spec(spec); spec.loader.exec_module(vr)
+        built = vr.build()
+        # FOUND BY IDENTITY, NOT BY INDEX. The first version took built[-3] and
+        # got the autonomy loop, so `live` was None, the cross-check skipped in
+        # silence, and the gate passed while asserting nothing -- the vacuous
+        # assertion this corpus keeps finding. A positional index into an
+        # 18-tuple is a number that goes stale the next time build() grows.
+        live = next((b for b in built
+                     if hasattr(b, "names") and hasattr(b, "poll")), None)
+    except Exception as exc:                       # noqa: BLE001
+        live = None
+        r.err(f"the runtime could not be driven for the sensor-term "
+              f"cross-check: {exc!r}. Skipping it silently is how the bug it "
+              "looks for shipped in the first place.")
+    if live is None:
+        r.err("no SensorRegistry found in build()'s return. The cross-check "
+              "did not run, and a check that cannot find its subject is not "
+              "evidence that the subject is correct.")
+    else:
+        for name in live.names():
+            sensor = live._sensors[name]           # noqa: SLF001
+            if sensor.subject not in reg_terms:
+                r.err(f"sensor {name!r} writes subject {sensor.subject!r}, "
+                      f"which no trigger predicate resolves. Predicates read: "
+                      f"{sorted(reg_terms)}. A snapshot splits "
+                      "`world.current_host.health` on the LAST dot, so a sensor "
+                      "written against `current_host` fills the world correctly "
+                      "and leaves every trigger over it UNKNOWN and silent, "
+                      "with no event saying why.")
+
     # 4. A SENSOR WHOSE CLASS IS UNKNOWN IS REFUSED. The class decides the
     #    mechanism, so guessing it schedules by guesswork.
     try:

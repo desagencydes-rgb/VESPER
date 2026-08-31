@@ -1034,6 +1034,13 @@ CASES += [
 
 CASES += [
     # ---------------------------------------------------------------- CI-082
+    ("sensors-never-reach-a-model", RUNTIME,
+     _sub('    sensors.register(Sensor("host-health", "world.current_host", "health",',
+          '    sensors.register(Sensor("host-health", "current_host", "health",', 1),
+     "a sensor written against subject `current_host` while predicates resolve "
+     "`world.current_host`: the world fills correctly, every trigger over it "
+     "stays UNKNOWN, and nothing anywhere reports that the two never meet"),
+
     ("sensors-never-reach-a-model", HOST_PROBES_PY,
      _sub('    measured["sustained_tokens_per_sec"] = False',
           '    caps["sustained_tokens_per_sec"] = 42\n'
@@ -1075,8 +1082,7 @@ CASES += [
      "depends on which clock the world model happened to be given"),
 
     ("sensors-never-reach-a-model", HOST_PROBES_PY,
-     _sub("    return DEGRADED if constrained else ONLINE",
-          "    return 'constrained' if constrained else 'nominal'", 1),
+     _sub("    return ONLINE\n", "    return 'nominal'\n", 1),
      "the probe invents its own health vocabulary again: "
      "`trg_placement_reevaluate` reads `health in { DEGRADED, FAILING }`, so "
      "the trigger can never fire however degraded the host gets, and nothing "

@@ -159,15 +159,23 @@ def build(node: str = "vesper-runtime"):
     # INV-COORD-2 is vacuously satisfied, and `trg_fact_expiry_sweep` can never
     # fire. Every freshness property in the design is inert without this line,
     # and nothing anywhere would say so.
+    # THE SUBJECT IS `world.current_host`, NOT `current_host`, and the
+    # difference is the whole point of these sensors existing. A predicate's
+    # snapshot resolves `world.current_host.health` by splitting on the LAST
+    # dot -- subject `world.current_host`, attribute `health`. Sensors written
+    # against subject `current_host` populate a subject no predicate can read,
+    # so the world fills up correctly and every trigger over it stays UNKNOWN
+    # and silent. Found 2026-08-31 by driving trg_placement_reevaluate end to
+    # end instead of trusting that the facts were landing.
     world = WorldModel(bus, clock, now_ms=lambda: int(time.time() * 1000))
     sensors = SensorRegistry(world, clock, bus=bus)
-    sensors.register(Sensor("host-power", "current_host", "power_source",
+    sensors.register(Sensor("host-power", "world.current_host", "power_source",
                             host_probes.power_source, TIMER,
                             period_ms=60_000, ttl_ms=300_000))
-    sensors.register(Sensor("host-health", "current_host", "health",
+    sensors.register(Sensor("host-health", "world.current_host", "health",
                             host_probes.host_health, TIMER,
                             period_ms=120_000, ttl_ms=600_000))
-    sensors.register(Sensor("host-disk", "current_host", "disk_free_ratio",
+    sensors.register(Sensor("host-disk", "world.current_host", "disk_free_ratio",
                             host_probes.disk_free_ratio, TIMER,
                             period_ms=300_000, ttl_ms=900_000))
     # REPAIR, OVER THE FAILURES TRIAGE IS ALREADY COLLECTING. `TriageQueue`

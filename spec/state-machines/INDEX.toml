@@ -66,7 +66,7 @@ enforces = ["INV-PRIV-3", "INV-PRIV-4"]
 [state_machines.SM-DEVICE]
 title = "Device enrollment and trust lifecycle"
 owner_rem = "REM-011"
-states = ["DISCOVERED", "ENROLLED", "TRUSTED", "LIMITED_TRUST", "ONLINE", "DEGRADED", "OFFLINE", "REVOKED"]
+states = ["DISCOVERED", "ENROLLED", "TRUSTED", "LIMITED_TRUST", "ONLINE", "DEGRADED", "FAILING", "OFFLINE", "REVOKED"]
 enforces = ["INV-TRUST-1", "INV-TRUST-2", "INV-HW-2"]
 
 [state_machines.SM-IDEA]

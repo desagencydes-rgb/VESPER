@@ -176,3 +176,12 @@ record with its rationale, so "why does it now wait a month before revisiting
 this?" is answerable. A request to change a `not_tunable` field returns
 REFUSE_AND_PROPOSE and files a change proposal -- the work is never lost, only
 gated (SR-048, RB-014)."""
+
+[tunable.battery_critical_ratio]
+min = 0.05
+max = 0.40
+default = 0.20
+unit = "ratio"
+source = "OWNER-DECISION-2026-08-31 · trg_placement_reevaluate"
+affects = "core/host_probes.power_source · world.current_host.power_source == battery_critical · trg_placement_reevaluate"
+owner_rationale = "The charge below which a host counts as about to stop. `trg_placement_reevaluate` fires on it to move work OFF a dying host, so the threshold is not 'nearly empty' -- it has to leave enough runtime to COMPLETE the relocation, which is why the default sits at the platform's own first low-battery warning rather than at its last."
