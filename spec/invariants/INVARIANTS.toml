@@ -344,6 +344,16 @@ why_it_needs_an_offline_guard = "Every other layer in the tree is covered by che
 why_the_fallback_is_checked_too = "The binary carries an inline copy so a missing file never blanks the Desktop, and a fallback is by definition the copy nobody looks at. It and the file can diverge for months, and the divergence surfaces on the day the file is gone -- which is to say in front of the owner, during the exact failure the fallback was written for."
 why_an_unsubstituted_token_is_dangerous = "It renders literally into a CSS declaration, and an invalid declaration is DROPPED SILENTLY by the parser. The surface still appears; it is merely wrong -- a card with no solved fill over a bright wallpaper, with ink that no longer meets its contrast requirement. Present-but-wrong is harder to notice than absent."
 
+[invariants.INV-PRIV-7]
+statement = "No credential-shaped material crosses any boundary off this machine, whatever the provider's egress class. Detection is deterministic, runs at the choke point before any model sees the text, and is never itself performed by a model."
+owner_rem = "OWNER-DECISION-2026-08-31"
+enforced_by = ["CI-084"]
+kind = "runtime"
+why_it_was_missing = """No invariant in the corpus said a credential may not reach a provider, and the handwritten source never mentions credentials at all -- so the guard was built, wired at the choke point and gated, while formally enforcing nothing. It was left deliberately unregistered rather than attached to an invented rule, because a check declaring an invariant that does not exist is the manufactured claim CI-041 refuses."""
+discriminator = """INV-PRIV-6 is the nearest rule and a DIFFERENT guard at the same point: it matches a provider's egress class against the content's privacy class. This one removes credentials REGARDLESS of both, because an E1_PRIVATE provider must not receive a key either.
+
+A MODEL MAY NOT PERFORM THE DETECTION, and not as a first pass NOR as a second. Asking a model whether text contains a secret transmits the text; the request is made and the provider's log holds it whatever the answer. A second pass adds value only by catching what the deterministic pass missed, and catching it means transmitting it -- so it leaks exactly what it exists to find. The only coherent model pass is over already-redacted text checking for OVER-redaction, which sees no secrets by construction and is not detection."""
+
 [invariants.INV-PRIV-6]
 statement = "Every model call declares the privacy class of its content, and the gateway refuses any provider whose egress class may not carry it. The check runs at the choke point, per provider, immediately before invocation, and BEFORE the cost check. Unlabelled content is private. An unrecognised class raises rather than resolving to a permissive reading. A provider registered without an egress class is private-only."
 owner_rem = "REM-006"

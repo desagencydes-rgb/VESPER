@@ -1172,3 +1172,34 @@ new requests on any retry.
 
 "ANSWERED WITHOUT CANCELLING" IS TWO ASSERTIONS. Answering by stopping is the
 natural wrong implementation and satisfies the first half perfectly."""
+
+[checks.CI-084]
+name = "redactor-precedes-every-provider"
+enforces = ["INV-PRIV-7"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py redactor-precedes-every-provider"
+blocking = "pr"
+self_test = """Stop redacting the prompt at the choke point; leave history
+unredacted; make redact() substitute nothing; remove the pattern floor leaving
+only the entropy net; widen the net until it eats ordinary prose."""
+self_test_evidence = """tools/ci/self_test.py redactor-precedes-every-provider
+-- 5 cases, red then green, 2026-08-30. Registered 2026-08-31 when INV-PRIV-7
+was ratified; the check ran unregistered until then."""
+subject = "core/redact.py"
+note = """The guard was built, wired inside ModelGateway.complete and gated on
+2026-08-30, and deliberately NOT registered because no invariant said a
+credential may not reach a provider. Registering it required the owner to ratify
+the rule, which is a governance act and not a build step."""
+discriminators = """HISTORY IS THE HALF THAT IS FORGOTTEN. Conversation history
+carries text the owner typed turns ago, when nothing was watching, and it is
+replayed to a provider on EVERY subsequent turn rather than once -- so a secret
+pasted a single time leaks once per turn for the rest of the conversation.
+
+THE NEGATIVE CONTROL IS NOT OPTIONAL. A redactor that removes everything passes
+every leak assertion perfectly and destroys the request the owner actually made;
+the failure presents as VESPER talking nonsense about its own files rather than
+as a security control working. Paths and prose are asserted to survive.
+
+`Finding` CARRIES NO VALUE. The redaction record and the updater's tombstone are
+both safe to keep and safe to put in a bug report precisely because there is no
+field the secret could travel in."""

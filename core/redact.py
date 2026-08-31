@@ -43,23 +43,29 @@ literal pattern match is reported on its own authority, and an unrecognised
 token must ALSO clear a length floor, a charset-mix test and the benign-shape
 list before it counts.
 
-THIS MODULE ENFORCES NO REGISTERED INVARIANT, AND THAT IS RECORDED RATHER THAN
-QUIETLY FIXED. Checked 2026-08-30 against all 139 invariants: nothing states
-that a credential may not reach a provider. `INV-PRIV-6` is the closest and is a
-different guard at the same point -- it matches a provider's egress class against
-the content's privacy class, while this one removes credentials REGARDLESS of
-both, because an E1_PRIVATE provider must not receive a key either. The
-handwritten source never mentions credentials at all, so there is no source
-clause to trace to and `source_gaps` is the wrong container.
+THIS MODULE ENFORCES `INV-PRIV-7`, RATIFIED BY THE OWNER 2026-08-31. For the
+day before that it enforced nothing formally, and that is worth keeping: checked
+against all 139 invariants on 2026-08-30, NOTHING said a credential may not reach
+a provider, and the handwritten source never mentions credentials at all. So the
+guard was built, wired and gated while claiming no coverage -- the check ran and
+was deliberately left out of `CHECKS.toml`, because registering it meant
+declaring an invariant that did not exist, and inventing one to close my own gap
+is the manufactured claim `ci-registry` refuses.
 
-The check that drives this module (`redactor-precedes-every-provider`,
-tools/ci/checks.py, 5 red-run cases in self_test.py) therefore RUNS but is
-deliberately NOT registered in CHECKS.toml: registering it requires declaring an
-invariant it enforces, and inventing one to close the gap is exactly the
-manufactured claim `ci-registry` refuses and the corpus calls a false trace. The
-proposal is INV-PRIV-7 -- "no credential-shaped material crosses any boundary
-off this machine, whatever the provider's egress class" -- and promoting it is
-an owner-reviewed act, not a build step.
+`INV-PRIV-6` remains the nearest rule and a DIFFERENT guard at the same point: it
+matches a provider's egress class against the content's privacy class, while this
+removes credentials REGARDLESS of both, because an E1_PRIVATE provider must not
+receive a key either.
+
+A MODEL MAY NOT PERFORM THE DETECTION -- NOT AS A FIRST PASS, AND NOT AS A
+SECOND. `MEMORY_ARCHITECTURE.md` says "a model may be a second pass; never the
+first", and that line is WRONG, superseded by the owner 2026-08-31: a second pass
+adds value only by catching what the deterministic pass MISSED, and catching it
+means transmitting it -- so it leaks precisely what it exists to find. If the
+first pass were perfect the second would be unnecessary; since it is not, the
+second is self-defeating. The only coherent model pass is over ALREADY-REDACTED
+text, checking for OVER-redaction, which sees no secrets by construction and is
+not detection.
 
 The under-claim is the safe direction: the guard runs, and nothing reports
 coverage it does not have.

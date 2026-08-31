@@ -309,8 +309,17 @@ other way.
 
 **9 · Redactor** — **"make the model forget it" is impossible.** Text in a
 request has been sent and logged. Detection must be deterministic and run
-before any model sees the text (pattern + entropy, like gitleaks). A model may
-be a *second* pass; never the first, **because running it is the leak.**
+before any model sees the text (pattern + entropy, like gitleaks). **A model may
+not do it at all.**
+
+> *Superseded 2026-08-31.* This paragraph read "a model may be a *second* pass;
+> never the first". That is wrong. A second pass adds value only by catching what
+> the deterministic pass **missed**, and catching it means transmitting it — so it
+> leaks precisely what it exists to find. If the first pass were perfect the
+> second would be unnecessary; since it is not, the second is self-defeating. The
+> only coherent model pass is over **already-redacted** text, checking for
+> OVER-redaction, which sees no secrets by construction and is not detection.
+> `INV-PRIV-7` carries the rule.
 
 **Inside `ModelGateway.complete`, not per-caller.** The gateway is already the
 single choke point (`INV-COST-3`). There, no subsystem can leak — including ones
