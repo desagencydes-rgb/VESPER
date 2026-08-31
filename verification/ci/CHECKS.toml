@@ -865,10 +865,40 @@ self_test = "Write a LearnedArtifact whose target path is under policy/."
 [checks.CI-037]
 name = "outbox-before-effect"
 enforces = ["INV-EXT-1", "INV-ACT-6"]
-kind = "structural"
-impl = "PENDING"
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py outbox-before-effect"
 blocking = "pr"
-self_test = "Call an external adapter without a prior outbox record."
+self_test = """Record the intent after the effect; write it already marked
+sent; drop the idempotency key; replay intents at or before the cursor; send an
+L4 action under suspected partition."""
+self_test_evidence = """tools/ci/self_test.py outbox-before-effect
+-- 5 cases, red then green, 2026-08-31."""
+subject = "core/tasks.py"
+note = """DECLARED WITH THE REGISTRY AND IMPLEMENTED 2026-08-31.
+
+"PRIOR" IS THE ENTIRE INVARIANT. Recording an external send after it happens is
+trivially easy and completely useless: the case that matters is a crash between
+the send and the record, and after-the-fact bookkeeping is exactly blind to it.
+A resumed task then re-sends, and a duplicated external send has no undo."""
+discriminators = """THE ORDERING IS ASSERTED FROM INSIDE THE PERFORMING
+CALLABLE, which is the only place that can tell "before" from "after". Counting
+outbox records once `send()` has returned cannot distinguish the two orders at
+all -- both leave exactly one intent and one sent record behind. The check
+therefore counts durable intents at the moment the effect runs.
+
+THE INTENT IS WRITTEN UNSENT, and that is a separate assertion from writing it
+at all. An intent stamped `sent = True` on creation makes a crash BEFORE the
+effect indistinguishable from a completed send -- in the direction that skips it
+forever, which loses the work rather than duplicating it.
+
+THE CURSOR IS ASSERTED IN BOTH DIRECTIONS. Replaying at-or-before re-sends what
+already went; failing to replay after loses it. Only checking one leaves the
+other failure mode wide open, and they are opposite.
+
+AND PARTITION REFUSAL IS TESTED WITH A POSITIVE CASE BESIDE IT: an L4 send is
+refused under suspected partition, an L1 send is not. Without the second, the
+rule could be "a partitioned node does nothing" -- which makes it useless rather
+than safe, and INV-OWN-2 bounds external irreversible action specifically."""
 
 [checks.CI-038]
 name = "limitation-record-required"

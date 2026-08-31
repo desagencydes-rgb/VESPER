@@ -10017,6 +10017,145 @@ def check_tunable_range_immutable_runtime() -> Result:
     return r
 
 
+def check_outbox_before_effect() -> Result:
+    """CI-037: no external side effect without a PRIOR durable outbox record.
+
+    "PRIOR" IS THE ENTIRE INVARIANT. Recording an external send after it happens
+    is trivially easy and completely useless: the case that matters is a crash
+    between the send and the record, and after-the-fact bookkeeping is exactly
+    blind to it. A resumed task then re-sends, and a duplicated external send
+    has no undo -- which is why `INV-ACT-6` insists the idempotency key is
+    written BEFORE the effect and re-used on replay.
+
+    A PARTITIONED NODE REFUSES OUTRIGHT AT L4+ (INV-OWN-2), and the refusal is
+    the feature: both sides of a partition would otherwise send it. Refusing an
+    action that might have been fine is recoverable; sending one twice is not.
+    """
+    r = Result("outbox-before-effect")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile
+    try:
+        from core.bus import EventBus
+        from core.hlc import HybridLogicalClock
+        from core.lease import LeaseManager
+        from core.store import StoreSet
+        from core.tasks import Outbox, TaskStore
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.tasks did not import: {exc!r}")
+        return r
+
+    root = Path(tempfile.mkdtemp())
+    store = StoreSet(root, node_id="ci")
+    clock = HybridLogicalClock("ci")
+    bus = EventBus(clock, store)
+    leases = LeaseManager(store, clock, bus, node_id="ci")
+    leases.acquire("tasks")
+    tasks = TaskStore(store, clock, bus, leases)
+    ob = Outbox(store, clock, bus, leases)
+
+    task = tasks.create("send the thing", {"kind": "deterministic",
+                                           "contains": "ok"})
+
+    # 1. THE INTENT IS DURABLE BEFORE THE EFFECT RUNS. Asserted from INSIDE the
+    #    performing callable, which is the only place that can tell "before"
+    #    from "after" -- checking after `send()` returns cannot.
+    seen_at_send_time: list = []
+
+    def perform(args: dict) -> dict:
+        seen_at_send_time.append(store.count("log", kind="outbox.intent"))
+        return {"ok": True}
+
+    ob.send(task, "notify", {"to": "owner"}, idempotency_key="k-1",
+            perform=perform, level="L1")
+    if not seen_at_send_time:
+        r.err("the performing callable never ran")
+    elif seen_at_send_time[0] < 1:
+        r.err("the external effect ran with NO durable intent recorded. "
+              "Recording it afterwards is blind to the case that matters -- a "
+              "crash between the send and the record -- and a resumed task then "
+              "re-sends something that has no undo.")
+
+    # 2. AND THE RECORD CARRIES THE IDEMPOTENCY KEY, or a replay cannot re-use
+    #    it and the receiving side has no way to recognise the duplicate.
+    intents = [rec.body for rec in store.read("log", kind="outbox.intent")]
+    if not intents:
+        r.err("no outbox intent was written at all")
+    elif intents[-1].get("idempotency_key") != "k-1":
+        r.err("the outbox record does not carry the idempotency key it was "
+              "given; a replay re-sends under a new key and the far side sees "
+              "two distinct actions")
+    if intents and intents[-1].get("sent") is not False:
+        r.err("the intent is written already marked sent, so a crash before the "
+              "effect is indistinguishable from a completed send -- in the "
+              "direction that skips it forever")
+
+    # 3. THE SEND IS MARKED AFTERWARDS, so a resume can tell what completed.
+    if store.count("log", kind="outbox.sent") < 1:
+        r.err("nothing recorded that the send completed, so every resume "
+              "replays every intent")
+
+    # 4. A RESUME REPLAYS ONLY WHAT IS AFTER THE CURSOR. The cursor is the
+    #    whole recovery mechanism: at-or-before is done, after is not.
+    c1 = ob.intent(task.task_id, "a", {}, idempotency_key="k-a")
+    ob.intent(task.task_id, "b", {}, idempotency_key="k-b")
+    after = ob.pending_after(task.task_id, c1)
+    names = [p["action"] for p in after]
+    if "a" in names:
+        r.err("an intent at or before the cursor was replayed: a resumed task "
+              "re-sends something already sent")
+    if "b" not in names:
+        r.err("an intent after the cursor was NOT replayed, so a crash loses "
+              "the work instead of duplicating it -- the other failure "
+              "direction, and equally wrong")
+
+    # 5. A PARTITIONED NODE REFUSES AN L4 SEND OUTRIGHT (INV-OWN-2). Both sides
+    #    of a partition would otherwise send it, and a duplicated external
+    #    action has no undo.
+    leases.set_partition_suspected(True)
+    ran: list = []
+    try:
+        ob.send(task, "pay", {"amount": 1}, idempotency_key="k-2",
+                perform=lambda a: ran.append(1) or {"ok": True}, level="L4")
+        r.err("an L4 external action was sent while a partition was suspected. "
+              "Refusing an action that might have been fine is recoverable; "
+              "sending one twice is not.")
+    except PermissionError:
+        pass
+    if ran:
+        r.err("the refusal happened after the effect ran")
+
+    # 6. AND A LOW-LEVEL ACTION IS STILL PERMITTED UNDER PARTITION, or the rule
+    #    is "a partitioned node does nothing" and the level does no work.
+    try:
+        ob.send(task, "log_locally", {}, idempotency_key="k-3",
+                perform=lambda a: {"ok": True}, level="L1")
+    except PermissionError:
+        r.err("an L1 action was refused under partition: INV-OWN-2 bounds "
+              "EXTERNAL irreversible action, and refusing everything makes a "
+              "partitioned node useless rather than safe")
+    leases.set_partition_suspected(False)
+
+    # 7. THE INTENT IS FENCED. It is written to the append-only log under the
+    #    tasks lease epoch, so a node that lost the lease cannot enqueue sends
+    #    that a resume would later perform on its behalf.
+    src = (REPO / "core" / "tasks.py").read_text(encoding="utf-8")
+    body = src[src.index("    def intent("):]
+    body = body[:body.index("\n    def ", 1)]
+    if "lease_epoch=" not in body:
+        r.err("the outbox intent is written without a lease epoch, so a node "
+              "that lost the tasks lease can still enqueue external sends")
+
+    r.note(f"the durable intent exists BEFORE the effect runs -- asserted from "
+           f"inside the performing callable, the only place that can tell "
+           f"before from after -- and carries its idempotency key unsent; the "
+           f"completion is recorded; a resume replays strictly after the cursor "
+           f"and not at or before it; an L4 send is refused outright under "
+           f"suspected partition while an L1 send is not; and the intent is "
+           f"written under the tasks lease epoch")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -10093,6 +10232,7 @@ CHECK_FNS = {
     "documented-counts-match-commands": check_documented_counts_match_commands,
     "z2-capability-bound": check_z2_capability_bound,
     "tunable-range-immutable-runtime": check_tunable_range_immutable_runtime,
+    "outbox-before-effect": check_outbox_before_effect,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

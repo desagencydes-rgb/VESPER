@@ -2874,19 +2874,19 @@ CASES += [
 CASES += [
     # ---------------------------------------------------------------- CI-089
     ("documented-counts-match-commands", "CLAUDE.md",
-     _sub("python3.13 tools/ci/checks.py all       # 80 checks",
+     _sub("python3.13 tools/ci/checks.py all       # 81 checks",
           "python3.13 tools/ci/checks.py all       # 57 checks", 1),
      "CLAUDE.md's check count goes stale again -- the eighth drift, and the "
      "first one a gate can see"),
 
     ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
-     _sub("tools/ci/self_test.py                         PASS   345/345",
+     _sub("tools/ci/self_test.py                         PASS   350/350",
           "tools/ci/self_test.py                         PASS   295/295", 1),
      "the status table's self-test count goes stale: it had been four sessions "
      "wrong before this gate existed"),
 
     ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
-     _sub("tools/ci/checks.py status                            70/89 check IDs implemented, 19 PENDING",
+     _sub("tools/ci/checks.py status                            71/89 check IDs implemented, 18 PENDING",
           "tools/ci/checks.py status                            61/89 check IDs implemented, 28 PENDING", 1),
      "the PENDING count goes stale -- the figure that matters most, because a "
      "PENDING entry looks exactly like enforcement in any listing that does "
@@ -2972,6 +2972,46 @@ CASES += [
      _sub("[tunable.revisit_after]\nmin = 3600", "[tunable.revisit_after]\nmin = 700000", 1),
      "a declared default falls outside its own range, so the value the runtime "
      "reads is already out of bounds before anything tunes it"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-037
+    ("outbox-before-effect", TASKS_PY,
+     _sub("        cursor = self.intent(task.task_id, action, args,\n"
+          "                             idempotency_key=idempotency_key, level=level)\n"
+          "        if self.already_sent(cursor):\n"
+          '            return {"skipped": True, "reason": "already sent", "cursor": cursor}\n'
+          "        result = perform(args)",
+          "        result = perform(args)\n"
+          "        cursor = self.intent(task.task_id, action, args,\n"
+          "                             idempotency_key=idempotency_key, level=level)", 1),
+     "the intent is recorded AFTER the effect: bookkeeping that is blind to the "
+     "one case that matters, a crash between the send and the record -- and a "
+     "resumed task then re-sends something with no undo"),
+
+    ("outbox-before-effect", TASKS_PY,
+     _sub('                "level": level, "sent": False,', '                "level": level, "sent": True,', 1),
+     "the intent is written already marked sent, so a crash BEFORE the effect "
+     "is indistinguishable from a completed send -- in the direction that skips "
+     "it forever"),
+
+    ("outbox-before-effect", TASKS_PY,
+     _sub('                "args": args, "idempotency_key": idempotency_key,',
+          '                "args": args,', 1),
+     "the idempotency key is dropped from the durable record, so a replay "
+     "re-sends under a new key and the far side sees two distinct actions "
+     "rather than a duplicate it can recognise"),
+
+    ("outbox-before-effect", TASKS_PY,
+     _sub("            if rec.seq <= floor:", "            if False:", 1),
+     "a resume replays intents at or before the cursor too, re-sending "
+     "everything the task already completed"),
+
+    ("outbox-before-effect", TASKS_PY,
+     _sub("        if not self._leases.external_action_permitted(level):", "        if False:", 1),
+     "a partitioned node sends an L4 external action: both sides of the "
+     "partition send it, and a duplicated irreversible action has no undo"),
 ]
 
 
