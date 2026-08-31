@@ -756,3 +756,32 @@ quota_window_seconds = 2592000
 quota_note = """Own account for the forgetter. Credit-bound, not request- or token-bound: $10/month of API
 credits. There is no request ceiling to count against, so the ledger holds no
 measured limit and this is opportunistic like Ollama."""
+
+# ---------------------------------------------------------------------------
+# SPEECH. A synthesiser is a provider and speaking is egress, so it lives here
+# and obeys MAY_CARRY like every other supplier.
+#
+# EGRESS CLASS IS AN OWNER DECISION AND THIS ONE WAS MADE 2026-08-31: the owner
+# chose ElevenLabs for VESPER's voice after an A/B against every local option,
+# which is a decision to let their assistant's replies reach it. Recorded as
+# E1_PRIVATE so private content may be spoken. It is NOT a claim about the
+# provider's terms -- it is the owner's placement of them, and reversing it is
+# a one-word edit that immediately routes speech back to local synthesis.
+#
+# The local voices remain the fallback and are audibly worse: the only Arabic
+# voice on this machine is Modern Standard, not Darija.
+# ---------------------------------------------------------------------------
+[[provider]]
+id = "elevenlabs-speech"
+purpose = "speech"
+tier = "standard"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free tier, 10,000 characters/month, refuses at the ceiling rather than billing over it. Re-verify if a plan is ever attached."
+credential_env = "ELEVENLABS_API_KEY"
+endpoint = "https://api.elevenlabs.io/v1/text-to-speech/{voice}"
+model = "eleven_multilingual_v2"
+wire = "elevenlabs_tts"
+speaks_arabic = true

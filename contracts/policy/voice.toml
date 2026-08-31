@@ -205,3 +205,52 @@ hard = "This one deserves the long way round."
 failing_over = "That rung is spent. Moving down."
 degraded = "Not the answer I wanted to give."
 unknown = "I don't have this. Saying so rather than guessing."
+
+##############################################################################
+# SYNTHESIS -- WHICH VOICE ACTUALLY SPEAKS
+#
+# ADDED 2026-08-31. The A/B in ~/VESPER-darija-ab/ decided these by ear and the
+# decisions were never written anywhere the runtime could read, so the first
+# speech module defaulted to the system voice -- a female en_US voice that reads
+# Darija's 3, 7 and 9 as English numerals. That is the exact failure the whole
+# comparison existed to avoid, reintroduced by not recording its outcome.
+#
+# A DECISION MADE BY EAR AND LEFT IN A README IS A DECISION THE RUNTIME CANNOT
+# HONOUR. This block is the record it can read.
+##############################################################################
+
+[synthesis]
+# English. Chosen 2026-08-30 from Daniel/Oliver/Eddy/Fred/Rishi/Serena as the
+# closest thing on this machine to the register the owner asked for. There is
+# no Jarvis voice here; this is the nearest.
+english_voice = "Daniel"
+english_locale = "en_GB"
+
+# Darija. Decided 2026-08-31 by ear: Arabic SCRIPT is what fixes the digits, and
+# the owner chose the Arabic rendering over the Latin one. The script conversion
+# happens at the speech boundary only (INV-NARRATE-2).
+darija_script = "arabic"
+
+# The local Arabic voice, used when no external synthesiser may carry the
+# content. Modern Standard Arabic, not Darija -- audibly wrong in accent and
+# audibly better than English numerals. It is a fallback, not the choice.
+darija_local_voice = "Majed"
+darija_local_is_msa = true
+# Words per minute. `say` quantises rate coarsely, so nearby numbers can render
+# byte-identical -- 175 (the default) measured 5.11 s on a nine-word line and
+# the owner called it too slow. Set by ear, like every other value here.
+darija_local_rate = 210
+english_rate = 0        # 0 = the voice's own default, which is what was picked
+
+# The chosen external synthesiser. UNUSABLE UNTIL ITS EGRESS CLASS IS DECLARED
+# in contracts/policy/provider_supply.toml with purpose = "speech": a
+# synthesiser is a provider, and MAY_CARRY decides what content may reach it.
+darija_preferred = "elevenlabs-speech"
+darija_preferred_declared = true
+
+# The chosen voice, by id. Picked by ear 2026-08-31 from the multilingual set:
+# British, male, steady -- the closest to the register the owner asked for, and
+# the same voice speaks BOTH languages, which is what no local option could do.
+# Change the id to change the voice; nothing else moves.
+darija_voice_id = "onwK4e9ZLuTAKqWW03F9"      # Daniel - Steady Broadcaster
+english_voice_id = "onwK4e9ZLuTAKqWW03F9"     # the same voice, deliberately

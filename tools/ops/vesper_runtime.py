@@ -60,6 +60,7 @@ from core.narration import Announcer                            # noqa: E402
 from core.persona import Persona, Situation                     # noqa: E402
 from core.context_control import ContextCommands                # noqa: E402
 from core.presence import Presence                              # noqa: E402
+from core.speech import Speech, speech_rows                     # noqa: E402
 from core.blocks import L1Renderer                              # noqa: E402
 from core.evidence import ClaimChecker                          # noqa: E402
 from core.memory import MemoryGraph                             # noqa: E402
@@ -290,6 +291,16 @@ def build(node: str = "vesper-runtime"):
     # THE CHECKER IS PASSED ONLY WHEN MEMORY LOADED. Without it
     # `retrieval_grounded` cannot ground anything, and claiming it is available
     # would put the runtime back in the state this replaced.
+    # SPEAKING IS EGRESS, so the synthesiser choice reads the same supply table
+    # every other provider decision reads. No row declares purpose = "speech"
+    # today, so this resolves to local synthesis -- which is correct and is
+    # ALSO audibly worse for Darija, and `core/speech.py` reports that rather
+    # than letting the owner wonder why the voice changed.
+    # SPEECH ROWS, NOT THE TEXT LADDER'S. `load_rows` enforces INV-HW-2's
+    # measured-throughput rule, which every synthesiser fails for a reason that
+    # does not apply to it -- a voice is not routed by tokens per second.
+    speech = Speech(bus, supply=speech_rows())
+
     verifier = Verifier(bus)
     checker = (ClaimChecker(bus, REPO, store=store)
                if memory is not None else None)
@@ -304,7 +315,7 @@ def build(node: str = "vesper-runtime"):
 
     return (bus, gw, router, home, intake, triage, report, persona, bench,
             renderer, updater, misses, chooser, world, sensors, autonomy,
-            devices, repairer, presence, context_cmds, verifier)
+            devices, repairer, presence, context_cmds, verifier, speech)
 
 
 def answer(gw, router, persona, utterance, renderer=None,
@@ -465,7 +476,7 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          once: bool = False, renderer=None, updater=None,
          misses=None, chooser=None, sensors=None, autonomy=None,
          triage=None, repairer=None, presence=None,
-         context_cmds=None) -> int:
+         context_cmds=None, speech=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     # SENSORS FIRST, AND THE PERIOD DECIDES WHETHER ANYTHING ACTUALLY RUNS.
     # `poll()` returns immediately for any sensor that is not due, so calling it
@@ -606,6 +617,35 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                 # instructions.
                 said.append({"who": "vesper", "text": reply,
                              "source": "vesper", "certain": True})
+                # AND SAY IT. Until 2026-08-31 the reply was rendered and never
+                # spoken -- every voice decision in the corpus governed a
+                # modality the process did not have.
+                #
+                # `persons` COMES FROM PRESENCE, which is the whole reason that
+                # module exists: a reply read into a room is heard by whoever is
+                # in it, so speaking is an exposure decision and not an output
+                # one. With someone else present this plans to WITHHOLD and the
+                # answer stays on the screen it is already on.
+                #
+                # The privacy class is the gateway's own default -- anything the
+                # owner types is theirs until something establishes otherwise --
+                # so today every reply is private and every reply is spoken
+                # locally. That is the fail-closed answer, and it is why the
+                # good voice is not being used yet.
+                if speech is not None:
+                    try:
+                        persons = (presence.persons() if presence is not None
+                                   else ("owner",))
+                        plan = speech.plan(reply, privacy_class="private",
+                                           persons=persons)
+                        speech.speak(plan)
+                    except Exception as exc:       # noqa: BLE001
+                        # A FAILURE TO SPEAK NEVER FAILS THE TURN. The answer is
+                        # already on the screen; losing the audio is a
+                        # degradation, and losing the reply would not be.
+                        bus.publish("speech.failed", subject="reply",
+                                    payload={"error": repr(exc)},
+                                    component="runtime")
             elif res["outcome"] == "reflected":
                 said.append({"who": "vesper", "source": "vesper", "certain": True,
                              "text": "I heard that, but not clearly enough to "
@@ -635,7 +675,8 @@ def main() -> int:
 
     (bus, gw, router, home, intake, triage, report, persona, bench,
      renderer, updater, misses, chooser, world, sensors,
-     autonomy, devices, repairer, presence, context_cmds, verifier) = build()
+     autonomy, devices, repairer, presence, context_cmds, verifier,
+     speech) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -659,7 +700,8 @@ def main() -> int:
                  once=True, renderer=renderer, updater=updater,
                  misses=misses, chooser=chooser, sensors=sensors,
                  autonomy=autonomy, triage=triage, repairer=repairer,
-                 presence=presence, context_cmds=context_cmds)
+                 presence=presence, context_cmds=context_cmds,
+                 speech=speech)
         # THE SAME HONESTY THE INTERRUPT PATH APPLIES. A one-shot run that exits
         # leaving `thinking` on disk reports work that is not happening; the
         # 90 s staleness fallback would correct it eventually, and eventually is

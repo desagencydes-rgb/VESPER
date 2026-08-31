@@ -18,7 +18,7 @@ Last updated: 2026-08-12.
 | **Strong desktop** (site A) | high compute, discrete GPU, mains-powered | `on_demand` after the owner relocates (available now) | `compute_candidate`; `wakeable` **pending** SPIKE-010; **never** continuity-critical | **Live.** Specs below |
 | **Asus laptop** (Kali Linux) | portable compute + control candidate | `usually_on` while in use; travels to site B | primary `compute_candidate` + `control_candidate` | Live; specs TBD when powered |
 | **iPhone 14 Pro** | foreground-only endpoint, hardware capture indicator | `foreground_only` | presence endpoint; **survival floor** | Live; travels |
-| **Samsung J3** | low-memory endpoint, file-based key storage | `on_demand` / `foreground_only` | weak endpoint, holds no state → likely `Z2` | Live; travels |
+| **Samsung J3** | low-memory endpoint, file-based key storage | `on_demand` / `foreground_only` | **call channel · camera · microphone · display** — actuated endpoint, holds no state → `Z2` | Live; travels |
 | **Broken desktop** | — | **UNAVAILABLE** | none | **Repair project.** Pre-POST power fault |
 | **MacBook** | — | not acquired | — | **Excluded.** Joins by measurement when purchased — no placeholder |
 
@@ -52,13 +52,39 @@ or calls an API, inside an app to be built on the MacBook.
 > chain. The spike currently says "on the minimum profile", written as though one machine
 > does everything, and that wording is now wrong for the voice path.
 
-**The J3 is a display first.** Its primary role is the `SPIKE-004` Pepper's-ghost output — a
-flat screen under a transparent pyramid producing an apparent floating image. It has a
-microphone and speaker, so it *can* serve voice, but the owner placed it deliberately: **a
-backup for voice, and not the first backup layer.** It is `Z2` by key storage (file-based),
-so `INV-TRUST-1` already forbids it holding state, issuing commands or receiving secrets —
-which is consistent with a render-and-observe endpoint and inconsistent with a primary voice
-path that would need to act on what it hears.
+**The J3 is VESPER's phone, camera, microphone and display.** *Owner decision, 2026-08-31,
+superseding the display-first placement below.* Four roles on one device: the outbound call
+channel VESPER reaches the owner on, a camera, a microphone, and the `SPIKE-004`
+Pepper's-ghost output — a flat screen under a transparent pyramid producing an apparent
+floating image.
+
+**The trust zone does not change, and it is the constraint that makes the new role
+workable.** The J3 is `Z2` by key storage (file-based), so `INV-TRUST-1` forbids it holding
+state, issuing commands or receiving secrets. That is compatible with all four roles *on one
+reading and only one*: the J3 is an ENDPOINT VESPER ACTUATES, never a node that decides.
+The MacBook decides to call, to capture, to render; the J3 dials, captures and displays. It
+holds no keys, no memory and no decision.
+
+The reading that would break the invariant is the phone deciding anything on what it hears —
+which is what the earlier note meant by "inconsistent with a primary voice path that would
+need to act on what it hears". Under the new placement the microphone is an input stream to
+the MacBook, not a command channel on the phone. **If the J3 is ever given a credential, a
+copy of memory, or the ability to initiate an action on its own, its zone has to be
+renegotiated first.**
+
+Three things this raises, recorded now so they are not discovered later:
+
+- **Raw capture.** `INV-PRIV-3` says raw media is not persisted beyond the processing
+  window, and `INV-PRIV-4` requires a physical or OS-level guaranteed-off path with a
+  capture indicator software cannot override. A phone camera has a hardware indicator on
+  iOS; on this Android handset that needs checking rather than assuming.
+- **The outbound call.** This is an external, irreversible effect, so it needs an outbox
+  record before the effect and an idempotency key — `INV-EXT-1`. Dialling twice because a
+  resume replayed is exactly the failure that invariant exists to prevent, and a duplicate
+  phone call at 3 a.m. has no undo.
+- **`modality_availability.phone_call`** in `contracts/policy/interruption_budget.toml` is
+  declared `false` and gated by a CI check. It flips to `true` when a telephony-capable node
+  is enrolled and measured — not when one is merely present.
 
 **The broken desktop is the standing candidate for the always-on server**, conditional on
 repair. The owner raised it for that role and the instinct is right: a mains-powered machine

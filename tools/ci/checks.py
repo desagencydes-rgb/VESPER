@@ -10413,6 +10413,253 @@ def check_confirmation_stops_explains_and_asks() -> Result:
     return r
 
 
+def check_speech_is_egress_and_says_so() -> Result:
+    """VESPER could not speak, and speaking is egress.
+
+    UNTIL 2026-08-31 THE MODALITY DID NOT EXIST. `say.jsonl` is the INBOUND
+    channel; the reply went to the transcript and was rendered. So the persona's
+    brevity rules, the Darija script conversion and the interruption budget's
+    `speech` modality costing 8 all governed something the process could not do.
+
+    A SYNTHESISER IS A PROVIDER. Sending a reply to an external voice service
+    puts it on that service's machines, so the choice runs through `MAY_CARRY`
+    -- the same rule every model call obeys -- rather than an allowlist beside
+    it. A second path to a provider is the shape `INV-COST-3` refuses at the
+    cost choke point, and privacy has the same shape.
+
+    AND THE FALLBACK IS REPORTED. Local synthesis reaches no network and is
+    always permitted, and it reads Arabizi digits as English numerals -- which
+    is the entire reason the script conversion exists. When privacy forces it,
+    the owner hears a worse reply and `A-032` says they must be able to find out
+    why.
+    """
+    r = Result("speech-is-egress-and-says-so")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile
+    try:
+        from core.bus import EventBus
+        from core.gateway import MAY_CARRY
+        from core.hlc import HybridLogicalClock
+        from core.privacy import WITHHOLD
+        from core.speech import LOCAL, LOCAL_MANGLES, SPEECH_PURPOSE, Speech
+        from core.store import StoreSet
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.speech did not import: {exc!r}")
+        return r
+
+    store = StoreSet(Path(tempfile.mkdtemp()), node_id="ci")
+    bus = EventBus(HybridLogicalClock("ci"), store)
+    DARIJA = "wax nta 3ndi chi 7aja f 9alb"
+    public_row = [{"id": "ext", "purpose": SPEECH_PURPOSE,
+                   "egress_class": "E2_PUBLIC"}]
+    private_row = [{"id": "ext", "purpose": SPEECH_PURPOSE,
+                    "egress_class": "E1_PRIVATE"}]
+
+    # 1. PRIVATE CONTENT DOES NOT REACH A PUBLIC SYNTHESISER. The whole point.
+    p = Speech(bus, supply=public_row).plan(DARIJA, privacy_class="private")
+    if p.synthesiser != LOCAL:
+        r.err(f"private content was routed to {p.synthesiser!r} with egress "
+              f"{p.egress_class!r}. MAY_CARRY says private content reaches "
+              "E1_PRIVATE only, and a synthesiser is a provider like any other.")
+    if not p.candidates_refused:
+        r.err("the refused synthesiser was not recorded, so nothing shows the "
+              "owner why the good voice was not used")
+
+    # 2. AND THE SAME SYNTHESISER IS USED WHEN THE CONTENT ALLOWS IT, or the
+    #    module simply never speaks externally and assertion 1 passes for the
+    #    wrong reason.
+    pub = Speech(bus, supply=public_row).plan(DARIJA, privacy_class="public")
+    if pub.synthesiser == LOCAL:
+        r.err("a public-content reply was still routed to local synthesis, so "
+              "the external path is unreachable rather than gated")
+    priv_ok = Speech(bus, supply=private_row).plan(DARIJA, privacy_class="private")
+    if priv_ok.synthesiser == LOCAL:
+        r.err("an E1_PRIVATE synthesiser was refused private content, which is "
+              "exactly what MAY_CARRY permits")
+
+    # 3. THE RULE IS `MAY_CARRY` ITSELF, not a copy. A local allowlist would
+    #    drift from the gateway's the first time either changed.
+    src = (REPO / "core" / "speech.py").read_text(encoding="utf-8")
+    if "MAY_CARRY" not in src:
+        r.err("core/speech.py does not consult MAY_CARRY, so speech has its own "
+              "notion of what may leave the machine -- a second path to a "
+              "provider, which is the shape INV-COST-3 refuses")
+    unknown = Speech(bus, supply=private_row).plan(DARIJA,
+                                                   privacy_class="public")
+    if "unknown-class" in str(unknown.synthesiser):
+        r.err("unexpected synthesiser for a known class")
+    #    PROBED WITH A SUPPLY THE PERMISSIVE DEFAULT WOULD ADMIT. The first
+    #    version probed an E1_PRIVATE row, which falls to local under either a
+    #    strict or a permissive default -- so the mutation that makes absence
+    #    permissive left the check green. Both classes are offered here, so any
+    #    non-empty default selects something.
+    both = [{"id": "pub", "purpose": SPEECH_PURPOSE, "egress_class": "E2_PUBLIC"},
+            {"id": "prv", "purpose": SPEECH_PURPOSE, "egress_class": "E1_PRIVATE"}]
+    got = Speech(bus, supply=both)._choose("not-a-privacy-class")   # noqa: SLF001
+    if got[0] != LOCAL:
+        r.err(f"an unknown privacy class selected {got[0]!r} ({got[1]!r}). "
+              "Absence is never permissive: an unrecognised class must fall to "
+              "local, as an unlisted cost-policy cell falls to free-only.")
+
+    # 4. THE SCRIPT IS CONVERTED FOR THE SYNTHESISER AND NOWHERE ELSE.
+    #    INV-NARRATE-2, ratified 2026-08-31.
+    if not p.script_converted:
+        r.err("Latin Darija was not converted before synthesis, which is the "
+              "whole reason the converter exists")
+    if p.text == p.display_text:
+        r.err("the spoken text and the displayed text are identical, so either "
+              "nothing was converted or the conversion reached the screen")
+    if p.display_text != DARIJA:
+        r.err(f"the displayed text was rewritten to {p.display_text!r}. "
+              "INV-NARRATE-2: what is on screen stays what the owner wrote.")
+    if DARIJA in json.dumps(p.to_dict()):
+        r.err("the published record carries the original text; the record is "
+              "for the decision, not the content")
+
+    # 5. THE DEGRADATION IS REPORTED WHEN LOCAL MANGLES IT.
+    if not p.degraded or p.degradation != LOCAL_MANGLES:
+        r.err(f"falling back to local synthesis on Darija was not reported as "
+              f"degraded ({p.degraded}/{p.degradation!r}). The owner hears a "
+              "worse reply and A-032 says they must be able to find out why.")
+    #    ...and NOT reported when nothing was lost, or the flag is a constant.
+    plain = Speech(bus, supply=public_row).plan("what time is it",
+                                                privacy_class="private")
+    if plain.degraded:
+        r.err("an English reply through local synthesis was reported degraded; "
+              "the local voice says English correctly and a constant warning "
+              "is one the owner learns to ignore")
+
+    # 6. ANOTHER PERSON IN THE ROOM MEANS IT IS SHOWN, NOT SAID. This is what
+    #    core/presence.py was built to feed, and speaking aloud is an exposure
+    #    decision rather than an output one.
+    heard = Speech(bus).plan(DARIJA, privacy_class="private",
+                             persons=("owner", "UNKNOWN_PERSON"),
+                             available=("shared_display",))
+    if heard.spoken:
+        r.err("private content was spoken aloud with an unidentified person "
+              "present. A reply read into a room is heard by whoever is in it.")
+    if heard.surface != WITHHOLD:
+        r.err(f"the routing surface was {heard.surface!r}, not WITHHOLD")
+    #    ...and alone, it speaks, or assertion 6 holds for a module that is
+    #    simply mute.
+    alone = Speech(bus).plan(DARIJA, privacy_class="private",
+                             persons=("owner",))
+    if not alone.spoken:
+        r.err("nothing is ever spoken even with the owner alone")
+
+    # 7. A SELECTED SYNTHESISER THAT CANNOT BE REACHED REPORTS IT. The external
+    #    path is implemented as of 2026-08-31, so the assertion moved from "it
+    #    refuses to pretend" to "it does not claim to have spoken". A row with
+    #    no credential is the reachable version of that: the egress decision has
+    #    already passed and the call cannot be made.
+    #
+    #    `spoke` MUST BE FALSE. Returning True on a failed synthesis is the
+    #    instrument's self-report again -- the owner hears nothing and the
+    #    record says VESPER spoke.
+    nocred = [{"id": "ext", "purpose": SPEECH_PURPOSE,
+               "egress_class": "E1_PRIVATE", "credential_env": "VESPER_NO_SUCH_KEY",
+               "endpoint": "https://example.invalid/{voice}", "model": "m"}]
+    out = Speech(bus, supply=nocred).speak(
+        Speech(bus, supply=nocred).plan(DARIJA, privacy_class="private"))
+    if out.get("spoke"):
+        r.err(f"a synthesis that could not be performed reported spoke=True: "
+              f"{out!r}. The owner hears nothing and the record says otherwise.")
+    if not out.get("reason"):
+        r.err("the failure carries no reason, so nothing downstream can tell a "
+              "missing credential from a network error from a refusal")
+
+    # 8. AND NO SUPPLY ROW DECLARES A SPEECH PURPOSE TODAY, which is why the
+    #    running system speaks locally. Asserted so the note stays true rather
+    #    than becoming stale the day one is added.
+    rows = tomllib.loads((REPO / "contracts" / "policy" /
+                          "provider_supply.toml").read_text(
+                              encoding="utf-8")).get("provider", [])
+    declared = [x.get("id") for x in rows if x.get("purpose") == SPEECH_PURPOSE]
+
+    # 8b. THE VOICE MATCHES THE SCRIPT, and this is the assertion that would
+    #     have caught the live bug. Converting to Arabic is correct AND
+    #     useless if the synthesiser then uses its default English voice: the
+    #     owner heard the single word "comma" because `say` skipped every
+    #     character it could not pronounce and vocalised the punctuation.
+    #     Having an Arabic voice installed is not the same as USING it.
+    ar = Speech(bus).plan(DARIJA, privacy_class="private")
+    if ar.script_converted and not ar.voice:
+        r.err("the text was converted to Arabic script and no voice was "
+              "selected, so the synthesiser will use its default -- which on "
+              "this host is English, and produces punctuation names rather "
+              "than speech")
+    #     ENGLISH IS A CHOICE TOO. Leaving it to the host default is what gave
+    #     the owner a voice they had already rejected in a written A/B -- the
+    #     comparison chose Daniel and the outcome lived only in a README, so
+    #     the runtime could not honour it.
+    from core.speech import synthesis_policy
+    pol = synthesis_policy()
+    if not pol:
+        r.err("contracts/policy/voice.toml declares no [synthesis] block, so "
+              "every voice falls to the host default -- which is how a decision "
+              "made by ear gets silently discarded")
+    en = Speech(bus).plan("what time is it", privacy_class="private")
+    if pol.get("english_voice") and en.voice != pol["english_voice"]:
+        r.err(f"an English reply selected {en.voice!r}, not the recorded "
+              f"{pol['english_voice']!r}")
+
+    #     AND `speak()` MUST USE THE PLAN'S VOICE. Choosing it, recording it
+    #     and then not passing it to the synthesiser is the decision made and
+    #     the instrument never told.
+    spk = src[src.index("    def speak("):]
+    spk = spk[:spk.index("\n    def ", 1)] if "\n    def " in spk[1:] else spk
+    if "plan.voice" not in spk:
+        r.err("speak() never reads plan.voice, so the selected voice is "
+              "computed, published, and discarded before the command is built")
+
+    # 8c. AND THE CAPABILITY IS READ FROM THE HOST, not assumed. An Arabic
+    #     voice can be installed or removed, and the right answer changes with
+    #     it -- without a code change.
+    probed = Speech(bus)._probe_local_arabic()            # noqa: SLF001
+    voices = Speech(bus)._local_voices()                  # noqa: SLF001
+    if not voices:
+        r.err("no local voices were enumerated, so the capability probe is "
+              "answering from nothing")
+    elif probed != any(loc.startswith("ar") for _, loc in voices):
+        r.err("the Arabic capability probe disagrees with the installed voice "
+              "list it is supposed to be reading")
+
+    # 9. AND THE RUNTIME ACTUALLY SPEAKS. Every assertion above is about a
+    #    Speech this check built. A speech module the live turn never calls is
+    #    the defect this corpus keeps finding, and it is the one that made this
+    #    module necessary: the reply was rendered and never spoken.
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if "Speech(" not in rt:
+        r.err("tools/ops/vesper_runtime.py builds no Speech, so the reply is "
+              "still rendered and never spoken")
+    if "speech.plan(" not in rt or "speech.speak(" not in rt:
+        r.err("the runtime does not plan and speak the reply; the module exists "
+              "and the live turn does not reach it")
+    #    ASSERTED ON THE CALL, NOT ON THE LOOKUP. Checking that
+    #    `presence.persons()` merely APPEARS in the file passes while the value
+    #    is computed and thrown away -- which is what the red-run case does.
+    #    What matters is that it reaches `plan()`.
+    plan_call = rt[rt.index("speech.plan("):] if "speech.plan(" in rt else ""
+    plan_call = plan_call[:plan_call.index(")") + 1] if ")" in plan_call else ""
+    if "persons=" not in plan_call:
+        r.err(f"the runtime computes presence and does not pass it to the "
+              f"speech plan: {plan_call.strip()!r}. A private reply would be "
+              "read aloud with a stranger in the room -- the module wired and "
+              "the one input that makes speaking safe left out.")
+
+    r.note(f"private content is refused an E2_PUBLIC synthesiser and permitted "
+           f"an E1_PRIVATE one, using MAY_CARRY itself ({dict((k, sorted(v)) for k, v in MAY_CARRY.items())}) "
+           f"rather than a copy; an unknown class falls to local; the script is "
+           f"converted for the synthesiser only and the screen keeps the "
+           f"owner's own words; the local fallback reports {LOCAL_MANGLES!r} on "
+           f"Darija and reports nothing on English; an unidentified person in "
+           f"the room means WITHHOLD; a selected-but-unimplemented synthesiser "
+           f"refuses rather than going quiet. Speech-purpose supply rows "
+           f"declared today: {declared or 'none -- the running system speaks locally'}")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -10491,6 +10738,7 @@ CHECK_FNS = {
     "tunable-range-immutable-runtime": check_tunable_range_immutable_runtime,
     "outbox-before-effect": check_outbox_before_effect,
     "confirmation-stops-explains-and-asks": check_confirmation_stops_explains_and_asks,
+    "speech-is-egress-and-says-so": check_speech_is_egress_and_says_so,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

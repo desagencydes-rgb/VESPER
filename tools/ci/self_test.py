@@ -995,6 +995,7 @@ TELEM_PY = "core/telemetry.py"
 FORGET_PY = "core/forgetter.py"
 ENROL_PY = "core/enrollment.py"
 CONFIRM_PY = "core/confirm.py"
+SPEECH_PY = "core/speech.py"
 INTBUD_TOML = "contracts/policy/interruption_budget.toml"
 CHECKS_PY = "tools/ci/checks.py"
 COST_PY = "core/cost.py"
@@ -2900,13 +2901,13 @@ CASES += [
 CASES += [
     # ---------------------------------------------------------------- CI-089
     ("documented-counts-match-commands", "CLAUDE.md",
-     _sub("python3.13 tools/ci/checks.py all       # 82 checks",
+     _sub("python3.13 tools/ci/checks.py all       # 83 checks",
           "python3.13 tools/ci/checks.py all       # 57 checks", 1),
      "CLAUDE.md's check count goes stale again -- the eighth drift, and the "
      "first one a gate can see"),
 
     ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
-     _sub("tools/ci/self_test.py                         PASS   359/359",
+     _sub("tools/ci/self_test.py                         PASS   368/368",
           "tools/ci/self_test.py                         PASS   295/295", 1),
      "the status table's self-test count goes stale: it had been four sessions "
      "wrong before this gate existed"),
@@ -3093,6 +3094,75 @@ CASES += [
      "the phone channel is declared available when no enrolled node carries a "
      "SIM: a declared cost presented as a working channel, which is the same "
      "shape as a declared throughput"),
+]
+
+
+CASES += [
+    # ------------------------------------------------------------- speech
+    ("speech-is-egress-and-says-so", SPEECH_PY,
+     _sub("        permitted = MAY_CARRY.get(privacy_class, frozenset())",
+          '        permitted = frozenset({"E1_PRIVATE", "E2_PUBLIC"})', 1),
+     "speech gets its own notion of what may leave the machine, so a private "
+     "reply is sent to a public voice service. A second path to a provider is "
+     "the shape INV-COST-3 refuses at the cost choke point, and privacy has "
+     "the same shape"),
+
+    ("speech-is-egress-and-says-so", SPEECH_PY,
+     _sub("        permitted = MAY_CARRY.get(privacy_class, frozenset())",
+          '        permitted = MAY_CARRY.get(privacy_class, frozenset({"E2_PUBLIC"}))', 1),
+     "an unrecognised privacy class becomes permissive: absence starts meaning "
+     "'anything goes', which is what an unlisted cost-policy cell must never "
+     "mean either"),
+
+    ("speech-is-egress-and-says-so", SPEECH_PY,
+     _sub("        spoken_text = transliterate(reply) if converted else reply",
+          "        spoken_text = reply\n"
+          "        reply = transliterate(reply) if converted else reply", 1),
+     "the converted script reaches the DISPLAY and the synthesiser gets the "
+     "original: exactly inverted. INV-NARRATE-2 says what is on screen stays "
+     "what the owner wrote, and the conversion exists only for the speaker"),
+
+    ("speech-is-egress-and-says-so", SPEECH_PY,
+     _sub("            degraded, degradation = True, LOCAL_MANGLES",
+          "            degraded, degradation = False, \"\"", 1),
+     "the local fallback stops reporting that it mangles Darija digits: the "
+     "owner hears a worse reply with no way to find out why, which is A-032's "
+     "silent degradation"),
+
+    ("speech-is-egress-and-says-so", SPEECH_PY,
+     _sub("        if route.surface == WITHHOLD:", "        if False:", 1),
+     "private content is spoken aloud with an unidentified person in the room. "
+     "A reply read into a room is heard by whoever is in it, and this is the "
+     "decision core/presence.py was built to feed"),
+
+    ("speech-is-egress-and-says-so", SPEECH_PY,
+     _sub('            return {"spoke": False, "attempted": plan.synthesiser,\n'
+          '                    "reason": "no credential in the environment or secrets file"}',
+          '            return {"spoke": True, "attempted": plan.synthesiser}', 1),
+     "a synthesis that could not be performed reports spoke=True: the owner "
+     "hears nothing and the record says VESPER spoke -- an instrument's "
+     "self-report standing in for evidence"),
+
+    ("speech-is-egress-and-says-so", SPEECH_PY,
+     _sub("            voice=self._voice_for(synth, converted),", "", 1),
+     "the plan converts to Arabic script and names no voice, so the "
+     "synthesiser uses its default -- English on this host. The owner hears "
+     "the punctuation read aloud and nothing else: 0.48 seconds of 'comma' "
+     "instead of a 3.4-second sentence, measured 2026-08-31"),
+
+    ("speech-is-egress-and-says-so", SPEECH_PY,
+     _sub("        chosen = voice or plan.voice", "        chosen = voice", 1),
+     "speak() ignores the voice the plan chose, so the selection is computed, "
+     "recorded, and then not used -- the decision made and the instrument not "
+     "told"),
+
+    ("speech-is-egress-and-says-so", "tools/ops/vesper_runtime.py",
+     _sub("                        plan = speech.plan(reply, privacy_class=\"private\",\n"
+          "                                           persons=persons)",
+          "                        plan = speech.plan(reply, privacy_class=\"private\")", 1),
+     "the runtime stops passing presence to the speech plan, so a private reply "
+     "is read aloud with a stranger in the room -- the module is wired and the "
+     "one input that makes speaking safe is not"),
 ]
 
 
