@@ -266,6 +266,45 @@ login-item grounds. This is the second and sharper reason: without a stable
 identity, every voice change costs the owner two dialogs, and any claim that
 consent is held expires at the next build.
 
+### Cloudflare and Ollama ARE measurable — CORRECTED 2026-08-31
+
+**This corrects a finding recorded in this file and in `MEMORY_ARCHITECTURE.md`**,
+which both say those two rungs cannot be metered and are therefore unusable
+under fail-closed doctrine. Measured directly on 2026-08-31 with the owner's new
+per-subsystem accounts:
+
+    Ollama Cloud   {'prompt_tokens': 71, 'completion_tokens': 30, 'total_tokens': 101}
+    Cloudflare     {'prompt_tokens': 71, 'completion_tokens': 30, 'total_tokens': 101,
+                    'neurons': 4.3045}
+
+Both report real, non-zero counts. **Cloudflare returns `neurons` directly** --
+the exact unit its 10,000/day free quota is denominated in, which is better
+evidence than a token delta, and is the accounting route the corpus said did not
+exist. Five accounts that were being held on this basis are usable.
+
+Whether the earlier reading was a platform change, a different model, or the
+older account is not knowable from here. What is knowable is that the claim was
+true when written and is not true now, which is the argument for re-measuring a
+rung at enrolment rather than inheriting its file entry.
+
+### `mistral-large-latest` is not in this tier — MEASURED 2026-08-31
+
+`provider_supply.toml` routed `mistral-standard` at `mistral-large-latest` and
+every one of the seven Mistral accounts returns **HTTP 403, "This model is not
+available in your subscription tier"**. The rung was configured to a model the
+credentials cannot call, so it would have failed on its first real request.
+`mistral-medium-latest` works on this tier and reports usage; the table now
+names it. 54 models are listed as available -- the tier is not the constraint,
+the specific model was.
+
+### Groq's WAF blocks a missing User-Agent — and the corpus already knew
+
+`http_completion.py:180` records it: `Python-urllib/3.13` gets **HTTP 403 error
+1010**, `curl/8.7.1` and `vesper/1.0` get 200. A test script written outside the
+runtime's own HTTP path reproduced the 403 exactly, and read as three dead keys.
+Use `routing/http_completion.py` rather than raw `urllib` when probing a rung --
+the header discipline is part of what that module is for.
+
 ### This host is often on battery — 2026-08-30
 
 Measured mid-build by `core/host_probes.py`: `power_source = battery`, 53%,

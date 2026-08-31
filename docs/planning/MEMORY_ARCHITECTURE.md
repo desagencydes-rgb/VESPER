@@ -804,9 +804,15 @@ already done with four Gemini keys. The owner has confirmed additional accounts
 are available. Quota isolation is the goal; the provider need not know the
 accounts are related.
 
-**Two rungs cannot be measured at all.** Cloudflare reported `prompt=0,
-completion=0` on three working calls (consistent with its known-unreliable
-usage reporting) and Ollama returns no rate-limit headers. Under fail-closed
+**~~Two rungs cannot be measured at all.~~ CORRECTED 2026-08-31 — both can.**
+Cloudflare reported `prompt=0, completion=0` on three working calls and Ollama
+returned no rate-limit headers when this was written. Re-measured on the owner's
+new per-subsystem accounts, both return real non-zero counts, and **Cloudflare
+returns `neurons` directly** — the unit its own quota is denominated in, which is
+better evidence than a token delta. The five accounts held on this basis are
+usable. Original text kept below because the reasoning it produced is still
+right: unmeasurable spend IS unusable, and the answer was to re-measure rather
+than to relax the rule. Under fail-closed
 doctrine unmeasurable spend is unusable, so both need another accounting route
 before they carry a subsystem.
 
