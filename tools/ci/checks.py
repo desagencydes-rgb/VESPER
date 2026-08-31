@@ -10172,6 +10172,247 @@ def check_outbox_before_effect() -> Result:
     return r
 
 
+def check_confirmation_stops_explains_and_asks() -> Result:
+    """The owner's escalation ladder, 2026-08-31, and the branch that is missing.
+
+    Their design, in their terms: a single-use action stops, VESPER explains the
+    situation, and asks for permission by voice at that moment. If the owner is
+    not there it waits and asks the moment they are back -- or, if it cannot
+    wait, it calls them.
+
+    THE SECOND BRANCH IS ONE FLAG, NOT A FEATURE. `core/interruption.py` already
+    drops a decaying candidate that will not fit the budget and QUEUES a
+    non-decaying one. A question about an action the owner set in motion is
+    worth the same when they return, so `decays=False` is the whole of "wait and
+    ask me when I'm back" -- and getting it wrong would DROP the question, which
+    the owner would experience as VESPER silently abandoning what they asked
+    for.
+
+    THE THIRD BRANCH IS NOT BUILT AND REFUSES RATHER THAN DEGRADING. No enrolled
+    node carries a SIM. An urgent confirmation that quietly falls back to a
+    queued question is precisely the failure that branch exists to prevent, so
+    the urgent path raises.
+
+    AND THE FIRST BRANCH IS GATED ON SOMETHING NOTHING WRITES. Nothing populates
+    `world.owner.attention_state`, so VESPER cannot tell whether the owner is
+    there to be asked. An unknown state falls to a budget of zero and the
+    question queues. Defaulting it to `available` would make the voice branch
+    testable and turn "I do not know if you are there" into "speak now" -- the
+    declared-versus-measured error INV-HW-2 exists to refuse.
+
+    UNREGISTERED, PENDING AN INVARIANT. Same discipline as the four ratified on
+    2026-08-31: this enforces a real rule -- a confirmation question queues
+    rather than drops, and an urgent one refuses rather than degrading -- that
+    the rulebook does not yet contain. INV-AUTH-2 covers the single-use grant
+    and CI-013 already gates it; the LADDER is new behaviour. Pointing this at
+    an invented ID would be the false trace `ci-registry` refuses, so it runs,
+    blocks nothing, and waits.
+    """
+    r = Result("confirmation-stops-explains-and-asks")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile
+    try:
+        from core.authorize import Grant, PolicyDecisionPoint
+        from core.bus import EventBus
+        from core.capability import CapabilityRegistry, LevelRule
+        from core.confirm import (ASK_BY_PHONE, ATTENTION_UNKNOWN,
+                                  CONFIRMABLE_REASONS, ConfirmationBroker,
+                                  PhoneUnavailable, explain)
+        from core.hlc import HybridLogicalClock
+        from core.interruption import (ATTENTION_STATES, DEFAULT_BUDGET,
+                                       InterruptionBudget)
+        from core.store import StoreSet
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the confirmation path did not import: {exc!r}")
+        return r
+
+    store = StoreSet(Path(tempfile.mkdtemp()), node_id="ci")
+    bus = EventBus(HybridLogicalClock("ci"), store)
+    reg = CapabilityRegistry()
+    lvl = lambda a: "L4" if a.get("destructive") else "L1"      # noqa: E731
+    reg.register("mail.send", lvl,
+                 [LevelRule("r", "L1", {"destructive": False}),
+                  LevelRule("w", "L4", {"destructive": True})],
+                 required_level=lambda a: lvl(a))
+    pdp = PolicyDecisionPoint(bus, reg, now_ms=lambda: 1000)
+    pdp.issue(Grant(grant_id="g", subject="owner", capability_id="mail.send",
+                    max_level="L4", target_scope=("inbox",), expiry_ms=10_000,
+                    lease_epoch=0, delegable=False))
+
+    def spent_refusal() -> Any:
+        """A real refusal, produced by spending a real single-use grant."""
+        pdp.issue(Grant(grant_id=str(uuid.uuid4()), subject="owner",
+                        capability_id="mail.send", max_level="L4",
+                        target_scope=("inbox",), expiry_ms=10_000,
+                        lease_epoch=0, delegable=False))
+        pdp.authorize(subject="owner", capability_id="mail.send",
+                      args={"destructive": True}, target="inbox")
+        return pdp.authorize(subject="owner", capability_id="mail.send",
+                             args={"destructive": True}, target="inbox")
+
+    import uuid
+    d = spent_refusal()
+    if d.authorized or d.reason != "grant_consumed":
+        r.err(f"the fixture did not produce a spent-grant refusal: "
+              f"{d.authorized}/{d.reason}")
+        return r
+
+    # 1. THE OWNER IS THERE: asked now, by voice.
+    broker = ConfirmationBroker(bus, InterruptionBudget(bus))
+    now = broker.request(d, target="inbox", period="ACTIVE_SESSION",
+                         attention_state="available")
+    if not now.get("asked"):
+        r.err("with the owner present in an active session the question was not "
+              "asked; the first branch of the ladder never fires")
+    if now.get("modality") != "speech":
+        r.err(f"asked by {now.get('modality')!r}, not speech")
+
+    # 2. THE EXPLANATION SAYS WHAT STOPPED, WHY, AND ASKS -- and carries no
+    #    authorization tier, which is jargon standing where a reason belongs.
+    text = now.get("explanation") or ""
+    for want in ("stopped", "mail.send", "?"):
+        if want not in text:
+            r.err(f"the spoken line is missing {want!r}: {text!r}")
+    if "L4" in text or "L0" in text:
+        r.err(f"the spoken line names an authorization level: {text!r}. It "
+              "tells the owner nothing they can act on, and the first version "
+              "read it off the REFUSAL -- which is L0 on every denial, so it "
+              "said 'it needs L0' about an action that needs L4.")
+
+    # 3. THE OWNER IS NOT THERE: queued, never dropped. `decays=False` is the
+    #    whole of this branch, and getting it wrong DROPS the question -- which
+    #    the owner experiences as VESPER abandoning what they asked for.
+    b2 = ConfirmationBroker(bus, InterruptionBudget(bus))
+    away = b2.request(spent_refusal(), target="inbox", period="FREE_TIME",
+                      attention_state="away")
+    if away.get("asked"):
+        r.err("the question was spoken while the owner was away")
+    if not away.get("queued"):
+        r.err("the question was neither asked nor queued -- it was DROPPED. A "
+              "confirmation is worth the same when the owner returns, so it "
+              "must never be discarded for not fitting the budget.")
+    surfaced = b2.surface()
+    if not surfaced:
+        r.err("the queued question did not surface at the next natural "
+              "boundary, so waiting is indistinguishable from losing it")
+
+    # 4. AN UNKNOWN ATTENTION STATE QUEUES, because nothing writes it yet.
+    if DEFAULT_BUDGET != 0:
+        r.err(f"the default interruption budget is {DEFAULT_BUDGET}, not 0; an "
+              "unlisted combination would be permissive")
+    if ATTENTION_UNKNOWN in ATTENTION_STATES:
+        r.err("the unknown sentinel is a member of ATTENTION_STATES, so a "
+              "budget row could serve it as though it were a real state")
+    b3 = ConfirmationBroker(bus, InterruptionBudget(bus))
+    unk = b3.request(spent_refusal(), target="inbox", period="ACTIVE_SESSION",
+                     attention_state=ATTENTION_UNKNOWN)
+    if unk.get("asked"):
+        r.err("an UNKNOWN attention state was spoken to. Nothing writes "
+              "world.owner.attention_state, so this is 'I do not know if you "
+              "are there' being answered with 'speak now'.")
+
+    # 5. THE URGENT BRANCH REFUSES RATHER THAN DEGRADING.
+    b4 = ConfirmationBroker(bus, InterruptionBudget(bus))
+    try:
+        b4.request(spent_refusal(), target="inbox", period="FREE_TIME",
+                   attention_state="asleep", urgent=True)
+        r.err("an urgent confirmation was accepted with no phone enrolled. "
+              "Falling back to a queued question is the exact failure the "
+              "urgent branch exists to prevent: something that could not wait, "
+              "waiting silently.")
+    except PhoneUnavailable:
+        pass
+
+    # 6. THE PHONE MODALITY IS DECLARED AND UNAVAILABLE -- and is NOT exempt.
+    pol = tomllib.loads((REPO / "contracts" / "policy" /
+                         "interruption_budget.toml").read_text(encoding="utf-8"))
+    avail = pol.get("modality_availability", {})
+    if ASK_BY_PHONE not in pol.get("modality_cost", {}):
+        r.err(f"{ASK_BY_PHONE} has no declared cost, so the policy slot the "
+              "owner asked for does not exist")
+    if avail.get(ASK_BY_PHONE) is not False:
+        r.err(f"{ASK_BY_PHONE} is not declared unavailable. A declared cost is "
+              "not a working channel, and no enrolled node carries a SIM.")
+    if ASK_BY_PHONE in pol.get("exempt", {}).get("classes", []):
+        r.err(f"{ASK_BY_PHONE} was added to the exempt classes. That block names "
+              "its members exhaustively because one exemption widening another "
+              "is the failure mode, and alarm_safety is a SAFETY class -- "
+              "whether an urgent confirmation may bypass quiet hours is a "
+              "separate owner decision, not an inference.")
+
+    # 7. NOT EVERY REFUSAL IS A QUESTION. A stale lease epoch is not something
+    #    the owner can resolve by saying yes, and asking would offer an approval
+    #    that changes nothing.
+    #    A SEPARATE SUBJECT, because `find()` matches on (subject, capability)
+    #    and every grant above shares both -- so this looked up one already
+    #    spent and refused for `grant_consumed`, testing the wrong branch.
+    pdp.issue(Grant(grant_id="g-stale", subject="lease-probe",
+                    capability_id="mail.send", max_level="L4",
+                    target_scope=("inbox",), expiry_ms=10_000, lease_epoch=0,
+                    delegable=False))
+    stale = pdp.authorize(subject="lease-probe", capability_id="mail.send",
+                          args={"destructive": False}, target="inbox",
+                          current_lease_epoch=99)
+    if stale.reason in CONFIRMABLE_REASONS:
+        r.err(f"{stale.reason!r} is treated as confirmable")
+    b5 = ConfirmationBroker(bus, InterruptionBudget(bus))
+    if b5.request(stale, target="inbox", period="ACTIVE_SESSION",
+                  attention_state="available").get("asked"):
+        r.err("a refusal the owner cannot resolve was put to them as a "
+              "question, which offers an approval that changes nothing")
+
+    # 8. AN AUTHORIZED ACTION IS NEVER TURNED INTO A QUESTION. Asking about
+    #    permitted actions is how a confirmation becomes a formality.
+    pdp.issue(Grant(grant_id="g-ok", subject="ok-probe",
+                    capability_id="mail.send", max_level="L1",
+                    target_scope=("inbox",), expiry_ms=10_000, lease_epoch=0,
+                    delegable=False))
+    ok = pdp.authorize(subject="ok-probe", capability_id="mail.send",
+                       args={"destructive": False}, target="inbox")
+    if not ok.authorized:
+        r.err(f"the fixture could not produce an AUTHORIZED decision "
+              f"({ok.reason}), so assertion 8 tests nothing")
+    else:
+        try:
+            b5.request(ok, target="inbox", period="ACTIVE_SESSION",
+                       attention_state="available")
+            r.err("a confirmation was raised for an AUTHORIZED action; that "
+                  "trains the owner to approve without reading")
+        except ValueError:
+            pass
+
+    # 9. ONE QUESTION, ONE ANSWER, and answering does not itself authorize --
+    #    a broker that could authorize would be a second path to a level, and
+    #    INV-AUTH-1 says there is no such path.
+    b6 = ConfirmationBroker(bus, InterruptionBudget(bus))
+    req = b6.request(spent_refusal(), target="inbox", period="ACTIVE_SESSION",
+                     attention_state="available")
+    b6.answer(req["request_id"], granted=True)
+    try:
+        b6.answer(req["request_id"], granted=False)
+        r.err("a settled confirmation was answered twice; re-asking a question "
+              "the owner has decided is how a confirmation becomes a formality")
+    except ValueError:
+        pass
+    after = pdp.authorize(subject="owner", capability_id="mail.send",
+                          args={"destructive": True}, target="inbox")
+    if after.authorized:
+        r.err("answering the confirmation authorized the action by itself. The "
+              "caller must re-run authorization with a fresh grant; a broker "
+              "that authorizes is a second path to a level (INV-AUTH-1).")
+
+    r.note(f"a spent single-use grant becomes a question that is spoken when the "
+           f"owner is present, QUEUED and later surfaced when they are away, and "
+           f"queued rather than spoken when attention is {ATTENTION_UNKNOWN} "
+           f"because nothing writes it; the urgent branch REFUSES rather than "
+           f"degrading, and {ASK_BY_PHONE} is declared unavailable and is not "
+           f"exempt; a refusal the owner cannot resolve and an authorized action "
+           f"are both refused as questions; and answering settles once and "
+           f"authorizes nothing by itself")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -10249,6 +10490,7 @@ CHECK_FNS = {
     "z2-capability-bound": check_z2_capability_bound,
     "tunable-range-immutable-runtime": check_tunable_range_immutable_runtime,
     "outbox-before-effect": check_outbox_before_effect,
+    "confirmation-stops-explains-and-asks": check_confirmation_stops_explains_and_asks,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

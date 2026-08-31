@@ -178,13 +178,32 @@ def assert_terminating(predicate: Callable[[dict], bool],
             except Exception as exc:                  # noqa: BLE001
                 done.append(exc)
 
-        th = threading.Thread(target=_run, daemon=True)
-        th.start()
-        th.join(_PROBE_DEADLINE_S)
-        if th.is_alive():
+        # RETRIED ONCE BEFORE REFUSING. A wall-clock deadline inside a
+        # REGISTRATION path makes registration non-deterministic: a scheduling
+        # hiccup on a loaded machine refuses a predicate that terminates fine,
+        # and the symptom is an intermittently red gate -- which reads as flaky
+        # rather than broken and is the worse failure. A genuinely
+        # non-terminating predicate misses both deadlines; a hiccup misses one.
+        # The cost is one extra deadline on a true positive, paid once at
+        # registration and never on the hot path.
+        #
+        # Added after F5 failed exactly once on 2026-08-31 and could not be
+        # reproduced in eight runs, four of them under deliberate CPU load. The
+        # cause was not established, so this hardens the mechanism rather than
+        # claiming to fix that run.
+        timed_out = 0
+        for _ in range(2):
+            done.clear()
+            th = threading.Thread(target=_run, daemon=True)
+            th.start()
+            th.join(_PROBE_DEADLINE_S)
+            if not th.is_alive():
+                break
+            timed_out += 1
+        if timed_out >= 2:
             raise NonTerminatingPredicate(
                 f"the predicate did not return within {_PROBE_DEADLINE_S}s on "
-                f"a snapshot of {shape!r}.")
+                f"a snapshot of {shape!r}, twice.")
         if done and isinstance(done[0], Exception):
             raise NonTerminatingPredicate(
                 f"the predicate raised {done[0]!r} on a snapshot of {shape!r}. "

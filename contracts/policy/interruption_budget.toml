@@ -47,7 +47,33 @@ available time, never authority."""
 ambient_visual = 1        # a state indicator changes colour
 visual_notice  = 3        # a card appears on a surface already in view
 speech         = 8        # VESPER speaks
+phone_call     = 20       # VESPER calls the owner. See [modality_availability].
 alarm          = "EXEMPT" # not a number: an exempt class must not be comparable
+
+# --------------------------------------------------------------------------
+# Modality availability. A declared cost is not a working channel.
+#
+# ADDED 2026-08-31 by owner decision: an action that stops for confirmation and
+# CANNOT WAIT should reach the owner by phone. The slot is declared so the
+# policy is visible and reviewable; the channel does not exist.
+#
+# `phone_call` IS NOT IN [exempt].classes, deliberately. That block names its
+# members exhaustively because the failure mode is one exemption widening
+# another, and `alarm_safety` is a SAFETY class. A confirmation that cannot wait
+# is not the same thing as a safety alarm, and whether it may bypass the budget,
+# quiet hours and proportionality is a separate owner decision -- not something
+# to infer from "the owner said it could call me".
+#
+# `core/confirm.py` REFUSES the urgent branch rather than degrading it to a
+# queued question, because an urgent confirmation that quietly waits is exactly
+# the failure the branch exists to prevent.
+# --------------------------------------------------------------------------
+[modality_availability]
+ambient_visual = true
+visual_notice  = true
+speech         = true
+phone_call     = false
+phone_call_blocked_on = "no enrolled node declares a telephony capability. Written as a capability rather than a handset (INV-HW-1: the profile, never the device) -- a named product here would be wrong the moment the hardware changed. A telephony-capable node is available to enrol on request."
 
 # --------------------------------------------------------------------------
 # Budget per (OperatingPeriod, user_attention_state).

@@ -994,6 +994,8 @@ AUTON_PY = "core/autonomy.py"
 TELEM_PY = "core/telemetry.py"
 FORGET_PY = "core/forgetter.py"
 ENROL_PY = "core/enrollment.py"
+CONFIRM_PY = "core/confirm.py"
+INTBUD_TOML = "contracts/policy/interruption_budget.toml"
 CHECKS_PY = "tools/ci/checks.py"
 COST_PY = "core/cost.py"
 EXEC_PY = "core/executor.py"
@@ -2799,10 +2801,21 @@ CASES += [
      "check, and UNKNOWN stops meaning UNAVAILABLE"),
 
     ("predicate-totality", AUTON_PY,
-     _sub("        if th.is_alive():", "        if False:", 1),
+     _sub("        if timed_out >= 2:", "        if False:", 1),
      "the bounded probe stops refusing a predicate that never returns, so a "
      "`for` over an unbounded generator registers -- it has no `while` and no "
      "recursion, and the structural rules cannot see it"),
+
+    ("predicate-totality", AUTON_PY,
+     _sub("        for _ in range(2):\n"
+          "            done.clear()", "        for _ in range(1):\n"
+          "            done.clear()", 1),
+     "the loop runs once while the refusal still requires two timeouts, so "
+     "`timed_out` never reaches 2 and a predicate that never returns is "
+     "ACCEPTED. That is what the check detects; the retry's own purpose -- not "
+     "refusing a good predicate on one scheduling hiccup -- is a timing "
+     "property no deterministic assertion can prove, and it is documented at "
+     "the code rather than claimed here"),
 
     ("predicate-totality", AUTON_PY,
      _sub("        if done and isinstance(done[0], Exception):", "        if False:", 1),
@@ -2887,13 +2900,13 @@ CASES += [
 CASES += [
     # ---------------------------------------------------------------- CI-089
     ("documented-counts-match-commands", "CLAUDE.md",
-     _sub("python3.13 tools/ci/checks.py all       # 81 checks",
+     _sub("python3.13 tools/ci/checks.py all       # 82 checks",
           "python3.13 tools/ci/checks.py all       # 57 checks", 1),
      "CLAUDE.md's check count goes stale again -- the eighth drift, and the "
      "first one a gate can see"),
 
     ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
-     _sub("tools/ci/self_test.py                         PASS   351/351",
+     _sub("tools/ci/self_test.py                         PASS   359/359",
           "tools/ci/self_test.py                         PASS   295/295", 1),
      "the status table's self-test count goes stale: it had been four sessions "
      "wrong before this gate existed"),
@@ -3025,6 +3038,61 @@ CASES += [
      _sub("        if not self._leases.external_action_permitted(level):", "        if False:", 1),
      "a partitioned node sends an L4 external action: both sides of the "
      "partition send it, and a duplicated irreversible action has no undo"),
+]
+
+
+CASES += [
+    # ----------------------------------------------- confirmation ladder
+    ("confirmation-stops-explains-and-asks", CONFIRM_PY,
+     _sub("            decays=False,", "            decays=True,", 1),
+     "the question DECAYS, so when the owner is away and the budget is zero it "
+     "is dropped instead of queued -- which the owner experiences as VESPER "
+     "silently abandoning the thing they asked for, and it is the entire second "
+     "branch of the ladder"),
+
+    ("confirmation-stops-explains-and-asks", CONFIRM_PY,
+     _sub("        if urgent:\n            return self._urgent(req, period, attention_state)\n",
+          "", 1),
+     "the urgent branch quietly becomes an ordinary queued question: something "
+     "that could not wait now waits silently, which is the exact failure that "
+     "branch exists to prevent"),
+
+    ("confirmation-stops-explains-and-asks", CONFIRM_PY,
+     _sub("        outcome = self._budget.allocate([cand], period=period,\n"
+          "                                        attention_state=attention_state)",
+          "        outcome = self._budget.allocate(\n"
+          "            [cand], period=period,\n"
+          '            attention_state=("available"\n'
+          "                             if attention_state == ATTENTION_UNKNOWN\n"
+          "                             else attention_state))", 1),
+     "an unknown attention state is mapped to `available` before allocation: "
+     "'I do not know if you are there' becomes 'speak now'. This is the "
+     "declared-versus-measured error INV-HW-2 refuses, and nothing writes "
+     "world.owner.attention_state yet -- so it is the state that will actually "
+     "occur, not a corner case"),
+
+    ("confirmation-stops-explains-and-asks", CONFIRM_PY,
+     _sub('            f"May I go ahead?")',
+          '            f"It needs {level}. May I go ahead?")', 1),
+     "the spoken line names an authorization tier again. It tells the owner "
+     "nothing they can act on, and the level available on a refusal is L0 -- so "
+     "it says 'it needs L0' about an action that needs L4"),
+
+    ("confirmation-stops-explains-and-asks", CONFIRM_PY,
+     _sub('        if decision.reason not in CONFIRMABLE_REASONS:', "        if False:", 1),
+     "every refusal becomes a question, including ones the owner cannot resolve "
+     "by saying yes -- offering an approval that changes nothing"),
+
+    ("confirmation-stops-explains-and-asks", CONFIRM_PY,
+     _sub('        if getattr(decision, "authorized", False):', "        if False:", 1),
+     "an AUTHORIZED action can be raised as a confirmation, which trains the "
+     "owner to approve without reading"),
+
+    ("confirmation-stops-explains-and-asks", INTBUD_TOML,
+     _sub("phone_call     = false", "phone_call     = true", 1),
+     "the phone channel is declared available when no enrolled node carries a "
+     "SIM: a declared cost presented as a working channel, which is the same "
+     "shape as a declared throughput"),
 ]
 
 
