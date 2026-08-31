@@ -157,3 +157,57 @@ except theirs is owner-supplied and ours is a fixed table.
   each need bespoke code.
 - **File-state tracking** — the harness knows what has been read/edited, which is
   what makes read-before-edit enforceable at all.
+
+---
+
+## AIDER (Apache-2.0, Python — closest language match to us)
+
+### A1. Repo map: tree-sitter symbols ranked by PageRank
+`aider/repomap.py` extracts symbol tags with tree-sitter, builds a graph of
+references between files, and runs `networkx.pagerank` over it to decide what
+the model is shown. Cached in SQLite, versioned.
+
+**VESPER comparison.** This is a concrete, working answer to the handwritten
+requirement "a map where the model navigates" instead of dumping files. We have
+`graphify` for our own use, and nothing VESPER itself can navigate. Python, and
+our corpus is stdlib-only in `tools/` -- tree-sitter and networkx would be the
+first third-party dependencies, which is a real decision, not a detail.
+
+### A2. Every AI edit is a git commit, and undo refuses to touch YOURS
+`cmd_undo` reverts the last commit only if its hash is in
+`aider_commit_hashes` -- commits aider made in this session. Otherwise it
+refuses and tells you to use `git reset` yourself.
+
+**VESPER comparison.** Our `fs_write_compensator` restores the previous contents,
+but only from the in-memory result of that one execution, for one file, within
+that call. Once the turn is over there is no undo at all.
+
+## CLINE — shadow git, better shape than Aider's for us
+A shadow Git repository SEPARATE from the project's real history, committed
+after EVERY tool use. Restores three ways: files only, conversation only, or
+both. The owner's own git history stays clean.
+
+**Better for VESPER than Aider's model**: VESPER should not be writing commits
+into the owner's project history for every action, but it must be able to undo
+anything it did. This is the single strongest available answer to "one small
+mistake can blow the whole project".
+
+## OPENCLAW / CLAWDBOT / MOLTBOT (Peter Steinberger) — THE CLOSEST THING TO VESPER
+Self-hosted personal assistant bridging WhatsApp / Telegram / Signal / Discord /
+Slack to a coding agent with full system access, persistent memory, a web
+control UI, and capabilities installable on the fly. Went viral Jan 2026. It is
+essentially VESPER's shape, including the phone bridge the J3 is meant to be.
+
+### PROBED VESPER AGAINST ITS DOCUMENTED SECURITY FAILURES (2026-09-01)
+
+| Their failure | VESPER |
+|---|---|
+| Unauthenticated loopback WebSocket on :18789, any local process drives the bot | **Not present.** The runtime is FILE-DRIVEN by explicit design -- `vesper_runtime.py` argues for a file over a socket. No listening TCP socket; `lsof` confirms. |
+| 1,673 instances exposed to the internet (Shodan, Jan 2026) | **Not reachable.** No network listener to expose. |
+| RCE via that port at user privilege | **Not reachable** by the same route. |
+| **Credentials in plaintext JSON/MD, no OS keychain** | **SAME FAILURE.** `~/.config/vesper/secrets.env`, 0600, ASCII, ~9.6 KB, ~30 API keys in the clear. macOS Keychain is right there and unused. |
+| Memory poisoning — persistent memory lets an attacker change BEHAVIOUR, not just steal data | **Partly defended.** `core/memory.py` carries a `trust_class` column whose stated question is "may this be ACTED ON?", plus rank. Stronger than theirs; needs a probe that it is actually enforced on the acting path now that acting exists. |
+
+Two of five are architectural wins we already had. One is an exact match and is
+the most valuable single thing to fix from this whole investigation, because it
+is a documented real-world failure of the nearest comparable system.
