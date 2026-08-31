@@ -7303,6 +7303,279 @@ def check_map_navigates_and_never_carries_content() -> Result:
     return r
 
 
+def check_no_ambient_authority() -> Result:
+    """CI-013, declared since the registry was written and never implemented.
+
+    REM-003 puts INV-AUTH-1 precisely: "default deny is not a configuration
+    setting; it is the ABSENCE OF ANY CODE PATH that produces a level without a
+    grant." So the property is structural as well as behavioural -- it is not
+    enough that a subject with no grant is denied today; there must be no branch
+    that could yield one.
+
+    DELEGATION IS THE REAL ESCALATION PATH and `core/authorize.py` says so in its
+    own header: the prohibition on self-grant was never the exposure,
+    UNATTENUATED INHERITANCE was. A sub-agent inheriting its parent's grants
+    unchanged turns one owner confirmation into six agents' worth of external
+    action -- which is exactly what SR-014, "multiple agents", asks for and what
+    DF-ATTENUATE exists to bound.
+
+    THE STACK IS BUILT AND THE RUNTIME DOES NOT REACH IT, which this check
+    records rather than papers over. `CapabilityRegistry`, `Authorizer` and
+    `Executor` are constructed only by the F2 acceptance runner. That is not a
+    live hole today -- the runtime performs no action above L1: it reads input,
+    calls providers through the gateway, writes memory and publishes events --
+    but it means the enforcement below is protecting a path nothing walks yet.
+    Building a capability catalogue and routing every action through it is a
+    change to the security model and belongs to the owner, not to a check.
+    """
+    r = Result("no-ambient-authority")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile
+    try:
+        from core.authorize import (DENY_REASONS, NEVER_DELEGABLE, Grant,
+                                    PolicyDecisionPoint)
+        from core.bus import EventBus
+        from core.capability import (LEVEL_RANK, CapabilityRegistry,
+                                     ConstantLevelRefused, LevelRule)
+        from core.executor import Executor, NotAuthorized
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the authority stack did not import: {exc!r}")
+        return r
+
+    root = Path(tempfile.mkdtemp())
+    store = StoreSet(root, node_id="ci")
+    bus = EventBus(HybridLogicalClock("ci"), store)
+    reg = CapabilityRegistry()
+
+    def level(args: dict) -> str:
+        # ARGUMENT-SENSITIVE BY CONSTRUCTION: the whole point of INV-AUTH-5 is
+        # that a capability cannot tell `ls` from `rm -rf ~` with a constant.
+        return "L4" if args.get("destructive") else "L1"
+
+    cap = reg.register("fs.write", level,
+                       [LevelRule("read", "L1", {"destructive": False}),
+                        LevelRule("wipe", "L4", {"destructive": True})],
+                       required_level=lambda a: level(a),
+                       reversibility="reversible")
+    if cap is None:
+        r.err("registration of an argument-sensitive capability failed")
+        return r
+
+    pdp = PolicyDecisionPoint(bus, reg, now_ms=lambda: 1000)
+
+    # 1. NO GRANT MEANS L0, AND THE REASON IS FROM THE CLOSED VOCABULARY.
+    d = pdp.authorize(subject="agent.child", capability_id="fs.write",
+                      args={"destructive": False}, target="/tmp/x")
+    if d.authorized:
+        r.err("a subject holding no grant was authorized. There is supposed to "
+              "be no code path that produces a level without a grant.")
+    if d.effective_level != "L0":
+        r.err(f"a subject with no grant resolved to {d.effective_level}, not L0")
+    if d.reason not in DENY_REASONS:
+        r.err(f"denial reason {d.reason!r} is outside the closed vocabulary "
+              f"{DENY_REASONS}. A denial reading 'not authorized' tells the "
+              "owner nothing about what to fix, and a system that cannot "
+              "explain its refusals trains people to route around them.")
+
+    # 2. AND THE GRANT IS WHAT CHANGES IT -- or the check above passes because
+    #    everything is denied and the evaluator is a machine for saying no.
+    pdp.issue(Grant(grant_id="g1", subject="agent.parent",
+                    capability_id="fs.write", max_level="L3",
+                    target_scope=("/tmp/x",), expiry_ms=10_000,
+                    lease_epoch=0, delegable=True))
+    ok = pdp.authorize(subject="agent.parent", capability_id="fs.write",
+                       args={"destructive": False}, target="/tmp/x")
+    if not ok.authorized:
+        r.err(f"a matching grant did not authorize: {ok.reason}/{ok.detail}")
+
+    # 3. A CHILD'S SET IS A SUBSET -- SR-014's actual exposure.
+    child = pdp.attenuate(pdp.find("agent.parent", "fs.write"),
+                          "agent.child", "g2")
+    if child is None:
+        r.err("a delegable grant produced no child at all")
+    else:
+        if LEVEL_RANK[child.max_level] > LEVEL_RANK["L3"]:
+            r.err("the child's level exceeds its parent's")
+        if child.delegable:
+            r.err("the child is itself delegable, so one confirmation can be "
+                  "re-delegated indefinitely and attenuation bounds nothing "
+                  "after the first hop")
+        if not set(child.target_scope) <= {"/tmp/x"}:
+            r.err(f"the child's target scope {child.target_scope} is not a "
+                  "subset of its parent's")
+
+    # 4. L4/L5 ARE NEVER DELEGABLE, AND THERE ARE TWO GUARDS, NOT ONE.
+    #    `issue` refuses to create an L4 grant marked delegable at all -- the
+    #    earlier and stronger of the two -- and `attenuate` refuses to delegate
+    #    an L4 grant however it was marked. Asserting only the second would pass
+    #    even if the first were removed, and vice versa.
+    try:
+        pdp.issue(Grant(grant_id="g3x", subject="owner",
+                        capability_id="fs.write", max_level="L4",
+                        target_scope=("/tmp/x",), expiry_ms=10_000,
+                        lease_epoch=0, delegable=True,
+                        issued_for_command_id="cmd-0"))
+        r.err(f"an {NEVER_DELEGABLE[0]} grant was ISSUED marked delegable. The "
+              "refusal belongs at issue time as well as at delegation time -- "
+              "a grant that should not exist is worse than one refused later.")
+    except ValueError:
+        pass
+    pdp.issue(Grant(grant_id="g3", subject="owner", capability_id="fs.write",
+                    max_level="L4", target_scope=("/tmp/x",), expiry_ms=10_000,
+                    lease_epoch=0, delegable=False,
+                    issued_for_command_id="cmd-1"))
+    if pdp.attenuate(pdp.find("owner", "fs.write"), "agent.child", "g4") is not None:
+        r.err(f"an {NEVER_DELEGABLE} grant was delegated. One owner "
+              "confirmation would become an agent fleet's worth of external "
+              "action, which is the escalation core/authorize.py names as the "
+              "real one.")
+    #    AND THE SECOND GUARD IS TESTED THROUGH THE DOOR IT DEFENDS. Passing an
+    #    ISSUED grant here cannot exercise `attenuate`'s L4 clause at all --
+    #    `issue` has already refused to create an L4 grant marked delegable, so
+    #    the clause is unreachable that way and removing it leaves a check
+    #    green. What it actually defends is a Grant that never went through
+    #    `issue`: `attenuate` accepts any Grant object, and a caller that
+    #    constructs one is the case the level test exists for.
+    forged = Grant(grant_id="g4x", subject="owner", capability_id="fs.write",
+                   max_level="L4", target_scope=("/tmp/x",), expiry_ms=10_000,
+                   lease_epoch=0, delegable=True)
+    if pdp.attenuate(forged, "agent.child", "g4y") is not None:
+        r.err("a Grant constructed directly -- never passed through issue() and "
+              "so never level-checked -- was delegated at L4. attenuate accepts "
+              "any Grant object, which is exactly why it must re-test the level "
+              "rather than trust that issue() saw it.")
+
+    # 5. A CONSUMED L4 CANNOT AUTHORIZE A SECOND ACTION.
+    #
+    #    THE CAPABILITY MUST DECLARE `requires_owner_confirmation`, and that is
+    #    load-bearing rather than fixture detail: consumption in
+    #    core/authorize.py is gated on `cap.requires_owner_confirmation AND
+    #    grant.max_level in NEVER_DELEGABLE`, so an L4 grant on a capability
+    #    that does not require confirmation is NOT spent by use. A-024.2's own
+    #    fixture declares it, which is what this mirrors.
+    #
+    #    THAT GATING IS NOT ASSERTED EITHER WAY HERE, deliberately. INV-AUTH-2
+    #    reads "L4/L5 are never delegable and bind to one command instance",
+    #    which does not mention confirmation -- and `issue()` refuses an
+    #    L4-delegable grant on the LEVEL ALONE, so the file applies two
+    #    different triggers to the same class of grant. Asserting the current
+    #    behaviour would freeze a possible gap into a gate; asserting the strict
+    #    reading would change the security model without review. It is recorded
+    #    in the note and left to the owner.
+    confirmed = reg.register(
+        "fs.wipe", level,
+        [LevelRule("read", "L1", {"destructive": False}),
+         LevelRule("wipe", "L4", {"destructive": True})],
+        required_level=lambda a: level(a), reversibility="irreversible",
+        requires_owner_confirmation=True, external_effect=True)
+    if confirmed is None:
+        r.err("the confirmed capability did not register")
+    pdp.issue(Grant(grant_id="g5", subject="owner", capability_id="fs.wipe",
+                    max_level="L4", target_scope=("/tmp/x",), expiry_ms=10_000,
+                    lease_epoch=0, delegable=False,
+                    issued_for_command_id="cmd-2"))
+    first = pdp.authorize(subject="owner", capability_id="fs.wipe",
+                          args={"destructive": True}, target="/tmp/x",
+                          command_id="cmd-2")
+    if not first.authorized:
+        r.err(f"the L4 grant did not authorize its own command: {first.reason}")
+    second = pdp.authorize(subject="owner", capability_id="fs.wipe",
+                           args={"destructive": True}, target="/tmp/x",
+                           command_id="cmd-2")
+    if second.authorized:
+        r.err("a spent L4 grant authorized a second action. One confirmation "
+              "authorises one action instance -- not a task, not a session "
+              "(INV-AUTH-2).")
+    elif second.reason != "grant_consumed":
+        r.err(f"the second attempt was denied for {second.reason!r} rather than "
+              "'grant_consumed', so it may be failing for an unrelated reason "
+              "and the single-use property is untested")
+
+    # 5b. A GRANT BOUND TO ONE COMMAND DOES NOT AUTHORIZE ANOTHER.
+    pdp.issue(Grant(grant_id="g6", subject="owner2", capability_id="fs.wipe",
+                    max_level="L4", target_scope=("/tmp/x",), expiry_ms=10_000,
+                    lease_epoch=0, delegable=False,
+                    issued_for_command_id="cmd-3"))
+    other = pdp.authorize(subject="owner2", capability_id="fs.wipe",
+                          args={"destructive": True}, target="/tmp/x",
+                          command_id="cmd-4")
+    if other.authorized:
+        r.err("a grant issued for one command authorized a different one, so "
+              "the confirmation is a session and not an instance")
+
+    # 6. INV-ACT-4, STRUCTURALLY: the implementation is invoked only after
+    #    DF-AUTHORIZE, and only from `execute`. A second call site that skipped
+    #    the evaluator would satisfy every behavioural assertion above.
+    src = (REPO / "core" / "executor.py").read_text(encoding="utf-8")
+    body = src[src.index("    def execute("):]
+    body = body[:body.index("\n    def ", 1)]
+    if "self._pdp.authorize(" not in body:
+        r.err("Executor.execute does not call DF-AUTHORIZE")
+    elif body.index("self._pdp.authorize(") > body.index("impl(args)"):
+        r.err("the implementation is invoked BEFORE authorization in "
+              "Executor.execute -- the check happens and the action has already "
+              "been taken")
+    others = [ln.strip() for ln in src.splitlines()
+              if "impl(args)" in ln and ln.strip().startswith(("result", "return"))]
+    invocations = src.count("impl(args)")
+    if invocations > len(others) or invocations > 1:
+        r.err(f"the bound implementation is invoked at {invocations} sites in "
+              f"core/executor.py. Every one of them is a path that could skip "
+              f"DF-AUTHORIZE: {others}")
+
+    # 7. AND A REFUSED EXECUTION DOES NOT RUN THE IMPLEMENTATION. The evaluator
+    #    saying no is worth nothing if the adapter ran anyway.
+    ran: list = []
+    ex = Executor(bus, reg, pdp)
+    ex.bind("fs.write", lambda a: ran.append(a) or {"ok": True})
+    try:
+        ex.execute(subject="agent.nobody", capability_id="fs.write",
+                   args={"destructive": False}, target="/tmp/x")
+        r.err("an unauthorized execution was not refused")
+    except NotAuthorized:
+        pass
+    if ran:
+        r.err("the implementation ran despite the refusal: the decision is "
+              "computed and the adapter is called anyway, which is enforcement "
+              "that only reports")
+
+    # 8. A CONSTANT LEVEL IS REFUSED AT REGISTRATION (INV-AUTH-5's half of this
+    #    path): after registration every call site trusts the declaration.
+    try:
+        reg.register("bad.const", lambda a: "L1",
+                     [LevelRule("a", "L1", {"x": 1}),
+                      LevelRule("b", "L1", {"x": 2})],
+                     required_level=lambda a: "L1")
+        r.err("a capability whose declared_level returns a constant registered. "
+              "It cannot distinguish `ls` from `rm -rf ~`, and after "
+              "registration every call site would trust it.")
+    except ConstantLevelRefused:
+        pass
+
+    # REACH, STATED. Every assertion above is about objects this check built.
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    reached = "PolicyDecisionPoint(" in rt or "Executor(" in rt
+    r.note(f"no grant resolves to L0 with a reason from {len(DENY_REASONS)} "
+           f"closed values, and a matching grant authorizes; a child grant is a "
+           f"subset and is not itself delegable; {list(NEVER_DELEGABLE)} refuse "
+           f"delegation; a spent L4 cannot authorize twice; the implementation "
+           f"is invoked at exactly one site in executor.py and only after "
+           f"DF-AUTHORIZE, and a refused execution does not run it; a constant "
+           f"declared_level is refused at registration, and a grant bound to "
+           f"one command does not authorize another. UNRESOLVED, for the "
+           f"owner: consumption is gated on requires_owner_confirmation AND "
+           f"L4/L5, while issue() refuses L4-delegable on the level alone -- "
+           f"two triggers for one class of grant, and INV-AUTH-2's text "
+           f"mentions only the level. REACH: the runtime "
+           f"{'constructs' if reached else 'DOES NOT construct'} this stack -- "
+           f"it performs no action above L1 today, so this is enforcement "
+           f"waiting for the actions SR-014 will add, not a live hole")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -7363,6 +7636,7 @@ CHECK_FNS = {
     "memory-citations-resolve-or-are-withheld": check_memory_citations_resolve_or_are_withheld,
     "machine-checkable-means-registered": check_machine_checkable_means_registered,
     "map-navigates-and-never-carries-content": check_map_navigates_and_never_carries_content,
+    "no-ambient-authority": check_no_ambient_authority,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

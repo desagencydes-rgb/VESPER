@@ -977,6 +977,9 @@ EVID_PY = "core/evidence.py"
 VERIFY_PY = "core/verify.py"
 VERIFIERS_PY = "core/verifiers.py"
 KMAP_PY = "core/knowledge_map.py"
+AUTHZ_PY = "core/authorize.py"
+EXEC_PY = "core/executor.py"
+CAP_PY = "core/capability.py"
 ARB_PY = "core/arbiter.py"
 BLOCKS3_PY = "core/blocks.py"
 BLOCKS2_PY = "core/blocks.py"
@@ -2323,6 +2326,56 @@ CASES += [
      "coverage defaults to complete instead of UNMEASURED: a declared number "
      "standing in for a counted one, and an unbuilt map claims to cover its "
      "corpus entirely"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-013
+    ("no-ambient-authority", AUTHZ_PY,
+     _sub('            return self._deny(subject, cap, "no_grant", "L0",',
+          '            return Decision(True, "L2", "authorized", capability_id,\n'
+          '                            subject, "default")\n'
+          '        if False:\n'
+          '            return self._deny(subject, cap, "no_grant", "L0",', 1),
+     "a code path that yields a level without a grant: REM-003 says default "
+     "deny is not a setting but the ABSENCE of such a path, and this is the "
+     "path"),
+
+    ("no-ambient-authority", AUTHZ_PY,
+     _sub("        child = replace(parent, grant_id=child_grant_id, subject=child_subject,\n"
+          "                        parent_grant_id=parent.grant_id, delegable=False,\n"
+          "                        consumed=False)",
+          "        child = replace(parent, grant_id=child_grant_id, subject=child_subject,\n"
+          "                        parent_grant_id=parent.grant_id,\n"
+          "                        consumed=False)", 1),
+     "the child inherits delegability, so one owner confirmation can be "
+     "re-delegated indefinitely and attenuation bounds nothing past the first "
+     "hop -- the escalation core/authorize.py names as the real one"),
+
+    ("no-ambient-authority", AUTHZ_PY,
+     _sub("        if not parent.delegable or parent.max_level in NEVER_DELEGABLE:",
+          "        if not parent.delegable:", 1),
+     "L4/L5 become delegable at attenuation time: one confirmation turns into "
+     "an agent fleet's worth of external action"),
+
+    ("no-ambient-authority", AUTHZ_PY,
+     _sub("            with self._lock:\n"
+          "                grant.consumed = True   # INV-AUTH-2: single use",
+          "            with self._lock:\n"
+          "                pass", 1),
+     "the L4 grant is never spent, so one owner confirmation authorises a "
+     "session rather than an action instance"),
+
+    ("no-ambient-authority", EXEC_PY,
+     _sub("            raise NotAuthorized(d)", "            pass", 1),
+     "the refusal is computed, published, and then the implementation runs "
+     "anyway -- enforcement that only reports"),
+
+    ("no-ambient-authority", CAP_PY,
+     _sub("        if len(seen) < 2:", "        if False:", 1),
+     "the adversarial probe is dropped, so a capability that declares two rules "
+     "and returns one level registers: constant in fact whatever it claims in "
+     "shape, and after this point every call site trusts it"),
 ]
 
 

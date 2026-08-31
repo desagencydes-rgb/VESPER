@@ -146,10 +146,70 @@ self_test = "Write a summariser that returns a string without propagating trust_
 [checks.CI-013]
 name = "no-ambient-authority"
 enforces = ["INV-AUTH-1", "INV-ACT-4"]
-kind = "structural"
-impl = "PENDING"
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py no-ambient-authority"
 blocking = "pr"
-self_test = "Call a tool adapter directly, bypassing DF-AUTHORIZE."
+self_test = """Add a code path that yields a level with no grant; let the child
+inherit delegability; drop the level test from attenuate; stop marking the L4
+grant consumed; let a refused execution run the implementation anyway; drop the
+adversarial probe so a constant declared_level registers."""
+self_test_evidence = """tools/ci/self_test.py no-ambient-authority
+-- 6 cases, red then green, 2026-08-31."""
+subject = "core/authorize.py, core/executor.py, core/capability.py"
+note = """DECLARED SINCE THE REGISTRY WAS WRITTEN AND IMPLEMENTED 2026-08-31.
+The subsystem was complete and correct the whole time; what was missing was the
+gate, so nothing would have caught a regression in it.
+
+REM-003 puts INV-AUTH-1 as a structural property, not a behavioural one:
+"default deny is not a configuration setting; it is the ABSENCE OF ANY CODE PATH
+that produces a level without a grant." So the check asserts both -- that a
+grantless subject resolves to L0 today, and that the implementation is invoked
+at exactly one site in executor.py and only after DF-AUTHORIZE.
+
+DELEGATION IS THE REAL ESCALATION PATH, which core/authorize.py's own header
+says: the prohibition on self-grant was never the exposure, unattenuated
+inheritance was. A sub-agent inheriting its parent's grants unchanged turns one
+owner confirmation into six agents' worth of external action -- which is what
+SR-014 ("multiple agents") asks for and what DF-ATTENUATE bounds.
+
+REACH, RECORDED RATHER THAN PAPERED OVER: CapabilityRegistry, the PDP and the
+Executor are constructed only by run_f2_acceptance. That is not a live hole --
+the runtime performs no action above L1 today; it reads input, calls providers
+through the gateway, writes memory and publishes events -- but this is
+enforcement waiting for the actions SR-014 will add. Building a capability
+catalogue and routing every action through it is a change to the security model
+and belongs to the owner.
+
+UNRESOLVED, FOR THE OWNER: grant consumption is gated on
+`cap.requires_owner_confirmation AND grant.max_level in NEVER_DELEGABLE`, while
+`issue()` refuses an L4-delegable grant on the LEVEL ALONE. Two triggers for one
+class of grant, and INV-AUTH-2's text -- "L4/L5 are never delegable and bind to
+one command instance" -- mentions only the level. An L4 grant on a capability
+that does not declare owner confirmation is therefore NOT spent by use. This
+check deliberately asserts neither reading: freezing the current behaviour would
+lock a possible gap into a gate, and asserting the strict one would change the
+security model without review."""
+discriminators = """TWO GUARDS THAT LOOK LIKE ONE, and the first version of this
+check could not tell them apart. Removing the level test from `attenuate` left
+it green, because `issue()` already refuses to create an L4 grant marked
+delegable -- so through an ISSUED grant that clause is unreachable. What it
+actually defends is a Grant that never went through `issue`: `attenuate` accepts
+any Grant object, and a caller constructing one directly is the case the level
+re-test exists for. The check now goes in through that door.
+
+A REFUSED EXECUTION MUST NOT RUN THE ADAPTER. The evaluator saying no is worth
+nothing if the implementation was invoked anyway, and that failure is invisible
+in any test that only reads the Decision.
+
+EVERY DENIAL NAMES ITS REASON FROM A CLOSED DOMAIN. A denial reading "not
+authorized" tells the owner nothing about what to fix, and a system that cannot
+explain its refusals trains people to route around it.
+
+AND THE CONSTANT-LEVEL REFUSAL IS ADVERSARIAL, NOT SHAPE-BASED: the registry
+calls the real declared_level with each rule's own example and demands the
+answers differ. Counting rules alone would accept a function that declares two
+and returns one level -- constant in fact whatever it claims in shape, and
+trusted by every call site after registration."""
 
 [checks.CI-014]
 name = "injection-corpus"
