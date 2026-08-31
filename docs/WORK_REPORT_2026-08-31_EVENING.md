@@ -116,7 +116,11 @@ exists: deleting the destructive check leaves A-013's own assertion **passing**.
 
 ---
 
-## Four defects found by testing through the real door
+## Four defects, and how each was caught
+
+Three came from running the thing rather than reading it. **The first and worst
+came from review** — no test in 405 cases pointed a relative path containing
+`..` at the level rules, so nothing in the suite was looking where it was.
 
 **A path that levelled as VESPER's own scratch space and opened `/etc/passwd`.**
 `workspace/../../../../etc/passwd` *begins* with `workspace/`, so the classifier

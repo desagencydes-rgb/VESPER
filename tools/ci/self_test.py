@@ -3410,7 +3410,7 @@ CASES += [
      "without anything being written"),
 
     ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
-     _sub('    if any(p.startswith(g) or f"/{g}" in p for g in GOVERNED_PREFIXES):\n'
+     _sub('    if any(f"/{g}" in p for g in GOVERNED_PREFIXES):\n'
           '        return "L5"\n', "", 1),
      "the contracts, the invariants and the checks become writable on standing "
      "authority: the gates are editable by the thing they gate"),
@@ -3426,8 +3426,11 @@ CASES += [
      "on the proposer being right"),
 
     ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
-     _sub("    if parts and parts[0] == \"workspace\":\n"
-          "        return WORKSPACE.joinpath(*parts[1:])\n", "", 1),
+     _sub("        if parts and parts[0] == \"workspace\":\n"
+          "            p = WORKSPACE.joinpath(*parts[1:])\n"
+          "        else:\n"
+          "            p = REPO / p\n",
+          "        p = REPO / p\n", 1),
      "VESPER's writable space goes back to being module-relative, which inside "
      "the shipped bundle is `VESPER.app/Contents/Resources/runtime/workspace` -- "
      "a directory `build.sh` rewrites on every build. The write succeeds, the "
