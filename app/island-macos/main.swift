@@ -913,6 +913,16 @@ if args.contains("--listen") {
     exit(0)
 }
 
+if args.contains("--record") {
+    // Records and does not recognise. See runRecorder for why it is separate
+    // from --listen rather than a flag on it.
+    let seconds = args.firstIndex(of: "--seconds").flatMap { Double(args[args.index(after: $0)]) } ?? 6
+    let out = args.firstIndex(of: "--out").map { args[args.index(after: $0)] }
+        ?? NSTemporaryDirectory() + "vesper-heard.caf"
+    runRecorder(seconds: seconds, out: out)
+    exit(0)
+}
+
 if args.contains("--speech-status") {
     speechStatus()
     exit(0)

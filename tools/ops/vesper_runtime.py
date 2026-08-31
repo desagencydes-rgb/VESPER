@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import pathlib
 import sys
 import threading
 import time
@@ -69,6 +70,7 @@ from core.updater import MissRecorder, Updater                  # noqa: E402
 from core.quota import QuotaLedger                              # noqa: E402
 from core.router import NoRouteAvailable, Router                # noqa: E402
 from core.store import StoreSet                                 # noqa: E402
+from core.transcribe import Transcriber, transcribe_rows        # noqa: E402
 from core.triage import TriageQueue                             # noqa: E402
 from core.verify import Verifier                                # noqa: E402
 from core.verifiers import register_all                         # noqa: E402
@@ -682,6 +684,13 @@ def main() -> int:
                     help="drain the outbox once and exit")
     ap.add_argument("--say", help="inject an utterance without the surface")
     ap.add_argument("--status", action="store_true")
+    # DARIJA SPEECH IN. The machine has no on-device recogniser for it, and the
+    # island refuses to open the microphone for a locale it cannot transcribe
+    # itself -- so this is the route the 2026-08-31 decision names: capture
+    # here, transcribe through the gateway, land in the same input file typing
+    # uses. One entry point, so voice and text are the same conversation.
+    ap.add_argument("--hear", nargs="?", const=6, type=float, metavar="SECONDS",
+                    help="record, transcribe through the gateway, and answer")
     args = ap.parse_args()
 
     (bus, gw, router, home, intake, triage, report, persona, bench,
@@ -700,13 +709,38 @@ def main() -> int:
         print(f"face       : {home.state()}")
         return 0
 
+    if args.hear:
+        import subprocess as _sp
+        import tempfile as _tf
+        wav = str(pathlib.Path(_tf.gettempdir()) / "vesper-heard.caf")
+        app = REPO / "app" / "VESPER.app" / "Contents" / "MacOS" / "VESPER"
+        if not app.exists():
+            print("the app is not built; run app/island-macos/build.sh")
+            return 1
+        # `open -n`, NOT a direct exec. TCC attributes a microphone request to
+        # the RESPONSIBLE process, which from a shell is the shell -- the same
+        # trap that made --speech-consent look granted when it was not.
+        _sp.run(["open", "-n", str(REPO / "app" / "VESPER.app"), "--args",
+                 "--record", "--seconds", str(args.hear), "--out", wav],
+                check=False)
+        time.sleep(float(args.hear) + 2.0)
+        heard = Transcriber(bus, supply=transcribe_rows()).transcribe(wav)
+        if not heard.ok:
+            print(f"heard nothing: {heard.reason}")
+            return 1
+        print(f"  heard: {heard.text}")
+        OUTBOX.parent.mkdir(parents=True, exist_ok=True)
+        with OUTBOX.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"text": heard.text, "source": "spoken",
+                                "final": True}, ensure_ascii=False) + "\n")
+
     if args.say:
         OUTBOX.parent.mkdir(parents=True, exist_ok=True)
         with OUTBOX.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"text": args.say, "source": "typed",
                                 "final": True}) + "\n")
 
-    if args.once or args.say:
+    if args.once or args.say or args.hear:
         n = pump(bus, gw, router, persona, bench, home, intake, transcript,
                  once=True, renderer=renderer, updater=updater,
                  misses=misses, chooser=chooser, sensors=sensors,

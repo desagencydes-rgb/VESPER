@@ -174,3 +174,61 @@ func runListener(locale: String, seconds: Double, diagnose: Bool) {
     l.stop()
     note("stopped after \(l.finalCount) final result(s)")
 }
+
+// ---------------------------------------------------------------------------
+// RECORDING, for the locales this machine cannot transcribe itself.
+//
+// `Listener` above refuses to open the microphone when the locale has no
+// on-device recogniser, and refuses BEFORE opening it -- capturing audio it
+// would have to send away is worse than not capturing. That refusal is right
+// and it is also why Darija speech has no path at all through this file.
+//
+// The decision of 2026-08-31 is that Darija goes through OUR route: capture
+// here, transcribe through the gateway, where the egress class and the quota
+// are the same ones every other provider obeys. So this records and does not
+// recognise. It makes no routing decision and holds no credential; it writes a
+// file and says where.
+//
+// IT IS A SEPARATE ENTRY POINT ON PURPOSE. Adding a "just record" flag to
+// `runListener` would put a path that never checks `supportsOnDeviceRecognition`
+// inside the function whose whole job is to check it.
+func runRecorder(seconds: Double, out: String) {
+    guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
+        note("microphone is not authorized; run --speech-consent first")
+        exit(1)
+    }
+    let url = URL(fileURLWithPath: out)
+    let engine = AVAudioEngine()
+    let input = engine.inputNode
+    let format = input.outputFormat(forBus: 0)
+
+    var file: AVAudioFile
+    do {
+        // Caller-visible settings, written as the hardware actually runs so no
+        // resampling happens on this side. The transcriber takes what it gets.
+        file = try AVAudioFile(forWriting: url, settings: format.settings)
+    } catch {
+        note("could not open \(out) for writing: \(error)")
+        exit(3)
+    }
+    input.installTap(onBus: 0, bufferSize: 1024, format: format) { buf, _ in
+        try? file.write(from: buf)
+    }
+    engine.prepare()
+    do { try engine.start() } catch {
+        note("could not start audio: \(error)")
+        exit(3)
+    }
+    note("recording \(seconds)s -> \(out)  -- speak now")
+    RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+    engine.stop()
+    input.removeTap(onBus: 0)
+    // THE FILE'S OWN SIZE IS THE EVIDENCE, not the exit code. A tap that never
+    // fired leaves a valid, empty file and every status here would still say ok.
+    let bytes = (try? FileManager.default.attributesOfItem(atPath: out)[.size] as? Int) ?? 0
+    note("recorded \(bytes ?? 0) bytes")
+    if (bytes ?? 0) < 4096 {
+        note("WARNING: that is too small to contain speech -- the tap may not have fired")
+        exit(4)
+    }
+}
