@@ -36,12 +36,31 @@ vesper" spoken aloud woke it, a clip was captured and queued, the runtime draine
 it, transcribed Darija at 0.80 confidence and answered. The audio was deleted
 from disk afterwards.
 
-**One honest gap.** I first tested by speaking English after the wake word, and
-it came back as "موسيقى موسيقى موسيقى". That was my test's fault, not the
-system's: the transcriber is pinned to Arabic, which is what fixed the
-French-detection bug. Whisper forced into Arabic on English audio hallucinates
-exactly like that. **English speech after the wake word will not transcribe
-correctly.** Worth a decision later; it does not block anything.
+**A gap I reported and then measured, and the measurement contradicted me.**
+Speaking English after the wake word came back as "موسيقى موسيقى موسيقى", and I
+wrote that down as: the transcriber is pinned to Arabic, so English will not
+transcribe. That explanation was wrong, and checking it was cheap:
+
+| audio | `language = "ar"` (shipped) | auto-detect |
+|---|---|---|
+| clean English | **0.739, correct text** | 0.873, correct text |
+| clean Darija | 0.782, correct | 0.781, correct |
+
+Clean English transcribes **correctly** with Arabic pinned. So the pin is not
+what produced "موسيقى" — the audio was. That clip went speaker → room →
+microphone, and it is the degraded acoustic path, not the language setting, that
+made it hallucinate.
+
+**The pin stays**, and this data is not an argument against it. It was added
+because auto-detect returned FRENCH for a real Darija utterance captured through
+that same microphone path — *"Salam et Vesper, qui dit le Besalik ?"*. Clean-file
+numbers say nothing about that case, and swapping a setting on evidence gathered
+from a path other than the one it governs is exactly the mistake this corpus
+keeps writing down.
+
+What is genuinely open: auto-detect is 0.873 against 0.739 on clean English, so
+there may be something to gain for typed-quality audio. That needs measuring on
+room-captured clips of both languages, not on files.
 
 ## 2. The globe key, and a bug the earlier test could not have caught
 
