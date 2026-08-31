@@ -991,10 +991,45 @@ self_test = "Make an affect template reachable from a class C loss path; or repo
 [checks.CI-049]
 name = "tombstone-on-durable-write"
 enforces = ["INV-LOSS-3"]
-kind = "structural"
-impl = "PENDING"
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py tombstone-on-durable-write"
 blocking = "pr"
-self_test = "Write a durable record without emitting a tombstone index entry to the separate store."
+self_test = """Erase without writing a tombstone; put the erased value INTO the
+tombstone; accept a blank reason; let any actor erase."""
+self_test_evidence = """tools/ci/self_test.py tombstone-on-durable-write
+-- 4 cases, red then green, 2026-08-31."""
+subject = "core/forgetter.py, core/store.py"
+note = """DECLARED WITH THE REGISTRY AND IMPLEMENTED 2026-08-31.
+
+THE FAILURE INV-LOSS-3 PREVENTS IS A SENTENCE, not a crash. Asked about
+something the owner erased, a system with no tombstone says "I don't remember" --
+and that is a lie about the CAUSE. It forgot nothing; it was told to remove
+something. With a tombstone it names the removal; with nothing it says nothing.
+Both are honest. "I don't remember" is not."""
+discriminators = """THE TOMBSTONE IS WRITTEN BEFORE THE ROW GOES, and that
+ordering is the invariant rather than an implementation detail. Behaviour cannot
+see it on a path that succeeds -- only a crash between the two steps can, and
+the ordering is what makes that crash survivable -- so the check reads source
+order directly.
+
+IT CARRIES THE SHAPE, NEVER THE CONTENT. Subject and attribute say what KIND of
+thing was removed, which is what makes it auditable; the value is what makes it
+dangerous. A tombstone holding what it erased has not erased it, the same trap
+as quarantining a credential in full, and the red-run case adds exactly that
+field.
+
+THE FTS INDEX IS A SEPARATE ASSERTION FROM THE FACT ROW, because deleting the
+row alone makes `select()` stop returning the fact -- the join drops an orphan --
+while any other reader of the index still matches the term. The check asserts
+the index MATCHED before the erase, so that assertion cannot pass as a negative
+control that never had anything to find.
+
+THE REFUSALS MUST LEAVE THE FACT INTACT. A blank reason and a non-owner actor
+are refused, and the row is then asserted still present -- otherwise the refusal
+is a report issued after the damage rather than a guard.
+
+AND THE TOMBSTONE STORE IS APPEND-ONLY AT THE STORAGE LAYER: a deletion audit
+that can itself be deleted proves nothing."""
 
 # ---------------------------------------------------------- reference integrity
 [checks.CI-050]

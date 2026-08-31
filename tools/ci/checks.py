@@ -9395,6 +9395,158 @@ def check_telemetry_sensitivity_enforced() -> Result:
     return r
 
 
+def check_tombstone_on_durable_write() -> Result:
+    """CI-049: INV-LOSS-3, "VESPER never presents a known cause as forgetting."
+
+    THE FAILURE THIS PREVENTS IS A SENTENCE, not a crash. Asked about something
+    the owner erased, a system with no tombstone says "I don't remember" -- and
+    that is a lie about the CAUSE. It forgot nothing; it was told to remove
+    something. With a tombstone it names the removal; with nothing it says
+    nothing. Both are honest. "I don't remember" is not.
+
+    THE TOMBSTONE IS WRITTEN BEFORE THE ROW GOES, and the order is the
+    invariant. If the delete succeeded and the tombstone did not, the fact is
+    gone with no record that anything was ever there -- indistinguishable from a
+    bug, which is exactly the silent absence this is written against.
+
+    AND IT CARRIES THE SHAPE, NEVER THE CONTENT. Subject and attribute say what
+    KIND of thing was removed, which is what makes it auditable; the value is
+    what makes it dangerous. A tombstone holding what it erased has not erased
+    it -- the same trap as quarantining a credential in full.
+    """
+    r = Result("tombstone-on-durable-write")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile
+    try:
+        from core.bus import EventBus
+        from core.forgetter import ERASE, MODE_ACTOR, Forgetter, ForgetRefused
+        from core.hlc import HybridLogicalClock
+        from core.memory import MemoryGraph
+        from core.store import APPEND_ONLY, StoreSet
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the forget path did not import: {exc!r}")
+        return r
+
+    store = StoreSet(Path(tempfile.mkdtemp()), node_id="ci")
+    clock = HybridLogicalClock("ci")
+    bus = EventBus(clock, store)
+    mem = MemoryGraph(store)
+    f = Forgetter(mem, store, clock, bus=bus)
+
+    SECRET = "the thing the owner wants gone"
+    fact = mem.remember(subject="world.owner", attribute="private_note",
+                        value=SECRET, rank=2, privacy="private",
+                        trust_class="owner", at=clock.now())
+
+    # 1. THE TOMBSTONE STORE IS APPEND-ONLY AT THE STORAGE LAYER. A record of a
+    #    removal that can itself be removed is not a record.
+    if "tombstones" not in APPEND_ONLY:
+        r.err(f"the tombstones store is not append-only ({list(APPEND_ONLY)}). "
+              "A deletion audit that can be deleted proves nothing.")
+
+    # 2. THE INDEX MATCHES BEFORE THE ERASE, or assertion 4's FTS half is a
+    #    negative control that passes because the term was never there.
+    def fts_hits() -> int:
+        return int(mem._conn.execute(               # noqa: SLF001
+            "SELECT count(*) FROM fact_fts WHERE fact_fts MATCH ?",
+            ("thing",)).fetchone()[0])
+
+    if fts_hits() < 1:
+        r.err("the erased value was not in the FTS index to begin with, so the "
+              "assertion that it leaves the index proves nothing")
+
+    #    ERASE WRITES A TOMBSTONE.
+    before = store.count("tombstones")
+    f.erase(fact_id=fact.id, actor="owner", reason="owner asked")
+    after = store.count("tombstones")
+    if after != before + 1:
+        r.err(f"erase wrote {after - before} tombstones. Without one the fact "
+              "is gone with no record anything was there, and 'I don't "
+              "remember' becomes a lie about the cause.")
+
+    # 3. AND IT CARRIES THE SHAPE, NOT THE CONTENT.
+    tombs = [rec for rec in store.read("tombstones")]
+    body = tombs[-1].body if tombs else {}
+    blob = json.dumps(body)
+    if SECRET in blob:
+        r.err("the tombstone contains the erased VALUE. A tombstone holding "
+              "what it erased has not erased it -- the same trap as "
+              "quarantining a credential in full.")
+    for field in ("subject", "attribute", "reason", "actor"):
+        if not body.get(field):
+            r.err(f"the tombstone carries no {field!r}, so the removal cannot "
+                  "be audited: what KIND of thing went, and on whose word")
+
+    # 4. THE CONTENT IS ACTUALLY GONE FROM L2 -- including the FTS index, which
+    #    is the step the obvious two-line version misses. `select()` stops
+    #    returning it because the join drops an orphan, while a raw index match
+    #    still counts it.
+    if any(SECRET in (getattr(x, "value", "") or "")
+           for x in mem.select(["thing", "owner"], ceiling="private")):
+        r.err("the erased value is still selectable from L2")
+    hits = fts_hits()
+    if hits:
+        r.err(f"{hits} FTS index entries still match the erased value. "
+              "Deleting the fact row alone makes select() stop returning it "
+              "while any other reader of the index still sees the term.")
+
+    # 5. A REASON IS MANDATORY. It is the only record that will survive, and
+    #    "something was removed here, cause unknown" is indistinguishable from
+    #    data loss when it is read back.
+    fact2 = mem.remember(subject="world.owner", attribute="other_note",
+                         value="second", rank=2, privacy="private",
+                         trust_class="owner", at=clock.now())
+    try:
+        f.erase(fact_id=fact2.id, actor="owner", reason="   ")
+        r.err("an erasure with a blank reason was accepted. The reason is the "
+              "only record that survives.")
+    except ForgetRefused:
+        pass
+
+    # 6. ERASURE IS THE OWNER'S ALONE. It is the one operation this system
+    #    cannot undo, and a wrong one produces no evidence that it was wrong.
+    try:
+        f.erase(fact_id=fact2.id, actor="system", reason="tidying up")
+        r.err(f"'system' erased a fact. MODE_ACTOR says erase is "
+              f"{MODE_ACTOR[ERASE]}, and an unattended process that can destroy "
+              "content leaves nothing behind to show it should not have.")
+    except ForgetRefused:
+        pass
+
+    # 7. AND THE FACT SURVIVED THOSE REFUSALS, or the refusals happened after
+    #    the damage and are reports rather than guards.
+    if mem._conn.execute(                           # noqa: SLF001
+            "SELECT count(*) FROM fact WHERE id=?", (fact2.id,)).fetchone()[0] != 1:
+        r.err("the fact was destroyed by an erasure that was refused: the "
+              "refusal is reported after the row is gone")
+
+    # 8. THE TOMBSTONE IS WRITTEN BEFORE THE DELETE, structurally. Behaviour
+    #    cannot see this on a path that succeeds -- only a crash between the two
+    #    steps can, and the ordering is what makes that crash survivable.
+    src = (REPO / "core" / "forgetter.py").read_text(encoding="utf-8")
+    body_src = src[src.index("    def erase("):]
+    body_src = body_src[:body_src.index("\n    def ", 1)]
+    append_at = body_src.find('self._store.append("tombstones"')
+    delete_at = body_src.find("DELETE FROM fact")
+    if append_at < 0:
+        r.err("erase() does not append a tombstone")
+    elif delete_at >= 0 and append_at > delete_at:
+        r.err("the row is deleted BEFORE the tombstone is written. A crash "
+              "between the two leaves the fact gone with no record it existed "
+              "-- indistinguishable from a bug, which is the silent absence "
+              "this file is written against.")
+
+    r.note(f"the tombstones store is append-only; erase writes exactly one "
+           f"tombstone carrying subject, attribute, actor and reason and NOT "
+           f"the value; the erased content leaves both the fact table and the "
+           f"FTS index; a blank reason and a non-owner actor are refused with "
+           f"the fact intact ({MODE_ACTOR[ERASE]} may erase); and the tombstone "
+           f"append precedes the delete in source order, which only a crash "
+           f"between the two could otherwise reveal")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -9467,6 +9619,7 @@ CHECK_FNS = {
     "task-transition-table": check_task_transition_table,
     "predicate-totality": check_predicate_totality,
     "telemetry-sensitivity-enforced": check_telemetry_sensitivity_enforced,
+    "tombstone-on-durable-write": check_tombstone_on_durable_write,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

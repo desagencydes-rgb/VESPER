@@ -992,6 +992,7 @@ STORE_PY = "core/store.py"
 TASKS_PY = "core/tasks.py"
 AUTON_PY = "core/autonomy.py"
 TELEM_PY = "core/telemetry.py"
+FORGET_PY = "core/forgetter.py"
 COST_PY = "core/cost.py"
 EXEC_PY = "core/executor.py"
 CAP_PY = "core/capability.py"
@@ -2832,6 +2833,39 @@ CASES += [
      _sub("        if sensitivity not in SENSITIVITY:", "        if False:", 1),
      "an invented sensitivity is accepted, and a class no rule names is a class "
      "no rule restricts"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-049
+    ("tombstone-on-durable-write", FORGET_PY,
+     _sub('        seq = self._store.append("tombstones", "memory.erased", tomb,\n'
+          "                                 self._clock.now())",
+          "        seq = 0", 1),
+     "the erase writes no tombstone: the fact is gone with no record anything "
+     "was ever there, so 'I don't remember' becomes a lie about the cause and "
+     "is indistinguishable from a bug"),
+
+    ("tombstone-on-durable-write", FORGET_PY,
+     _sub('                "log_seq": row[3], "rank": row[4], "reason": reason,',
+          '                "log_seq": row[3], "rank": row[4], "reason": reason,\n'
+          '                "erased_value": self._memory._conn.execute(\n'
+          '                    "SELECT value FROM fact WHERE id=?", (fact_id,)\n'
+          '                ).fetchone()[0],', 1),
+     "the tombstone carries the erased VALUE: a tombstone holding what it "
+     "erased has not erased it, which is the same trap as quarantining a "
+     "credential in full"),
+
+    ("tombstone-on-durable-write", FORGET_PY,
+     _sub("        if not reason.strip():", "        if False:", 1),
+     "a blank reason is accepted, and the reason is the only record that "
+     "survives -- 'something was removed here, cause unknown' reads back "
+     "exactly like data loss"),
+
+    ("tombstone-on-durable-write", FORGET_PY,
+     _sub("        if actor not in MODE_ACTOR[ERASE]:", "        if False:", 1),
+     "any actor may erase: an unattended process can destroy content, and a "
+     "wrong erasure leaves nothing behind to show it was wrong"),
 ]
 
 
