@@ -443,3 +443,101 @@ for. Numbering continues the earlier list conceptually; order is what changes.
 - **L8. Context budget tools** — `get_context_remaining`, marked fragments.
 - **L9. Project instruction files** (`AGENTS.md` / `CLAUDE.md` convention).
 - **L10. Delegation** — sub-agents for sub-tasks.
+
+---
+
+# PART THREE — THE OUTER LOOP: keeping going on its own
+
+Owner's addition, 2026-09-01: the loop should not stop when the asked-for task
+is done. It should look for something else to do, decide INTENTIONALLY whether
+to advance its own work (ideas, research, projects), keep going, ask if
+necessary, and stop when there is nothing to do — or nothing that should be done
+*at that time*, or nothing *necessary* at that time.
+
+## THIS IS ALREADY BUILT, AND IT IS STARVED
+
+`core/autonomy.py` has `Trigger`, `PredicateEvaluator`, `AutonomyLoop`,
+`AutonomyRunner`. It RUNS — `vesper_runtime.py` line 591 calls it every pass.
+
+And it is not a naive scheduler. It is careful in exactly the ways the owner's
+sentence requires:
+
+- **`CronDisguisedAsTrigger`** — refuses a trigger that fires on the clock
+  alone, whatever it is labelled. That is "not at that time to do" enforced.
+- **`NonTerminatingPredicate`** + `assert_terminating` — a predicate that cannot
+  be shown to terminate is refused AT REGISTRATION, before it is ever run.
+- **Predicates are CALLABLES, not strings.** The comment says why: "a string
+  predicate needs an interpreter, and an interpreter is a place a model call can
+  hide."
+- **`ModelCallInDecisionPath`** — the gateway REFUSES a model call in the
+  decision path.
+- Predicate classes: `STATE`, `EVENT`, `COMPOSITE`, `SCHEDULE`, with declared
+  `clock_terms` / `state_terms` and an `anti_cron_probe` that checks the
+  declaration.
+- `debounce_s` per trigger; an interruption budget by period and attention state.
+
+**What is missing is not the machinery. It is two connections and some content:**
+
+1. **ONE trigger is registered.** `autonomy.register(expiry_trigger())` — memory
+   expiry, and nothing else. The loop wakes up, finds nothing to consider, and
+   goes back to sleep. It is a working engine with one instruction.
+2. **The autonomy layer has NO reference to the actor.** `grep actor
+   core/autonomy.py` returns nothing but an unrelated comment. So even when a
+   trigger fires, autonomy cannot DO anything — it can publish an event. The
+   capability system landed yesterday and was never joined to it.
+
+## THE DESIGN TENSION THE OWNER'S REQUEST CREATES — worth stating before building
+
+"Decide if it would like to do something else intentionally" sounds like
+judgement, and judgement sounds like a model call. **This corpus refuses model
+calls in the decision path**, deliberately, and refuses string predicates for
+the same reason.
+
+The resolution is a split, and it should be explicit in the design:
+
+- **WHETHER to wake** is decided by deterministic predicates over declared state
+  — is the machine idle, is it charging, is it FREE_TIME, is the owner absent,
+  is there an open item in `TriageQueue`, did a project's tests start failing.
+  No model. This is the part `core/autonomy.py` already enforces.
+- **WHAT to do once awake** may be a model call — proposing work, ranking ideas,
+  drafting a plan — because by then the decision to act at all has already been
+  made by something auditable.
+
+That split preserves the invariant and still gives the owner what they asked
+for. Building it the other way — a model deciding, in the predicate, whether it
+feels like working — would break the one rule this layer exists to enforce, and
+would do it invisibly.
+
+## WHAT THE FIELD DOES HERE
+
+Weaker than what we already have, which is worth knowing before copying anything:
+
+- **Claude Code**: `CronCreate`/`CronList`/`CronDelete` for scheduled sessions;
+  background tasks that re-invoke on completion; `ScheduleWakeup` for self-paced
+  loops with a stop condition. Scheduling, mostly — clock-driven, which is the
+  thing `CronDisguisedAsTrigger` refuses.
+- **Codex**: `cloud-tasks` crate, `wait_for_environment`, `sleep`. Also
+  scheduling and waiting.
+- **OpenClaw**: runs persistently and reacts to messages. Reactive, not
+  self-directed.
+- **Kimi**: a "swarm supervisor" as the default posture.
+
+**Nobody in the field has a condition-based autonomy layer with a cron refusal
+and a terminating-predicate proof.** On this one axis VESPER's design is ahead
+of the systems being studied, and it has been sitting unused with a single
+trigger registered.
+
+## ADDS TO THE BUILD LIST
+
+- **L11. Join autonomy to the actor.** A fired trigger should be able to reach
+  the capability path, under the same ladder — with FREE_TIME as the period, so
+  the standing level and the confirmation behaviour differ from an owner-present
+  turn.
+- **L12. Register real triggers.** Idle + charging + FREE_TIME; an open triage
+  item; a failing gate; an unfinished item in the owner's own project list.
+- **L13. A self-directed work queue** — VESPER's own ideas/projects, so "advance
+  its own stuff" has a referent. `core/tasks.py` and `TriageQueue` are the
+  places this belongs.
+- **L14. A stop condition that is not a timer** — "nothing to do, or nothing
+  necessary now" expressed as predicates, which is exactly what this layer
+  already refuses to let be a clock.
