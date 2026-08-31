@@ -972,6 +972,7 @@ FLOOR_PY = "core/floor.py"
 ARABIZI_PY = "core/arabizi.py"
 PRESENCE_PY = "core/presence.py"
 CTRL_PY = "core/context_control.py"
+CACHE_PY = "core/cache.py"
 BLOCKS2_PY = "core/blocks.py"
 GATEWAY_PY = "core/gateway.py"
 ROUTER = "core/router.py"
@@ -2092,6 +2093,68 @@ CASES += [
 ]
 
 
+CASES += [
+    # ---------------------------------------------------------------- CI-085
+    ("cache-preserves-taint-and-content-keys", CACHE_PY,
+     _sub("        return hit if decision.verdict == REUSE else None",
+          "        return (hit.value if decision.verdict == REUSE and hit is not None\n"
+          "                else None)", 1),
+     "the cache returns the bare value on a hit: it went in tainted and comes "
+     "out indistinguishable from trusted local data, which is A-025.8 and the "
+     "reuse INV-AUTH-3 names by name"),
+
+    ("cache-preserves-taint-and-content-keys", CACHE_PY,
+     _sub("        self._stores[tier].put(key, value)",
+          "        self._stores[tier].put(\n"
+          "            key, value if isinstance(value, Tainted)\n"
+          "            else Tainted(value, \"verified_local\"))", 1),
+     "a bare value coerced instead of refused: the cache invents a trust class "
+     "it has no way to know, and everything stored through the convenient path "
+     "reads back as locally verified"),
+
+    ("cache-preserves-taint-and-content-keys", CACHE_PY,
+     _sub("        h.update(b\"\\x00\")\n", "", 1),
+     "key parts concatenated without a separator, so ('ab','cd') and "
+     "('abc','d') collide -- a HIT that returns the wrong answer, strictly "
+     "worse than a miss and invisible to any test that only checks caching works"),
+
+    ("cache-preserves-taint-and-content-keys", CACHE_PY,
+     _sub("        return content_key(SUMMARY, hashlib.sha256(content.encode()).hexdigest(),\n"
+          "                           purpose)",
+          "        return content_key(SUMMARY, hashlib.sha256(content.encode()).hexdigest())", 1),
+     "purpose dropped from the summary key: a summary written for the compactor "
+     "is served to the miss recorder, and both callers get a confident answer "
+     "to a question neither asked"),
+
+    ("cache-preserves-taint-and-content-keys", CACHE_PY,
+     _sub('            "INV-AUTH-6: the planner context never contains retrieved_external. "',
+          'REFETCH,\n            "INV-AUTH-6: the planner context never contains retrieved_external. "', 1),
+     "the planner refusal downgraded to REFETCH, which reads as the recoverable "
+     "answer and is an infinite loop: the key is content-addressed, so the "
+     "refetch returns the same external content and is refused identically"),
+
+    ("cache-preserves-taint-and-content-keys", CACHE_PY,
+     _sub("        return hit if decision.verdict == REUSE else None", "        return hit", 1),
+     "the admission decision computed and then ignored: DF-CACHE-ADMIT runs, "
+     "the statistics are even correct, and the refused entry is handed over "
+     "anyway -- enforcement that is only reported"),
+
+    ("cache-preserves-taint-and-content-keys", CACHE_PY,
+     _sub("        verdict = admit(value, context)\n"
+          "        if verdict.verdict != REUSE:\n"
+          "            raise PermissionError(\n"
+          "                f\"the produced value is not admissible here: {verdict.reason}\")\n", "", 1),
+     "only cache HITS are admitted, so the first call through any key returns "
+     "freshly produced external content straight to the planner and the "
+     "invariant holds on every path except the one that runs first"),
+
+    ("cache-preserves-taint-and-content-keys", CACHE_PY,
+     _sub("        if tier not in TIERS:", "        if tier not in TIERS + (EMBEDDING_NOT_BUILT,):", 1),
+     "the embedding tier accepted: nothing here produces an embedding, so it "
+     "can never register a hit, and accepting it makes the five specified tiers "
+     "look complete while one of them is decorative"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
-

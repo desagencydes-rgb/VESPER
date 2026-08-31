@@ -6558,6 +6558,194 @@ def check_context_control_reaches_selection() -> Result:
     return r
 
 
+def check_cache_preserves_taint_and_content_keys() -> Result:
+    """Taint survives reuse, keys come from content, and the unbuilt tier says so.
+
+    `INV-AUTH-3` NAMES CACHE REUSE EXPLICITLY -- "taint propagates through
+    summarisation, embedding and cache reuse" -- and a cache is where that
+    propagation is easiest to lose, because the natural implementation stores a
+    string. The value goes in tainted and comes out looking like clean local
+    data, which is `A-025.8` exactly.
+
+    CONTENT-ADDRESSED, NEVER TIME-ADDRESSED. A cache keyed on when something was
+    fetched has to guess how long the answer stays true. Keyed on what the
+    content IS, it cannot be stale: different content is a different key. That
+    is `INV-COORD-4`'s reasoning applied one layer down.
+
+    AND THE FIFTH TIER IS ABSENT ON PURPOSE. Nothing here produces an embedding
+    -- no vector store by design, selection is FTS5 plus a bounded walk, local
+    models ruled out on this host. A cache for values nothing computes could
+    never register a hit, so building it would make the five tiers look complete
+    while one of them was decorative.
+    """
+    r = Result("cache-preserves-taint-and-content-keys")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.cache import (CHUNK, FILE_HASH, PROMPT_PREFIX, REFETCH,
+                                REFUSE, REUSE, SUMMARY, TIERS, AdmitDecision,
+                                RequestingContext, TieredCache, admit)
+        from core.taint import EXTERNAL, Tainted
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.cache did not import: {exc!r}")
+        return r
+
+    c = TieredCache()
+    # An ordinary read: drives nothing state-changing, is not the planner.
+    plain = RequestingContext(label="test")
+
+    # 1. TAINT SURVIVES A ROUND TRIP. The whole invariant, in one assertion.
+    k = c.file_key(b"some bytes")
+    c.put(FILE_HASH, k, Tainted("parsed", EXTERNAL))
+    got = c.get(FILE_HASH, k, plain)
+    if got is None:
+        r.err("a value stored was not returned")
+    elif not isinstance(got, Tainted):
+        r.err(f"the cache returned {type(got).__name__}, not Tainted. A cache "
+              "whose return type is a bare value launders the trust class on "
+              "every hit, which is A-025.8 exactly.")
+    elif got.trust_class != EXTERNAL:
+        r.err(f"trust class changed across the cache: {EXTERNAL!r} in, "
+              f"{got.trust_class!r} out. INV-AUTH-3 names cache reuse.")
+
+    # 2. A BARE VALUE IS REFUSED, not wrapped. Wrapping here would invent a
+    #    trust class the cache has no way to know.
+    try:
+        c.put(SUMMARY, "k", "a bare string")
+        r.err("a bare string was cached. It would be indistinguishable from a "
+              "trusted value on the next read.")
+    except TypeError:
+        pass
+
+    # 3. KEYS COME FROM CONTENT.
+    if c.file_key(b"same") != c.file_key(b"same"):
+        r.err("identical bytes produced different keys, so the cache can never "
+              "hit on the case it exists for")
+    if c.file_key(b"a") == c.file_key(b"b"):
+        r.err("different bytes produced the same key")
+
+    # 4. NO CONCATENATION COLLISION.
+    #
+    #    THE FIRST VERSION OF THIS TEST WAS VACUOUS AND THE SELF-TEST CAUGHT IT.
+    #    It asserted on `summary_key("ab","cd")` vs `summary_key("abc","d")`,
+    #    which cannot collide however the parts are joined: summary_key hashes
+    #    the content to a fixed 64 characters first, so the boundary can never
+    #    shift. Removing the separator left the test green.
+    #
+    #    The collision that IS reachable here is chunk_key, whose parts are
+    #    variable-width integers: (512, 64) and (51, 264) concatenate to the
+    #    same string, and one file's chunks are then served for another's
+    #    parameters. So assert the primitive directly AND the caller that can
+    #    actually reach it.
+    from core.cache import content_key
+    if content_key("ab", "cd") == content_key("abc", "d"):
+        r.err("content_key joins parts without a separator")
+    if c.chunk_key("h", 512, 64) == c.chunk_key("h", 51, 264):
+        r.err("chunk keys collide: size 512/overlap 64 and size 51/overlap 264 "
+              "concatenate to the same string, so a hit returns another "
+              "parameterisation's chunks -- worse than a miss, and invisible to "
+              "any test that only checks that caching works.")
+
+    # 5. THE PARAMETERS THAT CHANGE THE RESULT ARE IN THE KEY.
+    if c.summary_key("x", "compactor") == c.summary_key("x", "miss_recorder"):
+        r.err("purpose is not part of the summary key. A summary written for "
+              "the compactor would be served to the miss recorder.")
+    if c.chunk_key("h", 512, 64) == c.chunk_key("h", 256, 64):
+        r.err("chunk size is not part of the key; the same file chunked "
+              "differently is a different result")
+
+    # 6. STATS EXIST PER TIER, because a tier that never hits costs exactly what
+    #    no cache costs, plus the code -- and that is silent without counters.
+    before = c.stats[FILE_HASH].hits
+    c.get(FILE_HASH, k, plain)
+    if c.stats[FILE_HASH].hits != before + 1:
+        r.err("a hit was not counted; a cache nobody measures cannot be shown "
+              "to be working")
+    c.get(FILE_HASH, "never-stored", plain)
+    if not c.stats[FILE_HASH].misses:
+        r.err("a miss was not counted")
+
+    # 7. DF-CACHE-ADMIT DECIDES, AND REFETCH IS NOT THE POLITE REFUSAL.
+    #
+    #    This is the case a working cache hides. Every key here is
+    #    content-addressed, so a refetch of the same key returns the same bytes
+    #    and the same trust class -- an entry refused for its class is refused
+    #    identically afterwards, and a caller that treats REFETCH as progress
+    #    fetches forever. The naive implementation returns REFETCH for
+    #    everything it declines, because it reads as the recoverable answer.
+    ext = Tainted("a fetched page", EXTERNAL)
+    d = admit(ext, RequestingContext(planner=True))
+    if d.verdict != REFUSE:
+        r.err(f"an external entry into the planner context returned {d.verdict}, "
+              f"not REFUSE. INV-AUTH-6 is absolute, and because the key is "
+              f"content-addressed a refetch returns the same external content -- "
+              f"so REFETCH here is an infinite loop wearing the word 'retry'.")
+    d = admit(Tainted("x", "model_generated"), RequestingContext(required_level="L4"))
+    if d.verdict != REFUSE:
+        r.err(f"an above-ceiling entry returned {d.verdict}, not REFUSE; the "
+              "refetch cannot raise a trust class the content does not have")
+    #    ...and REFETCH still has to fire where it is the honest answer, or the
+    #    rule above has been implemented as "never REFETCH", which is a
+    #    different bug that passes both assertions.
+    d = admit(Tainted("x", "not_a_class_we_know"), plain)
+    if d.verdict != REFETCH:
+        r.err(f"unrecognised provenance returned {d.verdict}, not REFETCH. A "
+              "refetch is the one action that replaces a guess with a known "
+              "trust class, and treating it as REFUSE makes the cache unusable "
+              "for anything whose class it cannot name.")
+    if admit(None, plain).verdict != REFETCH:
+        r.err("a cold miss did not return REFETCH")
+    if admit(Tainted("x", "verified_local"), plain).verdict != REUSE:
+        r.err("an admissible entry was not reused, so the cache never serves")
+
+    # 8. A REFUSAL DOES NOT LEAK THE ENTRY, and is counted apart from a cold
+    #    miss -- otherwise a policy-refused cache reads as an unwarmed one and
+    #    sends someone tuning key construction that is working correctly.
+    pk = c.file_key(b"external material")
+    c.put(FILE_HASH, pk, ext)
+    if c.get(FILE_HASH, pk, RequestingContext(planner=True)) is not None:
+        r.err("a refused entry was returned anyway: the decision is computed "
+              "and then ignored, which is the same as not having it")
+    if not c.stats[FILE_HASH].refused:
+        r.err("a policy refusal was counted only as a miss")
+
+    # 9. THE PRODUCED VALUE IS ADMITTED TOO. It is the path that looks safest --
+    #    the value is fresh, so it cannot be a stale-cache problem -- and it is
+    #    the one that routes around the decision entirely.
+    try:
+        c.memoise(SUMMARY, "mk", lambda: ext, RequestingContext(planner=True))
+        r.err("memoise returned freshly produced external content to the planner "
+              "context: the admission decision is applied to cache hits only, so "
+              "the first call through any key bypasses INV-AUTH-6 entirely")
+    except PermissionError:
+        pass
+
+    # 10. THE UNBUILT TIER IS REFUSED AND EXPLAINS ITSELF.
+    try:
+        c.get("embedding", "x", plain)
+        r.err("the embedding tier was accepted. Nothing here produces an "
+              "embedding, so it could never hit -- and accepting it makes the "
+              "five tiers look complete.")
+    except ValueError as exc:
+        if "never register a hit" not in str(exc):
+            r.err("the embedding refusal does not say why, so the next reader "
+                  "adds it back")
+    rep = c.report()
+    if rep.get("embedding", {}).get("built") is not False:
+        r.err("report() does not mark the embedding tier as unbuilt")
+    for t in TIERS:
+        if t not in rep:
+            r.err(f"tier {t!r} missing from report()")
+
+    r.note(f"taint survives a round trip and a bare value is refused; keys are "
+           f"content-addressed with no concatenation collision; purpose and "
+           f"chunk parameters are in their keys; {len(TIERS)} tiers report hits "
+           f"and misses; DF-CACHE-ADMIT refuses external into the planner and "
+           f"above-ceiling rather than looping on REFETCH, and admits the "
+           f"produced value too; the embedding tier is refused and says why")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -6614,6 +6802,7 @@ CHECK_FNS = {
     "arabizi-preserves-and-marks-itself": check_arabizi_preserves_and_marks_itself,
     "presence-withholds-and-never-expires": check_presence_withholds_and_never_expires,
     "context-control-reaches-selection": check_context_control_reaches_selection,
+    "cache-preserves-taint-and-content-keys": check_cache_preserves_taint_and_content_keys,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

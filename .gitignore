@@ -52,3 +52,7 @@ f1b_last_run.log
 
 # Accidental Claude Code session transcript dumps.
 2*-local-command-caveat*.txt
+
+# Agent worktrees are transient clones of this repo; committing one embeds a
+# second git repository that a fresh clone cannot fetch.
+.claude/worktrees/

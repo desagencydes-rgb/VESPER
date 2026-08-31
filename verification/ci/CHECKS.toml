@@ -1203,3 +1203,67 @@ as a security control working. Paths and prose are asserted to survive.
 `Finding` CARRIES NO VALUE. The redaction record and the updater's tombstone are
 both safe to keep and safe to put in a bug report precisely because there is no
 field the secret could travel in."""
+
+[checks.CI-085]
+name = "cache-preserves-taint-and-content-keys"
+enforces = ["INV-AUTH-3", "INV-AUTH-6"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py cache-preserves-taint-and-content-keys"
+blocking = "pr"
+self_test = """Return the bare value from a hit instead of the wrapper; coerce a
+bare string on put instead of raising; join key parts without a separator so two
+chunk parameterisations collide; drop purpose from the summary key; downgrade
+the planner refusal to REFETCH; compute the admission decision and return the
+entry anyway; admit cache hits but not freshly produced values; accept the
+embedding tier that nothing can populate."""
+self_test_evidence = """tools/ci/self_test.py cache-preserves-taint-and-content-keys
+-- 8 cases, red then green, 2026-08-31."""
+subject = "core/cache.py"
+note = """SR-054 names five cache tiers and one existed: TaintedCache, which is
+the fifth in spirit -- it stores the wrapper rather than the string, so a value
+cannot go in tainted and come out looking like clean local data. Four are now
+built on top of it (file hash, chunk, summary, prompt prefix) and the fifth,
+embedding, is deliberately not: nothing in this system produces an embedding --
+no vector store by design, selection is FTS5 plus a bounded graph walk, and
+local models are ruled out on this host. A cache for values nothing computes
+could never register a hit, and building it would make the five look complete
+while one of them was decorative. The refusal carries that reason in its message
+so the next reader does not simply add it back.
+
+DF-CACHE-ADMIT was the other half and was also unbuilt: SR-054 names it, its
+output is REUSE | REFETCH | REFUSE, and a cache that returns the wrapper and
+lets the caller decide has documented the invariant rather than enforced it. It
+is now the gate every read passes, including the freshly produced value in
+memoise -- the path that looks safest and is the one that would route around the
+decision on the first call through any key."""
+discriminators = """INV-AUTH-3 NAMES CACHE REUSE IN ITS OWN SENTENCE -- "taint
+propagates through summarisation, embedding and cache reuse" -- and a cache is
+where that propagation is easiest to lose, because the natural implementation
+stores a string and its return type is then indistinguishable from trusted local
+data. That is A-025.8 exactly. The check therefore asserts the trust class
+across a round trip rather than that a value came back.
+
+EVERY KEY IS CONTENT-ADDRESSED AND NONE IS TIME-ADDRESSED, which is INV-COORD-4's
+reasoning one layer down: a cache keyed on when something was fetched has to
+guess how long the answer stays true, while a cache keyed on what the content IS
+cannot be stale, because different content is a different key.
+
+THE COLLISION CASE IS THE ONE A PASSING CACHE HIDES. Key parts joined without a
+separator make ("ab","cd") and ("abc","d") the same string, and the result is a
+HIT that returns the wrong answer -- strictly worse than a miss, and invisible
+in every test that only checks that caching works. The first version of that
+assertion was VACUOUS and the self-test found it: it compared two summary keys,
+and summary_key hashes its content to a fixed 64 characters before joining, so
+the boundary can never shift and removing the separator left the test green. The
+reachable collision is chunk_key, whose parts are variable-width integers --
+size 512/overlap 64 and size 51/overlap 264 concatenate identically.
+
+REFETCH IS NOT THE POLITE VERSION OF REFUSE, and the naive implementation makes
+it exactly that because it reads as the recoverable answer. Every key here is
+content-addressed, so a refetch of the same key returns the same bytes and the
+same trust class: an entry refused for its class is refused identically
+afterwards, and a caller treating REFETCH as progress fetches forever. REFETCH
+is therefore reserved for absent or unrecognised provenance, the one case where
+fetching again establishes the class rather than re-deriving it -- and the check
+asserts REFETCH still fires there, or "never REFETCH" would pass the other two
+assertions as a different bug."""

@@ -694,7 +694,7 @@ contracts = ["contracts/policy/authorization.schema.json", "contracts/entities/c
 decision_functions = ["DF-CACHE-ADMIT"]
 invariants = ["INV-AUTH-3", "INV-AUTH-6"]
 tests = ["A-006", "A-025"]
-ci = ["CI-012"]
+ci = ["CI-012", "CI-085"]
 status = "SPECIFIED"
 raised = "2026-08-12: INV-AUTH-3 already required cache entries to inherit taint and CI-012 already existed to catch the omission. The five tiers had no artifact, so the requirement they inherit taint had nowhere to attach. `derived_from` is mandatory on summary/embedding/cache fragments, so an untainted summariser output is malformed."
 
