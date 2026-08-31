@@ -11170,7 +11170,11 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
         r.err("the globe-key watcher's LaunchAgent has no label, so nothing "
               "identifies the job to launchd")
     import re as _re
-    written = set(_re.findall(r'LaunchAgents/([^"\s]+\.plist)', build))
+    # THE LOOKAHEAD IS THE POINT. Without it, `[^"\s]+\.plist` matches the
+    # `.plist` inside `$ID.fnwatch.plist.disabled` and reports the healthy name,
+    # so a renamed-out agent looked present -- the mutation stayed green on
+    # exactly that. The name has to END where the string does.
+    written = set(_re.findall(r'LaunchAgents/([^"\s]+\.plist)(?=["\s])', build))
     registered = set(_re.findall(r'agent\(plistName:\s*"([^"]+)"\)', main))
     expanded = {w.replace("$ID", "ai.vesper.island") for w in written}
     missing = registered - expanded
@@ -11304,10 +11308,20 @@ def check_capabilities_registered_and_levelled_by_argument() -> Result:
         r.err("shell.run inherits its working directory, so the tree it acts on "
               "depends on who started the runtime rather than on anything the "
               "level rules can see")
-    got = caps.resolve("workspace/x.txt")
-    if not str(got).startswith(str(REPO)):
-        r.err(f"a relative path resolves to {got}, outside the root the level "
-              "rules reason about")
+    if not str(caps.resolve("README.md")).startswith(str(REPO)):
+        r.err("a relative path resolves outside the root the level rules reason "
+              "about")
+    # AND VESPER'S OWN WRITABLE SPACE SURVIVES A BUILD. The bundle carries a COPY
+    # of the runtime, so a module-relative `workspace/` there is inside
+    # `VESPER.app`, which `build.sh` rewrites every time. Measured 2026-08-31: a
+    # note written correctly, verified correctly, into a directory the next
+    # build deletes.
+    ws = caps.resolve("workspace/note.txt")
+    if ".app/" in str(ws) or "Resources/runtime" in str(ws):
+        r.err(f"the workspace resolves to {ws}, inside the app bundle. Every "
+              "build deletes it, so a note VESPER saves is destroyed by the next "
+              "rebuild while the write, the hash and the verification all say it "
+              "succeeded")
 
     # 7. THE STANDING GRANT IS SMALL AND SAYS SO.
     rank = {"L0": 0, "L1": 1, "L2": 2, "L3": 3, "L4": 4, "L5": 5}

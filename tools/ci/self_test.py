@@ -3416,6 +3416,15 @@ CASES += [
      "authority: the gates are editable by the thing they gate"),
 
     ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
+     _sub("    if parts and parts[0] == \"workspace\":\n"
+          "        return WORKSPACE.joinpath(*parts[1:])\n", "", 1),
+     "VESPER's writable space goes back to being module-relative, which inside "
+     "the shipped bundle is `VESPER.app/Contents/Resources/runtime/workspace` -- "
+     "a directory `build.sh` rewrites on every build. The write succeeds, the "
+     "hash matches, the verifier agrees, and the note is gone at the next "
+     "rebuild"),
+
+    ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
      _sub("timeout=timeout, check=False, cwd=str(REPO))",
           "timeout=timeout, check=False)", 1),
      "the working directory is inherited again. `workspace/` and `contracts/` "

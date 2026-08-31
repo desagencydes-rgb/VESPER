@@ -57,11 +57,31 @@ from core.capability import CapabilityRegistry, LevelRule
 # The classifier and the implementation now resolve against the same constant.
 REPO = pathlib.Path(__file__).resolve().parents[1]
 
+# AND `workspace/` IS NOT UNDER IT, which testing through the shipped bundle is
+# the only way to find. The app bundle carries a COPY of the runtime, so
+# `parents[1]` there is `VESPER.app/Contents/Resources/runtime` -- and
+# `build.sh` rewrites that directory on every build. Asked in Darija to write a
+# note "f workspace/test.txt", VESPER wrote it, reported success truthfully, and
+# put it somewhere the next build deletes. Nothing was wrong with the level, the
+# write, or the verification: the file was real, the hash matched, and it was
+# doomed.
+#
+# VESPER's own writable space therefore lives beside its state, not beside its
+# code, because state survives a rebuild and code is replaced by one.
+WORKSPACE = (pathlib.Path.home() / "Library" / "Application Support" /
+             "VESPER" / "workspace")
+
 
 def resolve(path: str) -> pathlib.Path:
-    """`~` expanded, relative paths taken against the repository root."""
-    p = pathlib.Path(os.path.expanduser(str(path or "")))
-    return p if p.is_absolute() else (REPO / p)
+    """`~` expanded; `workspace/` to the durable one; anything else to the repo."""
+    raw = str(path or "")
+    p = pathlib.Path(os.path.expanduser(raw))
+    if p.is_absolute():
+        return p
+    parts = pathlib.PurePosixPath(raw.replace("\\", "/")).parts
+    if parts and parts[0] == "workspace":
+        return WORKSPACE.joinpath(*parts[1:])
+    return REPO / p
 
 # ---------------------------------------------------------------- shell.run
 
