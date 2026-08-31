@@ -10986,6 +10986,34 @@ def check_speech_in_declares_language_and_measures_confidence() -> Result:
     return r
 
 
+def _swift_code(text: str) -> str:
+    """Swift source with its COMMENTS REMOVED.
+
+    TWICE NOW A CHECK HAS GONE RED, OR STAYED GREEN, ON PROSE. First a clause
+    that refused a pid file matched the comment explaining why there is no pid
+    file; then a clause forbidding bundle-wide enumeration matched the comment
+    explaining why bundle-wide enumeration was wrong. In this corpus the
+    comments state what was tried and why it failed, so the very sentence
+    recording a defect looks exactly like the defect to a substring scan.
+
+    A trailing `//` is only treated as a comment when the quotes before it on
+    that line are balanced, so a `//` inside a string literal survives.
+    """
+    out = []
+    for line in text.splitlines():
+        st = line.strip()
+        if st.startswith("//"):
+            continue
+        i = line.find("//")
+        while i >= 0:
+            if line[:i].count('"') % 2 == 0:
+                line = line[:i]
+                break
+            i = line.find("//", i + 2)
+        out.append(line)
+    return "\n".join(out)
+
+
 def check_wake_word_listens_locally_and_starts_once() -> Result:
     """Always listening, nothing sent until it hears its name -- and one VESPER.
 
@@ -11015,8 +11043,11 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
             r.err(f"{f.relative_to(REPO)} does not exist")
             return r
     build = (REPO / "app" / "island-macos" / "build.sh").read_text(encoding="utf-8")
-    w = wake.read_text(encoding="utf-8")
-    t = fn.read_text(encoding="utf-8")
+    # CODE, NOT PROSE -- see `_swift_code`. Every assertion below is about what
+    # the program does, and this corpus's comments describe defects in the exact
+    # words the assertions look for.
+    w = _swift_code(wake.read_text(encoding="utf-8"))
+    t = _swift_code(fn.read_text(encoding="utf-8"))
     p = rt.read_text(encoding="utf-8")
 
     # 1. THE ALWAYS-ON RECOGNISER IS ON-DEVICE, AND REFUSES IF IT CANNOT BE.
@@ -11071,23 +11102,15 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
 
     # 6. ONE VESPER. Asked of the system, not of a pid file: a pid file outlives
     #    a crash and would refuse to start after one.
-    # THE IDENTIFIER IS COMPARED TO build.sh, not spot-checked for shape. A
-    # running-check that asks about a bundle nothing publishes always answers
-    # "not running" and is indistinguishable from having no guard -- and it
-    # stayed green under exactly that mutation.
-    if "runningApplications" not in t:
-        r.err("the starter does not check whether VESPER is already running, so "
-              "a second runtime races the first for the same input file")
-    else:
-        ids = [ln.split("=", 1)[1].strip().strip('"\'')
-               for ln in build.splitlines() if ln.strip().startswith("ID=")]
-        if not ids:
-            r.err("build.sh declares no bundle identifier, so the running check "
-                  "cannot be compared against what the app publishes")
-        elif ids[0] not in t:
-            r.err(f"the starter asks whether {ids[0]!r} is running -- but that is "
-                  "not the identifier it queries. It asks about a bundle nothing "
-                  "publishes, always answers no, and never refuses a second copy")
+    # ASKED AS AN ABSENCE, because presence cannot see an ADDITION. The previous
+    # form asserted `homeIsRunning()` was present and stayed green when the old
+    # bundle-wide enumeration was pasted back in above it -- both were there, and
+    # the wrong one ran first. Enumerating this bundle is the defect itself, so
+    # the check is that it does not appear at all.
+    if "runningApplications" in t:
+        r.err("the starter enumerates every process from this bundle. The wake "
+              "listener shares the bundle, so in the intended steady state the "
+              "triple-tap answers 'already running' and starts nothing")
     # NOT `createsNewApplicationInstance = false`. That was asserted here until
     # 2026-08-31 and it was WRONG: `false` means "activate an existing instance
     # of this bundle", and the wake listener is an instance of this bundle -- so
@@ -11099,10 +11122,13 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
               "so in the intended steady state the triple-tap answers 'already "
               "running' and starts nothing -- the trigger is dead exactly when "
               "the wake word is working")
-    if "CFMessagePortCreateRemote" not in t:
+    # WITH THE OPENING PAREN. `CFMessagePortCreateRemoteX` contains
+    # `CFMessagePortCreateRemote`, so the bare substring could not see a rename
+    # that breaks the call -- it stayed green under exactly that mutation.
+    if "CFMessagePortCreateRemote(" not in t:
         r.err("the liveness question is not asked of something that dies with "
               "the process; anything else has to be validated against staleness")
-    main = (REPO / "app" / "island-macos" / "main.swift").read_text(encoding="utf-8")
+    main = _swift_code((REPO / "app" / "island-macos" / "main.swift").read_text(encoding="utf-8"))
     if 'args.contains("--home") && homeIsRunning()' not in main:
         r.err("home does not refuse to start when home is already running. The "
               "starter's check can only cover the paths it knows about; this one "
@@ -11114,7 +11140,9 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
     if "startWakeWordInProcess()" not in main:
         r.err("nothing starts the wake listener: it has to be launched by hand, "
               "so it does not survive a crash, a logout or a reboot")
-    if "fnwatch" not in build:
+    # THE LABEL, not the substring. `$ID.fnwatch.plist.disabled` still contains
+    # "fnwatch" while naming a file launchd will never load.
+    if "<key>Label</key><string>$ID.fnwatch</string>" not in build:
         r.err("the globe-key watcher has no LaunchAgent, so it too must be "
               "started by hand -- and its whole job is to start home when "
               "nothing else is running")
@@ -11138,6 +11166,166 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
            "again by home itself, and not left to `createsNewApplicationInstance` "
            "which would raise the wake listener instead of launching home; and "
            "both listeners are started by something rather than by hand")
+    return r
+
+
+def check_capabilities_registered_and_levelled_by_argument() -> Result:
+    """VESPER can act, and what it may do without asking is small and stated.
+
+    THE GAP THIS CLOSES WAS NOT MACHINERY, IT WAS REACH. The registry, the
+    decision point, the executor and the compensation path were all built,
+    gated, and reachable by nothing: the only `shell.run` in this corpus lived
+    inside `run_f2_acceptance.py`'s fixture. The verification report says it
+    plainly -- "No subsystem, no decision function, no contract covers endpoint
+    interaction." So the levels were provably right about actions that could
+    not be taken.
+
+    THE LEVEL RULES ARE EXECUTED HERE, not read. A grep would confirm that a
+    function mentioning "rm" exists; only calling it establishes that
+    `shell.run("ls")` and `shell.run("rm -rf ~")` come back different, which is
+    A-013's assertion stated as a concrete case.
+
+    AND THE CHAINING FORM IS THE ONE THAT MATTERS. `ls; rm -rf ~` begins with an
+    allowlisted verb, so a first-word classifier admits it at L1 -- while A-013's
+    own assertion still passes, because `ls` and `rm -rf ~` do resolve
+    differently. The test that separates a real classifier from one that merely
+    satisfies A-013 is the composed command.
+    """
+    r = Result("capabilities-registered-and-levelled-by-argument")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core import actor as actor_mod
+        from core import capabilities as caps
+        from core import intent as intent_mod
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the capability modules do not import: {exc!r}")
+        return r
+
+    # 1. SOMETHING IS REGISTERED. "No capabilities are registered" was the
+    #    entire state of this system until 2026-08-31.
+    try:
+        reg = caps.build_registry()
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the registry refuses to build: {exc!r}")
+        return r
+    ids = reg.ids()
+    if not ids:
+        r.err("no capabilities are registered, so the authorization stack "
+              "decides about nothing and VESPER cannot act")
+        return r
+
+    # 2. A-013, EXECUTED.
+    lo = caps.shell_level({"cmd": "ls"})
+    hi = caps.shell_level({"cmd": "rm -rf ~"})
+    if lo == hi:
+        r.err(f"shell.run('ls') and shell.run('rm -rf ~') both resolve to {lo} -- "
+              "the level does not depend on the arguments, which is the one "
+              "thing A-013 states as a concrete assertion")
+    if hi != "L5":
+        r.err(f"the destructive form resolves to {hi}, not L5")
+    if lo != "L1":
+        r.err(f"a plain `ls` resolves to {lo}; read-only inspection should not "
+              "cost a confirmation, or the owner learns to approve without reading")
+
+    # 3. THE COMPOSED COMMAND. This is the assertion A-013 does not make.
+    for smuggled in ("ls; rm -rf ~", "ls && rm -rf ~", "ls `rm -rf ~`",
+                     "cat x | sudo tee y", "echo hi > /etc/hosts"):
+        lvl = caps.shell_level({"cmd": smuggled})
+        if lvl == "L1":
+            r.err(f"{smuggled!r} resolves to L1. It begins with an allowlisted "
+                  "verb, so a classifier that reads the first word admits it -- "
+                  "and A-013's own assertion still passes while it does")
+
+    # 4. UNANALYSABLE MEANS HIGHEST, not lowest. Fail-closed, as INV-HW-2 does
+    #    for throughput: UNKNOWN is UNAVAILABLE.
+    for weird in ("", "   ", "echo 'unbalanced"):
+        if caps.shell_level({"cmd": weird}) != "L5":
+            r.err(f"{weird!r} does not resolve to L5. A command that cannot be "
+                  "analysed is not thereby safe")
+
+    # 5. READING A CREDENTIAL IS NOT A LESSER ACT THAN WRITING ONE. It is the
+    #    step that puts it in a context window, which is where it leaves.
+    for secret in ("~/.config/vesper/secrets.env", "~/.ssh/id_rsa",
+                   "/tmp/my_api_key.txt"):
+        if caps.fs_read_level({"path": secret}) != "L5":
+            r.err(f"fs.read({secret!r}) is below L5, so a credential can be read "
+                  "into a prompt on standing authority")
+        if caps.fs_write_level({"path": secret}) != "L5":
+            r.err(f"fs.write({secret!r}) is below L5")
+
+    # 6. THE RULES THAT JUDGE THE SYSTEM ARE NOT WRITABLE ON STANDING AUTHORITY.
+    for governed in ("contracts/policy/cost_policy.toml", "tools/ci/checks.py",
+                     "spec/invariants/INVARIANTS.toml"):
+        if caps.fs_write_level({"path": governed}) != "L5":
+            r.err(f"fs.write({governed!r}) is below L5 -- the gates would be "
+                  "editable by the thing they gate")
+
+    # 7. THE STANDING GRANT IS SMALL AND SAYS SO.
+    rank = {"L0": 0, "L1": 1, "L2": 2, "L3": 3, "L4": 4, "L5": 5}
+    if rank.get(actor_mod.STANDING_LEVEL, 9) > 2:
+        r.err(f"the standing grant is {actor_mod.STANDING_LEVEL}. Anything above "
+              "L2 means VESPER touches the owner's documents, or runs commands "
+              "that are not provably read-only, without being asked")
+    src = (REPO / "core" / "actor.py").read_text(encoding="utf-8")
+    if "delegable=False" not in src:
+        r.err("the standing grant is delegable, so authority given to VESPER "
+              "can be handed onward (INV-AUTH-2)")
+
+    # 8. A REFUSAL BECOMES A QUESTION. The owner's decision of 2026-08-31 is
+    #    that VESPER stops, explains, and asks by voice -- not that it fails.
+    if "broker" not in src or "_ask" not in src:
+        r.err("an authorization refusal does not reach the confirmation ladder, "
+              "so a capability above the standing level is a dead end rather "
+              "than a question")
+
+    # 9. VERIFICATION IS INDEPENDENT, AND ITS ABSENCE IS SPOKEN. A-013 asks for a
+    #    result verified independently of the actor's claim.
+    if "fs.write" not in caps.INDEPENDENT_VERIFIERS:
+        r.err("a write is not verified by reading the world back, so the record "
+              "of what happened is the actor's own account of itself")
+    else:
+        ok = caps.verify_fs_write({"path": "/nonexistent/never",
+                                   "intended_sha256": "x"})
+        if ok.get("verified"):
+            r.err("the write verifier reports success for a file that does not "
+                  "exist -- a verifier that cannot fail is not evidence")
+    if "why_not" not in src:
+        r.err("a capability with no independent verifier reports silently, so "
+              "'nothing checked this' is indistinguishable from 'this checked out'")
+
+    # 10. THE PROPOSER FAILS TO NONE. A keyword fallback would be least reliable
+    #     exactly when the ladder is degraded, and it would be ACTING.
+    isrc = (REPO / "core" / "intent.py").read_text(encoding="utf-8")
+    if intent_mod.parse('[{"action":"shell.run","args":{"cmd":"ls"}}]') is not None:
+        r.err("a JSON ARRAY is accepted as a proposal, so a model that answers "
+              "with three actions has its first one executed silently")
+    for junk in ("", "not json", '{"action":"nope","args":{"a":1}}',
+                 '{"action":"shell.run"}', '{"action":"shell.run","args":{}}'):
+        if intent_mod.parse(junk) is not None:
+            r.err(f"{junk!r} parses as a proposal")
+
+    # 11. WIRED. A capability system nothing calls is the state this replaced.
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    calls = rt.count("actor=actor")
+    pumps = rt.count("pump(bus, gw")
+    if calls < pumps - 1:
+        r.err(f"{calls} of {pumps - 1} pump() call sites pass the actor. A "
+              "half-wired path is how `--say` spoke and the daemon did not, on "
+              "2026-08-31")
+    if "maybe_act" not in rt:
+        r.err("the runtime never asks whether a turn is an action, so the "
+              "capability system is registered and unreachable")
+
+    r.note(f"{len(ids)} capabilities registered ({', '.join(ids)}); `ls`->{lo} "
+           f"and `rm -rf ~`->{hi} executed rather than read; five composed "
+           "commands refused L1 including the one that begins with an "
+           "allowlisted verb; unanalysable commands resolve L5; credentials are "
+           "L5 to READ as well as write; the gates are not writable on standing "
+           f"authority; the standing grant is {actor_mod.STANDING_LEVEL} and "
+           "non-delegable; refusals reach the confirmation ladder; a write is "
+           "verified by reading the disk back and that verifier can fail; and "
+           f"{calls} pump call sites carry the actor")
     return r
 
 
@@ -11223,6 +11411,7 @@ CHECK_FNS = {
     "memory-stores-facts-not-only-transcript": check_memory_stores_facts_not_only_transcript,
     "speech-in-declares-language-and-measures-confidence": check_speech_in_declares_language_and_measures_confidence,
     "wake-word-listens-locally-and-starts-once": check_wake_word_listens_locally_and_starts_once,
+    "capabilities-registered-and-levelled-by-argument": check_capabilities_registered_and_levelled_by_argument,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

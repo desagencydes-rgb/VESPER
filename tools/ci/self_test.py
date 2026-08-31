@@ -1024,6 +1024,9 @@ INTBUD_TOML = "contracts/policy/interruption_budget.toml"
 WAKE_SWIFT = "app/island-macos/WakeWord.swift"
 FN_SWIFT = "app/island-macos/FnTrigger.swift"
 MAIN_SWIFT = "app/island-macos/main.swift"
+CAPS_PY = "core/capabilities.py"
+ACTOR_PY = "core/actor.py"
+INTENT_PY = "core/intent.py"
 RUNTIME_PY = "tools/ops/vesper_runtime.py"
 CHECKS_PY = "tools/ci/checks.py"
 COST_PY = "core/cost.py"
@@ -3365,15 +3368,83 @@ CASES += [
      "is to start home when nothing is running must itself be started by hand"),
 
     ("wake-word-listens-locally-and-starts-once", FN_SWIFT,
-     _sub(".runningApplications(withBundleIdentifier: \"ai.vesper.island\")",
-          ".runningApplications(withBundleIdentifier: \"ai.vesper.absent\")", 1),
-     "the running check asks about a bundle identifier nothing publishes, so it "
-     "always answers no and the guard never fires"),
-
-    ("wake-word-listens-locally-and-starts-once", FN_SWIFT,
      _sub("guard ev.keyCode == FN_KEYCODE else { return }", "", 1),
      "the .function flag alone counts as a globe tap, and every arrow key raises "
      "it -- three quick presses scrolling a document start VESPER"),
+]
+
+
+CASES += [
+    # ------------------------------------------------- capabilities and acting
+    ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
+     _sub('    if any(m in low for m in DESTRUCTIVE_MARKERS):\n        return "L5"\n',
+          "", 1),
+     "`rm -rf ~` stops resolving to L5 -- and A-013's OWN ASSERTION STILL "
+     "PASSES, because `ls` and `rm -rf ~` still come back different. The one "
+     "case the acceptance test states as concrete is satisfied by a classifier "
+     "that has stopped recognising destruction"),
+
+    ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
+     _sub('    if any(c in cmd for c in CHAINING):\n'
+          '        return "L3"                      # composable, so not provably read-only\n',
+          "", 1),
+     "`echo hi > /etc/hosts` resolves to L1: the verb is allowlisted and the "
+     "redirection is no longer looked at, so a command that overwrites a system "
+     "file runs on standing authority without anyone being asked"),
+
+    ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
+     _sub('    if not cmd:\n        return "L5"                      # an empty command is not a safe one',
+          '    if not cmd:\n        return "L1"', 1),
+     "a command that cannot be analysed is treated as harmless. Fail-open on "
+     "the one input nothing could reason about, which is the exact inversion of "
+     "what INV-HW-2 does for an unmeasured throughput"),
+
+    ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
+     _sub('    if any(m in p for m in SECRET_MARKERS):\n'
+          '        # READING a credential is not a lesser act than writing one. It is the\n'
+          '        # step that puts it in a context window, which is where it leaves.\n'
+          '        return "L5"\n', "", 1),
+     "credentials become ordinary files to READ. Reading one is the step that "
+     "puts it in a context window and therefore in an egress path -- the "
+     "asymmetry that treats reading as the lesser act is how a secret leaves "
+     "without anything being written"),
+
+    ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
+     _sub('    if any(p.startswith(g) or f"/{g}" in p for g in GOVERNED_PREFIXES):\n'
+          '        return "L5"\n', "", 1),
+     "the contracts, the invariants and the checks become writable on standing "
+     "authority: the gates are editable by the thing they gate"),
+
+    ("capabilities-registered-and-levelled-by-argument", ACTOR_PY,
+     _sub('STANDING_LEVEL = "L2"', 'STANDING_LEVEL = "L4"', 1),
+     "VESPER holds standing L4. Every stop-and-ask this ladder exists for is "
+     "silently pre-approved, and the owner's decision of 2026-08-31 -- stop, "
+     "explain, ask by voice -- has nothing left to trigger it"),
+
+    ("capabilities-registered-and-levelled-by-argument", ACTOR_PY,
+     _sub("delegable=False, issued_by=\"owner\"", "delegable=True, issued_by=\"owner\"", 1),
+     "the standing grant becomes delegable, so authority given to VESPER can be "
+     "handed onward to anything it spawns (INV-AUTH-2)"),
+
+    ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
+     _sub('    return {"verified": on_disk == intended,',
+          '    return {"verified": True,', 1),
+     "the write verifier agrees with the actor no matter what is on the disk. A "
+     "verifier that cannot return False is not independent verification, it is "
+     "the actor's claim wearing a second name"),
+
+    ("capabilities-registered-and-levelled-by-argument", INTENT_PY,
+     _sub('    if t.lstrip().startswith("["):\n        return None\n', "", 1),
+     "a JSON array parses as a proposal by finding its first element, so a "
+     "model that answered with three actions has one of them executed and the "
+     "other two silently dropped"),
+
+    ("capabilities-registered-and-levelled-by-argument", RUNTIME_PY,
+     _sub("                 speech=speech, transcriber=transcriber, actor=actor)",
+          "                 speech=speech, transcriber=transcriber)", 1),
+     "one of the two pump() call sites stops passing the actor, so VESPER acts "
+     "from one entry point and not the other -- the same half-wiring that let "
+     "`--say` speak while the daemon stayed silent on 2026-08-31"),
 ]
 
 

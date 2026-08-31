@@ -63,7 +63,10 @@ from core.context_control import ContextCommands                # noqa: E402
 from core.presence import Presence                              # noqa: E402
 from core.speech import Speech, speech_rows                     # noqa: E402
 from core.blocks import L1Renderer                              # noqa: E402
+from core.actor import Actor                                    # noqa: E402
+from core.confirm import ConfirmationBroker                     # noqa: E402
 from core.evidence import ClaimChecker                          # noqa: E402
+from core.interruption import InterruptionBudget                # noqa: E402
 from core.memory import MemoryGraph                             # noqa: E402
 from core.extract import FactExtractor                          # noqa: E402
 from core.updater import MissRecorder, Updater                  # noqa: E402
@@ -333,10 +336,18 @@ def build(node: str = "vesper-runtime"):
                                   "as an input for this reason.")},
                 component="runtime")
 
+    # THE THING THAT CAN ACT. Built with the confirmation broker attached, so a
+    # refusal is a question rather than a dead end -- that is the owner's own
+    # decision of 2026-08-31: stop, explain, ask by voice, and wait if nobody is
+    # there. Without the broker it would still be safe and would simply say no,
+    # which is safe in the way a system that cannot do anything is safe.
+    actor = Actor(bus, gw,
+                  broker=ConfirmationBroker(bus, InterruptionBudget(bus)))
+
     return (bus, gw, router, home, intake, triage, report, persona, bench,
             renderer, updater, misses, chooser, world, sensors, autonomy,
             devices, repairer, presence, context_cmds, verifier, speech,
-            transcriber)
+            transcriber, actor)
 
 
 def answer(gw, router, persona, utterance, renderer=None,
@@ -556,7 +567,7 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          once: bool = False, renderer=None, updater=None,
          misses=None, chooser=None, sensors=None, autonomy=None,
          triage=None, repairer=None, presence=None,
-         context_cmds=None, speech=None, transcriber=None) -> int:
+         context_cmds=None, speech=None, transcriber=None, actor=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     # SENSORS FIRST, AND THE PERIOD DECIDES WHETHER ANYTHING ACTUALLY RUNS.
     # `poll()` returns immediately for any sensor that is not due, so calling it
@@ -694,10 +705,34 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             said = []
             home.set_transcript(list(transcript))
             if res["outcome"] == "dispatched":
-                reply = answer(gw, router, persona, intake.history[-1],
-                               renderer=renderer, updater=updater,
-                               misses=misses, chooser=chooser,
-                               context_cmds=context_cmds)
+                # ACTING IS TRIED FIRST, AND IT USUALLY DECLINES. Almost every
+                # turn is a question, a greeting, or something to remember, and
+                # `maybe_act` returns None for all of them -- so the normal path
+                # costs one extra call on the fastest rung and the answer below
+                # runs exactly as it did before.
+                #
+                # WHEN IT DOES ACT, THE RESULT IS THE ANSWER. Asking the model
+                # to also narrate a command it did not run would put a fluent
+                # description of an imagined outcome beside the real one, which
+                # is the competition INV-VERIF-1 exists to forbid: the actor's
+                # story standing in for what happened.
+                did = None
+                if actor is not None:
+                    try:
+                        did = actor.maybe_act(intake.history[-1].text)
+                    except Exception as exc:           # noqa: BLE001
+                        bus.publish("act.pass_failed", subject="actor",
+                                    payload={"error": repr(exc)},
+                                    component="runtime")
+                if did is not None:
+                    bus.publish("act.outcome", subject=did.capability_id,
+                                payload=did.to_dict(), component="runtime")
+                    reply = did.said
+                else:
+                    reply = answer(gw, router, persona, intake.history[-1],
+                                   renderer=renderer, updater=updater,
+                                   misses=misses, chooser=chooser,
+                                   context_cmds=context_cmds)
                 # VESPER'S REPLY IS NOT AN UTTERANCE, and the first version put
                 # it into `intake.history` as one. `Intake` is the record of
                 # things said TO VESPER -- its confidence, its partials and its
@@ -774,7 +809,7 @@ def main() -> int:
     (bus, gw, router, home, intake, triage, report, persona, bench,
      renderer, updater, misses, chooser, world, sensors,
      autonomy, devices, repairer, presence, context_cmds, verifier,
-     speech, transcriber) = build()
+     speech, transcriber, actor) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -837,7 +872,7 @@ def main() -> int:
                  misses=misses, chooser=chooser, sensors=sensors,
                  autonomy=autonomy, triage=triage, repairer=repairer,
                  presence=presence, context_cmds=context_cmds,
-                 speech=speech, transcriber=transcriber)
+                 speech=speech, transcriber=transcriber, actor=actor)
         # THE SAME HONESTY THE INTERRUPT PATH APPLIES. A one-shot run that exits
         # leaving `thinking` on disk reports work that is not happening; the
         # 90 s staleness fallback would correct it eventually, and eventually is
@@ -882,7 +917,7 @@ def main() -> int:
                  chooser=chooser, sensors=sensors, autonomy=autonomy,
                  triage=triage, repairer=repairer, presence=presence,
                  context_cmds=context_cmds, speech=speech,
-                 transcriber=transcriber)
+                 transcriber=transcriber, actor=actor)
             # THE PLUMBING USED TO COST MORE THAN THE MODEL. 0.5 s here plus
             # 0.7 s in the chrome's own timer is up to 1.2 s of pure polling
             # around a call that now returns in ~0.7 s -- the transport was the
