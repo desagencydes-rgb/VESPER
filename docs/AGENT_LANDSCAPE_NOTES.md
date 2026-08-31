@@ -281,3 +281,165 @@ then by cost. All are Python-only unless marked.
 10. **MCP client** — one protocol instead of bespoke code per integration.
     Biggest multiplier for calendar/notes/messages, but it is surface area, so
     it comes after containment.
+
+---
+---
+
+# PART TWO — THE CORE I MISSED: how commands actually get work done
+
+The first pass was about SAFETY and missed the thing the owner actually values:
+the way these systems work with commands to achieve a goal cleanly. That is not
+a feature, it is the shape of the whole loop, and VESPER does not have it.
+
+## THE OMISSION, PROBED (2026-09-01)
+
+`core/actor.py`: `propose(text)` once → `execute()` once → return. The only
+`for` in the file is the grant issuer. `vesper_runtime.py` calls
+`actor.maybe_act(...)` exactly once per utterance.
+
+**VESPER CANNOT TAKE A SECOND STEP.** It cannot run `ls`, look at the output,
+and then read the file it found. It cannot try something, see it fail, and fix
+it. Everything the owner describes as magical about Claude Code and Codex is
+that loop, and we have a straight line.
+
+Every item below is downstream of this. A better tool set with no loop is still
+one action per sentence.
+
+---
+
+## A. COMMAND ERGONOMICS — why it feels clean
+
+### A1. A PERSISTENT SHELL SESSION (Codex `zsh_fork` / `unified_exec`)
+`core/src/tools/runtimes/zsh_fork.rs` forks a real zsh and "keeps the escalation
+server alive **for the session**". So `cd`, exported variables, an activated
+virtualenv, a running dev server — all survive between calls.
+
+Claude Code takes a deliberate middle position, stated in its own contract:
+*"Working directory persists between calls, but shell state (env vars,
+functions) does not persist; the shell is initialized from the user's profile."*
+A considered tradeoff, not an accident — reproducibility over convenience.
+
+**VESPER:** `subprocess.run(shlex.split(cmd), cwd=REPO)`. Every command starts
+from nothing. `cd` is meaningless. There is no session at all.
+
+### A2. PARALLEL INDEPENDENT CALLS
+Claude Code's standing instruction: *"If you intend to call multiple tools and
+there are no dependencies between the calls, make all of the independent calls
+in the same block."* Codex has `core/src/tools/parallel.rs` and a
+`PostToolBatch` hook that fires after parallel calls resolve.
+
+**VESPER:** one action per turn. Not "one at a time" — literally one.
+
+### A3. BACKGROUND EXECUTION WITH RE-INVOCATION
+Claude Code `Bash(run_in_background)`: *"runs the command detached: it keeps
+running across turns and re-invokes you when it exits."* Plus `Monitor` to wait
+on a condition instead of polling. Codex has `sleep` and
+`wait_for_environment` as first-class tools.
+
+**VESPER:** a 20-second default timeout and nothing else. A build, a test suite
+or a long install cannot be run at all.
+
+### A4. TIMEOUTS AS A PARAMETER
+Claude Code: default 120 s, max 600 s, per call. **VESPER:** 20 s, and the model
+cannot ask for more.
+
+---
+
+## B. TURN CONTROL — the model steering its own execution
+
+Codex exposes these AS TOOLS (`core/src/tools/handlers/`). None exist here:
+
+| Codex tool | What it buys | VESPER |
+|---|---|---|
+| `plan` | write a plan, then work it | absent |
+| `request_permissions` | the model asks for elevation MID-TASK and continues | absent — our refusal ends the attempt |
+| `request_user_input` | ask a question without ending the turn | absent — `core/confirm.py` asks, then the turn is over |
+| `send_user_message_async` | tell the owner something while still working | absent |
+| `sleep`, `wait_for_environment` | waiting as a deliberate action | absent |
+| `view_image` | look at an image | absent |
+| `current_time` | ask the clock | we shell out to `date` |
+| `multi_agents`, `multi_agents_v2` | delegate a sub-task | absent |
+| `tool_search` | find a tool | absent (we have 3) |
+
+**`request_permissions` is the important one.** Our ladder refuses and the turn
+ends. Theirs refuses, the model ASKS, and on approval the SAME task continues.
+That is the difference between a gate and a dead end — and it makes the
+stop-and-ask ladder we already built far more useful than it currently is.
+
+---
+
+## C. CONTEXT ECONOMY — the corpus's own "map" requirement, solved
+
+### C1. `get_context_remaining` — a TOOL for the model to check its own budget
+Codex lets the model ask how much context it has left, and decide accordingly.
+
+### C2. `new_context_window` — a deliberate fresh start
+The model can choose to reset rather than degrade.
+
+### C3. Compaction, manual and automatic
+`core/src/compact*.rs` — ~12 files including `compact_token_budget.rs`,
+`run_manual_compact_task` and `run_inline_auto_compact_task`, plus a remote
+compaction path and an image budget. Claude Code summarizes automatically when
+the conversation grows long.
+
+**VESPER has `core/compactor.py`.** Present. Needs checking against the acting
+path now that turns can carry tool output.
+
+### C4. MARKED FRAGMENTS — injected context is recognizable later
+`context-fragments/src/fragment.rs`: fragments carry START/END markers "used to
+recognize injected context later".
+
+**VESPER:** `core/context.py` Fragments carry NO markers. Once context is
+injected we cannot find it again to prune or replace it.
+
+### C5. DEFERRED TOOL SCHEMAS
+Both have it (`tool_search` / `ToolSearch`): tools listed by NAME, full schema
+fetched on demand. This is the handwritten requirement verbatim — "a map where
+the model navigates" — and it is the mechanism, not an analogy.
+
+---
+
+## D. FILE PRIMITIVES — the details that stop damage
+
+Claude Code's `Read`: `offset`/`limit` for large files; images rendered; PDFs by
+page range; notebooks as cells with outputs. `Edit`: `replace_all` for renames.
+And a doctrine worth copying verbatim: *"Do NOT re-read a file you just edited
+to verify — Edit/Write would have errored if the change failed, and the harness
+tracks file state for you."*
+
+**That last line is the whole efficiency argument.** The harness tracks file
+state, so the model does not spend a call confirming what the tool already
+guaranteed. VESPER tracks nothing between calls.
+
+**VESPER `fs.read`:** a `limit` only, no `offset`, text only. No images, no PDFs.
+
+---
+
+## E. PROJECT INSTRUCTIONS AS A CONVENTION
+Claude Code auto-loads `CLAUDE.md`; Codex has `AGENTS.md` as a documented
+convention. Per-project standing instructions, loaded every session.
+
+**VESPER** has its own memory and `MEMORY.md`, but nothing that reads a
+project's own instruction file when it works inside that project. If VESPER is
+to work on projects other than itself, this is how it learns each one's rules.
+
+---
+
+## F. WHAT THIS ADDS TO THE BUILD LIST
+
+Inserted ABOVE most of the safety list, because a straight line cannot be made
+safe by adding guards to it — and because the loop is what the owner is asking
+for. Numbering continues the earlier list conceptually; order is what changes.
+
+- **L1. The agentic loop.** propose → execute → OBSERVE → propose again, until
+  done or a step limit. Everything else is downstream.
+- **L2. A persistent shell session.** So `cd`, env and a venv survive.
+- **L3. Parallel independent actions** in one step.
+- **L4. Background execution + a wait/monitor primitive**, and a timeout the
+  model can set.
+- **L5. `request_permissions` mid-task** — turn our dead end into a gate.
+- **L6. `request_user_input`** — ask without ending the turn.
+- **L7. `fs.read` offset + images/PDF; `fs.edit` replace_all.**
+- **L8. Context budget tools** — `get_context_remaining`, marked fragments.
+- **L9. Project instruction files** (`AGENTS.md` / `CLAUDE.md` convention).
+- **L10. Delegation** — sub-agents for sub-tasks.
