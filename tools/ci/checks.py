@@ -7485,14 +7485,11 @@ def check_no_ambient_authority() -> Result:
     #    that does not require confirmation is NOT spent by use. A-024.2's own
     #    fixture declares it, which is what this mirrors.
     #
-    #    THAT GATING IS NOT ASSERTED EITHER WAY HERE, deliberately. INV-AUTH-2
-    #    reads "L4/L5 are never delegable and bind to one command instance",
-    #    which does not mention confirmation -- and `issue()` refuses an
-    #    L4-delegable grant on the LEVEL ALONE, so the file applies two
-    #    different triggers to the same class of grant. Asserting the current
-    #    behaviour would freeze a possible gap into a gate; asserting the strict
-    #    reading would change the security model without review. It is recorded
-    #    in the note and left to the owner.
+    #    THE LEVEL ALONE DECIDES, owner decision 2026-08-31. Consumption used to
+    #    require `cap.requires_owner_confirmation` as well, so an L4 grant on a
+    #    capability that did not declare it was never spent -- one confirmation
+    #    authorised action after action. Both readings are now asserted below:
+    #    the declared-confirmation case AND the case that used to leak.
     confirmed = reg.register(
         "fs.wipe", level,
         [LevelRule("read", "L1", {"destructive": False}),
@@ -7521,6 +7518,30 @@ def check_no_ambient_authority() -> Result:
         r.err(f"the second attempt was denied for {second.reason!r} rather than "
               "'grant_consumed', so it may be failing for an unrelated reason "
               "and the single-use property is untested")
+
+    # 5a. AND THE CASE THAT USED TO LEAK: an L4 grant on a capability that does
+    #     NOT declare owner confirmation. This is the whole of the 2026-08-31
+    #     decision, and it is the assertion the old gating made impossible --
+    #     `fs.write` above is registered without `requires_owner_confirmation`.
+    pdp.issue(Grant(grant_id="g7", subject="owner3", capability_id="fs.write",
+                    max_level="L4", target_scope=("/tmp/x",), expiry_ms=10_000,
+                    lease_epoch=0, delegable=False))
+    once = pdp.authorize(subject="owner3", capability_id="fs.write",
+                         args={"destructive": True}, target="/tmp/x")
+    twice = pdp.authorize(subject="owner3", capability_id="fs.write",
+                          args={"destructive": True}, target="/tmp/x")
+    if not once.authorized:
+        r.err(f"the undeclared-confirmation L4 grant did not authorize once: "
+              f"{once.reason}")
+    if twice.authorized:
+        r.err("an L4 grant on a capability that does not declare "
+              "requires_owner_confirmation authorized a SECOND action. "
+              "INV-AUTH-2 keys on the level alone -- 'L4/L5 are never delegable "
+              "and bind to one command instance' -- and this is the case that "
+              "silently leaked until 2026-08-31.")
+    elif twice.reason != "grant_consumed":
+        r.err(f"the second attempt was denied for {twice.reason!r}, not "
+              "'grant_consumed', so it may be failing for an unrelated reason")
 
     # 5b. A GRANT BOUND TO ONE COMMAND DOES NOT AUTHORIZE ANOTHER.
     pdp.issue(Grant(grant_id="g6", subject="owner2", capability_id="fs.wipe",
@@ -7593,11 +7614,10 @@ def check_no_ambient_authority() -> Result:
            f"is invoked at exactly one site in executor.py and only after "
            f"DF-AUTHORIZE, and a refused execution does not run it; a constant "
            f"declared_level is refused at registration, and a grant bound to "
-           f"one command does not authorize another. UNRESOLVED, for the "
-           f"owner: consumption is gated on requires_owner_confirmation AND "
-           f"L4/L5, while issue() refuses L4-delegable on the level alone -- "
-           f"two triggers for one class of grant, and INV-AUTH-2's text "
-           f"mentions only the level. REACH: the runtime "
+           f"one command does not authorize another; an L4 grant is spent by "
+           f"use whether or not its capability declares owner confirmation, "
+           f"which is the case that leaked until the owner decided it on "
+           f"2026-08-31. REACH: the runtime "
            f"{'constructs' if reached else 'DOES NOT construct'} this stack -- "
            f"it performs no action above L1 today, so this is enforcement "
            f"waiting for the actions SR-014 will add, not a live hole")

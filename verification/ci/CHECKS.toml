@@ -329,10 +329,11 @@ impl = "tools/ci/checks.py no-ambient-authority"
 blocking = "pr"
 self_test = """Add a code path that yields a level with no grant; let the child
 inherit delegability; drop the level test from attenuate; stop marking the L4
-grant consumed; let a refused execution run the implementation anyway; drop the
-adversarial probe so a constant declared_level registers."""
+grant consumed; key consumption on the capability's declared confirmation again;
+let a refused execution run the implementation anyway; drop the adversarial probe
+so a constant declared_level registers."""
 self_test_evidence = """tools/ci/self_test.py no-ambient-authority
--- 6 cases, red then green, 2026-08-31."""
+-- 7 cases, red then green, 2026-08-31."""
 subject = "core/authorize.py, core/executor.py, core/capability.py"
 note = """DECLARED SINCE THE REGISTRY WAS WRITTEN AND IMPLEMENTED 2026-08-31.
 The subsystem was complete and correct the whole time; what was missing was the
@@ -358,15 +359,27 @@ enforcement waiting for the actions SR-014 will add. Building a capability
 catalogue and routing every action through it is a change to the security model
 and belongs to the owner.
 
-UNRESOLVED, FOR THE OWNER: grant consumption is gated on
-`cap.requires_owner_confirmation AND grant.max_level in NEVER_DELEGABLE`, while
-`issue()` refuses an L4-delegable grant on the LEVEL ALONE. Two triggers for one
-class of grant, and INV-AUTH-2's text -- "L4/L5 are never delegable and bind to
-one command instance" -- mentions only the level. An L4 grant on a capability
-that does not declare owner confirmation is therefore NOT spent by use. This
-check deliberately asserts neither reading: freezing the current behaviour would
-lock a possible gap into a gate, and asserting the strict one would change the
-security model without review."""
+RESOLVED BY THE OWNER 2026-08-31: THE LEVEL ALONE DECIDES. Consumption was
+gated on `cap.requires_owner_confirmation AND grant.max_level in
+NEVER_DELEGABLE` while `issue()` refused an L4-delegable grant on the level
+alone -- two triggers for one class of grant. An L4 grant on a capability that
+did not declare owner confirmation was therefore never spent by use, and one
+confirmation authorised action after action. Verified by hand before the change.
+
+It leaked silently for two reasons: A-024.2's fixture declares
+`requires_owner_confirmation=True`, so the acceptance suite only ever exercised
+the covered branch, and this check was PENDING until 2026-08-31 and gated
+nothing. Both readings are now asserted.
+
+THE CONSEQUENCE THE OWNER SHOULD KNOW, and it broke F2-EXEC when the change
+landed: a REPLAY of an L4 action is now refused at authorization before it
+reaches the idempotency guard, because the confirmation was spent by the first
+execution. The effect still does not happen twice -- but a crashed or replayed
+irreversible action must be re-confirmed rather than silently resumed, which is
+the owner's stated model. F2-EXEC previously issued one grant and proved
+idempotency and single-use with the same execution; those are different
+properties and are now separated, with duplicate suppression exercised on a
+grant that is not single-use."""
 discriminators = """TWO GUARDS THAT LOOK LIKE ONE, and the first version of this
 check could not tell them apart. Removing the level test from `attenuate` left
 it green, because `issue()` already refuses to create an L4 grant marked

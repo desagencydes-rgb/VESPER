@@ -2384,6 +2384,19 @@ CASES += [
      "the L4 grant is never spent, so one owner confirmation authorises a "
      "session rather than an action instance"),
 
+    ("no-ambient-authority", AUTHZ_PY,
+     _sub("        if grant.max_level in NEVER_DELEGABLE:\n"
+          "            with self._lock:\n"
+          "                grant.consumed = True   # INV-AUTH-2: single use",
+          "        if cap.requires_owner_confirmation and grant.max_level in NEVER_DELEGABLE:\n"
+          "            with self._lock:\n"
+          "                grant.consumed = True   # INV-AUTH-2: single use", 1),
+     "consumption keyed on the capability's declared confirmation again, not on "
+     "the level: an L4 grant on a capability that does not declare it is never "
+     "spent, and one confirmation authorises action after action. This is the "
+     "exact state the owner decided against on 2026-08-31, and it leaked "
+     "silently because A-024.2's fixture only ever exercised the declared case"),
+
     ("no-ambient-authority", EXEC_PY,
      _sub("            raise NotAuthorized(d)", "            pass", 1),
      "the refusal is computed, published, and then the implementation runs "
@@ -2880,7 +2893,7 @@ CASES += [
      "first one a gate can see"),
 
     ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
-     _sub("tools/ci/self_test.py                         PASS   350/350",
+     _sub("tools/ci/self_test.py                         PASS   351/351",
           "tools/ci/self_test.py                         PASS   295/295", 1),
      "the status table's self-test count goes stale: it had been four sessions "
      "wrong before this gate existed"),

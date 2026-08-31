@@ -217,7 +217,21 @@ class PolicyDecisionPoint:
                               f"(grant {grant.max_level}, declared {declared}, "
                               f"ceiling {context_ceiling})")
 
-        if cap.requires_owner_confirmation and grant.max_level in NEVER_DELEGABLE:
+        # THE LEVEL ALONE DECIDES, owner decision 2026-08-31. This read
+        # `cap.requires_owner_confirmation and grant.max_level in
+        # NEVER_DELEGABLE`, so an L4 grant on a capability that did not declare
+        # owner confirmation was NEVER SPENT BY USE -- one confirmation
+        # authorised action after action. Verified before the change: the same
+        # grant authorized twice in a row.
+        #
+        # Two things made it survive. A-024.2's fixture declares
+        # `requires_owner_confirmation=True`, so the acceptance test only ever
+        # exercised the covered branch; and CI-013 was PENDING until 2026-08-31
+        # and gated nothing. INV-AUTH-2's own text mentions only the level --
+        # "L4/L5 are never delegable and bind to one command instance" -- and
+        # `issue()` twelve lines up already refuses an L4-delegable grant on the
+        # level alone. Two triggers for one class of grant; this is now one.
+        if grant.max_level in NEVER_DELEGABLE:
             with self._lock:
                 grant.consumed = True   # INV-AUTH-2: single use
 

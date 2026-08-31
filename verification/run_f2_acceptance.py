@@ -588,6 +588,12 @@ def f2_execution_and_compensation(tmp: Path) -> None:
             LevelRule("ext", "L4", {"external": True}),
             LevelRule("int", "L2", {"external": False}),
         ], reversibility="compensatable", external_effect=True)
+        # A capability whose grant is NOT single-use, so idempotency can still
+        # be exercised now that an L4 replay is refused at authorization.
+        reg.register("mail.draft", lambda a: "L2" if a.get("external") else "L1", [
+            LevelRule("ext", "L2", {"external": True}),
+            LevelRule("int", "L1", {"external": False}),
+        ], reversibility="reversible")
         reg.register("payment.charge", lambda a: "L5" if a.get("amount", 0) > 100
                      else "L4", [
             LevelRule("large", "L5", {"amount": 500}),
@@ -618,13 +624,44 @@ def f2_execution_and_compensation(tmp: Path) -> None:
         c.check("authorised execution invokes exactly once",
                 r.outcome == "VERIFIED" and len(sent) == 1, str(len(sent)))
 
-        # A replayed plan must not invoke twice even with the outbox cursor lost.
-        r2 = ex.execute(subject="agent", capability_id="mail.send",
-                        args={"external": True}, target="host",
-                        command_id="cmd-1", idempotency_key="msg-42",
-                        task_id="t")
+        # A REPLAY OF AN L4 ACTION IS REFUSED BEFORE IT REACHES IDEMPOTENCY,
+        # owner decision 2026-08-31. The grant was spent by the execution above:
+        # L4/L5 bind to one command instance on the LEVEL alone now, not on
+        # whether the capability declared `requires_owner_confirmation`. So a
+        # replayed plan does not get deduplicated -- it gets re-asked. That is
+        # the owner's model ("stop, explain, ask me again"), and it means a
+        # crashed irreversible action needs a fresh confirmation rather than
+        # silently resuming.
+        #
+        # This case previously issued ONE grant and leaned on it surviving, so
+        # it proved idempotency and single-use with the same execution. They are
+        # different properties and are now separated.
+        replay_refused = False
+        try:
+            ex.execute(subject="agent", capability_id="mail.send",
+                       args={"external": True}, target="host",
+                       command_id="cmd-1", idempotency_key="msg-42",
+                       task_id="t")
+        except NotAuthorized as exc:
+            replay_refused = exc.decision.reason == "grant_consumed"
+        c.check("a replayed L4 action is refused: the confirmation was spent",
+                replay_refused)
+        c.check("and the effect did not happen twice", len(sent) == 1,
+                str(len(sent)))
+
+        # IDEMPOTENCY ITSELF, on a grant that is not single-use. Without this the
+        # duplicate-suppression path would no longer be exercised at all -- the
+        # refusal above short-circuits it, and a property nothing reaches is a
+        # property nobody is testing.
+        internal = []
+        ex.bind("mail.draft", lambda a: (internal.append(a), {"ok": True})[1])
+        pdp.issue(Grant("gd", "agent", "mail.draft", ("host",), "L2", 10_000, 0))
+        for _ in range(2):
+            ex.execute(subject="agent", capability_id="mail.draft",
+                       args={"external": False}, target="host",
+                       idempotency_key="draft-7", task_id="t")
         c.check("the same idempotency key does not invoke twice",
-                len(sent) == 1, str(len(sent)))
+                len(internal) == 1, str(len(internal)))
         c.check("the duplicate is recorded, not silently ignored",
                 len(_events(sup, "tool.suppressed_duplicate")) == 1)
 
