@@ -3355,6 +3355,15 @@ CASES += [
      "starter's check as the only guard -- and it can only cover the launch "
      "paths it knows about, not `open -n` by hand"),
 
+    ("wake-word-listens-locally-and-starts-once", WAKE_SWIFT,
+     _sub("        scheduleWakeRetry()\n        return false\n    }\n"
+          "    guard AVCaptureDevice", "        return false\n    }\n"
+          "    guard AVCaptureDevice", 1),
+     "the wake listener checks its permission once and stops asking. Every build "
+     "re-signs and TCC revokes, so the grant ALWAYS arrives after home is "
+     "already running -- the owner grants it correctly, nothing happens, and "
+     "they report having turned the wake word off"),
+
     ("wake-word-listens-locally-and-starts-once", MAIN_SWIFT,
      _sub("    startWakeWordInProcess()\n", "", 1),
      "nothing starts the wake listener. It runs only when launched by hand, so "

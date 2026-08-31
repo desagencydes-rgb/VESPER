@@ -11189,6 +11189,15 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
     if "startWakeWordInProcess()" not in main:
         r.err("nothing starts the wake listener: it has to be launched by hand, "
               "so it does not survive a crash, a logout or a reboot")
+    # AND IT KEEPS ASKING. The grant normally arrives AFTER home is running --
+    # every build re-signs, TCC revokes, and the owner re-grants by hand into a
+    # process that already started. Checked once, the wake word stays off until
+    # something restarts home, and the owner reads that as their grant having
+    # failed. Measured 2026-08-31, reported as "I accidentally turned it off".
+    if "scheduleWakeRetry()" not in w:
+        r.err("the wake listener checks its permission once and never again, so "
+              "a grant made while home is running does nothing until home is "
+              "restarted -- and that is the ORDER the grant always arrives in")
     # THE FILENAME BUILD.SH WRITES, COMPARED TO THE ONE main.swift REGISTERS.
     # Asserting the Label alone was not enough: the mutation renamed the FILE to
     # `.plist.disabled`, leaving the Label intact inside a plist that

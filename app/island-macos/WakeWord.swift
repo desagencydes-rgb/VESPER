@@ -185,6 +185,38 @@ private func appendHeard(_ obj: [String: Any]) {
     }
 }
 
+private var wakeRetry: Timer?
+
+/// KEEP LOOKING, because the permission usually arrives AFTER this ran.
+///
+/// THE FAILURE THIS FIXES, 2026-08-31. Home checked the grant once at startup,
+/// found it missing, logged "wake word OFF" and never looked again. The owner
+/// then granted it 25 minutes later -- correctly, with `open -n`, exactly as
+/// the log told them to -- and nothing happened. They reported it as "I
+/// accidentally ran the command that turned the wake word off". Nothing was
+/// turned off and the grant had worked; the process holding the microphone had
+/// simply stopped asking.
+///
+/// That ordering is not an edge case, it is the NORMAL one: every `build.sh`
+/// re-signs ad-hoc, so TCC treats each build as a new app and revokes the
+/// grant, and the owner necessarily re-grants while home is already running.
+/// A one-shot check is wrong for a permission whose whole lifecycle is "revoked
+/// by a build, restored by hand afterwards".
+private func scheduleWakeRetry() {
+    guard wakeRetry == nil else { return }          // one timer, not one per call
+    wakeRetry = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: true) { t in
+        guard SFSpeechRecognizer.authorizationStatus() == .authorized,
+              AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        else { return }
+        // Cleared BEFORE the retry, or `startWakeWordInProcess` sees a live
+        // timer and its `wakeRetry == nil` guard silently declines to rearm if
+        // this attempt also fails.
+        t.invalidate()
+        wakeRetry = nil
+        startWakeWordInProcess()
+    }
+}
+
 /// The wake listener held by the HOME process.
 private var inProcessWake: WakeListener?
 
@@ -203,11 +235,14 @@ func startWakeWordInProcess() -> Bool {
     guard SFSpeechRecognizer.authorizationStatus() == .authorized else {
         note("wake word OFF: speech recognition is not authorized. Grant it "
            + "with `open -n app/VESPER.app --args --speech-consent` -- from a "
-           + "shell TCC answers for the shell, not for VESPER.")
+           + "shell TCC answers for the shell, not for VESPER. Still checking, "
+           + "so granting it will turn the wake word on without a restart.")
+        scheduleWakeRetry()
         return false
     }
     guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
-        note("wake word OFF: the microphone is not authorized")
+        note("wake word OFF: the microphone is not authorized. Still checking.")
+        scheduleWakeRetry()
         return false
     }
     guard let w = WakeListener(diagnose: false) else {
