@@ -733,9 +733,9 @@ ic = ["IC-001", "IC-004"]
 contracts = ["contracts/events/event_envelope.schema.json", "contracts/entities/world_fact.schema.json", "contracts/entities/node_capability_profile.schema.json"]
 state_machines = ["SM-LEASE", "SM-DEVICE"]
 decision_functions = ["DF-DOMAIN-WRITE", "DF-PROMOTE", "DF-SUPERSEDE"]
-invariants = ["INV-COORD-1", "INV-OWN-2", "INV-OWN-3"]
+invariants = ["INV-COORD-1", "INV-COORD-5", "INV-OWN-2", "INV-OWN-3"]
 tests = ["A-017", "A-033", "A-034"]
-ci = ["CI-009"]
+ci = ["CI-004", "CI-009"]
 status = "SPECIFIED"
 
 [requirements.SR-059]

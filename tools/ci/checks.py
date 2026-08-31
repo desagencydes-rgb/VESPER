@@ -8052,6 +8052,339 @@ def check_capability_argument_sensitivity() -> Result:
     return r
 
 
+def check_bus_consumer_idempotency() -> Result:
+    """CI-004: registration without an idempotency key is a BUILD failure.
+
+    INV-COORD-5 uses that phrase, and `core/bus.py` takes it literally --
+    `subscribe` raises. That is the whole enforcement, and it is placed at the
+    only moment where refusing costs nothing: after registration, every
+    delivery trusts the consumer.
+
+    THE KEY IS DEMANDED EXPLICITLY RATHER THAN DEFAULTED TO `event_id`, and the
+    difference is the point. Delivery is at-least-once, so a consumer that
+    cannot recognise a repeat will double-apply -- and `event_id` is the right
+    key only for consumers whose unit of work IS one event. A consumer that
+    should deduplicate on a task, a subject or a command needs a different key,
+    and a silent default would give every one of them the wrong one while
+    looking correct.
+
+    A-033.2 IS THE PROPERTY THIS BUYS: replaying a stream twice must leave state
+    byte-identical, with the second pass counted as DUPLICATES rather than
+    applied. Counting matters as much as skipping -- a replay that silently did
+    nothing is indistinguishable from a replay that never ran.
+
+    AND A FAILING CONSUMER DOES NOT MARK THE KEY SEEN. That is the subtle half:
+    a handler that raises must be retried on replay, so the key is recorded
+    only after the handler returns. Marking it before would turn one crash into
+    permanent data loss for that consumer, silently.
+    """
+    r = Result("bus-consumer-idempotency")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile
+    try:
+        from core.bus import ContractViolation, EventBus
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"core.bus did not import: {exc!r}")
+        return r
+
+    root = Path(tempfile.mkdtemp())
+    store = StoreSet(root, node_id="ci")
+    bus = EventBus(HybridLogicalClock("ci"), store)
+
+    # 1. REGISTRATION WITHOUT A KEY IS REFUSED, and refused by raising rather
+    #    than by warning: INV-COORD-5 says build failure.
+    try:
+        bus.subscribe("x.y", lambda e: None, name="keyless")
+        r.err("a consumer registered with no idempotency key. INV-COORD-5 calls "
+              "that a build failure, and after registration every delivery "
+              "trusts the consumer to recognise a repeat.")
+    except (ContractViolation, TypeError):
+        pass
+
+    # 2. AND THE REFUSAL SAYS WHAT TO DO. A consumer author who cannot tell what
+    #    the right key is will pass whatever silences the error.
+    try:
+        bus.subscribe("x.y", lambda e: None, name="keyless2")
+    except ContractViolation as exc:
+        if "event_id" not in str(exc):
+            r.err("the refusal does not name a concrete key to consider, so the "
+                  "author has no way to choose one deliberately")
+    except TypeError:
+        pass
+
+    # 3. A CONSUMER WITH A KEY REGISTERS AND RECEIVES -- or every assertion here
+    #    holds for a bus that delivers to nobody.
+    applied: list = []
+    sub = bus.subscribe("x.y", lambda e: applied.append(e.event_id),
+                        name="counter", idempotency_key=lambda e: e.event_id)
+    bus.publish("x.y", subject="s", payload={"n": 1}, component="ci")
+    if len(applied) != 1:
+        r.err(f"a registered consumer received {len(applied)} of 1 events")
+
+    # 4. A-033.2: REPLAY IS IDEMPOTENT, AND THE SECOND PASS IS COUNTED AS
+    #    DUPLICATES. A replay that silently did nothing looks identical to one
+    #    that never ran.
+    before = len(applied)
+    bus.replay()
+    if len(applied) != before:
+        r.err(f"replay re-applied the handler ({before} -> {len(applied)}): "
+              "replaying a stream twice must leave state byte-identical")
+    if not sub.suppressed_duplicates:
+        r.err("the duplicate was skipped without being COUNTED, so a replay "
+              "that did nothing cannot be told from one that never ran")
+
+    # 5. THE KEY IS THE CONSUMER'S CHOICE, not the bus's. A consumer whose unit
+    #    of work is a subject must deduplicate on the subject -- which is the
+    #    whole reason the argument is required rather than defaulted.
+    by_subject: list = []
+    bus.subscribe("x.z", lambda e: by_subject.append(e.subject),
+                  name="per-subject", idempotency_key=lambda e: e.subject)
+    bus.publish("x.z", subject="same", payload={"n": 1}, component="ci")
+    bus.publish("x.z", subject="same", payload={"n": 2}, component="ci")
+    if len(by_subject) != 1:
+        r.err(f"a consumer keyed on subject applied {len(by_subject)} distinct "
+              "events for one subject: the bus is deduplicating on its own "
+              "notion of identity rather than the consumer's, which makes the "
+              "required argument decorative")
+
+    # 6. A FAILING CONSUMER IS NOT MARKED SEEN, so a replay retries it -- and
+    #    the failure is recorded rather than swallowed.
+    attempts: list = []
+
+    def flaky(e: Any) -> None:
+        attempts.append(e.event_id)
+        if len(attempts) == 1:
+            raise RuntimeError("first attempt fails")
+
+    bus.subscribe("x.f", flaky, name="flaky",
+                  idempotency_key=lambda e: e.event_id)
+    bus.publish("x.f", subject="s", payload={}, component="ci")
+    if len(attempts) != 1:
+        r.err("the failing consumer was not called once")
+    bus.replay()
+    if len(attempts) < 2:
+        r.err("a consumer that RAISED was marked seen anyway, so replay skips "
+              "it forever: one crash becomes permanent, silent data loss for "
+              "that consumer")
+    failed = [rec for rec in store.read("audit", kind="system.consumer_failed")]
+    if not failed:
+        r.err("the consumer failure was not recorded in the audit store: a "
+              "handler that raises must not take down the publisher and must "
+              "not be swallowed either")
+
+    # 7. AND A FAILING CONSUMER DOES NOT STOP THE OTHERS.
+    if len(applied) != before:
+        r.err("the failing consumer disturbed an unrelated consumer's state")
+
+    r.note(f"registration without a key raises and the refusal names a concrete "
+           f"key to consider; a keyed consumer receives, and replay re-delivers "
+           f"without re-applying while COUNTING the duplicates; the key is the "
+           f"consumer's own -- one keyed on subject collapses two distinct "
+           f"events -- and a handler that raises is not marked seen, is retried "
+           f"on replay, is recorded in the audit store, and does not disturb "
+           f"the other consumers")
+    return r
+
+
+def check_gateway_choke_point() -> Result:
+    """CI-020: no path reaches a provider without traversing the cost class.
+
+    INV-COST-3 is a STRUCTURAL claim -- "no code path reaches a provider adapter
+    without traversing the cost-class choke point" -- so behaviour alone cannot
+    establish it. A second call site that skipped `CostPolicy.check` would
+    satisfy every fixture below and violate the invariant, which is why this
+    check reads the source as well as running it.
+
+    INV-COST-6 IS THE ONE THAT MAKES ABSENCE SAFE: a gateway with no loaded cost
+    policy permits `free` only. The plausible alternative -- no policy, no
+    restriction -- fails open on the exact configuration a fresh node, a broken
+    path or a bad deploy produces, and it fails open toward spending money.
+
+    AND THE CHOKE POINT IS RE-CHECKED PER PROVIDER, not once per request. A
+    chain walks several rungs; checking the first and then descending would
+    authorise every rung below it on the strength of the cheapest one.
+    """
+    r = Result("gateway-choke-point")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile
+    try:
+        from core.bus import EventBus
+        from core.cost import (COST_CLASSES, DEFAULT_PERMITTED, CostPolicy,
+                               CostPolicyViolation, Credential)
+        from core.gateway import ModelGateway, Provider
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the gateway did not import: {exc!r}")
+        return r
+
+    root = Path(tempfile.mkdtemp())
+    store = StoreSet(root, node_id="ci")
+    bus = EventBus(HybridLogicalClock("ci"), store)
+
+    # 1. INV-COST-6: NO POLICY LOADED MEANS `free` ONLY. Absence is safe by
+    #    construction, not by whoever remembers to configure it.
+    # THE COST CLASS LIVES ON THE CREDENTIAL, NOT ON THE PROVIDER, and that is
+    # the right shape: the same adapter can be reached with a free key or a
+    # billed one, so the class belongs to the credential in use.
+    missing = CostPolicy(bus, HybridLogicalClock("ci"),
+                         policy_path=root / "does-not-exist.toml")
+    permitted = missing.permitted_classes()
+    if tuple(permitted) != ("free",):
+        r.err(f"a gateway with no loaded policy permits {tuple(permitted)}. "
+              "INV-COST-6 says free only: the alternative fails open on exactly "
+              "the configuration a fresh node or a bad deploy produces, and it "
+              "fails open toward spending money.")
+    for period, allowed in DEFAULT_PERMITTED.items():
+        if tuple(allowed) != ("free",):
+            r.err(f"the no-policy default for period {period!r} is {allowed}, "
+                  "not ('free',)")
+
+    #    TWO MECHANISMS DELIVER THIS AND THEY ARE NOT THE SAME MECHANISM. The
+    #    lookup's own default is free-only, so with an EMPTY permitted map the
+    #    explicit `_policy_loaded` branch is redundant and removing it leaves a
+    #    check green. What that branch actually guarantees is free-only
+    #    REGARDLESS of what the map contains -- the case where a policy file
+    #    parsed far enough to populate entries without being considered loaded.
+    #    So populate it and assert the branch still holds.
+    missing._permitted = {p: ("free", "paid") for p in DEFAULT_PERMITTED}   # noqa: SLF001
+    if tuple(missing.permitted_classes()) != ("free",):
+        r.err(f"with no policy LOADED but permitted entries present, the "
+              f"gateway permits {tuple(missing.permitted_classes())}. The "
+              "free-only answer must come from the loaded flag, not from a "
+              "lookup happening to miss -- otherwise a policy that parses "
+              "halfway is treated as a policy that parsed.")
+    missing._permitted = {}                                                 # noqa: SLF001
+
+    # 2. AND A PAID PROVIDER IS ACTUALLY REFUSED UNDER THAT DEFAULT -- the
+    #    permitted list being right is worth nothing if nothing consults it.
+    reached: list = []
+    gw = ModelGateway(bus, missing)
+    missing.register_credential("paid-rung", "paid")
+    gw.register(Provider("paid-rung", "prof",
+                         lambda p, o: reached.append(p) or {"text": "answered"},
+                         model="reasoning"))
+    try:
+        gw.complete("hello", task_id="t1", profile_id="prof")
+    except Exception:
+        pass
+    if reached:
+        r.err("a paid provider adapter was REACHED with no cost policy loaded. "
+              "The permitted list is consulted somewhere or it is decoration, "
+              "and this is the path that spends money.")
+
+    # 3. A FREE PROVIDER STILL ANSWERS, or the gateway is refusing everything
+    #    and assertion 2 passes for the wrong reason.
+    free_hits: list = []
+    gw2 = ModelGateway(bus, missing)
+    missing.register_credential("free-rung", "free")
+    gw2.register(Provider("free-rung", "prof",
+                          lambda p, o: free_hits.append(p) or {"text": "answered"},
+                          model="reasoning"))
+    out = gw2.complete("hello", task_id="t2", profile_id="prof")
+    if not free_hits:
+        r.err("a free provider was refused under a free-only default, so the "
+              "gateway blocks everything and nothing is being discriminated")
+    if not (out.get("result") or {}).get("text"):
+        r.err("the free provider answered and the gateway returned nothing")
+
+    # 4. THE ATTEMPT IS COUNTED BY CLASS AT THE BOUNDARY. A refusal that is not
+    #    counted cannot show that the ladder is staying on the cheap rungs.
+    if gw2.attempts_by_class.get("free", 0) < 1:
+        r.err("a free attempt was not counted at the boundary, so A-004.3's "
+              "measurement of which classes are actually being reached has no "
+              "denominator")
+    if gw.attempts_by_class.get("paid", 0):
+        r.err("a paid attempt was counted although no adapter was reached: the "
+              "counter is incremented on INTENT rather than at the line that "
+              "actually calls the provider")
+
+    # 5. THE CHECK IS PER PROVIDER, NOT PER REQUEST. A chain walks several
+    #    rungs, and checking only the first authorises every rung below it on
+    #    the strength of the cheapest one.
+    src = (REPO / "core" / "gateway.py").read_text(encoding="utf-8")
+    body = src[src.index("    def complete("):]
+    if "self._cost.check(" not in body:
+        r.err("ModelGateway.complete does not call the cost choke point")
+    else:
+        loop = body[body.index("for p in"):] if "for p in" in body else ""
+        if "self._cost.check(" not in loop:
+            r.err("the cost check happens outside the per-provider loop, so "
+                  "descending the chain authorises every rung below on the "
+                  "strength of the first one checked")
+
+    # 6. INV-COST-3, STRUCTURALLY: the gateway is the only module that calls a
+    #    provider adapter. A second call site elsewhere satisfies every fixture
+    #    above and violates the invariant.
+    #    THE FIRST VERSION OF THIS SCAN WAS VACUOUS: it looked for `.invoke(`,
+    #    which appears nowhere in this codebase, so it could never have found
+    #    anything. `Provider.call` is the adapter, and it is invoked as
+    #    `p.call(prompt, ...)` -- one site, gateway.py:850. The scan now looks
+    #    for the shape that exists.
+    #
+    #    ITS LIMIT, STATED: this finds `<name>.call(` on a Provider-shaped line.
+    #    A second call site under a different idiom -- an adapter stored in a
+    #    dict and invoked as `adapters[k](...)`, say -- would not be found, and
+    #    no source scan short of type inference would find it. What this catches
+    #    is the ordinary way the invariant gets broken: someone reaching a
+    #    provider directly because the gateway was in the way.
+    offenders = []
+    sites = []
+    for base in ("core", "routing", "tools/ops"):
+        d = REPO / base
+        if not d.exists():
+            continue
+        for f in sorted(d.rglob("*.py")):
+            text = f.read_text(encoding="utf-8", errors="replace")
+            for i, line in enumerate(text.splitlines(), 1):
+                st = line.strip()
+                if st.startswith("#") or "def call" in st:
+                    continue
+                if re.search(r"\b\w+\.call\(", st):
+                    where = f"{f.relative_to(REPO)}:{i}"
+                    sites.append(where)
+                    if f.name != "gateway.py":
+                        offenders.append(where)
+    if offenders:
+        r.err(f"a provider adapter is invoked outside the gateway at "
+              f"{offenders}. INV-COST-3 is structural: one such path makes "
+              "every behavioural assertion above irrelevant.")
+    if not sites:
+        r.err("the structural scan found NO provider invocation anywhere, "
+              "including in the gateway. It is matching nothing, so it cannot "
+              "detect a second call site either -- a negative control that "
+              "passes because it is blind.")
+
+    # 7. metered_free_tier IS PAID UNLESS THE CAP IS PROVABLE (INV-COST-5).
+    #    "The dashboard says there is a limit" is not provable, and this is the
+    #    class that looks free and bills.
+    unproven = Credential(provider_id="x", cost_class="metered_free_tier",
+                          provable_hard_cap=False)
+    if unproven.effective_class() != "paid":
+        r.err(f"an unproven metered_free_tier resolves to "
+              f"{unproven.effective_class()!r}, not 'paid'. It is the class "
+              "that looks free and bills.")
+    proven = Credential(provider_id="x", cost_class="metered_free_tier",
+                        provable_hard_cap=True)
+    if proven.effective_class() != "free":
+        r.err("a PROVABLE hard cap did not downgrade metered_free_tier to "
+              "free, so the distinction the invariant draws does no work")
+
+    r.note(f"with no policy loaded the permitted set is ('free',) in every "
+           f"period and a paid adapter is not reached, while a free one still "
+           f"answers and is counted at the boundary; the cost check sits inside "
+           f"the per-provider loop rather than once per request; the "
+           f"provider adapter is invoked at {len(sites)} site(s), all inside "
+           f"the gateway; an unproven "
+           f"metered_free_tier resolves to paid and a provable cap to free "
+           f"across classes {list(COST_CLASSES)}")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "f0-acceptance": check_f0_acceptance,
@@ -8116,6 +8449,8 @@ CHECK_FNS = {
     "taint-propagation": check_taint_propagation,
     "claim-support-required": check_claim_support_required,
     "capability-argument-sensitivity": check_capability_argument_sensitivity,
+    "bus-consumer-idempotency": check_bus_consumer_idempotency,
+    "gateway-choke-point": check_gateway_choke_point,
     "system-turn-reaches-the-wire": check_system_turn_reaches_the_wire,
     "latency-preference-reorders": check_latency_preference_reorders,
     "egress-gates-at-choke-point": check_egress_gates_at_choke_point,

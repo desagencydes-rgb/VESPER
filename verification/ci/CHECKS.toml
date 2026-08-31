@@ -82,10 +82,43 @@ self_test_evidence = "tools/ci/self_test.py -- invariant with an empty enforced_
 [checks.CI-004]
 name = "bus-consumer-idempotency"
 enforces = ["INV-COORD-5"]
-kind = "structural"
-impl = "PENDING"
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py bus-consumer-idempotency"
 blocking = "pr"
-self_test = "Register a bus consumer with no declared idempotency key."
+self_test = """Default the missing key to event_id instead of refusing; re-apply
+on replay; skip duplicates without counting them; mark the key seen before the
+handler runs; swallow a failing consumer with no audit record."""
+self_test_evidence = """tools/ci/self_test.py bus-consumer-idempotency
+-- 5 cases, red then green, 2026-08-31."""
+subject = "core/bus.py"
+note = """DECLARED WITH THE REGISTRY AND IMPLEMENTED 2026-08-31. core/bus.py
+took INV-COORD-5's phrase "a build failure" literally and raises on
+registration; nothing gated that it kept doing so.
+
+THE KEY IS DEMANDED EXPLICITLY RATHER THAN DEFAULTED TO event_id, and the
+difference is the whole point. event_id is the right key only for a consumer
+whose unit of work IS one event. One that should deduplicate on a task, a
+subject or a command needs a different key, and a silent default would give
+every one of them the wrong key while looking correct -- which is why the
+defaulting mutation is the first red-run case."""
+discriminators = """A-033.2 IS THE PROPERTY THIS BUYS: replaying a stream twice
+leaves state byte-identical, with the second pass counted as DUPLICATES rather
+than applied. COUNTING matters as much as skipping -- a replay that silently did
+nothing is indistinguishable from a replay that never ran -- so suppression and
+its counter are separate assertions and separate mutations.
+
+THE KEY IS THE CONSUMER'S, NOT THE BUS'S, and the check proves it by registering
+a consumer keyed on SUBJECT and publishing two distinct events for one subject.
+It must apply once. Without that assertion the required argument could be
+accepted and ignored, and the bus could deduplicate on its own notion of
+identity while every test passed.
+
+AND A FAILING CONSUMER IS NOT MARKED SEEN. That is the subtle half: the key is
+recorded only after the handler returns, so a handler that raises is retried on
+replay. Marking it first turns one crash into permanent, silent data loss for
+that consumer -- and the failure is written to the audit store, because a
+handler raising since startup otherwise looks exactly like one with nothing to
+do."""
 
 [checks.CI-005]
 name = "no-wall-clock-ordering"
@@ -373,11 +406,60 @@ note = "Bans the imports that can fail, block or refuse: lease, PDP, gateway, ro
 [checks.CI-020]
 name = "gateway-choke-point"
 enforces = ["INV-COST-3", "INV-COST-6"]
-kind = "structural"
-impl = "PENDING"
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py gateway-choke-point"
 blocking = "pr"
-self_test = "Call a provider adapter without traversing DF-PROVIDER-ADMIT."
-note = "INV-COST-6 (an unloaded cost policy permits cost_class free only) was claimed by CI-021, which inspects the policy FILE and therefore cannot assert anything about the case where that file is absent. Reassigned here 2026-08-12: the gateway is where the default is decided."
+self_test = """Permit every class with no policy loaded; remove the
+_policy_loaded branch; resolve metered_free_tier as free without a provable cap;
+skip the per-provider cost check; stop counting attempts at the boundary."""
+self_test_evidence = """tools/ci/self_test.py gateway-choke-point
+-- 5 cases, red then green, 2026-08-31."""
+subject = "core/gateway.py, core/cost.py"
+note = """DECLARED WITH THE REGISTRY AND IMPLEMENTED 2026-08-31.
+
+CARRIED FORWARD FROM THE ORIGINAL ENTRY, because it is the reason this check
+owns INV-COST-6 at all: "INV-COST-6 (an unloaded cost policy permits cost_class
+free only) was claimed by CI-021, which inspects the policy FILE and therefore
+cannot assert anything about the case where that file is absent. Reassigned here
+2026-08-12: the gateway is where the default is decided."
+
+INV-COST-6 is what makes ABSENCE safe: a gateway with no loaded cost policy
+permits free only. The plausible alternative -- no policy, no restriction --
+fails open on exactly the configuration a fresh node, a broken path or a bad
+deploy produces, and it fails open in the direction of spending money.
+
+INV-COST-5 is checked alongside it because it is the same failure wearing a
+friendlier label: metered_free_tier is PAID unless a hard cap is provable. "The
+dashboard says there is a limit" is not provable, and this is the class that
+looks free and bills."""
+discriminators = """INV-COST-3 IS STRUCTURAL, so behaviour alone cannot
+establish it: a second call site that skipped CostPolicy.check would satisfy
+every fixture and violate the invariant. The check therefore scans the source
+for provider invocations and requires all of them to be inside the gateway.
+
+THAT SCAN WAS VACUOUS IN ITS FIRST VERSION -- it looked for `.invoke(`, which
+appears nowhere in this codebase, so it could never have found anything. It now
+looks for `<name>.call(`, the shape that exists (gateway.py:850), and asserts
+that it finds at least one site, or a blind scan passes as a clean one. Its
+limit is stated in the code: an adapter stored in a dict and invoked as
+`adapters[k](...)` would not be found, and no scan short of type inference would
+find it.
+
+THE COST CHECK IS PER PROVIDER, NOT PER REQUEST. A chain walks several rungs, so
+checking the first and descending would authorise every rung below it on the
+strength of the cheapest one -- the check reads the source to confirm the call
+sits inside the loop.
+
+AND THE NO-POLICY GUARANTEE HAS TWO MECHANISMS THAT ARE NOT ONE. The lookup's
+own default is already free-only, so with an empty permitted map the explicit
+`_policy_loaded` branch is redundant and removing it left the check green. What
+that branch guarantees is free-only REGARDLESS of what the map contains -- a
+policy file that parsed far enough to populate entries without being considered
+loaded. The check now populates the map and asserts the branch still holds.
+
+A POSITIVE CASE GUARDS THE REST: a FREE provider must still answer and be
+counted at the boundary, or the gateway is refusing everything and the
+paid-refusal assertion passes for the wrong reason."""
 
 [checks.CI-021]
 name = "cost-policy-freetime-immutable"

@@ -560,9 +560,14 @@ LINT_CASES: list[tuple[list[str], str, object, str]] = [
     # A self-test that silently stops testing is worse than none, so the
     # subject moves to a check that is still PENDING rather than the case
     # being quietly dropped.
+    # MOVED 2026-08-31: the subject was CI-004, which is now implemented with
+    # six red-run cases, so the mutation stopped applying and the runner said
+    # so rather than passing quietly. Re-pointed at CI-002, still PENDING --
+    # which is what the comment above prescribes and the third time this case
+    # has had to move as the registry filled in.
     (["tools/ci/checks.py", "ci-registry"], "verification/ci/CHECKS.toml",
-     _sub('[checks.CI-004]\nname = "bus-consumer-idempotency"\nenforces = ["INV-COORD-5"]\nkind = "structural"\nimpl = "PENDING"',
-          '[checks.CI-004]\nname = "bus-consumer-idempotency"\nenforces = ["INV-COORD-5"]\nkind = "structural"\nimpl = "tools/ci/checks.py bus-consumer-idempotency"', 1),
+     _sub('[checks.CI-002]\nname = "source-immutability"\nenforces = ["INV-PROC-1"]\nkind = "process"\nimpl = "PENDING"',
+          '[checks.CI-002]\nname = "source-immutability"\nenforces = ["INV-PROC-1"]\nkind = "process"\nimpl = "tools/ci/checks.py source-immutability"', 1),
      "CI-041: a check marked implemented with no executed red run"),
 
 ]
@@ -979,6 +984,9 @@ VERIFIERS_PY = "core/verifiers.py"
 KMAP_PY = "core/knowledge_map.py"
 AUTHZ_PY = "core/authorize.py"
 TAINT_PY = "core/taint.py"
+BUS_PY = "core/bus.py"
+GW_PY = "core/gateway.py"
+COST_PY = "core/cost.py"
 EXEC_PY = "core/executor.py"
 CAP_PY = "core/capability.py"
 ARB_PY = "core/arbiter.py"
@@ -2489,6 +2497,87 @@ CASES += [
      _sub("    example: dict", "    example: dict = None  # type: ignore[assignment]", 1),
      "LevelRule.example gains a default, so a rule can be declared without one "
      "and the adversarial probe silently becomes a probe of nothing"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-004
+    ("bus-consumer-idempotency", BUS_PY,
+     _sub("        if idempotency_key is None:\n"
+          "            raise ContractViolation(",
+          "        if idempotency_key is None:\n"
+          "            idempotency_key = lambda e: e.event_id\n"
+          "        if False:\n"
+          "            raise ContractViolation(", 1),
+     "the missing key is DEFAULTED to event_id instead of refused: every "
+     "consumer whose unit of work is a task, a subject or a command silently "
+     "gets the wrong key while looking correct, and INV-COORD-5 calls the "
+     "registration itself a build failure"),
+
+    ("bus-consumer-idempotency", BUS_PY,
+     _sub("        if key in sub.seen:\n"
+          "            sub.suppressed_duplicates += 1\n"
+          "            return", "        if False:\n            return", 1),
+     "the consumer re-applies on replay, so recovery is not idempotent and "
+     "replaying a stream twice does not leave state byte-identical (A-033.2)"),
+
+    ("bus-consumer-idempotency", BUS_PY,
+     _sub("            sub.suppressed_duplicates += 1\n", "", 1),
+     "duplicates are skipped without being counted: a replay that did nothing "
+     "becomes indistinguishable from one that never ran"),
+
+    ("bus-consumer-idempotency", BUS_PY,
+     _sub("        try:\n            sub.handler(ev)", "        sub.seen.add(key)\n"
+          "        try:\n            sub.handler(ev)", 1),
+     "the key is marked seen BEFORE the handler runs, so a consumer that raises "
+     "is never retried: one crash becomes permanent, silent data loss for that "
+     "consumer"),
+
+    ("bus-consumer-idempotency", BUS_PY,
+     _sub("            self._store.append(\"audit\", \"system.consumer_failed\", {",
+          "            _ = ({", 1),
+     "a failing consumer is swallowed without an audit record, so a handler "
+     "that has been raising since startup looks exactly like one with nothing "
+     "to do"),
+]
+
+
+CASES += [
+    # ---------------------------------------------------------------- CI-020
+    ("gateway-choke-point", COST_PY,
+     _sub('DEFAULT_PERMITTED: dict[str, tuple[str, ...]] = {p: ("free",) for p in PERIODS}',
+          'DEFAULT_PERMITTED: dict[str, tuple[str, ...]] = {p: COST_CLASSES for p in PERIODS}', 1),
+     "no policy loaded permits every class: absence stops being safe, and it "
+     "fails open on exactly the configuration a fresh node, a broken path or a "
+     "bad deploy produces -- open in the direction of spending money"),
+
+    ("gateway-choke-point", COST_PY,
+     _sub("        if not self._policy_loaded:\n"
+          "            # A-021.9: no policy loaded => free only.\n"
+          '            return ("free",)', "        if False:\n"
+          '            return ("free",)', 1),
+     "the no-policy branch stops returning free-only, so an unconfigured "
+     "gateway falls through to whatever the empty policy map yields"),
+
+    ("gateway-choke-point", COST_PY,
+     _sub('        if self.cost_class == "metered_free_tier" and not self.provable_hard_cap:',
+          "        if False:", 1),
+     "metered_free_tier resolves as free without a provable cap: the class that "
+     "looks free and bills is admitted on the strength of a dashboard claim "
+     "(INV-COST-5)"),
+
+    ("gateway-choke-point", GW_PY,
+     _sub("            try:\n                self._cost.check(p.provider_id, task_id=task_id)",
+          "            try:\n                pass", 1),
+     "the cost choke point is not consulted per provider, so a paid rung is "
+     "reached under a free-only policy and the permitted list becomes "
+     "decoration"),
+
+    ("gateway-choke-point", GW_PY,
+     _sub("                    self.attempts_by_class[eff] = self.attempts_by_class.get(eff, 0) + 1",
+          "                    pass", 1),
+     "attempts stop being counted at the boundary, so A-004.3's measurement of "
+     "which cost classes are actually being reached has no denominator"),
 ]
 
 
