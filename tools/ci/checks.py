@@ -13191,8 +13191,162 @@ def check_credentials_can_leave_the_plaintext_file() -> Result:
     return r
 
 
+def check_authorization_strength_is_its_own_axis() -> Result:
+    """How dangerous, and how strongly asked, are two questions.
+
+    THE AXIS THIS LADDER DID NOT HAVE. Every level rule in this corpus answers
+    "how dangerous is this". Codex's guardian answers that AND "how strongly
+    did the user actually authorize it", with `Unknown` first-class -- and the
+    two come apart in exactly the case this design exists for.
+
+    A POISONED proposer emits something dangerous, and the danger axis catches
+    it. A STEERED proposer emits something entirely reasonable that the owner
+    never asked for: a write nobody requested, a message to the wrong person,
+    `rm` on the right file. On the danger axis that is unremarkable. Only the
+    authorization axis sees it. "Safety does not depend on the proposer being
+    right" is the central sentence of this system, and one ladder cannot carry
+    it.
+
+    INDEPENDENT OF TAINT, DELIBERATELY. Taint is the provenance of the
+    CONTENT; this is the provenance of the REQUEST. An action can be weak on
+    either axis while impeccable on the other, which is why they are two terms
+    in the minimum and not one.
+    """
+    r = Result("authorization-strength-is-its-own-axis")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf
+    try:
+        from core.actor import Actor
+        from core.authorize import (AUTHORIZATION, AUTHORIZATION_CEILING,
+                                    DENY_REASONS, Grant, PolicyDecisionPoint,
+                                    authorization_ceiling)
+        from core.bus import EventBus
+        from core.capabilities import WORKSPACE, build_registry
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the authorization modules do not import: {exc!r}")
+        return r
+
+    if "weak_authorization" not in DENY_REASONS:
+        r.err("'weak_authorization' is not in DENY_REASONS, so a refusal on "
+              "this axis cannot name itself from the closed vocabulary")
+
+    # 1. THE LADDER IS A LADDER. All three at L5 is one axis wearing two names.
+    levels = {AUTHORIZATION_CEILING[a] for a in AUTHORIZATION}
+    if len(levels) < 3:
+        r.err(f"the authorization ceilings are {sorted(levels)}: fewer than "
+              "three distinct levels means the axis cannot discriminate")
+    rank = {"L0": 0, "L1": 1, "L2": 2, "L3": 3, "L4": 4, "L5": 5}
+    if not (rank[AUTHORIZATION_CEILING["owner_explicit"]]
+            > rank[AUTHORIZATION_CEILING["owner_task"]]
+            > rank[AUTHORIZATION_CEILING["unknown"]]):
+        r.err("the ceilings are not ordered explicit > task > unknown, so a "
+              "thing nobody asked for is not weaker than a thing they said")
+
+    # 2. AN UNRECOGNISED STRENGTH IS THE LOWEST THERE IS. `.get(x, "L5")` would
+    #    make a typo in a caller read as full authority.
+    if authorization_ceiling("nobody_declared_this") != "L0":
+        r.err("an unrecognised authorization strength does not fail closed: a "
+              "misspelled caller gets more authority than a correct one")
+
+    # 3. THE ACTOR DERIVES IT FROM WHAT IT ACTUALLY KNOWS.
+    for period, obs, want in (("active", [], "owner_explicit"),
+                              ("active", [{"capability": "shell.run"}], "owner_task"),
+                              ("free_time", [], "unknown"),
+                              ("free_time", [{"capability": "fs.read"}], "unknown")):
+        got = Actor._authorization_for(period, obs)
+        if got != want:
+            r.err(f"period={period!r} with {len(obs)} observations derives "
+                  f"{got!r}, not {want!r}")
+
+    # 4. AND IT BINDS. Same subject, same grant, same capability, same
+    #    arguments -- only who wanted it differs.
+    with _tf.TemporaryDirectory() as td:
+        clock = HybridLogicalClock("auth-axis")
+        store = StoreSet(Path(td) / "s", node_id="auth-axis")
+        bus = EventBus(clock, store, component="auth-axis")
+        reg = build_registry()
+        pdp = PolicyDecisionPoint(bus, reg)
+        args = {"path": str(Path(td) / "doc.txt"), "content": "a"}
+        seen = {}
+        for i, strength in enumerate(AUTHORIZATION):
+            subject = f"s{i}"
+            pdp.issue(Grant(f"g{i}", subject, "fs.write", ("host",), "L5",
+                            10_000_000_000_000, 0))
+            d = pdp.authorize(subject=subject, capability_id="fs.write",
+                              args=args, target="host",
+                              authorization=strength)
+            seen[strength] = d
+
+        if not seen["owner_explicit"].authorized:
+            r.err("an action the owner asked for outright was refused "
+                  f"({seen['owner_explicit'].reason}), so the refusals below "
+                  "prove nothing about the axis")
+        if seen["unknown"].authorized:
+            r.err("an L3 write was authorised with NOBODY having asked for it. "
+                  "Autonomous work is bounded to the standing grant precisely "
+                  "so a steered proposer cannot reach past it.")
+        elif seen["unknown"].reason != "weak_authorization":
+            r.err(f"the unauthorised case was refused for "
+                  f"{seen['unknown'].reason!r} rather than "
+                  "'weak_authorization'. Refused for the wrong reason is "
+                  "refused by accident.")
+
+        # 5. THE AXES ARE INDEPENDENT. A perfectly authorized request with
+        #    external content in context must still be refused, and refused for
+        #    the CEILING -- otherwise the two terms have collapsed into one.
+        pdp.issue(Grant("gx", "sx", "fs.write", ("host",), "L5",
+                        10_000_000_000_000, 0))
+        d = pdp.authorize(subject="sx", capability_id="fs.write", args=args,
+                          target="host", authorization="owner_explicit",
+                          context_ceiling="L1")
+        if d.authorized:
+            r.err("full authorization overrode the taint ceiling: the two axes "
+                  "have collapsed into one, and a page in context can be "
+                  "waved through by the owner having asked for something else")
+        elif d.reason != "context_ceiling":
+            r.err(f"the taint-bound case named {d.reason!r} rather than "
+                  "'context_ceiling'")
+
+        # 6. AND THE CONVERSE. Clean context, weak authorization -> the OTHER
+        #    reason. Without this, one axis could be doing all the work.
+        pdp.issue(Grant("gy", "sy", "fs.write", ("host",), "L5",
+                        10_000_000_000_000, 0))
+        d = pdp.authorize(subject="sy", capability_id="fs.write", args=args,
+                          target="host", authorization="unknown",
+                          context_ceiling="L5")
+        if d.reason != "weak_authorization":
+            r.err(f"with clean context and nobody asking, the refusal named "
+                  f"{d.reason!r}. Each axis must be able to bind on its own.")
+
+        # 7. A WORKSPACE WRITE STILL WORKS UNATTENDED. The autonomy built last
+        #    night runs at L2, and an axis that stopped it would have taken the
+        #    outer loop's hands off again.
+        pdp.issue(Grant("gz", "sz", "fs.write", ("host",), "L5",
+                        10_000_000_000_000, 0))
+        d = pdp.authorize(subject="sz", capability_id="fs.write",
+                          args={"path": str(WORKSPACE / "auto.txt"),
+                                "content": "a"},
+                          target="host", authorization="unknown")
+        if not d.authorized:
+            r.err(f"an autonomous write to VESPER's own workspace was refused "
+                  f"({d.reason}). That is L2 work the standing grant covers, "
+                  "and refusing it leaves the outer loop with nothing it can do.")
+
+    r.note("three distinct ceilings ordered explicit > task > unknown; an "
+           "unrecognised strength is L0; the actor derives the strength from "
+           "the period and whether anything has been observed; an L3 write "
+           "nobody asked for is refused as weak_authorization while the same "
+           "write asked for outright succeeds; each axis binds alone; and "
+           "autonomous workspace writes still work")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "authorization-strength-is-its-own-axis": check_authorization_strength_is_its_own_axis,
     "credentials-can-leave-the-plaintext-file": check_credentials_can_leave_the_plaintext_file,
     "autonomy-can-act-and-still-cannot-decide": check_autonomy_can_act_and_still_cannot_decide,
     "prohibited-tier-no-grant-opens": check_prohibited_tier_no_grant_opens,

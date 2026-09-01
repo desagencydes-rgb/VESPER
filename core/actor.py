@@ -229,6 +229,36 @@ class Actor:
             last.detail["steps"] = outcomes
         return last
 
+    @staticmethod
+    def _authorization_for(period: str, observations: list) -> str:
+        """How strongly the owner asked for THIS action, as opposed to a task.
+
+        THE AXIS THE LADDER DID NOT HAVE. Every level rule answers "how
+        dangerous is this". This answers "who wanted it", and the two come
+        apart in the case the whole design exists for: a STEERED proposer emits
+        something entirely reasonable that the owner never asked for, which is
+        unremarkable on the danger axis and visible only here.
+
+        Three cases, and the boundaries are the honest ones this system can
+        actually tell apart:
+
+        FREE_TIME is `unknown`. An autonomous trigger fired; nobody asked for
+        anything. `unknown` rather than `none`, because the truthful statement
+        is that nothing here can distinguish "the owner would have wanted this"
+        from "the proposer decided to".
+
+        A LATER STEP OF A TURN is `owner_task`. The owner asked for the errand
+        and not for each move inside it, and by the second step the proposal is
+        being shaped by what the first step observed -- which is exactly where
+        a steered proposer gets its opening.
+
+        THE FIRST STEP OF A SPOKEN TURN is `owner_explicit`. They said it, in
+        this turn, in words.
+        """
+        if period == "free_time":
+            return "unknown"
+        return "owner_task" if observations else "owner_explicit"
+
     def _one_step(self, p: Any, text: str, attention_state: str, period: str,
                   fragments: list | None, observations: list) -> Outcome:
         """One proposal, levelled, authorized, executed and verified."""
@@ -260,9 +290,11 @@ class Actor:
         # THE CEILING GOES TO BOTH CALLS. Passing it only here would re-open the
         # hole one layer down: `execute` re-authorizes immediately before
         # invoking, and that second check is the binding one.
+        strength = self._authorization_for(period, observations)
         d = self._pdp.authorize(subject=self._subject,
                                 capability_id=p.capability_id, args=p.args,
                                 target=self._target, context_ceiling=ceil,
+                                authorization=strength,
                                 current_lease_epoch=0)
         if not d.authorized:
             return self._ask(d, p, level, attention_state, period)
@@ -272,6 +304,7 @@ class Actor:
                                         capability_id=p.capability_id,
                                         args=p.args, target=self._target,
                                         context_ceiling=ceil,
+                                        authorization=strength,
                                         current_lease_epoch=0)
         except Exception as exc:                       # noqa: BLE001
             return Outcome("failed", p.capability_id, level,

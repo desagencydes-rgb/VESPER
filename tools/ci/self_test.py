@@ -3989,5 +3989,48 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# The second axis. Every level rule answers "how dangerous"; this answers "who
+# wanted it", and only the second one sees a steered proposer.
+# --------------------------------------------------------------------------
+CASES += [
+    ("authorization-strength-is-its-own-axis", AUTHZ_PY2,
+     _sub("        auth_ceiling = authorization_ceiling(authorization)\n"
+          "        effective = _min_level(grant.max_level, declared, context_ceiling,\n"
+          "                               auth_ceiling)",
+          "        auth_ceiling = authorization_ceiling(authorization)\n"
+          "        effective = _min_level(grant.max_level, declared, context_ceiling)", 1),
+     "the axis is computed and dropped out of the minimum: an action nobody "
+     "asked for carries the same authority as one the owner spoke"),
+
+    ("authorization-strength-is-its-own-axis", AUTHZ_PY2,
+     _sub('    "unknown": "L2",', '    "unknown": "L5",', 1),
+     "a request nobody made is trusted like one the owner spoke aloud, which "
+     "is the whole opening a steered proposer needs"),
+
+    ("authorization-strength-is-its-own-axis", AUTHZ_PY2,
+     _sub('    return AUTHORIZATION_CEILING.get(strength, "L0")',
+          '    return AUTHORIZATION_CEILING.get(strength, "L5")', 1),
+     "an unrecognised strength gets FULL authority, so a typo in a caller is "
+     "more powerful than spelling it correctly"),
+
+    ("authorization-strength-is-its-own-axis", ACTOR_PY,
+     _sub('        if period == "free_time":\n            return "unknown"\n'
+          '        return "owner_task" if observations else "owner_explicit"',
+          '        return "owner_explicit"', 1),
+     "every action claims the owner asked for it outright, including the ones "
+     "an autonomous trigger produced while they were asleep"),
+
+    ("authorization-strength-is-its-own-axis", AUTHZ_PY2,
+     _sub('            if LEVEL_RANK[auth_ceiling] < LEVEL_RANK[required]:\n'
+          '                reason = "weak_authorization"\n'
+          '            elif',
+          '            if False:\n                reason = "weak_authorization"\n'
+          '            elif', 1),
+     "the refusal stops naming the axis that bound it, so 'nobody asked for "
+     "this' and 'a web page is in context' become the same answer to the owner"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

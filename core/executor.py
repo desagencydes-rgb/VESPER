@@ -116,6 +116,7 @@ class Executor:
 
     def execute(self, *, subject: str, capability_id: str, args: dict,
                 target: str, context_ceiling: str = "L5",
+                authorization: str = "owner_explicit",
                 current_lease_epoch: int = 0, command_id: str | None = None,
                 idempotency_key: str | None = None,
                 task_id: str | None = None) -> Execution:
@@ -128,6 +129,7 @@ class Executor:
         d = self._pdp.authorize(subject=subject, capability_id=capability_id,
                                 args=args, target=target,
                                 context_ceiling=context_ceiling,
+                                authorization=authorization,
                                 current_lease_epoch=current_lease_epoch,
                                 command_id=command_id)
         if not d.authorized:

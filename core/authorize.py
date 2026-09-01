@@ -60,6 +60,7 @@ DENY_REASONS = (
     "self_modification_boundary",
     "owner_confirmation_required",
     "prohibited",               # no grant satisfies this, including L5
+    "weak_authorization",       # nobody asked for this strongly enough
 )
 
 NEVER_DELEGABLE = ("L4", "L5")
@@ -103,6 +104,50 @@ class Decision:
                 "effective_level": self.effective_level, "reason": self.reason,
                 "capability_id": self.capability_id, "subject": self.subject,
                 "detail": self.detail}
+
+
+# ------------------------------------------------- how strongly was this asked
+
+# THE SECOND AXIS, AND THE ONE THIS LADDER DID NOT HAVE. Every level rule here
+# answers "how dangerous is this". Codex's guardian answers that AND "how
+# strongly did the user actually authorize it", with `Unknown` first-class --
+# and the two come apart in exactly the case this whole design exists for.
+#
+# A POISONED proposer emits something dangerous, and the danger axis catches
+# it. A STEERED proposer emits something entirely reasonable that the owner
+# never asked for: `rm` on the right file, a message to the wrong person, a
+# write nobody requested. On the danger axis that is unremarkable. Only the
+# authorization axis sees it.
+#
+# We wrote "safety does not depend on the proposer being right" as the central
+# sentence of this system. One ladder cannot carry it.
+AUTHORIZATION = ("owner_explicit", "owner_task", "unknown")
+
+# The ceiling each strength permits for a state-changing capability. Same shape
+# as `taint.ALLOWED_LEVEL` and deliberately independent of it: taint is about
+# the provenance of the CONTENT, this is about the provenance of the REQUEST,
+# and an action can be weak on either axis while impeccable on the other.
+AUTHORIZATION_CEILING = {
+    # The owner asked for this, in this turn, in words.
+    "owner_explicit": "L5",
+    # A later step of a task the owner asked for. They authorised the errand
+    # and not each move inside it, so a step that reaches further than the
+    # errand plausibly meant is a question rather than a continuation.
+    "owner_task": "L3",
+    # Nobody asked. Autonomous work, and `unknown` rather than `none` because
+    # the honest statement is that this system cannot tell the difference
+    # between "the owner would want this" and "the proposer decided to".
+    "unknown": "L2",
+}
+
+
+def authorization_ceiling(strength: str) -> str:
+    """The ceiling for this strength. An unrecognised one is the lowest there is.
+
+    FAIL CLOSED ON THE NAME TOO. A typo in a caller's string must not read as
+    full authority, which is what `.get(strength, "L5")` would have done.
+    """
+    return AUTHORIZATION_CEILING.get(strength, "L0")
 
 
 def _min_level(*levels: str) -> str:
@@ -167,6 +212,7 @@ class PolicyDecisionPoint:
 
     def authorize(self, *, subject: str, capability_id: str, args: dict,
                   target: str, context_ceiling: str = "L5",
+                  authorization: str = "owner_explicit",
                   current_lease_epoch: int = 0,
                   command_id: str | None = None) -> Decision:
         cap = self._registry.get(capability_id)
@@ -219,15 +265,26 @@ class PolicyDecisionPoint:
                               f"grant is bound to command "
                               f"{grant.issued_for_command_id!r}, not {command_id!r}")
 
-        effective = _min_level(grant.max_level, declared, context_ceiling)
+        auth_ceiling = authorization_ceiling(authorization)
+        effective = _min_level(grant.max_level, declared, context_ceiling,
+                               auth_ceiling)
         if LEVEL_RANK[effective] < LEVEL_RANK[required]:
-            reason = ("context_ceiling"
-                      if LEVEL_RANK[context_ceiling] < LEVEL_RANK[required]
-                      else "below_required_level")
+            # THE REASON NAMES THE AXIS THAT BOUND. "Refused" is not useful to
+            # the owner; "refused because nobody asked for this" and "refused
+            # because a web page is in context" are different answers to
+            # different questions, and only one of them is something they can
+            # resolve by saying yes.
+            if LEVEL_RANK[auth_ceiling] < LEVEL_RANK[required]:
+                reason = "weak_authorization"
+            elif LEVEL_RANK[context_ceiling] < LEVEL_RANK[required]:
+                reason = "context_ceiling"
+            else:
+                reason = "below_required_level"
             return self._deny(subject, cap, reason, effective,
                               f"effective {effective} < required {required} "
                               f"(grant {grant.max_level}, declared {declared}, "
-                              f"ceiling {context_ceiling})")
+                              f"ceiling {context_ceiling}, "
+                              f"authorization {authorization}/{auth_ceiling})")
 
         # THE LEVEL ALONE DECIDES, owner decision 2026-08-31. This read
         # `cap.requires_owner_confirmation and grant.max_level in
@@ -249,7 +306,9 @@ class PolicyDecisionPoint:
 
         d = Decision(True, effective, "authorized", capability_id, subject,
                      f"grant {grant.max_level}, declared {declared}, "
-                     f"ceiling {context_ceiling}, required {required}")
+                     f"ceiling {context_ceiling}, "
+                     f"authorization {authorization}/{auth_ceiling}, "
+                     f"required {required}")
         self._bus.publish("authz.decision", subject=subject, payload=d.to_dict(),
                           component="authz")
         return d
