@@ -3595,5 +3595,47 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# CI-095 -- read-before-write. The most urgent open defect in the handoff:
+# fs.write could destroy a file it had never read, and the verifier confirmed
+# the destruction had been carried out faithfully.
+# --------------------------------------------------------------------------
+CASES += [
+    ("write-never-destroys-what-was-not-read", CAPS_PY,
+     _sub('    if target.exists() and not str(args.get("expect_sha256") or "").strip():\n'
+          '        return "L4"\n', "", 1),
+     "the escalation is dropped: replacing a file the turn has never read costs "
+     "exactly what creating one costs, which is the state the handoff called "
+     "the most urgent open defect"),
+
+    ("write-never-destroys-what-was-not-read", CAPS_PY,
+     _sub("        on_disk = hashlib.sha256(path.read_bytes()).hexdigest()",
+          "        on_disk = hashlib.sha256(content.encode('utf-8')).hexdigest()", 1),
+     "the token is compared against the CONTENT BEING WRITTEN instead of the "
+     "disk, so the caller hashes its own input and always matches itself -- a "
+     "check that can never disagree, passing every other assertion here"),
+
+    ("write-never-destroys-what-was-not-read", CAPS_PY,
+     _sub('            raise StaleWrite(', '            pass\n        if False:\n            raise StaleWrite(', 1),
+     "a stale token is noticed and waved through: the write lands on content "
+     "the proposal was never formed against"),
+
+    ("write-never-destroys-what-was-not-read", CAPS_PY,
+     _sub('    raw = path.read_bytes()\n'
+          '    text = raw.decode("utf-8", errors="replace")[:limit]',
+          '    raw = path.read_bytes()[:limit]\n'
+          '    text = raw.decode("utf-8", errors="replace")[:limit]', 1),
+     "fs.read hashes only what it returned, so a truncated look authorises the "
+     "replacement of a file nobody saw past its first page"),
+
+    ("write-never-destroys-what-was-not-read", ACTOR_PY,
+     _sub('        if "previous" not in result:\n            return result',
+          '        if True:\n            return result', 1),
+     "the actor reports the raw result again, so act.outcome carries the entire "
+     "previous contents of every overwritten file into the durable event store "
+     "-- which Execution.to_dict deliberately leaves out"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

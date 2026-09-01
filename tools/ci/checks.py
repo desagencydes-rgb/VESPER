@@ -11860,8 +11860,154 @@ def check_gated_subsystems_are_reachable() -> Result:
     return r
 
 
+def check_write_never_destroys_what_was_not_read() -> Result:
+    """A write that replaces something must name what it is replacing.
+
+    THE DEFECT. `fs_write` opened an existing path, kept the previous bytes for
+    the compensator, and replaced them -- and `verify_fs_write` then confirmed,
+    correctly, that the intended content was on disk. Every instrument pointed
+    at the write reported success. Nothing established that the thing being
+    destroyed had ever been looked at.
+
+    THE MECHANISM IS STRUCTURAL, NOT A FLAG. Claude Code refuses an edit to a
+    file the session has not read, which is turn state. INV-AUTH-5 requires
+    `declared_level` to be a function of the ARGUMENTS, and state in a level
+    rule breaks it. `expect_sha256` is an argument, so the property is
+    preserved rather than worked around -- and it is the same shape Codex
+    reaches from the other side, where the patch carries the context lines it
+    replaces and a blind write is unrepresentable rather than refused.
+
+    TWO OUTCOMES, DELIBERATELY DIFFERENT. A MISSING hash is a question, and L4
+    asks it -- never delegable, consumed by the one action it was granted for.
+    A WRONG hash is not a question: the proposal was formed against content
+    that is no longer there, so it is refused in the implementation, at any
+    level, because no confirmation makes a write against vanished content
+    correct.
+    """
+    r = Result("write-never-destroys-what-was-not-read")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import hashlib as _h
+    import tempfile as _tf
+    try:
+        from core import capabilities as caps
+        from core.capabilities import StaleWrite
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"core.capabilities does not import: {exc!r}")
+        return r
+
+    with _tf.TemporaryDirectory() as td:
+        f = Path(td) / "doc.txt"
+        rank = {"L0": 0, "L1": 1, "L2": 2, "L3": 3, "L4": 4, "L5": 5}
+
+        # 1. CREATION IS NOT DESTRUCTION. Over-strictness is its own defect:
+        #    making every new file ask trains the owner to approve without
+        #    reading, which is what the ladder exists to prevent.
+        fresh = caps.fs_write_level({"path": str(f)})
+        if fresh != "L3":
+            r.err(f"writing a file that does not exist levels {fresh}, not L3. "
+                  "Creating a file destroys nothing and must not cost a "
+                  "confirmation.")
+
+        f.write_text("original contents", encoding="utf-8")
+
+        # 2. THE SAME PATH, NOW OCCUPIED, WITH NOTHING SAID ABOUT WHAT IS THERE.
+        blind = caps.fs_write_level({"path": str(f)})
+        if rank[blind] <= rank[fresh]:
+            r.err(f"overwriting an existing file levels {blind}, the same as or "
+                  f"below creating one ({fresh}). Replacing something the owner "
+                  "has, unread, is a different act from making a new file.")
+        if blind != "L4":
+            r.err(f"a blind overwrite levels {blind}, not L4. L4 is never "
+                  "delegable and is consumed by the single action it was "
+                  "granted for, which is the weight this act needs.")
+
+        # 3. fs.read HANDS BACK THE TOKEN, over the WHOLE file. Hashing the
+        #    returned excerpt instead would let a truncated read authorise the
+        #    replacement of a file nobody saw past its first page -- so the
+        #    probe is deliberately longer than the limit it is read under.
+        big = Path(td) / "big.txt"
+        big.write_text("x" * 5000, encoding="utf-8")
+        got = caps.fs_read({"path": str(big), "limit": 100})
+        whole = _h.sha256(big.read_bytes()).hexdigest()
+        if got.get("sha256") != whole:
+            r.err("fs.read's sha256 is not the hash of the whole file. A hash "
+                  "over the truncated text would let a 100-byte look authorise "
+                  "an overwrite of 5000 bytes.")
+        if not got.get("truncated"):
+            r.err("fs.read does not report that it truncated, so a caller "
+                  "cannot tell a whole file from the start of one")
+
+        # 4. WITH THE RIGHT TOKEN IT IS AN ORDINARY WRITE AGAIN.
+        tok = caps.fs_read({"path": str(f)})["sha256"]
+        informed = caps.fs_write_level({"path": str(f), "expect_sha256": tok})
+        if informed != fresh:
+            r.err(f"an informed overwrite levels {informed}, not {fresh}. "
+                  "Having read the file is what the escalation was asking for; "
+                  "it must actually answer it.")
+        caps.fs_write({"path": str(f), "content": "replacement",
+                       "expect_sha256": tok})
+        if f.read_text(encoding="utf-8") != "replacement":
+            r.err("an informed overwrite did not write")
+
+        # 5. A STALE TOKEN IS REFUSED, AND THE FILE SURVIVES.
+        try:
+            caps.fs_write({"path": str(f), "content": "clobber",
+                           "expect_sha256": tok})
+            r.err("a write carrying the hash of content that is no longer on "
+                  "disk was allowed. The proposal was formed against something "
+                  "that has since changed.")
+        except StaleWrite:
+            pass
+        if f.read_text(encoding="utf-8") != "replacement":
+            r.err("the file was modified by a write that should have been "
+                  "refused -- the refusal happens after the damage")
+
+        # 6. THE DISCRIMINATOR. Comparing `expect_sha256` against the CONTENT
+        #    BEING WRITTEN instead of against the disk passes every assertion
+        #    above -- the caller would simply be hashing its own input and
+        #    always matching itself. So: offer the hash of the NEW content for
+        #    a file whose disk contents differ, and require a refusal.
+        new_body = "something else entirely"
+        self_hash = _h.sha256(new_body.encode("utf-8")).hexdigest()
+        try:
+            caps.fs_write({"path": str(f), "content": new_body,
+                           "expect_sha256": self_hash})
+            r.err("a write was accepted whose expect_sha256 is the hash of what "
+                  "it is WRITING rather than of what is on disk. The check is "
+                  "comparing the content to itself, which can never disagree.")
+        except StaleWrite:
+            pass
+
+        # 7. THE RECORD DOES NOT CARRY THE FILE IT DESTROYED. `Execution.to_dict`
+        #    leaves `result` out of every executor event on purpose; the actor
+        #    put it back, so `act.outcome` carried the full previous text of
+        #    anything overwritten into the durable store.
+        from core.actor import Actor
+        res = caps.fs_write({"path": str(f), "content": "third",
+                             "expect_sha256": caps.fs_read({"path": str(f)})["sha256"]})
+        if "previous" not in res:
+            r.err("fs_write no longer returns `previous`, which the compensator "
+                  "needs to undo the write")
+        reported = Actor._reportable(res)
+        if "previous" in reported:
+            r.err("the reported result still carries `previous` -- the entire "
+                  "prior contents of every overwritten file, in the event store")
+        if not reported.get("previous_sha256"):
+            r.err("the narrowed record keeps no hash of what was replaced, so "
+                  "nothing records WHAT was compared")
+
+    r.note("creation stays L3 and a blind overwrite is L4; fs.read hashes the "
+           "whole file and says when it truncated; a correct token restores the "
+           "base level; a stale token is refused with the file intact, and so "
+           "is a token that is merely the hash of the new content; and the "
+           "reported record carries the hash of what was replaced, not the text")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "write-never-destroys-what-was-not-read": check_write_never_destroys_what_was_not_read,
     "taint-ceiling-binds-the-act-path": check_taint_ceiling_binds_the_act_path,
     "gated-subsystems-are-reachable": check_gated_subsystems_are_reachable,
     "f0-acceptance": check_f0_acceptance,

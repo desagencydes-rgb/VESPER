@@ -219,6 +219,16 @@ def shell_run(args: dict) -> dict:
 
 # ------------------------------------------------------------ fs.read/write
 
+
+class StaleWrite(Exception):
+    """The file changed between being read and being written.
+
+    Deliberately an exception rather than a level: a refusal that the ladder
+    could raise past would be no refusal at all, and there is no confirmation
+    that makes a write against vanished content correct.
+    """
+
+
 # Paths whose contents are credentials. Named as a CLASS, not as a list of
 # products (INV-HW-1): what makes these special is that they hold secrets, not
 # which tool wrote them.
@@ -273,15 +283,53 @@ def fs_write_level(args: dict) -> str:
     if any(f"/{g}" in p for g in GOVERNED_PREFIXES):
         return "L5"
     if _under(target, WORKSPACE):
+        # VESPER'S OWN SCRATCH SPACE, AND THE ONE PLACE A BLIND OVERWRITE IS
+        # NOT ESCALATED BELOW. Overwriting its own notes is not destroying the
+        # owner's data, and making it ask would put a confirmation in front of
+        # the most ordinary thing it does. This carve-out is the weaker half of
+        # the argument and it is written down as such: it holds because the
+        # shadow-git checkpoint makes workspace writes recoverable. If that is
+        # not built, this line should be revisited rather than inherited.
         return "L2"
+
+    # A BLIND OVERWRITE OF THE OWNER'S DATA IS NOT THE SAME ACT AS CREATING A
+    # FILE. `fs.write` would open an existing path, keep the previous bytes for
+    # the compensator, and replace them -- and `verify_fs_write` would then
+    # confirm, correctly, that the new content is on disk. Every instrument
+    # pointed at it reported success. Nothing anywhere established that the
+    # thing being destroyed had ever been looked at.
+    #
+    # The mechanism is the structural one rather than a "has this been read"
+    # flag, because INV-AUTH-5 requires the declared level to be a function of
+    # the ARGUMENTS: a turn-scoped read set is state, and state in a level rule
+    # breaks the invariant. `expect_sha256` is an argument. Codex reaches the
+    # same property from the other side -- its patch format carries the context
+    # lines it replaces, so a blind write is unrepresentable rather than
+    # refused.
+    #
+    # L4 AND NOT L3: L4 is never delegable and is consumed by the single action
+    # it was granted for, which is the right weight for replacing something the
+    # owner has and VESPER has not read.
+    if target.exists() and not str(args.get("expect_sha256") or "").strip():
+        return "L4"
     return "L3"
 
 
 def fs_read(args: dict) -> dict:
+    """Read, and hand back the hash of the WHOLE file.
+
+    `sha256` is over the bytes on disk, NOT over the truncated text returned --
+    it is the token `fs.write` demands back as `expect_sha256`, so hashing the
+    excerpt would let a 20 KB limit silently authorise an overwrite of a 2 MB
+    file that was never seen past its first page.
+    """
     path = resolve(args.get("path"))
     limit = int(args.get("limit") or 20000)
-    text = path.read_text(encoding="utf-8", errors="replace")[:limit]
-    return {"path": str(path), "text": text, "bytes": path.stat().st_size}
+    raw = path.read_bytes()
+    text = raw.decode("utf-8", errors="replace")[:limit]
+    return {"path": str(path), "text": text, "bytes": path.stat().st_size,
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "truncated": len(raw) > limit}
 
 
 def fs_write(args: dict) -> dict:
@@ -295,6 +343,22 @@ def fs_write(args: dict) -> dict:
     """
     path = resolve(args.get("path"))
     content = str(args.get("content") or "")
+    expect = str(args.get("expect_sha256") or "").strip().lower()
+
+    # THE STALE CASE IS REFUSED HERE AND NOT ON THE LADDER, because it is not
+    # the owner's to wave through. A missing `expect_sha256` is a question --
+    # "replace a file you have not read?" -- and L4 asks it. A WRONG one is not
+    # a question: the proposal was formed against content that is no longer
+    # there, so confirming it would be confirming an intent that has stopped
+    # describing the world. An L5 grant does not make a stale write correct.
+    if path.exists() and expect:
+        on_disk = hashlib.sha256(path.read_bytes()).hexdigest()
+        if on_disk != expect:
+            raise StaleWrite(
+                f"{path} has changed since it was read: expected {expect[:12]}..., "
+                f"found {on_disk[:12]}.... The write was planned against content "
+                "that is no longer on disk. Read it again and decide again.")
+
     path.parent.mkdir(parents=True, exist_ok=True)
     previous = path.read_text(encoding="utf-8") if path.exists() else None
     path.write_text(content, encoding="utf-8")

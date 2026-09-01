@@ -34,6 +34,7 @@ otherwise is not.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -223,6 +224,32 @@ class Actor:
                              f"permission ({level}). {proposal.why}".strip()),
                        detail={"reason": decision.reason, "asked": asked})
 
+    @staticmethod
+    def _reportable(result: dict) -> dict:
+        """What goes into the RECORD, which is not everything the call returned.
+
+        `fs.write` hands back `previous` -- the entire prior contents of the
+        file -- because `fs_write_compensator` needs those bytes to undo the
+        write. The executor is careful about this: `Execution.to_dict` leaves
+        `result` out of every event it publishes. The actor then put it back,
+        so `act.outcome` carried the full previous text of anything overwritten
+        into the durable event store, for every write.
+
+        Compensation is unaffected: the executor holds the real result and
+        passes THAT to the compensator. Only the reported copy is narrowed, and
+        it keeps the hash, because "record what was compared" needs the value
+        that was compared and not the document it came from.
+        """
+        if "previous" not in result:
+            return result
+        out = dict(result)
+        prev = out.pop("previous")
+        out["previous_sha256"] = (
+            hashlib.sha256(prev.encode("utf-8")).hexdigest()
+            if isinstance(prev, str) else None)
+        out["previous_bytes"] = len(prev) if isinstance(prev, str) else 0
+        return out
+
     def _verify(self, proposal: Any, level: str, ex: Any) -> Outcome:
         """Read the world back where that is possible, and say so where it is not."""
         result = ex.result if isinstance(getattr(ex, "result", None), dict) else {}
@@ -230,7 +257,7 @@ class Actor:
         if verifier is None:
             return Outcome("acted", proposal.capability_id, level,
                            said=_describe(proposal, result),
-                           detail={"result": result,
+                           detail={"result": self._reportable(result),
                                    "verified": None,
                                    "why_not": ("this capability's effect is not "
                                                "generically observable, so "
@@ -243,10 +270,10 @@ class Actor:
             # THE ACTOR SAID IT WORKED AND THE WORLD DISAGREES. The world wins.
             return Outcome("failed", proposal.capability_id, level,
                            said="I thought I did that, but checking says otherwise",
-                           detail={"result": result, "verification": v})
+                           detail={"result": self._reportable(result), "verification": v})
         return Outcome("acted", proposal.capability_id, level,
                        said=_describe(proposal, result),
-                       detail={"result": result, "verification": v})
+                       detail={"result": self._reportable(result), "verification": v})
 
 
 def _describe(proposal: Any, result: dict) -> str:
