@@ -3567,8 +3567,9 @@ CASES += [
      "re-authorizes immediately before invoking and is the binding check"),
 
     ("taint-ceiling-binds-the-act-path", ACTOR_PY,
-     _sub("        if fragments is not None:\n            return list(fragments)",
-          "        if False:\n            return list(fragments)", 1),
+     _sub('        base = (list(fragments) if fragments is not None\n'
+          '                else [Tainted(text, "owner", origin="utterance:live")])',
+          '        base = [Tainted(text, "owner", origin="utterance:live")]', 1),
      "supplied provenance is ignored and every turn is classed an owner "
      "utterance: the plumbing is present and carries a constant"),
 
@@ -3634,6 +3635,62 @@ CASES += [
      "the actor reports the raw result again, so act.outcome carries the entire "
      "previous contents of every overwritten file into the durable event store "
      "-- which Execution.to_dict deliberately leaves out"),
+]
+
+
+# --------------------------------------------------------------------------
+# The agentic loop, and every way of not stopping. The breaker's cases are
+# here rather than in a later commit for the reason the check states: without
+# a loop a refusal is a dead end, and with one it is a grind.
+# --------------------------------------------------------------------------
+CASES += [
+    ("loop-observes-and-is-bounded", ACTOR_PY,
+     _sub("        for step in range(max(1, int(max_steps))):",
+          "        for step in range(1):", 1),
+     "the loop takes one step again: VESPER cannot run a command, look at the "
+     "output and open the file it found -- the omission everything else sat on"),
+
+    ("loop-observes-and-is-bounded", ACTOR_PY,
+     _sub("            p = self._proposer.propose(\n"
+          "                text, observations=observations if observations else None)",
+          "            p = self._proposer.propose(text)", 1),
+     "the next step is proposed without being told what the last one did -- a "
+     "loop that cannot observe is a retry, and it will repeat itself blind"),
+
+    ("loop-observes-and-is-bounded", ACTOR_PY,
+     _sub("            if signatures and sig == signatures[-1]:", "            if False:", 1),
+     "an immediate repeat no longer stops the turn, so a proposer handed its "
+     "own last action back re-authorizes and re-executes it to the budget"),
+
+    ("loop-observes-and-is-bounded", ACTOR_PY,
+     _sub("                if consecutive_refusals >= MAX_CONSECUTIVE_REFUSALS:",
+          "                if False:", 1),
+     "the refusal breaker is removed: a steered proposer grinds the ladder for "
+     "the whole step budget, and every refusal that reaches the voice ask is a "
+     "question asked of someone asleep"),
+
+    ("loop-observes-and-is-bounded", ACTOR_PY,
+     _sub("        base += [Tainted(o, EXTERNAL, origin=f\"observation:{o.get('capability')}\")\n"
+          "                 for o in (observations or []) if isinstance(o, dict)]",
+          "        base += []", 1),
+     "observations stop tainting the context, so the step that could be steered "
+     "by what was just read is the one step that does not have to ask -- "
+     "INV-ACT-3 inverted exactly where it matters"),
+
+    ("loop-observes-and-is-bounded", CAPS_PY,
+     _sub('    return {"capability": capability_id, "observed": False}',
+          '    return {"capability": capability_id, **result}', 1),
+     "an unknown capability's raw result is passed straight into the planner "
+     "context, so every capability added later is a hole in INV-AUTH-6 by "
+     "default"),
+
+    ("loop-observes-and-is-bounded", CAPS_PY,
+     _sub("        out = str(text or \"\").splitlines()[:OBS_MAX_LINES]\n"
+          "        return [ln[:OBS_MAX_LINE_CHARS] for ln in out]",
+          "        out = str(text or \"\").splitlines()[:OBS_MAX_LINES]\n"
+          "        return list(out)", 1),
+     "the per-line bound is dropped, so one enormous line defeats the line "
+     "count and a runaway command fills the context window anyway"),
 ]
 
 

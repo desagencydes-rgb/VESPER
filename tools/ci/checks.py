@@ -11628,12 +11628,26 @@ def check_taint_ceiling_binds_the_act_path() -> Result:
     #    `execute` re-authorizes immediately before invoking, and the comment in
     #    `actor.py` says that second check is the binding one.
     asrc = (REPO / "core" / "actor.py").read_text(encoding="utf-8")
+    # THE LADDER LIVES IN `_one_step` AND THE LOOP MUST GO THROUGH IT. Reading
+    # `maybe_act` alone stopped working when the loop landed and the
+    # authorize/execute pair moved down a level; reading `_one_step` alone
+    # would miss a loop that reached the executor directly. Both, then.
     try:
-        body = asrc[asrc.index("    def maybe_act("):]
+        loop = asrc[asrc.index("    def maybe_act("):]
+        loop = loop[:loop.index("\n    def ", 1)]
+        body = asrc[asrc.index("    def _one_step("):]
         body = body[:body.index("\n    def ", 1)]
     except ValueError:
-        r.err("core/actor.py has no maybe_act to inspect")
+        r.err("core/actor.py has no maybe_act/_one_step pair to inspect")
         return r
+    if "self._one_step(" not in loop:
+        r.err("maybe_act does not call _one_step, so the loop has some other "
+              "route to acting and this check is looking at the wrong one")
+    for direct in ("self._pdp.authorize(", "self._executor.execute("):
+        if direct in loop:
+            r.err(f"maybe_act calls {direct!r} directly rather than through "
+                  "_one_step -- a second path to the ladder is a second place "
+                  "the ceiling can be dropped")
     for call in ("self._pdp.authorize(", "self._executor.execute("):
         i = body.find(call)
         if i < 0:
@@ -12005,8 +12019,184 @@ def check_write_never_destroys_what_was_not_read() -> Result:
     return r
 
 
+def check_loop_observes_and_is_bounded() -> Result:
+    """VESPER can take a second step, and every way of not stopping is bounded.
+
+    THE OMISSION THIS CLOSES. `propose` once, `execute` once, return -- the
+    only loop in `core/actor.py` was the grant issuer, and the runtime called
+    `maybe_act` exactly once per utterance. VESPER could not run a command,
+    look at the output, and open the file it found; could not try something,
+    watch it fail, and fix it; could not do anything that took two moves.
+
+    WHAT MAY CONTINUE IT IS THE NARROW PART, and it is asserted here rather
+    than described. The proposer must emit a well-formed action the ladder then
+    permits. There is no "keep going" flag a model can set, because a flag is
+    judgement and this corpus refuses judgement in a decision path. Aider
+    reaches the same place from the other side: its loop advances only on lint
+    errors, test failures and exceptions, and never on the model wanting to.
+
+    AND FOUR THINGS STOP IT. A step budget; an immediate repeat, which is
+    progress having stopped; a refusal that needs the owner; and the
+    consecutive-refusal breaker. The breaker is asserted in the same check as
+    the loop deliberately -- without a loop a refusal is a dead end, and with
+    one it is a grind that costs battery and, once refusals reach the voice
+    ask, sleep.
+    """
+    r = Result("loop-observes-and-is-bounded")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import json as _json
+    import tempfile as _tf
+    try:
+        from core.actor import (MAX_CONSECUTIVE_REFUSALS, MAX_STEPS, Actor)
+        from core.bus import EventBus
+        from core.capabilities import OBS_MAX_LINES, OBS_MAX_LINE_CHARS, observe
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the loop modules do not import: {exc!r}")
+        return r
+
+    if MAX_STEPS < 2:
+        r.err(f"MAX_STEPS is {MAX_STEPS}: there is no loop, only a step")
+    if MAX_STEPS > 20:
+        r.err(f"MAX_STEPS is {MAX_STEPS}, which is not a bound anybody chose")
+    if not 1 <= MAX_CONSECUTIVE_REFUSALS <= 5:
+        r.err(f"MAX_CONSECUTIVE_REFUSALS is {MAX_CONSECUTIVE_REFUSALS}")
+
+    class _GW:
+        def __init__(self, script):
+            self.script = list(script)
+            self.seen = []
+
+        def complete(self, text, **kw):
+            self.seen.append(text)
+            obj = self.script.pop(0) if self.script else {"action": "none"}
+            return {"result": {"text": _json.dumps(obj)}}
+
+    def _actor(td, script, subject):
+        clock = HybridLogicalClock(subject)
+        store = StoreSet(Path(td) / f"s-{subject}", node_id=subject)
+        bus = EventBus(clock, store, component=subject)
+        seen: list = []
+        for topic in ("act.no_progress", "act.refusal_breaker",
+                      "security.injection_suspected"):
+            bus.subscribe(topic,
+                          (lambda t: lambda e: seen.append(t))(topic),
+                          name=f"{subject}-{topic}",
+                          idempotency_key=lambda e: e.event_id)
+        gw = _GW(script)
+        return Actor(bus, gw, subject=subject, target="host"), gw, seen
+
+    with _tf.TemporaryDirectory() as td:
+        # 1. IT TAKES A SECOND STEP, AND THE SECOND STEP KNOWS ABOUT THE FIRST.
+        a, gw, _ = _actor(td, [
+            {"action": "shell.run", "args": {"cmd": "echo one"}, "why": "look"},
+            {"action": "shell.run", "args": {"cmd": "date"}, "why": "then time"},
+        ], "loop-two")
+        out = a.maybe_act("do two things")
+        if out is None or len(gw.seen) < 2:
+            r.err("the actor proposed once and stopped: there is no loop")
+        elif "ALREADY DONE THIS TURN" not in gw.seen[1]:
+            r.err("the second proposal was made without being told what the "
+                  "first one did -- a loop that cannot observe is a retry")
+        steps = (out.detail or {}).get("steps") if out else None
+        if not steps or len(steps) < 2:
+            r.err("a two-step turn does not record its steps, so nothing "
+                  "afterwards can tell one action from several")
+
+        # 2. AN IMMEDIATE REPEAT STOPS IT. Otherwise a proposer handed its own
+        #    last action back re-authorizes and re-executes it to the budget.
+        same = {"action": "shell.run", "args": {"cmd": "echo x"}, "why": "a"}
+        a, gw, seen = _actor(td, [same, same, same, same], "loop-rep")
+        a.maybe_act("repeat")
+        if len(gw.seen) > 2:
+            r.err(f"the same action was proposed and run {len(gw.seen)} times; "
+                  "an immediate repeat is progress having stopped")
+        if "act.no_progress" not in seen:
+            r.err("the loop stopped repeating without saying so: a stop nobody "
+                  "can observe cannot be distinguished from a task that ended")
+
+        # 3. THE BREAKER. Distinct refusals, so the repeat rule above cannot be
+        #    what stops it -- otherwise this assertion would pass with the
+        #    breaker deleted.
+        a, gw, seen = _actor(td, [
+            {"action": "fs.write", "args": {"path": f"/etc/probe{i}",
+                                            "content": "x"}, "why": str(i)}
+            for i in range(MAX_CONSECUTIVE_REFUSALS + 3)], "loop-brk")
+        a.maybe_act("write many")
+        if len(gw.seen) > MAX_CONSECUTIVE_REFUSALS:
+            r.err(f"{len(gw.seen)} refused proposals were made against a breaker "
+                  f"of {MAX_CONSECUTIVE_REFUSALS}. A steered proposer can grind "
+                  "the ladder for the whole budget.")
+        if "act.refusal_breaker" not in seen:
+            r.err("the refusal breaker did not fire or did not publish")
+
+        # 4. THE OBSERVATION LOWERS THE CEILING FOR THE REST OF THE TURN.
+        #    INV-ACT-3: command output is retrieved_external and may never
+        #    raise the authority of any action. So the step that could be
+        #    steered by what was just read is the step that has to ask.
+        target = Path(td) / "steered.txt"
+        a, gw, seen = _actor(td, [
+            {"action": "shell.run", "args": {"cmd": "echo look"}, "why": "obs"},
+            {"action": "fs.write", "args": {"path": str(target),
+                                            "content": "steered"}, "why": "act"},
+        ], "loop-ceil")
+        out = a.maybe_act("look then write")
+        steps = (out.detail or {}).get("steps") or []
+        if len(steps) < 2:
+            r.err("the second step never ran, so the ceiling assertion below "
+                  "proves nothing")
+        else:
+            if steps[0]["kind"] != "acted":
+                r.err(f"the observing step was {steps[0]['kind']}, not acted, so "
+                      "nothing tainted the context")
+            reason = (steps[1].get("detail") or {}).get("reason")
+            if reason != "context_ceiling":
+                r.err(f"after an observation, a write was refused for {reason!r} "
+                      "rather than 'context_ceiling'. INV-ACT-3 says command "
+                      "output may never raise the authority of an action, and "
+                      "the loop is exactly where it would.")
+        if target.exists():
+            r.err("the write happened despite the refusal")
+        if "security.injection_suspected" not in seen:
+            r.err("no injection suspicion was published while acting above the "
+                  "ceiling with retrieved_external content in context")
+
+        # 5. THE OBSERVATION IS TYPED AND BOUNDED. Handing the raw result back
+        #    would put raw external text into the planner context, which
+        #    INV-AUTH-6 forbids outright.
+        huge = {"stdout": "\n".join("y" * 500 for _ in range(500)),
+                "exit_code": 0}
+        o = observe("shell.run", {"cmd": "x"}, huge)
+        if len(o.get("stdout_lines", [])) > OBS_MAX_LINES:
+            r.err("an observation is not bounded by line count")
+        if any(len(ln) > OBS_MAX_LINE_CHARS for ln in o.get("stdout_lines", [])):
+            r.err("an observation is not bounded per line, so one enormous line "
+                  "defeats the line count")
+        leaked = observe("fs.write", {"path": "/x"},
+                         {"path": "/x", "previous": "SECRET PRIOR CONTENTS",
+                          "intended_sha256": "abc"})
+        if "SECRET PRIOR CONTENTS" in _json.dumps(leaked):
+            r.err("the observation carries `previous` -- the prior contents of "
+                  "an overwritten file, shown to the model deciding what next")
+        unknown = observe("some.new.capability", {}, {"anything": "raw"})
+        if "raw" in _json.dumps(unknown):
+            r.err("an unknown capability's raw result is passed through, so "
+                  "every capability added later is a hole in INV-AUTH-6 by "
+                  "default -- the wrong direction for a default to fail in")
+
+    r.note(f"the loop takes up to {MAX_STEPS} steps and the second is told what "
+           f"the first did; an immediate repeat stops it; {MAX_CONSECUTIVE_REFUSALS} "
+           "consecutive refusals trip the breaker; an observation taints the "
+           "context so the next step above L1 must ask; and observations are "
+           "typed, bounded, and carry neither raw results nor replaced contents")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "loop-observes-and-is-bounded": check_loop_observes_and_is_bounded,
     "write-never-destroys-what-was-not-read": check_write_never_destroys_what_was_not_read,
     "taint-ceiling-binds-the-act-path": check_taint_ceiling_binds_the_act_path,
     "gated-subsystems-are-reachable": check_gated_subsystems_are_reachable,

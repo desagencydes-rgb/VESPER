@@ -35,15 +35,17 @@ otherwise is not.
 from __future__ import annotations
 
 import hashlib
+import json
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
 from core.authorize import Grant, PolicyDecisionPoint
-from core.capabilities import INDEPENDENT_VERIFIERS, bind_all, build_registry
+from core.capabilities import (INDEPENDENT_VERIFIERS, bind_all,
+                               build_registry, observe)
 from core.executor import Executor
 from core.intent import IntentProposer
-from core.taint import ContextCeiling, Tainted
+from core.taint import EXTERNAL, ContextCeiling, Tainted
 
 # What VESPER may do without asking. Read-only inspection and its own workspace.
 STANDING_LEVEL = "L2"
@@ -52,6 +54,18 @@ STANDING_LEVEL = "L2"
 # to be a nuisance, short enough that a runtime left running for days is not
 # still acting on authority issued in a state nobody remembers.
 STANDING_TTL_MS = 12 * 60 * 60 * 1000
+
+# How many actions one turn may take. The loop exists so a task can be
+# finished, not so work can go on indefinitely; six is enough for read ->
+# decide -> write -> verify with room to recover from one mistake.
+MAX_STEPS = 6
+
+# Consecutive refused or failed steps before the turn is stopped. Codex bounds
+# the same thing at three denials per turn, and the reason is the same: with a
+# loop, a proposer that keeps re-proposing something the ladder refuses grinds
+# until the budget runs out. Without a loop this could not happen, which is why
+# it lands in the same commit rather than a later one.
+MAX_CONSECUTIVE_REFUSALS = 3
 
 
 @dataclass(slots=True)
@@ -103,24 +117,107 @@ class Actor:
     # --------------------------------------------------------------- act
 
     def maybe_act(self, text: str, *, attention_state: str = "UNKNOWN",
-                  period: str = "active",
-                  fragments: list | None = None) -> Outcome | None:
-        """None means this turn was not a request to do anything.
+                  period: str = "active", fragments: list | None = None,
+                  max_steps: int = MAX_STEPS) -> Outcome | None:
+        """Act, observe, and act again until the turn is finished. None means
+        this turn was not a request to do anything at all.
 
-        `fragments` carries the PROVENANCE of everything that reached the
-        proposer, and it is what makes `core/taint.py` binding here. Before
-        2026-09-01 the ceiling was computed nowhere on this path:
-        `authorize()` and `execute()` both defaulted `context_ceiling` to
-        "L5" and no caller passed one, so `ALLOWED_LEVEL` could not lower any
-        decision the running system made. `ContextCeiling` was instantiated
-        exactly twice in the whole repository -- once by its check and once by
-        its acceptance test, both of which supply their own subject. A check
-        that constructs the thing it checks is testing a library, not a system.
+        UNTIL 2026-09-01 THIS WAS ONE PROPOSAL AND ONE ACTION. It could not run
+        a command, look at the output, and open the file it found; it could not
+        try something, watch it fail, and fix it; it could not do anything that
+        takes two moves. A better tool set with no loop is still one action per
+        sentence.
+
+        WHAT MAY CONTINUE THE LOOP IS THE NARROW PART. Aider's inner loop
+        advances only on machine evidence that something is unfinished -- lint
+        errors, a failing test, an exception, a file that was not shared -- and
+        never because the model would like to keep going. Here the equivalent
+        is that the proposer must emit a well-formed action that the ladder
+        then permits. "Nothing more to do" is the default: `parse` returns None
+        for anything doubtful, so a finished turn simply stops proposing.
+
+        AND FOUR THINGS END IT REGARDLESS. The step budget; a repeat of the
+        previous action, which is progress having stopped; a refusal that needs
+        the owner, because waiting for an answer is not a step; and the
+        consecutive-refusal breaker below.
+
+        THE OBSERVATIONS ARE TAINTED AND THAT CHANGES WHAT COMES NEXT.
+        INV-ACT-3 makes command output `retrieved_external`, so from the second
+        step onwards the context ceiling is L1 and anything above it becomes a
+        question for the owner. That is a real and deliberate narrowing: it is
+        exactly the case where a file or a directory listing could otherwise
+        talk VESPER into something, and it is the reason the ceiling was wired
+        into this path first.
         """
-        p = self._proposer.propose(text)
-        if p is None:
-            return None
+        observations: list = []
+        outcomes: list = []
+        last: Outcome | None = None
+        signatures: list = []
+        consecutive_refusals = 0
 
+        for step in range(max(1, int(max_steps))):
+            p = self._proposer.propose(
+                text, observations=observations if observations else None)
+            if p is None:
+                break
+
+            # NO PROGRESS IS A STOP CONDITION. A proposer handed its own last
+            # action back can repeat it indefinitely, and every repeat is a
+            # fresh authorization and a fresh execution of something already
+            # done. Compared against the PREVIOUS signature rather than all of
+            # them, because revisiting a path legitimately happens -- read,
+            # write, read back -- and only an immediate repeat is stuck.
+            sig = (p.capability_id,
+                   json.dumps(p.args, sort_keys=True, default=str))
+            if signatures and sig == signatures[-1]:
+                self._bus.publish(
+                    "act.no_progress", subject=self._subject,
+                    payload={"capability_id": p.capability_id, "step": step},
+                    component="actor")
+                break
+            signatures.append(sig)
+
+            out = self._one_step(p, text, attention_state, period,
+                                 fragments, observations)
+            last = out
+            outcomes.append(out.to_dict())
+
+            if out.kind == "asked":
+                break                      # waiting on the owner ends the turn
+
+            if out.kind in ("refused", "failed"):
+                consecutive_refusals += 1
+                if consecutive_refusals >= MAX_CONSECUTIVE_REFUSALS:
+                    # THE CIRCUIT BREAKER, AND IT SHIPS WITH THE LOOP RATHER
+                    # THAN AFTER IT. One action per utterance made a refusal a
+                    # dead end; a loop lets a wrong or steered proposer grind
+                    # against the ladder for as long as the budget allows,
+                    # burning battery and -- once refusals reach the voice ask
+                    # -- the owner's sleep. Codex bounds the same thing at
+                    # three consecutive denials per turn.
+                    self._bus.publish(
+                        "act.refusal_breaker", subject=self._subject,
+                        payload={"consecutive": consecutive_refusals,
+                                 "step": step,
+                                 "capability_id": p.capability_id},
+                        component="actor")
+                    break
+            else:
+                consecutive_refusals = 0
+                observations.append(
+                    observe(p.capability_id, p.args,
+                            (out.detail or {}).get("result") or {}))
+
+        if last is None:
+            return None
+        if len(outcomes) > 1:
+            last.detail = dict(last.detail or {})
+            last.detail["steps"] = outcomes
+        return last
+
+    def _one_step(self, p: Any, text: str, attention_state: str, period: str,
+                  fragments: list | None, observations: list) -> Outcome:
+        """One proposal, levelled, authorized, executed and verified."""
         try:
             cap = self._registry.get(p.capability_id)
         except Exception as exc:                       # noqa: BLE001
@@ -135,7 +232,7 @@ class Actor:
         # `security.above_ceiling_proposal`, plus `security.injection_suspected`
         # when externally-retrieved content is in context -- which is the whole
         # point of the subsystem and was previously emitted by nothing that runs.
-        frags = self._fragments_for(text, fragments)
+        frags = self._fragments_for(text, fragments, observations)
         ceil = self._ceiling.check(level, frags, capability_id=p.capability_id,
                                    subject=self._subject)["ceiling"]
 
@@ -181,7 +278,8 @@ class Actor:
     # ------------------------------------------------------------- pieces
 
     @staticmethod
-    def _fragments_for(text: str, fragments: list | None) -> list:
+    def _fragments_for(text: str, fragments: list | None,
+                       observations: list | None = None) -> list:
         """The provenance of what reached the proposer, defaulted honestly.
 
         A caller that has retrieved anything -- a file, a page, a memory, a
@@ -198,9 +296,19 @@ class Actor:
         else. When speaker verification lands, this is the line it changes, and
         the ceiling is already threaded through everything downstream of it.
         """
-        if fragments is not None:
-            return list(fragments)
-        return [Tainted(text, "owner", origin="utterance:live")]
+        base = (list(fragments) if fragments is not None
+                else [Tainted(text, "owner", origin="utterance:live")])
+
+        # EVERY OBSERVATION LOWERS THE CEILING FOR THE REST OF THE TURN.
+        # INV-ACT-3: "command output entering the system are trust_class
+        # retrieved_external ... and may never raise the authority of any
+        # action." So once VESPER has looked at anything, the next step is
+        # capped at L1 and anything above it becomes a question. This is the
+        # loop's cost and it is the loop's whole safety argument: the step that
+        # could be steered by what was just read is the step that has to ask.
+        base += [Tainted(o, EXTERNAL, origin=f"observation:{o.get('capability')}")
+                 for o in (observations or []) if isinstance(o, dict)]
+        return base
 
 
     def _ask(self, decision: Any, proposal: Any, level: str,

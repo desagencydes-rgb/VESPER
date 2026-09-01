@@ -404,6 +404,66 @@ def verify_fs_write(result: dict) -> dict:
                    "what is on disk is not what the write says it wrote"}
 
 
+# ------------------------------------------------------------- observation
+
+# How much of what an action produced may cross back into the proposer's
+# context. Bounded at both ends: a runaway command must not fill the window,
+# and a single enormous line must not defeat a line count.
+OBS_MAX_LINES = 40
+OBS_MAX_LINE_CHARS = 200
+
+
+def observe(capability_id: str, args: dict, result: dict) -> dict:
+    """The TYPED view of what an action produced, for the next step to plan on.
+
+    WHY THIS EXISTS RATHER THAN HANDING BACK THE RESULT. INV-AUTH-6: the
+    planner context never ingests raw external text. Command output, file
+    contents and UI labels are `retrieved_external` by INV-ACT-3, and the
+    architecture the corpus committed to is that external content goes to an
+    extraction context capped at L1 and only STRUCTURED, schema-shaped data
+    crosses into the planner. This is that crossing, made narrow enough to
+    describe: fixed keys, known types, bounded lengths.
+
+    IT IS STILL TAINTED AND THAT IS THE POINT. Structure is not trust. A
+    filename is attacker-controlled if a directory was attacker-controlled, so
+    the caller wraps this in `Tainted(..., "retrieved_external")` and the
+    context ceiling caps whatever the next step tries to do at L1. The two
+    mechanisms are doing different jobs: this one bounds the SHAPE, the ceiling
+    bounds the AUTHORITY, and neither substitutes for the other.
+
+    WHAT IS DELIBERATELY ABSENT: `previous`, the prior contents of an
+    overwritten file. It is in the result for the compensator and it has no
+    business being shown to a model that is deciding what to do next.
+    """
+    def lines(text: Any) -> list:
+        out = str(text or "").splitlines()[:OBS_MAX_LINES]
+        return [ln[:OBS_MAX_LINE_CHARS] for ln in out]
+
+    result = result if isinstance(result, dict) else {}
+    if capability_id == "shell.run":
+        return {"capability": capability_id,
+                "cmd": str(args.get("cmd") or "")[:OBS_MAX_LINE_CHARS],
+                "exit_code": result.get("exit_code"),
+                "stdout_lines": lines(result.get("stdout")),
+                "stderr_lines": lines(result.get("stderr"))}
+    if capability_id == "fs.read":
+        return {"capability": capability_id,
+                "path": str(result.get("path") or args.get("path") or ""),
+                "bytes": result.get("bytes"),
+                "sha256": result.get("sha256"),
+                "truncated": bool(result.get("truncated")),
+                "lines": lines(result.get("text"))}
+    if capability_id == "fs.write":
+        return {"capability": capability_id,
+                "path": str(result.get("path") or args.get("path") or ""),
+                "wrote_sha256": result.get("intended_sha256"),
+                "replaced_existing": bool(result.get("had_previous"))}
+    # AN UNKNOWN CAPABILITY REPORTS THAT IT RAN AND NOTHING ELSE. Falling back
+    # to the raw result would make every new capability a hole in INV-AUTH-6 by
+    # default, which is the wrong direction for a default to fail in.
+    return {"capability": capability_id, "observed": False}
+
+
 # ---------------------------------------------------------------- assembly
 
 def build_registry() -> CapabilityRegistry:

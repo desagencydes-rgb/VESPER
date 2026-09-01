@@ -152,11 +152,27 @@ class IntentProposer:
             except Exception:                          # noqa: BLE001
                 pass
 
-    def propose(self, text: str) -> Proposal | None:
-        """None means "this turn is not an action", which is the common case."""
+    def propose(self, text: str, observations: list | None = None) -> Proposal | None:
+        """None means "this turn is not an action", which is the common case.
+
+        `observations` is what the turn has ALREADY done -- the typed, bounded
+        views produced by `capabilities.observe`, never raw output. It is what
+        turns a single proposal into a loop: the next step is chosen knowing
+        what the last one found.
+
+        NONE IS ALSO HOW THE LOOP ENDS, and that is deliberate. Aider's loop
+        continues only while machine evidence says something is unfinished --
+        lint errors, a failing test, an exception -- and never because the model
+        would like to keep going. Here the equivalent is that the proposer must
+        produce a well-formed action that the ladder then permits: "nothing more
+        to do" is the default, `parse` returns None for anything doubtful, and a
+        turn that is finished simply stops proposing.
+        """
         text = (text or "").strip()
         if not text:
             return None
+        if observations:
+            text = text + "\n\n" + _render_observations(observations)
         try:
             out = self._gw.complete(
                 text, task_id="intent", system=SYSTEM,
@@ -174,3 +190,33 @@ class IntentProposer:
                    {"proposal": p.to_dict() if p else None,
                     "raw": raw[:300] if p is None else ""})
         return p
+
+
+def _render_observations(observations: list) -> str:
+    """What already happened this turn, as text the proposer can read.
+
+    Rendered from the TYPED observation, not from the result -- so no raw
+    command output or file text is assembled here. Everything in these lines
+    came through `capabilities.observe`, which is the crossing INV-AUTH-6
+    allows, and the fragment carrying it is tainted `retrieved_external` so
+    whatever the proposer decides next is capped at L1 by the context ceiling.
+    """
+    out = ["ALREADY DONE THIS TURN (most recent last):"]
+    for i, o in enumerate(observations, 1):
+        o = o if isinstance(o, dict) else {}
+        cap = o.get("capability", "?")
+        bits = [f"{i}. {cap}"]
+        for key in ("cmd", "path", "exit_code", "bytes", "truncated",
+                    "replaced_existing", "outcome", "refused_because"):
+            if o.get(key) is not None:
+                bits.append(f"{key}={o[key]!r}")
+        out.append("   " + "  ".join(bits))
+        for key in ("stdout_lines", "stderr_lines", "lines"):
+            got = o.get(key) or []
+            if got:
+                out.append(f"     {key}:")
+                out.extend("       " + ln for ln in got)
+    out.append("")
+    out.append("If the request is now satisfied, return {\"action\": \"none\"}. "
+               "Do not repeat an action you have already taken.")
+    return "\n".join(out)
