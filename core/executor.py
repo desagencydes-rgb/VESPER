@@ -40,7 +40,9 @@ from typing import Any, Callable
 
 from .authorize import Decision, PolicyDecisionPoint
 from .bus import EventBus
+from .capabilities import touched_paths
 from .capability import CapabilityRegistry
+from .checkpoint import CheckpointUnavailable
 
 OUTCOMES = ("VERIFIED", "FAILED", "OUTCOME_UNKNOWN", "COMPENSATED", "REFUSED")
 
@@ -67,23 +69,26 @@ class Execution:
     error: str | None = None
     compensated: bool = False
     idempotency_key: str = ""
+    checkpoint: str | None = None
 
     def to_dict(self) -> dict:
         return {"execution_id": self.execution_id,
                 "capability_id": self.capability_id, "subject": self.subject,
                 "outcome": self.outcome, "error": self.error,
                 "compensated": self.compensated,
-                "idempotency_key": self.idempotency_key}
+                "idempotency_key": self.idempotency_key,
+                "checkpoint": self.checkpoint}
 
 
 class Executor:
     """Invokes capabilities. Every invocation passes DF-AUTHORIZE first."""
 
     def __init__(self, bus: EventBus, registry: CapabilityRegistry,
-                 pdp: PolicyDecisionPoint) -> None:
+                 pdp: PolicyDecisionPoint, shadow: Any = None) -> None:
         self._bus = bus
         self._registry = registry
         self._pdp = pdp
+        self._shadow = shadow
         self._impls: dict[str, Callable[[dict], Any]] = {}
         self._compensators: dict[str, Callable[[dict, Any], Any]] = {}
         self._seen_keys: set = set()
@@ -163,10 +168,60 @@ class Executor:
                               payload=ex.to_dict(), component="executor")
             return ex
 
+        # THE SNAPSHOT IS TAKEN HERE, at the one place every execution passes,
+        # and BEFORE the implementation runs. Hooking it in the actor instead
+        # would leave any other caller of `execute` writing with no undo -- the
+        # same shape as a subsystem that is built, gated, and reachable from
+        # one path out of two.
+        #
+        # FAIL CLOSED. A capability that declares it touches files does not run
+        # when its pre-state cannot be recorded. Writing over the owner's data
+        # with the undo quietly unavailable is the one moment the undo exists
+        # for.
+        checkpoint_id = None
+        targets = touched_paths(capability_id, args)
+        if targets:
+            if self._shadow is None:
+                ex = Execution(eid, capability_id, subject, "REFUSED",
+                               error="no_checkpoint_store", idempotency_key=key)
+                self._bus.publish("tool.refused", subject=task_id or subject,
+                                  payload={**ex.to_dict(),
+                                           "why": "this capability changes files "
+                                                  "and no checkpoint store is "
+                                                  "attached, so the change could "
+                                                  "not be undone"},
+                                  component="executor")
+                # CARRIES A DECISION, like every other refusal out of this
+                # method. Raising with a bare string made `e.decision` a str,
+                # and A-024.4 reads `e.decision.reason` -- so the acceptance
+                # test failed on an AttributeError rather than on the property
+                # it was asserting.
+                raise NotAuthorized(Decision(
+                    False, "L0", "no_checkpoint_store", capability_id, subject,
+                    f"{capability_id} changes files and no checkpoint store is "
+                    "attached, so the change could not be undone"))
+            try:
+                checkpoint_id = self._shadow.checkpoint(
+                    targets, f"before {capability_id} [{eid}]")
+            except CheckpointUnavailable as exc:
+                ex = Execution(eid, capability_id, subject, "REFUSED",
+                               error=f"checkpoint_failed: {exc}",
+                               idempotency_key=key)
+                self._bus.publish("tool.refused", subject=task_id or subject,
+                                  payload={**ex.to_dict()}, component="executor")
+                raise
+            self._bus.publish("tool.checkpointed", subject=task_id or subject,
+                              payload={"execution_id": eid,
+                                       "capability_id": capability_id,
+                                       "checkpoint": checkpoint_id,
+                                       "paths": [str(t) for t in targets]},
+                              component="executor")
+
         self._bus.publish("tool.invoked", subject=task_id or subject,
                           payload={"execution_id": eid,
                                    "capability_id": capability_id,
                                    "effective_level": d.effective_level,
+                                   "checkpoint": checkpoint_id,
                                    "idempotency_key": key},
                           component="executor")
         try:
@@ -177,7 +232,7 @@ class Executor:
         with self._lock:
             self._seen_keys.add(key)
         ex = Execution(eid, capability_id, subject, "VERIFIED", result=result,
-                       idempotency_key=key)
+                       idempotency_key=key, checkpoint=checkpoint_id)
         self._bus.publish("tool.completed", subject=task_id or subject,
                           payload=ex.to_dict(), component="executor")
         return ex

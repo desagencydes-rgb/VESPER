@@ -757,6 +757,36 @@ def observe(capability_id: str, args: dict, result: dict) -> dict:
     return {"capability": capability_id, "observed": False}
 
 
+# WHICH FILES AN ACTION WILL TOUCH, so the shadow store can snapshot them
+# BEFORE it happens. Declared per capability rather than guessed from the
+# arguments, because a guess that misses is an undo that silently is not there.
+#
+# `shell.run` is deliberately absent and that is a stated limit, not an
+# oversight: a command's writes are not knowable from its text, which is the
+# same reason it has no independent verifier. The seatbelt is what bounds it --
+# an L1 command cannot write at all, and above L1 it can only write inside the
+# workspace and temp. Undo for shell.run needs the sandbox to report what it
+# touched, and that is not built.
+TOUCHED_PATHS = {
+    "fs.write": lambda args: [resolve(args.get("path"))],
+    "fs.edit": lambda args: [resolve(args.get("path"))],
+}
+
+
+def touched_paths(capability_id: str, args: dict) -> list:
+    fn = TOUCHED_PATHS.get(capability_id)
+    if fn is None:
+        return []
+    try:
+        return [pathlib.Path(p) for p in fn(args or {})]
+    except Exception:                                  # noqa: BLE001
+        # A CAPABILITY THAT DECLARES IT TOUCHES FILES AND CANNOT SAY WHICH IS
+        # NOT CHECKPOINTABLE, and the executor refuses rather than running it
+        # with no snapshot. Returning [] here would report "touches nothing",
+        # which is the failure that looks like success.
+        raise
+
+
 # ---------------------------------------------------------------- assembly
 
 def build_registry() -> CapabilityRegistry:

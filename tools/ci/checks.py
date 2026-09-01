@@ -12549,8 +12549,191 @@ def check_edit_names_one_place() -> Result:
     return r
 
 
+def check_every_change_is_undoable() -> Result:
+    """Nothing that changes a file runs without its pre-state recorded first.
+
+    RANKED FIRST FOR SAFETY PER LINE in the landscape survey, and the reason is
+    that it does not depend on anything being right. The level rules can be
+    wrong, the proposer can be steered, the verifier can be probed through a
+    door that returns early -- and the change is still undoable, because the
+    world as it was got written down before anybody acted on it.
+
+    A SEPARATE REPOSITORY, NOT THE OWNER'S. Aider commits every AI edit into
+    the project's own history and refuses to undo a human's commit. That fits a
+    coding tool whose workspace is one repository. VESPER writes to documents
+    and notes that are in no repository, and to ones that are in the owner's --
+    so the shadow records what VESPER did without writing to a history somebody
+    else keeps. Cline's shape, for the same reason.
+
+    AND IT LIVES BESIDE STATE. A store under `VESPER.app` would be deleted by
+    the next `build.sh`, which is how a note that was written, hash-verified
+    and reported successful vanished -- the history would disappear exactly
+    when a rebuild made it most useful.
+    """
+    r = Result("every-change-is-undoable")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf
+    try:
+        from core import actor as actor_mod
+        from core.authorize import Grant, PolicyDecisionPoint
+        from core.bus import EventBus
+        from core.capabilities import build_registry, touched_paths
+        from core.checkpoint import CheckpointUnavailable, ShadowGit
+        from core.executor import Executor, NotAuthorized
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the checkpoint modules do not import: {exc!r}")
+        return r
+
+    # 1. THE STORE IS NOT UNDER THE APP BUNDLE. `build.sh` empties that tree.
+    root = str(actor_mod.SHADOW_ROOT)
+    if "VESPER.app" in root or "/app/" in root:
+        r.err(f"the shadow store lives at {root}, inside the app bundle, so "
+              "`build.sh` deletes the undo history on every build")
+    if "Application Support" not in root:
+        r.err(f"the shadow store at {root} is not beside VESPER's state")
+
+    # 2. EVERY FILE-TOUCHING CAPABILITY DECLARES WHAT IT TOUCHES.
+    for cid, args in (("fs.write", {"path": "workspace/x.txt", "content": "a"}),
+                      ("fs.edit", {"path": "workspace/x.txt", "old": "a",
+                                   "new": "b"})):
+        if not touched_paths(cid, args):
+            r.err(f"{cid} changes files and declares no touched paths, so "
+                  "nothing can be snapshotted before it runs")
+    if touched_paths("shell.run", {"cmd": "ls"}):
+        r.err("shell.run declares touched paths. A command's writes are not "
+              "knowable from its text -- claiming otherwise produces an undo "
+              "that silently is not there, which is worse than none")
+
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("cp-check")
+        store = StoreSet(base / "s", node_id="cp-check")
+        bus = EventBus(clock, store, component="cp-check")
+        reg = build_registry()
+
+        # 3. FAIL CLOSED. No store means no write, not a write with no undo.
+        pdp = PolicyDecisionPoint(bus, reg)
+        bare = Executor(bus, reg, pdp)
+        bare.bind("fs.write", lambda a: {"ok": True},
+                  compensator=lambda a, x: {"undone": True})
+        pdp.issue(Grant("g0", "nostore", "fs.write", ("host",), "L4",
+                        10_000_000_000_000, 0))
+        try:
+            bare.execute(subject="nostore", capability_id="fs.write",
+                         args={"path": str(base / "x.txt"), "content": "a"},
+                         target="host")
+            r.err("a file-changing capability ran with no checkpoint store "
+                  "attached. Writing over the owner's data with the undo "
+                  "quietly unavailable is the one moment the undo exists for.")
+        except NotAuthorized as exc:
+            if getattr(exc.decision, "reason", None) != "no_checkpoint_store":
+                r.err(f"the refusal names {exc.decision.reason!r} rather than "
+                      "no_checkpoint_store")
+        except AttributeError:
+            r.err("the refusal was raised without a Decision, so every caller "
+                  "reading `.decision.reason` gets an AttributeError instead "
+                  "of the reason")
+
+        # 4. THE PRE-STATE IS WHAT IS RECORDED, and the round trip works.
+        sg = ShadowGit(base / "shadow")
+        doc = base / "doc.txt"
+        doc.write_text("ORIGINAL\n", encoding="utf-8")
+        commit = sg.checkpoint([doc], "before")
+        doc.write_text("CHANGED\n", encoding="utf-8")
+        sg.restore(commit, doc)
+        if doc.read_text(encoding="utf-8") != "ORIGINAL\n":
+            r.err("restoring a checkpoint did not put the previous contents "
+                  "back -- the snapshot is being taken after the change, so it "
+                  "records the consequence and can restore nothing")
+
+        # 5. A FILE THAT DID NOT EXIST IS RESTORED TO NOT EXISTING. Otherwise
+        #    undoing a creation leaves the creation in place.
+        made = base / "made.txt"
+        c2 = sg.checkpoint([made], "before creation")
+        made.write_text("new\n", encoding="utf-8")
+        sg.restore(c2, made)
+        if made.exists():
+            r.err("undoing a file's creation left the file behind: 'there was "
+                  "no file then' has to be a restorable state")
+
+        # 5b. AND A PATH THAT ONCE HAD CONTENT AND NO LONGER DOES MUST BE
+        #     RECORDED AS ABSENT. This is the case assertion 5 cannot reach: a
+        #     path never checkpointed before has nothing in the mirror to
+        #     remove, so the restore's own absent-branch covers it either way.
+        #     Only a path with a PREVIOUS snapshot exposes a store that leaves
+        #     stale copies behind -- and there the undo resurrects a file the
+        #     owner deleted.
+        gone = base / "gone.txt"
+        gone.write_text("used to exist\n", encoding="utf-8")
+        sg.checkpoint([gone], "while it existed")
+        gone.unlink()
+        c_gone = sg.checkpoint([gone], "after it was deleted")
+        gone.write_text("recreated\n", encoding="utf-8")
+        sg.restore(c_gone, gone)
+        if gone.exists():
+            r.err("restoring a checkpoint taken while the file was absent "
+                  "brought it back: the store kept a stale mirror, so an undo "
+                  "resurrects a file the owner had deleted")
+
+        # 6. SAME NAME, DIFFERENT DIRECTORIES. A store keyed on the basename is
+        #    the obvious shortcut and it loses exactly the case undo is for.
+        (base / "a").mkdir(exist_ok=True)
+        (base / "b").mkdir(exist_ok=True)
+        fa, fb = base / "a" / "same.txt", base / "b" / "same.txt"
+        fa.write_text("A\n", encoding="utf-8")
+        fb.write_text("B\n", encoding="utf-8")
+        c3 = sg.checkpoint([fa, fb], "two")
+        fa.write_text("A2\n", encoding="utf-8")
+        fb.write_text("B2\n", encoding="utf-8")
+        sg.restore(c3, fa)
+        sg.restore(c3, fb)
+        if fa.read_text(encoding="utf-8") != "A\n" or fb.read_text(encoding="utf-8") != "B\n":
+            r.err("two files with the same name in different directories "
+                  "collided in the shadow store")
+
+        # 7. THROUGH THE EXECUTOR, which is the only path that matters: the
+        #    snapshot happens, it is published, and it restores.
+        pdp2 = PolicyDecisionPoint(bus, reg)
+        ex = Executor(bus, reg, pdp2, shadow=ShadowGit(base / "shadow2"))
+        seen: list = []
+        bus.subscribe("tool.checkpointed", lambda e: seen.append(e.payload),
+                      name="cp-check-sub", idempotency_key=lambda e: e.event_id)
+        real = base / "real.txt"
+        real.write_text("BEFORE\n", encoding="utf-8")
+        from core.capabilities import fs_write, fs_write_compensator
+        ex.bind("fs.write", fs_write, compensator=fs_write_compensator)
+        pdp2.issue(Grant("g1", "cp", "fs.write", ("host",), "L4",
+                         10_000_000_000_000, 0))
+        got = ex.execute(subject="cp", capability_id="fs.write",
+                         args={"path": str(real), "content": "AFTER\n"},
+                         target="host")
+        if real.read_text(encoding="utf-8") != "AFTER\n":
+            r.err("the write did not happen")
+        if not seen:
+            r.err("no tool.checkpointed was published, so nothing afterwards "
+                  "can find the point to undo to")
+        elif not getattr(got, "checkpoint", None):
+            r.err("the execution record does not carry its checkpoint id, so "
+                  "the snapshot exists and cannot be located from the record")
+        else:
+            ShadowGit(base / "shadow2").restore(got.checkpoint, real)
+            if real.read_text(encoding="utf-8") != "BEFORE\n":
+                r.err("the checkpoint taken by the executor did not restore")
+
+    r.note("the store is beside state and not under the bundle; fs.write and "
+           "fs.edit declare what they touch and shell.run declares nothing; a "
+           "missing store refuses the write with a named Decision; the "
+           "pre-state round-trips, a creation undoes to absence, same-named "
+           "files do not collide, and the executor's own checkpoint restores")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "every-change-is-undoable": check_every_change_is_undoable,
     "edit-names-one-place": check_edit_names_one_place,
     "shell-runs-contained": check_shell_runs_contained,
     "loop-observes-and-is-bounded": check_loop_observes_and_is_bounded,

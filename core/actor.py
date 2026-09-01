@@ -42,10 +42,11 @@ from typing import Any
 
 from core.authorize import Grant, PolicyDecisionPoint
 from core.capabilities import (INDEPENDENT_VERIFIERS, bind_all,
-                               build_registry, observation_trust,
-                               observe)
+                               WORKSPACE, build_registry,
+                               observation_trust, observe)
 from core.executor import Executor
 from core.intent import IntentProposer
+from core.checkpoint import ShadowGit
 from core.taint import EXTERNAL, ContextCeiling, Tainted
 
 # What VESPER may do without asking. Read-only inspection and its own workspace.
@@ -68,6 +69,10 @@ MAX_STEPS = 6
 # it lands in the same commit rather than a later one.
 MAX_CONSECUTIVE_REFUSALS = 3
 
+# Where the shadow history lives. Beside VESPER's state, for the reason given
+# in `__init__` -- the workspace's own parent, so a rebuild cannot take it.
+SHADOW_ROOT = WORKSPACE.parent / "shadow"
+
 
 @dataclass(slots=True)
 class Outcome:
@@ -89,12 +94,20 @@ class Actor:
 
     def __init__(self, bus: Any, gateway: Any, *, subject: str = "vesper",
                  target: str = "host", broker: Any = None,
-                 now_ms: Any = None, profile_id: str = "") -> None:
+                 now_ms: Any = None, profile_id: str = "",
+                 shadow: Any = None) -> None:
         self._bus = bus
         self._registry = build_registry()
         self._pdp = PolicyDecisionPoint(bus, self._registry,
                                         **({"now_ms": now_ms} if now_ms else {}))
-        self._executor = Executor(bus, self._registry, self._pdp)
+        # BESIDE STATE, NEVER BESIDE CODE. `build.sh` deletes the runtime
+        # directory inside VESPER.app on every build, and a note written there
+        # was created, hash-verified, reported successful and then removed by
+        # the next build. A checkpoint store under the bundle would lose its
+        # history at exactly the moment a rebuild made it most useful.
+        self._shadow = shadow if shadow is not None else ShadowGit(SHADOW_ROOT)
+        self._executor = Executor(bus, self._registry, self._pdp,
+                                  shadow=self._shadow)
         bind_all(self._executor)
         self._proposer = IntentProposer(gateway, bus=bus, profile_id=profile_id)
         self._ceiling = ContextCeiling(bus)

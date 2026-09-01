@@ -3800,5 +3800,60 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# Shadow-git checkpoint and undo. Ranked first for safety per line, because it
+# is the only defence here that does not depend on anything being right.
+# --------------------------------------------------------------------------
+CHECKPOINT_PY = "core/checkpoint.py"
+EXECUTOR_PY = "core/executor.py"
+
+CASES += [
+    ("every-change-is-undoable", EXECUTOR_PY,
+     _sub("        checkpoint_id = None\n        targets = touched_paths(capability_id, args)",
+          "        checkpoint_id = None\n        targets = []", 1),
+     "nothing is snapshotted before a write: the change happens and the world "
+     "as it was when the decision was made is gone"),
+
+    ("every-change-is-undoable", EXECUTOR_PY,
+     _sub("            if self._shadow is None:", "            if False:", 1),
+     "a write runs with no checkpoint store attached -- writing over the "
+     "owner's data with the undo quietly unavailable, which is the one moment "
+     "the undo exists for"),
+
+    ("every-change-is-undoable", CAPS_PY,
+     _sub('    "fs.edit": lambda args: [resolve(args.get("path"))],\n', "", 1),
+     "fs.edit stops declaring what it touches, so surgical edits are the one "
+     "kind of change with no undo behind them"),
+
+    ("every-change-is-undoable", CAPS_PY,
+     _sub('    "fs.write": lambda args: [resolve(args.get("path"))],',
+          '    "fs.write": lambda args: [resolve(args.get("path"))],\n'
+          '    "shell.run": lambda args: [resolve("workspace")],', 1),
+     "shell.run claims to know what it touches: an undo that restores the "
+     "wrong thing and reports success, which is worse than having none"),
+
+    ("every-change-is-undoable", CHECKPOINT_PY,
+     _sub("        return self.tree / str(p).lstrip(\"/\")",
+          "        return self.tree / p.name", 1),
+     "the shadow store is keyed on the basename, so two files called notes.txt "
+     "in different folders overwrite each other's history -- and the undo "
+     "restores one of them over the other"),
+
+    ("every-change-is-undoable", CHECKPOINT_PY,
+     _sub("                elif dst.exists():\n                    dst.unlink()", "                pass", 1),
+     "a file that did not exist is not recorded as absent, so undoing its "
+     "creation leaves the creation in place"),
+
+    ("every-change-is-undoable", ACTOR_PY,
+     _sub("SHADOW_ROOT = WORKSPACE.parent / \"shadow\"",
+          "SHADOW_ROOT = REPO_APP_SHADOW", 1)
+     if False else
+     _sub('SHADOW_ROOT = WORKSPACE.parent / "shadow"',
+          'SHADOW_ROOT = pathlib.Path("app/VESPER.app/Contents/Resources/shadow")', 1),
+     "the undo history moves inside the app bundle, where build.sh deletes it "
+     "-- so it disappears exactly when a rebuild makes it most useful"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

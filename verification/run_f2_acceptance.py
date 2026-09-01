@@ -44,6 +44,7 @@ from core.executor import (CompensatorMissing, Executor,  # noqa: E402
 from core.selfmod import (Proposal, SelfModificationBoundary,  # noqa: E402
                           SelfModificationRefused)
 from core.supervisor import Supervisor  # noqa: E402
+from core.checkpoint import ShadowGit  # noqa: E402
 from core.taint import (ContextCeiling, Tainted,  # noqa: E402
                         TaintedCache, summarise)
 
@@ -537,7 +538,7 @@ def a024_4_expiry_mid_task(tmp: Path) -> None:
         reg = _registry()
         clock = {"t": 0}
         pdp = PolicyDecisionPoint(sup.bus, reg, now_ms=lambda: clock["t"])
-        ex = Executor(sup.bus, reg, pdp)
+        ex = Executor(sup.bus, reg, pdp, shadow=ShadowGit(tmp / 'shadow'))
 
         wrote = []
         ex.bind("fs.write", lambda a: (wrote.append(a), {"ok": True})[1],
@@ -600,7 +601,7 @@ def f2_execution_and_compensation(tmp: Path) -> None:
             LevelRule("small", "L4", {"amount": 10}),
         ], reversibility="irreversible", external_effect=True)
         pdp = PolicyDecisionPoint(sup.bus, reg, now_ms=lambda: 0)
-        ex = Executor(sup.bus, reg, pdp)
+        ex = Executor(sup.bus, reg, pdp, shadow=ShadowGit(tmp / 'shadow'))
 
         # A `compensatable` capability without a compensator is refused AT BIND.
         refused_bind = False
@@ -696,7 +697,7 @@ def f2_execution_and_compensation(tmp: Path) -> None:
             sent.append(a)
             raise RuntimeError("delivery rejected downstream")
 
-        ex2 = Executor(sup.bus, reg, pdp)
+        ex2 = Executor(sup.bus, reg, pdp, shadow=ShadowGit(tmp / 'shadow'))
         ex2.bind("mail.send", boom, compensator=lambda a, r: comp.append(a))
         pdp.issue(Grant("gm2", "agent2", "mail.send", ("host",), "L4", 10_000,
                         0, issued_for_command_id="cmd-3"))
