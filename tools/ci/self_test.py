@@ -3583,10 +3583,17 @@ CASES += [
      "flat -- what a check asserting only 'a ceiling was passed' cannot see"),
 
     # ---------------------------------------------------------------- CI-094
+    # RETARGETED 2026-09-01. This named core/interlock.py, and the emergency
+    # stop was WIRED earlier the same day -- so its OWED entry was correctly
+    # removed from [unwired] and the mutation stopped matching anything. The
+    # case had gone quiet in the good direction, which is the direction that is
+    # hardest to notice: nothing was broken, the case was simply no longer
+    # testing what it was written to test. core/cache.py is now the one module
+    # genuinely OWED rather than deferred by design, so it carries the case.
     ("gated-subsystems-are-reachable", CHECKS_TOML,
-     _sub('"core/interlock.py" = """OWED', '"core/interlock-py" = """OWED', 1),
+     _sub('"core/cache.py" = """OWED', '"core/cache-py" = """OWED', 1),
      "an unreachable gated subsystem loses its declaration and goes silent "
-     "again -- the emergency stop, specifically"),
+     "again -- the cache, the one module still OWED rather than deferred"),
 
     ("gated-subsystems-are-reachable", CHECKS_TOML,
      _sub('[unwired]\n', '[unwired]\n"core/gateway.py" = "declared unwired while it has callers"\n', 1),
@@ -3887,7 +3894,9 @@ CASES += [
      "grant is consulted before is not a tier a grant cannot open"),
 
     ("prohibited-tier-no-grant-opens", CAPS_PY,
-     _sub('SELF_DEFEATING_DIRS = ("shadow", "events", "audit")',
+     # The tuple gained "interlock" when the stop landed, and this mutation
+     # named the three-element version. It matched nothing from that moment on.
+     _sub('SELF_DEFEATING_DIRS = ("shadow", "events", "audit", "interlock")',
           'SELF_DEFEATING_DIRS = ()', 1),
      "the self-defeating set is emptied, so the undo history and the event log "
      "are ordinary files again"),
@@ -3928,8 +3937,13 @@ CASES += [
      "nothing happens -- the state this closed"),
 
     ("autonomy-can-act-and-still-cannot-decide", SELF_DIRECTED_PY,
-     _sub("    return [disk_pressure_trigger(), host_health_trigger()]",
-          "    return [disk_pressure_trigger()]", 1),
+     # all_triggers grew host_pressure_trigger() and an optional compactor
+     # trigger, so the two-element return this named no longer exists. Reducing
+     # the list to one entry is still the mutation -- the check's claim is that
+     # the loop has real work to consider, not that it has exactly two things.
+     _sub("    out = [disk_pressure_trigger(), host_health_trigger(),\n"
+          "           host_pressure_trigger()]",
+          "    out = [disk_pressure_trigger()]", 1),
      "the loop is back to almost nothing to consider: it wakes, finds one "
      "thing, and sleeps"),
 

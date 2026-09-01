@@ -13041,6 +13041,236 @@ def check_autonomy_can_act_and_still_cannot_decide() -> Result:
     return r
 
 
+def check_silence_is_recorded_once_not_every_tick() -> Result:
+    """A quiet trigger records the DURATION of its silence, not every tick of it.
+
+    WHAT THIS FIXES, MEASURED BEFORE IT WAS CHANGED. The live event log held
+    1,893,179 records / 1.67 GB, of which 619,063 were `autonomy.noop` written
+    over 41.8 hours by a SINGLE registered trigger -- 14,817 an hour, every one
+    of them carrying the same snapshot as the one before it. Four self-directed
+    triggers landed on 2026-09-01, which projects the same quiet machine to
+    1.78 million no-op records and roughly 1.5 GB a DAY. The owner's standing
+    constraint on this host is "no pressure on pc, battery"; a log that grows a
+    gigabyte a day saying nothing happened is exactly that pressure.
+
+    WHY THIS IS NOT A WEAKENING OF INV-TRIG-6. The invariant asks that a
+    recorded no-op carry a trigger_id and be auditable -- "silence is a decision
+    with provenance". A record that says "this snapshot has held since tick N"
+    carries strictly MORE provenance than one that says only "tick N", because
+    it states the duration the reader previously had to infer from absence.
+    A-029 part 2 asserts `at least one recorded no-op carries a trigger_id`, not
+    one per tick, and it is checked here against a driven loop rather than read
+    off the source.
+
+    THE FOUR ASSERTIONS EACH COVER THE OTHERS' BLIND SPOT, which is the same
+    reason A-029 part 1 has four rather than one:
+
+      * ECONOMY alone passes for a loop that records once and never again.
+      * COVERAGE alone passes for the per-tick emitter this replaces.
+      * STALENESS alone passes for a fixed-rate emitter that ignores the world.
+      * TRACKING alone passes for a loop that records only on change and so
+        goes silent for a week when the world does not move.
+
+    THE FIRST VERSION OF THIS FAILED THE STALENESS ASSERTION AND LOOKED FINE.
+    It advanced the "last published" tick on every tick rather than on every
+    publish, so `now - last` was 1 forever, the keepalive never came due, and a
+    600-tick quiet run recorded ONE no-op instead of ten. Economy and coverage
+    both passed on it. That is why staleness is asserted separately.
+    """
+    r = Result("silence-is-recorded-once-not-every-tick")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf
+    try:
+        from core.autonomy import (NOOP_KEEPALIVE_TICKS, AutonomyLoop,
+                                   PredicateEvaluator, Trigger)
+        from core.bus import EventBus
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+        from core.world import Observation, WorldModel
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the autonomy path did not import: {exc!r}")
+        return r
+
+    TERM = "world.workshop_space.temperature"
+    SUBJ, ATTR = TERM.rsplit(".", 1)
+
+    def _trigger() -> Trigger:
+        return Trigger(
+            trigger_id="trg_noop_economy",
+            predicate_class="STATE",
+            # Fires only well above anything this check ever writes, so the
+            # trigger stays QUIET for the whole run. A trigger that fires would
+            # end the run of silence and measure something else.
+            # TOTAL over its declared term, which registration enforces: the
+            # isinstance guard is what makes it return False rather than raise
+            # on the UNKNOWN sentinel and on the True the anti-cron probe feeds
+            # it. A predicate that raises does not evaluate to False, it takes
+            # the tick down with it.
+            predicate=lambda s: (isinstance(s.get(TERM), (int, float))
+                                 and not isinstance(s.get(TERM), bool)
+                                 and s.get(TERM) > 900),
+            state_terms=(TERM,),
+            intent="cool the workshop")
+
+    TICKS = 300
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("noop-check")
+        store = StoreSet(base / "s", node_id="noop-check")
+        bus = EventBus(clock, store, component="noop-check")
+        now = {"t": 0}
+        world = WorldModel(bus, clock, now_ms=lambda: now["t"])
+        loop = AutonomyLoop(bus, world, PredicateEvaluator(bus, world),
+                            now_ms=lambda: now["t"])
+        loop.register(_trigger())
+
+        published: list = []
+        bus.subscribe("autonomy.noop", lambda e: published.append(e.payload),
+                      name="noop-check-sub",
+                      idempotency_key=lambda e: e.event_id)
+
+        world.apply(Observation(SUBJ, ATTR, 19.0, clock.now(), source="probe"))
+        for i in range(TICKS):
+            now["t"] = i * 1000
+            loop.tick()
+
+        # 1. ECONOMY. A quiet machine does not write a record a tick.
+        ceiling = 2 * (TICKS // NOOP_KEEPALIVE_TICKS) + 4
+        if len(published) > ceiling:
+            r.err(f"{TICKS} quiet ticks published {len(published)} no-op "
+                  f"records against a ceiling of {ceiling}. Silence is being "
+                  "re-stated rather than recorded, which is the 1.5 GB/day "
+                  "this exists to stop.")
+        if not published:
+            r.err("a quiet trigger published NOTHING. INV-TRIG-6 asks that "
+                  "silence carry provenance, and an empty log cannot tell a "
+                  "quiet night from a dead one.")
+            return r
+
+        # 2. THE INVARIANT ITSELF, on every record and not just the first.
+        #
+        #    IT RETURNS RATHER THAN BREAKING, and that is not tidiness. The
+        #    first version broke, and the red run for "drop since_tick from the
+        #    payload" came back GREEN because of it: this assertion recorded its
+        #    error, assertion 3 then indexed `n["since_tick"]` on the same
+        #    malformed record, and the KeyError took the whole check down as a
+        #    traceback rather than a failure -- which `checks.py all` propagates
+        #    as a crash, aborting the suite instead of reporting one red check.
+        #    A record whose shape is wrong makes every later question about it
+        #    unanswerable, so this is where the check stops.
+        for n in published:
+            if not n.get("trigger_id"):
+                r.err("a published no-op carries no trigger_id (INV-TRIG-6)")
+                return r
+            if n.get("since_tick") is None or n.get("ticks_covered") is None:
+                r.err("a published no-op states an instant but not a duration, "
+                      f"so a reader cannot tell which ticks it accounts for: "
+                      f"{sorted(n)}")
+                return r
+
+        ticks_at = sorted(n["tick"] for n in published)
+
+        # 3. COVERAGE. Every tick inside the recorded span is accounted for by
+        #    some record. A hole here means a stretch of the night nothing
+        #    speaks for.
+        holes = [t for t in range(1, ticks_at[-1] + 1)
+                 if not any(n["since_tick"] <= t <= n["tick"] for n in published)]
+        if holes:
+            r.err(f"{len(holes)} tick(s) inside the recorded span are covered "
+                  f"by no record at all, first at {holes[0]}")
+
+        # 4. STALENESS IS BOUNDED. The keepalive is what makes "no record since"
+        #    mean something. Without it a term that never moves is heard from
+        #    exactly once and the reader cannot bound how old that is.
+        gaps = [ticks_at[i + 1] - ticks_at[i] for i in range(len(ticks_at) - 1)]
+        if not gaps:
+            r.err("only one no-op was ever published across "
+                  f"{TICKS} ticks, so nothing bounds how stale it is")
+        elif max(gaps) > NOOP_KEEPALIVE_TICKS:
+            r.err(f"the largest gap between published no-ops is {max(gaps)} "
+                  f"ticks against a declared keepalive of "
+                  f"{NOOP_KEEPALIVE_TICKS}. Staleness is unbounded.")
+
+        # 5. TRACKING. Silence follows the world. A changed snapshot publishes
+        #    immediately rather than waiting for the keepalive -- otherwise this
+        #    is a fixed-rate emitter wearing a trigger's name.
+        before = len(published)
+        now["t"] = TICKS * 1000
+        world.apply(Observation(SUBJ, ATTR, 24.5, clock.now(), source="probe"))
+        loop.tick()
+        if len(published) != before + 1:
+            r.err("the world changed under a quiet trigger and no new no-op "
+                  "was published. The record tracks the clock, not the world.")
+        elif published[-1].get("reason") != "changed":
+            r.err(f"a changed snapshot was recorded as "
+                  f"{published[-1].get('reason')!r} rather than 'changed', so "
+                  "a reader cannot tell a moving world from a still one")
+
+        # 6. A FIRING BREAKS THE RUN, INCLUDING A DEBOUNCED ONE. Every trigger
+        #    in core/self_directed.py sets debounce_s between 300 and 3600
+        #    seconds, so on a 1 s tick a trigger that fires and stays true is
+        #    debounced for up to an hour of ticks that publish nothing. If the
+        #    run of silence survives that, a later record's `since_tick` reaches
+        #    back across the tick the trigger FIRED on and claims it was quiet
+        #    throughout -- a no-op record that is not merely thin but false.
+        fired_at: list = []
+        bus.subscribe("autonomy.trigger_fired",
+                      lambda e: fired_at.append(e.payload.get("tick")),
+                      name="noop-check-fired",
+                      idempotency_key=lambda e: e.event_id)
+        hot = AutonomyLoop(bus, world, PredicateEvaluator(bus, world),
+                           now_ms=lambda: now["t"])
+        hot.register(Trigger(
+            trigger_id="trg_noop_debounce",
+            predicate_class="STATE",
+            predicate=lambda s: (isinstance(s.get(TERM), (int, float))
+                                 and not isinstance(s.get(TERM), bool)
+                                 and s.get(TERM) > 30),
+            state_terms=(TERM,), debounce_s=1000, intent="cool the workshop"))
+        seen: list = []
+        bus.subscribe("autonomy.noop", lambda e: seen.append(e.payload),
+                      name="noop-check-hot",
+                      idempotency_key=lambda e: e.event_id)
+
+        def _step(temp: float, n: int = 1) -> None:
+            now["t"] += 1000
+            world.apply(Observation(SUBJ, ATTR, temp, clock.now(), source="probe"))
+            for _ in range(n):
+                now["t"] += 1000
+                hot.tick()
+
+        _step(19.0, 3)                       # quiet: a run of silence begins
+        quiet_before = [n for n in seen if n["trigger_id"] == "trg_noop_debounce"]
+        _step(35.0, 1)                       # fires
+        fire_tick = hot.ticks
+        _step(35.0, 2)                       # still true -> DEBOUNCED, silent
+        _step(19.0, 1)                       # false again: a NEW run must begin
+        after = [n for n in seen if n["trigger_id"] == "trg_noop_debounce"]
+
+        if not quiet_before:
+            r.err("the debounce trigger published no no-op while quiet, so "
+                  "assertion 6 is not testing what it claims to")
+        elif len(after) <= len(quiet_before):
+            r.err("the trigger fired, was debounced, then went quiet again and "
+                  "published no fresh no-op")
+        elif after[-1]["since_tick"] <= fire_tick:
+            r.err(f"a no-op published after a debounced firing claims silence "
+                  f"since tick {after[-1]['since_tick']}, reaching back across "
+                  f"the tick it FIRED on ({fire_tick}). The record is not thin, "
+                  "it is false.")
+
+        saved = TICKS - before
+        r.note(f"{TICKS} quiet ticks published {before} no-op records "
+               f"({100 * saved / TICKS:.1f}% fewer than one per tick); every "
+               f"record carries a trigger_id and the span it accounts for; no "
+               f"tick inside the span is uncovered; the largest gap is "
+               f"{max(gaps) if gaps else 0} against a {NOOP_KEEPALIVE_TICKS}-tick "
+               f"keepalive; a changed snapshot publishes at once; and a run of "
+           f"silence broken by a DEBOUNCED firing does not reach back across it")
+    return r
+
+
 def check_credentials_can_leave_the_plaintext_file() -> Result:
     """A credential in the Keychain is used, and the file remains the fallback.
 
@@ -14892,6 +15122,7 @@ def check_every_turn_is_recorded_with_its_outcome() -> Result:
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
+    "silence-is-recorded-once-not-every-tick": check_silence_is_recorded_once_not_every_tick,
     "host-pressure-read-through-the-adapter": check_host_pressure_is_read_through_the_adapter,
     "floor-held-and-offered-to": check_the_floor_is_held_and_offered_to,
     "boundary-asked-before-the-write": check_the_boundary_is_asked_before_the_write,

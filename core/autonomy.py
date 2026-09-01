@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import json
 import textwrap
 import threading
 import time
@@ -116,6 +117,20 @@ class NonTerminatingPredicate(Exception):
 # take in this system: a fact, a missing fact, a boolean and a number.
 _PROBE_SHAPES = (True, False, None, 0, "", UNKNOWN)
 _PROBE_DEADLINE_S = 2.0
+
+# A no-op is published when the trigger's snapshot CHANGES, and at least this
+# often regardless. Re-stating an unchanged snapshot every tick is not evidence,
+# it is repetition: 41.8 hours of one quiet trigger wrote 619,063 identical
+# records, and five triggers project to 1.78 million a day. INV-TRIG-6 asks for
+# silence to carry provenance, and a record that says "this snapshot has held
+# since tick N" carries strictly more of it than a record that says only
+# "tick N" -- it states the DURATION of the silence, which the per-tick form
+# leaves the reader to infer from absence.
+#
+# The keepalive is what stops the inference from being unbounded: after this
+# many quiet ticks the trigger re-states itself, so "last heard from" is never
+# older than NOOP_KEEPALIVE_TICKS even for a term that never moves.
+NOOP_KEEPALIVE_TICKS = 60
 
 
 def assert_terminating(predicate: Callable[[dict], bool],
@@ -376,6 +391,11 @@ class AutonomyLoop:
         # gets judged against the part of itself it happens to remember.
         self.history_limit = history_limit
         self.dropped_history = 0
+        # trigger_id -> (snapshot fingerprint, tick it became
+        # current, tick it was last published). Not history --
+        # three scalars per trigger, so it does not grow with
+        # uptime the way the thing it replaces did.
+        self._noop_state: dict[str, tuple[str, int, int]] = {}
         self.heartbeats: deque = deque(maxlen=history_limit)
         self.fired: deque = deque(maxlen=history_limit)
         self.noops: deque = deque(maxlen=history_limit)
@@ -442,12 +462,56 @@ class AutonomyLoop:
             if not fires:
                 # INV-TRIG-6: a recorded no-op carries a trigger_id. This is how
                 # a quiet night is distinguishable from a dead one.
-                noop = {"trigger_id": t.trigger_id, "tick": self.ticks,
-                        "fired": False, "snapshot": snap}
-                self._remember(self.noops, noop)
-                self._bus.publish("autonomy.noop", subject=t.trigger_id,
-                                  payload=noop, component="autonomy")
+                #
+                # Published on CHANGE, not on tick. `since_tick` is what keeps
+                # this auditable: the record does not merely say the trigger was
+                # quiet at this instant, it says the snapshot it was quiet under
+                # has held unchanged since that tick. A reader reconstructs any
+                # intervening tick from the record that covers it.
+                fp = json.dumps(snap, sort_keys=True, default=str)
+                prev = self._noop_state.get(t.trigger_id)
+                if prev is None or prev[0] != fp:
+                    since, changed, last_pub = self.ticks, True, None
+                else:
+                    _, since, last_pub = prev
+                    changed = False
+                # The staleness clock runs from the last PUBLISHED record, not
+                # from the last tick. Advancing it every tick was the first
+                # version of this and it silently disabled the keepalive
+                # entirely: `self.ticks - last_tick` is 1 forever, so the
+                # threshold is never reached and a trigger that never changes
+                # is heard from exactly once. It measured 1 record where it
+                # should have measured 10.
+                stale = (not changed
+                         and self.ticks - last_pub >= NOOP_KEEPALIVE_TICKS)
+                self._noop_state[t.trigger_id] = (
+                    fp, since, self.ticks if (changed or stale) else last_pub)
+
+                if changed or stale:
+                    noop = {"trigger_id": t.trigger_id, "tick": self.ticks,
+                            "fired": False, "snapshot": snap,
+                            "since_tick": since,
+                            "ticks_covered": self.ticks - since + 1,
+                            # Why this record exists, so a reader never has to
+                            # guess whether a gap is a quiet trigger or a dead
+                            # one: "changed" means the world moved, "keepalive"
+                            # means it did not and the trigger said so anyway.
+                            "reason": "changed" if changed else "keepalive"}
+                    self._remember(self.noops, noop)
+                    self._bus.publish("autonomy.noop", subject=t.trigger_id,
+                                      payload=noop, component="autonomy")
                 continue
+
+            # THE RUN OF SILENCE ENDS WHERE THE PREDICATE STOPS BEING FALSE,
+            # not where the action dispatches. Dropping this state below the
+            # debounce check instead was wrong and it was wrong LIVE, not in
+            # theory: every trigger in `core/self_directed.py` sets debounce_s
+            # between 300 and 3600 seconds, so a trigger that fires and stays
+            # true is debounced for up to an hour of ticks during which nothing
+            # publishes -- and the surviving run would then let a later record
+            # claim, via `since_tick`, that the trigger was quiet straight
+            # through the tick it fired on.
+            self._noop_state.pop(t.trigger_id, None)
 
             if t.debounce_s and self._last_fire.get(t.trigger_id) is not None:
                 if (self._now_ms() - self._last_fire[t.trigger_id]
