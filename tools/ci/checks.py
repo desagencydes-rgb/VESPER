@@ -12194,8 +12194,186 @@ def check_loop_observes_and_is_bounded() -> Result:
     return r
 
 
+def check_shell_runs_contained() -> Result:
+    """`shell.run` is contained by the kernel, not only classified by a string.
+
+    WHY THIS EXISTS GIVEN THE LEVEL RULES. Classification is a judgement about
+    a STRING; the sandbox is a rule about a PROCESS. Every defect this module
+    has had lived in the gap between the two -- a path that levelled as the
+    workspace and opened /etc/passwd, an allowlisted verb whose redirection
+    nobody looked at, a composed command admitted by its first word. The
+    classifier is allowed to be wrong here, because the kernel is not
+    consulting it.
+
+    EVERY ASSERTION BELOW HAS A CONTROL. "The write was refused" is worthless
+    without "the same write succeeds unsandboxed" -- otherwise a missing
+    directory, a typo in the path or a permissions error reads exactly like
+    containment. A negative control that passes is a defect, not a relief.
+    """
+    r = Result("shell-runs-contained")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import subprocess as _sp
+    import tempfile as _tf
+    try:
+        from core import capabilities as caps
+        from core.capabilities import ContainmentUnavailable
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"core.capabilities does not import: {exc!r}")
+        return r
+
+    if not Path(caps.SEATBELT).exists():
+        r.err(f"{caps.SEATBELT} is not present, so nothing contains shell.run "
+              "on this machine")
+        return r
+
+    # 1. STRUCTURAL: there is no unsandboxed path out of shell_run.
+    src = (REPO / "core" / "capabilities.py").read_text(encoding="utf-8")
+    body = src[src.index("def shell_run("):]
+    body = body[:body.index("\ndef ", 1)]
+    runs = body.count("subprocess.run(")
+    if runs != 1:
+        r.err(f"shell_run calls subprocess.run {runs} times. Every one of them "
+              "is a path that could skip the sandbox.")
+    if "SEATBELT" not in body:
+        r.err("shell_run invokes a subprocess without the seatbelt")
+    if "ContainmentUnavailable" not in body:
+        r.err("shell_run does not refuse when containment is unavailable, so a "
+              "machine without the sandbox runs commands with no containment "
+              "at all -- and does it exactly when the machine is in a state "
+              "nobody predicted")
+
+    # 2. FAIL CLOSED. A missing sandbox is a refusal, never a fallback.
+    keep = caps.SEATBELT
+    try:
+        caps.SEATBELT = str(REPO / "no" / "such" / "sandbox-exec")
+        try:
+            caps.shell_run({"cmd": "date"})
+            r.err("with the sandbox binary absent, shell.run ran the command "
+                  "anyway")
+        except ContainmentUnavailable:
+            pass
+    finally:
+        caps.SEATBELT = keep
+
+    with _tf.TemporaryDirectory() as td:
+        probe = Path(td) / "written.txt"
+
+        # 3. THE CONTROL FIRST. If this write does not succeed unsandboxed,
+        #    every refusal below proves nothing about the sandbox.
+        ctl = _sp.run(["/usr/bin/touch", str(probe)], capture_output=True,
+                      text=True, check=False)
+        if ctl.returncode != 0 or not probe.exists():
+            r.err(f"the unsandboxed control write failed ({ctl.stderr.strip()!r}), "
+                  "so the sandboxed refusal below would prove nothing")
+            return r
+        probe.unlink()
+
+        # 4. AN L1 PROFILE REFUSES EVERY WRITE. L1 means "provably read-only";
+        #    this makes it true instead of trusting it.
+        out = _sp.run([caps.SEATBELT, "-p", caps._seatbelt_profile("L1"),
+                       "/usr/bin/touch", str(probe)],
+                      capture_output=True, text=True, check=False)
+        if probe.exists():
+            r.err("a command running under the L1 profile created a file. L1 "
+                  "means provably read-only and the profile is not enforcing it")
+            probe.unlink()
+        elif out.returncode == 0:
+            r.err("the write under the L1 profile reported success while "
+                  "creating nothing, which is worse than either outcome alone")
+
+        # 5. AND THE PROFILE IS NOT SIMPLY DENYING EVERYTHING. A sandbox that
+        #    refuses all execution passes assertion 4 and is useless.
+        ok = _sp.run([caps.SEATBELT, "-p", caps._seatbelt_profile("L1"),
+                      "/bin/date"], capture_output=True, text=True, check=False)
+        if ok.returncode != 0 or not ok.stdout.strip():
+            r.err("`date` does not run under the L1 profile, so the profile is "
+                  "denying everything rather than denying writes")
+
+        # 6. ABOVE L1 THE CARVE-OUT IS THE WORKSPACE AND TEMP, AND NOTHING ELSE.
+        # THE PROBE MUST BE SOMEWHERE THE CONTROL CAN ACTUALLY WRITE. The
+        # first version pointed at the filesystem root, where an unsandboxed
+        # write fails for want of root -- so the "refusal" was a permission
+        # error wearing containment's clothes, and the case written for this
+        # mutation stayed green. Home is writable and is neither the workspace
+        # (~/Library/Application Support/VESPER) nor a temp directory.
+        outside = Path.home() / "vesper_containment_probe.txt"
+        outside.unlink(missing_ok=True)
+        ctl2 = _sp.run(["/usr/bin/touch", str(outside)], capture_output=True,
+                       text=True, check=False)
+        if ctl2.returncode != 0 or not outside.exists():
+            r.err("the control write to the home directory failed, so the "
+                  "carve-out assertion below would prove nothing")
+        outside.unlink(missing_ok=True)
+        out = _sp.run([caps.SEATBELT, "-p", caps._seatbelt_profile("L3"),
+                       "/usr/bin/touch", str(outside)],
+                      capture_output=True, text=True, check=False)
+        if outside.exists():
+            r.err(f"the L3 profile permitted a write to {outside}, which is "
+                  "neither the workspace nor a temp directory")
+            outside.unlink(missing_ok=True)
+
+    # 7. NETWORK IS DENIED AT EVERY LEVEL, because ModelGateway is the only
+    #    sanctioned egress and the redactor sits in front of it. Skipped rather
+    #    than failed when this machine has no network, since a denial that
+    #    cannot be told from an outage is not evidence either.
+    url = "https://example.com"
+    curl = ["/usr/bin/curl", "-s", "-o", "/dev/null", "-m", "8",
+            "-w", "%{http_code}", url]
+
+    def _reached(out: str) -> bool:
+        # JUDGED ON THE HTTP CODE, NOT ON CURL'S EXIT STATUS. Under an
+        # allow-network profile curl returns a real status and still exits
+        # non-zero on a truncated read, so requiring exit 0 reported "denied"
+        # for a request that plainly got through -- and the case written for
+        # exactly that mutation stayed green.
+        code = (out or "").strip()
+        return code.isdigit() and code != "000" and int(code) > 0
+
+    ctl = _sp.run(curl, capture_output=True, text=True, check=False)
+    if not _reached(ctl.stdout):
+        r.note("network containment not asserted: the unsandboxed control could "
+               "not reach the network, so a sandboxed failure would prove "
+               "nothing about the sandbox")
+    else:
+        for lvl in ("L1", "L3"):
+            got = _sp.run([caps.SEATBELT, "-p", caps._seatbelt_profile(lvl),
+                           *curl], capture_output=True, text=True, check=False)
+            if _reached(got.stdout):
+                r.err(f"a command reached the network under the {lvl} profile "
+                      f"(http {got.stdout.strip()}) while the control got "
+                      f"{ctl.stdout.strip()}. That is a second egress with no "
+                      "redactor in front of it.")
+
+        # AND THROUGH `shell_run` ITSELF, which is the only assertion here that
+        # notices the sandbox being dropped from the invocation rather than
+        # from the profile. The structural count above sees one subprocess call
+        # either way, and `SEATBELT` still appears in the fail-closed guard, so
+        # a name test cannot tell the two apart.
+        try:
+            live = caps.shell_run({"cmd": " ".join(curl)})
+        except Exception as exc:                    # noqa: BLE001
+            r.err(f"shell.run could not run the network probe: {exc!r}")
+        else:
+            if _reached(live.get("stdout", "")):
+                r.err(f"shell.run reached the network (http "
+                      f"{live.get('stdout', '').strip()}). The command is being "
+                      "classified and not contained -- whatever the profile "
+                      "says, it is not being applied to the process.")
+            if not live.get("contained"):
+                r.err("shell.run does not report that it contained the command")
+
+    r.note("shell.run has one subprocess path and it carries the sandbox; a "
+           "missing sandbox refuses rather than falls back; the L1 profile "
+           "denies writes while still running `date`; the L3 carve-out reaches "
+           "no further than the workspace and temp; and every refusal was "
+           "checked against an unsandboxed control that succeeded")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "shell-runs-contained": check_shell_runs_contained,
     "loop-observes-and-is-bounded": check_loop_observes_and_is_bounded,
     "write-never-destroys-what-was-not-read": check_write_never_destroys_what_was_not_read,
     "taint-ceiling-binds-the-act-path": check_taint_ceiling_binds_the_act_path,

@@ -3694,5 +3694,45 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# Seatbelt containment. Ships WITH the loop rather than after it: a loop
+# multiplies whatever safety posture exists, and classification alone was the
+# posture.
+# --------------------------------------------------------------------------
+CASES += [
+    ("shell-runs-contained", CAPS_PY,
+     _sub("    p = subprocess.run([SEATBELT, \"-p\", _seatbelt_profile(level), *argv],",
+          "    p = subprocess.run([*argv],", 1),
+     "the sandbox is dropped from the invocation: shell.run is classified and "
+     "not contained, which is the posture every path defect in this module has "
+     "escaped through"),
+
+    ("shell-runs-contained", CAPS_PY,
+     _sub('    if not os.path.exists(SEATBELT):\n'
+          '        raise ContainmentUnavailable(', '    if False:\n'
+          '        raise ContainmentUnavailable(', 1),
+     "a machine with no sandbox runs the command anyway -- falling back to no "
+     "containment exactly when the machine is in a state nobody predicted"),
+
+    ("shell-runs-contained", CAPS_PY,
+     _sub('        parts.append("(deny file-write*)")',
+          '        parts.append("(allow file-write*)")', 1),
+     "the L1 profile stops denying writes, so `provably read-only` goes back to "
+     "being a claim about a string rather than a property of the process"),
+
+    ("shell-runs-contained", CAPS_PY,
+     _sub("             '(deny network*)']", "             '(allow network*)']", 1),
+     "a contained command may open a socket: a second egress with no redactor "
+     "in front of it, whatever the owner approved the command for"),
+
+    ("shell-runs-contained", CAPS_PY,
+     _sub('        for d in (str(WORKSPACE), tempfile.gettempdir()):\n'
+          '            parts.append(f\'(allow file-write* (subpath "{d}"))\')',
+          '        parts.append("(allow file-write*)")', 1),
+     "the above-L1 carve-out becomes the whole filesystem, so an approved "
+     "action that should have touched VESPER's own space can write anywhere"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

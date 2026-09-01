@@ -43,6 +43,7 @@ import os
 import pathlib
 import shlex
 import subprocess
+import tempfile
 from typing import Any
 
 from core.capability import CapabilityRegistry, LevelRule
@@ -197,8 +198,58 @@ def shell_level(args: dict) -> str:
     return base
 
 
+# The kernel-level containment for `shell.run`. Present on every macOS this
+# runs on; its absence is a refusal rather than a fallback.
+SEATBELT = "/usr/bin/sandbox-exec"
+
+
+class ContainmentUnavailable(Exception):
+    """The sandbox could not be applied, so the command does not run.
+
+    FAIL CLOSED, AND THE ALTERNATIVE IS THE WHOLE POINT. Running unsandboxed
+    "just this once" because the sandbox is missing is running unsandboxed
+    exactly when the machine is in a state nobody predicted.
+    """
+
+
+def _seatbelt_profile(level: str) -> str:
+    """The profile a command of this level runs under.
+
+    WHY CONTAINMENT AT ALL, GIVEN THE LEVEL RULES. Because classification is a
+    judgement about a STRING and the sandbox is a rule about a PROCESS. Every
+    defect this module has had was the gap between those two: a path that
+    levelled as the workspace and opened /etc/passwd, a verb allowlist that
+    admitted a command whose redirection nobody looked at. The classifier is
+    allowed to be wrong here, because the kernel is not consulting it.
+
+    NETWORK IS DENIED AT EVERY LEVEL. `ModelGateway` is the only sanctioned
+    egress and the redactor sits in front of it; a shell command that can open
+    a socket is a second exit with nothing in front of it, whatever the owner
+    approved the command for.
+
+    WRITES DEPEND ON WHAT THE LEVEL CLAIMED. L1 means "provably read-only", so
+    the profile makes that true rather than trusting it -- a command that
+    levelled L1 and tries to write is refused by the kernel, and the refusal is
+    evidence the classifier was wrong. Above L1 the owner has approved an
+    action that changes something, so writes are allowed into VESPER's own
+    space and the temp directory, and nowhere else.
+    """
+    parts = ['(version 1)', '(deny default)',
+             '(allow process-exec process-fork)',
+             '(allow sysctl-read)', '(allow mach-lookup)',
+             '(allow file-read*)',
+             '(deny network*)']
+    if level != "L1":
+        for d in (str(WORKSPACE), tempfile.gettempdir()):
+            parts.append(f'(allow file-write* (subpath "{d}"))')
+    else:
+        parts.append("(deny file-write*)")
+    return "".join(parts)
+
+
 def shell_run(args: dict) -> dict:
-    """Run it, and report what was OBSERVED rather than whether it 'worked'.
+    """Run it CONTAINED, and report what was OBSERVED rather than whether it
+    'worked'.
 
     No shell. `shell=True` would re-introduce every chaining form the level
     rules just spent their effort excluding -- the classifier would be reasoning
@@ -210,11 +261,24 @@ def shell_run(args: dict) -> dict:
     """
     cmd = str(args.get("cmd") or "")
     timeout = float(args.get("timeout") or 20.0)
-    p = subprocess.run(shlex.split(cmd), capture_output=True, text=True,
+    argv = shlex.split(cmd)
+    if not argv:
+        raise ValueError("no command to run")
+
+    if not os.path.exists(SEATBELT):
+        raise ContainmentUnavailable(
+            f"{SEATBELT} is not on this machine, so shell.run has no "
+            "containment. The command was not run.")
+
+    level = shell_level(args)
+    p = subprocess.run([SEATBELT, "-p", _seatbelt_profile(level), *argv],
+                       capture_output=True, text=True,
                        timeout=timeout, check=False, cwd=str(REPO))
     return {"exit_code": p.returncode,
             "stdout": p.stdout[:4000],
-            "stderr": p.stderr[:2000]}
+            "stderr": p.stderr[:2000],
+            "contained": True,
+            "containment_level": level}
 
 
 # ------------------------------------------------------------ fs.read/write
