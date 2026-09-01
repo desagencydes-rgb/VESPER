@@ -4247,5 +4247,42 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# Exactly-once EFFECT. core/reconcile.py was built and reached by nothing --
+# which mattered less when VESPER took one action per utterance than it does
+# now that a turn can take six.
+# --------------------------------------------------------------------------
+CASES += [
+    ("outbox-written-before-the-effect", EXECUTOR_PY,
+     _sub("        outbox_id = None\n        if self._reconciler is not None and getattr(cap, \"external_effect\", False):",
+          "        outbox_id = None\n        if False:", 1),
+     "nothing is recorded before an external action: a crash between the send "
+     "and the record leaves the system unable to tell 'not sent' from 'sent, "
+     "result lost', and a resumed task re-sends"),
+
+    ("outbox-written-before-the-effect", EXECUTOR_PY,
+     _sub("        if outbox_id is not None:\n"
+          "            self._reconciler.mark(outbox_id, \"CONFIRMED\", result)",
+          "        if False:\n"
+          "            self._reconciler.mark(outbox_id, \"CONFIRMED\", result)", 1),
+     "a completed action is never confirmed, so recovery cannot tell it from "
+     "one that never finished and re-sends it"),
+
+    ("outbox-written-before-the-effect", EXECUTOR_PY,
+     _sub('                self._reconciler.mark(outbox_id, "UNKNOWN")\n'
+          "            return self._handle_failure(eid, cap, subject, args, key, e, task_id)",
+          "            return self._handle_failure(eid, cap, subject, args, key, e, task_id)", 1),
+     "an implementation that raised leaves no UNKNOWN: from in here a raise "
+     "after the effect landed looks exactly like one before it, and treating "
+     "it as a plain failure licences a retry of something already done"),
+
+    ("outbox-written-before-the-effect", EXECUTOR_PY,
+     _sub("                reconcilable=False))", "                reconcilable=True))", 1),
+     "shell.run claims to be reconcilable, promising a probe that can ask "
+     "whether a command landed -- there is none, which is why it has no "
+     "independent verifier either, and recovery would retry instead of asking"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

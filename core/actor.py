@@ -46,6 +46,7 @@ from core.capabilities import (INDEPENDENT_VERIFIERS, bind_all,
                                observation_trust, observe)
 from core.executor import Executor
 from core.intent import IntentProposer
+from core.reconcile import Reconciler
 from core.checkpoint import ShadowGit
 from core.taint import EXTERNAL, ContextCeiling, Tainted
 
@@ -95,7 +96,7 @@ class Actor:
     def __init__(self, bus: Any, gateway: Any, *, subject: str = "vesper",
                  target: str = "host", broker: Any = None,
                  now_ms: Any = None, profile_id: str = "",
-                 shadow: Any = None) -> None:
+                 shadow: Any = None, reconciler: Any = None) -> None:
         self._bus = bus
         self._registry = build_registry()
         self._pdp = PolicyDecisionPoint(bus, self._registry,
@@ -106,8 +107,16 @@ class Actor:
         # the next build. A checkpoint store under the bundle would lose its
         # history at exactly the moment a rebuild made it most useful.
         self._shadow = shadow if shadow is not None else ShadowGit(SHADOW_ROOT)
+        # EXACTLY-ONCE EFFECT, NOT EXACTLY-ONCE DELIVERY. `shell.run` declares
+        # an external effect and can reach anything; a crash between the call
+        # and the record leaves nothing able to tell "not sent" from "sent,
+        # result lost". The outbox is what makes that difference recoverable,
+        # and it mattered less when VESPER took one action per utterance than
+        # it does now that a turn can take six.
+        self._reconciler = reconciler if reconciler is not None else Reconciler(bus)
         self._executor = Executor(bus, self._registry, self._pdp,
-                                  shadow=self._shadow)
+                                  shadow=self._shadow,
+                                  reconciler=self._reconciler)
         bind_all(self._executor)
         self._proposer = IntentProposer(gateway, bus=bus, profile_id=profile_id)
         self._ceiling = ContextCeiling(bus)

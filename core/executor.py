@@ -84,11 +84,13 @@ class Executor:
     """Invokes capabilities. Every invocation passes DF-AUTHORIZE first."""
 
     def __init__(self, bus: EventBus, registry: CapabilityRegistry,
-                 pdp: PolicyDecisionPoint, shadow: Any = None) -> None:
+                 pdp: PolicyDecisionPoint, shadow: Any = None,
+                 reconciler: Any = None) -> None:
         self._bus = bus
         self._registry = registry
         self._pdp = pdp
         self._shadow = shadow
+        self._reconciler = reconciler
         self._impls: dict[str, Callable[[dict], Any]] = {}
         self._compensators: dict[str, Callable[[dict, Any], Any]] = {}
         self._seen_keys: set = set()
@@ -170,6 +172,32 @@ class Executor:
                               payload=ex.to_dict(), component="executor")
             return ex
 
+        # THE OUTBOX RECORD IS WRITTEN BEFORE THE EFFECT, and "before" is the
+        # entire invariant (INV-ACT-6). Recording an external send afterwards is
+        # trivially easy and completely useless: the case that matters is a
+        # crash between the send and the record, and after-the-fact bookkeeping
+        # is exactly blind to it. A resumed task then re-sends, and a duplicated
+        # external send has no undo.
+        #
+        # ONLY FOR CAPABILITIES THAT DECLARE AN EXTERNAL EFFECT. `fs.write` and
+        # `fs.edit` change this machine and are covered by the checkpoint below;
+        # `shell.run` can reach anything, which is what `external_effect` marks.
+        outbox_id = None
+        if self._reconciler is not None and getattr(cap, "external_effect", False):
+            from .reconcile import OutboxEntry
+            outbox_id = f"ob-{eid}"
+            self._reconciler.record_intent(OutboxEntry(
+                outbox_id=outbox_id, task_id=task_id or subject,
+                capability_id=capability_id, args=dict(args),
+                idempotency_key=key,
+                # A COMMAND'S EFFECT IS NOT GENERICALLY PROBEABLE, which is why
+                # `shell.run` has no independent verifier either. Declaring it
+                # reconcilable would promise a recovery path that does not
+                # exist, and `recover()` escalates to the owner instead of
+                # retrying -- the honest move, and the one that stops one
+                # payment becoming two.
+                reconcilable=False))
+
         # THE SNAPSHOT IS TAKEN HERE, at the one place every execution passes,
         # and BEFORE the implementation runs. Hooking it in the actor instead
         # would leave any other caller of `execute` writing with no undo -- the
@@ -229,7 +257,15 @@ class Executor:
         try:
             result = impl(args)
         except Exception as e:  # noqa: BLE001
+            if outbox_id is not None:
+                # UNKNOWN, NOT FAILED. The implementation raised, and from in
+                # here a raise after the effect landed is indistinguishable
+                # from one before it. Calling that FAILED would licence a
+                # retry of something that may already have happened.
+                self._reconciler.mark(outbox_id, "UNKNOWN")
             return self._handle_failure(eid, cap, subject, args, key, e, task_id)
+        if outbox_id is not None:
+            self._reconciler.mark(outbox_id, "CONFIRMED", result)
 
         with self._lock:
             self._seen_keys.add(key)

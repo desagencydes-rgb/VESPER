@@ -14075,8 +14075,136 @@ def check_autonomy_stops_when_nothing_arms_it() -> Result:
     return r
 
 
+def check_the_outbox_is_written_before_the_effect() -> Result:
+    """An external action is recorded before it happens, not after.
+
+    "BEFORE" IS THE ENTIRE INVARIANT (INV-ACT-6). Recording an external send
+    afterwards is trivially easy and completely useless: the case that matters
+    is a crash between the send and the record, and after-the-fact bookkeeping
+    is exactly blind to it. A resumed task then re-sends, and a duplicated
+    external send has no undo.
+
+    `core/reconcile.py` was built for this and reachable from nothing, which
+    mattered less when VESPER took one action per utterance than it does now
+    that a turn can take six.
+
+    EXACTLY-ONCE EFFECT, NOT EXACTLY-ONCE DELIVERY. The second does not exist
+    over an unreliable channel. The first costs an idempotency key the far side
+    honours and a probe that can ask "did it land?" -- and where no probe
+    exists, the honest move is to escalate rather than retry. Retrying is the
+    dishonest one, and it is how one payment becomes two.
+    """
+    r = Result("outbox-written-before-the-effect")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf
+    try:
+        from core.authorize import Grant, PolicyDecisionPoint
+        from core.bus import EventBus
+        from core.capabilities import build_registry
+        from core.checkpoint import ShadowGit
+        from core.executor import Executor
+        from core.hlc import HybridLogicalClock
+        from core.reconcile import Reconciler
+        from core.store import StoreSet
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the reconciliation modules do not import: {exc!r}")
+        return r
+
+    asrc = (REPO / "core" / "actor.py").read_text(encoding="utf-8")
+    if "Reconciler(" not in asrc:
+        r.err("the actor never builds a Reconciler, so nothing records an "
+              "external action before it happens")
+
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("ob")
+        store = StoreSet(base / "s", node_id="ob")
+        bus = EventBus(clock, store, component="ob")
+        reg = build_registry()
+        pdp = PolicyDecisionPoint(bus, reg)
+        rec = Reconciler(bus)
+        ex = Executor(bus, reg, pdp, shadow=ShadowGit(base / "sh"),
+                      reconciler=rec)
+        pdp.issue(Grant("g", "s", "shell.run", ("host",), "L3",
+                        10_000_000_000_000, 0))
+
+        # 1. THE RECORD IS VISIBLE FROM INSIDE THE CALL. Asserted from within
+        #    the implementation, because "it exists afterwards" is exactly the
+        #    useless property this invariant is about.
+        during: dict = {}
+
+        def _impl(a):
+            during["count"] = len(rec._entries)     # noqa: SLF001
+            during["states"] = [e.state for e in rec._entries.values()]  # noqa: SLF001
+            return {"exit_code": 0, "stdout": "ok"}
+
+        ex.bind("shell.run", _impl)
+        ex.execute(subject="s", capability_id="shell.run",
+                   args={"cmd": "ls"}, target="host")
+        if during.get("count", 0) < 1:
+            r.err("no outbox record existed while the external action was "
+                  "running. A record written afterwards cannot survive the "
+                  "crash it exists for.")
+        elif "INTENT" not in (during.get("states") or []):
+            r.err(f"the record existed but was in {during.get('states')} rather "
+                  "than INTENT while the call was in flight")
+
+        done = [e for e in rec._entries.values() if e.state == "CONFIRMED"]  # noqa: SLF001
+        if not done:
+            r.err("a completed external action was never marked CONFIRMED, so "
+                  "recovery cannot tell it from one that never finished")
+
+        # 2. A RAISE LEAVES UNKNOWN, NEVER FAILED. From inside, a raise after
+        #    the effect landed is indistinguishable from one before it, and
+        #    calling that FAILED licences a retry of something already done.
+        ex2 = Executor(bus, reg, pdp, shadow=ShadowGit(base / "sh2"),
+                       reconciler=rec)
+        ex2.bind("shell.run",
+                 lambda a: (_ for _ in ()).throw(RuntimeError("died mid-call")))
+        pdp.issue(Grant("g2", "s2", "shell.run", ("host",), "L3",
+                        10_000_000_000_000, 0))
+        try:
+            ex2.execute(subject="s2", capability_id="shell.run",
+                        args={"cmd": "ls"}, target="host")
+        except Exception:                           # noqa: BLE001
+            pass
+        states = [e.state for e in rec._entries.values()]  # noqa: SLF001
+        if "UNKNOWN" not in states:
+            r.err(f"an implementation that raised left the outbox in {states}. "
+                  "From in here a raise after the effect landed looks exactly "
+                  "like one before it, so UNKNOWN is the only honest state.")
+
+        # 3. RECOVERY ESCALATES RATHER THAN RETRYING where no probe exists.
+        got = rec.recover("s2")
+        if not got:
+            r.err("recovery found nothing to reconcile after an UNKNOWN")
+        elif any(g.get("action") == "retried" for g in got):
+            r.err("recovery RETRIED an action whose effect cannot be checked. "
+                  "That is how one payment becomes two.")
+        elif not any(g.get("action") == "escalated" for g in got):
+            r.err(f"recovery neither escalated nor retried: {got}")
+
+        # 4. AND shell.run DECLARES ITSELF UNRECONCILABLE. Claiming otherwise
+        #    would promise a recovery path that does not exist -- the same
+        #    reason it has no independent verifier.
+        for e in rec._entries.values():             # noqa: SLF001
+            if e.capability_id == "shell.run" and e.reconcilable:
+                r.err("shell.run is recorded as reconcilable, which promises a "
+                      "probe that can ask whether a command landed. There is "
+                      "no such probe, which is why it has no verifier either.")
+                break
+
+    r.note("the outbox record exists as INTENT while the call is in flight and "
+           "is CONFIRMED after; an implementation that raises leaves UNKNOWN "
+           "rather than FAILED; recovery escalates instead of retrying where no "
+           "probe exists; and shell.run declares itself unreconcilable")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "outbox-written-before-the-effect": check_the_outbox_is_written_before_the_effect,
     "autonomy-stops-when-nothing-arms-it": check_autonomy_stops_when_nothing_arms_it,
     "contradictions-reach-the-owner": check_contradictions_reach_the_owner,
     "memory-repairs-its-own-drift": check_memory_repairs_its_own_drift,
