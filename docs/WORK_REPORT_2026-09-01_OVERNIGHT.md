@@ -1,11 +1,12 @@
-# Overnight report — 2026-09-01, 01:40 to 06:45
+# Overnight report — 2026-09-01, 01:40 to 07:00
 
-Written for the owner. Fourteen commits, all pushed to `feat/macos-host-profile`.
+Written for the owner. Sixteen commits, all pushed to `feat/macos-host-profile`.
 **Tier one of the approved build order is complete**, plus the two defects this
 survey found in our own code and two items from its own build list.
 
-Gates as of the last commit: **98/98 checks pass, 467 self-test cases red under
-violation and green after restore, both lints pass.** Up from 87 and 407.
+Gates as of the last commit, **verified on a quiet tree with nothing else
+running**: **98/98 checks pass, 467/467 self-test cases red under violation and
+green after restore, both lints pass.** Up from 87 and 407.
 
 ---
 
@@ -191,6 +192,23 @@ Four self-test cases were withdrawn rather than shipped, after measurement
 showed the property was defended structurally and the mutation could not
 produce the defect. Saying that plainly is better than shipping cases that look
 like coverage.
+
+**And the full run at the end found four more that had stopped being evidence
+during the night's own work** — which is the argument for running the whole
+suite before calling a night finished, rather than a per-check run after each
+change. Three were anchors I had moved myself. The fourth is an interaction
+between two things built hours apart: `Executor.execute` grew a **second**
+`NotAuthorized` — the refusal when a file-touching capability has no checkpoint
+store — sitting after the authorization refusal. Deleting the authorization
+raise let control fall through to the checkpoint raise, so the probe still saw
+`NotAuthorized`, the implementation still had not run, and
+`no-ambient-authority` reported green while ambient authority was no longer
+being refused by `DF-AUTHORIZE` at all.
+
+Two refusals of the same exception type are indistinguishable to a bare
+`except`. That is the third time in one session the same lesson arrived: **a
+check that asserts a refusal without asserting *which* refusal is satisfied by
+any refusal at all.**
 
 ---
 

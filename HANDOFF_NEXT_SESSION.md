@@ -1,6 +1,6 @@
 # Handoff — pick up here
 
-Rewritten 2026-09-01 06:45, at the end of the overnight session that completed
+Rewritten 2026-09-01 07:00, at the end of the overnight session that completed
 tier one of the build order. Read this, then
 `docs/WORK_REPORT_2026-09-01_OVERNIGHT.md`, then `CLAUDE.md`.
 
@@ -61,6 +61,10 @@ subsystem someone already built correctly.
   that stays green is telling you something true: four were withdrawn last
   night after measurement showed the property was defended structurally and the
   mutation could not produce the defect.
+- **Assert WHICH refusal, not that one happened.** `Executor.execute` raises
+  `NotAuthorized` from two places now, and a bare `except NotAuthorized` cannot
+  tell them apart — one check reported green while the property it guards was
+  gone. Three separate cases hit this shape in one session.
 - **Every refusal needs a control that succeeds.** Two containment cases passed
   under their own violation because the probe wrote to a path that was
   unwritable anyway, and because a judgement read `curl`'s exit code instead of
