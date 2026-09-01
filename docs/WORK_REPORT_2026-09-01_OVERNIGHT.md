@@ -1,10 +1,10 @@
-# Work report — 2026-09-01, 01:40 to 19:20
+# Work report — 2026-09-01, 01:40 to 22:10
 
 Written for the owner. Overnight plus the day that followed. Thirty-two commits, all pushed to `feat/macos-host-profile`.
 **Tier one of the approved build order is complete**, plus the two defects this
 survey found in our own code and two items from its own build list.
 
-Gates as of the last commit: **109/109 checks pass, 516 self-test cases red
+Gates as of the last commit: **110/110 checks pass, 516 self-test cases red
 under violation and green after restore, both lints pass.** Up from 87 checks
 and 407 cases when the night began.
 
