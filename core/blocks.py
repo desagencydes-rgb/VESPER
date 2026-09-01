@@ -64,6 +64,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from .context import Fragment
 from .memory import TOP_N, MemoryGraph
 
 # `MEMORY_ARCHITECTURE.md`'s budget table. On breach: ship what was found and
@@ -118,12 +119,28 @@ class Rendered:
                 "ungrounded_count": len(self.ungrounded)}
 
 
+def _approx_tokens(fact: Any) -> int:
+    """Roughly what one fact costs. Deliberately an estimate, and deliberately
+    an OVER-estimate on short strings: a budget that under-counts overruns the
+    provider, and the failure of an over-count is only a fact left out.
+    """
+    text = f"{fact.subject}.{fact.attribute}={fact.value}"
+    return max(1, (len(text) + 3) // 4)
+
+
 class L1Renderer:
     """Builds block A and block B. Never calls a model; never writes."""
 
-    def __init__(self, persona: Any, memory: MemoryGraph) -> None:
+    # `budget` is optional so every existing caller keeps the count-based
+    # behaviour it had. A renderer built without one is not silently unbudgeted
+    # -- `last_budget()` returns None, which is a different answer from "it fit".
+
+    def __init__(self, persona: Any, memory: MemoryGraph,
+                 budget: Any = None) -> None:
         self._persona = persona
         self._memory = memory
+        self._budget = budget
+        self._last_budget: dict | None = None
 
     # ---------------------------------------------------------------- block A
 
@@ -164,6 +181,10 @@ class L1Renderer:
 
     # ---------------------------------------------------------------- block B
 
+    def last_budget(self) -> dict | None:
+        """What the budget did on the last block B, or None if there is none."""
+        return getattr(self, "_last_budget", None)
+
     def block_b(self, terms: list, *, ceiling: str = "private",
                 depth: int = 2, limit: int = TOP_N, control: Any = None) -> tuple:
         """The few facts this turn needs, deterministically selected.
@@ -190,7 +211,33 @@ class L1Renderer:
             pinned = set(control.manual_ids(facts))
             if pinned:
                 facts.sort(key=lambda f: (f.id not in pinned,))
-        facts = facts[:limit]
+        # THE BUDGET IS TOKENS, NOT A COUNT, AND UNTIL 2026-09-01 NOTHING
+        # ENFORCED IT. `ContextBudgetManager` was written for exactly this and
+        # was constructed in two places, both of them tests -- so block B
+        # truncated at `limit` facts regardless of how long they were, and a
+        # turn carrying five long facts could overrun a provider's window while
+        # a turn carrying five short ones wasted it. MEMORY_ARCHITECTURE.md is
+        # explicit that "L1's budget is per-provider"; a count is not that.
+        #
+        # PINNED SURVIVES THE BUDGET. The manager places pinned fragments first
+        # and reports an overrun rather than dropping them, because silently
+        # discarding what the owner explicitly asked for would make manual mode
+        # a suggestion. That is its rule, not a new one invented here.
+        if self._budget is not None:
+            pinned_ids = ([str(f.id) for f in facts if f.id in pinned]
+                          if control is not None and pinned else [])
+            frags = [Fragment(fragment_id=str(f.id), kind="memory_fact",
+                              text=f"{f.subject}.{f.attribute}={f.value}",
+                              tokens=_approx_tokens(f), trust_class=f.trust_class)
+                     for f in facts]
+            assembled = self._budget.assemble(frags, intent="block_b",
+                                              manual=pinned_ids or None,
+                                              subject="l1.block_b")
+            keep = {fr.fragment_id for fr in assembled.fragments}
+            facts = [f for f in facts if str(f.id) in keep]
+            self._last_budget = assembled.to_dict()
+        else:
+            facts = facts[:limit]
 
         # GROUNDED BEFORE QUOTED. The line below prints `->log:42` as the
         # fact's provenance, and until now it printed it whether or not record

@@ -64,6 +64,7 @@ from core.context_control import ContextCommands                # noqa: E402
 from core.presence import Presence                              # noqa: E402
 from core.speech import Speech, speech_rows                     # noqa: E402
 from core.blocks import L1Renderer                              # noqa: E402
+from core.context import ContextBudgetManager                   # noqa: E402
 from core.actor import Actor                                    # noqa: E402
 from core.confirm import ConfirmationBroker                     # noqa: E402
 from core.evidence import ClaimChecker                          # noqa: E402
@@ -83,6 +84,12 @@ from routing import supply                                      # noqa: E402
 from routing.supply import for_egress, load_rows, measured_profiles  # noqa: E402
 
 STATE = Path.home() / "Library" / "Application Support" / "VESPER"
+
+# What block B may spend. Conservative on purpose: the smallest
+# context window in router.toml is what this has to fit inside, and
+# the cost of being too small is a fact left out rather than a request
+# refused by a provider.
+L1_BUDGET_TOKENS = 1500
 OUTBOX = STATE / "say.jsonl"
 # The wake listener records and queues; the runtime transcribes and
 # answers. The split is deliberate: the credential and the egress
@@ -285,7 +292,17 @@ def build(node: str = "vesper-runtime"):
     memory = renderer = updater = misses = None
     try:
         memory = MemoryGraph(store, path=str(STATE / "l2.db"))
-        renderer = L1Renderer(persona, memory)
+        # L1'S BUDGET IS TOKENS AND IT HAD NONE. `ContextBudgetManager` was
+        # built for this and constructed only by tests, so block B truncated at
+        # a fact COUNT -- five long facts could overrun a provider's window
+        # while five short ones wasted it. The number is a conservative default
+        # rather than a measurement: it is the first consumer this budget has
+        # ever had, and INV-HW-2's discipline says a figure nobody measured is
+        # not presented as one. Per-provider budgets are the next step now that
+        # something reads it at all.
+        renderer = L1Renderer(persona, memory,
+                              budget=ContextBudgetManager(
+                                  bus, budget_tokens=L1_BUDGET_TOKENS))
         # THE EXTRACTOR, without which memory is a transcript. `Updater` has
         # always had this slot and nothing ever filled it, so every fact landed
         # as `owner/said` at rank 4 -- the owner's sentence, verbatim, findable

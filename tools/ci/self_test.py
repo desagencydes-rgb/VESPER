@@ -4096,5 +4096,46 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# L1's budget is tokens, not a fact count. ContextBudgetManager was built for
+# this and constructed only by tests -- the fifth "built, gated, reached by
+# nothing", and one CI-094 could not see.
+# --------------------------------------------------------------------------
+BLOCKS_PY = "core/blocks.py"
+CONTEXT_PY = "core/context.py"
+
+CASES += [
+    ("l1-spends-a-token-budget", BLOCKS_PY,
+     _sub("        if self._budget is not None:", "        if False:", 1),
+     "block B truncates at a fact COUNT again: five long facts overrun the "
+     "provider's window and five short ones waste it, and nothing counts"),
+
+    ("l1-spends-a-token-budget", RUNTIME,
+     _sub("        renderer = L1Renderer(persona, memory,\n"
+          "                              budget=ContextBudgetManager(\n"
+          "                                  bus, budget_tokens=L1_BUDGET_TOKENS))",
+          "        renderer = L1Renderer(persona, memory)", 1),
+     "the runtime builds the renderer with no budget, so the manager goes back "
+     "to being constructed only by its own tests"),
+
+    ("l1-spends-a-token-budget", BLOCKS_PY,
+     _sub("    return max(1, (len(text) + 3) // 4)", "    return 1", 1),
+     "every fact is costed at one token, so the budget is consulted, always "
+     "fits, and decides nothing -- the shape a check that only asserts 'a "
+     "budget was passed' cannot see"),
+
+    # THE SORT IS NOT WHAT PROTECTS A PINNED FRAGMENT -- `or f.pinned` in the
+    # admission test is, and it short-circuits regardless of order. Mutating
+    # the sort key changes the ORDER and drops nothing, so the case written
+    # against it reported green. This one removes the guard that actually
+    # holds.
+    ("l1-spends-a-token-budget", CONTEXT_PY,
+     _sub("            if out.tokens_used + f.tokens <= self.budget_tokens or f.pinned:",
+          "            if out.tokens_used + f.tokens <= self.budget_tokens:", 1),
+     "a pinned fragment is dropped to fit the budget: the owner named it, and "
+     "manual mode becomes a suggestion the selector may overrule"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

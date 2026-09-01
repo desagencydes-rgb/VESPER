@@ -13528,8 +13528,123 @@ def check_a_decline_is_not_an_attempt() -> Result:
     return r
 
 
+def check_l1_spends_a_token_budget() -> Result:
+    """Block B fits a budget in TOKENS, not a count of facts.
+
+    `MEMORY_ARCHITECTURE.md` says it plainly -- "L1's budget is per-provider"
+    -- and until 2026-09-01 block B truncated at `TOP_N` facts regardless of
+    how long they were. Five long facts could overrun a provider's window while
+    five short ones wasted it, and the difference was invisible because nothing
+    counted.
+
+    `ContextBudgetManager` was written for exactly this and was constructed in
+    two places, both of them tests. This is the check that it now has a caller
+    that runs -- the fifth instance of the same shape CI-094 exists for, and
+    one CI-094 could not see, because `core/context.py` is not named as any
+    check's subject.
+
+    THE PINNED RULE IS THE MANAGER'S, NOT A NEW ONE. A pinned fragment is
+    placed first and an overrun is REPORTED rather than resolved by dropping
+    it: silently discarding what the owner explicitly asked for would make
+    manual mode a suggestion.
+    """
+    r = Result("l1-spends-a-token-budget")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf
+    try:
+        from core.blocks import L1Renderer
+        from core.bus import EventBus
+        from core.context import ContextBudgetManager, Fragment
+        from core.hlc import HybridLogicalClock
+        from core.memory import MemoryGraph
+        from core.store import StoreSet
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the L1 modules do not import: {exc!r}")
+        return r
+
+    # 1. THE RUNTIME BUILDS ONE. Without this the budget is a library again.
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if "ContextBudgetManager(" not in rt:
+        r.err("the runtime never constructs a ContextBudgetManager, so block B "
+              "is back to truncating at a fact count and nothing counts tokens")
+    if "budget=" not in rt:
+        r.err("the renderer is built without a budget")
+
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("l1b")
+        store = StoreSet(base / "s", node_id="l1b")
+        bus = EventBus(clock, store, component="l1b")
+        mem = MemoryGraph(store)
+        for i in range(8):
+            mem.remember(subject="project", attribute="deadline",
+                         value=("deadline " + "x" * 280 if i % 2 == 0
+                                else "deadline soon"),
+                         rank=3, privacy="private", trust_class="owner",
+                         at=clock.now())
+
+        def _n(budget):
+            rend = L1Renderer(None, mem, budget=budget)
+            _t, facts, _tr, _ms, _u = rend.block_b(["deadline"])
+            return len(facts), rend.last_budget()
+
+        none_n, none_b = _n(None)
+        tight_n, tight_b = _n(ContextBudgetManager(bus, budget_tokens=40))
+        loose_n, loose_b = _n(ContextBudgetManager(bus, budget_tokens=5000))
+
+        if none_b is not None:
+            r.err("a renderer built with no budget reports one, so 'unbudgeted' "
+                  "and 'it fit' have become the same answer")
+        if none_n == 0:
+            r.err("the fixture selected nothing; the assertions below would be "
+                  "comparing zero against zero")
+        elif tight_n >= none_n:
+            r.err(f"a 40-token budget kept {tight_n} facts where the unbudgeted "
+                  f"path kept {none_n}. The budget is accepted and ignored.")
+        if loose_n < tight_n:
+            r.err("a larger budget kept FEWER facts, so the budget is not "
+                  "ordering by cost")
+        if tight_b and tight_b.get("tokens_used", 0) > tight_b.get("budget_tokens", 0):
+            r.err("the assembled context exceeds its own budget without saying "
+                  "so -- an overrun must be reported, never silent")
+        if tight_b and not tight_b.get("dropped"):
+            r.err("facts were removed to fit and none were recorded as dropped, "
+                  "so the turn cannot say what it left out")
+
+        # 2. PINNED SURVIVES A BUDGET IT DOES NOT FIT. This is the rule that
+        #    makes manual mode real rather than advisory.
+        cbm = ContextBudgetManager(bus, budget_tokens=5)
+        # THE PINNED ONE IS DECLARED SECOND ON PURPOSE. With it first,
+        # declaration order alone keeps it and the assertion passes whether or
+        # not `pinned` is being honoured -- which is exactly what the case
+        # written for that mutation reported. It has to be the fragment that
+        # would lose, so that surviving means something.
+        big = [Fragment(fragment_id="other", kind="memory_fact",
+                        text="y" * 400, tokens=100),
+               Fragment(fragment_id="pinned", kind="memory_fact",
+                        text="x" * 400, tokens=100)]
+        got = cbm.assemble(big, intent="probe", manual=["pinned"])
+        kept = [f.fragment_id for f in got.fragments]
+        if "pinned" not in kept:
+            r.err("a pinned fragment was dropped to fit the budget. The owner "
+                  "asked for it; an overrun is reported, not resolved by "
+                  "discarding what they named.")
+        if got.to_dict().get("within_budget"):
+            r.err("an assembly that exceeds its budget reports within_budget "
+                  "true, so the overrun is invisible to whatever reads it")
+
+    r.note("the runtime builds a budget and hands it to the renderer; the same "
+           "memory and query yield fewer facts under a tight budget than under "
+           "none; a larger budget keeps more; dropped facts are recorded; and a "
+           "pinned fragment survives a budget it does not fit, with the overrun "
+           "reported rather than hidden")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "l1-spends-a-token-budget": check_l1_spends_a_token_budget,
     "a-decline-is-not-an-attempt": check_a_decline_is_not_an_attempt,
     "authorization-strength-is-its-own-axis": check_authorization_strength_is_its_own_axis,
     "credentials-can-leave-the-plaintext-file": check_credentials_can_leave_the_plaintext_file,
