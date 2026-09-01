@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import pathlib
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -47,6 +48,7 @@ from core.capabilities import (INDEPENDENT_VERIFIERS, bind_all,
 from core.executor import Executor
 from core.intent import IntentProposer
 from core.reconcile import Reconciler
+from core.selfmod import SelfModificationBoundary
 from core.checkpoint import ShadowGit
 from core.taint import EXTERNAL, ContextCeiling, Tainted
 
@@ -74,6 +76,9 @@ MAX_CONSECUTIVE_REFUSALS = 3
 # in `__init__` -- the workspace's own parent, so a rebuild cannot take it.
 SHADOW_ROOT = WORKSPACE.parent / "shadow"
 
+# The tree the self-modification boundary governs: this repository.
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
+
 
 @dataclass(slots=True)
 class Outcome:
@@ -96,7 +101,8 @@ class Actor:
     def __init__(self, bus: Any, gateway: Any, *, subject: str = "vesper",
                  target: str = "host", broker: Any = None,
                  now_ms: Any = None, profile_id: str = "",
-                 shadow: Any = None, reconciler: Any = None) -> None:
+                 shadow: Any = None, reconciler: Any = None,
+                 selfmod: Any = None) -> None:
         self._bus = bus
         self._registry = build_registry()
         self._pdp = PolicyDecisionPoint(bus, self._registry,
@@ -114,9 +120,15 @@ class Actor:
         # and it mattered less when VESPER took one action per utterance than
         # it does now that a turn can take six.
         self._reconciler = reconciler if reconciler is not None else Reconciler(bus)
+        # THE SELF-MODIFICATION BOUNDARY. Built, gated by CI-015 against the
+        # REAL repository and the real pinned artifact, and consulted by
+        # nothing -- so the refusal existed and was never asked for.
+        self._selfmod = selfmod if selfmod is not None else SelfModificationBoundary(
+            bus, repo_root=REPO_ROOT)
         self._executor = Executor(bus, self._registry, self._pdp,
                                   shadow=self._shadow,
-                                  reconciler=self._reconciler)
+                                  reconciler=self._reconciler,
+                                  selfmod=self._selfmod)
         bind_all(self._executor)
         self._proposer = IntentProposer(gateway, bus=bus, profile_id=profile_id)
         self._ceiling = ContextCeiling(bus)

@@ -85,12 +85,13 @@ class Executor:
 
     def __init__(self, bus: EventBus, registry: CapabilityRegistry,
                  pdp: PolicyDecisionPoint, shadow: Any = None,
-                 reconciler: Any = None) -> None:
+                 reconciler: Any = None, selfmod: Any = None) -> None:
         self._bus = bus
         self._registry = registry
         self._pdp = pdp
         self._shadow = shadow
         self._reconciler = reconciler
+        self._selfmod = selfmod
         self._impls: dict[str, Callable[[dict], Any]] = {}
         self._compensators: dict[str, Callable[[dict, Any], Any]] = {}
         self._seen_keys: set = set()
@@ -182,6 +183,26 @@ class Executor:
         # ONLY FOR CAPABILITIES THAT DECLARE AN EXTERNAL EFFECT. `fs.write` and
         # `fs.edit` change this machine and are covered by the checkpoint below;
         # `shell.run` can reach anything, which is what `external_effect` marks.
+        # THE SELF-MODIFICATION BOUNDARY, ASKED BEFORE THE WRITE AND NOT BY
+        # THE LADDER. `fs_write_level` already returns L5 for governed trees,
+        # and INV-SELF-3 says that is not enough: an L5 grant does not lift
+        # this. A boundary a sufficiently privileged grant can cross is one an
+        # injected page will eventually talk its way past, and A-030's fixture
+        # is an overnight autonomous run on injected content with nobody
+        # present -- precisely the condition under which disposition fails.
+        #
+        # REFUSED ON THE PATH, NOT ON THE ARGUMENT. It does not read the reason
+        # for the write, so there is nothing to argue with.
+        #
+        # AND THE WORKSPACE IS THE INTENDED WAY TO WORK (A-030.6). The
+        # distinction is not WHAT is edited but WHERE: a governed path in the
+        # running artifact is refused; the same content in the workspace is the
+        # thing VESPER is supposed to do overnight and propose in the morning.
+        if self._selfmod is not None:
+            for target in touched_paths(capability_id, args):
+                self._selfmod.check_write(target, subject=subject,
+                                          level=d.effective_level)
+
         outbox_id = None
         if self._reconciler is not None and getattr(cap, "external_effect", False):
             from .reconcile import OutboxEntry

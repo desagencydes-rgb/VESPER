@@ -14332,8 +14332,200 @@ def check_the_map_is_built_and_kept_true() -> Result:
     return r
 
 
+def check_the_boundary_is_asked_before_the_write() -> Result:
+    """A governed path is refused even when the ladder says yes.
+
+    `core/selfmod.py` was built, gated by CI-015 against the REAL repository
+    and the real pinned artifact, and consulted by nothing -- so the refusal
+    existed and was never asked for.
+
+    INV-SELF-3 IS WHY THE LADDER IS NOT ENOUGH. `fs_write_level` already
+    returns L5 for governed trees, and A-030.5 presents both a forged and a
+    VALID L5 grant and requires both to be refused unconditionally. A boundary
+    a sufficiently privileged grant can cross is one an injected page will
+    eventually talk its way past -- and A-030's fixture is an overnight
+    autonomous run on injected content with nobody present, which is precisely
+    the condition under which disposition fails.
+
+    REFUSED ON THE PATH, NEVER ON THE ARGUMENT. It does not read the reason for
+    the write, so there is nothing to argue with.
+
+    AND IT MUST NOT OVER-RESTRICT. A-030.6 must SUCCEED: the same content
+    written in the workspace is the intended way to work, and its mandatory
+    negative control is a build that prohibits free-time self-modification
+    outright. The distinction is not WHAT is edited but WHERE.
+    """
+    r = Result("boundary-asked-before-the-write")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import hashlib as _h
+    import tempfile as _tf
+    try:
+        from core.authorize import Grant, PolicyDecisionPoint
+        from core.bus import EventBus
+        from core.capabilities import (WORKSPACE, build_registry, fs_write,
+                                       fs_write_compensator)
+        from core.checkpoint import ShadowGit
+        from core.executor import Executor
+        from core.hlc import HybridLogicalClock
+        from core.selfmod import (SelfModificationBoundary,
+                                  SelfModificationRefused)
+        from core.store import StoreSet
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the self-modification modules do not import: {exc!r}")
+        return r
+
+    asrc = (REPO / "core" / "actor.py").read_text(encoding="utf-8")
+    if "SelfModificationBoundary(" not in asrc:
+        r.err("the actor never builds the boundary, so nothing consults it "
+              "before a write")
+    esrc = (REPO / "core" / "executor.py").read_text(encoding="utf-8")
+    body = esrc[esrc.index("    def execute("):]
+    body = body[:body.index("\n    def ", 1)]
+    if "check_write(" not in body:
+        r.err("Executor.execute never calls check_write, so the boundary is "
+              "built and asked nothing")
+    elif body.index("check_write(") > body.index("impl(args)"):
+        r.err("the boundary is consulted AFTER the implementation runs, which "
+              "is a refusal issued about a write that already happened")
+
+    # THE FIXTURE IS A TEMPORARY REPOSITORY, NOT THIS ONE, AND THAT IS NOT
+    # FASTIDIOUSNESS. The first version of this check pointed at the real
+    # `contracts/policy/cost_policy.toml` and wrote "MUTATED" to it, relying on
+    # the boundary to refuse. Then `self_test.py` did its job: it disabled the
+    # boundary on purpose, ran this check, and the write went through --
+    # destroying a live contract file, which the restore does not cover because
+    # the restore only puts back the SOURCE the mutation edited.
+    #
+    # A check whose red run damages the repository is worse than no check. So
+    # the boundary is pointed at a temp root with its own governed artifact:
+    # under mutation the worst outcome is a clobbered temp file.
+    #
+    # AND `before` MUST BE READ FROM A FILE THAT IS KNOWN GOOD. Comparing the
+    # target to itself is how the damage stayed invisible for three runs --
+    # the file was already "MUTATED" when `before` was taken, so byte-identical
+    # was true and meaningless.
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        fake_repo = base / "repo"
+        (fake_repo / "contracts" / "policy").mkdir(parents=True)
+        (fake_repo / "contracts" / "policy" / "governed_surfaces.toml").write_text(
+            '[surfaces.policy]\npaths = ["contracts/policy/"]\n', encoding="utf-8")
+        governed = fake_repo / "contracts" / "policy" / "cost_policy.toml"
+        governed.write_text("original = true\n", encoding="utf-8")
+        before = _h.sha256(governed.read_bytes()).hexdigest()
+        clock = HybridLogicalClock("sm")
+        store = StoreSet(base / "s", node_id="sm")
+        bus = EventBus(clock, store, component="sm")
+        reg = build_registry()
+        pdp = PolicyDecisionPoint(bus, reg)
+        seen: list = []
+        bus.subscribe("selfmod.attempt_blocked",
+                      lambda e: seen.append(e.payload), name="sm-check",
+                      idempotency_key=lambda e: e.event_id)
+        sm = SelfModificationBoundary(bus, repo_root=fake_repo)
+        ex = Executor(bus, reg, pdp, shadow=ShadowGit(base / "sh"), selfmod=sm)
+        ex.bind("fs.write", fs_write, compensator=fs_write_compensator)
+
+        # 1. THE STRONGEST GRANT THAT EXISTS DOES NOT LIFT IT. A fresh grant
+        #    per attempt, because L4/L5 are consumed by use (INV-AUTH-2) and a
+        #    reused one comes back 'grant_consumed' -- passing for the wrong
+        #    reason.
+        pdp.issue(Grant("gA", "sA", "fs.write", ("host",), "L5",
+                        10_000_000_000_000, 0))
+        try:
+            ex.execute(subject="sA", capability_id="fs.write",
+                       args={"path": str(governed), "content": "MUTATED"},
+                       target="host")
+            r.err("a write to a governed path in the running artifact SUCCEEDED "
+                  "under an L5 grant. INV-SELF-3 says the strongest grant does "
+                  "not lift this boundary.")
+        except SelfModificationRefused:
+            pass
+        except Exception as exc:                    # noqa: BLE001
+            r.err(f"the governed write was refused by {type(exc).__name__} "
+                  "rather than the boundary. Refused for the wrong reason is "
+                  "refused by accident, and the accident can be fixed away.")
+        if _h.sha256(governed.read_bytes()).hexdigest() != before:
+            r.err("the governed file CHANGED. The refusal happened after the "
+                  "write, which is a report rather than a boundary.")
+        if not seen:
+            r.err("nothing published selfmod.attempt_blocked, so a refused "
+                  "self-modification leaves no trace to notice")
+
+        # 1b. THE WORKSPACE CARVE-OUT, TESTED WHERE IT ACTUALLY LIVES. There
+        #     are two different "workspace" roots in this system and they are
+        #     easy to confuse: `capabilities.resolve()` maps a relative
+        #     `workspace/...` to ~/Library/Application Support/VESPER/workspace,
+        #     which is OUTSIDE the repository -- so `check_write` returns early
+        #     on it as none of this boundary's business, and the carve-out
+        #     branch is never reached through the capability path at all.
+        #     `selfmod.WORKSPACE_PREFIX` is repo-relative.
+        #
+        #     So the carve-out is asserted directly. Testing it through the
+        #     executor exercises the outside-the-repo branch instead and passes
+        #     whether the carve-out exists or not, which is what the first
+        #     version of this case did.
+        # `in_workspace=True` IS THE ONLY WAY INTO THE CARVE-OUT, and finding
+        # that out cost a case that reported green. The other half of the
+        # condition, `rel.startswith("workspace/")`, is unreachable: no
+        # governed prefix lives under `workspace/`, so such a path exits one
+        # line later at `not is_governed` regardless. Removing the carve-out
+        # entirely therefore changes nothing for a path-based probe.
+        #
+        # What DOES reach it is a caller stating that this write is happening
+        # in a workspace copy -- which is A-030.6's case exactly: the same
+        # governed content, drafted somewhere it may be drafted.
+        try:
+            sm.check_write(governed, subject="probe", level="L1",
+                           in_workspace=True)
+        except SelfModificationRefused:
+            r.err("a governed path declared to be in the workspace was refused. "
+                  "A-030.6 requires it to succeed: drafting a change and "
+                  "proposing it is the intended way to work, and refusing it is "
+                  "the over-restriction PATCH-018's control exists to catch.")
+
+        # AND THE CONTROL FOR THAT ASSERTION: the same call on a governed path
+        # must still raise, or "it did not refuse" means nothing.
+        try:
+            sm.check_write(governed, subject="probe", level="L5")
+            r.err("check_write permitted a governed path outright, so the "
+                  "carve-out assertion above proves nothing")
+        except SelfModificationRefused:
+            pass
+
+        # 2. AND IT DOES NOT OVER-RESTRICT (A-030.6). Without this a build that
+        #    refused everything would satisfy the assertion above -- which is
+        #    the mandatory negative control PATCH-018 provides.
+        WORKSPACE.mkdir(parents=True, exist_ok=True)
+        draft = WORKSPACE / "ci_selfmod_draft.toml"
+        draft.unlink(missing_ok=True)
+        pdp.issue(Grant("gB", "sB", "fs.write", ("host",), "L4",
+                        10_000_000_000_000, 0))
+        try:
+            ex.execute(subject="sB", capability_id="fs.write",
+                       args={"path": str(draft), "content": "draft"},
+                       target="host")
+        except Exception as exc:                    # noqa: BLE001
+            r.err(f"writing the same content in the WORKSPACE was refused "
+                  f"({type(exc).__name__}). A-030.6 must succeed: the workspace "
+                  "is where this work belongs, and refusing it is the "
+                  "over-restriction PATCH-018's control exists to catch.")
+        else:
+            if not draft.exists():
+                r.err("the workspace write reported success and wrote nothing")
+        draft.unlink(missing_ok=True)
+
+    r.note("the actor builds the boundary and the executor asks it before "
+           "invoking; a governed path in the running artifact is refused under "
+           "an L5 grant with the file byte-identical and the attempt published; "
+           "and the same content in the workspace still succeeds")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "boundary-asked-before-the-write": check_the_boundary_is_asked_before_the_write,
     "map-built-and-kept-true": check_the_map_is_built_and_kept_true,
     "outbox-written-before-the-effect": check_the_outbox_is_written_before_the_effect,
     "autonomy-stops-when-nothing-arms-it": check_autonomy_stops_when_nothing_arms_it,

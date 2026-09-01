@@ -2303,11 +2303,6 @@ deploy, never single-node design -- placement has nothing to choose between
 until a second node is enrolled, and `core/enrollment.py` above is the gate in
 front of it."""
 
-"core/selfmod.py" = """OWED. The self-modification boundary (INV-SELF-1..7).
-CI-015 runs it against the REAL repository and the real pinned artifact, which
-is why the gate is meaningful, but nothing in the runtime consults it before a
-write -- so the refusal exists and is never asked for. Recorded 2026-09-01."""
-
 "core/floor.py" = """OWED. Holding the floor while work is in flight (SR-041).
 `core/intake.py` has its own unrelated `floor_for`, which is a confusion worth
 noting: 187 production mentions of the word "floor" and not one import of this

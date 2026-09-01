@@ -4314,5 +4314,48 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# The self-modification boundary, finally asked. Built, gated by CI-015 against
+# the real repository, and consulted by nothing.
+# --------------------------------------------------------------------------
+SELFMOD_PY = "core/selfmod.py"
+
+CASES += [
+    ("boundary-asked-before-the-write", EXECUTOR_PY,
+     _sub("        if self._selfmod is not None:\n"
+          "            for target in touched_paths(capability_id, args):",
+          "        if False:\n"
+          "            for target in touched_paths(capability_id, args):", 1),
+     "the executor stops asking the boundary: a governed path in the running "
+     "artifact is writable again under a sufficient grant, which is the state "
+     "A-030's overnight injected-content fixture exists to catch"),
+
+    ("boundary-asked-before-the-write", SELFMOD_PY,
+     _sub("        if not self.is_governed(rel):\n            return",
+          "        if True:\n            return", 1),
+     "nothing is governed any more, so the boundary is consulted, answers yes "
+     "to everything, and reads exactly like enforcement"),
+
+    ("boundary-asked-before-the-write", SELFMOD_PY,
+     # ONLY THE `in_workspace` HALF IS REACHABLE. No governed prefix lives
+     # under `workspace/`, so the path half exits one line later at
+     # `not is_governed` regardless, and deleting the whole line changes
+     # nothing a path-based probe can see.
+     _sub("        if in_workspace or rel.startswith(WORKSPACE_PREFIX):\n            return",
+          "        if rel.startswith(WORKSPACE_PREFIX):\n            return", 1),
+     "a caller stating the write is happening in a workspace copy is ignored, "
+     "so A-030.6 fails: VESPER can no longer draft a governed change where it "
+     "is allowed to and propose it in the morning -- the over-restriction "
+     "PATCH-018's control exists to catch"),
+
+    ("boundary-asked-before-the-write", ACTOR_PY,
+     _sub("        self._selfmod = selfmod if selfmod is not None else SelfModificationBoundary(\n"
+          "            bus, repo_root=REPO_ROOT)",
+          "        self._selfmod = selfmod", 1),
+     "the actor stops building a boundary, so nothing is passed to the "
+     "executor and the check it performs is skipped entirely"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
