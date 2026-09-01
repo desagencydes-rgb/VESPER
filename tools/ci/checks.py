@@ -12857,8 +12857,166 @@ def check_prohibited_tier_no_grant_opens() -> Result:
     return r
 
 
+def check_autonomy_can_act_and_still_cannot_decide() -> Result:
+    """The outer loop has hands, and still no model in the decision path.
+
+    THE ENGINE WAS BUILT AND STARVED. `core/autonomy.py` refuses a trigger that
+    fires on the clock alone, refuses a predicate that cannot be shown to
+    terminate, refuses a string predicate because an interpreter is a place a
+    model call can hide, and refuses a model call in the decision path
+    outright. Nobody in the field studied has that. It had ONE trigger
+    registered -- memory expiry -- and `grep actor core/autonomy.py` returned
+    nothing but an unrelated comment: a working engine with one instruction and
+    no hands.
+
+    THE SPLIT IS THE WHOLE DESIGN. "Decide intentionally whether to do
+    something else" sounds like judgement, and judgement sounds like a model
+    call. WHETHER to wake is deterministic predicates over declared world
+    state; WHAT to do once awake may be a model call, because by then the
+    decision to act at all was made by something auditable. `tick` decides and
+    `dispatch` acts, and `tick` holding no actor reference is what makes that
+    structural rather than a rule someone has to remember.
+    """
+    r = Result("autonomy-can-act-and-still-cannot-decide")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import inspect as _inspect
+    import json as _json
+    import tempfile as _tf
+    try:
+        from core.actor import Actor
+        from core.autonomy import AutonomyLoop, PredicateEvaluator, anti_cron_probe
+        from core.bus import EventBus
+        from core.checkpoint import ShadowGit
+        from core.hlc import HybridLogicalClock
+        from core.self_directed import DISK_TERM, all_triggers
+        from core.store import StoreSet
+        from core.world import Observation, WorldModel
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the autonomy modules do not import: {exc!r}")
+        return r
+
+    # 1. STRUCTURAL: the deciding half cannot reach the acting half.
+    tick_src = _inspect.getsource(AutonomyLoop.tick)
+    for word in ("actor", "_actor", "intent"):
+        if word in tick_src:
+            r.err(f"AutonomyLoop.tick mentions {word!r}. The decision must not "
+                  "be able to reach the model, and separating the two methods "
+                  "is what makes that checkable rather than remembered.")
+    if "self._actor" not in _inspect.getsource(AutonomyLoop.dispatch):
+        r.err("dispatch does not reach the actor, so a fired trigger still "
+              "cannot do anything")
+
+    # 2. MORE THAN ONE TRIGGER, AND EVERY ONE OF THEM SURVIVES THE ANTI-CRON
+    #    PROBE. A loop with one instruction is the state this closed.
+    triggers = all_triggers()
+    if len(triggers) < 2:
+        r.err(f"{len(triggers)} self-directed triggers: the loop is still "
+              "close to having nothing to consider")
+    for t in triggers:
+        probe = anti_cron_probe(t)
+        if probe.get("fires_on_clock_alone"):
+            r.err(f"{t.trigger_id} fires on the clock alone, so it is cron "
+                  "whatever its label says")
+        if not t.intent:
+            r.err(f"{t.trigger_id} has nothing to do when it fires, so it can "
+                  "only publish an event")
+        if not t.state_terms:
+            r.err(f"{t.trigger_id} declares no state terms")
+
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("auto-check")
+        store = StoreSet(base / "s", node_id="auto-check")
+        bus = EventBus(clock, store, component="auto-check")
+        world = WorldModel(bus, clock)
+
+        class _GW:
+            def __init__(self):
+                self.calls = []
+
+            def complete(self, text, **kw):
+                self.calls.append(text)
+                return {"result": {"text": _json.dumps(
+                    {"action": "shell.run", "args": {"cmd": "df -h"},
+                     "why": "look at the disk"})}}
+
+        gw = _GW()
+        actor = Actor(bus, gw, subject="auto-check", target="host",
+                      shadow=ShadowGit(base / "shadow"))
+        loop = AutonomyLoop(bus, world, PredicateEvaluator(bus, world),
+                            now_ms=lambda: 0)
+        for t in triggers:
+            loop.register(t)
+        loop.attach_actor(actor)
+
+        subj, attr = DISK_TERM.rsplit(".", 1)
+
+        # 3. A QUIET WORLD COSTS NOTHING AND ASKS NOBODY. This is the assertion
+        #    that separates an autonomy loop from a chatbot on a timer: with
+        #    nothing to do, the model is not consulted at all.
+        world.apply(Observation(subj, attr, 0.55, clock.now(), source="probe",
+                                confidence=1.0))
+        acted = loop.dispatch(loop.tick())
+        if acted:
+            r.err("the loop acted on a healthy machine, so its predicates are "
+                  "not reading the world")
+        if gw.calls:
+            r.err(f"{len(gw.calls)} model calls were made while deciding there "
+                  "was nothing to do. A loop that asks a model whether anything "
+                  "is worth doing is a chatbot talking to itself.")
+
+        # 4. AND WHEN THE WORLD CHANGES, IT ACTS -- through the whole ladder.
+        world.apply(Observation(subj, attr, 0.03, clock.now(), source="probe",
+                                confidence=1.0))
+        acted = loop.dispatch(loop.tick())
+        if not acted:
+            r.err("the disk filled and the loop did nothing: it is registered, "
+                  "it fires, and it still has no hands")
+        else:
+            got = acted[0]
+            if got.get("trigger_id") != "trg_disk_pressure":
+                r.err(f"the wrong trigger acted: {got.get('trigger_id')}")
+            outcome = got.get("outcome") or {}
+            if outcome.get("kind") not in ("acted", "asked", "refused", "failed"):
+                r.err(f"the autonomous action produced {outcome.get('kind')!r}, "
+                      "which is not an outcome the actor produces")
+            if not gw.calls:
+                r.err("the action was taken without the model being asked what "
+                      "to do -- WHAT to do is the half that may be a model call")
+
+        # 5. THE ACTION IS AN ORDINARY ONE. An autonomous turn must go down the
+        #    same ladder an owner's utterance does, not around it.
+        if not any(e for e in [outcome] if e.get("capability_id")):
+            r.err("the autonomous outcome names no capability, so it did not "
+                  "pass through the registry")
+
+        # 6. A LOOP WITH NO ACTOR SAYS SO rather than silently doing nothing.
+        quiet = AutonomyLoop(bus, world, PredicateEvaluator(bus, world),
+                             now_ms=lambda: 0)
+        for t in all_triggers():
+            quiet.register(t)
+        seen: list = []
+        bus.subscribe("autonomy.no_actor", lambda e: seen.append(e.payload),
+                      name="auto-check-noactor",
+                      idempotency_key=lambda e: e.event_id)
+        quiet.dispatch(quiet.tick())
+        if not seen:
+            r.err("a loop with something to do and no actor said nothing. A "
+                  "starved loop that looks identical to a quiet one is how this "
+                  "went unnoticed for as long as it did.")
+
+    r.note("tick holds no reference to the actor or to any intent; every "
+           "self-directed trigger requires world state and carries something to "
+           "do; a healthy machine costs zero model calls; a full disk produces "
+           "a real action through the registry; and a loop with no actor "
+           "publishes that rather than looking quiet")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "autonomy-can-act-and-still-cannot-decide": check_autonomy_can_act_and_still_cannot_decide,
     "prohibited-tier-no-grant-opens": check_prohibited_tier_no_grant_opens,
     "every-change-is-undoable": check_every_change_is_undoable,
     "edit-names-one-place": check_edit_names_one_place,

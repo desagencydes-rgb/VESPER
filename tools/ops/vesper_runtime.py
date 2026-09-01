@@ -53,6 +53,7 @@ from core.autonomy import AutonomyLoop, PredicateEvaluator      # noqa: E402
 from core.devices import CONTINUITY_CRITICAL, DeviceRegistry    # noqa: E402
 from core.repair import RepairAgent                             # noqa: E402
 from core.forgetter import expiry_trigger                       # noqa: E402
+from core.self_directed import all_triggers as self_directed_triggers  # noqa: E402
 from core.sensors import Sensor, SensorRegistry, SWEEP, TIMER   # noqa: E402
 from core.world import WorldModel                               # noqa: E402
 from core.difficulty import classify                            # noqa: E402
@@ -276,6 +277,10 @@ def build(node: str = "vesper-runtime"):
     autonomy = AutonomyLoop(bus, world, PredicateEvaluator(bus, world),
                             now_ms=lambda: int(time.time() * 1000))
     autonomy.register(expiry_trigger())
+    # THE LOOP HAD ONE INSTRUCTION UNTIL 2026-09-01. It woke on every pass,
+    # found memory expiry the only thing to consider, and went back to sleep.
+    for _t in self_directed_triggers():
+        autonomy.register(_t)
 
     memory = renderer = updater = misses = None
     try:
@@ -343,6 +348,7 @@ def build(node: str = "vesper-runtime"):
     # which is safe in the way a system that cannot do anything is safe.
     actor = Actor(bus, gw,
                   broker=ConfirmationBroker(bus, InterruptionBudget(bus)))
+    autonomy.attach_actor(actor)
 
     return (bus, gw, router, home, intake, triage, report, persona, bench,
             renderer, updater, misses, chooser, world, sensors, autonomy,
@@ -590,7 +596,10 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
     # here is recorded and does not take the turn with it.
     if autonomy is not None:
         try:
-            autonomy.tick()
+            # DECIDE, THEN ACT ON WHAT WAS DECIDED. Two calls rather than one
+            # because `tick` must hold no reference to the actor: that is what
+            # keeps "no model in the decision path" structural.
+            autonomy.dispatch(autonomy.tick())
         except Exception as exc:                   # noqa: BLE001
             bus.publish("autonomy.loop_failed", subject="autonomy",
                         payload={"error": repr(exc)}, component="runtime")

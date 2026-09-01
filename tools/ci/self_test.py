@@ -3908,5 +3908,44 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# The outer loop gets hands. It ran on every pass of the runtime with one
+# trigger registered and no reference to the actor -- a working engine with one
+# instruction and nothing to do with the answer.
+# --------------------------------------------------------------------------
+AUTONOMY_PY = "core/autonomy.py"
+SELF_DIRECTED_PY = "core/self_directed.py"
+
+CASES += [
+    ("autonomy-can-act-and-still-cannot-decide", AUTONOMY_PY,
+     _sub("            if self._actor is None:", "            if True:", 1),
+     "dispatch stops reaching the actor: triggers fire, publish an event, and "
+     "nothing happens -- the state this closed"),
+
+    ("autonomy-can-act-and-still-cannot-decide", SELF_DIRECTED_PY,
+     _sub("    return [disk_pressure_trigger(), host_health_trigger()]",
+          "    return [disk_pressure_trigger()]", 1),
+     "the loop is back to almost nothing to consider: it wakes, finds one "
+     "thing, and sleeps"),
+
+    ("autonomy-can-act-and-still-cannot-decide", SELF_DIRECTED_PY,
+     _sub('        intent="check which directories are using the most disk space",',
+          '        intent="",', 1),
+     "a trigger fires with nothing to do, so it can only publish an event -- "
+     "which is exactly what the whole layer could already do"),
+
+    ("autonomy-can-act-and-still-cannot-decide", SELF_DIRECTED_PY,
+     _sub("        return 0.0 <= float(v) < threshold", "        return True", 1),
+     "the predicate stops reading the world and fires every tick: an action a "
+     "healthy machine did not need, taken nightly, forever"),
+
+    ("autonomy-can-act-and-still-cannot-decide", AUTONOMY_PY,
+     _sub('                self._bus.publish(\n                    "autonomy.no_actor", subject=tid,',
+          '                continue\n                self._bus.publish(\n                    "autonomy.no_actor", subject=tid,', 1),
+     "a starved loop goes quiet instead of saying it has no hands, which is how "
+     "this went unnoticed for as long as it did"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

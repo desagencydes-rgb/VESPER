@@ -81,6 +81,17 @@ class Trigger:
     state_terms: tuple = ()
     enabled: bool = True
     debounce_s: int = 0
+    # WHAT TO DO once the predicate has already decided that something should
+    # happen. A sentence, handed to the actor exactly as a spoken request would
+    # be, so a fired trigger goes down the same ladder an owner utterance does
+    # -- levelled, authorized, contained, checkpointed and verified.
+    #
+    # IT IS NOT PART OF THE DECISION. `tick` never reads it; `dispatch` does,
+    # after the predicate has returned True. That separation is the design and
+    # not an implementation detail: WHETHER to wake is deterministic state,
+    # WHAT to do once awake may be a model call, and mixing them would put a
+    # model back in the decision path this module exists to keep it out of.
+    intent: str = ""
 
     def __post_init__(self) -> None:
         if self.predicate_class not in PREDICATE_CLASSES:
@@ -331,8 +342,9 @@ class AutonomyLoop:
     def __init__(self, bus: EventBus, world: WorldModel,
                  evaluator: PredicateEvaluator, *, tick_interval_s: float = 1.0,
                  now_ms: Any = None,
-                 history_limit: int = DEFAULT_HISTORY) -> None:
+                 history_limit: int = DEFAULT_HISTORY, actor: Any = None) -> None:
         self._bus = bus
+        self._actor = actor
         self._world = world
         self._eval = evaluator
         self.tick_interval_s = tick_interval_s
@@ -446,6 +458,79 @@ class AutonomyLoop:
             self._bus.publish("autonomy.trigger_fired", subject=t.trigger_id,
                               payload=action, component="autonomy")
         return actions
+
+    def attach_actor(self, actor: Any) -> "AutonomyLoop":
+        """Give the loop hands, after construction.
+
+        The runtime builds this loop before it builds the actor, and the actor
+        needs a gateway the loop does not. A setter is honest about that
+        ordering; reaching into `_actor` from the runtime would work and would
+        hide it.
+        """
+        self._actor = actor
+        return self
+
+    def dispatch(self, actions: list, *, period: str = "free_time",
+                 attention_state: str = "ABSENT") -> list:
+        """Act on triggers that have ALREADY fired. Never part of the decision.
+
+        THE LAYER THAT WAS MISSING. `core/autonomy.py` had `Trigger`,
+        `PredicateEvaluator`, `AutonomyLoop` and `AutonomyRunner`, it ran on
+        every pass of the runtime, and `grep actor core/autonomy.py` returned
+        nothing but an unrelated comment. So a fired trigger could publish an
+        event and could not do anything -- a working engine with one
+        instruction and no hands.
+
+        WHY IT IS A SEPARATE METHOD FROM `tick`. `tick` decides and returns;
+        this acts on what it decided. Keeping them apart means `tick` holds no
+        reference to the actor at all, so the property "no model call in the
+        decision path" is structural rather than a rule someone has to
+        remember. A check can read `tick` and see it.
+
+        FREE_TIME AND ABSENT ARE THE DEFAULTS, and they are not decoration. A
+        refusal here reaches `ConfirmationBroker.request`, which allocates
+        against the interruption budget for that period -- and the refusals
+        VESPER's own work produces most often (`below_required_level`,
+        `context_ceiling`) are not in CONFIRMABLE_REASONS at all, so they
+        return "not confirmable" rather than becoming a voice at three in the
+        morning. Autonomous work is bounded to what the standing grant already
+        allows, and everything else waits for a person.
+        """
+        done = []
+        for action in actions or []:
+            tid = action.get("trigger_id")
+            trigger = self._triggers.get(tid)
+            intent = getattr(trigger, "intent", "") if trigger else ""
+            if not intent:
+                continue
+            if self._actor is None:
+                self._bus.publish(
+                    "autonomy.no_actor", subject=tid,
+                    payload={"trigger_id": tid,
+                             "note": ("a trigger fired with something to do and "
+                                      "the loop holds no actor, so nothing can "
+                                      "happen")},
+                    component="autonomy")
+                continue
+            try:
+                outcome = self._actor.maybe_act(
+                    intent, attention_state=attention_state, period=period)
+            except Exception as exc:                   # noqa: BLE001
+                # A FIRED TRIGGER MUST NOT TAKE THE LOOP DOWN, for the same
+                # reason a bad predicate must not: a dead loop is the failure
+                # this whole module exists to make visible.
+                self._bus.publish("autonomy.dispatch_failed", subject=tid,
+                                  payload={"trigger_id": tid,
+                                           "error": f"{type(exc).__name__}: {exc}"},
+                                  component="autonomy")
+                continue
+            record = {"trigger_id": tid,
+                      "intent": intent,
+                      "outcome": outcome.to_dict() if outcome is not None else None}
+            done.append(record)
+            self._bus.publish("autonomy.acted", subject=tid, payload=record,
+                              component="autonomy")
+        return done
 
     def replay_predicate(self, action: dict) -> bool:
         """A-029 Part 2: re-evaluate the predicate against its snapshot."""
