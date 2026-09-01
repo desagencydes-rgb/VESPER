@@ -1,10 +1,10 @@
-# Overnight report — 2026-09-01, 01:40 to 06:30
+# Overnight report — 2026-09-01, 01:40 to 06:45
 
-Written for the owner. Twelve commits, all pushed to `feat/macos-host-profile`.
+Written for the owner. Fourteen commits, all pushed to `feat/macos-host-profile`.
 **Tier one of the approved build order is complete**, plus the two defects this
 survey found in our own code and two items from its own build list.
 
-Gates as of the last commit: **97/97 checks pass, 462 self-test cases red under
+Gates as of the last commit: **98/98 checks pass, 467 self-test cases red under
 violation and green after restore, both lints pass.** Up from 87 and 407.
 
 ---
@@ -24,7 +24,7 @@ and untouched.
 Until that is decided, **VESPER can act and there is no stop to press.** It is
 the first thing I would do with you awake.
 
-**2. Nine checks run and are held out of the registry.** CI-094 through CI-102
+**2. Ten checks run and are held out of the registry.** CI-094 through CI-103
 are implemented, red-run and passing in every `checks.py all`, and deliberately
 not registered: each asserts a property that is a *new invariant*, and
 promotion into a contract is a separate reviewed act. This follows the
@@ -88,6 +88,7 @@ feels too cautious, this is the line to argue with** -- it is one table,
 | **A tier no grant opens** | Three acts an L5 grant does not authorise. |
 | **The outer loop has hands** | Two real triggers; `dispatch` joins a fired trigger to the actor. |
 | **Keychain credentials** | Built, verified, not migrated. |
+| **A second authorization axis** | How strongly was this asked, with `unknown` first-class. |
 | **Two checks that were not evidence** | Both fixed. |
 
 ### The worst thing found, and it was ours
@@ -126,6 +127,27 @@ for a **name** rather than a **behaviour**.
 - **The wake-word retry was asserted by its name.** Two permission guards call
   `scheduleWakeRetry`, so deleting one left the other and the speech branch
   stopped retrying while the check passed.
+
+### The axis the ladder did not have
+
+Every level rule here answers *how dangerous is this*. Codex's guardian answers
+that **and** *how strongly did the user actually authorize it*, with `Unknown`
+first-class — and the two come apart in the case this design exists for. A
+**poisoned** proposer emits something dangerous and the danger axis catches it.
+A **steered** proposer emits something entirely reasonable that you never asked
+for, which is unremarkable on the danger axis and visible only here.
+
+Three strengths, and the boundaries are the ones this system can actually tell
+apart: `owner_explicit` (you said it, this turn, in words), `owner_task` (a
+later step of an errand you asked for — you authorised the errand, not each
+move inside it), and `unknown` (autonomous; nobody asked). It is independent of
+taint on purpose: taint is the provenance of the **content**, this is the
+provenance of the **request**, and each binds alone.
+
+Autonomous work caps at L2 — the standing grant it already ran under — so the
+outer loop still has hands. The check asserts that specifically, because an
+axis that quietly took it away would have undone the previous night's work two
+commits later.
 
 ### A claim from the sweep, withdrawn
 
