@@ -2310,11 +2310,6 @@ deploy, never single-node design -- placement has nothing to choose between
 until a second node is enrolled, and `core/enrollment.py` above is the gate in
 front of it."""
 
-"core/interlock.py" = """OWED, and the most serious entry in this table.
-The emergency stop is a dead-man's switch (A-031.2 severs the stop path itself)
-and nothing in the running system holds it, so there is currently no stop to
-press. Recorded 2026-09-01. It is not a future feature: VESPER acts today."""
-
 "core/selfmod.py" = """OWED. The self-modification boundary (INV-SELF-1..7).
 CI-015 runs it against the REAL repository and the real pinned artifact, which
 is why the gate is meaningful, but nothing in the runtime consults it before a

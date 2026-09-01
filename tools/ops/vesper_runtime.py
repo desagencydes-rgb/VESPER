@@ -47,6 +47,7 @@ from core.gateway import AllProvidersExhausted, ModelGateway    # noqa: E402
 from core.hlc import HybridLogicalClock                         # noqa: E402
 from core.home_state import HomeState                           # noqa: E402
 from core.intake import Intake                                  # noqa: E402
+from core.interlock import EnableToken, SafetyInterlock         # noqa: E402
 from core.chooser import Chooser                                # noqa: E402
 from core import host_probes                                    # noqa: E402
 from core.autonomy import AutonomyLoop, PredicateEvaluator      # noqa: E402
@@ -107,6 +108,32 @@ OFFSET = STATE / "say.offset"
 # this small: it is half of the owner-visible floor on a reply, and the other
 # half is the chrome's own timer in HomeChrome.swift.
 POLL_SECONDS = 0.15
+
+
+# Where `tools/ops/vesper_arm.py` leaves a fresh token. VESPER cannot write
+# here: `interlock` is a self-defeating path segment, refused by the prohibited
+# tier at every level including under an L5 grant.
+ENABLE_TOKEN_PATH = STATE / "interlock" / "enable_token.json"
+
+
+def _present_enable_token(interlock) -> None:
+    """Hand the interlock whatever the minter last wrote, if it is new.
+
+    EVERY FAILURE HERE IS SILENCE, AND SILENCE MEANS STOPPED. A missing file,
+    malformed JSON, a half-written token, a token already seen -- all of them
+    leave the interlock holding what it had, which expires on its own. That is
+    the whole shape of a dead-man's switch: nothing this function can do
+    wrongly results in autonomy running longer than it should.
+    """
+    try:
+        raw = ENABLE_TOKEN_PATH.read_text(encoding="utf-8")
+        d = json.loads(raw)
+        interlock.present_token(EnableToken(
+            token_id=str(d["token_id"]), issued_at_ms=int(d["issued_at_ms"]),
+            ttl_ms=int(d["ttl_ms"]), issued_by=str(d["issued_by"]),
+            signature=str(d.get("signature", ""))))
+    except Exception:                              # noqa: BLE001
+        return
 
 
 def build(node: str = "vesper-runtime"):
@@ -418,6 +445,19 @@ def build(node: str = "vesper-runtime"):
                   broker=ConfirmationBroker(bus, InterruptionBudget(bus)))
     autonomy.attach_actor(actor)
 
+    # THE STOP. `core/interlock.py` has been built, gated by A-031 and reachable
+    # from nothing -- so VESPER could act and there was no stop to press. It is
+    # a dead-man's switch rather than a kill signal, and A-031.2 gives the
+    # reason: a kill signal fails OPEN. Cut the wire and the stop never
+    # arrives; cut this one and the tokens stop arriving.
+    #
+    # WITH NO MINTER RUNNING, AUTONOMY IS OFF. That is the correct default and
+    # not a degradation: `tools/ops/vesper_arm.py --install` is what turns it
+    # on, and until somebody does that deliberately VESPER answers, observes
+    # and records but does not act on its own.
+    interlock = SafetyInterlock(bus, now_ms=lambda: int(time.time() * 1000))
+    autonomy.attach_interlock(interlock)
+
     # A ROTATED KEY THAT NEVER TOOK EFFECT IS SILENT, AND THIS IS THE ONLY
     # MOMENT IT IS CHEAP TO CATCH. The keychain overlays the file, so once a
     # credential has been migrated, editing it in `secrets.env` changes
@@ -687,6 +727,13 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
     # here is recorded and does not take the turn with it.
     if autonomy is not None:
         try:
+            # DECIDE, THEN ACT ON WHAT WAS DECIDED. Two calls rather than one
+            # because `tick` must hold no reference to the actor: that is what
+            # keeps "no model in the decision path" structural.
+            # PRESENT WHATEVER THE MINTER LEFT, BEFORE DECIDING. A token
+            # already seen is refused by token_id, so this is idempotent and a
+            # captured token cannot extend autonomy twice.
+            _present_enable_token(interlock)
             # DECIDE, THEN ACT ON WHAT WAS DECIDED. Two calls rather than one
             # because `tick` must hold no reference to the actor: that is what
             # keeps "no model in the decision path" structural.

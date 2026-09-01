@@ -4209,5 +4209,43 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# The stop. core/interlock.py was built, gated by A-031, and reachable from
+# nothing -- so VESPER could act and there was no stop to press.
+# --------------------------------------------------------------------------
+INTERLOCK_PY = "core/interlock.py"
+
+CASES += [
+    ("autonomy-stops-when-nothing-arms-it", AUTONOMY_PY,
+     _sub("        if self._interlock is not None and not self._interlock.autonomy_permitted():",
+          "        if False:", 1),
+     "the loop stops consulting the interlock: an engaged stop changes nothing "
+     "and a dead minter stops nothing"),
+
+    ("autonomy-stops-when-nothing-arms-it", INTERLOCK_PY,
+     _sub("            if self._token is None:\n                return False", "            if False:\n                return False", 1),
+     "no token at all counts as armed, so a fresh install and a crashed minter "
+     "both leave autonomy running -- the kill-signal failure mode, arrived at "
+     "from the other direction"),
+
+    ("autonomy-stops-when-nothing-arms-it", INTERLOCK_PY,
+     _sub("            return self._now_ms() < self._token.expires_at_ms()",
+          "            return True", 1),
+     "an expired token still arms autonomy: the switch stops being dead-man's "
+     "and becomes a one-time permission that never lapses"),
+
+    ("autonomy-stops-when-nothing-arms-it", CAPS_PY,
+     _sub('SELF_DEFEATING_DIRS = ("shadow", "events", "audit", "interlock")',
+          'SELF_DEFEATING_DIRS = ("shadow", "events", "audit")', 1),
+     "VESPER can write its own enable token, so a steered proposer arms the "
+     "autonomy that is about to run its next proposal"),
+
+    ("autonomy-stops-when-nothing-arms-it", RUNTIME,
+     _sub("    autonomy.attach_interlock(interlock)", "    pass", 1),
+     "the interlock is built and handed to nothing, which is exactly the state "
+     "it was in before today"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

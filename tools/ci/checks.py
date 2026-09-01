@@ -13915,8 +13915,169 @@ def _json_dumps_safe(obj) -> str:
         return str(obj)
 
 
+def check_autonomy_stops_when_nothing_arms_it() -> Result:
+    """The stop exists, and every failure of the arming path fails toward it.
+
+    VESPER COULD ACT AND THERE WAS NO STOP TO PRESS. `core/interlock.py` was
+    built, gated by A-031, and reachable from nothing -- so `autonomy_permitted`
+    was never consulted and a stop, had anyone engaged one, would have changed
+    nothing.
+
+    IT IS A DEAD-MAN'S SWITCH AND THAT IS THE WHOLE ARGUMENT. A-031.2: a kill
+    signal fails OPEN. Cut the wire and the stop never arrives, so the thing
+    runs forever. Here autonomy runs only while a FRESH token is present, so a
+    crashed minter, an unplugged machine, a wedged control plane and a
+    compromised policy plane all produce the same result -- no fresh token, and
+    therefore a stop.
+
+    WITH NOTHING ARMING IT, AUTONOMY IS OFF, and that is the correct default
+    rather than a degradation. `tools/ops/vesper_arm.py --install` is the
+    deliberate act that turns it on.
+
+    ASKED IN `dispatch`, NOT `tick`. A stopped VESPER still observes, still
+    records, and can still say what it would have done -- A-031.4 lists
+    observation and telemetry as surviving STOP_AUTONOMY for that reason.
+    """
+    r = Result("autonomy-stops-when-nothing-arms-it")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import inspect as _inspect
+    import json as _json
+    import tempfile as _tf
+    try:
+        from core.actor import Actor
+        from core.autonomy import AutonomyLoop, PredicateEvaluator
+        from core.bus import EventBus
+        from core.capabilities import WORKSPACE, prohibited
+        from core.checkpoint import ShadowGit
+        from core.hlc import HybridLogicalClock
+        from core.interlock import EnableToken, SafetyInterlock
+        from core.self_directed import DISK_TERM, disk_pressure_trigger
+        from core.store import StoreSet
+        from core.world import Observation, WorldModel
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the interlock modules do not import: {exc!r}")
+        return r
+
+    # 1. THE RUNTIME BUILDS ONE AND HANDS IT TO THE LOOP.
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    for needle, why in (
+            ("SafetyInterlock(", "the runtime never constructs an interlock, so "
+                                 "there is no stop to press"),
+            ("attach_interlock(", "the loop is never given the interlock"),
+            ("_present_enable_token", "nothing presents a token, so autonomy "
+                                      "could never be armed at all")):
+        if needle not in rt:
+            r.err(why)
+
+    # 2. `tick` DOES NOT CONSULT IT. Deciding is not acting.
+    if "_interlock" in _inspect.getsource(AutonomyLoop.tick):
+        r.err("AutonomyLoop.tick consults the interlock, so a stopped VESPER "
+              "stops observing too -- A-031.4 keeps observation alive under "
+              "STOP_AUTONOMY on purpose")
+    if "_interlock" not in _inspect.getsource(AutonomyLoop.dispatch):
+        r.err("dispatch does not consult the interlock, so a stop changes "
+              "nothing about what VESPER does")
+
+    # 3. VESPER CANNOT ARM ITSELF. This is the enforceable half of "the minting
+    #    key is unreachable from the runtime" on a single-uid machine.
+    token_path = str(WORKSPACE.parent / "interlock" / "enable_token.json")
+    if not prohibited("fs.write", {"path": token_path, "content": "x"}):
+        r.err("fs.write to the enable-token path is permitted, so a steered "
+              "proposer can write itself the token that says it may act")
+    if not prohibited("fs.edit", {"path": token_path, "old": "a", "new": "b"}):
+        r.err("fs.edit to the enable-token path is permitted")
+
+    class _GW:
+        def complete(self, text, **kw):
+            return {"result": {"text": _json.dumps(
+                {"action": "shell.run", "args": {"cmd": "df -h"},
+                 "why": "disk"})}}
+
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("il")
+        store = StoreSet(base / "s", node_id="il")
+        bus = EventBus(clock, store, component="il")
+        world = WorldModel(bus, clock)
+        seen: list = []
+        for topic in ("autonomy.stopped", "autonomy.acted"):
+            bus.subscribe(topic, (lambda t: lambda e: seen.append(t))(topic),
+                          name=f"il-{topic}",
+                          idempotency_key=lambda e: e.event_id)
+        now = [1_000_000]
+        il = SafetyInterlock(bus, now_ms=lambda: now[0])
+        actor = Actor(bus, _GW(), subject="il", target="host",
+                      shadow=ShadowGit(base / "sh"))
+        loop = AutonomyLoop(bus, world, PredicateEvaluator(bus, world),
+                            now_ms=lambda: now[0])
+        loop.register(disk_pressure_trigger())
+        loop.attach_actor(actor)
+        loop.attach_interlock(il)
+        subj, attr = DISK_TERM.rsplit(".", 1)
+
+        def _cycle() -> tuple:
+            # PAST THE TRIGGER'S OWN DEBOUNCE. Without this the trigger fires
+            # once and every later assertion compares silence with silence --
+            # which is what the first version of this probe did.
+            now[0] += 4_000_000
+            world.apply(Observation(subj, attr, 0.02, clock.now(), source="p",
+                                    confidence=1.0))
+            seen.clear()
+            loop.dispatch(loop.tick())
+            return ("autonomy.acted" in seen, "autonomy.stopped" in seen)
+
+        acted, stopped = _cycle()
+        if acted or not stopped:
+            r.err("with no enable token, autonomy acted. Nothing had armed it, "
+                  "which is the state a fresh install and a crashed minter "
+                  "both produce.")
+
+        il.present_token(EnableToken("t1", now[0] + 4_000_000, 9_000_000,
+                                     "owner", "s"))
+        acted, stopped = _cycle()
+        if not acted:
+            r.err("with a fresh token present, autonomy still did nothing -- "
+                  "the interlock is refusing everything, which passes every "
+                  "assertion above and is useless")
+
+        now[0] += 20_000_000
+        acted, stopped = _cycle()
+        if acted or not stopped:
+            r.err("the token expired and autonomy kept acting. This is the "
+                  "whole property: a minter that stopped must stop VESPER, "
+                  "having told it nothing.")
+
+        il.present_token(EnableToken("t2", now[0] + 4_000_000, 9_000_000,
+                                     "owner", "s"))
+        acted, _ = _cycle()
+        if not acted:
+            r.err("a new token did not re-arm autonomy")
+
+        il.engage("STOP_AUTONOMY", principal="owner")
+        acted, stopped = _cycle()
+        if acted or not stopped:
+            r.err("an engaged stop did not stop autonomous action")
+
+        # 4. AND A TOKEN IS NOT REUSABLE. A captured one must not extend
+        #    autonomy a second time.
+        try:
+            il.present_token(EnableToken("t2", now[0], 9_000_000, "owner", "s"))
+            r.err("the same token_id was presented twice and accepted, so a "
+                  "captured token extends autonomy indefinitely")
+        except Exception:                           # noqa: BLE001
+            pass
+
+    r.note("the runtime builds the interlock, attaches it and presents tokens; "
+           "tick does not consult it and dispatch does; VESPER cannot write "
+           "its own token; and across no-token, fresh, expired, re-armed and "
+           "engaged-stop the loop acts only while a fresh token is present")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "autonomy-stops-when-nothing-arms-it": check_autonomy_stops_when_nothing_arms_it,
     "contradictions-reach-the-owner": check_contradictions_reach_the_owner,
     "memory-repairs-its-own-drift": check_memory_repairs_its_own_drift,
     "l1-spends-a-token-budget": check_l1_spends_a_token_budget,

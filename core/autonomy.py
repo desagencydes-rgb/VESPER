@@ -351,9 +351,11 @@ class AutonomyLoop:
     def __init__(self, bus: EventBus, world: WorldModel,
                  evaluator: PredicateEvaluator, *, tick_interval_s: float = 1.0,
                  now_ms: Any = None,
-                 history_limit: int = DEFAULT_HISTORY, actor: Any = None) -> None:
+                 history_limit: int = DEFAULT_HISTORY, actor: Any = None,
+                 interlock: Any = None) -> None:
         self._bus = bus
         self._actor = actor
+        self._interlock = interlock
         self._world = world
         self._eval = evaluator
         self.tick_interval_s = tick_interval_s
@@ -468,6 +470,11 @@ class AutonomyLoop:
                               payload=action, component="autonomy")
         return actions
 
+    def attach_interlock(self, interlock: Any) -> "AutonomyLoop":
+        """Give the loop its stop, after construction. See `attach_actor`."""
+        self._interlock = interlock
+        return self
+
     def attach_actor(self, actor: Any) -> "AutonomyLoop":
         """Give the loop hands, after construction.
 
@@ -505,6 +512,30 @@ class AutonomyLoop:
         morning. Autonomous work is bounded to what the standing grant already
         allows, and everything else waits for a person.
         """
+        # THE DEAD-MAN'S SWITCH, ASKED ONCE PER DISPATCH. `autonomy_permitted`
+        # is false when a stop is engaged AND when no fresh token is present --
+        # and the second is the one that matters, because it is what makes
+        # every failure of the arming path fail toward stopped rather than
+        # toward running.
+        #
+        # ASKED HERE AND NOT IN `tick`. Deciding whether a trigger's condition
+        # holds is not acting on it; a stopped VESPER should still observe,
+        # still record, and still be able to say what it would have done.
+        # A-031.4 lists observation and telemetry as surviving STOP_AUTONOMY
+        # for exactly that reason.
+        if self._interlock is not None and not self._interlock.autonomy_permitted():
+            if actions:
+                self._bus.publish(
+                    "autonomy.stopped", subject="interlock",
+                    payload={"reason": self._interlock.stop_reason(),
+                             "would_have_acted": [a.get("trigger_id")
+                                                  for a in actions],
+                             "note": ("autonomy is not permitted: no fresh "
+                                      "enable token, or a stop is engaged. The "
+                                      "triggers still fired and are recorded.")},
+                    component="autonomy")
+            return []
+
         done = []
         for action in actions or []:
             tid = action.get("trigger_id")

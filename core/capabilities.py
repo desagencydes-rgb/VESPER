@@ -284,10 +284,17 @@ def shell_run(args: dict) -> dict:
 
 # --------------------------------------------------------------- prohibited
 
-# Directory names that hold VESPER's own account of what it did, and the undo
-# behind it. Matched as PATH SEGMENTS rather than substrings, so a document
-# called "shadow puppets.txt" is not caught by a rule about the shadow store.
-SELF_DEFEATING_DIRS = ("shadow", "events", "audit")
+# Directory names that hold VESPER's own account of what it did, the undo
+# behind it, and the token that says it may act at all. Matched as PATH
+# SEGMENTS rather than substrings, so a document called "shadow puppets.txt" is
+# not caught by a rule about the shadow store.
+#
+# `interlock` IS THE ENFORCEABLE HALF OF THE DEAD-MAN'S SWITCH. The design says
+# the minting key is unreachable from the runtime, and on one machine under one
+# uid that is not something the OS enforces. What IS enforced is this: a
+# steered proposer cannot write itself an enable token, because `fs.write` and
+# `fs.edit` refuse this path at every level including under an L5 grant.
+SELF_DEFEATING_DIRS = ("shadow", "events", "audit", "interlock")
 
 
 def prohibited(capability_id: str, args: dict) -> str | None:
