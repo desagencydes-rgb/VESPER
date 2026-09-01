@@ -265,6 +265,42 @@ def map_staleness_trigger(maps: Any) -> Trigger:
     )
 
 
+PRESSURE_TERM = "world.current_host.pressure_degraded"
+
+
+def host_pressure_trigger() -> Trigger:
+    """Fires when the platform itself says it is under pressure.
+
+    NOT A SECOND SCHEDULER, and `core/host.py` opens by saying why. The
+    operating system already contains a resource governor; so does VESPER. When
+    two schedulers share a machine and cannot see each other the failure is not
+    inefficiency, it is OSCILLATION -- VESPER decides to run, the platform
+    decides to throttle, and each reacts to the other's reaction.
+
+    So this reads the platform's own signals and does not act on the machine.
+    The intent is a look, not a remedy: what is using the memory, what is using
+    the CPU. Deciding to stop doing something about it belongs to a person, or
+    to the effort and interruption layers that already exist -- not to a
+    trigger that noticed a number.
+
+    THE SIGNAL IS TRANSLATED, NEVER RAW. `HostAdapter` exists because the
+    numbers do not port: a value meaning "healthy" on one platform means "about
+    to fail" on another, and the shared logic must never see the raw reading.
+    `degraded` is the adapter's verdict for THIS host.
+    """
+    def predicate(s: dict) -> bool:
+        return s.get(PRESSURE_TERM) is True
+
+    return Trigger(
+        trigger_id="trg_host_pressure",
+        predicate_class="STATE",
+        predicate=predicate,
+        state_terms=(PRESSURE_TERM,),
+        debounce_s=1800,
+        intent="check which processes are using the most memory and cpu",
+    )
+
+
 def all_triggers(compactor: Any = None) -> list:
     """Everything VESPER runs for itself. One place, so it can be counted.
 
@@ -273,7 +309,8 @@ def all_triggers(compactor: Any = None) -> list:
     all, rather than registered and quietly doing nothing -- a trigger that
     fires and cannot act is the state this whole layer was in until yesterday.
     """
-    out = [disk_pressure_trigger(), host_health_trigger()]
+    out = [disk_pressure_trigger(), host_health_trigger(),
+           host_pressure_trigger()]
     if compactor is not None:
         out.append(memory_drift_trigger(compactor))
     return out

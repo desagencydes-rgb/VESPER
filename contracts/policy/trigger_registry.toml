@@ -431,3 +431,34 @@ resource_budget = { max_runtime_ms = 30000, max_tool_calls = 0, cost_class_ceili
 stop_conditions = ["every contradiction examined", "enable token absent"]
 reporting_policy = "queue_to_boundary"
 provenance = "authored"
+
+[triggers.trg_host_pressure]
+name = "Look at what is loading the machine when the platform says it is under pressure"
+source = "REM-013 · INV-HOST-1/2 · owner requirement 2026-09-01 (no pressure on the machine)"
+enabled = true
+predicate_class = "STATE"
+predicate = """
+  world.current_host.pressure_degraded == true
+"""
+predicate_note = """NOT A SECOND SCHEDULER, and core/host.py opens by saying
+why. The operating system already contains a resource governor and so does
+VESPER; when two share a machine and cannot see each other the failure is not
+inefficiency but OSCILLATION -- VESPER decides to run, the platform decides to
+throttle, and each reacts to the other's reaction.
+
+So this reads and does not remedy. The intent is a look: what is using the
+memory, what is using the CPU. Deciding to stop doing something belongs to a
+person, or to the effort and interruption layers that already exist, not to a
+trigger that noticed a number.
+
+THE SIGNAL IS TRANSLATED, NEVER RAW. HostAdapter exists because the numbers do
+not port -- a value meaning healthy on one platform means about to fail on
+another -- and `degraded` is the adapter's verdict for THIS host."""
+debounce_s = 1800
+priority = "proactive"
+required_authority = "L1"
+actuation_scope = "AUTONOMOUS_ACTUATION"
+resource_budget = { max_runtime_ms = 60000, max_tool_calls = 6, cost_class_ceiling = "free" }
+stop_conditions = ["six-step turn budget", "three consecutive refusals", "an immediate repeat of the previous action", "enable token absent"]
+reporting_policy = "queue_to_boundary"
+provenance = "authored"

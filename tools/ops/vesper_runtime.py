@@ -50,6 +50,7 @@ from core.intake import Intake                                  # noqa: E402
 from core.knowledge_map import KnowledgeMap                     # noqa: E402
 from core.interlock import EnableToken, SafetyInterlock         # noqa: E402
 from core.chooser import Chooser                                # noqa: E402
+from core import host as host_module                            # noqa: E402
 from core import host_probes                                    # noqa: E402
 from core.autonomy import AutonomyLoop, PredicateEvaluator      # noqa: E402
 from core.devices import CONTINUITY_CRITICAL, DeviceRegistry    # noqa: E402
@@ -269,6 +270,24 @@ def build(node: str = "vesper-runtime"):
     sensors.register(Sensor("host-disk", "world.current_host", "disk_free_ratio",
                             host_probes.disk_free_ratio, TIMER,
                             period_ms=300_000, ttl_ms=900_000))
+
+    # THE PLATFORM'S OWN VERDICT, TRANSLATED. `core/host.py` exists so the raw
+    # numbers never reach the shared logic -- a value meaning "healthy" on one
+    # platform means "about to fail" on another -- and it was imported by
+    # nothing. It is NOT a second scheduler: two schedulers sharing a machine
+    # and unable to see each other oscillate, so this reads and does not act.
+    # Measured on this Mac: 0.03 s per read, so a minute is comfortable.
+    host_adapter = host_module.adapter_for_host()
+
+    def _host_pressure_degraded() -> Any:
+        try:
+            return bool(host_adapter.read_pressure().degraded)
+        except Exception:                          # noqa: BLE001
+            return None                            # UNKNOWN, never False
+
+    sensors.register(Sensor("host-pressure", "world.current_host",
+                            "pressure_degraded", _host_pressure_degraded,
+                            TIMER, period_ms=60_000, ttl_ms=300_000))
     # REPAIR, OVER THE FAILURES TRIAGE IS ALREADY COLLECTING. `TriageQueue`
     # has been grading provider failures into an open list since it was wired,
     # and nothing has ever tried to fix one -- so the queue is a record of

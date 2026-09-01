@@ -4393,5 +4393,38 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# The platform's own signals, translated. core/host.py exists because the
+# numbers do not port, and it was imported by nothing.
+# --------------------------------------------------------------------------
+HOST_PY = "core/host.py"
+
+CASES += [
+    ("host-pressure-read-through-the-adapter", RUNTIME,
+     _sub("            return bool(host_adapter.read_pressure().degraded)",
+          "            return bool(host_adapter.read_pressure().memory_pressure_band > 60)", 1),
+     "shared logic judges a raw platform number: a memory band meaning "
+     "'healthy' on one host means 'about to fail' on another, which is the one "
+     "thing core/host.py exists to prevent"),
+
+    ("host-pressure-read-through-the-adapter", SELF_DIRECTED_PY,
+     _sub('        intent="check which processes are using the most memory and cpu",',
+          '        intent="kill the process using the most memory",', 1),
+     "the trigger becomes a second scheduler reacting to the platform's own "
+     "governor -- which is how two schedulers on one machine start oscillating, "
+     "each responding to the other's response"),
+
+    ("host-pressure-read-through-the-adapter", SELF_DIRECTED_PY,
+     _sub("        return s.get(PRESSURE_TERM) is True", "        return True", 1),
+     "the predicate stops reading the world and fires on every tick, so a "
+     "healthy machine is investigated forever"),
+
+    ("host-pressure-read-through-the-adapter", RUNTIME,
+     _sub('    host_adapter = host_module.adapter_for_host()', '    host_adapter = None', 1),
+     "no adapter is built, so the platform's signals reach nothing translated "
+     "and core/host.py goes back to being imported and unused"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

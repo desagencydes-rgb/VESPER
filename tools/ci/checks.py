@@ -14666,8 +14666,92 @@ def check_the_floor_is_held_and_offered_to() -> Result:
     return r
 
 
+def check_host_pressure_is_read_through_the_adapter() -> Result:
+    """The platform's signals reach VESPER translated, and never raw.
+
+    `core/host.py` exists for one difficulty: **the signals do not port.** A
+    number meaning "healthy" on one platform means "about to fail" on another,
+    and the shared logic must never see the raw value. The module was built,
+    gated by CI-056 for its refusal half, and imported by nothing -- so no
+    translated signal reached the world model at all.
+
+    AND IT IS NOT A SECOND SCHEDULER. The operating system already contains a
+    resource governor; so does VESPER. When two share a machine and cannot see
+    each other the failure is not inefficiency, it is OSCILLATION -- VESPER
+    decides to run, the platform decides to throttle, and each reacts to the
+    other's reaction. So the trigger's intent is a LOOK, never a remedy.
+    """
+    r = Result("host-pressure-read-through-the-adapter")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.autonomy import anti_cron_probe
+        from core.host import HostPressure, adapter_for_host
+        from core.self_directed import PRESSURE_TERM, host_pressure_trigger
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the host modules do not import: {exc!r}")
+        return r
+
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if "adapter_for_host()" not in rt:
+        r.err("the runtime never builds a host adapter, so the platform's "
+              "signals reach nothing translated")
+    if "pressure_degraded" not in rt:
+        r.err("no sensor publishes the adapter's verdict")
+
+    # 1. THE VERDICT COMES FROM THE ADAPTER, not from a raw number the shared
+    #    logic read for itself. Asserted structurally, because the whole point
+    #    is that shared logic must never see the raw value.
+    src = rt[rt.index("def _host_pressure_degraded"):]
+    src = src[:src.index("sensors.register")]
+    if "read_pressure()" not in src or "degraded" not in src:
+        r.err("the pressure sensor does not ask the adapter for its verdict")
+    for raw in ("memory_pressure_band", "thermal", "charge_percent", "swap"):
+        if raw in src:
+            r.err(f"the sensor reads {raw!r} directly and judges it. That is a "
+                  "raw platform number in shared logic, which is the one thing "
+                  "core/host.py exists to prevent -- the same value means "
+                  "different things on different hosts.")
+
+    # 2. IT ACTUALLY READS THIS MACHINE, and `degraded` is a bool rather than
+    #    an accident of a missing attribute.
+    try:
+        p = adapter_for_host().read_pressure()
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"reading host pressure raised {exc!r}")
+    else:
+        if not isinstance(p, HostPressure):
+            r.err(f"the adapter returned {type(p).__name__}, not HostPressure")
+        elif not isinstance(p.degraded, bool):
+            r.err(f"degraded is {type(p.degraded).__name__}, not a bool, so the "
+                  "predicate's `is True` can never match")
+
+    # 3. THE TRIGGER IS NOT CRON, AND ITS INTENT IS A LOOK.
+    t = host_pressure_trigger()
+    if anti_cron_probe(t).get("fires_on_clock_alone"):
+        r.err("the host-pressure trigger fires on an empty world, which is the "
+              "clock")
+    if PRESSURE_TERM not in t.state_terms:
+        r.err("the trigger does not declare the term its sensor writes")
+    intent = (t.intent or "").lower()
+    if not intent:
+        r.err("the trigger has nothing to do when it fires")
+    for verb in ("kill", "quit", "restart", "throttle", "renice", "shutdown"):
+        if verb in intent:
+            r.err(f"the intent contains {verb!r}: this is a second scheduler "
+                  "reacting to the platform's own governor, which is how two "
+                  "schedulers on one machine start oscillating")
+
+    r.note("the runtime builds the adapter and publishes its verdict; the "
+           "sensor asks for `degraded` rather than judging a raw number; the "
+           "adapter reads this machine and returns a boolean; and the trigger "
+           "requires world state and asks only to look, never to remedy")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "host-pressure-read-through-the-adapter": check_host_pressure_is_read_through_the_adapter,
     "floor-held-and-offered-to": check_the_floor_is_held_and_offered_to,
     "boundary-asked-before-the-write": check_the_boundary_is_asked_before_the_write,
     "map-built-and-kept-true": check_the_map_is_built_and_kept_true,
