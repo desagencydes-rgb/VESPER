@@ -2298,10 +2298,6 @@ deploy, never single-node design -- placement has nothing to choose between
 until a second node is enrolled, and `core/enrollment.py` above is the gate in
 front of it."""
 
-"core/baseline.py" = """OWED. The record of what VESPER answered, which CI-073
-calls "written before memory exists" -- and memory now exists. Recorded
-2026-09-01."""
-
 "core/cache.py" = """OWED, recently. The five cache tiers of SR-054, landed with
 CI-085 overnight 2026-08-31 and not yet joined to the gateway. This is the
 freshest instance of the pattern and the reason CI-094 was written the next

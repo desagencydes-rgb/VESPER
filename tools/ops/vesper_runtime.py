@@ -70,6 +70,8 @@ from core.persona import Persona, Situation                     # noqa: E402
 from core.context_control import ContextCommands                # noqa: E402
 from core.presence import Presence                              # noqa: E402
 from core.speech import Speech, speech_rows                     # noqa: E402
+from core.baseline import BaselineRecorder                      # noqa: E402
+from core.baseline import Turn as BaselineTurn                  # noqa: E402
 from core.blocks import L1Renderer                              # noqa: E402
 from core.arbiter import Arbiter                                 # noqa: E402
 from core.compactor import Compactor                            # noqa: E402
@@ -539,6 +541,10 @@ def build(node: str = "vesper-runtime"):
     # Neither is useful alone: an announcement with no way to respond to it
     # is a status line, and a classifier nothing feeds is a table.
     floor = FloorHolder(bus=bus)
+    baseline = BaselineRecorder(store, clock,
+                                on_error=lambda e: bus.publish(
+                                    "baseline.write_failed", subject="baseline",
+                                    payload={"error": repr(e)}, component="runtime"))
     interlock = SafetyInterlock(bus, now_ms=lambda: int(time.time() * 1000))
     autonomy.attach_interlock(interlock)
 
@@ -568,7 +574,7 @@ def build(node: str = "vesper-runtime"):
     return (bus, gw, router, home, intake, triage, report, persona, bench,
             renderer, updater, misses, chooser, world, sensors, autonomy,
             devices, repairer, presence, context_cmds, verifier, speech,
-            transcriber, actor, floor)
+            transcriber, actor, floor, baseline)
 
 
 def answer(gw, router, persona, utterance, renderer=None,
@@ -789,7 +795,7 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          misses=None, chooser=None, sensors=None, autonomy=None,
          triage=None, repairer=None, presence=None,
          context_cmds=None, speech=None, transcriber=None, actor=None,
-         floor=None) -> int:
+         floor=None, baseline=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     # SENSORS FIRST, AND THE PERIOD DECIDES WHETHER ANYTHING ACTUALLY RUNS.
     # `poll()` returns immediately for any sensor that is not due, so calling it
@@ -1033,6 +1039,38 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                 # instructions.
                 said.append({"who": "vesper", "text": reply,
                              "source": "vesper", "certain": True})
+
+                # THE RECORD OF WHAT VESPER ANSWERED. `core/baseline.py` was
+                # built first on purpose -- every question worth asking about
+                # memory is comparative, and none is answerable without a
+                # record of real turns -- and it was reached by nothing.
+                #
+                # THE PRISTINE "BEFORE MEMORY" WINDOW IS ALREADY GONE. Memory
+                # landed 2026-08-30 and the module says plainly that afterwards
+                # there is no way back to a clean before. So what starts here
+                # is the OTHER arm of the comparison, not the one it was
+                # designed to capture, and pretending otherwise would make
+                # every later conclusion drawn from it wrong. Whether memory
+                # was up for a given turn is recoverable by joining on
+                # `memory.unavailable` in the same log.
+                #
+                # `declined` vs `could_not` IS DECIDED HERE AND NOWHERE ELSE.
+                # In a log they are the same event, and afterwards nothing can
+                # tell a choice from a failure.
+                if baseline is not None:
+                    if did is not None:
+                        outcome = {"acted": "answered", "asked": "declined",
+                                   "refused": "declined",
+                                   "failed": "could_not"}.get(did.kind,
+                                                              "could_not")
+                    elif reply.startswith("no route:") or reply.startswith(
+                            "every provider is spent"):
+                        outcome = "could_not"
+                    else:
+                        outcome = "answered"
+                    baseline.record(BaselineTurn(
+                        question=text, answer=reply, outcome=outcome,
+                        difficulty=None, language=None))
                 # AND SAY IT. Until 2026-08-31 the reply was rendered and never
                 # spoken -- every voice decision in the corpus governed a
                 # modality the process did not have.
@@ -1066,6 +1104,14 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                 said.append({"who": "vesper", "source": "vesper", "certain": True,
                              "text": "I heard that, but not clearly enough to "
                                      "act on it. Say it again?"})
+                # COULD_NOT, NOT DECLINED. VESPER did not choose to withhold an
+                # answer; it was unable to be sure what was said. That
+                # distinction cannot be recovered from the log afterwards.
+                if baseline is not None:
+                    baseline.record(BaselineTurn(
+                        question=text,
+                        answer="(reflected: below the confidence floor)",
+                        outcome="could_not"))
             handled += 1
         seen = f.tell()
     OFFSET.write_text(str(seen))
@@ -1116,7 +1162,7 @@ def main() -> int:
     (bus, gw, router, home, intake, triage, report, persona, bench,
      renderer, updater, misses, chooser, world, sensors,
      autonomy, devices, repairer, presence, context_cmds, verifier,
-     speech, transcriber, actor, floor) = build()
+     speech, transcriber, actor, floor, baseline) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -1175,7 +1221,7 @@ def main() -> int:
 
     if args.once or args.say or args.hear:
         n = pump(bus, gw, router, persona, bench, home, intake, transcript,
-                 floor=floor,
+                 floor=floor, baseline=baseline,
                  once=True, renderer=renderer, updater=updater,
                  misses=misses, chooser=chooser, sensors=sensors,
                  autonomy=autonomy, triage=triage, repairer=repairer,
@@ -1221,7 +1267,7 @@ def main() -> int:
     while True:
         try:
             pump(bus, gw, router, persona, bench, home, intake, transcript,
-                 floor=floor,
+                 floor=floor, baseline=baseline,
                  renderer=renderer, updater=updater, misses=misses,
                  chooser=chooser, sensors=sensors, autonomy=autonomy,
                  triage=triage, repairer=repairer, presence=presence,

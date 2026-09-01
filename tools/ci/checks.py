@@ -14749,8 +14749,149 @@ def check_host_pressure_is_read_through_the_adapter() -> Result:
     return r
 
 
+def check_every_turn_is_recorded_with_its_outcome() -> Result:
+    """What VESPER answered is written down, and a choice is not a failure.
+
+    `core/baseline.py` was built FIRST on purpose: every question worth asking
+    about memory is comparative, and none of them is answerable without a
+    record of real turns. It was reached by nothing, so no turn was ever
+    recorded.
+
+    THE PRISTINE "BEFORE MEMORY" WINDOW IS ALREADY GONE. Memory landed
+    2026-08-30 and the module says plainly that afterwards there is no way back
+    to a clean before. What starts now is the OTHER arm of the comparison, and
+    the runtime comment says so -- pretending otherwise would make every
+    conclusion later drawn from this record wrong.
+
+    `declined` VERSUS `could_not` IS THE POINT. One is a choice and the other
+    is a failure, and in a log they are the same event. It has to be decided at
+    the moment it happens, which is why `outcome` is a required argument with
+    no default and why the pump maps each exit deliberately rather than
+    defaulting.
+    """
+    r = Result("every-turn-recorded-with-its-outcome")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import json as _json
+    import tempfile as _tf
+    try:
+        from core.baseline import KIND, STORE, BaselineRecorder, Turn
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"core.baseline does not import: {exc!r}")
+        return r
+
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if "BaselineRecorder(" not in rt:
+        r.err("the runtime never builds a baseline recorder, so no turn is "
+              "recorded and every comparative question about memory stays "
+              "unanswerable")
+    if "baseline.record(" not in rt:
+        r.err("nothing records a turn")
+    # COUNTED, NOT FOUND. `baseline.record(` survives being wrapped in
+    # `if False:`, so looking for the call name passes on a pump that cannot
+    # reach it. Both exits must record: the ordinary reply AND the utterance
+    # reflected for being below the confidence floor, which is the one turn
+    # most likely to be dropped from a record of what VESPER answered.
+    guards = rt.count("if baseline is not None:")
+    if guards < 2:
+        r.err(f"{guards} of the two baseline guards remain. Both exits from a "
+              "turn must be recorded -- the answered one and the one reflected "
+              "below the confidence floor -- or the record silently omits the "
+              "turns where VESPER said least.")
+
+    # THE MAPPING, NOT THE WORD. `could_not` appears elsewhere in the pump, so
+    # asserting the word is present passes on a build that maps every failure
+    # to `declined`. What matters is which exit produces which outcome.
+    if '"failed": "could_not"' not in rt:
+        r.err("a failed action is not recorded as `could_not`. One is a choice "
+              "and the other is a failure; in a log they are the same event, "
+              "and this is the only moment the difference can be captured.")
+    for choice in ('"asked": "declined"', '"refused": "declined"'):
+        if choice not in rt:
+            r.err(f"the pump does not map {choice} -- stopping to ask is a "
+                  "choice VESPER made, and recording it as a failure loses "
+                  "exactly what the ladder did")
+
+    # 1. EVERY OUTCOME IN THE VOCABULARY IS ACTUALLY REACHABLE FROM THE PUMP.
+    #    A recorder wired to write only "answered" is a recorder that has lost
+    #    the distinction it exists for.
+    for outcome in ("answered", "declined", "could_not"):
+        if f'"{outcome}"' not in rt:
+            r.err(f"the pump never records {outcome!r}, so that outcome cannot "
+                  "occur in the log and the distinction is gone")
+
+    # 2. AND IT IS NOT DEFAULTED. A default here lets every caller skip the one
+    #    decision that cannot be made afterwards.
+    import inspect as _inspect
+    sig = _inspect.signature(Turn.__init__)
+    if sig.parameters["outcome"].default is not _inspect.Parameter.empty:
+        r.err("Turn.outcome has a default, so a caller can skip the one "
+              "decision nothing downstream can reconstruct")
+
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("bl")
+        store = StoreSet(base / "s", node_id="bl")
+        rec = BaselineRecorder(store, clock)
+
+        for outcome in ("answered", "declined", "could_not"):
+            rec.record(Turn(question=f"q-{outcome}", answer="a",
+                            outcome=outcome))
+        rows = list(store.read(STORE, kind=KIND, limit=20))
+        if len(rows) < 3:
+            r.err(f"{len(rows)} turns landed in the log out of three recorded")
+        got = set()
+        for row in rows:
+            body = row.get("body") if isinstance(row, dict) else getattr(row, "body", None)
+            if isinstance(body, str):
+                body = _json.loads(body)
+            got.add((body or {}).get("outcome"))
+        if got != {"answered", "declined", "could_not"}:
+            r.err(f"the log holds outcomes {sorted(got)}; a choice and a "
+                  "failure have to be distinguishable after the fact")
+
+        # 3. AN OUTCOME OUTSIDE THE VOCABULARY IS REFUSED AT CONSTRUCTION.
+        try:
+            Turn(question="q", answer="a", outcome="dunno")
+            r.err("an outcome outside the vocabulary was accepted, so the "
+                  "distinction can be lost by a typo")
+        except ValueError:
+            pass
+
+        # 4. A FAILING RECORDER DOES NOT FAIL THE TURN. A recorder that raises
+        #    turns a working answer into a failed one, which is worse than a
+        #    missing row -- and `failed` is what makes the loss visible.
+        class _Broken:
+            def append(self, *a, **k):
+                raise OSError("disk gone")
+
+        broken = BaselineRecorder(_Broken(), clock)
+        try:
+            out = broken.record(Turn(question="q", answer="a",
+                                     outcome="answered"))
+        except Exception as exc:                    # noqa: BLE001
+            r.err(f"a failing recorder raised {exc!r} into the turn. A missing "
+                  "row is a better outcome than a broken answer.")
+        else:
+            if out is not None:
+                r.err("a failed write reported success")
+            if broken.stats().get("failed", 0) < 1:
+                r.err("a failed write was not counted, so an unexplained gap in "
+                      "the log is indistinguishable from a quiet period")
+
+    r.note("the runtime builds the recorder and records every turn; all three "
+           "outcomes are reachable from the pump and land distinctly in the "
+           "log; `outcome` has no default and refuses a value outside its "
+           "vocabulary; and a recorder that cannot write counts the loss "
+           "instead of failing the turn")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
     "host-pressure-read-through-the-adapter": check_host_pressure_is_read_through_the_adapter,
     "floor-held-and-offered-to": check_the_floor_is_held_and_offered_to,
     "boundary-asked-before-the-write": check_the_boundary_is_asked_before_the_write,

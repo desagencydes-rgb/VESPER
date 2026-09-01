@@ -4426,5 +4426,43 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# The record of what VESPER answered. Built FIRST on purpose and reached by
+# nothing, so no turn was ever recorded.
+# --------------------------------------------------------------------------
+BASELINE_PY = "core/baseline.py"
+
+CASES += [
+    ("every-turn-recorded-with-its-outcome", RUNTIME,
+     _sub("                if baseline is not None:\n"
+          "                    if did is not None:",
+          "                if False:\n"
+          "                    if did is not None:", 1),
+     "no turn is recorded, so every comparative question about memory -- does "
+     "it help, does it cost more than it returns -- stays unanswerable"),
+
+    ("every-turn-recorded-with-its-outcome", RUNTIME,
+     _sub('                                   "refused": "declined",\n'
+          '                                   "failed": "could_not"}.get(did.kind,\n'
+          '                                                              "could_not")',
+          '                                   "refused": "declined",\n'
+          '                                   "failed": "declined"}.get(did.kind,\n'
+          '                                                              "declined")', 1),
+     "a failure is recorded as a choice: afterwards nothing can tell an answer "
+     "VESPER withheld from one it could not produce, and that is the single "
+     "distinction this record exists to preserve"),
+
+    ("every-turn-recorded-with-its-outcome", BASELINE_PY,
+     _sub("    outcome: str                      #", "    outcome: str = \"answered\"  #", 1),
+     "outcome gains a default, so every caller can skip the one decision that "
+     "cannot be made afterwards -- and the log fills with 'answered'"),
+
+    ("every-turn-recorded-with-its-outcome", BASELINE_PY,
+     _sub("            self.failed += 1", "            pass", 1),
+     "a failed write is not counted, so an unexplained gap in the record is "
+     "indistinguishable from a quiet period"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
