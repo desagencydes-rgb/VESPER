@@ -1,16 +1,75 @@
-# Overnight report — 2026-09-01, 01:40 to 07:15
+# Work report — 2026-09-01, 01:40 to 19:20
 
-Written for the owner. Nineteen commits, all pushed to `feat/macos-host-profile`.
+Written for the owner. Overnight plus the day that followed. Thirty-two commits, all pushed to `feat/macos-host-profile`.
 **Tier one of the approved build order is complete**, plus the two defects this
 survey found in our own code and two items from its own build list.
 
-Gates as of the last commit, **verified on a quiet tree with nothing else
-running**: **98/98 checks pass, 467/467 self-test cases red under violation and
-green after restore, both lints pass.** Up from 87 and 407.
+Gates as of the last commit: **109/109 checks pass, 516 self-test cases red
+under violation and green after restore, both lints pass.** Up from 87 checks
+and 407 cases when the night began.
+
+**Four modules remain built-and-unreached, down from thirteen.** Three are
+correct as they are — `enrollment`, `fabric` and `placement` all wait on a
+second node joining. The fourth is `cache`, below.
 
 ---
 
 ## Read this part first — what needs you
+
+**1. `cache` is the only module left that waits on a decision.** Its five tiers
+save different things and only one of them saves anything you would notice:
+SUMMARY, which avoids re-summarising the same content for the same purpose —
+model calls, so money and time. FILE_HASH and CHUNK save disk and CPU
+(negligible); PROMPT_PREFIX enables a provider discount that was **measured at
+1 hit in 14** and is therefore a bonus, never a premise.
+
+The problem is that SUMMARY has no customer: nothing in this system summarises
+yet. `Compactor(summariser=...)` is the slot and it is passed `None`, so
+`compact()` honestly returns `{"outcome": "no summariser"}`. Wiring the cache
+alone buys ~nothing. What makes it worth having is turning on **summarising
+compaction**, which is a model-spend decision: how much, on which rung.
+
+The keys for it already exist — `MISTRAL_API_KEY_COMPACTOR`,
+`CLOUDFLARE_API_TOKEN_COMPACTOR` and six more dedicated per-subsystem
+credentials, provisioned and unused.
+
+**2. Autonomy is armed by a Python LaunchAgent, and it should be VESPER's own
+process.** `tools/ops/vesper_arm.py --install` works and you installed it, but
+it shows as `python3`. It belongs in the bundle as `VESPER --arm`, which is
+Swift and therefore part of the build batch below.
+
+**3. Ten checks — now more — run and are held out of the registry.** Each
+asserts a property that is a new invariant, and promotion into a contract is a
+separate reviewed act.
+
+**4. One Swift build, one TCC re-grant, five items:** a stable self-signed
+signing identity (so grants survive rebuilds), TCC dialogs raised from inside
+the app instead of by a command, your `fn+ctrl+opt+cmd+return` stop, the
+already-committed `scheduleWakeRetry`, and `VESPER --arm`.
+
+## What the day added
+
+Twelve subsystems that were **built, gated, and reached by nothing** are now
+reached. The reachability gate found them, and it found three more once it was
+widened from the 50 modules some check happened to name to all 76.
+
+| | |
+|---|---|
+| `context.py` | L1 spends a **token** budget, not a fact count |
+| `compactor.py` | the consolidation loop: L2 drifting from L3 is detected and repaired |
+| `arbiter.py` | memory contradicting itself is a question, never a silent pick |
+| `interlock.py` | **the stop** — a dead-man's switch, armed by a minter VESPER cannot be |
+| `reconcile.py` | an external action is recorded **before** it happens |
+| `knowledge_map.py` | 8,561 nodes over declared roots, kept true by hash |
+| `selfmod.py` | a governed path is refused even under an L5 grant |
+| `floor.py` | the owner can interrupt work in flight; "take your time" is met with silence |
+| `host.py` | the platform's own verdict, translated — it says this machine is under pressure |
+| `baseline.py` | every turn recorded with its outcome; a choice is not a failure |
+
+Plus Keychain credentials (30 migrated), a second authorization axis, and a
+repair storm fixed that was two thirds of a 1.6 GB log.
+
+## The overnight items, for reference
 
 **1. The emergency stop is still not wired, and that is a decision I would not
 make for you.** `core/interlock.py` is a dead-man's switch: autonomy runs only

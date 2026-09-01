@@ -1,12 +1,12 @@
 # Handoff — pick up here
 
-Rewritten 2026-09-01 07:15, at the end of the overnight session that completed
+Rewritten 2026-09-01 19:20, at the end of the overnight session that completed
 tier one of the build order. Read this, then
 `docs/WORK_REPORT_2026-09-01_OVERNIGHT.md`, then `CLAUDE.md`.
 
 ## State
 
-- **99 checks pass. 470/470 self-test cases** red under violation, green after
+- **109 checks pass. 516/516 self-test cases** red under violation, green after
   restore. Both lints, F0–F6 acceptance, placement and fabric stress all pass.
 - Working tree clean, everything pushed to `feat/macos-host-profile`.
 - Backup branch `backup/pre-overnight-2026-09-01` at `831a177` — the state
@@ -18,11 +18,11 @@ tier one of the build order. Read this, then
 
 ## What needs the owner, in order
 
-1. **The emergency stop.** `core/interlock.py` is a dead-man's switch that runs
-   on tokens minted outside the runtime. Wiring it means deciding **who presents
-   tokens and from where**. The easy way — letting the runtime mint its own —
-   is exactly the kill-signal build A-031.2 names as the control that must
-   fail. Until this is decided, VESPER can act and there is no stop to press.
+1. **`cache` waits on a model-spend decision, not on work.** Its only valuable
+   tier is SUMMARY and nothing in this system summarises yet:
+   `Compactor(summariser=...)` is passed `None`. The dedicated keys already
+   exist (`MISTRAL_API_KEY_COMPACTOR` and seven more). Turning on summarising
+   compaction is the decision.
 2. **Ratify CI-094 … CI-103.** Ten checks run in every pass and are held out of
    the registry because each asserts a new invariant, and promotion into a
    contract is a separate reviewed act. Precedent: arabizi, presence,
@@ -37,6 +37,21 @@ tier one of the build order. Read this, then
 5. **Decide whether the loop is too cautious.** After a `shell.run`, the next
    step above L1 asks. One table, `OBSERVATION_TRUST` in
    `core/capabilities.py`. The reasoning is in the report.
+
+## The stop exists now
+
+`core/interlock.py` is wired and consulted before every autonomous action. It
+is a dead-man's switch: autonomy runs only while a fresh token is present, so
+a crashed minter, an unplugged machine or a wedged control plane all stop it.
+`tools/ops/vesper_arm.py --install` is the minter and the owner has installed
+it. **It runs as `python3` and belongs in the bundle as `VESPER --arm`** — see
+the Swift batch.
+
+What is enforced, stated honestly: `SafetyInterlock` has no mint method at all,
+the token directory is in the prohibited tier so `fs.write` refuses it under an
+L5 grant, and replay is refused by token id. On one machine under one uid the
+OS does not enforce "the key is unreachable from the runtime", and claiming it
+would be dishonest.
 
 ## What is built and NOT yet joined to anything
 
