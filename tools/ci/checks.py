@@ -13418,6 +13418,315 @@ def check_the_loop_ticks_at_the_cadence_it_declares() -> Result:
     return r
 
 
+def check_compaction_never_eats_its_own_summaries() -> Result:
+    """A compaction's own output must never become a compaction's input.
+
+    THE FAILURE THIS PREVENTS IS SILENT AND COMPOUNDING. `compact()` writes its
+    summary back at rank 5 -- the system's reading of the owner's words, per
+    DF-MEMORY-AUTHORITY. If selection counted rank-5 facts as inputs, the next
+    run would find its own previous output waiting, summarise the summary, write
+    THAT back at rank 5, and repeat every debounce window: a memory drifting
+    further from the log each pass, with the model's own words laundered into
+    evidence. Nothing raises, no gate goes red, and L2 slowly stops being a view
+    of L3. `project()` already drops MODEL_PRIOR for INV-EVID-1; this is the
+    same argument one tier up.
+
+    BOUNDED SELECTION IS A COST ASSERTION, NOT TIDINESS. Each pair is one model
+    call against a rung whose ceiling is UNPUBLISHED -- `quota_published = 0`,
+    `quota_unit = "UNKNOWN"` on mistral-compactor -- which INV-HW-2 says to treat
+    as UNAVAILABLE rather than as headroom. An unbounded handler turns one quiet
+    night into an unbounded spend nobody watched.
+
+    AND THE TRIGGER MUST NOT EXIST WITHOUT THE CAPABILITY. A compaction trigger
+    on a compactor with no summariser fires, calls compact(), gets "no
+    summariser" back, and records that every six hours forever -- a log of a
+    capability that was never configured, indistinguishable at a glance from one
+    that is failing.
+    """
+    r = Result("compaction-never-eats-its-own-summaries")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.compactor import Compactor
+        from core.self_directed import all_triggers, compaction_due_trigger
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the compaction path did not import: {exc!r}")
+        return r
+
+    class _Fake(Compactor):
+        """Real selection logic over a synthetic projection."""
+
+        def __init__(self, facts):
+            self._facts = facts
+            self._summariser = None
+
+        def project(self):
+            return self._facts
+
+    def _facts(spec):
+        out = []
+        for (subj, attr, rank), n in spec.items():
+            out.extend([{"subject": subj, "attribute": attr, "rank": rank,
+                         "value": "v", "privacy": "private",
+                         "trust_class": "owner", "log_seq": i}
+                        for i in range(n)])
+        return out
+
+    # 1. THE RECURSION GUARD. 30 rank-4 facts are compactable; 30 rank-5 ones
+    #    are this system's own previous answers and are not.
+    fresh = _Fake(_facts({("owner", "said", 4): 30}))
+    if ("owner", "said") not in fresh.compactable():
+        r.err("30 rank-4 facts on one pair were not selected, so nothing is "
+              "ever compactable and the tier is dead on arrival")
+    summaries = _Fake(_facts({("owner", "said", 5): 30}))
+    if summaries.compactable():
+        r.err("rank-5 facts were selected as compaction INPUTS. A compaction's "
+              "own output becomes its next input, so each run summarises the "
+              "last summary and L2 drifts off the log it is a view of -- "
+              "silently, and further every window.")
+    mixed = _Fake(_facts({("owner", "said", 4): 25, ("owner", "said", 5): 40}))
+    if ("owner", "said") not in mixed.compactable():
+        r.err("a pair holding both originals and a previous summary was "
+              "skipped entirely, so one compaction freezes that pair forever")
+
+    # 2. THE THRESHOLD IS A FLOOR ON VALUE. One call costs the same over three
+    #    facts as over thirty and saves a tenth as much.
+    thin = _Fake(_facts({("owner", "said", 4): 3}))
+    if thin.compactable():
+        r.err("3 facts cleared the threshold, so a model call is spent to merge "
+              "almost nothing")
+
+    # 3. BOUNDED, AND ORDERED BY WHAT IT SAVES.
+    many = _Fake(_facts({("a", "x", 4): 90, ("b", "x", 4): 80, ("c", "x", 4): 70,
+                         ("d", "x", 4): 60, ("e", "x", 4): 50, ("f", "x", 4): 40,
+                         ("g", "x", 4): 30}))
+    picked = many.compactable(limit=5)
+    if len(picked) != 5:
+        r.err(f"limit=5 returned {len(picked)} pairs, so the number of model "
+              "calls a single firing can make is not bounded")
+    elif picked != [("a", "x"), ("b", "x"), ("c", "x"), ("d", "x"), ("e", "x")]:
+        r.err(f"a bounded run did not spend its calls on the largest pairs: "
+              f"{picked}")
+    if many.compactable(limit=5) != picked:
+        r.err("selection is not deterministic, so two runs over an unchanged "
+              "memory choose different work")
+
+    # 4. THE TRIGGER EXISTS ONLY WHERE THE CAPABILITY DOES.
+    class _NoSum:
+        def can_summarise(self): return False
+        def compactable(self, **k): return []
+        def compact(self, *a): return {}
+
+    class _Sum(_NoSum):
+        def can_summarise(self): return True
+
+    off = {t.trigger_id for t in all_triggers(_NoSum())}
+    on = {t.trigger_id for t in all_triggers(_Sum())}
+    if "trg_memory_compaction" in off:
+        r.err("the compaction trigger registers on a compactor that cannot "
+              "summarise, so it fires every debounce window forever and "
+              "records 'no summariser' instead of doing anything")
+    if "trg_memory_compaction" not in on:
+        r.err("the compaction trigger does not register even when a summariser "
+              "is present, so the capability is unreachable")
+
+    # 5. ONE FAILING PAIR DOES NOT TAKE THE OTHERS WITH IT, and the failure is
+    #    recorded rather than swallowed into a silent no-op.
+    class _Flaky:
+        def can_summarise(self): return True
+        def compactable(self, **k): return [("a", "x"), ("b", "x")]
+        def compact(self, subj, attr):
+            if subj == "a":
+                raise RuntimeError("provider down")
+            return {"outcome": "compacted", "subject": subj}
+
+    trig = compaction_due_trigger(_Flaky())
+    try:
+        out = trig.handler()
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"one pair failing took the whole handler down: {exc!r}")
+        return r
+    if out.get("considered") != 2 or len(out.get("results", [])) != 2:
+        r.err(f"a failing pair stopped the run early: {out}")
+    if "failed" not in (out.get("outcomes") or []):
+        r.err("a raised provider error was not recorded as a failure, so a "
+              "broken rung is indistinguishable from an empty memory")
+
+    r.note("rank-5 output is never selected as input, so a compaction cannot "
+           "summarise its own summary; a pair holding both is still selected; "
+           "3 facts do not clear the threshold; limit=5 is honoured, ordered by "
+           "size and deterministic; the trigger registers only where a "
+           "summariser exists; and one failing pair is recorded as failed "
+           "without taking the other with it")
+    return r
+
+
+def check_the_stop_reaches_work_already_running() -> Result:
+    """The emergency stop halts a turn IN FLIGHT, not merely the next one.
+
+    MEASURED BEFORE IT WAS FIXED. `AutonomyLoop.dispatch` consulted the
+    interlock once, before the actor was called, and nothing asked again.
+    Driven on 2026-09-01: one autonomous turn ran six steps and six model calls
+    with the stop reachable at NONE of them. Pressing the emergency stop after
+    step 1 prevented the next dispatch and let steps 2..6 run -- each one a
+    shell command or a file write the owner had already said to stop. The
+    actor's own docstring lists four things that end its loop and the stop was
+    not among them, which was an accurate description of the defect.
+
+    A-031.1 DECLARES A 2 s T_new_action BUDGET and this is what makes it mean
+    something in production. A stopped loop that starts nothing new satisfies
+    the letter of it trivially; a six-step turn already running was the case
+    the budget was silently not covering.
+
+    ASKED BEFORE PROPOSING, WHICH IS ALSO A COST ASSERTION. A stop noticed
+    after the proposal has spent a model call on work it will discard, and on
+    free-tier rungs a call is quota that does not return until its window
+    resets.
+
+    THE OWNER IS NOT STOPPED BY THE AUTONOMY STOP, and that is the assertion
+    most likely to be broken by a well-meaning simplification. STOP_AUTONOMY
+    stops AUTONOMOUS work. `autonomy_permitted()` is also false whenever no
+    fresh enable token is present -- which by design is every ninety seconds --
+    so an actor that consulted the interlock on its own initiative would refuse
+    the owner's own typed requests on a schedule. The callable is passed IN by
+    `dispatch`, which is what knows the work is autonomous; an owner turn passes
+    nothing.
+    """
+    r = Result("the-stop-reaches-work-already-running")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import json as _json
+    import tempfile as _tf
+    try:
+        from core.actor import MAX_STEPS, Actor
+        from core.bus import EventBus
+        from core.checkpoint import ShadowGit
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the act path did not import: {exc!r}")
+        return r
+
+    # THE STATIC ASSERTIONS RUN FIRST, and the ordering is not cosmetic.
+    # With them last, a mutation that made the actor reach for an
+    # interlock it does not have raised AttributeError inside the drive
+    # below -- so the check CRASHED instead of failing, which
+    # `checks.py all` propagates as an aborted suite rather than one red
+    # check, and the red run for that mutation came back green. A
+    # question answerable without running the code should not be able to
+    # be taken down by the code failing to run.
+    # 5. DISPATCH ACTUALLY PASSES IT. Found AND scoped: `permitted=` alone
+    #    survives being handed a constant.
+    au = (REPO / "core" / "autonomy.py").read_text(encoding="utf-8")
+    if "permitted=(self._interlock.autonomy_permitted" not in au:
+        r.err("dispatch does not hand the interlock to the actor, so the "
+              "capability exists and autonomous work is not covered by it")
+
+    # 6. AND THE ACTOR MUST NOT REACH FOR AN INTERLOCK ITSELF.
+    #
+    #    PARSED, NOT GREPPED, and the first version was grepped -- it searched
+    #    core/actor.py for the string "autonomy_permitted(" and matched the
+    #    COMMENT that explains why the actor must not call it. The check failed
+    #    against correct code and would equally have passed against a call
+    #    hidden behind a name the search did not know. A question about what
+    #    the code DOES is a question for the AST.
+    import ast as _ast
+    ac = (REPO / "core" / "actor.py").read_text(encoding="utf-8")
+    try:
+        tree = _ast.parse(ac)
+    except SyntaxError as exc:
+        r.err(f"core/actor.py does not parse: {exc!r}")
+        return r
+    reaches = [n for n in _ast.walk(tree)
+               if isinstance(n, _ast.Attribute) and n.attr == "autonomy_permitted"]
+    if reaches:
+        r.err(f"core/actor.py reaches for .autonomy_permitted at line "
+              f"{reaches[0].lineno}. That refuses the OWNER every time the "
+              "enable token goes stale, which is by design every ninety "
+              "seconds -- the callable must be passed in by the caller that "
+              "knows the work is autonomous.")
+        # RETURNS, because the drive below cannot run against this. The first
+        # version recorded the error and carried on; the actor then raised
+        # AttributeError for the interlock it does not hold, and the check
+        # CRASHED instead of failing -- which `checks.py all` propagates as an
+        # aborted suite rather than one red check, so the red run for this very
+        # mutation came back green. THIRD TIME THIS SHAPE HAS APPEARED TODAY.
+        # An assertion that finds the subject malformed must stop, not narrate.
+        return r
+
+
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("stopcheck")
+        store = StoreSet(base / "s", node_id="stopcheck")
+        bus = EventBus(clock, store, component="stopcheck")
+        calls = {"n": 0}
+
+        class _GW:
+            def complete(self, text, **kw):
+                # A DIFFERENT ARGUMENT EACH TIME, so the no-progress breaker
+                # never fires and the only thing that can shorten the run is the
+                # stop. Without this the loop ends at step 2 on its own and the
+                # check passes on an actor that never asks.
+                calls["n"] += 1
+                return {"result": {"text": _json.dumps(
+                    {"action": "shell.run",
+                     "args": {"cmd": f"echo s{calls['n']}"},
+                     "why": "look around"})}}
+
+        def _run(permitted, tag):
+            calls["n"] = 0
+            seen: list = []
+            bus.subscribe("act.stopped", lambda e: seen.append(e.payload),
+                          name=f"stopcheck-{tag}",
+                          idempotency_key=lambda e: e.event_id)
+            a = Actor(bus, _GW(), subject="stopcheck", target="host",
+                      shadow=ShadowGit(base / f"shadow-{tag}"))
+            a.maybe_act("look at the disk", period="free_time",
+                        permitted=permitted)
+            return calls["n"], seen
+
+        # 1. AN OWNER TURN IS UNTOUCHED. permitted=None runs the full budget.
+        full, _ = _run(None, "owner")
+        if full < 2:
+            r.err(f"a turn with no stop attached ran {full} step(s), so this "
+                  "check cannot tell a halted loop from a short one")
+            return r
+
+        # 2. A STOP MID-TURN HALTS IT.
+        halted, seen = _run(lambda: calls["n"] < 2, "stopped")
+        if halted >= full:
+            r.err(f"the interlock refused after 2 steps and the turn still ran "
+                  f"{halted} of {full} -- the stop does not reach work already "
+                  "running, only the next dispatch")
+        if not seen:
+            r.err("the turn stopped and published nothing, so a halted turn is "
+                  "indistinguishable from one that simply finished")
+        elif seen[0].get("step") is None:
+            r.err("act.stopped does not say WHICH step it stopped at")
+
+        # 3. NO MODEL CALL IS SPENT ON A STOPPED STEP. A check placed after the
+        #    proposal would show one more call than steps taken.
+        if halted > 2:
+            r.err(f"{halted} model calls for a stop that engaged at 2: the "
+                  "interlock is consulted after the proposal, so every stop "
+                  "burns a call of free-tier quota on work it discards")
+
+        # 4. STOPPED FROM THE FIRST STEP MEANS NO CALL AT ALL.
+        none_at_all, seen0 = _run(lambda: False, "never")
+        if none_at_all != 0:
+            r.err(f"a turn that was never permitted still made {none_at_all} "
+                  "model call(s)")
+
+    r.note(f"an owner turn runs its full {full}-step budget untouched; a stop "
+           f"engaged at step 2 halts the turn at 2 of {full} and publishes "
+           f"act.stopped naming the step; a turn never permitted makes zero "
+           f"model calls, so the stop is asked before the proposal rather than "
+           f"after; dispatch supplies the callable and the actor never reaches "
+           f"for an interlock itself")
+    return r
+
+
 def check_credentials_can_leave_the_plaintext_file() -> Result:
     """A credential in the Keychain is used, and the file remains the fallback.
 
@@ -15271,6 +15580,8 @@ CHECK_FNS = {
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
     "silence-is-recorded-once-not-every-tick": check_silence_is_recorded_once_not_every_tick,
     "the-loop-ticks-at-the-cadence-it-declares": check_the_loop_ticks_at_the_cadence_it_declares,
+    "compaction-never-eats-its-own-summaries": check_compaction_never_eats_its_own_summaries,
+    "the-stop-reaches-work-already-running": check_the_stop_reaches_work_already_running,
     "host-pressure-read-through-the-adapter": check_host_pressure_is_read_through_the_adapter,
     "floor-held-and-offered-to": check_the_floor_is_held_and_offered_to,
     "boundary-asked-before-the-write": check_the_boundary_is_asked_before_the_write,

@@ -153,7 +153,8 @@ class Actor:
 
     def maybe_act(self, text: str, *, attention_state: str = "UNKNOWN",
                   period: str = "active", fragments: list | None = None,
-                  max_steps: int = MAX_STEPS) -> Outcome | None:
+                  max_steps: int = MAX_STEPS,
+                  permitted: Any = None) -> Outcome | None:
         """Act, observe, and act again until the turn is finished. None means
         this turn was not a request to do anything at all.
 
@@ -191,6 +192,38 @@ class Actor:
         consecutive_refusals = 0
 
         for step in range(max(1, int(max_steps))):
+            # THE STOP, ASKED EVERY STEP -- AND IT WAS ASKED NOWHERE.
+            #
+            # The interlock was consulted in `AutonomyLoop.dispatch`, once,
+            # BEFORE this loop began, and nothing asked again. Driven on
+            # 2026-09-01: an autonomous turn ran six steps and six model calls
+            # with the stop reachable at none of them. Pressing the emergency
+            # stop after step 1 prevented the NEXT dispatch and let steps 2..6
+            # run -- each one a shell command or a file write the owner had
+            # already said to stop. The docstring above lists four things that
+            # end this loop and the stop is not among them, which was accurate.
+            #
+            # ASKED BEFORE PROPOSING, not after. A stop noticed after the
+            # proposal has already spent a model call on work it will discard,
+            # and on the rungs this runs on a call is a piece of a free-tier
+            # quota that does not come back until its window resets.
+            #
+            # PASSED IN BY THE CALLER, NEVER HELD BY THE ACTOR. `dispatch`
+            # supplies it because `dispatch` is what knows the work is
+            # autonomous; an owner-typed turn supplies nothing and is
+            # unaffected. STOP_AUTONOMY stops autonomous work -- an actor that
+            # consulted `autonomy_permitted()` on its own would also refuse the
+            # owner the moment the enable token went stale, which is every
+            # ninety seconds by design.
+            if permitted is not None and not permitted():
+                self._bus.publish(
+                    "act.stopped", subject=self._subject,
+                    payload={"step": step, "steps_taken": len(signatures),
+                             "note": ("autonomy stopped mid-turn: the interlock "
+                                      "refused before this step was proposed")},
+                    component="actor")
+                break
+
             p = self._proposer.propose(
                 text, observations=observations if observations else None)
             if p is None:

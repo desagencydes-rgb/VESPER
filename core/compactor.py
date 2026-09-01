@@ -183,6 +183,47 @@ class Compactor:
 
     # ------------------------------------------------------------ compaction
 
+    def can_summarise(self) -> bool:
+        """Whether a model is actually available to merge facts.
+
+        EXISTS SO ABSENCE IS VISIBLE AT REGISTRATION rather than at every firing.
+        Without it the honest way to discover there is no summariser is to fire
+        the trigger, call `compact()`, and read "no summariser" out of the
+        result -- once every debounce window, forever, filling the log with a
+        record of a capability that was never configured.
+        """
+        return self._summariser is not None
+
+    def compactable(self, *, limit: int = 5, threshold: int = 20) -> list:
+        """The (subject, attribute) pairs worth spending one model call on.
+
+        RANK 5 IS EXCLUDED AND THAT IS THE WHOLE CORRECTNESS ARGUMENT. A
+        compaction writes its summary back at rank 5 (`DF-MEMORY-AUTHORITY`:
+        the system's reading of the owner's words). If this counted rank-5 facts
+        as inputs, every run would find its own previous output waiting, compact
+        the compaction, and do it again on the next window -- a summary of a
+        summary of a summary, drifting further from the log each time, with the
+        model's own words treated as evidence. `project()` already drops
+        MODEL_PRIOR for INV-EVID-1; this drops the tier above it for the same
+        reason one level up.
+
+        ORDERED BY SIZE, so a bounded run spends its calls where the most facts
+        collapse. Ties broken by name so the selection is deterministic and two
+        runs over an unchanged memory choose the same work.
+
+        THE THRESHOLD IS A FLOOR ON VALUE, NOT ON AGE. Compacting three facts
+        costs the same call as compacting thirty and saves a tenth as much.
+        """
+        groups: dict = {}
+        for f in self.project():
+            if int(f.get("rank", 0)) >= 5:
+                continue
+            groups.setdefault((f["subject"], f["attribute"]), 0)
+            groups[(f["subject"], f["attribute"])] += 1
+        ranked = sorted((k for k, n in groups.items() if n >= threshold),
+                        key=lambda k: (-groups[k], k))
+        return ranked[:limit]
+
     def compact(self, subject: str, attribute: str) -> dict:
         """Re-derive one node from L3 and replace its facts with a summary.
 

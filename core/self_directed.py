@@ -301,6 +301,74 @@ def host_pressure_trigger() -> Trigger:
     )
 
 
+
+# COMPACTION IS THE OTHER HALF OF THE MEMORY LOOP, and it is the half that costs
+# money. `memory_drift_trigger` repairs L2 deterministically and says so; this
+# one merges many old facts into one summary, which needs a model and therefore
+# needs a budget, a purpose-scoped rung and an owner who agreed to it.
+COMPACTABLE_TERM = "world.memory.compactable_present"
+
+
+def compaction_due_trigger(compactor: Any, *, max_pairs: int = 5) -> Trigger:
+    """Fires when some subject/attribute has accumulated enough to be worth one
+    summary, and merges at most `max_pairs` of them.
+
+    NAMED FOR THE POSITIVE CONDITION, like every other trigger here, and for the
+    same reason: `anti_cron_probe` refuses a predicate that fires with every
+    world-state term false, because such a predicate runs on an empty world and
+    an empty world is the clock. "Something is compactable" is an observation;
+    "nothing has been compacted lately" is a schedule wearing a predicate's
+    clothes.
+
+    THE COUNTING HAPPENS IN A SENSOR, NOT HERE. A predicate runs on every tick
+    and must be cheap; deciding what is compactable means grouping the projection
+    of L3, which is not. The sensor answers the question on its own slow period
+    and leaves the answer in the world, exactly as the host probes do -- and
+    UNKNOWN means do nothing, which is INV-COORD-2 on the acting side.
+
+    BOUNDED BY `max_pairs` BECAUSE EACH PAIR IS ONE MODEL CALL. A handler that
+    compacted everything it found would turn one quiet night into an unbounded
+    spend against a rung whose ceiling is unpublished -- `quota_published = 0`,
+    `quota_unit = "UNKNOWN"` on the Mistral rung, which INV-HW-2 says must be
+    treated as UNAVAILABLE rather than as room. Five is a number the ledger can
+    see coming.
+
+    A FAILED COMPACTION IS RECORDED AS A FAILURE, NOT SKIPPED. `compact()`
+    returns an outcome rather than raising for the ordinary cases -- "nothing to
+    compact", "no summariser" -- and each is a different fact about the run. A
+    handler that collapsed them into "did nothing" would make a missing
+    credential indistinguishable from an empty memory.
+    """
+    def predicate(s: dict) -> bool:
+        return s.get(COMPACTABLE_TERM) is True
+
+    def handler() -> dict:
+        pairs = compactor.compactable(limit=max_pairs)
+        results = []
+        for subject, attribute in pairs:
+            try:
+                results.append(compactor.compact(subject, attribute))
+            except Exception as exc:            # noqa: BLE001
+                # RECORDED, NOT RAISED. One pair failing must not take the other
+                # four with it, and a raise here would leave the trigger looking
+                # as though it never ran.
+                results.append({"outcome": "failed", "subject": subject,
+                                "attribute": attribute, "error": repr(exc)})
+        return {"considered": len(pairs), "results": results,
+                "outcomes": sorted({r.get("outcome") for r in results})}
+
+    return Trigger(
+        trigger_id="trg_memory_compaction",
+        predicate_class="STATE",
+        predicate=predicate,
+        state_terms=(COMPACTABLE_TERM,),
+        # SIX HOURS. Compaction is never urgent -- the facts it merges have
+        # already been sitting in L3 -- and the debounce is the only thing
+        # standing between an unpublished ceiling and a loop that found work.
+        debounce_s=21600,
+        handler=handler,
+    )
+
 def all_triggers(compactor: Any = None) -> list:
     """Everything VESPER runs for itself. One place, so it can be counted.
 
@@ -313,4 +381,11 @@ def all_triggers(compactor: Any = None) -> list:
            host_pressure_trigger()]
     if compactor is not None:
         out.append(memory_drift_trigger(compactor))
+        # ONLY IF IT CAN ACTUALLY SUMMARISE. A compaction trigger on a compactor
+        # with no summariser fires, calls compact(), gets "no summariser" back
+        # and records that -- forever, every six hours. Registering it only when
+        # the capability exists means its absence is a trigger that is not
+        # there, rather than one that runs and cannot work.
+        if getattr(compactor, "can_summarise", lambda: False)():
+            out.append(compaction_due_trigger(compactor))
     return out

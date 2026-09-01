@@ -669,7 +669,17 @@ class AutonomyLoop:
                 continue
             try:
                 outcome = self._actor.maybe_act(
-                    intent, attention_state=attention_state, period=period)
+                    intent, attention_state=attention_state, period=period,
+                    # THE STOP FOLLOWS THE WORK IN, and until 2026-09-01 it did
+                    # not. The interlock was consulted once above, before the
+                    # actor was ever called, so a stop pressed during a turn was
+                    # not seen until the turn had finished by itself -- up to
+                    # six steps, each a shell command or a file write, after the
+                    # owner said stop. `dispatch` passes it because `dispatch`
+                    # is what knows this work is autonomous; an owner-typed turn
+                    # passes nothing and is untouched.
+                    permitted=(self._interlock.autonomy_permitted
+                               if self._interlock is not None else None))
             except Exception as exc:                   # noqa: BLE001
                 # A FIRED TRIGGER MUST NOT TAKE THE LOOP DOWN, for the same
                 # reason a bad predicate must not: a dead loop is the failure
