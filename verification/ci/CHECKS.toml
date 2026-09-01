@@ -2325,11 +2325,6 @@ write -- so the refusal exists and is never asked for. Recorded 2026-09-01."""
 noting: 187 production mentions of the word "floor" and not one import of this
 module. Recorded 2026-09-01."""
 
-"core/arbiter.py" = """OWED. What VESPER does when memory contradicts itself.
-The memory system landed 2026-08-30 and is live; the arbiter that resolves its
-contradictions is not joined to it. Same shape as the memory/act gap already
-recorded. Recorded 2026-09-01."""
-
 "core/baseline.py" = """OWED. The record of what VESPER answered, which CI-073
 calls "written before memory exists" -- and memory now exists. Recorded
 2026-09-01."""

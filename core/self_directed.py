@@ -157,6 +157,62 @@ def memory_drift_trigger(compactor: Any) -> Trigger:
     )
 
 
+# THE SAME POLARITY LESSON AS THE DRIFT TERM. Named for the condition that
+# matters, so firing needs a positive observation rather than the absence of
+# one -- a predicate that fires on an empty world is the clock.
+CONTRADICTION_TERM = "world.memory.contradictions_present"
+
+
+def contradiction_trigger(arbiter: Any) -> Trigger:
+    """Fires when L2 holds two values for the same thing, and arbitrates.
+
+    WHY THIS IS NOT THE UPDATER'S JOB. The updater runs in the background,
+    after the act, and must never block or fail a turn -- so it has no way to
+    surface anything to the owner and no business deciding what happens when
+    two things it wrote disagree. That is the whole reason the arbiter is its
+    own subsystem, and it has been reachable from nothing.
+
+    A HANDLER, AND THE HANDLER NEVER PICKS. `sweep()` hands each contradiction
+    to `resolve_memory_conflict`, which is DF-MEMORY-AUTHORITY and lives in
+    core/evidence.py. Three outcomes are available and the third is the one
+    people forget: RESOLVED where rank settles it, ASK where the ranks
+    disagree, and HOLD BOTH -- a state VESPER sits in, acting on neither. A
+    system that must always produce an answer produces a wrong one here,
+    confidently, and the owner never sees that it happened.
+
+    THE QUESTIONS ARE PUBLISHED, NOT ASKED. `interruption_budget.toml` governs
+    when a question reaches the owner and this trigger does not get to overrule
+    it. What it guarantees is that the question EXISTS rather than having been
+    silently resolved away -- which is the whole point of the subsystem.
+    """
+    def predicate(s: dict) -> bool:
+        return s.get(CONTRADICTION_TERM) is True
+
+    def handler() -> dict:
+        swept = arbiter.sweep()
+        asks = [r for r in swept if r.get("outcome") == "ASK"]
+        held = [r for r in swept if r.get("outcome") == "HOLD_BOTH"]
+        return {"examined": len(swept),
+                "resolved": len([r for r in swept if r.get("outcome") == "RESOLVED"]),
+                "open_questions": len(asks),
+                "holding_both": len(held),
+                # SUBJECT AND ATTRIBUTE ONLY, NEVER THE VALUES. A summary that
+                # quoted the two competing values would put the contradiction's
+                # content into an event anything can read, and one of the two is
+                # wrong -- publishing both is publishing a falsehood beside a
+                # truth with no way to tell them apart.
+                "questions": [f"{r['subject']}/{r['attribute']}" for r in asks]}
+
+    return Trigger(
+        trigger_id="trg_memory_contradiction",
+        predicate_class="STATE",
+        predicate=predicate,
+        state_terms=(CONTRADICTION_TERM,),
+        debounce_s=600,
+        handler=handler,
+    )
+
+
 def all_triggers(compactor: Any = None) -> list:
     """Everything VESPER runs for itself. One place, so it can be counted.
 

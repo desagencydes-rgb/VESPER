@@ -13787,8 +13787,137 @@ def check_memory_repairs_its_own_drift() -> Result:
     return r
 
 
+def check_contradictions_reach_the_owner() -> Result:
+    """Two values for the same thing become a question, not a quiet pick.
+
+    THE UPDATER CANNOT DO THIS, which is why the arbiter is its own subsystem.
+    The updater runs in the background after the act and must never block or
+    fail a turn -- so it has no way to surface anything and no business
+    deciding what happens when two things it wrote disagree. The arbiter has
+    been built, gated by CI-078, and reachable from nothing since.
+
+    THE WORKED EXAMPLE IS THE TEST. `MEMORY_ARCHITECTURE.md`: the owner says
+    the flight is Tuesday (rank 4, a statement); the calendar says Wednesday
+    (rank 2, a source of record). The ranks disagree, so the answer is ASK --
+    and a system that must always produce an answer produces a wrong one here,
+    confidently, with no way for the owner to see it happened.
+
+    AND THE QUESTION CARRIES NO VALUES. One of the two is wrong; publishing
+    both puts a falsehood beside a truth in an event anything can read, with
+    nothing to tell them apart.
+    """
+    r = Result("contradictions-reach-the-owner")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf
+    try:
+        from core.arbiter import Arbiter
+        from core.autonomy import (AutonomyLoop, PredicateEvaluator,
+                                   anti_cron_probe)
+        from core.bus import EventBus
+        from core.hlc import HybridLogicalClock
+        from core.memory import MemoryGraph
+        from core.self_directed import (CONTRADICTION_TERM,
+                                        contradiction_trigger)
+        from core.store import StoreSet
+        from core.world import Observation, WorldModel
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the arbitration modules do not import: {exc!r}")
+        return r
+
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    for needle, why in (
+            ("Arbiter(", "the runtime never constructs an Arbiter"),
+            ("contradiction_trigger(", "the contradiction trigger is never registered"),
+            ("contradictions_present", "no sensor reports contradictions")):
+        if needle not in rt:
+            r.err(why)
+
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("arb")
+        store = StoreSet(base / "s", node_id="arb")
+        bus = EventBus(clock, store, component="arb")
+        world = WorldModel(bus, clock)
+        mem = MemoryGraph(store)
+        arb = Arbiter(mem, bus=bus)
+
+        trig = contradiction_trigger(arb)
+        if anti_cron_probe(trig).get("fires_on_clock_alone"):
+            r.err("the contradiction trigger fires on an empty world, which is "
+                  "the clock")
+        if not getattr(trig, "handler", None):
+            r.err("the contradiction trigger has no handler")
+
+        seen: list = []
+        bus.subscribe("autonomy.handled", lambda e: seen.append(e.payload),
+                      name="arb-check", idempotency_key=lambda e: e.event_id)
+        loop = AutonomyLoop(bus, world, PredicateEvaluator(bus, world),
+                            now_ms=lambda: 0)
+        loop.register(trig)
+        subj, attr = CONTRADICTION_TERM.rsplit(".", 1)
+
+        # 1. ONE VALUE IS NOT A CONTRADICTION.
+        mem.remember(subject="flight", attribute="departs", value="Tuesday",
+                     rank=4, privacy="private", trust_class="owner",
+                     at=clock.now())
+        if arb.contradictions():
+            r.err("a single value was reported as a contradiction, so every "
+                  "ordinary fact would become an interruption")
+        world.apply(Observation(subj, attr, False, clock.now(), source="p",
+                                confidence=1.0))
+        loop.dispatch(loop.tick())
+        if seen:
+            r.err("the loop arbitrated a memory holding no contradiction")
+
+        # 2. THE WORKED EXAMPLE. Ranks disagree -> ASK, never a pick.
+        mem.remember(subject="flight", attribute="departs", value="Wednesday",
+                     rank=2, privacy="private", trust_class="retrieved_local",
+                     at=clock.now())
+        found = arb.contradictions()
+        if not found:
+            r.err("two distinct values for one subject/attribute were not "
+                  "reported as a contradiction")
+        world.apply(Observation(subj, attr, True, clock.now(), source="p",
+                                confidence=1.0))
+        seen.clear()
+        loop.dispatch(loop.tick())
+        if not seen:
+            r.err("memory contradicted itself and the loop did nothing")
+        else:
+            got = seen[0].get("result") or {}
+            if got.get("open_questions", 0) < 1:
+                r.err(f"the ranks disagreed and produced {got.get('open_questions')} "
+                      "open questions. A silent resolution here is a spec "
+                      "violation, not a preference -- REM-010 4.6 calls asking "
+                      "the specified default.")
+            blob = _json_dumps_safe(seen)
+            for value in ("Tuesday", "Wednesday"):
+                if value in blob:
+                    r.err(f"the published question carries the value {value!r}. "
+                          "One of the two is wrong, and publishing both puts a "
+                          "falsehood beside a truth with nothing to tell them "
+                          "apart.")
+
+    r.note("the runtime builds the arbiter, its sensor and its trigger; a "
+           "single value is not a contradiction and is left alone; the "
+           "architecture's own worked example produces an open question rather "
+           "than a pick; and the question names the subject and attribute "
+           "without carrying either competing value")
+    return r
+
+
+def _json_dumps_safe(obj) -> str:
+    import json as _j
+    try:
+        return _j.dumps(obj, default=str)
+    except Exception:                               # noqa: BLE001
+        return str(obj)
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "contradictions-reach-the-owner": check_contradictions_reach_the_owner,
     "memory-repairs-its-own-drift": check_memory_repairs_its_own_drift,
     "l1-spends-a-token-budget": check_l1_spends_a_token_budget,
     "a-decline-is-not-an-attempt": check_a_decline_is_not_an_attempt,

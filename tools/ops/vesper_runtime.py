@@ -55,6 +55,7 @@ from core.repair import RepairAgent                             # noqa: E402
 from core.forgetter import expiry_trigger                       # noqa: E402
 from core.self_directed import all_triggers as self_directed_triggers  # noqa: E402
 from core.self_directed import memory_drift_trigger             # noqa: E402
+from core.self_directed import contradiction_trigger            # noqa: E402
 from core.sensors import Sensor, SensorRegistry, SWEEP, TIMER   # noqa: E402
 from core.world import WorldModel                               # noqa: E402
 from core.difficulty import classify                            # noqa: E402
@@ -65,6 +66,7 @@ from core.context_control import ContextCommands                # noqa: E402
 from core.presence import Presence                              # noqa: E402
 from core.speech import Speech, speech_rows                     # noqa: E402
 from core.blocks import L1Renderer                              # noqa: E402
+from core.arbiter import Arbiter                                 # noqa: E402
 from core.compactor import Compactor                            # noqa: E402
 from core.context import ContextBudgetManager                   # noqa: E402
 from core.actor import Actor                                    # noqa: E402
@@ -291,7 +293,7 @@ def build(node: str = "vesper-runtime"):
     for _t in self_directed_triggers():
         autonomy.register(_t)
 
-    memory = renderer = updater = misses = compactor = None
+    memory = renderer = updater = misses = compactor = arbiter = None
     try:
         memory = MemoryGraph(store, path=str(STATE / "l2.db"))
         # THE CONSOLIDATION LOOP, WHICH HAD NEVER RUN. core/compactor.py holds
@@ -299,6 +301,12 @@ def build(node: str = "vesper-runtime"):
         # compact(L1) -- and nothing in the running system imported it, so
         # nothing had ever noticed L2 drifting from the log it is a view of.
         compactor = Compactor(memory, store, clock, bus=bus)
+        # THE ARBITER, WHICH THE UPDATER CANNOT BE. The updater runs after the
+        # act and must never block a turn, so it has no way to surface anything
+        # and no business deciding what happens when two things it wrote
+        # disagree. That is why this is a separate subsystem -- and it has been
+        # reachable from nothing since it was built.
+        arbiter = Arbiter(memory, bus=bus)
         # L1'S BUDGET IS TOKENS AND IT HAD NONE. `ContextBudgetManager` was
         # built for this and constructed only by tests, so block B truncated at
         # a fact COUNT -- five long facts could overrun a provider's window
@@ -354,6 +362,18 @@ def build(node: str = "vesper-runtime"):
                                 "l2_drifted", _l2_drifted, SWEEP,
                                 period_ms=600_000))
         autonomy.register(memory_drift_trigger(compactor))
+
+        def _contradictions_present() -> Any:
+            try:
+                return bool(arbiter.contradictions())
+            except Exception:                       # noqa: BLE001
+                return None                         # UNKNOWN, never False
+
+        sensors.register(Sensor("memory-contradictions", "world.memory",
+                                "contradictions_present",
+                                _contradictions_present, SWEEP,
+                                period_ms=600_000))
+        autonomy.register(contradiction_trigger(arbiter))
 
     # VERIFICATION, REGISTERED RATHER THAN DECLARED. `core/verify.py` listed two
     # machine-checkable strategies and `Verifier` was a registry with nothing in

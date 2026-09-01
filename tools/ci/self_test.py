@@ -4179,5 +4179,35 @@ CASES += [
 ]
 
 
+CASES += [
+    ("contradictions-reach-the-owner", SELF_DIRECTED_PY,
+     _sub("        return s.get(CONTRADICTION_TERM) is True", "        return True", 1),
+     "the predicate stops reading the world and arbitrates on every tick, "
+     "which is a sweep on a timer wearing a condition's clothes"),
+
+    ("contradictions-reach-the-owner", SELF_DIRECTED_PY,
+     # THE ROW ITSELF CARRIES NO VALUE FOR AN ASK -- the resolver
+     # returns None rather than a pick -- so stringifying it leaks
+     # nothing and the case written that way reported green. What
+     # WOULD leak is attaching the claims, which is exactly what
+     # somebody adds when debugging why a question was raised.
+     _sub('                "questions": [f"{r[\'subject\']}/{r[\'attribute\']}" for r in asks]}', '                "questions": [f"{r[\'subject\']}/{r[\'attribute\']}" for r in asks],\n                "claims": [arbiter.claims_for(r[\'subject\'], r[\'attribute\']) for r in asks]}', 1),
+     "the published question is enriched with the claims behind it, "
+     "so both competing values reach an event anything can read -- "
+     "and one of them is wrong, with nothing to tell them apart"),
+
+    ("contradictions-reach-the-owner", SELF_DIRECTED_PY,
+     _sub("        debounce_s=600,\n        handler=handler,", "        debounce_s=600,", 1),
+     "the trigger loses its handler: contradictions are detected and never "
+     "arbitrated, so the question never exists"),
+
+    ("contradictions-reach-the-owner", RUNTIME,
+     _sub("        autonomy.register(contradiction_trigger(arbiter))", "        pass", 1),
+     "the arbiter is built and registered with nothing, so memory goes on "
+     "contradicting itself and the updater -- which cannot ask -- is the only "
+     "thing that ever sees it"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

@@ -387,3 +387,34 @@ resource_budget = { max_runtime_ms = 30000, max_tool_calls = 0, cost_class_ceili
 stop_conditions = ["projection complete", "enable token absent"]
 reporting_policy = "queue_to_boundary"
 provenance = "authored"
+
+[triggers.trg_memory_contradiction]
+name = "Arbitrate when L2 holds two values for the same thing"
+source = "REM-010 §4.6 · MEMORY_ARCHITECTURE.md worked example · owner requirement 2026-09-01"
+enabled = true
+predicate_class = "STATE"
+predicate = """
+  world.memory.contradictions_present == true
+"""
+predicate_note = """THE UPDATER CANNOT DO THIS AND THAT IS WHY THE ARBITER
+EXISTS. The updater runs after the act and must never block or fail a turn, so
+it has no way to surface anything to the owner and no business deciding what
+happens when two things it wrote disagree.
+
+THE HANDLER NEVER PICKS. Each contradiction goes to
+`resolve_memory_conflict` -- DF-MEMORY-AUTHORITY, in core/evidence.py -- which
+returns RESOLVED where rank settles it, ASK where the ranks disagree, or HOLD
+BOTH: a state VESPER sits in, acting on neither. A system that must always
+produce an answer produces a wrong one here, confidently, and the owner never
+sees that it happened. REM-010 4.6 calls asking "the RB-002-compliant outcome
+and the specified default"."""
+debounce_s = 600
+priority = "maintenance"
+required_authority = "L2"
+# NONE: arbitration reads L2 and publishes questions. It actuates nothing and
+# asks no model -- the rank ladder is deterministic.
+actuation_scope = "NONE"
+resource_budget = { max_runtime_ms = 30000, max_tool_calls = 0, cost_class_ceiling = "free" }
+stop_conditions = ["every contradiction examined", "enable token absent"]
+reporting_policy = "queue_to_boundary"
+provenance = "authored"
