@@ -2280,6 +2280,25 @@ authorize."""
 ##############################################################################
 
 [unwired]
+"core/fabric.py" = """NOT YET REACHABLE BY DESIGN. Network fabric admission
+(SR-016, DF-FABRIC-ADMIT). There is one node, so there is no control plane to
+admit anything to. Lands with the second node, beside enrollment and placement.
+Found 2026-09-01 when CI-094 was widened from the 50 modules some check named
+to all 76 -- it had been invisible to the gate that exists to find exactly
+this."""
+
+"core/host.py" = """OWED. Host collaboration: reading this machine and acting
+on it through a declared vocabulary. `core/host_probes.py` IS wired and feeds
+the sensors; this is the layer above it, and nothing consults it. Recorded
+2026-09-01."""
+
+"core/reconcile.py" = """OWED, and it matters more now than it did yesterday.
+Exactly-once EFFECT for external actions -- the outbox, the idempotency key,
+the recovery path for an UNKNOWN outcome. VESPER started taking real actions on
+2026-08-31 and gained a six-step loop on 2026-09-01, so the case this module
+exists for (a crash between the effect and the record) is now reachable in
+ordinary use. Recorded 2026-09-01."""
+
 "core/enrollment.py" = """NOT YET REACHABLE BY DESIGN. Node admission (A-042).
 No second node has ever joined this fabric, so there is no production path that
 admits one. INV-PLACE-3 makes this a when-not-if, and the wire lands with the

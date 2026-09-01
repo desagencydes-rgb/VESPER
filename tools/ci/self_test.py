@@ -4137,5 +4137,17 @@ CASES += [
 ]
 
 
+CASES += [
+    ("gated-subsystems-are-reachable", CHECKS_PY,
+     _sub('    for f in sorted(REPO.glob("core/*.py")):\n'
+          '        rel = f.relative_to(REPO).as_posix()\n'
+          '        if f.name != "__init__.py":\n'
+          '            subjects.setdefault(rel, [])\n', "", 1),
+     "the sweep narrows back to modules some check happens to NAME as a "
+     "subject -- 50 of 76 -- so a subsystem nobody wrote a check for is "
+     "invisible to the check that exists to find subsystems nobody reaches"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

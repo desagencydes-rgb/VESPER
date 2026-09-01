@@ -11829,16 +11829,31 @@ def check_gated_subsystems_are_reachable() -> Result:
             if f.is_file():
                 prod[rel] = f.read_text(encoding="utf-8", errors="replace")
 
+    # EVERY core MODULE, NOT ONLY THE ONES A CHECK HAPPENS TO NAME. The first
+    # version of this gate looked at modules declared as some check's
+    # `subject`, which was 50 of 76 -- so a subsystem nobody had written a
+    # check for was invisible to the check that exists to find subsystems
+    # nobody reaches. `core/context.py` was one of them, and its
+    # `ContextBudgetManager` had never been called outside a test.
+    #
+    # A gate whose coverage depends on someone else having remembered to
+    # declare something is a gate with the same defect it is looking for.
     subjects: dict = {}
     for cid, c in sorted(checks.items()):
         for f in re.findall(r"[\w/]+\.py", str(c.get("subject", ""))):
             if f.startswith("core/"):
                 subjects.setdefault(f, []).append(cid)
+    for f in sorted(REPO.glob("core/*.py")):
+        rel = f.relative_to(REPO).as_posix()
+        if f.name != "__init__.py":
+            subjects.setdefault(rel, [])
 
-    if len(subjects) < 20:
-        r.err(f"only {len(subjects)} core modules were found as check subjects. "
-              "The `subject` field is how this check knows what to look at; if "
-              "it has stopped being populated this gate is vacuous.")
+    every = {p.relative_to(REPO).as_posix() for p in REPO.glob("core/*.py")
+             if p.name != "__init__.py"}
+    if set(subjects) < every:
+        missing = sorted(every - set(subjects))
+        r.err(f"{len(missing)} core modules are outside this sweep: {missing[:5]}"
+              " -- the gate is looking at less than the tree it claims to cover")
 
     unreachable: list = []
     for f in sorted(subjects):
@@ -11864,7 +11879,8 @@ def check_gated_subsystems_are_reachable() -> Result:
 
     for f in unreachable:
         if f not in declared:
-            r.err(f"{f} is the subject of {subjects[f]} and is imported by NO "
+            named = f"the subject of {subjects[f]}" if subjects[f] else "in core/"
+            r.err(f"{f} is {named} and is imported by NO "
                   "production module -- only by its own check or an acceptance "
                   "runner. Either wire it, or declare it under [unwired] in "
                   "CHECKS.toml with the reason it has no caller yet.")
