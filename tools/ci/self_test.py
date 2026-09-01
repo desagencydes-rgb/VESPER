@@ -3413,9 +3413,13 @@ CASES += [
      _sub('    if any(c in cmd for c in CHAINING):\n'
           '        return "L3"                      # composable, so not provably read-only\n',
           "", 1),
-     "`echo hi > /etc/hosts` resolves to L1: the verb is allowlisted and the "
-     "redirection is no longer looked at, so a command that overwrites a system "
-     "file runs on standing authority without anyone being asked"),
+     "`echo x > out.txt` resolves to L1 -- a command that redirects into a file "
+     "runs on standing authority with nobody asked. This case named `echo hi > "
+     "/etc/hosts` until 2026-09-01 and stayed GREEN under the same deletion: "
+     "that path is path-shaped, so the path rule levels it L3 by itself, and "
+     "the other four composed probes were each caught by the destructive-marker "
+     "rule. Every probe was defended by a DIFFERENT rule and the chaining "
+     "branch by none"),
 
     ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
      _sub('    if not cmd:\n        return "L5"                      # an empty command is not a safe one',
@@ -3511,6 +3515,39 @@ CASES += [
 # shape: built, gated, correct, and connected to nothing.
 # --------------------------------------------------------------------------
 CHECKS_TOML = "verification/ci/CHECKS.toml"
+
+# --------------------------------------------------------------------------
+# The two checks that were NOT EVIDENCE, found 2026-09-01 by running the full
+# suite rather than by trusting the previous session's "405/405". Both had the
+# same shape: an assertion that a NAME appears, in a file where the name also
+# appears somewhere the mutation did not touch.
+# --------------------------------------------------------------------------
+CASES += [
+    ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
+     _sub('    if any(m in low for m in DESTRUCTIVE_MARKERS):\n'
+          '        return "L5"\n'
+          '    if any(c in cmd for c in CHAINING):\n'
+          '        return "L3"                      # composable, so not provably read-only\n',
+          '    if any(c in cmd for c in CHAINING):\n'
+          '        return "L3"                      # composable, so not provably read-only\n'
+          '    if any(m in low for m in DESTRUCTIVE_MARKERS):\n'
+          '        return "L5"\n', 1),
+     "the chaining test is reached BEFORE the destructive one, so `ls; rm -rf ~` "
+     "resolves L3 instead of L5: composed-and-destructive is reported as merely "
+     "composed, and the ladder loses the worse of the two answers"),
+
+    ("wake-word-listens-locally-and-starts-once", WAKE_SWIFT,
+     _sub("    wakeRetry = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: true)",
+          "    wakeRetry = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: false)", 1),
+     "the retry fires once and gives up -- the same defect with one extra "
+     "attempt, and the owner still reports having turned the wake word off"),
+
+    ("wake-word-listens-locally-and-starts-once", WAKE_SWIFT,
+     _sub("        t.invalidate()\n        wakeRetry = nil\n", "        t.invalidate()\n", 1),
+     "the timer is invalidated but never cleared, so `wakeRetry == nil` stays "
+     "false: one failed attempt and nothing can ever rearm"),
+]
+
 
 CASES += [
     # ---------------------------------------------------------------- CI-093

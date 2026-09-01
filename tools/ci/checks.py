@@ -11194,10 +11194,53 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
     # process that already started. Checked once, the wake word stays off until
     # something restarts home, and the owner reads that as their grant having
     # failed. Measured 2026-08-31, reported as "I accidentally turned it off".
-    if "scheduleWakeRetry()" not in w:
-        r.err("the wake listener checks its permission once and never again, so "
-              "a grant made while home is running does nothing until home is "
-              "restarted -- and that is the ORDER the grant always arrives in")
+    #
+    # ASKED OF EVERY GRANTABLE BRANCH, NOT OF THE FILE. This read
+    # `if "scheduleWakeRetry()" not in w` until 2026-09-01 -- a NAME test, and
+    # `startWakeWordInProcess` has TWO permission guards that call it. Deleting
+    # one left the other, so the name was still present and the check stayed
+    # green while the speech-permission branch stopped retrying entirely. That
+    # is the shape CLAUDE.md names: a check that tests for a NAME rather than a
+    # BEHAVIOUR. The property is that every branch which refuses for a
+    # permission that can still be granted must keep asking.
+    if "func startWakeWordInProcess()" not in w:
+        r.err("app/island-macos/WakeWord.swift has no startWakeWordInProcess "
+              "to inspect")
+    else:
+        i = w.index("func startWakeWordInProcess()")
+        j = w.index("{", i)
+        depth, end = 0, len(w)
+        for k in range(j, len(w)):
+            if w[k] == "{":
+                depth += 1
+            elif w[k] == "}":
+                depth -= 1
+                if depth == 0:
+                    end = k
+                    break
+        fn = w[i:end]
+        # A guard on an authorization status is a refusal the owner can undo by
+        # granting it. Anything else -- on-device recognition unavailable, for
+        # instance -- is NOT retried on purpose, and must not be counted.
+        grantable = fn.count("authorizationStatus")
+        retries = fn.count("scheduleWakeRetry()")
+        if grantable == 0:
+            r.err("startWakeWordInProcess consults no authorization status at "
+                  "all, so it cannot be refusing for a permission reason")
+        elif retries < grantable:
+            r.err(f"startWakeWordInProcess has {grantable} permission guards and "
+                  f"only {retries} call scheduleWakeRetry(). A branch that "
+                  "refuses for a grant the owner can still make, and then stops "
+                  "asking, leaves the wake word off until home is restarted -- "
+                  "and that is the ORDER the grant always arrives in, because "
+                  "every build re-signs and TCC revokes.")
+    # AND THE RETRY IS A LOOP THAT CAN ACTUALLY FIRE, not a name.
+    if "repeats: true" not in w:
+        r.err("the wake retry does not repeat, so it asks once more and then "
+              "gives up -- which is the same defect with one extra attempt")
+    if "wakeRetry = nil" not in w:
+        r.err("the retry timer is never cleared, so `wakeRetry == nil` stays "
+              "false and a failed attempt can never rearm")
     # THE FILENAME BUILD.SH WRITES, COMPARED TO THE ONE main.swift REGISTERS.
     # Asserting the Label alone was not enough: the mutation renamed the FILE to
     # `.plist.disabled`, leaving the Label intact inside a plist that
@@ -11310,6 +11353,47 @@ def check_capabilities_registered_and_levelled_by_argument() -> Result:
             r.err(f"{smuggled!r} resolves to L1. It begins with an allowlisted "
                   "verb, so a classifier that reads the first word admits it -- "
                   "and A-013's own assertion still passes while it does")
+
+    # 3b. AND THESE ARE THE ONES THAT ACTUALLY DEFEND THE CHAINING RULE.
+    #     Every probe above is caught by something ELSE -- four by the
+    #     destructive-marker test and `echo hi > /etc/hosts` by the path rule,
+    #     because /etc/hosts is path-shaped and levels L3 as a read. So the
+    #     whole `if any(c in cmd for c in CHAINING)` branch could be DELETED
+    #     and section 3 stayed green. Measured 2026-09-01: the self-test case
+    #     written for exactly that deletion reported the check green under it,
+    #     which by this corpus's rule means the branch was defended by nothing.
+    #
+    #     A probe that isolates the rule must contain a chaining metacharacter,
+    #     no destructive marker, and no sensitive path -- so the chaining branch
+    #     is the ONLY thing standing between it and L1.
+    for composed in ("echo x > out.txt", "ls > listing.txt", "ls | tee notes.txt",
+                     "echo a && echo b", "cat a.txt > b.txt",
+                     "echo $(whoami) > who.txt"):
+        lvl = caps.shell_level({"cmd": composed})
+        if lvl == "L1":
+            r.err(f"{composed!r} resolves to L1. It is composed -- it redirects "
+                  "or pipes -- so it is not provably read-only, and nothing in "
+                  "it is destructive or path-sensitive enough for any other rule "
+                  "to catch. This is the command shape that runs on standing "
+                  "authority when the chaining test is gone.")
+
+    # 3c. AND THE RULE IS NOT MERELY PRESENT, IT IS REACHED BEFORE THE
+    #     ALLOWLIST. A chaining test placed after the read-only verb check
+    #     never sees a command that begins with an allowlisted verb, which is
+    #     every command that matters here.
+    csrc = (REPO / "core" / "capabilities.py").read_text(encoding="utf-8")
+    body = csrc[csrc.index("def shell_level("):]
+    body = body[:body.index("\ndef ", 1)]
+    order = [body.find("DESTRUCTIVE_MARKERS"), body.find("CHAINING"),
+             body.find("READ_ONLY_VERBS")]
+    if -1 in order:
+        r.err("shell_level no longer consults one of DESTRUCTIVE_MARKERS, "
+              "CHAINING or READ_ONLY_VERBS")
+    elif not order[0] < order[1] < order[2]:
+        r.err("shell_level tests destructive markers, chaining and the "
+              "read-only allowlist in the wrong order. The allowlist must come "
+              "LAST: `cat /etc/passwd | sudo tee` and `ls; rm -rf ~` both begin "
+              "with an allowlisted verb, and both halves are honest.")
 
     # 4. UNANALYSABLE MEANS HIGHEST, not lowest. Fail-closed, as INV-HW-2 does
     #    for throughput: UNKNOWN is UNAVAILABLE.
