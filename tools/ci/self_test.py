@@ -3553,15 +3553,19 @@ CASES += [
     # ---------------------------------------------------------------- CI-093
     ("taint-ceiling-binds-the-act-path", ACTOR_PY,
      _sub("                                target=self._target, context_ceiling=ceil,\n"
+          "                                authorization=strength,\n"
           "                                current_lease_epoch=0)",
           "                                target=self._target,\n"
+          "                                authorization=strength,\n"
           "                                current_lease_epoch=0)", 1),
      "the ceiling is computed and dropped at the authorize call -- exactly the "
      "state this corpus shipped in until 2026-09-01"),
 
     ("taint-ceiling-binds-the-act-path", ACTOR_PY,
      _sub("                                        context_ceiling=ceil,\n"
+          "                                        authorization=strength,\n"
           "                                        current_lease_epoch=0)",
+          "                                        authorization=strength,\n"
           "                                        current_lease_epoch=0)", 1),
      "the ceiling reaches the actor's pre-check and not the executor, which "
      "re-authorizes immediately before invoking and is the binding check"),
@@ -3670,7 +3674,8 @@ CASES += [
      "question asked of someone asleep"),
 
     ("loop-observes-and-is-bounded", ACTOR_PY,
-     _sub("        base += [Tainted(o, EXTERNAL, origin=f\"observation:{o.get('capability')}\")\n"
+     _sub("        base += [Tainted(o, observation_trust(str(o.get(\"capability\") or \"\")),\n"
+          "                         origin=f\"observation:{o.get('capability')}\")\n"
           "                 for o in (observations or []) if isinstance(o, dict)]",
           "        base += []", 1),
      "observations stop tainting the context, so the step that could be steered "

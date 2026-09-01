@@ -7612,8 +7612,19 @@ def check_no_ambient_authority() -> Result:
         ex.execute(subject="agent.nobody", capability_id="fs.write",
                    args={"destructive": False}, target="/tmp/x")
         r.err("an unauthorized execution was not refused")
-    except NotAuthorized:
-        pass
+    except NotAuthorized as exc:
+        # THE REASON, NOT MERELY THE EXCEPTION. `execute` grew a second
+        # NotAuthorized on 2026-09-01 -- the refusal when a file-touching
+        # capability has no checkpoint store -- and it sits AFTER this one. So
+        # deleting the authorization raise let control fall through to the
+        # checkpoint raise, the probe still saw NotAuthorized, `ran` was still
+        # empty, and the case written for exactly that deletion reported green.
+        # Two refusals of the same type are indistinguishable to a bare except.
+        got = getattr(exc.decision, "reason", None)
+        if got != "no_grant":
+            r.err(f"an unauthorized execution was refused for {got!r} rather "
+                  "than 'no_grant'. Something other than DF-AUTHORIZE stopped "
+                  "it, so this proves nothing about ambient authority.")
     if ran:
         r.err("the implementation ran despite the refusal: the decision is "
               "computed and the adapter is called anyway, which is enforcement "
