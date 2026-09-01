@@ -3734,5 +3734,71 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# fs.edit -- surgical, unique-match-or-fail. Removes whole-file replacement as
+# the only way to change a file, and takes the escalation off the safe path.
+# --------------------------------------------------------------------------
+CASES += [
+    # THE UNIQUENESS IS STRUCTURAL, NOT GUARDED, and finding that out cost two
+    # cases that reported green. Disabling either `n > 1` or `len(hits) > 1`
+    # changes only WHICH refusal is raised: a replacement happens solely where
+    # exactly one hit was found, so the other path still refuses. Those two
+    # raises are message quality and defence in depth, and neither is
+    # independently load-bearing. The mutation that DOES create the defect is
+    # taking the first of many hits -- which is precisely Aider's
+    # `search_and_replace` with its uniqueness check commented out.
+    # UNIQUENESS HERE IS DEFENDED TWICE, AND EACH MUTATION ALONE IS MASKED BY
+    # THE OTHER -- which cost four green cases to establish. The substring
+    # guard refuses before `_locate` is ever reached, so taking the first of
+    # several LINE hits changes nothing observable; and inside the substring
+    # rung the `n > 1` raise sits above the replacement, so loosening the
+    # replacement alone is unreachable. A case has to remove both layers to
+    # produce the defect, and saying that plainly is better than shipping two
+    # cases that look like coverage and are not.
+    ("edit-names-one-place", CAPS_PY,
+     lambda t: t.replace("    if n > 1:\n        raise EditNotUnique(",
+                         "    if False:\n        raise EditNotUnique(", 1)
+                .replace("        if len(hits) == 1:", "        if hits:", 1),
+     "both uniqueness layers removed: the first of several matches is silently "
+     "chosen out of many that looked the same, which is Aider's commented-out "
+     "uniqueness check arriving here"),
+
+    ("edit-names-one-place", CAPS_PY,
+     lambda t: t.replace("    if n > 1:\n        raise EditNotUnique(",
+                         "    if False:\n        raise EditNotUnique(", 1)
+                .replace("    if n == 1:\n        after = before.replace(old, new, 1)",
+                         "    if n >= 1:\n        after = before.replace(old, new, 1)", 1),
+     "both layers removed on the substring path: an ambiguous substring is "
+     "replaced at its first occurrence rather than refused"),
+
+    ("edit-names-one-place", CAPS_PY,
+     _sub("        deltas = [f - w for f, w in zip(found, wrote)] or [0]",
+          "        deltas = [(found[0] - wrote[0]) if found and wrote else 0]", 1),
+     "one indentation delta for the whole block again: a loosely matched block "
+     "comes back flattened, and the edit reports success over a syntax error"),
+
+    ("edit-names-one-place", CAPS_PY,
+     _sub('    if not str(args.get("old") or ""):\n'
+          '        # An edit with nothing to match is a whole-file write wearing the level\n'
+          '        # of a surgical one, and it is the obvious way around this rule.\n'
+          '        return "L5"',
+          '    if False:\n        return "L5"', 1),
+     "an edit with an empty `old` levels like a surgical change, so a "
+     "whole-file replacement can be proposed as one and skip the escalation"),
+
+    ("edit-names-one-place", INTENT_PY,
+     _sub('KNOWN = ("shell.run", "fs.read", "fs.write", "fs.edit")',
+          'KNOWN = ("shell.run", "fs.read", "fs.write")', 1),
+     "fs.edit is registered, implemented, verified and unreachable: the "
+     "proposer cannot name it, so nothing can ever ask for one"),
+
+    ("edit-names-one-place", CAPS_PY,
+     _sub('    claimed = (result or {}).get("sha256")\n    return {"verified": on_disk == claimed,',
+          '    claimed = (result or {}).get("sha256")\n    return {"verified": True,', 1),
+     "the edit verifier cannot return False, so it is the actor's own claim "
+     "wearing a second name"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

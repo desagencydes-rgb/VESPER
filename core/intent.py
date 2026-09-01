@@ -52,7 +52,15 @@ The only capabilities that exist are:
               For reading a file's contents.
 
   fs.write    args: {"path": "<path>", "content": "<full new contents>"}
-              For creating or replacing a file. Give the WHOLE content.
+              For CREATING a file. Give the WHOLE content.
+              To change part of a file that already exists, prefer fs.edit.
+
+  fs.edit     args: {"path": "<path>", "old": "<exact text to replace>",
+                     "new": "<what to put there>"}
+              For changing part of a file that already exists. `old` must
+              appear EXACTLY ONCE in the file -- include enough surrounding
+              lines to make it unique. Copy `old` from what you have read;
+              do not retype it from memory.
 
 Rules:
 - If unsure, return {"action": "none"}. A wrong action costs more than a
@@ -68,7 +76,7 @@ Rules:
 # rather than passed on: `CapabilityRegistry.get` would raise `UnknownCapability`
 # anyway, but a proposal that cannot possibly be executed should not reach the
 # authorization path and appear in its records as a refusal.
-KNOWN = ("shell.run", "fs.read", "fs.write")
+KNOWN = ("shell.run", "fs.read", "fs.write", "fs.edit")
 
 
 @dataclass(slots=True)

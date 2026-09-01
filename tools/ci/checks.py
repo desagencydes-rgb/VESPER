@@ -12371,8 +12371,187 @@ def check_shell_runs_contained() -> Result:
     return r
 
 
+def check_edit_names_one_place() -> Result:
+    """A surgical edit changes one place or nothing, and never reindents.
+
+    WHY A SURGICAL EDIT AT ALL. `fs.write` replaces a whole file, so the only
+    way to change one line was to reproduce every other line correctly from
+    memory -- and the failure mode of that is silent: a file that comes back
+    subtly shorter, verified against the hash of what the model INTENDED to
+    write, which matches perfectly.
+
+    IT ALSO PAYS FOR ITSELF ON THE LADDER. `fs.write` escalates to L4 when it
+    would replace a file the turn cannot show it has read. An edit cannot be
+    authored without knowing the content, because `old` has to match what is on
+    disk -- so producing one IS the evidence, and `fs.edit` does not carry the
+    escalation. The safe thing is the cheap thing rather than the thing you
+    have to remember.
+
+    THE LADDER WIDENS HOW A MATCH IS FOUND, NEVER HOW MANY IT MAY HIT. Aider's
+    `search_and_replace` has its uniqueness check commented out and calls
+    `str.replace`, which replaces EVERY occurrence -- reasonable for an
+    interactive tool with a git undo one keystroke away, and not for an
+    assistant acting unattended at three in the morning.
+    """
+    r = Result("edit-names-one-place")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf
+    try:
+        from core import capabilities as caps
+        from core.capabilities import EditNotUnique, StaleWrite
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"core.capabilities does not import: {exc!r}")
+        return r
+
+    if "fs.edit" not in caps.build_registry().ids():
+        r.err("fs.edit is not registered, so nothing can propose it")
+        return r
+    from core.intent import KNOWN
+    if "fs.edit" not in KNOWN:
+        r.err("the proposer cannot name fs.edit, so it is registered and "
+              "unreachable -- built, gated, and connected to nothing")
+
+    with _tf.TemporaryDirectory() as td:
+        f = Path(td) / "code.py"
+
+        # 1. ONE MATCH CHANGES ONE PLACE.
+        f.write_text("def a():\n    return 1\n\ndef b():\n    return 2\n",
+                     encoding="utf-8")
+        out = caps.fs_edit({"path": str(f), "old": "    return 1",
+                            "new": "    return 42"})
+        body = f.read_text(encoding="utf-8")
+        if "return 42" not in body or "return 2" not in body:
+            r.err("a unique edit did not apply, or removed something else")
+        if out.get("replacements") != 1:
+            r.err(f"the edit reports {out.get('replacements')} replacements")
+
+        # 2. TWO MATCHES IS A REFUSAL, AND THE FILE IS UNTOUCHED. The whole
+        #    argument for unique-match-or-fail is here.
+        f.write_text("def a():\n    return 1\n\ndef b():\n    return 1\n",
+                     encoding="utf-8")
+        keep = f.read_text(encoding="utf-8")
+        try:
+            caps.fs_edit({"path": str(f), "old": "    return 1",
+                          "new": "    return 9"})
+            r.err("an edit whose text occurs twice was applied. Widening a "
+                  "match to more than one place is the one thing the ladder "
+                  "must never do.")
+        except EditNotUnique:
+            pass
+        if f.read_text(encoding="utf-8") != keep:
+            r.err("the file changed despite the ambiguity refusal")
+
+        # 3. ZERO MATCHES IS A REFUSAL TOO. Falling back to appending, or to
+        #    writing the whole file, is how a failed edit becomes a silent
+        #    rewrite.
+        try:
+            caps.fs_edit({"path": str(f), "old": "text that is not there",
+                          "new": "x"})
+            r.err("an edit whose text is absent was applied anyway")
+        except EditNotUnique:
+            pass
+        if f.read_text(encoding="utf-8") != keep:
+            r.err("the file changed despite the not-found refusal")
+
+        # 4. THE LADDER MATCHES PAST INDENTATION -- AND PUTS IT BACK. Matching
+        #    "ignoring indentation" and then writing the replacement flush left
+        #    silently breaks Python, and did on this function's first run:
+        #    `        return 1` came back as `return 1` and the enclosing
+        #    function lost its body.
+        f.write_text("def a():\n        return 1\n", encoding="utf-8")
+        got = caps.fs_edit({"path": str(f), "old": "return 1",
+                            "new": "return 2"})
+        if got.get("matched_by") == "exact":
+            r.err("the strictness ladder is not being used: a match that needed "
+                  "indentation ignored reported an exact hit")
+        if f.read_text(encoding="utf-8") != "def a():\n        return 2\n":
+            r.err(f"a loose match reindented the file: "
+                  f"{f.read_text(encoding='utf-8')!r}. The rung that widened "
+                  "the match owes the file the indentation it matched past.")
+
+        # 4b. AND IT PRESERVES STRUCTURE, NOT JUST THE FIRST LINE'S INDENT.
+        #     One delta taken from the first line flattens everything under it:
+        #     a block matched loosely came back with `return 2` at the same
+        #     indentation as its own `def`, which is a syntax error the edit
+        #     reported as a success. Asserted by parsing the result, because
+        #     "the bytes look right" is how the first version passed.
+        f.write_text("class C:\n    def a(self):\n            return 1\n",
+                     encoding="utf-8")
+        caps.fs_edit({"path": str(f), "old": "def a(self):\nreturn 1",
+                      "new": "def a(self):\nreturn 2"})
+        got = f.read_text(encoding="utf-8")
+        if got != "class C:\n    def a(self):\n            return 2\n":
+            r.err(f"a loose multi-line match flattened the block: {got!r}. Each "
+                  "line owes the file the indentation it matched past, and one "
+                  "delta for the whole block is not that.")
+        try:
+            import ast as _ast
+            _ast.parse(got)
+        except SyntaxError as exc:
+            r.err(f"the edited file no longer parses: {exc}. An edit that "
+                  "reports success and leaves a syntax error is the failure "
+                  "mode a surgical edit exists to prevent.")
+
+        # 4c. THE LINE LADDER IS REACHABLE AT ALL. The exact-substring rung
+        #     runs first and answers most cases, so a ladder nobody reaches is
+        #     dead code wearing a comment -- which is the class CI-094 gates.
+        f.write_text("a = 1   \n", encoding="utf-8")
+        sub = caps.fs_edit({"path": str(f), "old": "a = 1", "new": "a = 9"})
+        if sub.get("matched_by") != "exact substring":
+            r.err(f"an exact substring matched by {sub.get('matched_by')!r}: the "
+                  "most precise rung is not being tried first")
+
+        # 5. AN EDIT WITH NOTHING TO MATCH IS A WHOLE-FILE WRITE WEARING A
+        #    SURGICAL LEVEL, which is the obvious way around all of the above.
+        if caps.fs_edit_level({"path": str(f), "old": "", "new": "x"}) != "L5":
+            r.err("an edit with an empty `old` does not level L5, so a "
+                  "whole-file replacement can be proposed as a surgical edit")
+
+        # 6. AND THE EDIT DOES NOT INHERIT THE BLIND-OVERWRITE ESCALATION,
+        #    because `old` is the evidence that escalation was asking for.
+        doc = Path(td) / "doc.txt"
+        doc.write_text("hello\n", encoding="utf-8")
+        w = caps.fs_write_level({"path": str(doc)})
+        e = caps.fs_edit_level({"path": str(doc), "old": "hello", "new": "hi"})
+        if w != "L4":
+            r.err(f"a blind whole-file overwrite levels {w}, not L4 -- the "
+                  "comparison this assertion rests on has moved")
+        if e != "L3":
+            r.err(f"a surgical edit of the same file levels {e}, not L3. If an "
+                  "edit costs the same as a blind overwrite there is no reason "
+                  "to prefer it, and the safe thing stops being the easy thing.")
+
+        # 7. A STALE FILE IS STILL REFUSED, on the same grounds as fs.write.
+        doc.write_text("changed since\n", encoding="utf-8")
+        try:
+            caps.fs_edit({"path": str(doc), "old": "changed", "new": "x",
+                          "expect_sha256": "0" * 64})
+            r.err("an edit carrying a hash that does not match the disk was "
+                  "applied")
+        except StaleWrite:
+            pass
+
+        # 8. THE VERIFIER READS THE WORLD BACK AND CAN RETURN FALSE.
+        res = caps.fs_edit({"path": str(doc), "old": "changed", "new": "ok"})
+        if not caps.verify_fs_edit(res).get("verified"):
+            r.err("a successful edit did not verify")
+        if caps.verify_fs_edit({**res, "sha256": "0" * 64}).get("verified"):
+            r.err("the edit verifier returns True for a hash that cannot match "
+                  "what is on disk, so it is the actor's claim wearing a "
+                  "second name")
+
+    r.note("a unique edit applies; two matches and zero matches are both "
+           "refusals with the file untouched; the ladder matches past "
+           "indentation and restores it; an empty `old` is L5; an edit is L3 "
+           "where a blind overwrite of the same file is L4; a stale hash is "
+           "refused; and the verifier can return False")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "edit-names-one-place": check_edit_names_one_place,
     "shell-runs-contained": check_shell_runs_contained,
     "loop-observes-and-is-bounded": check_loop_observes_and_is_bounded,
     "write-never-destroys-what-was-not-read": check_write_never_destroys_what_was_not_read,

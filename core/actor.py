@@ -42,7 +42,8 @@ from typing import Any
 
 from core.authorize import Grant, PolicyDecisionPoint
 from core.capabilities import (INDEPENDENT_VERIFIERS, bind_all,
-                               build_registry, observe)
+                               build_registry, observation_trust,
+                               observe)
 from core.executor import Executor
 from core.intent import IntentProposer
 from core.taint import EXTERNAL, ContextCeiling, Tainted
@@ -306,7 +307,8 @@ class Actor:
         # capped at L1 and anything above it becomes a question. This is the
         # loop's cost and it is the loop's whole safety argument: the step that
         # could be steered by what was just read is the step that has to ask.
-        base += [Tainted(o, EXTERNAL, origin=f"observation:{o.get('capability')}")
+        base += [Tainted(o, observation_trust(str(o.get("capability") or "")),
+                         origin=f"observation:{o.get('capability')}")
                  for o in (observations or []) if isinstance(o, dict)]
         return base
 

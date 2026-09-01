@@ -47,6 +47,7 @@ import tempfile
 from typing import Any
 
 from core.capability import CapabilityRegistry, LevelRule
+from core.taint import EXTERNAL
 
 # THE ROOT THE LEVEL RULES ARE TALKING ABOUT, stated rather than inherited.
 # `fs_write_level("workspace/x")` returns L2 and `("contracts/policy/y")`
@@ -468,6 +469,198 @@ def verify_fs_write(result: dict) -> dict:
                    "what is on disk is not what the write says it wrote"}
 
 
+# ---------------------------------------------------------------- fs.edit
+
+
+class EditNotUnique(Exception):
+    """The text to replace matched zero times, or more than once."""
+
+
+# How a match is looked for, in decreasing strictness. Taken from Codex's
+# `seek_sequence`, which tries exact, then ignoring trailing whitespace, then
+# ignoring both ends -- because a model reproducing a block of code reliably
+# gets the content right and the indentation wrong.
+#
+# THE LADDER WIDENS HOW A MATCH IS FOUND AND NEVER HOW MANY IT MAY HIT. Aider's
+# `search_and_replace` has its uniqueness check commented out and calls
+# `str.replace`, which replaces EVERY occurrence. For an interactive tool with
+# a git undo one keystroke away that is a reasonable trade; for an assistant
+# acting unattended at three in the morning it is not. Each rung here still
+# demands exactly one match and refuses otherwise.
+EDIT_STRATEGIES = (
+    ("exact", lambda ln: ln),
+    ("ignoring trailing whitespace", lambda ln: ln.rstrip()),
+    ("ignoring indentation", lambda ln: ln.strip()),
+)
+
+
+def _indent_of(line: str) -> int:
+    return len(line) - len(line.lstrip(" \t"))
+
+
+def _shift(line: str, delta: int) -> str:
+    """Move one line by `delta` columns, never past its own indentation."""
+    if not line.strip():
+        return line
+    if delta > 0:
+        return " " * delta + line
+    return line[min(-delta, _indent_of(line)):]
+
+
+def fs_edit_level(args: dict) -> str:
+    """An edit levels like a write, MINUS the blind-overwrite escalation.
+
+    `fs.write` escalates to L4 when it would replace a file the turn cannot
+    show it has read. An edit cannot be authored without knowing the content:
+    `old` has to match what is on disk, so producing one is itself the evidence
+    that `expect_sha256` exists to demand. That is the whole reason to have a
+    surgical edit rather than a whole-file replacement -- it makes the safe
+    thing the easy thing, instead of the thing you have to remember.
+
+    Everything else about a write still applies: credentials and governed trees
+    are L5 whether the change is surgical or not.
+    """
+    raw = _norm(args.get("path"))
+    if not raw:
+        return "L5"
+    if not str(args.get("old") or ""):
+        # An edit with nothing to match is a whole-file write wearing the level
+        # of a surgical one, and it is the obvious way around this rule.
+        return "L5"
+    target = resolve(raw)
+    if _escapes(raw, target):
+        return "L5"
+    p = str(target).lower()
+    if any(m in p for m in SECRET_MARKERS):
+        return "L5"
+    if any(f"/{g}" in p for g in GOVERNED_PREFIXES):
+        return "L5"
+    if _under(target, WORKSPACE):
+        return "L2"
+    return "L3"
+
+
+def _locate(text: str, old: str) -> tuple:
+    """(start, end, how) for the ONE place `old` occurs, or raise."""
+    for how, norm in EDIT_STRATEGIES:
+        hay = [norm(ln) for ln in text.splitlines()]
+        needle = [norm(ln) for ln in old.splitlines()]
+        if not needle:
+            raise EditNotUnique("there is no text to replace")
+        if len(needle) > len(hay):
+            continue
+        hits = [i for i in range(len(hay) - len(needle) + 1)
+                if hay[i:i + len(needle)] == needle]
+        if len(hits) == 1:
+            return hits[0], hits[0] + len(needle), how
+        if len(hits) > 1:
+            # AMBIGUOUS IS REFUSED HERE RATHER THAN LOOSENED FURTHER. A later,
+            # more forgiving rung can only ever match more places, so carrying
+            # on would trade a refusal for a guess.
+            raise EditNotUnique(
+                f"the text to replace occurs {len(hits)} times ({how}). An edit "
+                "must name one place; give more surrounding lines.")
+    raise EditNotUnique(
+        "the text to replace was not found, even ignoring indentation. The file "
+        "is not what the edit was written against.")
+
+
+def fs_edit(args: dict) -> dict:
+    """Replace one known block with another, or change nothing at all."""
+    path = resolve(args.get("path"))
+    old = str(args.get("old") or "")
+    new = str(args.get("new") or "")
+    if not path.exists():
+        raise EditNotUnique(f"{path} does not exist; an edit is not a creation")
+
+    before = path.read_text(encoding="utf-8")
+    expect = str(args.get("expect_sha256") or "").strip().lower()
+    if expect:
+        on_disk = hashlib.sha256(path.read_bytes()).hexdigest()
+        if on_disk != expect:
+            raise StaleWrite(
+                f"{path} has changed since it was read: expected {expect[:12]}..., "
+                f"found {on_disk[:12]}...")
+
+    # THE MOST PRECISE MATCH FIRST: an exact substring that occurs exactly
+    # once. The line-based ladder below is Codex's, and it is right for
+    # replacing blocks, but it cannot express "change this word on this line"
+    # -- and refusing that would push the proposer back to `fs.write`, which is
+    # the whole-file replacement this capability exists to avoid.
+    n = before.count(old) if old else 0
+    if n > 1:
+        raise EditNotUnique(
+            f"the text to replace occurs {n} times exactly. An edit must name "
+            "one place; give more surrounding lines.")
+    if n == 1:
+        after = before.replace(old, new, 1)
+        path.write_text(after, encoding="utf-8")
+        return {"path": str(path), "matched_by": "exact substring",
+                "replacements": 1,
+                "sha256": hashlib.sha256(after.encode("utf-8")).hexdigest(),
+                "previous": before}
+
+    lines = before.splitlines(keepends=True)
+    start, end, how = _locate(before, old)
+
+    # A LOOSE MATCH MUST NOT REINDENT THE FILE. Matching "ignoring indentation"
+    # and then writing the replacement flush left is how a surgical edit
+    # silently breaks Python -- measured on the first run of this function,
+    # where `        return 1` came back as `return 1` and the enclosing
+    # function lost its body. The rung that widened the match owes the file the
+    # indentation it matched past, so the delta between what was found and what
+    # the caller wrote is applied to every line of the replacement.
+    body = new
+    if how != "exact":
+        # PER LINE, NOT ONE DELTA FOR THE BLOCK. A single delta taken from the
+        # first line flattens everything under it: matching
+        #     def a(self):
+        #         return 1
+        # against a block the caller wrote flush left put `return 2` at the
+        # same indentation as its own `def`, which is a syntax error the edit
+        # reports as a success. Each line of the replacement takes the delta
+        # between the file line it matched and the line the caller wrote at the
+        # same position, so the structure the file already had is preserved.
+        found = [_indent_of(ln) for ln in lines[start:end]]
+        wrote = [_indent_of(ln) for ln in old.splitlines()]
+        deltas = [f - w for f, w in zip(found, wrote)] or [0]
+        out = []
+        for i, ln in enumerate(new.splitlines()):
+            out.append(_shift(ln, deltas[i] if i < len(deltas) else deltas[-1]))
+        body = "\n".join(out)
+
+    after = "".join(lines[:start]) + body + ("" if body.endswith("\n") else "\n") \
+        + "".join(lines[end:])
+    path.write_text(after, encoding="utf-8")
+    return {"path": str(path),
+            "matched_by": how,
+            "replacements": 1,
+            "sha256": hashlib.sha256(after.encode("utf-8")).hexdigest(),
+            "previous": before}
+
+
+def fs_edit_compensator(args: dict, result: Any) -> dict:
+    path = resolve(args.get("path"))
+    prev = (result or {}).get("previous")
+    if prev is None:
+        return {"restored": "nothing_to_restore"}
+    path.write_text(prev, encoding="utf-8")
+    return {"restored": "previous_contents"}
+
+
+def verify_fs_edit(result: dict) -> dict:
+    """READ THE WORLD BACK, and check the hash of what is there now."""
+    path = pathlib.Path(str((result or {}).get("path") or ""))
+    if not path.exists():
+        return {"verified": False, "why": "the edited file is not there"}
+    on_disk = hashlib.sha256(path.read_bytes()).hexdigest()
+    claimed = (result or {}).get("sha256")
+    return {"verified": on_disk == claimed,
+            "on_disk_sha256": on_disk, "claimed_sha256": claimed,
+            "why": "" if on_disk == claimed else
+                   "what is on disk is not what the edit says it wrote"}
+
+
 # ------------------------------------------------------------- observation
 
 # How much of what an action produced may cross back into the proposer's
@@ -475,6 +668,36 @@ def verify_fs_write(result: dict) -> dict:
 # and a single enormous line must not defeat a line count.
 OBS_MAX_LINES = 40
 OBS_MAX_LINE_CHARS = 200
+
+
+# THE TRUST CLASS OF WHAT AN ACTION SAW, per capability. INV-ACT-3 names its
+# members exactly -- "screen content, OCR output, UI element labels and command
+# output" -- and command output is the one that appears here, so `shell.run`
+# is `retrieved_external` and capped at L1. A local file is not on that list
+# and `retrieved_local` is the class the corpus provides for it, so reading a
+# file caps the rest of the turn at L3 rather than L1.
+#
+# THAT DISTINCTION IS WHAT MAKES THE LOOP USABLE, and it is a real loosening,
+# so it is written where it can be argued with. Treating every observation as
+# external would mean that having looked at a file, VESPER must ask before
+# editing it -- which is most of the work it exists to do. Treating command
+# output as local would contradict an invariant by name.
+#
+# `fs.write`'s observation is a receipt: a path, a hash and whether something
+# was replaced. It carries no content VESPER did not itself author, so it is
+# `verified_local`. An unknown capability gets the strictest class there is,
+# because a default that fails open is how the next capability becomes a hole.
+OBSERVATION_TRUST = {
+    "shell.run": EXTERNAL,
+    "fs.read": "retrieved_local",
+    "fs.edit": "retrieved_local",
+    "fs.write": "verified_local",
+}
+OBSERVATION_TRUST_DEFAULT = EXTERNAL
+
+
+def observation_trust(capability_id: str) -> str:
+    return OBSERVATION_TRUST.get(capability_id, OBSERVATION_TRUST_DEFAULT)
 
 
 def observe(capability_id: str, args: dict, result: dict) -> dict:
@@ -517,6 +740,12 @@ def observe(capability_id: str, args: dict, result: dict) -> dict:
                 "sha256": result.get("sha256"),
                 "truncated": bool(result.get("truncated")),
                 "lines": lines(result.get("text"))}
+    if capability_id == "fs.edit":
+        return {"capability": capability_id,
+                "path": str(result.get("path") or args.get("path") or ""),
+                "matched_by": result.get("matched_by"),
+                "replacements": result.get("replacements"),
+                "sha256": result.get("sha256")}
     if capability_id == "fs.write":
         return {"capability": capability_id,
                 "path": str(result.get("path") or args.get("path") or ""),
@@ -555,6 +784,16 @@ def build_registry() -> CapabilityRegistry:
         LevelRule("governed", "L5", {"path": "contracts/policy/cost_policy.toml"}),
         LevelRule("ordinary", "L3", {"path": "documents/note.txt"}),
     ], reversibility="compensatable")
+
+    reg.register("fs.edit", fs_edit_level, [
+        LevelRule("workspace", "L2",
+                  {"path": "workspace/note.txt", "old": "a", "new": "b"}),
+        LevelRule("governed", "L5",
+                  {"path": "contracts/policy/cost_policy.toml",
+                   "old": "a", "new": "b"}),
+        LevelRule("ordinary", "L3",
+                  {"path": "documents/note.txt", "old": "a", "new": "b"}),
+    ], reversibility="compensatable")
     return reg
 
 
@@ -563,6 +802,7 @@ def bind_all(executor) -> None:
     executor.bind("shell.run", shell_run)
     executor.bind("fs.read", fs_read)
     executor.bind("fs.write", fs_write, compensator=fs_write_compensator)
+    executor.bind("fs.edit", fs_edit, compensator=fs_edit_compensator)
 
 
 # The capabilities whose results are checked by reading the world back, and the
@@ -571,4 +811,5 @@ def bind_all(executor) -> None:
 # observable, and that is recorded rather than papered over.
 INDEPENDENT_VERIFIERS = {
     "fs.write": verify_fs_write,
+    "fs.edit": verify_fs_edit,
 }
