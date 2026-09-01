@@ -63,6 +63,71 @@ class SupplyRefused(Exception):
     """A row could not be registered. Fail-closed; never partially trusted."""
 
 
+# The keychain service every VESPER credential is filed under. One service,
+# one account per variable name, so `security` can find a value without being
+# told anything the file does not already say.
+KEYCHAIN_SERVICE = "ai.vesper.credentials"
+
+# A keychain read that has not returned in this long is treated as absent. The
+# only realistic cause is an access prompt, and a prompt is a hang: this runs
+# unattended at three in the morning, and a runtime blocked on a dialog nobody
+# is there to answer is worse than one that falls back to the file it already
+# reads.
+_KEYCHAIN_TIMEOUT_S = 3.0
+
+
+def keychain_secret(name: str, *, service: str | None = None) -> str:
+    """One credential out of the login keychain, or "" if it is not there.
+
+    NEVER RAISES AND NEVER LOGS. A missing item, a locked keychain, a machine
+    without `security` and a denied prompt all mean the same thing to the
+    caller -- no value here, try the file -- and distinguishing them in a log
+    line is how the name of a credential ends up in a transcript.
+    """
+    if not name:
+        return ""
+    # RESOLVED AT CALL TIME, NOT BOUND AS A DEFAULT. `service: str =
+    # KEYCHAIN_SERVICE` evaluates the constant once, when the function is
+    # defined, so the service can never afterwards be varied -- not by a test,
+    # and not by anything that wanted a second store. It looks identical and it
+    # silently ignores the module constant it appears to read.
+    service = service or KEYCHAIN_SERVICE
+    try:
+        out = subprocess.run(
+            ["/usr/bin/security", "find-generic-password",
+             "-a", name, "-s", service, "-w"],
+            capture_output=True, text=True, check=False,
+            timeout=_KEYCHAIN_TIMEOUT_S)
+    except Exception:                                # noqa: BLE001
+        return ""
+    if out.returncode != 0:
+        return ""
+    return (out.stdout or "").strip()
+
+
+def keychain_names(*, service: str | None = None) -> list:
+    """Which variable names have a keychain entry. Names only, never values."""
+    service = service or KEYCHAIN_SERVICE
+    try:
+        out = subprocess.run(
+            ["/usr/bin/security", "dump-keychain"],
+            capture_output=True, text=True, check=False,
+            timeout=_KEYCHAIN_TIMEOUT_S * 3)
+    except Exception:                                # noqa: BLE001
+        return []
+    names, svc_seen = [], False
+    for line in (out.stdout or "").splitlines():
+        line = line.strip()
+        if f'"{service}"' in line and '"svce"' in line:
+            svc_seen = True
+        elif svc_seen and '"acct"' in line:
+            got = line.rsplit('="', 1)
+            if len(got) == 2:
+                names.append(got[1].rstrip('"'))
+            svc_seen = False
+    return sorted(set(names))
+
+
 def read_secrets(path: Path | None = None) -> dict:
     """Read the owner's credential file. Values are returned, never logged.
 
@@ -89,6 +154,22 @@ def read_secrets(path: Path | None = None) -> dict:
         if v.startswith("$"):
             v = out.get(v.lstrip("$"), "")
         out[m.group(1)] = v
+
+    # THE KEYCHAIN OVERLAYS THE FILE, and that direction is the migration path.
+    # A credential moved into the keychain wins even if a stale copy is still
+    # in `secrets.env`, so migrating one is a single step rather than an
+    # edit-both-and-hope. The file remains the fallback, because a keychain
+    # that cannot be read must not take VESPER's models away from it -- this
+    # runs unattended, and no credential at all is a worse failure here than a
+    # credential in a mode-0600 file.
+    #
+    # Only names the file already knows are looked up. Enumerating the keychain
+    # to discover credentials would make this function's behaviour depend on
+    # what else the owner keeps in it.
+    for name in list(out):
+        got = keychain_secret(name)
+        if got:
+            out[name] = got
     return out
 
 

@@ -3947,5 +3947,47 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# Credentials out of the plaintext file. The one exact match between this
+# system and OpenClaw's documented compromise.
+# --------------------------------------------------------------------------
+SUPPLY_PY2 = "routing/supply.py"
+
+CASES += [
+    ("credentials-can-leave-the-plaintext-file", SUPPLY_PY2,
+     _sub("    for name in list(out):\n"
+          "        got = keychain_secret(name)\n"
+          "        if got:\n"
+          "            out[name] = got\n", "", 1),
+     "the keychain is never consulted, so a migrated credential is ignored and "
+     "the plaintext file remains the only source"),
+
+    ("credentials-can-leave-the-plaintext-file", SUPPLY_PY2,
+     _sub("        got = keychain_secret(name)\n        if got:\n            out[name] = got",
+          "        got = keychain_secret(name)\n        if got and name not in out:\n            out[name] = got", 1),
+     "the file wins over the keychain, so migrating a credential means deleting "
+     "it from the file in the same breath -- which is how one gets left behind"),
+
+    ("credentials-can-leave-the-plaintext-file", SUPPLY_PY2,
+     _sub('def keychain_secret(name: str, *, service: str | None = None) -> str:',
+          'def keychain_secret(name: str, *, service: str = KEYCHAIN_SERVICE) -> str:', 1),
+     "the service is bound as a default argument again: it looks identical, "
+     "silently ignores the module constant it appears to read, and can never "
+     "be varied by anything"),
+
+    ("credentials-can-leave-the-plaintext-file", SUPPLY_PY2,
+     _sub("    except Exception:                                # noqa: BLE001\n        return \"\"\n    if out.returncode != 0:\n        return \"\"",
+          "    except Exception:                                # noqa: BLE001\n        raise\n    if out.returncode != 0:\n        return \"\"", 1),
+     "a keychain that cannot be read raises instead of falling back: "
+     "unattended, that takes every model away from VESPER over an item that "
+     "was simply not there"),
+
+    ("credentials-can-leave-the-plaintext-file", SUPPLY_PY2,
+     _sub("_KEYCHAIN_TIMEOUT_S = 3.0", "_KEYCHAIN_TIMEOUT_S = 100000.0", 1),
+     "the timeout is removed in all but name, so an access prompt nobody is "
+     "awake to answer wedges the runtime instead of falling back"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

@@ -13014,8 +13014,186 @@ def check_autonomy_can_act_and_still_cannot_decide() -> Result:
     return r
 
 
+def check_credentials_can_leave_the_plaintext_file() -> Result:
+    """A credential in the Keychain is used, and the file remains the fallback.
+
+    THE DEFECT THIS ADDRESSES. `~/.config/vesper/secrets.env` is mode 0600 and
+    readable by anything running as the owner -- which is every process on this
+    machine, VESPER included, and anything that ever talks VESPER into reading
+    a file. It is the one exact match between this system and OpenClaw's
+    documented compromise.
+
+    THE OVERLAY DIRECTION IS THE MIGRATION PATH. The file is read first and the
+    keychain overlays it, so a credential moved into the keychain wins even
+    while a stale copy remains in the file. One step, rather than
+    edit-both-and-hope.
+
+    AND THE FALLBACK IS DELIBERATE RATHER THAN LAZY. A keychain that cannot be
+    read must not take VESPER's models away from it: this runs unattended, and
+    no credential at all is a worse failure here than a credential in a 0600
+    file. So a locked keychain, a denied prompt, a missing `security` and an
+    absent item all mean the same thing -- fall back -- and none of them
+    raises.
+
+    THIS CHECK NEVER TOUCHES THE OWNER'S CREDENTIALS. It writes one throwaway
+    item under its own service name and removes it, so a green run costs the
+    login keychain nothing.
+    """
+    r = Result("credentials-can-leave-the-plaintext-file")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import subprocess as _sp
+    import tempfile as _tf
+    try:
+        import routing.supply as sup
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"routing.supply does not import: {exc!r}")
+        return r
+
+    for fn in ("keychain_secret", "read_secrets"):
+        if not hasattr(sup, fn):
+            r.err(f"routing.supply has no {fn}")
+            return r
+
+    # 1. THE SERVICE IS RESOLVED AT CALL TIME. `service: str = KEYCHAIN_SERVICE`
+    #    binds the constant when the function is DEFINED, so the module
+    #    constant it appears to read can never afterwards change anything. It
+    #    looks identical and is silently frozen.
+    import inspect as _inspect
+    sig = _inspect.signature(sup.keychain_secret)
+    if sig.parameters["service"].default not in (None, _inspect.Parameter.empty):
+        r.err("keychain_secret binds the service as a default argument, so the "
+              "module constant is frozen at definition time and nothing can "
+              "vary it -- not a second store, and not this check")
+
+    # 2. NON-EXISTENT AND MALFORMED LOOKUPS ARE QUIET AND EMPTY, never raising.
+    for probe in ("", "NO_SUCH_VESPER_VARIABLE_XYZ"):
+        try:
+            if sup.keychain_secret(probe, service="ai.vesper.absent.service"):
+                r.err(f"a lookup of {probe!r} returned a value")
+        except Exception as exc:                    # noqa: BLE001
+            r.err(f"a missing credential raised {exc!r} rather than returning "
+                  "empty. Unattended, a raise here takes the runtime's models "
+                  "away over an item that was simply not there.")
+
+    # 2b. THE TIMEOUT IS A REAL BOUND, AND EXCEEDING IT FALLS BACK RATHER THAN
+    #     RAISING. The only realistic cause of a slow keychain read is an
+    #     access prompt, and a prompt is a hang: this runs unattended, and a
+    #     runtime blocked on a dialog nobody is awake to answer is worse than
+    #     one that reads the file it already reads. Both halves are asserted,
+    #     because a generous timeout is a timeout in name only and the
+    #     fall-back branch is unreachable without forcing one.
+    bound = getattr(sup, "_KEYCHAIN_TIMEOUT_S", None)
+    if not isinstance(bound, (int, float)) or not 0 < float(bound) <= 10:
+        r.err(f"the keychain read timeout is {bound!r}. Past a few seconds it "
+              "is not a bound, it is a hang with a number attached.")
+    if Path("/usr/bin/security").exists():
+        keep = sup._KEYCHAIN_TIMEOUT_S
+        sup._KEYCHAIN_TIMEOUT_S = 0.000001
+        try:
+            got = sup.keychain_secret("ANY_NAME", service="ai.vesper.timeout.probe")
+            if got:
+                r.err("a timed-out keychain read returned a value")
+        except Exception as exc:                    # noqa: BLE001
+            r.err(f"a keychain read that ran out of time raised {exc!r} instead "
+                  "of falling back. Unattended, that takes every model away "
+                  "from VESPER because a dialog was on screen.")
+        finally:
+            sup._KEYCHAIN_TIMEOUT_S = keep
+
+    if not Path("/usr/bin/security").exists():
+        r.note("no /usr/bin/security on this machine: the fallback is all "
+               "there is, and read_secrets still answers from the file")
+        return r
+
+    service = "ai.vesper.citest.credentials"
+    account = "VESPER_CI_PROBE_KEY"
+    secret = "sk-ci-probe-do-not-use-0987654321"
+    added = False
+    try:
+        add = _sp.run(["/usr/bin/security", "add-generic-password",
+                       "-a", account, "-s", service, "-w", secret, "-U"],
+                      capture_output=True, text=True, check=False, timeout=15)
+        if add.returncode != 0:
+            r.note("could not write a throwaway keychain item on this machine; "
+                   "the overlay was not exercised")
+            return r
+        added = True
+
+        # 3. IT COMES BACK, and it comes back as the same bytes.
+        if sup.keychain_secret(account, service=service) != secret:
+            r.err("a credential written to the keychain did not read back")
+
+        # 4. THE OVERLAY BEATS THE FILE. This is the whole property: a variable
+        #    present in both places is served from the keychain.
+        with _tf.TemporaryDirectory() as td:
+            f = Path(td) / "secrets.env"
+            f.write_text(f"export {account}=from-the-plaintext-file\n"
+                         "export FILE_ONLY_VAR=still-here\n", encoding="utf-8")
+            real = sup.KEYCHAIN_SERVICE
+            sup.KEYCHAIN_SERVICE = service
+            try:
+                got = sup.read_secrets(f)
+            finally:
+                sup.KEYCHAIN_SERVICE = real
+            if got.get(account) != secret:
+                r.err("the plaintext file won over the keychain, so migrating a "
+                      "credential requires deleting it from the file in the "
+                      "same breath -- which is how one gets left behind")
+            if got.get("FILE_ONLY_VAR") != "still-here":
+                r.err("a credential that exists only in the file was lost. The "
+                      "keychain overlays the file; it does not replace it.")
+
+        # 5. AND A KEYCHAIN THAT ANSWERS NOTHING STILL LEAVES A WORKING SYSTEM.
+        with _tf.TemporaryDirectory() as td:
+            f = Path(td) / "secrets.env"
+            f.write_text("export ONLY_IN_FILE=abc123\n", encoding="utf-8")
+            real = sup.KEYCHAIN_SERVICE
+            sup.KEYCHAIN_SERVICE = "ai.vesper.definitely.absent"
+            try:
+                got = sup.read_secrets(f)
+            finally:
+                sup.KEYCHAIN_SERVICE = real
+            if got.get("ONLY_IN_FILE") != "abc123":
+                r.err("with no keychain entries at all, the file stopped "
+                      "answering. Unattended, that is VESPER with no models.")
+    finally:
+        if added:
+            _sp.run(["/usr/bin/security", "delete-generic-password",
+                     "-a", account, "-s", service],
+                    capture_output=True, text=True, check=False, timeout=15)
+            if sup.keychain_secret(account, service=service):
+                r.err("the check's own throwaway keychain item was not removed")
+
+    # 6. THE MIGRATION TOOL EXISTS AND DOES NOT PRINT VALUES. Its whole reason
+    #    to exist is being safe to run in a terminal that scrolls somewhere.
+    tool = REPO / "tools" / "ops" / "vesper_keychain.py"
+    if not tool.is_file():
+        r.err("there is no migration tool, so the keychain path exists and "
+              "nothing can move a credential into it")
+    else:
+        body = tool.read_text(encoding="utf-8")
+        if "print(f\"  {name:34} would add {len(value)} characters\")" not in body \
+                and "len(value)" not in body:
+            r.err("the migration tool does not report lengths, so it is either "
+                  "silent about what it did or printing values")
+        for leak in ("print(value", "print(v)", "print(secret"):
+            if leak in body:
+                r.err(f"the migration tool contains {leak!r} -- a credential on "
+                      "stdout is a credential in every transcript that output "
+                      "reaches")
+
+    r.note("the keychain service is resolved at call time; a missing or "
+           "malformed lookup is empty rather than raising; a stored credential "
+           "reads back and overlays the same name in the file; a file-only "
+           "credential survives; an absent keychain leaves the file answering; "
+           "and the throwaway item was removed")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "credentials-can-leave-the-plaintext-file": check_credentials_can_leave_the_plaintext_file,
     "autonomy-can-act-and-still-cannot-decide": check_autonomy_can_act_and_still_cannot_decide,
     "prohibited-tier-no-grant-opens": check_prohibited_tier_no_grant_opens,
     "every-change-is-undoable": check_every_change_is_undoable,
