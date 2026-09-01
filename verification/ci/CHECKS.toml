@@ -2303,11 +2303,6 @@ deploy, never single-node design -- placement has nothing to choose between
 until a second node is enrolled, and `core/enrollment.py` above is the gate in
 front of it."""
 
-"core/floor.py" = """OWED. Holding the floor while work is in flight (SR-041).
-`core/intake.py` has its own unrelated `floor_for`, which is a confusion worth
-noting: 187 production mentions of the word "floor" and not one import of this
-module. Recorded 2026-09-01."""
-
 "core/baseline.py" = """OWED. The record of what VESPER answered, which CI-073
 calls "written before memory exists" -- and memory now exists. Recorded
 2026-09-01."""

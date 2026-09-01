@@ -14523,8 +14523,152 @@ def check_the_boundary_is_asked_before_the_write() -> Result:
     return r
 
 
+def check_the_floor_is_held_and_offered_to() -> Result:
+    """Four mid-hold outcomes that differ in behaviour, not in name.
+
+    THE THING THAT WAS MISSING BETWEEN TWO THINGS THAT EXISTED.
+    `core/chooser.py` announces when a choice passes 600 ms; `core/barge_in.py`
+    classifies what the owner says during such a hold, has 242 phrases and a
+    gate, and was called by NOTHING. Neither is useful alone: an announcement
+    with no way to respond to it is a status line, and a classifier nothing
+    feeds is a table. `core/floor.py` joins them and was itself reached by
+    nothing.
+
+    SWALLOW IS THE ONE MOST LIKELY TO BE IMPLEMENTED WRONGLY, because
+    answering is polite. "Take your time" met with "certainly, I'll continue"
+    is VESPER interrupting the owner's permission not to be interrupted.
+    Silence is the behaviour, not an omission.
+
+    QUEUE MUST ACTUALLY DELIVER. A queued utterance dropped when the work lands
+    is indistinguishable from one that was swallowed, and the owner learns that
+    speaking during a hold loses what they said.
+    """
+    r = Result("floor-held-and-offered-to")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf
+    try:
+        from core.bus import EventBus
+        from core.floor import FloorHolder, Held
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the floor modules do not import: {exc!r}")
+        return r
+
+    # 1. THE PUMP HOLDS IT, OFFERS TO IT, AND RELEASES IT.
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    for needle, why in (
+            ("FloorHolder(", "the runtime never builds a floor holder"),
+            ("floor.hold(", "nothing ever takes the floor, so no utterance is "
+                            "ever mid-hold and barge_in stays uncalled"),
+            ("floor.offer(", "the pump never offers an utterance to the floor"),
+            ("floor.release(", "the floor is never released, so a queued "
+                               "utterance is held forever and lost")):
+        if needle not in rt:
+            r.err(why)
+    # `holding` IS A PROPERTY. Calling it raises TypeError on the first spoken
+    # interruption -- a path no test exercised, because nothing called this.
+    # THE GUARD, NOT THE CALL, AND COUNTED RATHER THAN FOUND. `floor.offer(`
+    # survives being wrapped in `if False:`, so looking for the call name
+    # passes on a pump that can never reach it. And the guard appears TWICE --
+    # once to offer mid-hold, once to release at the end of the pass -- so a
+    # substring test still finds the other one after the first is disabled.
+    # Both are required: a pump that offers and never releases loses whatever
+    # it queued.
+    guards = rt.count("if floor is not None and floor.holding:")
+    if guards < 2:
+        r.err(f"{guards} of the two floor guards remain. The pump must both "
+              "OFFER an utterance while the floor is held and RELEASE the "
+              "floor at the end of the pass; losing either one leaves barge_in "
+              "uncalled or the queue undelivered.")
+
+    if "floor.holding()" in rt:
+        r.err("the runtime calls `floor.holding()`; it is a property, so this "
+              "raises TypeError the first time the owner speaks during a hold")
+
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("fl")
+        store = StoreSet(base / "s", node_id="fl")
+        bus = EventBus(clock, store, component="fl")
+        f = FloorHolder(bus=bus)
+
+        # 2. OUTSIDE A HOLD IT REFUSES rather than classifying. An ordinary
+        #    utterance routed into a table that only knows how to stop things
+        #    is how normal speech becomes a cancellation.
+        try:
+            f.offer("what is the time")
+            r.err("offer() classified an utterance while no floor was held, so "
+                  "ordinary speech is being routed through the barge-in table")
+        except Held:
+            pass
+
+        if f.holding:
+            r.err("the floor reports itself held before anything took it")
+        f.hold("answering")
+        if not f.holding:
+            r.err("hold() did not take the floor")
+
+        # 3. THE FOUR OUTCOMES DIFFER IN BEHAVIOUR. Asserted on the flags the
+        #    pump actually branches on, not on the label.
+        swallow = f.offer("keep going")
+        if swallow.answer or swallow.queued or swallow.acted:
+            r.err(f"a cooperative interruption produced answer="
+                  f"{swallow.answer} queued={swallow.queued} acted="
+                  f"{swallow.acted}. Silence is the behaviour: answering 'take "
+                  "your time' takes the floor the owner just declined to take.")
+
+        status = f.offer("you still there?")
+        if not status.answer:
+            r.err("a liveness check got no answer, so the owner cannot tell "
+                  "work from a hang")
+        if status.acted:
+            r.err("a liveness check CANCELLED the work. The answer to 'are you "
+                  "still there' must not be to stop being there.")
+        if not f.holding:
+            r.err("a liveness check dropped the floor")
+        if not f.status_line():
+            r.err("the status line is empty, so the answer to a liveness check "
+                  "is silence wearing a reply's shape")
+
+        queued = f.offer("when you're done, tell me the weather")
+        if not queued.queued:
+            r.err("a follow-on request was not queued")
+        if queued.acted:
+            r.err("a queued request cancelled the work in flight")
+
+        brk = f.offer("stop, forget it")
+        if not brk.acted:
+            r.err("the owner took the floor and nothing was abandoned")
+        if f.holding:
+            r.err("a BREAK left the floor held, so the next utterance is still "
+                  "treated as an interruption")
+
+        # 4. AND THE QUEUE COMES BACK. This is the assertion that separates a
+        #    queue from a swallow.
+        f.hold("answering again")
+        f.offer("when you're done, tell me the weather")
+        out = f.release()
+        if not out:
+            r.err("release() returned nothing after a queued utterance. A "
+                  "queued line that is dropped is indistinguishable from one "
+                  "that was swallowed, and the owner learns that speaking "
+                  "during a hold loses what they said.")
+        if f.holding:
+            r.err("release() left the floor held")
+
+    r.note("the pump builds, holds, offers to and releases the floor and does "
+           "not call `holding` as a method; offering outside a hold is refused; "
+           "a cooperative interruption is silent, a liveness check is answered "
+           "without cancelling, a follow-on is queued without cancelling, a "
+           "break drops the floor, and the queue comes back on release")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "floor-held-and-offered-to": check_the_floor_is_held_and_offered_to,
     "boundary-asked-before-the-write": check_the_boundary_is_asked_before_the_write,
     "map-built-and-kept-true": check_the_map_is_built_and_kept_true,
     "outbox-written-before-the-effect": check_the_outbox_is_written_before_the_effect,

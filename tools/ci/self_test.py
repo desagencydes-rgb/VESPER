@@ -4357,5 +4357,41 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# The floor. core/barge_in.py had 242 phrases and a gate and was called by
+# NOTHING; core/floor.py joins it to the hold and was reached by nothing.
+# --------------------------------------------------------------------------
+FLOOR_PY = "core/floor.py"
+
+CASES += [
+    ("floor-held-and-offered-to", RUNTIME,
+     _sub("            if floor is not None and floor.holding:", "            if False:", 1),
+     "the pump stops offering mid-hold utterances to the floor, so barge_in is "
+     "uncalled again and every interruption becomes an ordinary new turn"),
+
+    ("floor-held-and-offered-to", RUNTIME,
+     _sub('                floor.hold("answering")', "                pass", 1),
+     "nothing ever takes the floor, so no utterance is ever mid-hold and the "
+     "classifier is reachable in principle and unreached in fact"),
+
+    ("floor-held-and-offered-to", FLOOR_PY,
+     _sub('            v = Verdict(floor=verdict.value, text=text, acted=False,\n                        answer=False, queued=False)\n        elif verdict is Floor.STATUS:', '            v = Verdict(floor=verdict.value, text=text, acted=False,\n                        answer=True, queued=False)\n        elif verdict is Floor.STATUS:', 1),
+     "a cooperative interruption gets answered: 'take your time' met with a "
+     "reply is VESPER interrupting the owner's permission not to be "
+     "interrupted -- the outcome most likely to be got wrong, because "
+     "answering is polite"),
+
+    ("floor-held-and-offered-to", FLOOR_PY,
+     _sub("            with self._lock:\n                self._queue.append(text)", "            pass", 1),
+     "a follow-on request is classified as queued and never stored, so the "
+     "owner learns that speaking during a hold loses what they said"),
+
+    ("floor-held-and-offered-to", FLOOR_PY,
+     _sub("        verdict = classify(text)", "        verdict = Floor.BREAK", 1),
+     "every mid-hold utterance cancels the work: 'mhm' abandons the answer the "
+     "owner was waiting for"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

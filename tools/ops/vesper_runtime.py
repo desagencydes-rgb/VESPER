@@ -54,6 +54,7 @@ from core import host_probes                                    # noqa: E402
 from core.autonomy import AutonomyLoop, PredicateEvaluator      # noqa: E402
 from core.devices import CONTINUITY_CRITICAL, DeviceRegistry    # noqa: E402
 from core.repair import RepairAgent                             # noqa: E402
+from core.floor import FloorHolder                              # noqa: E402
 from core.forgetter import expiry_trigger                       # noqa: E402
 from core.self_directed import all_triggers as self_directed_triggers  # noqa: E402
 from core.self_directed import memory_drift_trigger             # noqa: E402
@@ -513,6 +514,12 @@ def build(node: str = "vesper-runtime"):
     # not a degradation: `tools/ops/vesper_arm.py --install` is what turns it
     # on, and until somebody does that deliberately VESPER answers, observes
     # and records but does not act on its own.
+    # THE FLOOR. `core/barge_in.py` classifies what the owner says during a
+    # hold -- 242 phrases and a gate -- and was called by nothing;
+    # `core/floor.py` is what makes its four outcomes differ in behaviour.
+    # Neither is useful alone: an announcement with no way to respond to it
+    # is a status line, and a classifier nothing feeds is a table.
+    floor = FloorHolder(bus=bus)
     interlock = SafetyInterlock(bus, now_ms=lambda: int(time.time() * 1000))
     autonomy.attach_interlock(interlock)
 
@@ -542,7 +549,7 @@ def build(node: str = "vesper-runtime"):
     return (bus, gw, router, home, intake, triage, report, persona, bench,
             renderer, updater, misses, chooser, world, sensors, autonomy,
             devices, repairer, presence, context_cmds, verifier, speech,
-            transcriber, actor)
+            transcriber, actor, floor)
 
 
 def answer(gw, router, persona, utterance, renderer=None,
@@ -762,7 +769,8 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          once: bool = False, renderer=None, updater=None,
          misses=None, chooser=None, sensors=None, autonomy=None,
          triage=None, repairer=None, presence=None,
-         context_cmds=None, speech=None, transcriber=None, actor=None) -> int:
+         context_cmds=None, speech=None, transcriber=None, actor=None,
+         floor=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     # SENSORS FIRST, AND THE PERIOD DECIDES WHETHER ANYTHING ACTUALLY RUNS.
     # `poll()` returns immediately for any sensor that is not due, so calling it
@@ -882,6 +890,39 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             # declaration -- so this costs one phrase-list match and never
             # branches the turn. The sentence still goes on to Intake: telling
             # VESPER someone is present is also a thing VESPER should hear.
+            # WORK IS ALREADY IN FLIGHT THIS PASS, so this line is not a new
+            # turn -- it is an interruption of the one before it. `core/
+            # barge_in.py` classifies these, has 242 phrases and a gate, and
+            # was called by NOTHING; `core/floor.py` is what makes the four
+            # outcomes differ in BEHAVIOUR rather than in name.
+            #
+            # SWALLOW IS THE ONE MOST LIKELY TO BE GOT WRONG, because answering
+            # is polite. "Take your time" met with "certainly, I'll continue"
+            # is VESPER interrupting the owner's permission not to be
+            # interrupted -- so a swallow says nothing at all.
+            # `holding` IS A PROPERTY, NOT A METHOD, and `Verdict` carries
+            # `floor` plus three behaviour flags rather than an `outcome`
+            # string. Both were got wrong first and would have raised on the
+            # first spoken interruption -- a path no test exercised, because
+            # nothing had ever called this module.
+            if floor is not None and floor.holding:
+                verdict = floor.offer(text)
+                if verdict.answer:
+                    # STATUS: a liveness check. Answer it, cancel nothing.
+                    said.append({"who": "vesper", "text": floor.status_line(),
+                                 "source": "vesper", "certain": True})
+                    transcript.extend(said)
+                    del transcript[:-40]
+                    said = []
+                    home.set_transcript(list(transcript))
+                    continue
+                if verdict.queued:
+                    continue     # held; put back on release
+                if not verdict.acted:
+                    continue     # SWALLOW: cooperative, and silence IS the reply
+                # BREAK: the owner took the floor, so this line becomes the
+                # turn. `offer` has already dropped the hold.
+
             if presence is not None:
                 presence.offer(text)
             if context_cmds is not None:
@@ -924,6 +965,16 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             del transcript[:-40]
             said = []
             home.set_transcript(list(transcript))
+            if res["outcome"] == "dispatched" and floor is not None:
+                # HELD FOR THE REST OF THIS PASS. The pump answers
+                # synchronously, so the window in which the owner can interrupt
+                # is the rest of the batch: they said two things quickly, and
+                # the second is a response to the first being worked on rather
+                # than a new request. A fully concurrent hold needs a
+                # non-blocking answer, which this pump does not have -- and
+                # saying so is better than pretending the window is wider.
+                floor.hold("answering")
+
             if res["outcome"] == "dispatched":
                 # ACTING IS TRIED FIRST, AND IT USUALLY DECLINES. Almost every
                 # turn is a question, a greeting, or something to remember, and
@@ -999,6 +1050,23 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             handled += 1
         seen = f.tell()
     OFFSET.write_text(str(seen))
+
+    # THE QUEUE MUST ACTUALLY BE DELIVERED. A queued utterance that is dropped
+    # when the work lands is indistinguishable from one that was swallowed, and
+    # the owner learns that speaking during a hold loses what they said. So the
+    # floor is released at the end of every pass and whatever it held is put
+    # back where the next pass will read it -- the same input file typing uses,
+    # so a queued line takes the ordinary route rather than a private one.
+    if floor is not None and floor.holding:
+        for queued in floor.release():
+            text = queued if isinstance(queued, str) else (
+                queued.get("text") if isinstance(queued, dict) else str(queued))
+            if not text:
+                continue
+            with open(HEARD, "a", encoding="utf-8") as out:
+                out.write(json.dumps({"text": text, "source": "typed",
+                                      "requeued_from": "floor"}) + "\n")
+
     if said:
         transcript.extend(said)
         del transcript[:-40]
@@ -1029,7 +1097,7 @@ def main() -> int:
     (bus, gw, router, home, intake, triage, report, persona, bench,
      renderer, updater, misses, chooser, world, sensors,
      autonomy, devices, repairer, presence, context_cmds, verifier,
-     speech, transcriber, actor) = build()
+     speech, transcriber, actor, floor) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -1088,6 +1156,7 @@ def main() -> int:
 
     if args.once or args.say or args.hear:
         n = pump(bus, gw, router, persona, bench, home, intake, transcript,
+                 floor=floor,
                  once=True, renderer=renderer, updater=updater,
                  misses=misses, chooser=chooser, sensors=sensors,
                  autonomy=autonomy, triage=triage, repairer=repairer,
@@ -1133,6 +1202,7 @@ def main() -> int:
     while True:
         try:
             pump(bus, gw, router, persona, bench, home, intake, transcript,
+                 floor=floor,
                  renderer=renderer, updater=updater, misses=misses,
                  chooser=chooser, sensors=sensors, autonomy=autonomy,
                  triage=triage, repairer=repairer, presence=presence,
