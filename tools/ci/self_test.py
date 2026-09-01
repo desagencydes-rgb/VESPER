@@ -2942,8 +2942,15 @@ CASES += [
      "wrong before this gate existed"),
 
     ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
-     _sub("tools/ci/checks.py status                            75/93 check IDs implemented, 18 PENDING",
-          "tools/ci/checks.py status                            61/89 check IDs implemented, 28 PENDING", 1),
+     # ANCHORED ON THE SHAPE, NOT ON TODAY'S VALUES -- the third and last case
+     # in this file that encoded a count as a literal. It broke on 2026-09-01
+     # the moment CI-093 and CI-094 landed and 75/93 became 76/94, reporting
+     # "the mutation did not apply" rather than anything about the check. Its
+     # line carries THREE numbers, which is why `_renumber` (which rewrites
+     # one) was not used for it when the other two were converted.
+     lambda t: re.sub(
+         r"(tools/ci/checks\.py status\s+)\d+/\d+( check IDs implemented, )\d+( PENDING)",
+         r"\g<1>61/89\g<2>28\g<3>", t, count=1),
      "the PENDING count goes stale -- the figure that matters most, because a "
      "PENDING entry looks exactly like enforcement in any listing that does "
      "not read the impl field"),
@@ -3493,6 +3500,61 @@ CASES += [
      "one of the two pump() call sites stops passing the actor, so VESPER acts "
      "from one entry point and not the other -- the same half-wiring that let "
      "`--say` speak while the daemon stayed silent on 2026-08-31"),
+]
+
+
+
+
+# --------------------------------------------------------------------------
+# CI-093 / CI-094 -- the ceiling reaches the act path, and a gated subsystem
+# is reachable at all. Both landed 2026-09-01, after the THIRD instance of one
+# shape: built, gated, correct, and connected to nothing.
+# --------------------------------------------------------------------------
+CHECKS_TOML = "verification/ci/CHECKS.toml"
+
+CASES += [
+    # ---------------------------------------------------------------- CI-093
+    ("taint-ceiling-binds-the-act-path", ACTOR_PY,
+     _sub("                                target=self._target, context_ceiling=ceil,\n"
+          "                                current_lease_epoch=0)",
+          "                                target=self._target,\n"
+          "                                current_lease_epoch=0)", 1),
+     "the ceiling is computed and dropped at the authorize call -- exactly the "
+     "state this corpus shipped in until 2026-09-01"),
+
+    ("taint-ceiling-binds-the-act-path", ACTOR_PY,
+     _sub("                                        context_ceiling=ceil,\n"
+          "                                        current_lease_epoch=0)",
+          "                                        current_lease_epoch=0)", 1),
+     "the ceiling reaches the actor's pre-check and not the executor, which "
+     "re-authorizes immediately before invoking and is the binding check"),
+
+    ("taint-ceiling-binds-the-act-path", ACTOR_PY,
+     _sub("        if fragments is not None:\n            return list(fragments)",
+          "        if False:\n            return list(fragments)", 1),
+     "supplied provenance is ignored and every turn is classed an owner "
+     "utterance: the plumbing is present and carries a constant"),
+
+    ("taint-ceiling-binds-the-act-path", TAINT_PY,
+     _sub('    "retrieved_external": "L1",', '    "retrieved_external": "L5",', 1),
+     "external content is trusted like the owner, so the ladder is wired and "
+     "flat -- what a check asserting only 'a ceiling was passed' cannot see"),
+
+    # ---------------------------------------------------------------- CI-094
+    ("gated-subsystems-are-reachable", CHECKS_TOML,
+     _sub('"core/interlock.py" = """OWED', '"core/interlock-py" = """OWED', 1),
+     "an unreachable gated subsystem loses its declaration and goes silent "
+     "again -- the emergency stop, specifically"),
+
+    ("gated-subsystems-are-reachable", CHECKS_TOML,
+     _sub('[unwired]\n', '[unwired]\n"core/gateway.py" = "declared unwired while it has callers"\n', 1),
+     "a stale exemption: core/gateway.py is imported all over the runtime and "
+     "is declared unwired anyway, so the list rots and hides the next real one"),
+
+    ("gated-subsystems-are-reachable", CHECKS_TOML,
+     lambda t: re.sub(r'("core/cache\.py" = )"""[^"]*"""', r'\1"   "', t, count=1),
+     "a declaration with no reason -- an exemption nobody had to justify is an "
+     "exemption nobody looked at"),
 ]
 
 

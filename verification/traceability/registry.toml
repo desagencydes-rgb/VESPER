@@ -332,8 +332,8 @@ ic = ["IC-003"]
 tests = ["A-006", "A-025"]
 contracts = ["contracts/policy/authorization.schema.json"]
 decision_functions = ["DF-CONTEXT-CEILING"]
-invariants = ["INV-AUTH-3", "INV-AUTH-6"]
-ci = ["CI-012", "CI-014"]
+invariants = ["INV-AUTH-3", "INV-AUTH-6", "INV-AUTH-7"]
+ci = ["CI-012", "CI-014", "CI-093"]
 status = "SPECIFIED"
 
 [requirements.SR-026]

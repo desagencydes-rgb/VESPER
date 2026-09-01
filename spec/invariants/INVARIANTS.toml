@@ -119,7 +119,7 @@ kind = "runtime"
 [invariants.INV-AUTH-3]
 statement = "Taint propagates through summarisation, embedding and cache reuse. retrieved_external present implies context_ceiling = L1 for state-changing capabilities."
 owner_rem = "REM-003"
-enforced_by = ["CI-012", "CI-014", "CI-085", "A-025"]
+enforced_by = ["CI-012", "CI-014", "CI-085", "CI-093", "A-025"]
 kind = "structural"
 
 [invariants.INV-AUTH-4]
@@ -143,7 +143,7 @@ kind = "structural"
 [invariants.INV-AUTH-7]
 statement = "An above-ceiling action becomes a queued proposal with security.injection_suspected emitted; it is never silently dropped."
 owner_rem = "REM-003"
-enforced_by = ["CI-014", "A-025"]
+enforced_by = ["CI-014", "CI-093", "A-025"]
 kind = "runtime"
 
 # ------------------------------------------------- REM-004 self-modification

@@ -2221,3 +2221,109 @@ it again immediately.
 MANUAL CONTROL OVER-SELECTS. Dropping two of five from a limit-five selection
 would otherwise leave the turn three facts where five were available -- the
 owner punished for narrowing the focus. The automatic path is untouched."""
+
+[checks.CI-093]
+name = "taint-ceiling-binds-the-act-path"
+enforces = ["INV-AUTH-3", "INV-AUTH-7"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py taint-ceiling-binds-the-act-path"
+blocking = "pr"
+self_test = """Drop context_ceiling from the authorize call; drop it from the
+execute call; make the fragment helper ignore what it is given; map
+retrieved_external to L5 so the ladder is flat."""
+self_test_evidence = """tools/ci/self_test.py taint-ceiling-binds-the-act-path
+-- 4 cases, red then green, 2026-09-01."""
+subject = "core/actor.py, core/taint.py, core/authorize.py, core/executor.py"
+note = """INV-AUTH-3's SECOND SENTENCE, WHICH WAS FALSE IN THE RUNNING SYSTEM.
+"retrieved_external present implies context_ceiling = L1 for state-changing
+capabilities" -- and `authorize()` and `execute()` both defaulted the ceiling to
+L5 while NO caller passed one. `_min_level(grant, declared, ceiling)` could
+therefore never be lowered by the trust class of anything in context.
+
+`ContextCeiling` was instantiated exactly twice in this repository: once by
+CI-014's successor here and once by run_f2_acceptance.py. Both supplied their
+own subject, so both were testing a library rather than a system, and every
+gate was green while the anti-injection defence was consulted by nothing."""
+discriminators = """THE REASON IS THE DISCRIMINATOR, NOT THE REFUSAL. Both the
+clean and the external case are refused: the standing grant is L2 and the
+fixture's write requires L3, so an assertion that the external case is refused
+passes with the ceiling deleted. Only the change of reason from
+`below_required_level` to `context_ceiling` separates a bound ceiling from an
+ignored one.
+
+AND THE EXECUTOR LEG IS ASSERTED SEPARATELY. The actor could pass the ceiling to
+its own pre-check and drop it at `execute`, and every behavioural assertion
+through `maybe_act` would still hold -- the pre-check refuses first. `execute`
+re-authorizes immediately before invoking and is the binding one, so it is
+driven directly with an explicit L1 ceiling and a grant that would otherwise
+authorize."""
+
+##############################################################################
+# UNWIRED SUBJECTS -- CI-094
+#
+# A `core/` module named as the SUBJECT of a check above, which no production
+# module imports. Built, gated, and reachable only by its own check or an
+# acceptance runner.
+#
+# THIS TABLE EXISTS SO THE NUMBER HAS A CONSUMER, which is the same move
+# `impl = "PENDING"` makes for unimplemented checks and `CI-089` makes for the
+# documented counts. Building ahead of deployment is deliberate here and is not
+# the problem; building, gating, and then FORGETTING is, and it has happened
+# three times. An entry is a declaration that someone looked. A module that
+# becomes reachable must be removed from this table -- CI-094 fails on a stale
+# exemption, because a list nobody prunes is a list nobody reads.
+#
+# Each reason states which of two things is true: NOT YET REACHABLE BY DESIGN
+# (the feature it serves has not been deployed), or OWED (it serves a feature
+# that IS deployed, and the wire is missing). The second kind is a defect with
+# a date on it, not an exemption.
+##############################################################################
+
+[unwired]
+"core/enrollment.py" = """NOT YET REACHABLE BY DESIGN. Node admission (A-042).
+No second node has ever joined this fabric, so there is no production path that
+admits one. INV-PLACE-3 makes this a when-not-if, and the wire lands with the
+first real enrollment."""
+
+"core/placement.py" = """NOT YET REACHABLE BY DESIGN. DF-PLACE and
+DF-SURVIVAL-PROFILE over a multi-node fabric (REM-014/SR-060). Single-node
+deploy, never single-node design -- placement has nothing to choose between
+until a second node is enrolled, and `core/enrollment.py` above is the gate in
+front of it."""
+
+"core/interlock.py" = """OWED, and the most serious entry in this table.
+The emergency stop is a dead-man's switch (A-031.2 severs the stop path itself)
+and nothing in the running system holds it, so there is currently no stop to
+press. Recorded 2026-09-01. It is not a future feature: VESPER acts today."""
+
+"core/selfmod.py" = """OWED. The self-modification boundary (INV-SELF-1..7).
+CI-015 runs it against the REAL repository and the real pinned artifact, which
+is why the gate is meaningful, but nothing in the runtime consults it before a
+write -- so the refusal exists and is never asked for. Recorded 2026-09-01."""
+
+"core/floor.py" = """OWED. Holding the floor while work is in flight (SR-041).
+`core/intake.py` has its own unrelated `floor_for`, which is a confusion worth
+noting: 187 production mentions of the word "floor" and not one import of this
+module. Recorded 2026-09-01."""
+
+"core/arbiter.py" = """OWED. What VESPER does when memory contradicts itself.
+The memory system landed 2026-08-30 and is live; the arbiter that resolves its
+contradictions is not joined to it. Same shape as the memory/act gap already
+recorded. Recorded 2026-09-01."""
+
+"core/baseline.py" = """OWED. The record of what VESPER answered, which CI-073
+calls "written before memory exists" -- and memory now exists. Recorded
+2026-09-01."""
+
+"core/cache.py" = """OWED, recently. The five cache tiers of SR-054, landed with
+CI-085 overnight 2026-08-31 and not yet joined to the gateway. This is the
+freshest instance of the pattern and the reason CI-094 was written the next
+day."""
+
+"core/compactor.py" = """OWED. Re-derivation from the log rather than from its
+own last answer (CI-080). Needs a compaction trigger, which the autonomy layer
+can supply once it has more than one registered trigger."""
+
+"core/knowledge_map.py" = """OWED. SR-007's map, consulted BEFORE retrieval so
+the corpus is never loaded to answer. Landed with CI-088 overnight 2026-08-31.
+Zero production mentions of any kind -- not even in a comment."""

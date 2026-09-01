@@ -42,6 +42,7 @@ from core.authorize import Grant, PolicyDecisionPoint
 from core.capabilities import INDEPENDENT_VERIFIERS, bind_all, build_registry
 from core.executor import Executor
 from core.intent import IntentProposer
+from core.taint import ContextCeiling, Tainted
 
 # What VESPER may do without asking. Read-only inspection and its own workspace.
 STANDING_LEVEL = "L2"
@@ -80,6 +81,7 @@ class Actor:
         self._executor = Executor(bus, self._registry, self._pdp)
         bind_all(self._executor)
         self._proposer = IntentProposer(gateway, bus=bus, profile_id=profile_id)
+        self._ceiling = ContextCeiling(bus)
         self._subject = subject
         self._target = target
         self._broker = broker
@@ -100,8 +102,20 @@ class Actor:
     # --------------------------------------------------------------- act
 
     def maybe_act(self, text: str, *, attention_state: str = "UNKNOWN",
-                  period: str = "active") -> Outcome | None:
-        """None means this turn was not a request to do anything."""
+                  period: str = "active",
+                  fragments: list | None = None) -> Outcome | None:
+        """None means this turn was not a request to do anything.
+
+        `fragments` carries the PROVENANCE of everything that reached the
+        proposer, and it is what makes `core/taint.py` binding here. Before
+        2026-09-01 the ceiling was computed nowhere on this path:
+        `authorize()` and `execute()` both defaulted `context_ceiling` to
+        "L5" and no caller passed one, so `ALLOWED_LEVEL` could not lower any
+        decision the running system made. `ContextCeiling` was instantiated
+        exactly twice in the whole repository -- once by its check and once by
+        its acceptance test, both of which supply their own subject. A check
+        that constructs the thing it checks is testing a library, not a system.
+        """
         p = self._proposer.propose(text)
         if p is None:
             return None
@@ -114,15 +128,30 @@ class Actor:
                            detail={"error": repr(exc)})
         level = cap.required(p.args)
 
+        # THE CEILING IS COMPUTED BEFORE THE LADDER IS CONSULTED, and it is
+        # `check` rather than `ceiling` deliberately: above-ceiling is not a
+        # silent drop (RB-022). `check` queues the proposal and publishes
+        # `security.above_ceiling_proposal`, plus `security.injection_suspected`
+        # when externally-retrieved content is in context -- which is the whole
+        # point of the subsystem and was previously emitted by nothing that runs.
+        frags = self._fragments_for(text, fragments)
+        ceil = self._ceiling.check(level, frags, capability_id=p.capability_id,
+                                   subject=self._subject)["ceiling"]
+
         # ASKED BEFORE ACTING, so that the refusal carries the DECISION and not
         # just a string. `Executor.execute` authorizes again immediately before
         # invoking -- that second check is the binding one and this one does not
         # replace it. This one exists because the broker needs the Decision
         # object to explain WHY, and a refusal message parsed back out of an
         # execution record would be a worse version of the same thing.
+        #
+        # THE CEILING GOES TO BOTH CALLS. Passing it only here would re-open the
+        # hole one layer down: `execute` re-authorizes immediately before
+        # invoking, and that second check is the binding one.
         d = self._pdp.authorize(subject=self._subject,
                                 capability_id=p.capability_id, args=p.args,
-                                target=self._target, current_lease_epoch=0)
+                                target=self._target, context_ceiling=ceil,
+                                current_lease_epoch=0)
         if not d.authorized:
             return self._ask(d, p, level, attention_state, period)
 
@@ -130,6 +159,7 @@ class Actor:
             ex = self._executor.execute(subject=self._subject,
                                         capability_id=p.capability_id,
                                         args=p.args, target=self._target,
+                                        context_ceiling=ceil,
                                         current_lease_epoch=0)
         except Exception as exc:                       # noqa: BLE001
             return Outcome("failed", p.capability_id, level,
@@ -148,6 +178,29 @@ class Actor:
         return self._verify(p, level, ex)
 
     # ------------------------------------------------------------- pieces
+
+    @staticmethod
+    def _fragments_for(text: str, fragments: list | None) -> list:
+        """The provenance of what reached the proposer, defaulted honestly.
+
+        A caller that has retrieved anything -- a file, a page, a memory, a
+        message from someone who is not the owner -- passes it here with its
+        real class, and the ceiling binds. `ContextCeiling.ceiling` takes the
+        MINIMUM over fragments, because taint is contagious rather than
+        averaged: one external fragment lowers the ceiling for the whole turn.
+
+        THE DEFAULT IS THE ASSUMPTION THIS SYSTEM ALREADY MAKES EVERYWHERE
+        ELSE, written down where it can be found. A live utterance is classed
+        `owner` because the standing grant is issued `issued_by="owner"` on
+        exactly the same premise. That premise is NOT verified: the wake word
+        opens a six-second capture of a room, and a room can contain someone
+        else. When speaker verification lands, this is the line it changes, and
+        the ceiling is already threaded through everything downstream of it.
+        """
+        if fragments is not None:
+            return list(fragments)
+        return [Tainted(text, "owner", origin="utterance:live")]
+
 
     def _ask(self, decision: Any, proposal: Any, level: str,
              attention_state: str, period: str) -> Outcome:
