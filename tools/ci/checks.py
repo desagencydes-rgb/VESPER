@@ -13355,8 +13355,140 @@ def check_authorization_strength_is_its_own_axis() -> Result:
     return r
 
 
+def check_a_decline_is_not_an_attempt() -> Result:
+    """A refusal that cannot change is not re-taken on every pass.
+
+    MEASURED FROM THE RUNNING SYSTEM'S OWN LOG, 2026-09-01. The pump called
+    `triage.open_items()` with no grade and handed the first item to
+    `repairer.repair()`, which refuses anything that is not CRITICAL_NOW --
+    "CAN_WAIT and NO_FIX_NEEDED are reports, not work". So the same item was
+    offered and declined on every pass, publishing a durable
+    `repair.attempted` each time: **610,931 events over 41 hours, ~15,000 an
+    hour, every one of them the same item with the same answer.** That is most
+    of a 1.6 GB event log, and it is a decision that could never change being
+    re-taken a quarter of a million times a day.
+
+    THE FILTER ALREADY EXISTED. `open_items(grade)` has always taken one and
+    nothing was passing it. This is not a missing mechanism; it is a mechanism
+    two modules apart from each other, with a caller in between that asked the
+    wrong question.
+
+    WHY IT IS WORTH A GATE RATHER THAN A FIX. The log is where every claim
+    about what VESPER did is checked, and a log whose volume is dominated by a
+    refusal loop is one nobody reads. The same shape can return through any
+    caller that polls a queue and acts on the head of it.
+    """
+    r = Result("a-decline-is-not-an-attempt")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.triage import (CAN_WAIT, CRITICAL_NOW, NO_FIX_NEEDED,
+                                 TriageQueue)
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"core.triage does not import: {exc!r}")
+        return r
+
+    # 1. STRUCTURAL: the pump asks for what the repairer will act on.
+    src = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if "triage.open_items()" in src:
+        r.err("the pump calls triage.open_items() with no grade, so items the "
+              "repairer refuses by definition are handed to it on every pass "
+              "and declined into the durable log every time")
+    if "open_items(CRITICAL_NOW)" not in src:
+        r.err("the pump does not select CRITICAL_NOW, so either it is asking "
+              "for the wrong thing or the selection has moved somewhere this "
+              "check cannot see")
+
+    # 2. THE FILTER ACTUALLY FILTERS. Structural alone would pass on an
+    #    `open_items` that ignored its own argument.
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as td:
+        q = TriageQueue(path=Path(td) / "triage.json")
+        made = 0
+        for pid, grade in (("p-crit", CRITICAL_NOW), ("p-wait", CAN_WAIT),
+                           ("p-none", NO_FIX_NEEDED)):
+            try:
+                it = q.record(pid, "m", "server_error")
+                if it is not None:
+                    it.grade = grade
+                    made += 1
+            except Exception:                       # noqa: BLE001
+                pass
+        if made >= 2:
+            crit = q.open_items(CRITICAL_NOW) or []
+            every = q.open_items() or []
+            if len(crit) >= len(every) and len(every) > 1:
+                r.err("open_items(CRITICAL_NOW) returned as many items as "
+                      "open_items(): the grade argument is accepted and "
+                      "ignored, so the pump's filter buys nothing")
+            for it in crit:
+                if it.grade != CRITICAL_NOW:
+                    r.err(f"open_items(CRITICAL_NOW) returned a {it.grade!r} "
+                          "item")
+        else:
+            r.note("the triage fixture would not accept graded items; the "
+                   "filter was asserted structurally only")
+
+    # 3. AND THE REPAIRER STILL REFUSES EVERYTHING ELSE. The filter is the
+    #    cheap half; this is the half that must not be relaxed to make the
+    #    filter look unnecessary.
+    # DRIVEN, NOT READ. The first version asked whether the string
+    # "CRITICAL_NOW" appeared in `repair`'s source -- and it appears in the
+    # refusal message too, so deleting the grade test left the name behind and
+    # the check reported green. That is the fourth time in one session that a
+    # test for a NAME has been satisfied by a name somewhere the mutation did
+    # not touch.
+    try:
+        from core.repair import RepairAgent
+        from core.triage import TriageItem
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"could not import the repair path: {exc!r}")
+        return r
+
+    def _item(grade: str) -> Any:
+        it = TriageItem(item_id=f"probe::{grade}", provider_id="probe",
+                        model="m", classification="auth_failed",
+                        hlc="0.0.probe")
+        it.grade = grade
+        return it
+
+    agent = RepairAgent()
+    for grade in (NO_FIX_NEEDED, CAN_WAIT):
+        try:
+            out = agent.repair(_item(grade))
+        except Exception as exc:                    # noqa: BLE001
+            r.err(f"repairing a {grade} item raised {exc!r}")
+            continue
+        if getattr(out, "fixed", None) is not False:
+            r.err(f"a {grade} item was acted on unattended. Only a failure that "
+                  "is down AND will stay down is repaired without the owner; "
+                  "the rest are reports.")
+        if grade not in str(getattr(out, "note", "")):
+            r.err(f"the refusal of a {grade} item does not name its grade, so "
+                  "the record cannot say why nothing was done")
+
+    # AND THE CONTROL. An agent that refused everything would satisfy the two
+    # assertions above and be useless.
+    try:
+        out = agent.repair(_item(CRITICAL_NOW))
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"repairing a CRITICAL_NOW item raised {exc!r}")
+    else:
+        if CRITICAL_NOW in str(getattr(out, "note", "")) and \
+                "not " + CRITICAL_NOW in str(getattr(out, "note", "")):
+            r.err("a CRITICAL_NOW item was refused for not being CRITICAL_NOW, "
+                  "so the grade test is inverted or the agent refuses "
+                  "everything -- and the assertions above would pass either way")
+
+    r.note("the pump selects CRITICAL_NOW rather than the head of the whole "
+           "queue; the grade filter is exercised rather than trusted; and the "
+           "repairer still refuses anything that is not down and staying down")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "a-decline-is-not-an-attempt": check_a_decline_is_not_an_attempt,
     "authorization-strength-is-its-own-axis": check_authorization_strength_is_its_own_axis,
     "credentials-can-leave-the-plaintext-file": check_credentials_can_leave_the_plaintext_file,
     "autonomy-can-act-and-still-cannot-decide": check_autonomy_can_act_and_still_cannot_decide,

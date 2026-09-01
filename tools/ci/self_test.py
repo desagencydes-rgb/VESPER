@@ -4037,5 +4037,34 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# A decline is not an attempt. Found by reading the running system's own log:
+# 610,931 repair.attempted events over 41 hours, all the same item, all the
+# same answer -- most of a 1.6 GB durable log.
+# --------------------------------------------------------------------------
+TRIAGE_PY = "core/triage.py"
+
+CASES += [
+    ("a-decline-is-not-an-attempt", RUNTIME,
+     _sub("            for item in (triage.open_items(CRITICAL_NOW) or [])[:1]:",
+          "            for item in (triage.open_items() or [])[:1]:", 1),
+     "the pump goes back to offering the head of the whole queue, so an item "
+     "the repairer refuses by definition is declined into the durable log on "
+     "every single pass -- 15,000 times an hour, measured"),
+
+    ("a-decline-is-not-an-attempt", TRIAGE_PY,
+     _sub("        return [i for i in items if i.grade == grade and i.resolution is None]",
+          "        return [i for i in items if i.resolution is None]", 1),
+     "open_items accepts a grade and ignores it: the pump's filter is present, "
+     "reads correctly, and buys nothing"),
+
+    ("a-decline-is-not-an-attempt", "core/repair.py",
+     _sub("        if item.grade != CRITICAL_NOW:", "        if False:", 1),
+     "unattended repair stops being limited to failures that are down and will "
+     "stay down -- making the filter look unnecessary by removing the refusal "
+     "it exists to avoid provoking"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

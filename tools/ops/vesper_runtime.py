@@ -75,7 +75,7 @@ from core.quota import QuotaLedger                              # noqa: E402
 from core.router import NoRouteAvailable, Router                # noqa: E402
 from core.store import StoreSet                                 # noqa: E402
 from core.transcribe import Transcriber, transcribe_rows        # noqa: E402
-from core.triage import TriageQueue                             # noqa: E402
+from core.triage import CRITICAL_NOW, TriageQueue               # noqa: E402
 from core.verify import Verifier                                # noqa: E402
 from core.verifiers import register_all                         # noqa: E402
 from core.workbench import Workbench                            # noqa: E402
@@ -623,7 +623,22 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             # the cheaper trigger; the pump is the honest one until a rung
             # actually reports.
             triage.grade_all()
-            for item in (triage.open_items() or [])[:1]:
+            # ASK ONLY FOR WHAT THE REPAIRER WILL ACT ON. `repair()` refuses
+            # anything that is not CRITICAL_NOW -- "CAN_WAIT and NO_FIX_NEEDED
+            # are reports, not work" -- and `open_items()` was being called
+            # with no grade, so the first item in the queue was handed over and
+            # declined on EVERY pump pass, publishing a durable
+            # `repair.attempted` each time.
+            #
+            # Measured 2026-09-01 from the event log: 610,931 attempts over 41
+            # hours, ~15,000/hour, every one of them the same item
+            # (`claude-sub::unknown::server_error`) with the same answer. That
+            # is most of a 1.6 GB log, and it is a decision that could never
+            # change being re-taken a quarter of a million times a day.
+            #
+            # A decline is not an attempt. The filter already existed on
+            # `open_items`; nothing was passing it.
+            for item in (triage.open_items(CRITICAL_NOW) or [])[:1]:
                 out = repairer.repair(item)
                 bus.publish("repair.attempted", subject=item.provider_id,
                             payload=out.to_dict(), component="runtime")
