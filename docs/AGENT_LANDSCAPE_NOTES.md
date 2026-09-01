@@ -541,3 +541,129 @@ trigger registered.
 - **L14. A stop condition that is not a timer** — "nothing to do, or nothing
   necessary now" expressed as predicates, which is exactly what this layer
   already refuses to let be a clock.
+
+---
+---
+
+# PART FOUR — MEMORY, and the rest I had not covered
+
+Owner named memory twice and I skipped it. This is the biggest single subsystem
+gap found in the whole investigation.
+
+## CODEX MEMORY — a two-phase background pipeline
+Source: `codex-rs/memories/README.md`, ~130 lines, plus `read/` and `write/`
+crates. Runs at session start, in the BACKGROUND, only if: the session is not
+ephemeral, memory is enabled, it is not a sub-agent session, and the state DB is
+available.
+
+### Phase 1 — rollout extraction (parallel, per past session)
+- Claims a BOUNDED set of past sessions ("rollouts") from a state DB.
+- Eligibility rules are careful: interactive sources only, within an age window,
+  **idle long enough** (so a still-active session is never summarised), not
+  already claimed by another worker, within per-startup scan limits.
+- Sends each to a model in parallel under a concurrency cap.
+- Structured output: a detailed `raw_memory`, a compact `rollout_summary`, an
+  optional `rollout_slug`.
+- **Redacts secrets from the generated memory.**
+- Leases each job in the DB so concurrent workers cannot duplicate work; failed
+  jobs get retry BACKOFF rather than hot-looping.
+- Outcomes are three-valued: `succeeded`, `succeeded_no_output`, `failed`.
+
+### Phase 2 — global consolidation (serialised, one global lock)
+- Selection: drops memories whose `last_usage` is outside `max_unused_days`;
+  falls back to `generated_at` for never-used ones; **ranks by `usage_count`
+  first, then recency**.
+- Writes `raw_memories.md` in STABLE ascending thread-id order specifically to
+  avoid churn from usage-rank changes.
+- **The memories root is a git repository** (`~/.codex/memories/.git`).
+- Writes `phase2_workspace_diff.md` — a git-style diff from the last successful
+  baseline — and points a **consolidation SUB-AGENT** at the diff rather than at
+  the whole store.
+- That sub-agent runs with **no approvals, no network, local write only, and
+  collab disabled** so it cannot delegate recursively.
+- If the workspace has no changes after sync and pruning, the job succeeds and
+  exits without spawning the agent at all.
+- Consolidated outputs: `MEMORY.md`, `memory_summary.md`, and **`skills/`**.
+
+### The two ideas worth the most to us
+1. **`skills/` is a memory OUTPUT.** The pipeline does not only remember facts;
+   it distils reusable PROCEDURES from past sessions. Memory that teaches.
+2. **Usage decides retention.** `read/src/usage.rs` classifies usage by artifact
+   kind (`MemoryMd`, `MemorySummary`, `RawMemories`, `RolloutSummaries`,
+   `Skills`) and `citations.rs` parses the model's memory citations back. So a
+   memory that gets CITED is kept and one never cited is dropped. Retention is
+   evidence-based, not time-based.
+
+## PROBED AGAINST VESPER (2026-09-01)
+
+| Codex | VESPER |
+|---|---|
+| Per-SESSION memory (what happened, what was learned) | **Per-SENTENCE facts only.** `core/extract.py`: "You extract facts from one sentence". We never remember a session. |
+| Consolidation phase that merges and reorganises | **None.** `grep consolidat core/*.py` → nothing. Facts accumulate; nothing ever reorganises them. |
+| `usage_count` + `last_usage` drive retention | **No usage tracking at all.** We HAVE citations (`memory-citations-resolve-or-are-withheld` is a gate) but never count them. |
+| Memory root is git; agent reviews a DIFF | Log-projected store, no diff view |
+| Distils `skills/` from past sessions | None |
+| Idle-gating, leases, retry backoff for background work | None (our capture is a thread after each answer) |
+| Secret redaction in generated memory | **We have this** — `core/redact.py`, gated |
+
+**The cheapest high-value change on this whole page:** we already emit memory
+citations and already have a gate proving they resolve. Feeding those citations
+back as a usage count would turn retention from time-based into evidence-based
+for almost no new machinery.
+
+## CLAUDE CODE MEMORY — a different philosophy, also worth taking
+Known first-hand: one file per fact under
+`~/.claude/projects/<project>/memory/`, each with frontmatter (`name`,
+`description`, `metadata.type` ∈ user | feedback | project | reference), plus a
+`MEMORY.md` INDEX loaded into context every session — one line per memory. Facts
+link to each other with `[[wiki-links]]`. Recalled memories arrive inside
+`<system-reminder>` blocks marked as background context, not instructions.
+Standing rules: check for an existing file before writing a new one, update
+rather than duplicate, delete memories that turn out wrong, and never save what
+the repo already records.
+
+**Curated, typed, linked, indexed** — where Codex is **extracted, consolidated,
+usage-ranked**. They are complementary, not competing. VESPER's design is closer
+to Claude Code's (typed facts with rank and trust class) but with automatic
+extraction like Codex's and neither the curation nor the consolidation.
+
+The `[[wiki-link]]` idea is notable and cheap: a memory can point at a memory
+that does not exist yet, which marks something worth writing later rather than
+being an error.
+
+---
+
+## THE REST OF CLAUDE CODE I HAD NOT WRITTEN DOWN
+
+- **Skills** — packaged, named instruction sets, invoked as `/name`, loaded on
+  demand. Some run in a subagent and return a finished result. A skill is how a
+  procedure becomes repeatable without living in the prompt.
+- **Plugins** — discoverable, installable extensions (`ListPlugins`,
+  `SearchPlugins`, `SuggestPluginInstall`).
+- **Subagent TYPES** — `general-purpose`, `Explore` (read-only fan-out search),
+  `Plan` (architect), plus custom ones defined in `.claude/agents/*.md` with
+  their own model, effort and tool list.
+- **Worktree isolation** — `isolation: "worktree"` gives an agent its own git
+  worktree so parallel agents cannot collide; auto-cleaned if unchanged.
+- **Agent-to-agent messaging** — `ListAgents` / `SendMessage`, including to
+  sessions on other machines and in the cloud.
+- **Session continuity** — `--resume` / `--continue`; when context grows long it
+  is summarised and the summary carries into the next window, so work continues
+  rather than restarting.
+- **Slash commands and output styles**; `PushNotification`; `RemoteTrigger`.
+- **`file_path:line_number` as a convention** — references are clickable.
+
+## WHAT THIS ADDS TO THE BUILD LIST
+
+- **M1. Feed citations back as usage.** Cheapest high-value change available.
+- **M2. Session-level memory** — remember what happened in a session, not only
+  facts stated in one sentence.
+- **M3. A consolidation pass** — periodic, serialised, reviewing a DIFF, run by
+  a restricted agent (no network, local write only, no recursive delegation).
+- **M4. Distil skills from memory** — procedures, not just facts.
+- **M5. A curated index** (`MEMORY.md` shape) alongside the automatic store, and
+  `[[links]]` between facts.
+- **M6. Idle-gating, leases and retry backoff** for any background memory work.
+- **S1. Skills** — named, packaged procedures VESPER can load on demand.
+- **S2. Sub-agents with worktree isolation** for parallel work.
+- **S3. Session resume with a carried summary.**
