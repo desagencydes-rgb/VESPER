@@ -350,6 +350,29 @@ def build(node: str = "vesper-runtime"):
                   broker=ConfirmationBroker(bus, InterruptionBudget(bus)))
     autonomy.attach_actor(actor)
 
+    # A ROTATED KEY THAT NEVER TOOK EFFECT IS SILENT, AND THIS IS THE ONLY
+    # MOMENT IT IS CHEAP TO CATCH. The keychain overlays the file, so once a
+    # credential has been migrated, editing it in `secrets.env` changes
+    # nothing -- and pasting a new key into that file is exactly where a
+    # rotation goes, because that is where credentials have always lived.
+    # A disagreement between the two stores is the signature of that mistake.
+    try:
+        from routing.supply import credential_mismatches
+        stale = credential_mismatches()
+        if stale:
+            bus.publish("credentials.stale_file_value", subject="startup",
+                        payload={"variables": [m["name"] for m in stale],
+                                 "detail": stale,
+                                 "note": ("these were edited in secrets.env after "
+                                          "being migrated to the keychain. The "
+                                          "KEYCHAIN value is the one in use. Run "
+                                          "tools/ops/vesper_keychain.py --migrate "
+                                          "to make the file's value take effect.")},
+                        component="runtime")
+    except Exception as exc:                       # noqa: BLE001
+        bus.publish("credentials.check_failed", subject="startup",
+                    payload={"error": repr(exc)}, component="runtime")
+
     return (bus, gw, router, home, intake, triage, report, persona, bench,
             renderer, updater, misses, chooser, world, sensors, autonomy,
             devices, repairer, presence, context_cmds, verifier, speech,

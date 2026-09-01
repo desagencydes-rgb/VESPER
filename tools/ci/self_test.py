@@ -4066,5 +4066,35 @@ CASES += [
 ]
 
 
+CASES += [
+    ("credentials-can-leave-the-plaintext-file", SUPPLY_PY2,
+     _sub("        if kc and kc != v:", "        if False:", 1),
+     "a key rotated in the file after migration is no longer reported, so the "
+     "keychain goes on serving the old value and nothing says so"),
+
+    ("credentials-can-leave-the-plaintext-file", SUPPLY_PY2,
+     _sub('        if kc and kc != v:\n            out.append({"name": name, "file_len": len(v), "keychain_len": len(kc),',
+          '        if kc and kc != v:\n            out.append({"name": name, "file_value": v, "keychain_len": len(kc),', 1),
+     "the mismatch report carries the credential itself, so a warning meant to "
+     "protect a key prints it into every place the warning travels"),
+
+    # THE WIRING, REMOVED RATHER THAN NEUTERED. Replacing the import with a
+    # lambda that returns [] is the more realistic defect and a SOURCE check
+    # cannot see it -- every name it looks for is still on the page. That is
+    # the fourth time this session a name test has been satisfied by a name the
+    # mutation did not touch, and the honest fix is to test what a source check
+    # CAN see: the wiring being gone. The reporter's own behaviour is covered
+    # by the two cases above, which drive it.
+    ("credentials-can-leave-the-plaintext-file", RUNTIME,
+     lambda t: t[:t.index("    try:\n        from routing.supply import credential_mismatches")]
+               + t[t.index('                    payload={"error": repr(exc)}, component="runtime")\n',
+                          t.index("from routing.supply import credential_mismatches"))
+                   + len('                    payload={"error": repr(exc)}, component="runtime")\n'):],
+     "the startup credential check is removed entirely, so a key rotated in the "
+     "file after migration is detectable and undetected -- and the home card "
+     "has no event to render"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

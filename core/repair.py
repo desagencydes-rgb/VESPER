@@ -152,7 +152,10 @@ class RepairAgent:
             "usually means one of those three.",
             "If the key is dead, create a new one and replace the value of "
             f"`{_env_of(self._rows, item.provider_id) or 'its environment variable'}` "
-            "in ~/.config/vesper/secrets.env. Keep the same variable name.",
+            "with tools/ops/vesper_keychain.py --migrate after putting it in "
+            "~/.config/vesper/secrets.env. Keep the same variable name. "
+            "The keychain overlays the file, so editing the file alone "
+            "changes nothing once a key has been migrated.",
             "Re-run: python3.13 tools/ops/check_credentials.py",
             "Then: python3.13 tools/spike/probe_remote_supply.py "
             f"--only {item.provider_id}",

@@ -128,6 +128,45 @@ def keychain_names(*, service: str | None = None) -> list:
     return sorted(set(names))
 
 
+def credential_mismatches(path: Path | None = None) -> list:
+    """Variables whose file value and keychain value DISAGREE. Names only.
+
+    THE TRAP THIS EXISTS FOR. `read_secrets` lets the keychain overlay the
+    file, which is what makes migrating a credential a single step. The cost is
+    that once a variable has been migrated, editing it in `secrets.env` has no
+    effect -- the keychain keeps winning, silently, and VESPER goes on using
+    the old value.
+
+    That is exactly what a rotated key looks like: the owner pastes the new one
+    into the file, because that is where credentials have always gone, and
+    nothing changes. A disagreement between the two stores is therefore not an
+    edge case to tolerate; it is the signature of the mistake, and the only
+    moment it is cheap to catch.
+
+    NAMES AND LENGTHS ONLY. A finding never carries the value it found -- the
+    same rule `core/redact.py` follows, for the same reason: a report that
+    quotes a credential has leaked it to everywhere the report travels.
+    """
+    p = path or SECRETS
+    out = []
+    if not p.exists():
+        return out
+    for line in p.read_text(encoding="utf-8").splitlines():
+        m = re.match(r"\s*(?:export\s+)?([A-Z0-9_]+)\s*=(.*)", line)
+        if not m:
+            continue
+        name = m.group(1)
+        v = m.group(2).split("#", 1)[0].strip().strip('"').strip("'")
+        if not v or v.startswith("$"):
+            continue
+        kc = keychain_secret(name)
+        if kc and kc != v:
+            out.append({"name": name, "file_len": len(v), "keychain_len": len(kc),
+                        "note": ("the keychain value is the one in use; the file "
+                                 "has been edited since this was migrated")})
+    return out
+
+
 def read_secrets(path: Path | None = None) -> dict:
     """Read the owner's credential file. Values are returned, never logged.
 

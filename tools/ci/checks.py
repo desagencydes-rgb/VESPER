@@ -13194,6 +13194,48 @@ def check_credentials_can_leave_the_plaintext_file() -> Result:
                       "stdout is a credential in every transcript that output "
                       "reaches")
 
+    # 7. A ROTATED KEY THAT NEVER TOOK EFFECT IS REPORTED. The overlay makes
+    #    migration one step and makes a later edit to the file silent; that
+    #    trade is only acceptable because the disagreement is surfaced.
+    with _tf.TemporaryDirectory() as td:
+        f = Path(td) / "secrets.env"
+        f.write_text("export ROTATED_KEY=the-new-value-pasted-into-the-file\n"
+                     "export AGREES=same\n", encoding="utf-8")
+        real_kc = sup.keychain_secret
+
+        def _fake(name, *, service=None):
+            return {"ROTATED_KEY": "the-old-value-still-in-the-keychain",
+                    "AGREES": "same"}.get(name, "")
+
+        sup.keychain_secret = _fake
+        try:
+            found = sup.credential_mismatches(f)
+        finally:
+            sup.keychain_secret = real_kc
+        names = [m["name"] for m in found]
+        if "ROTATED_KEY" not in names:
+            r.err("a variable edited in the file after being migrated is not "
+                  "reported. The keychain silently keeps serving the old value, "
+                  "which is exactly what a rotated key looks like.")
+        if "AGREES" in names:
+            r.err("a variable whose file and keychain values agree was reported "
+                  "as stale, so the warning cries wolf on every start")
+        blob = str(found)
+        for leak in ("the-new-value-pasted-into-the-file",
+                     "the-old-value-still-in-the-keychain"):
+            if leak in blob:
+                r.err("the mismatch report carries the credential value. A "
+                      "finding never carries the value it found.")
+
+    # 8. AND THE RUNTIME PUBLISHES IT, or the report exists and nobody sees it.
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if "credential_mismatches" not in rt:
+        r.err("the runtime never calls credential_mismatches, so a rotated key "
+              "that never took effect is detectable and undetected")
+    if "credentials.stale_file_value" not in rt:
+        r.err("nothing is published when a file value is stale, so the home "
+              "card the owner asked for has no event to render")
+
     r.note("the keychain service is resolved at call time; a missing or "
            "malformed lookup is empty rather than raising; a stored credential "
            "reads back and overlays the same name in the file; a file-only "
