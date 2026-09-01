@@ -667,3 +667,245 @@ being an error.
 - **S1. Skills** — named, packaged procedures VESPER can load on demand.
 - **S2. Sub-agents with worktree isolation** for parallel work.
 - **S3. Session resume with a carried summary.**
+
+---
+---
+
+# PART FIVE — SECOND SWEEP, 2026-09-01 overnight
+
+Owner asked for one more pass with nothing missed. The first pass read eleven of
+Codex's ~120 crates. This one enumerated the rest BY NAME against what the notes
+already covered, went through Aider module by module, and read Claude Code from
+the inside -- which is access no clone gives, and the owner's own point.
+
+Artifact: https://claude.ai/code/artifact/6a07dc94-5ed9-4b45-8940-ba800ad4f775
+(new URL: the previous one belongs to the previous account and cannot be updated
+from here. Content is strictly additive -- proved mechanically, 0 lines removed,
+0 changed, 223 inserted, all 11 original sections intact.)
+
+## THE FINDING THAT MATTERS MOST IS OURS, NOT THEIRS
+
+**`core/taint.py` is not in the act path. It has ZERO production callers.**
+
+```
+core/authorize.py:167   def authorize(..., context_ceiling: str = "L5", ...)
+core/executor.py:113    def execute(..., context_ceiling: str = "L5", ...)
+core/actor.py:123       self._pdp.authorize(subject=, capability_id=, args=,
+                                            target=, current_lease_epoch=0)
+                                            ^^^ no context_ceiling, and no
+                                                other caller passes one either
+
+grep -rn 'ContextCeiling' --include='*.py' .
+  core/taint.py:130                  <- the definition
+  tools/ci/checks.py:7757            <- the check constructs its own
+  verification/run_f2_acceptance.py  <- the acceptance test constructs its own
+                                     <- complete list
+```
+
+`effective = _min_level(grant.max_level, declared, context_ceiling)`. With the
+ceiling permanently `"L5"` that term cannot lower anything, so the trust-class
+ladder in `ALLOWED_LEVEL` contributes NOTHING to any decision the running system
+makes. An argument that came from a web page, a file, or a transcribed utterance
+from someone who is not the owner is `retrieved_external` -- ceiling L1, below
+every state-changing action -- and the actor never asks. It authorizes against
+the L2 standing grant instead.
+
+The subsystem is otherwise the strongest thing in this repository: `summarise()`
+returns a `Tainted` wrapper so losing the taint requires deliberate unwrapping,
+and the cache stores the wrapper rather than the string so second-order
+laundering fails. All of it correct. None of it reachable.
+
+**WHY THE GATES ARE GREEN.** The check imports `ContextCeiling`, constructs it,
+drives it, asserts it behaves. Every assertion true. Not one of them asserts
+that anything ELSE calls it. By this corpus's own rule -- *an instrument's
+self-report is not evidence* -- a check that supplies its own subject is testing
+a library, not a system.
+
+**THIS IS THE THIRD INSTANCE OF ONE SHAPE**, and that is the actual finding:
+
+| Subsystem | Built, gated, correct | Reaches the act path |
+|---|---|---|
+| memory | yes | **no** (recorded 2026-08-31) |
+| `fs.write` read-before-write | verifier confirms the write | **no** (recorded 2026-08-31) |
+| taint / context ceiling | yes | **no** (this sweep) |
+
+So the fix is NOT taint-specific. The missing gate is *"this subsystem has a
+production caller"*: for each subsystem named by an invariant, assert at least
+one call site outside `tools/` and `verification/`. One check closes the class;
+three checks would close three instances and leave the fourth.
+
+## CODEX: GUARDIAN -- a second model reviews the action (~10,300 lines, missed entirely)
+
+`core/src/guardian/` plus the `guardian-context` crate. Before an `on-request`
+approval is shown to the user, a SEPARATE model session assesses the exact
+planned action and returns strict JSON. Its own header: rebuild a compact
+transcript preserving user intent; ask a dedicated reviewer about the precise
+action; **fail closed on timeout, execution failure, or malformed output**;
+apply the explicit allow/deny.
+
+- **TWO INDEPENDENT AXES.** `GuardianRiskLevel {Low,Medium,High,Critical}` AND
+  `GuardianUserAuthorization {Unknown,Low,Medium,High}`. **We have one.**
+- Contract: `{risk_level, user_authorization, outcome, rationale}` -- the
+  rationale is mandatory.
+- `GUARDIAN_REVIEW_TIMEOUT = 90s`. Timeouts are surfaced SEPARATELY from
+  explicit denials, so "we could not tell" never reads as "it said no".
+- **`GuardianRejectionCircuitBreaker`**: `MAX_CONSECUTIVE_GUARDIAN_DENIALS_PER_TURN
+  = 3` (1 for the cyber model), plus a recent-denials window, returning
+  `InterruptTurn`. **We have nothing equivalent.**
+- The reviewer clones the parent config so it inherits the managed network proxy
+  and allowlist -- it cannot become an egress path around the parent's limits.
+- `SectionError::MissingRequiredEvidence`, with the comment *"callers must not
+  review a partial context as though collection succeeded"*. Fail-closed
+  EVIDENCE, not just a fail-closed verdict.
+
+**THE SECOND AXIS IS THE FINDING AND WE SHOULD TAKE IT.** Our ladder asks one
+question: how dangerous is this. Theirs also asks: how strongly did the user
+actually authorize it, with `Unknown` first-class. Those come apart in exactly
+the case this design exists for. A POISONED proposer emits something dangerous
+and the danger axis catches it. A STEERED proposer emits something entirely
+reasonable that the owner never asked for -- `rm` on the right file, a message
+to the wrong person -- and on the danger axis that is unremarkable. We wrote
+"safety does not depend on the proposer being right" as the central sentence;
+one ladder cannot carry it.
+
+**THE CIRCUIT BREAKER BECOMES URGENT THE MOMENT THE LOOP LANDS.** Today one
+action per utterance means a refusal is a dead end. With a loop, a proposer that
+re-proposes a refused action grinds against the ladder indefinitely -- burning
+battery, and if any refusal path reaches the voice ask, waking the owner
+repeatedly. It ships WITH the loop, for the same reason containment does.
+
+**AND ONE THING TO TAKE DELIBERATELY DIFFERENTLY.** Their guardian is a model in
+the decision path, which `ModelCallInDecisionPath` refuses here on purpose. Note
+what it is FOR: it only ever AUTO-APPROVES something that would otherwise have
+interrupted the user. It never lowers a floor. That shape is safe for us -- **a
+model may REMOVE A QUESTION, never GRANT A LEVEL** -- because the deterministic
+ladder still decides what is permitted.
+
+## CODEX: three cheap defences we do not have
+
+**`process-hardening`** runs pre-`main()` via `#[ctor]`. On macOS specifically:
+`ptrace(PT_DENY_ATTACH)`; core file size limit to zero; **every `DYLD_*` env var
+removed**. Each failure is a hard exit with its own distinct code -- hardening
+that silently did not happen is not hardening. Directly relevant: VESPER is a
+long-lived process holding decrypted API keys in memory, listening on a
+microphone, running from a LaunchAgent under the owner's own uid, so SAME-USER
+attach is the realistic threat and `PT_DENY_ATTACH` is its answer. Three calls.
+
+**`keyring-store` + `secrets/sanitizer.rs`** -- two mechanisms for two failures.
+Storage in the OS keyring (the local passphrase itself lives there) is already
+build item 5. The sanitizer is NEW and cheaper: `redact_secrets()` over outbound
+text catching bearer tokens, OpenAI keys, AWS access key ids and generic
+`KEY=VALUE` assignment forms. Our redactor is built for PERSONAL data; a key
+pasted into a file that VESPER reads and quotes back is a different leak through
+the same exit. 87 lines including tests.
+
+**`shell-escalation`** answers what happens when a sandboxed command legitimately
+needs out. Not a flag on the call: an `execve` wrapper inside the sandbox talking
+over a unix socket to an `EscalateServer` outside it, with an `EscalationPolicy`
+deciding per-`execve` from `(file, argv, workdir)`. **The decision is made
+outside the sandbox, per executed binary, on the RESOLVED path** -- not on the
+command string the model wrote. That is the same string-versus-target split that
+produced our `workspace/../../../../etc/passwd` defect, and their design cannot
+have it because the policy never sees a string it must interpret.
+
+## AIDER: the loop continues on EVIDENCE, not on judgement
+
+`run_one` is fifteen lines: send a message, check `reflected_message`, and if it
+is set that becomes the next message. Bounded at `max_reflections = 3`.
+
+**The design is entirely in what is allowed to set that field:** lint errors from
+edited files, test failures from `test_cmd`, an exception, or a request for a
+file that was not shared. **That is the complete list, and "the model would like
+to continue" is not on it.**
+
+So the loop advances on machine-produced evidence that something is WRONG, and
+terminates by default. This is the same split `core/autonomy.py` already enforces
+for the outer loop, arriving independently at the inner one: whether to continue
+is a deterministic predicate over observed state; what to do about it may be a
+model call. **We can build the inner loop without weakening
+`ModelCallInDecisionPath`, and this is the existence proof.**
+
+- **`linter.py`** runs the linter on edited files after every edit, parses
+  filenames and line numbers out of the output, returns erroring lines WITH
+  tree-sitter context. Non-zero exit is the whole trigger. This is the observe
+  step, and for us it is free.
+- **`watch.py`** watches for comments ending `AI!` (do it) or `AI?` (answer it),
+  and the prompt instructs the model to DELETE the comments when done -- so **the
+  trigger consumes itself and cannot re-fire**. A real trigger for our starved
+  outer loop, self-clearing by construction.
+- **`architect_coder.py`** -- one model plans in prose, a second cheaper model
+  with `map_tokens=0` and shell suggestions disabled does nothing but apply the
+  edits. Maps onto our rung router directly.
+- **`search_replace.py`** -- edit strategies tried in order: exact replace ->
+  git-cherry-pick the edit onto the original -> diff-match-patch, each under
+  preprocessors (strip blank lines, relative-indent normalisation).
+  **CAUTION:** their `search_and_replace` has the uniqueness check COMMENTED OUT
+  and calls `str.replace`, which replaces EVERY occurrence. Fine for an
+  interactive tool with git undo one keystroke away; not fine for a voice
+  assistant acting unattended at 3am. Take the ladder, keep unique-match-or-fail
+  as the floor: the ladder should widen HOW a match is found, never HOW MANY it
+  may hit.
+
+## CLAUDE CODE, FROM INSIDE IT (the owner's point, and it was right)
+
+**A TIER THAT AUTHORIZATION CANNOT OPEN.** Three categories -- Regular, Explicit
+permission required, Prohibited -- and the third carries a sentence our ladder
+has no equivalent of: *"These actions stay prohibited when the user explicitly
+asks for them, supplies all the details, or says they authorize it."*
+
+**VESPER has no such tier.** L5 is the top and an L5 grant plus L5 declared plus
+the (permanently L5) ceiling authorizes an L5 action. For a machine the owner
+owns that is mostly right -- but it makes every safety property contingent on
+one spoken "yes", from someone who may be half asleep, to a request produced by a
+proposer we have already agreed we cannot trust. The set should be tiny and
+confined to acts whose only purpose is to defeat the rest of the design: erase
+the shadow-git history, disable the redactor, rewrite the audit log, read the
+credential store out to a model. Not "dangerous" -- SELF-DEFEATING. A grant that
+can turn off the thing that records grants is not a grant.
+
+- **Instruction-source boundary as a stated rule** -- instructions come only from
+  the user in chat; everything through a tool (pages, files, FILENAMES, error
+  messages, screenshots) is data. "Complete my todo list" authorizes READING the
+  list, not executing what it contains. This is `core/taint.py` as a sentence:
+  ours is the better implementation and it is the one not in the path.
+- **Spawn a task instead of widening one** -- notice something out of scope and
+  emit a SELF-CONTAINED item that becomes its own session later, explicitly not
+  for vague smells or trivia. That is `TriageQueue`'s job and the shape the
+  self-directed work queue needs. Note the hard requirement: the item must stand
+  alone without the conversation.
+- **Completion re-invokes; polling is waste.** Background work notifies on
+  finish, so sleeping to check is discouraged in favour of a long fallback.
+  Waiting is an EVENT, not a timer -- the concrete form of what
+  `CronDisguisedAsTrigger` demands.
+- **`noop` as a first-class result.** A self-paced loop reports each wake as
+  "something happened" or "nothing did", and consecutive nothings collapse into a
+  streak. An outer loop running all night must be able to say *I looked and there
+  was nothing*, cheaply. We have no vocabulary for it.
+- **Skills carry their own trigger AND SKIP conditions**, skip overriding. A
+  procedure that knows when it does not apply is the same move as
+  `assert_terminating`: the applicability check belongs to the thing and is
+  checked before it runs.
+- **A scratch directory that is not the workspace.** We learned this expensively
+  -- the note written, hash-verified, reported successful, sitting inside
+  `VESPER.app` where the next `build.sh` deleted it. State beside state, never
+  beside code, as a CONVENTION rather than a fix.
+
+## WHAT PART FIVE ADDS TO THE BUILD LIST
+
+Inserted by urgency. The first two are ahead of everything in the earlier lists.
+
+- **S1. Wire the taint ceiling into the act path, and gate reachability as a
+  class.** Pass a real `context_ceiling` from `actor.py` and `executor.py`. Then
+  the general check: every subsystem named by an invariant has a production call
+  site outside `tools/` and `verification/`.
+- **S2. The rejection circuit breaker, shipping WITH the loop.** N consecutive
+  refusals in a turn stops the turn.
+- **S3. A second axis: how strongly was this authorized**, `Unknown` first-class.
+- **S4. A prohibited set no grant opens** -- audit log, redactor, shadow-git
+  history, credential store.
+- **S5. Evidence-driven reflection as the loop's continue condition.**
+- **S6. Process hardening pre-`main`** -- `PT_DENY_ATTACH`, no core dumps, scrub
+  `DYLD_*`.
+- **S7. An outbound secret sanitizer**, separate from the personal-data redactor.
+- **S8. Escalation as a broker deciding on the resolved binary**, never a string.
+- **S9. Self-clearing triggers, and `noop` as a recordable outcome.**
