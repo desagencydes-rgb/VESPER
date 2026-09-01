@@ -4149,5 +4149,35 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# The consolidation loop. core/compactor.py holds the rule the whole memory
+# design rests on and nothing in the running system imported it.
+# --------------------------------------------------------------------------
+CASES += [
+    ("memory-repairs-its-own-drift", SELF_DIRECTED_PY,
+     _sub("        return s.get(DRIFT_TERM) is True", "        return True", 1),
+     "the predicate stops reading the world: L2 is dropped and rebuilt on every "
+     "tick, which is a maintenance pass wearing a condition's clothes"),
+
+    ("memory-repairs-its-own-drift", SELF_DIRECTED_PY,
+     _sub("        report = compactor.verify()\n        if report.get(\"converged\"):\n"
+          "            return {\"converged\": True, \"reprojected\": False}",
+          "        report = compactor.verify()\n        if True:\n"
+          "            return {\"converged\": True, \"reprojected\": False}", 1),
+     "drift is noticed and never repaired: the finding is published and L2 goes "
+     "on diverging from the log it is a view of"),
+
+    ("memory-repairs-its-own-drift", SELF_DIRECTED_PY,
+     _sub("        debounce_s=900,\n        handler=handler,", "        debounce_s=900,", 1),
+     "the trigger loses its handler, so it fires and repairs nothing -- the "
+     "state the whole autonomy layer was in until yesterday"),
+
+    ("memory-repairs-its-own-drift", RUNTIME,
+     _sub("        autonomy.register(memory_drift_trigger(compactor))", "        pass", 1),
+     "the compactor is built and registered with nothing, so it goes back to "
+     "being imported and never run"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

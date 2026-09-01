@@ -2339,10 +2339,6 @@ CI-085 overnight 2026-08-31 and not yet joined to the gateway. This is the
 freshest instance of the pattern and the reason CI-094 was written the next
 day."""
 
-"core/compactor.py" = """OWED. Re-derivation from the log rather than from its
-own last answer (CI-080). Needs a compaction trigger, which the autonomy layer
-can supply once it has more than one registered trigger."""
-
 "core/knowledge_map.py" = """OWED. SR-007's map, consulted BEFORE retrieval so
 the corpus is never loaded to answer. Landed with CI-088 overnight 2026-08-31.
 Zero production mentions of any kind -- not even in a comment."""

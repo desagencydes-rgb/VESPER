@@ -303,3 +303,87 @@ provenance = "authored"
 # The registry proves the product is state-driven; A-029 proves it is not
 # anticipating the clock. Both are required, and they fail for different reasons.
 ##############################################################################
+
+# --------------------------------------------------------------------------
+# SHIPPED 2026-09-01. Until this date the loop ran with ONE registered trigger
+# -- memory expiry -- and held no reference to the actor, so a fired trigger
+# could publish an event and nothing else. These three are the first entries
+# that can actually cause something to happen.
+#
+# THEY ARE HERE BECAUSE THEY SHIP, not to satisfy CI-026. Two of them use
+# subjects other rows already declared, which is exactly why their absence was
+# invisible: `sensors-never-reach-a-model` checks that a sensor's subject is
+# read by SOME predicate, and `world.current_host` already was. The third
+# introduced `world.memory` and the gate caught it immediately.
+# --------------------------------------------------------------------------
+[triggers.trg_disk_pressure]
+name = "Look at what is filling the disk when it is genuinely low"
+source = "owner requirement 2026-09-01 · the outer loop needed something real to consider"
+enabled = true
+predicate_class = "STATE"
+predicate = """
+  world.current_host.disk_free_ratio < disk_pressure_ratio
+"""
+predicate_note = """NO CLOCK TERM AT ALL, so there is no combination of clock
+values that makes this fire -- the disk has to actually be low. An UNKNOWN
+reading is FALSE, not "probably fine": a sensor that has not reported yet is
+not a healthy disk, and only one of those two readings is safe to act on."""
+debounce_s = 3600
+priority = "proactive"
+required_authority = "L1"
+actuation_scope = "AUTONOMOUS_ACTUATION"
+resource_budget = { max_runtime_ms = 60000, max_tool_calls = 6, cost_class_ceiling = "free" }
+stop_conditions = ["six-step turn budget", "three consecutive refusals", "an immediate repeat of the previous action", "enable token absent"]
+reporting_policy = "queue_to_boundary"
+provenance = "authored"
+
+[triggers.trg_host_unhealthy]
+name = "Look at load and memory pressure when the host reports itself degraded"
+source = "owner requirement 2026-09-01 · same"
+enabled = true
+predicate_class = "STATE"
+predicate = """
+  world.current_host.health in { degraded, unhealthy }
+"""
+predicate_note = """Total over the shapes that term takes -- a string, a missing
+fact, a boolean -- because `assert_terminating` probes it with all of them at
+registration and a predicate that raises on one is refused before it ever
+runs."""
+debounce_s = 1800
+priority = "proactive"
+required_authority = "L1"
+actuation_scope = "AUTONOMOUS_ACTUATION"
+resource_budget = { max_runtime_ms = 60000, max_tool_calls = 6, cost_class_ceiling = "free" }
+stop_conditions = ["six-step turn budget", "three consecutive refusals", "an immediate repeat of the previous action", "enable token absent"]
+reporting_policy = "queue_to_boundary"
+provenance = "authored"
+
+[triggers.trg_memory_drift]
+name = "Re-derive L2 when it stops being what L3 projects"
+source = "MEMORY_ARCHITECTURE.md · project(L3) never compact(L1) · owner requirement 2026-09-01"
+enabled = true
+predicate_class = "STATE"
+predicate = """
+  world.memory.l2_drifted == true
+"""
+predicate_note = """NAMED FOR DRIFT, AND THAT IS NOT COSMETIC. The first version
+read `l2_matches_log` and fired when it was FALSE -- `anti_cron_probe` refused
+it at registration, because a predicate that fires with every state term false
+is indistinguishable from one that fires unconditionally: it runs on an empty
+world, which is the clock. Firing now requires a POSITIVE observation of drift.
+
+THE ONLY ROW HERE WITH A HANDLER RATHER THAN AN INTENT. Re-deriving L2 is
+deterministic maintenance with one right answer; asking a model to propose it
+would put a model in front of a decision already made. The summary a model
+might write is a different job -- `compact()` -- which needs a summariser and a
+token budget and is not this."""
+debounce_s = 900
+priority = "maintenance"
+required_authority = "L2"
+# NONE, and that is the honest value. This trigger's handler re-derives L2
+# from L3 in process; it actuates nothing outside VESPER and asks no model.
+actuation_scope = "NONE"
+resource_budget = { max_runtime_ms = 30000, max_tool_calls = 0, cost_class_ceiling = "free" }
+stop_conditions = ["projection complete", "enable token absent"]
+reporting_policy = "queue_to_boundary"
+provenance = "authored"

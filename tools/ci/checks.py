@@ -13658,8 +13658,138 @@ def check_l1_spends_a_token_budget() -> Result:
     return r
 
 
+def check_memory_repairs_its_own_drift() -> Result:
+    """L2 stops being what L3 projects, and something notices and fixes it.
+
+    THE CONSOLIDATION LOOP, WHICH HAD NEVER RUN. `core/compactor.py` holds the
+    rule this entire memory design rests on -- `project(L3)`, never
+    `compact(L1)` -- and nothing in the running system imported it. So L2 could
+    drift from the log it is supposed to be a view of and nothing anywhere
+    would report it: each node's L2 is internally consistent, which is exactly
+    why the divergence is silent.
+
+    A HANDLER, NOT AN INTENT. Re-deriving L2 is deterministic maintenance with
+    one right answer. Routing it through the proposer would put a model in
+    front of a decision already made -- and the summary a model might write is
+    a different job (`compact()`), which needs a summariser and a budget.
+
+    THE TERM IS NAMED FOR DRIFT, AND THAT IS NOT COSMETIC. The first version
+    read `l2_matches_log` and fired when it was FALSE; `anti_cron_probe`
+    refused it at registration, because a predicate that fires with every state
+    term false is indistinguishable from one that fires unconditionally -- it
+    runs on an empty world, which is the clock. Firing now requires a POSITIVE
+    observation of drift.
+    """
+    r = Result("memory-repairs-its-own-drift")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf
+    try:
+        from core.autonomy import (AutonomyLoop, PredicateEvaluator,
+                                   anti_cron_probe)
+        from core.bus import EventBus
+        from core.compactor import Compactor
+        from core.hlc import HybridLogicalClock
+        from core.memory import MemoryGraph
+        from core.self_directed import DRIFT_TERM, memory_drift_trigger
+        from core.store import StoreSet
+        from core.world import Observation, WorldModel
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the consolidation modules do not import: {exc!r}")
+        return r
+
+    # 1. THE RUNTIME BUILDS AND REGISTERS IT.
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    for needle, why in (
+            ("Compactor(", "the runtime never constructs a Compactor, so L2 has "
+                           "nothing that re-derives it"),
+            ("memory_drift_trigger(", "the drift trigger is never registered"),
+            ("l2_drifted", "no sensor reports drift, so the trigger has nothing "
+                           "to fire on")):
+        if needle not in rt:
+            r.err(why)
+
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("drift")
+        store = StoreSet(base / "s", node_id="drift")
+        bus = EventBus(clock, store, component="drift")
+        world = WorldModel(bus, clock)
+        mem = MemoryGraph(store)
+        comp = Compactor(mem, store, clock, bus=bus)
+        for i in range(5):
+            mem.remember(subject="project", attribute=f"n{i}", value=f"v{i}",
+                         rank=3, privacy="private", trust_class="owner",
+                         at=clock.now())
+
+        trig = memory_drift_trigger(comp)
+        # 2. IT IS NOT CRON. The probe is run here as well as at registration,
+        #    because this is the property the first version got wrong.
+        if anti_cron_probe(trig).get("fires_on_clock_alone"):
+            r.err("the drift trigger fires with every state term false, so it "
+                  "runs on an empty world -- which is the clock")
+        if not getattr(trig, "handler", None):
+            r.err("the drift trigger has no handler, so it can fire and repair "
+                  "nothing")
+
+        seen: list = []
+        bus.subscribe("autonomy.handled", lambda e: seen.append(e.payload),
+                      name="drift-check", idempotency_key=lambda e: e.event_id)
+        loop = AutonomyLoop(bus, world, PredicateEvaluator(bus, world),
+                            now_ms=lambda: 0)
+        loop.register(trig)
+        subj, attr = DRIFT_TERM.rsplit(".", 1)
+
+        # 3. A CONVERGED MEMORY IS LEFT ALONE. Without this, a handler that
+        #    reprojected unconditionally would satisfy everything below.
+        world.apply(Observation(subj, attr, False, clock.now(), source="probe",
+                                confidence=1.0))
+        loop.dispatch(loop.tick())
+        if seen:
+            r.err("the loop repaired a memory that had not drifted, so it is "
+                  "rebuilding L2 on a schedule rather than on a condition")
+
+        # 4. DRIFT IS DETECTED AND REPAIRED.
+        mem._conn.execute("DELETE FROM fact WHERE attribute='n2'")  # noqa: SLF001
+        mem._conn.commit()                                          # noqa: SLF001
+        before = int(mem.counts().get("fact", 0))
+        if comp.verify().get("converged"):
+            r.err("removing a row from L2 left it converged, so verify() is not "
+                  "comparing anything")
+        world.apply(Observation(subj, attr, True, clock.now(), source="probe",
+                                confidence=1.0))
+        seen.clear()
+        loop.dispatch(loop.tick())
+        if not seen:
+            r.err("L2 drifted and the loop did nothing")
+        after = int(mem.counts().get("fact", 0))
+        if after <= before:
+            r.err(f"L2 held {before} facts before the repair and {after} after; "
+                  "the reprojection did not restore what the log projects")
+        if not comp.verify().get("converged"):
+            r.err("L2 is still not what L3 projects after a repair, so the "
+                  "repair reports success and leaves the divergence")
+
+        # 5. AND AN UNKNOWN READING REPAIRS NOTHING. A sensor that cannot
+        #    answer must not be able to trigger a rebuild of L2.
+        world.apply(Observation(subj, attr, None, clock.now(), source="probe",
+                                confidence=1.0))
+        seen.clear()
+        loop.dispatch(loop.tick())
+        if seen:
+            r.err("an UNKNOWN drift reading rebuilt L2. A probe that has not "
+                  "answered is not evidence that memory is broken.")
+
+    r.note("the runtime builds the compactor, registers the drift trigger and "
+           "a sensor for it; the trigger is not cron and carries a handler; a "
+           "converged memory is left alone; a corrupted L2 is detected, "
+           "reprojected and converges; and an UNKNOWN reading repairs nothing")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "memory-repairs-its-own-drift": check_memory_repairs_its_own_drift,
     "l1-spends-a-token-budget": check_l1_spends_a_token_budget,
     "a-decline-is-not-an-attempt": check_a_decline_is_not_an_attempt,
     "authorization-strength-is-its-own-axis": check_authorization_strength_is_its_own_axis,

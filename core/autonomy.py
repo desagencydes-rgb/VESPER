@@ -92,6 +92,15 @@ class Trigger:
     # WHAT to do once awake may be a model call, and mixing them would put a
     # model back in the decision path this module exists to keep it out of.
     intent: str = ""
+    # SYSTEM WORK, for triggers whose answer is not a proposed action. The
+    # compactor re-deriving L2 from L3 is not something to ask a model to
+    # propose -- it is deterministic maintenance with one right answer, and
+    # routing it through the proposer would put a model in front of a decision
+    # that has already been made.
+    #
+    # LIKE `intent`, IT IS NEVER READ WHILE DECIDING. `tick` does not touch it;
+    # `dispatch` calls it after the predicate has returned True.
+    handler: Any = None
 
     def __post_init__(self) -> None:
         if self.predicate_class not in PREDICATE_CLASSES:
@@ -501,6 +510,23 @@ class AutonomyLoop:
             tid = action.get("trigger_id")
             trigger = self._triggers.get(tid)
             intent = getattr(trigger, "intent", "") if trigger else ""
+            handler = getattr(trigger, "handler", None) if trigger else None
+
+            if handler is not None:
+                try:
+                    got = handler()
+                except Exception as exc:            # noqa: BLE001
+                    self._bus.publish(
+                        "autonomy.handler_failed", subject=tid,
+                        payload={"trigger_id": tid,
+                                 "error": f"{type(exc).__name__}: {exc}"},
+                        component="autonomy")
+                else:
+                    rec = {"trigger_id": tid, "handled": True, "result": got}
+                    done.append(rec)
+                    self._bus.publish("autonomy.handled", subject=tid,
+                                      payload=rec, component="autonomy")
+
             if not intent:
                 continue
             if self._actor is None:

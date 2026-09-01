@@ -30,6 +30,8 @@ leaves the decision about what to DO with the finding to a person who is awake.
 
 from __future__ import annotations
 
+from typing import Any
+
 from .autonomy import Trigger
 
 # Below this share of the disk free, the machine is worth looking at. Not a
@@ -91,6 +93,79 @@ def host_health_trigger() -> Trigger:
     )
 
 
-def all_triggers() -> list:
-    """Everything VESPER runs for itself. One place, so it can be counted."""
-    return [disk_pressure_trigger(), host_health_trigger()]
+# L2 AND L3 DISAGREEING IS THE ONLY HONEST SIGNAL FOR THIS. A trigger that
+# fired on "it is 3am and we are on mains" would pass the anti-cron probe --
+# power source is world state -- and would still be a scheduled job wearing a
+# predicate's clothes. Counting is cheap, cannot fire on the clock, and is
+# false exactly when there is work to do.
+DRIFT_TERM = "world.memory.l2_drifted"
+
+
+def memory_drift_trigger(compactor: Any) -> Trigger:
+    """Fires when L2 has stopped being what L3 projects, and repairs it.
+
+    WHY THIS IS A HANDLER AND NOT AN INTENT. Re-deriving L2 from L3 is
+    deterministic maintenance with one right answer. Asking a model to propose
+    it would put a model in front of a decision already made, and the summary
+    it might write is a different job -- `compact()` -- which needs a
+    summariser and a token budget and is not this.
+
+    REPROJECTION IS THE RECOVERY PATH AND IT IS SAFE TO REPEAT. It drops L2 and
+    rebuilds it from the log AND the tombstones, so an erasure the owner asked
+    for is not resurrected by a maintenance pass. Running it twice produces the
+    same L2 as running it once.
+
+    VERIFY BEFORE REBUILDING. `verify()` is a pure comparison; `reproject()`
+    throws away a table. Doing the cheap check first means the expensive one
+    only happens when there is something to fix, and the finding is published
+    either way -- a drift that was repaired silently is a divergence nobody
+    ever learns the cause of.
+    """
+    def predicate(s: dict) -> bool:
+        # NAMED FOR THE CONDITION THAT MATTERS, and that is not cosmetic. The
+        # first version read `world.memory.l2_matches_log` and fired when it
+        # was FALSE -- and `anti_cron_probe` refused it at registration, on the
+        # grounds that a predicate firing with every state term false is
+        # indistinguishable from one that fires unconditionally. It was right:
+        # such a trigger runs on an empty world, which is the clock.
+        #
+        # Inverting the term makes firing require a POSITIVE observation of
+        # drift. UNKNOWN and False both mean "do nothing", which is also the
+        # acting side of INV-COORD-2 -- a probe that has not answered is not
+        # evidence that L2 is broken.
+        return s.get(DRIFT_TERM) is True
+
+    def handler() -> dict:
+        report = compactor.verify()
+        if report.get("converged"):
+            return {"converged": True, "reprojected": False}
+        out = compactor.reproject()
+        after = compactor.verify()
+        return {"converged": False, "reprojected": True,
+                "expected": report.get("expected"),
+                "actual": report.get("actual"),
+                "projected": out.get("projected"),
+                "converged_after": after.get("converged")}
+
+    return Trigger(
+        trigger_id="trg_memory_drift",
+        predicate_class="STATE",
+        predicate=predicate,
+        state_terms=(DRIFT_TERM,),
+        debounce_s=900,
+        handler=handler,
+    )
+
+
+def all_triggers(compactor: Any = None) -> list:
+    """Everything VESPER runs for itself. One place, so it can be counted.
+
+    `compactor` is optional so a caller with no memory still gets the host
+    triggers. A None compactor means the drift trigger is not registered at
+    all, rather than registered and quietly doing nothing -- a trigger that
+    fires and cannot act is the state this whole layer was in until yesterday.
+    """
+    out = [disk_pressure_trigger(), host_health_trigger()]
+    if compactor is not None:
+        out.append(memory_drift_trigger(compactor))
+    return out

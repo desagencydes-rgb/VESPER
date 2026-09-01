@@ -54,6 +54,7 @@ from core.devices import CONTINUITY_CRITICAL, DeviceRegistry    # noqa: E402
 from core.repair import RepairAgent                             # noqa: E402
 from core.forgetter import expiry_trigger                       # noqa: E402
 from core.self_directed import all_triggers as self_directed_triggers  # noqa: E402
+from core.self_directed import memory_drift_trigger             # noqa: E402
 from core.sensors import Sensor, SensorRegistry, SWEEP, TIMER   # noqa: E402
 from core.world import WorldModel                               # noqa: E402
 from core.difficulty import classify                            # noqa: E402
@@ -64,6 +65,7 @@ from core.context_control import ContextCommands                # noqa: E402
 from core.presence import Presence                              # noqa: E402
 from core.speech import Speech, speech_rows                     # noqa: E402
 from core.blocks import L1Renderer                              # noqa: E402
+from core.compactor import Compactor                            # noqa: E402
 from core.context import ContextBudgetManager                   # noqa: E402
 from core.actor import Actor                                    # noqa: E402
 from core.confirm import ConfirmationBroker                     # noqa: E402
@@ -289,9 +291,14 @@ def build(node: str = "vesper-runtime"):
     for _t in self_directed_triggers():
         autonomy.register(_t)
 
-    memory = renderer = updater = misses = None
+    memory = renderer = updater = misses = compactor = None
     try:
         memory = MemoryGraph(store, path=str(STATE / "l2.db"))
+        # THE CONSOLIDATION LOOP, WHICH HAD NEVER RUN. core/compactor.py holds
+        # the rule this memory design rests on -- project(L3), never
+        # compact(L1) -- and nothing in the running system imported it, so
+        # nothing had ever noticed L2 drifting from the log it is a view of.
+        compactor = Compactor(memory, store, clock, bus=bus)
         # L1'S BUDGET IS TOKENS AND IT HAD NONE. `ContextBudgetManager` was
         # built for this and constructed only by tests, so block B truncated at
         # a fact COUNT -- five long facts could overrun a provider's window
@@ -323,6 +330,30 @@ def build(node: str = "vesper-runtime"):
                                       "because a turn without memory is "
                                       "indistinguishable from one with it.")},
                     component="runtime")
+
+    # DOES L2 STILL MATCH WHAT L3 PROJECTS? Registered here because it needs
+    # both memory and the compactor, and both are None if memory failed to open.
+    #
+    # COUNTING IS THE CHEAP HALF; the authority is `Compactor.verify()`, which
+    # the trigger's handler runs. A sensor that projected the whole log every
+    # ten minutes would be a maintenance pass pretending to be a probe.
+    if memory is not None and compactor is not None:
+        def _l2_drifted() -> Any:
+            try:
+                l2 = int(memory.counts().get("fact", 0))
+                rows = store.read("log", kind="memory.fact", limit=1_000_000)
+                return l2 != max(0, len(rows) - len(compactor.erased_seqs()))
+            except Exception:                       # noqa: BLE001
+                # UNKNOWN, NOT FALSE. A probe that cannot answer must not
+                # report drift: the predicate treats UNKNOWN as "do nothing",
+                # and returning False here would rebuild L2 on every transient
+                # read error.
+                return None
+
+        sensors.register(Sensor("l2-drifted", "world.memory",
+                                "l2_drifted", _l2_drifted, SWEEP,
+                                period_ms=600_000))
+        autonomy.register(memory_drift_trigger(compactor))
 
     # VERIFICATION, REGISTERED RATHER THAN DECLARED. `core/verify.py` listed two
     # machine-checkable strategies and `Verifier` was a registry with nothing in
