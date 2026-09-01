@@ -13271,6 +13271,153 @@ def check_silence_is_recorded_once_not_every_tick() -> Result:
     return r
 
 
+def check_the_loop_ticks_at_the_cadence_it_declares() -> Result:
+    """`tick_interval_s` is a target, not decoration -- and the stop stays fast.
+
+    THE DEFECT, MEASURED ON THE LIVE LOG. `AutonomyLoop.tick_interval_s` has
+    defaulted to 1.0 since the class was written and NOTHING CONSULTED IT. The
+    pump called `tick()` on every pass, and the pump's pass is POLL_SECONDS =
+    0.15 -- an interval chosen for the SPEECH path, as the comment at the sleep
+    says. Measured: a 163 ms median gap between heartbeats (10th pct 158, 90th
+    170), 625,172 of them in 41.8 hours, 208 MB/day of a record whose useful
+    content is 35 of its 579 bytes. The loop ran 6.7x faster than it claimed.
+
+    THIS IS THE SENSOR PATTERN, NOT A NEW ONE. `SensorRegistry` already gives
+    every sensor a `period_ms` and polls it only when due -- 60 s, 120 s, 300 s
+    -- inside this same 0.15 s pump. Autonomy was the one subsystem never given
+    it. The sensor module's own comment is the whole argument: "a heartbeat
+    nobody asked for buries the events that matter under a hundred to one".
+
+    WHY SLOWING IT IS SAFE, CHECKED RATHER THAN ASSUMED. The shortest debounce
+    among the real triggers in core/self_directed.py is 300 s, so a 1 s cadence
+    is 300 passes ahead of anything that could act on it. There are ZERO
+    SCHEDULE-class triggers registered, so nothing needs sub-second precision.
+    And A-029 part 1 takes `tick_interval_ms` as a PARAMETER -- it asserts the
+    loop ticks at whatever cadence it declares, so honouring the declaration
+    makes that gate measure the thing that actually runs.
+
+    THE FOURTH ASSERTION IS THE ONE THAT MATTERS MOST. A-031.1 declares a 2 s
+    T_new_action budget: no new autonomous action may begin more than 2 s after
+    the stop engages. The interlock is consulted in `dispatch`, so pacing
+    `dispatch` paces the stop with it. That is fine at 1 s and NOT fine at 15 s,
+    and the token presentation must stay on the fast pass regardless. A future
+    change that slows the cadence without moving the stop check would break the
+    emergency stop while every other assertion here still passed.
+    """
+    r = Result("the-loop-ticks-at-the-cadence-it-declares")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf
+    try:
+        from core.autonomy import AutonomyLoop, PredicateEvaluator
+        from core.bus import EventBus
+        from core.hlc import HybridLogicalClock
+        from core.self_directed import all_triggers
+        from core.store import StoreSet
+        from core.world import WorldModel
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the autonomy path did not import: {exc!r}")
+        return r
+
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("cadence")
+        store = StoreSet(base / "s", node_id="cadence")
+        bus = EventBus(clock, store, component="cadence")
+        now = {"t": 0}
+        world = WorldModel(bus, clock, now_ms=lambda: now["t"])
+        loop = AutonomyLoop(bus, world, PredicateEvaluator(bus, world),
+                            tick_interval_s=1.0, now_ms=lambda: now["t"])
+
+        # 1. DUE IS A CLOCK, NOT A CONSTANT. A `due()` that always returns True
+        #    passes assertion 2 on a loop driven slowly and fails only under the
+        #    pump, which is the one place it is never tested.
+        if not loop.due():
+            r.err("a loop that has never ticked is not due, so it would wait a "
+                  "full interval before its first pass")
+        loop.tick()
+        now["t"] = 500
+        if loop.due():
+            r.err("due() is True 500 ms into a declared 1000 ms interval, so "
+                  "the cadence is not being honoured")
+        now["t"] = 1000
+        if not loop.due():
+            r.err("due() is still False after a full declared interval, so the "
+                  "loop would never tick again")
+
+        # 2. DRIVEN AT THE REAL PUMP RATE, the loop ticks at ITS rate.
+        POLL_MS, PASSES = 150, 2000          # POLL_SECONDS = 0.15 in the pump
+        loop2 = AutonomyLoop(bus, world, PredicateEvaluator(bus, world),
+                             tick_interval_s=1.0, now_ms=lambda: now["t"])
+        for t in all_triggers():
+            loop2.register(t)
+        for i in range(PASSES):
+            now["t"] = i * POLL_MS
+            if loop2.due():
+                loop2.tick()
+        wall_s = PASSES * POLL_MS / 1000.0
+        # Generous bounds: this asserts the ORDER OF MAGNITUDE is the declared
+        # one, not that the arithmetic is exact. A loop ticking once per pass
+        # lands at 2000 and a dead one at 1.
+        if not (0.7 * wall_s <= loop2.ticks <= 1.3 * wall_s):
+            r.err(f"{PASSES} pump passes over {wall_s:.0f} s produced "
+                  f"{loop2.ticks} ticks; a loop declaring 1.0 s should produce "
+                  f"about {wall_s:.0f}. It is running at the pump's cadence, "
+                  "not its own.")
+
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+
+    # 3. THE PUMP ACTUALLY CONSULTS IT. Counted rather than found: `due()`
+    #    survives being written and never called.
+    if "if autonomy.due():" not in rt:
+        r.err("the pump does not gate the tick on the loop's declared cadence, "
+              "so tick_interval_s is decoration again")
+
+    # 4. THE STOP STAYS ON THE FAST PASS. A-031.1's 2 s budget.
+    #
+    #    SCOPED TO THE PUMP'S AUTONOMY BLOCK, and the first version was not.
+    #    It used `rt.find("_present_enable_token(interlock)")` over the whole
+    #    file, which matches the FUNCTION DEFINITION hundreds of lines earlier
+    #    -- so the mutation that deleted the call site came back GREEN and this
+    #    assertion, the one guarding the emergency stop's timing budget, was
+    #    testing nothing at all. Anchoring to the block is what makes the
+    #    ordering question meaningful.
+    block = rt.find("if autonomy is not None:")
+    gate = rt.find("if autonomy.due():", block) if block >= 0 else -1
+    tok = rt.find("_present_enable_token(interlock)", block) if block >= 0 else -1
+    if block < 0 or gate < 0:
+        r.err("cannot locate the pump's autonomy block and its cadence gate, "
+              "so the stop path's position cannot be checked")
+    elif tok < 0:
+        r.err("the pump's autonomy block no longer presents an enable token at "
+              "all, so nothing arms the interlock on the fast pass and "
+              "autonomy fails toward stopped every interval")
+    elif tok > gate:
+        r.err("the enable token is presented INSIDE the cadence gate, so the "
+              "stop path now runs at the autonomy cadence rather than the "
+              "pump's. A-031.1 declares a 2 s T_new_action budget and this is "
+              "how it silently stops being true.")
+
+    try:
+        from core.self_directed import all_triggers as _at
+        debounces = [t.debounce_s for t in _at() if t.debounce_s]
+        sched = [t for t in _at() if t.predicate_class == "SCHEDULE"]
+    except Exception:                               # noqa: BLE001
+        debounces, sched = [], []
+    if sched:
+        r.err(f"{len(sched)} SCHEDULE-class trigger(s) are registered, which "
+              "may need finer precision than the declared cadence. The safety "
+              "of pacing this loop rests on there being none.")
+
+    r.note(f"due() honours the declared interval at its boundaries; 2000 pump "
+           f"passes at 150 ms produce ticks at the declared 1.0 s rather than "
+           f"the pump's 0.15 s; the pump gates on it; the enable token stays "
+           f"ahead of the gate so the stop keeps A-031.1's 2 s budget; "
+           f"shortest real debounce is {min(debounces) if debounces else 'n/a'} s "
+           f"and {len(sched)} SCHEDULE-class triggers are registered")
+    return r
+
+
 def check_credentials_can_leave_the_plaintext_file() -> Result:
     """A credential in the Keychain is used, and the file remains the fallback.
 
@@ -15123,6 +15270,7 @@ CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
     "silence-is-recorded-once-not-every-tick": check_silence_is_recorded_once_not_every_tick,
+    "the-loop-ticks-at-the-cadence-it-declares": check_the_loop_ticks_at_the_cadence_it_declares,
     "host-pressure-read-through-the-adapter": check_host_pressure_is_read_through_the_adapter,
     "floor-held-and-offered-to": check_the_floor_is_held_and_offered_to,
     "boundary-asked-before-the-write": check_the_boundary_is_asked_before_the_write,

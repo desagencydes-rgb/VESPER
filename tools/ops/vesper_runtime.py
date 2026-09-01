@@ -825,10 +825,27 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             # already seen is refused by token_id, so this is idempotent and a
             # captured token cannot extend autonomy twice.
             _present_enable_token(interlock)
-            # DECIDE, THEN ACT ON WHAT WAS DECIDED. Two calls rather than one
-            # because `tick` must hold no reference to the actor: that is what
-            # keeps "no model in the decision path" structural.
-            autonomy.dispatch(autonomy.tick())
+            # PACED BY THE LOOP'S OWN DECLARED CADENCE, not by the pump's.
+            # POLL_SECONDS is 0.15 because the SPEECH path needs it -- the
+            # comment at the sleep says so -- and autonomy was hitched to the
+            # same pass, so it ran 6.7x faster than the `tick_interval_s = 1.0`
+            # it declares. Measured on the live log: a 163 ms median gap
+            # between heartbeats, 625,172 of them in 41.8 hours, 208 MB/day.
+            #
+            # The fastest thing any trigger can do is 300 s away (the shortest
+            # debounce in core/self_directed.py), so a 1 s cadence is still 300
+            # passes ahead of anything that could act on it. This is the same
+            # treatment SensorRegistry already gives its sensors, which run at
+            # 60-300 s inside this very pump.
+            #
+            # `_present_enable_token` stays on the FAST pass deliberately: it
+            # is the stop path, and A-031.1 declares a 2 s T_new_action budget.
+            # Presenting a token is not deciding anything.
+            if autonomy.due():
+                # DECIDE, THEN ACT ON WHAT WAS DECIDED. Two calls rather than
+                # one because `tick` must hold no reference to the actor: that
+                # is what keeps "no model in the decision path" structural.
+                autonomy.dispatch(autonomy.tick())
         except Exception as exc:                   # noqa: BLE001
             bus.publish("autonomy.loop_failed", subject="autonomy",
                         payload={"error": repr(exc)}, component="runtime")

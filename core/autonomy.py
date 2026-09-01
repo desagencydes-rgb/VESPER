@@ -374,6 +374,10 @@ class AutonomyLoop:
         self._world = world
         self._eval = evaluator
         self.tick_interval_s = tick_interval_s
+        # When the last tick ran, for `due()`. None means never, so
+        # the first pass always ticks rather than waiting one interval
+        # for a loop that has only just started.
+        self._last_tick_ms: float | None = None
         self._now_ms = now_ms or (lambda: 0)
         self._triggers: dict[str, Trigger] = {}
         self._last_fire: dict[str, int] = {}
@@ -437,10 +441,40 @@ class AutonomyLoop:
             self._triggers[trigger.trigger_id] = trigger
         return trigger
 
+    def due(self, *, now_ms: float | None = None) -> bool:
+        """Has `tick_interval_s` elapsed since the last tick?
+
+        THE LOOP DECLARED A CADENCE AND NOTHING CONSULTED IT. `tick_interval_s`
+        has defaulted to 1.0 since this class was written, and the pump called
+        `tick()` on every pass -- so the loop ran at POLL_SECONDS (0.15 s),
+        which is the interval the SPEECH path needs, not this one. Measured on
+        the live log: a median gap of 163 ms between heartbeats, 6.7x the rate
+        the loop says it runs at. The declared value was not a target, it was
+        decoration.
+
+        WHY THIS IS THE SENSOR PATTERN AND NOT A NEW ONE. `SensorRegistry`
+        already solves exactly this: sensors declare `period_ms` (60 s, 120 s,
+        300 s) and are polled only when due, inside the same 0.15 s pump. The
+        autonomy loop is the one subsystem that was never given the same
+        treatment, and the sensor module's own comment is the argument -- "a
+        heartbeat nobody asked for buries the events that matter under a
+        hundred to one".
+
+        PACED ON A DURATION CLOCK, WHICH IS NOT AN ORDERING. INV-COORD-4 says
+        the wall clock never orders or supersedes; "has 1 second elapsed" is a
+        duration question, is answered the same way sensors answer theirs, and
+        orders nothing.
+        """
+        now = self._now_ms() if now_ms is None else now_ms
+        if self._last_tick_ms is None:
+            return True
+        return (now - self._last_tick_ms) >= self.tick_interval_s * 1000.0
+
     def tick(self) -> list:
         """One cycle. Emits a heartbeat whether or not anything fires."""
         with self._lock:
             self.ticks += 1
+            self._last_tick_ms = self._now_ms()
             triggers = list(self._triggers.values())
 
         hb = {"tick": self.ticks, "at_ms": self._now_ms()}
