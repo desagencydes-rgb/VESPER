@@ -792,12 +792,40 @@ microphone, running from a LaunchAgent under the owner's own uid, so SAME-USER
 attach is the realistic threat and `PT_DENY_ATTACH` is its answer. Three calls.
 
 **`keyring-store` + `secrets/sanitizer.rs`** -- two mechanisms for two failures.
-Storage in the OS keyring (the local passphrase itself lives there) is already
-build item 5. The sanitizer is NEW and cheaper: `redact_secrets()` over outbound
-text catching bearer tokens, OpenAI keys, AWS access key ids and generic
-`KEY=VALUE` assignment forms. Our redactor is built for PERSONAL data; a key
-pasted into a file that VESPER reads and quotes back is a different leak through
-the same exit. 87 lines including tests.
+Storage in the OS keyring (the local passphrase itself lives there) is still
+build item 5 and still open: `~/.config/vesper/secrets.env` is plaintext.
+
+**THE SANITIZER HALF WAS WRONG AND IS WITHDRAWN.** Part Five said "our redactor
+is built for PERSONAL data" and proposed building an outbound secret sanitizer
+alongside it. That was written from the name and not from the file.
+`core/redact.py`'s first line is *"Credential detection and redaction --
+deterministic, and never a model"*, and measured against every shape Codex's 87
+lines catch, plus three it does not:
+
+| shape | caught | as |
+|---|---|---|
+| `Authorization: Bearer ...` | yes | `bearer_header` |
+| OpenAI-style key | yes | `openai_style_key` |
+| `AWS_ACCESS_KEY_ID=...` | yes | `aws_access_key` |
+| `export API_TOKEN=...` | yes | `named_secret_assignment` |
+| Google/Gemini-style key | yes | `high_entropy_token` |
+| GitHub PAT | yes | `github_token` |
+| `BEGIN OPENSSH PRIVATE KEY` | yes | `private_key_block` |
+| innocent prose, long words | **no** | (no false positives) |
+
+Ours is strictly the better instrument: patterns are the floor and Shannon
+entropy is the net, so a provider inventing a new prefix tomorrow is still
+caught, which a fixed regex list cannot do. Building the "cheaper" version
+would have added a second, worse implementation of a solved problem -- and
+`core/redact.py`'s own docstring warns about exactly that: *"Two implementations
+would drift, and the one that drifted would be the one nobody was watching."*
+
+**AND THE LOOP'S NEW EGRESS IS COVERED.** The agentic loop renders observations
+-- including file contents -- into the next proposal's prompt, which is a path
+that did not exist when the redactor was written. Measured: a key inside a file
+read at step one is `[REDACTED:...]` before the request leaves, because the
+gateway redacts prompt, system and history before the adapter (CI-084), and the
+observation text arrives as the prompt.
 
 **`shell-escalation`** answers what happens when a sandboxed command legitimately
 needs out. Not a flag on the call: an `execve` wrapper inside the sandbox talking
@@ -909,3 +937,8 @@ Inserted by urgency. The first two are ahead of everything in the earlier lists.
 - **S7. An outbound secret sanitizer**, separate from the personal-data redactor.
 - **S8. Escalation as a broker deciding on the resolved binary**, never a string.
 - **S9. Self-clearing triggers, and `noop` as a recordable outcome.**
+
+- **S7. ~~An outbound secret sanitizer~~ WITHDRAWN 2026-09-01.** `core/redact.py`
+  already does this and does it better -- patterns plus entropy, against Codex's
+  patterns alone. Verified by measurement before building, which is the only
+  reason a duplicate did not get written.
