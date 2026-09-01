@@ -1,100 +1,91 @@
 # Handoff — pick up here
 
-Written 2026-09-01, ~23:00, at the end of the session that gave VESPER
-capabilities and surveyed the agent landscape. Read this first, then
-`CLAUDE.md`, then `docs/AGENT_LANDSCAPE_NOTES.md`.
+Rewritten 2026-09-01 06:30, at the end of the overnight session that completed
+tier one of the build order. Read this, then
+`docs/WORK_REPORT_2026-09-01_OVERNIGHT.md`, then `CLAUDE.md`.
 
-## You do not need the previous chat transcript
+## State
 
-Everything decided is already written down and pushed:
-
-| What | Where |
-|---|---|
-| The investigation, in full detail | `docs/AGENT_LANDSCAPE_NOTES.md` (4 parts) |
-| Last night's work + what needs the owner | `docs/WORK_REPORT_2026-08-31_EVENING.md` |
-| Doctrine, gate commands, machine facts | `CLAUDE.md` |
-| Measured numbers with provenance | `MEMORY.md` |
-| Per-node setup | `HANDOFF_TO_MACBOOK.md` |
-
-The auto-memory (29 files) lives at
-`~/.claude/projects/-Users-macbook-Projects-VESPER/memory/` and is keyed to the
-**project path, not the account** — so on this same Mac a different account
-picks it up unchanged. `MEMORY.md` there is its index.
-
-## State as of this handoff
-
+- **97 checks pass. 462/462 self-test cases** red under violation, green after
+  restore. Both lints, F0–F6 acceptance, placement and fabric stress all pass.
 - Working tree clean, everything pushed to `feat/macos-host-profile`.
-- **87 checks pass. 405/405 self-test cases** red-under-violation,
-  green-after-restore. Both lints, F0–F6 acceptance, placement and fabric
-  stress all pass.
-- VESPER is **stopped** — the owner asked for it off to watch a film. The
-  globe-key watcher (`ai.vesper.island.fnwatch`) is still loaded so Fn ×3 starts
-  it again. Full restart:
-  `launchctl bootstrap gui/501 ~/Library/LaunchAgents/ai.vesper.island.plist`
-- Speech recognition **is granted** and the wake word was confirmed working
-  acoustically. Accessibility for the globe key is granted-in-effect (the
-  watcher fires) though `--fn-status` reports the flag false.
-- One Swift change is **committed but not built**: the wake-listener retry
-  (`scheduleWakeRetry`). It type-checks clean. It was deliberately not built
-  because `build.sh` re-signs and would revoke the owner's TCC grants. **The
-  next build must be followed by re-granting** — see
-  `[[tcc-grants-die-on-every-rebuild]]` in memory.
+- Backup branch `backup/pre-overnight-2026-09-01` at `831a177` — the state
+  before the overnight run.
+- `build.sh` has **not** been run since the last TCC grant. Speech and
+  Accessibility are intact. `scheduleWakeRetry` is still committed and unbuilt;
+  **the next build must be followed by re-granting** —
+  `[[tcc-grants-die-on-every-rebuild]]`.
 
-## What the owner asked for next, verbatim in intent
+## What needs the owner, in order
 
-1. **One more sweep of the landscape investigation — miss nothing** — then ADD
-   to the artifact (`https://claude.ai/code/artifact/2c2ec20a-ad18-4dc2-9760-8d0df4e3c6b8`).
-   **Do not remove anything already in it.** They have twice corrected me for
-   compressing rather than adding.
-2. **Then work autonomously, all night, without stopping.** Decide the next
-   thing yourself when one finishes. Keep a backup so nothing is ruined. No
-   problems, no bugs, no issues left behind. Efficiency matters more than
-   feature count.
-3. **`caffeinate -i`** (idle only — the screen must still be able to sleep).
-   Watch heat and battery.
-4. Deadline pressure: "code red". Do not defer work. Do not break anything.
-5. If something needs the owner, **set it aside and move on** — do not block.
+1. **The emergency stop.** `core/interlock.py` is a dead-man's switch that runs
+   on tokens minted outside the runtime. Wiring it means deciding **who presents
+   tokens and from where**. The easy way — letting the runtime mint its own —
+   is exactly the kill-signal build A-031.2 names as the control that must
+   fail. Until this is decided, VESPER can act and there is no stop to press.
+2. **Ratify CI-094 … CI-102.** Nine checks run in every pass and are held out of
+   the registry because each asserts a new invariant, and promotion into a
+   contract is a separate reviewed act. Precedent: arabizi, presence,
+   context-control.
+3. **`tools/ops/vesper_keychain.py --migrate`** whenever they want credentials
+   out of `secrets.env`. Built and verified; not run, because writing to their
+   login keychain is a change to their machine.
+4. **Decide whether the loop is too cautious.** After a `shell.run`, the next
+   step above L1 asks. One table, `OBSERVATION_TRUST` in
+   `core/capabilities.py`. The reasoning is in the report.
 
-## The build order they approved
+## What is built and NOT yet joined to anything
 
-From `docs/AGENT_LANDSCAPE_NOTES.md`, tier one first. Containment ships
-**with** the loop, not after it, because a loop multiplies whatever safety
-posture exists.
+`CI-094` is the gate for this class, and it prints the current list on every
+run. Ten `core/` modules are the subject of a check and imported by no
+production module. Two are not-yet-reachable by design (`enrollment`,
+`placement` — no second node exists). **Eight are OWED**, and the two that
+matter most are `interlock.py` (above) and `selfmod.py`, the self-modification
+boundary: it exists, `CI-015` drives it against the real repository, and
+nothing in the runtime consults it before a write.
 
-1. The agentic loop — propose → execute → **observe** → propose again.
-2. Seatbelt containment for `shell.run` (`sandbox-exec`, verified present).
-3. Read-before-write, enforced.
-4. `fs.edit` — surgical, unique-match-or-fail.
-5. Shadow-git checkpoint and undo.
-
-Then tiers two (make the loop useful), three (memory), four (reach).
+That gate is the most useful thing to work from. Everything on it is a
+subsystem someone already built correctly.
 
 ## Rules that will bite you if you skip them
 
 - `python3.13`, never `python3` — the system one is 3.9 and every gate dies on
   `tomllib` **while still exiting 0**.
-- **Never let `tools/ci/self_test.py` be killed.** It mutates a file, runs the
-  check, restores. A tool timeout is a kill: the run takes ~14 minutes, longer
-  than the 10-minute Bash ceiling, so run it with `nohup … &` and poll. Check
-  `git status` afterwards for a file you did not edit.
-- **Do not edit repo files while it runs** — the restore writes back
-  pre-edit bytes and silently reverts your work.
-- A check lands with an **executed red run** or it does not land. Add the case
-  to `self_test.py` and watch it go red, then green.
-- Five times this session a check passed when it should have failed. The cause
-  was always the same: the check tested for a NAME rather than a BEHAVIOUR, or
-  probed through a door that returns early. Assert the property, then prove the
-  mutation goes red.
-- `INV-HW-1`: no product names in routing/resource/policy paths.
-- Documented counts drift constantly. `CI-089` now gates them; sync
-  `CLAUDE.md` and `VESPER_ENGINEERING_STATUS.md` after any check/case change.
+- **Never let `tools/ci/self_test.py` be killed.** It mutates, checks, restores.
+  It takes ~14 minutes; run it with `nohup … &` and poll. **`pgrep -f
+  self_test.py` matches your own waiter shell** — check for the python process
+  specifically, or you will wait forever on a run that finished.
+- **Do not edit repo files while it runs.** The restore writes back pre-edit
+  bytes and silently reverts your work.
+- A check lands with an **executed red run** or it does not land. And a case
+  that stays green is telling you something true: four were withdrawn last
+  night after measurement showed the property was defended structurally and the
+  mutation could not produce the defect.
+- **Every refusal needs a control that succeeds.** Two containment cases passed
+  under their own violation because the probe wrote to a path that was
+  unwritable anyway, and because a judgement read `curl`'s exit code instead of
+  its HTTP status.
+- Documented counts drift on every check added. `CI-089` gates them; sync
+  `CLAUDE.md` and `VESPER_ENGINEERING_STATUS.md`.
+- Commit messages that contain backticks or `>` need `git commit -F` — the
+  shell will otherwise execute them. One tried to redirect into `/etc/hosts`.
 
-## Known open items (none block the build order)
+## The build order, where it stands
 
-- `fs.write` can destroy a file it never read, and the verifier confirms it.
-  **This is item 3 in the build order and the most urgent open defect.**
-- Credentials sit plaintext in `~/.config/vesper/secrets.env`. macOS Keychain
-  unused. Same failure that compromised OpenClaw.
-- Capability policy is hard-coded in Python rather than a contract.
-- The memory/action isolation (the proposer never sees memory) is real,
-  accidental, and ungated.
+Tier one, all landed last night: the agentic loop, seatbelt containment,
+read-before-write, `fs.edit`, shadow-git checkpoint and undo. Plus the taint
+ceiling wired to the act path, the reachability gate, the rejection circuit
+breaker, a prohibited tier no grant opens, the outer loop joined to the actor,
+and Keychain credentials.
+
+Next, from `docs/AGENT_LANDSCAPE_NOTES.md`:
+
+- **S3. A second authorization axis** — how strongly was this authorized, with
+  `Unknown` first-class. Codex has it; we have one ladder. This is what catches
+  a *steered* proposer, whose output is unremarkable on the danger axis.
+- **S6. Process hardening pre-`main`** — `PT_DENY_ATTACH`, no core dumps, scrub
+  `DYLD_*`. Swift, so it needs a build and therefore a TCC re-grant.
+- **L13. A self-directed work queue** so the outer loop has more to consider
+  than two host triggers.
+- **M1. Feed memory citations back as usage** — the notes call it the cheapest
+  high-value change available.
