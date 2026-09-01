@@ -3855,5 +3855,58 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# A tier no grant opens. Our ladder topped out at L5, so every safety property
+# was contingent on one spoken yes from someone who may be half asleep.
+# --------------------------------------------------------------------------
+AUTHZ_PY2 = "core/authorize.py"
+
+CASES += [
+    ("prohibited-tier-no-grant-opens", AUTHZ_PY2,
+     _sub("        why = prohibited(capability_id, args)\n"
+          "        if why is not None:", "        why = None\n        if why is not None:", 1),
+     "the prohibition is never consulted, so an L5 grant authorises erasing "
+     "VESPER's own record of what it did"),
+
+    ("prohibited-tier-no-grant-opens", AUTHZ_PY2,
+     lambda t: t.replace(
+         "        why = prohibited(capability_id, args)\n"
+         "        if why is not None:\n"
+         '            return self._deny(subject, cap, "prohibited", "L0", why)\n', "", 1)
+       .replace("        grant = self.find(subject, capability_id)\n",
+                "        why = prohibited(capability_id, args)\n"
+                "        if why is not None and False:\n"
+                '            return self._deny(subject, cap, "prohibited", "L0", why)\n'
+                "        grant = self.find(subject, capability_id)\n", 1),
+     "the prohibition moves below the grant lookup and stops firing: a tier a "
+     "grant is consulted before is not a tier a grant cannot open"),
+
+    ("prohibited-tier-no-grant-opens", CAPS_PY,
+     _sub('SELF_DEFEATING_DIRS = ("shadow", "events", "audit")',
+          'SELF_DEFEATING_DIRS = ()', 1),
+     "the self-defeating set is emptied, so the undo history and the event log "
+     "are ordinary files again"),
+
+    ("prohibited-tier-no-grant-opens", CAPS_PY,
+     _sub("        parts = {q.lower() for q in target.parts}\n"
+          "        if _under(target, WORKSPACE.parent) and parts & set(SELF_DEFEATING_DIRS):",
+          "        p2 = str(target).lower()\n"
+          "        if any(d in p2 for d in SELF_DEFEATING_DIRS):", 1),
+     "path SEGMENTS become substrings and the scope is dropped: a note called "
+     "'shadow puppets.txt' and the owner's own Documents/shadow folder both "
+     "become unwritable -- a prohibition that catches everything is an outage"),
+
+    ("prohibited-tier-no-grant-opens", CAPS_PY,
+     _sub('        if raw and any(m in str(resolve(raw)).lower() for m in SECRET_MARKERS):\n'
+          '            # READING IS THE STEP THAT PUTS IT IN A CONTEXT WINDOW, which is\n'
+          '            # where it leaves. The ladder already says L5; this says that no\n'
+          '            # answer to that question is yes.\n'
+          '            return "this would read a credential into a model\'s context"',
+          '        if False:\n            return "unreachable"', 1),
+     "a credential can be read into a model's context on an L5 grant, which is "
+     "the step that puts it where it leaves from"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

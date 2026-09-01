@@ -42,6 +42,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .bus import EventBus
+from .capabilities import prohibited
 from .capability import LEVEL_RANK, LEVELS, Capability, CapabilityRegistry
 
 # A-014: "each denial names its reason from DF-AUTHORIZE's output domain".
@@ -58,6 +59,7 @@ DENY_REASONS = (
     "not_delegable",
     "self_modification_boundary",
     "owner_confirmation_required",
+    "prohibited",               # no grant satisfies this, including L5
 )
 
 NEVER_DELEGABLE = ("L4", "L5")
@@ -170,6 +172,16 @@ class PolicyDecisionPoint:
         cap = self._registry.get(capability_id)
         declared = cap.declared_level(args)
         required = cap.required(args)
+
+        # ASKED BEFORE EVERYTHING, INCLUDING BEFORE THE GRANT. A tier that a
+        # grant could open is not this tier, so the check cannot sit anywhere a
+        # grant is consulted first. The ladder handles "how dangerous"; this
+        # handles "and what if the owner says yes anyway", for the small set of
+        # acts whose only effect is to remove the machinery that would have
+        # caught a mistake.
+        why = prohibited(capability_id, args)
+        if why is not None:
+            return self._deny(subject, cap, "prohibited", "L0", why)
 
         # INV-AUTH-4. Checked before anything else that could accidentally
         # produce a level: a PDP that cannot be consulted has not said yes.

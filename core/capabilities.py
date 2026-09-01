@@ -282,6 +282,57 @@ def shell_run(args: dict) -> dict:
             "containment_level": level}
 
 
+# --------------------------------------------------------------- prohibited
+
+# Directory names that hold VESPER's own account of what it did, and the undo
+# behind it. Matched as PATH SEGMENTS rather than substrings, so a document
+# called "shadow puppets.txt" is not caught by a rule about the shadow store.
+SELF_DEFEATING_DIRS = ("shadow", "events", "audit")
+
+
+def prohibited(capability_id: str, args: dict) -> str | None:
+    """The reason this act is refused outright, or None.
+
+    THE TIER OUR LADDER DID NOT HAVE. L5 was the top, and an L5 grant plus an
+    L5 declaration authorised an L5 action -- so every safety property in this
+    system was contingent on one spoken "yes", from someone who may be half
+    asleep, to a request produced by a proposer we have already agreed we
+    cannot trust. Claude Code's own operating rules carry the sentence ours was
+    missing: these stay prohibited when the user explicitly asks for them,
+    supplies all the details, or says they authorize it.
+
+    THE SET IS TINY ON PURPOSE, and the test for membership is not "dangerous"
+    -- it is SELF-DEFEATING. Deleting the owner's holiday photos is a
+    catastrophe and it belongs on the ladder, where the owner can consent to
+    it. Erasing the record of what VESPER did, or the undo behind it, or
+    reading the credential store into a model's context, are different: they do
+    not need the owner's judgement to be wrong, they remove the machinery that
+    would have caught it. A grant that can turn off the thing that records
+    grants is not a grant.
+
+    NOT A REPLACEMENT FOR THE LADDER. Everything here is already L5. This is
+    the answer to "and what if the owner says yes anyway".
+    """
+    args = args or {}
+    if capability_id in ("fs.write", "fs.edit"):
+        raw = _norm(args.get("path"))
+        if not raw:
+            return None
+        target = resolve(raw)
+        parts = {q.lower() for q in target.parts}
+        if _under(target, WORKSPACE.parent) and parts & set(SELF_DEFEATING_DIRS):
+            return ("this would write inside VESPER's own record of what it "
+                    "did, or the undo behind it")
+    if capability_id == "fs.read":
+        raw = _norm(args.get("path"))
+        if raw and any(m in str(resolve(raw)).lower() for m in SECRET_MARKERS):
+            # READING IS THE STEP THAT PUTS IT IN A CONTEXT WINDOW, which is
+            # where it leaves. The ladder already says L5; this says that no
+            # answer to that question is yes.
+            return "this would read a credential into a model's context"
+    return None
+
+
 # ------------------------------------------------------------ fs.read/write
 
 

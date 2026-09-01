@@ -12731,8 +12731,135 @@ def check_every_change_is_undoable() -> Result:
     return r
 
 
+def check_prohibited_tier_no_grant_opens() -> Result:
+    """A small set of acts that an L5 grant does not authorise.
+
+    THE GAP. L5 was the top of this ladder, and an L5 grant plus an L5
+    declaration authorised an L5 action -- so every safety property here was
+    contingent on one spoken "yes", from someone who may be half asleep, to a
+    request produced by a proposer we have already agreed we cannot trust.
+    Claude Code's own operating rules carry the sentence ours was missing:
+    these stay prohibited when the user explicitly asks for them, supplies all
+    the details, or says they authorize it.
+
+    THE TEST FOR MEMBERSHIP IS NOT "DANGEROUS", IT IS SELF-DEFEATING. Deleting
+    the owner's photographs is a catastrophe and it belongs on the ladder,
+    where they can consent to it. Erasing the record of what VESPER did, or the
+    undo behind it, or reading a credential into a model's context, are
+    different in kind: they do not require the owner's judgement to be wrong,
+    they remove the machinery that would have caught it.
+
+    AND THE SET MUST STAY SMALL. A prohibition list that grows into a policy is
+    a policy nobody can reason about, and it would start refusing things the
+    owner has every right to ask for. The check bounds it.
+    """
+    r = Result("prohibited-tier-no-grant-opens")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf
+    try:
+        from core.authorize import DENY_REASONS, Grant, PolicyDecisionPoint
+        from core.bus import EventBus
+        from core.capabilities import WORKSPACE, build_registry, prohibited
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the authorization modules do not import: {exc!r}")
+        return r
+
+    if "prohibited" not in DENY_REASONS:
+        r.err("'prohibited' is not in DENY_REASONS, so the refusal cannot name "
+              "its own reason from the closed vocabulary A-014 requires")
+
+    state = WORKSPACE.parent
+    forbidden = [
+        ("fs.write", {"path": str(state / "shadow" / "tree" / "x.txt"),
+                      "content": "a"}, "the shadow store"),
+        ("fs.edit", {"path": str(state / "shadow" / "tree" / "x.txt"),
+                     "old": "a", "new": "b"}, "the shadow store, surgically"),
+        ("fs.write", {"path": str(state / "events" / "log.jsonl"),
+                      "content": "a"}, "the event log"),
+        ("fs.read", {"path": "~/.ssh/id_rsa"}, "a private key"),
+        ("fs.read", {"path": "~/.config/vesper/secrets.env"},
+         "the credential store"),
+    ]
+    allowed = [
+        ("fs.write", {"path": str(WORKSPACE / "ordinary.txt"), "content": "a"},
+         "an ordinary workspace file"),
+        ("fs.write", {"path": str(state / "shadow puppets.txt"), "content": "a"},
+         "a file merely NAMED shadow"),
+        ("fs.write", {"path": str(Path.home() / "Documents" / "shadow" / "a.txt"),
+                      "content": "a"}, "the owner's OWN shadow folder"),
+        ("fs.read", {"path": str(WORKSPACE / "note.txt")}, "an ordinary read"),
+    ]
+
+    # 1. THE FUNCTION ITSELF, on both sides. A prohibition that catches
+    #    everything is not a prohibition, it is an outage.
+    for cid, args, label in forbidden:
+        if not prohibited(cid, args):
+            r.err(f"{label} is not prohibited, so an L5 grant authorises "
+                  "removing the machinery that records what VESPER did")
+    for cid, args, label in allowed:
+        why = prohibited(cid, args)
+        if why:
+            r.err(f"{label} is prohibited ({why!r}). The set must stay small "
+                  "and segment-matched: a document called 'shadow puppets' is "
+                  "not the shadow store, and the owner's own folders are theirs")
+
+    # 2. AND THROUGH THE LADDER, WITH THE STRONGEST GRANT THAT EXISTS. This is
+    #    the whole point: not that it is refused, but that it is refused ANYWAY.
+    with _tf.TemporaryDirectory() as td:
+        clock = HybridLogicalClock("proh")
+        store = StoreSet(Path(td) / "s", node_id="proh")
+        bus = EventBus(clock, store, component="proh")
+        reg = build_registry()
+        pdp = PolicyDecisionPoint(bus, reg)
+        for i, (cid, args, label) in enumerate(forbidden):
+            # A FRESH GRANT EACH TIME. L4/L5 grants are consumed by use
+            # (INV-AUTH-2), so a reused one would come back 'grant_consumed'
+            # and the assertion would pass for the wrong reason.
+            pdp.issue(Grant(f"g{i}", f"s{i}", cid, ("host",), "L5",
+                            10_000_000_000_000, 0))
+            d = pdp.authorize(subject=f"s{i}", capability_id=cid, args=args,
+                              target="host")
+            if d.authorized:
+                r.err(f"{label} was AUTHORISED under an L5 grant. L5 is the top "
+                      "of the ladder, so if it opens this there is no tier a "
+                      "grant cannot open.")
+            elif d.reason != "prohibited":
+                r.err(f"{label} was refused for {d.reason!r} rather than "
+                      "'prohibited'. Refused for the wrong reason is refused by "
+                      "accident, and the accident can be fixed away.")
+
+        # 3. THE CONTROL: the same strongest grant DOES authorise an ordinary
+        #    act. Without this, a PDP that refuses everything passes above.
+        pdp.issue(Grant("gok", "sok", "fs.write", ("host",), "L5",
+                        10_000_000_000_000, 0))
+        ok = pdp.authorize(subject="sok", capability_id="fs.write",
+                           args={"path": str(WORKSPACE / "ordinary.txt"),
+                                 "content": "a"}, target="host")
+        if not ok.authorized:
+            r.err(f"an ordinary workspace write was refused ({ok.reason}), so "
+                  "the refusals above prove nothing about the prohibition")
+
+    # 4. THE SET IS BOUNDED. A list that grows into a policy is a policy nobody
+    #    can reason about, and it will start refusing what the owner may ask.
+    from core.capabilities import SELF_DEFEATING_DIRS
+    if len(SELF_DEFEATING_DIRS) > 6:
+        r.err(f"{len(SELF_DEFEATING_DIRS)} self-defeating directories. This is "
+              "meant to be the shortest list in the system; past a handful it "
+              "has become a policy and belongs on the ladder instead")
+
+    r.note("the shadow store, the event log and credential reads are refused "
+           "under an L5 grant and named 'prohibited'; a file merely called "
+           "shadow, the owner's own shadow folder and ordinary workspace files "
+           "are not; and the same L5 grant still authorises an ordinary write")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "prohibited-tier-no-grant-opens": check_prohibited_tier_no_grant_opens,
     "every-change-is-undoable": check_every_change_is_undoable,
     "edit-names-one-place": check_edit_names_one_place,
     "shell-runs-contained": check_shell_runs_contained,
