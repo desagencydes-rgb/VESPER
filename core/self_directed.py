@@ -213,6 +213,58 @@ def contradiction_trigger(arbiter: Any) -> Trigger:
     )
 
 
+# STALENESS IS A HASH MISMATCH, NEVER AN AGE. `valid_until` schedules the next
+# rebuild; it does not decide what is true now, and a file edited one second
+# after a rebuild reads as fresh for the rest of the window under a time rule.
+MAP_TERM = "world.map.stale_present"
+
+
+def map_staleness_trigger(maps: Any) -> Trigger:
+    """Fires when a mapped file no longer hashes to what the map recorded.
+
+    THE MAP IS NAVIGATION, NOT CONTENT, and a stale map is worse than no map:
+    it answers where to look with a locator that has moved. SR-007 exists so
+    the corpus is never dumped into context, and the whole bargain depends on
+    the locators being true.
+
+    `maps` IS A LIST OF ROOTS, EACH ITS OWN MAP. The owner's instruction was to
+    map everything with submaps mapping their own parts -- which is the shape
+    `build()` already produces: a directory is a node, its files are nodes with
+    it as parent, and a Python file's symbols are nodes under the file. What
+    was missing was more than one root and anything at all keeping them true.
+
+    A HANDLER, NOT AN INTENT. Re-hashing is deterministic and has one right
+    answer; nothing here needs a model, and asking one would put it in front of
+    a decision already made.
+    """
+    def predicate(s: dict) -> bool:
+        return s.get(MAP_TERM) is True
+
+    def handler() -> dict:
+        out = []
+        for m in maps:
+            stale = m.refresh()
+            if stale:
+                # REBUILT, NOT PATCHED. `refresh` marks what moved; a map that
+                # marked staleness and left the locators alone would keep
+                # answering with the ones that moved.
+                m.build()
+            out.append({"map_id": getattr(m, "map_id", "?"),
+                        "stale": len(stale),
+                        "nodes": len(getattr(m, "nodes", {}) or {}),
+                        "coverage": getattr(m, "coverage_ratio", None)})
+        return {"maps": out, "rebuilt": sum(1 for o in out if o["stale"])}
+
+    return Trigger(
+        trigger_id="trg_map_stale",
+        predicate_class="STATE",
+        predicate=predicate,
+        state_terms=(MAP_TERM,),
+        debounce_s=300,
+        handler=handler,
+    )
+
+
 def all_triggers(compactor: Any = None) -> list:
     """Everything VESPER runs for itself. One place, so it can be counted.
 

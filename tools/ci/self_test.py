@@ -4284,5 +4284,35 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# SR-007's map, built and kept true. Everything, with submaps mapping their own
+# parts -- the owner's instruction, and the shape build() already produces.
+# --------------------------------------------------------------------------
+MAP_PY = "core/knowledge_map.py"
+
+CASES += [
+    ("map-built-and-kept-true", SELF_DIRECTED_PY,
+     _sub("        return s.get(MAP_TERM) is True", "        return True", 1),
+     "the predicate stops reading the world and re-indexes on every tick, "
+     "which is the nightly re-index REM-007 names as the wrong shape"),
+
+    ("map-built-and-kept-true", SELF_DIRECTED_PY,
+     _sub("            if stale:\n                # REBUILT, NOT PATCHED.", "            if False:\n                # REBUILT, NOT PATCHED.", 1),
+     "staleness is noticed and the map is never rebuilt, so it goes on "
+     "answering 'look here' with locators that have moved"),
+
+    ("map-built-and-kept-true", MAP_PY,
+     _sub("            current = self._hash_of(n)\n            if current != n.content_hash:",
+          "            current = self._hash_of(n)\n            if False:", 1),
+     "refresh stops comparing hashes, so a changed corpus never reads as stale "
+     "and the map is frozen at whatever it was when it was built"),
+
+    ("map-built-and-kept-true", RUNTIME,
+     _sub("        autonomy.register(map_staleness_trigger(maps))", "        pass", 1),
+     "the maps are built and nothing keeps them true -- which is worse than "
+     "not building them, because a stale locator is a confident wrong answer"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

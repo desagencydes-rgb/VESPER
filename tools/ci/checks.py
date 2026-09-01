@@ -14202,8 +14202,139 @@ def check_the_outbox_is_written_before_the_effect() -> Result:
     return r
 
 
+def check_the_map_is_built_and_kept_true() -> Result:
+    """The corpus is mapped, in submaps, and a moved file does not stay mapped.
+
+    SR-007 IS "A MAPPING SYSTEM INSTEAD OF DUMPING HUGE VOLUMES OF TOKENS,
+    FILES AND CODE INTO CONTEXT", and `core/knowledge_map.py` implements it and
+    was reached by nothing -- so the corpus had no map at all and every
+    question about it had to be answered by loading something.
+
+    SUBMAPS ARE THE SHAPE `build()` ALREADY PRODUCES: a directory is a node,
+    its files hang off it as children, and a Python file's symbols hang off the
+    file. What was missing was more than one root and anything keeping them
+    true.
+
+    A STALE MAP IS WORSE THAN NO MAP. The whole bargain is that the locators
+    are true; one that answers "look here" with a locator that has moved is a
+    confident wrong answer, which is the failure the design exists to avoid.
+    Staleness is a HASH mismatch and never an age -- under a time rule a file
+    edited a second after a rebuild reads as fresh for the rest of the window.
+
+    AND THE MAP CARRIES NO CONTENT, by contract. `MapNode` has no content
+    field, because the prediction written into the schema is about this exact
+    file: "if the map could carry content, the first implementation under
+    memory pressure would populate it, and the map would become the token dump
+    SR-007 exists to replace."
+    """
+    r = Result("map-built-and-kept-true")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf
+    try:
+        from core.autonomy import (AutonomyLoop, PredicateEvaluator,
+                                   anti_cron_probe)
+        from core.bus import EventBus
+        from core.hlc import HybridLogicalClock
+        from core.knowledge_map import KnowledgeMap
+        from core.self_directed import MAP_TERM, map_staleness_trigger
+        from core.store import StoreSet
+        from core.world import Observation, WorldModel
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the map modules do not import: {exc!r}")
+        return r
+
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    for needle, why in (
+            ("KnowledgeMap(", "the runtime never builds a map, so SR-007's "
+                              "navigation structure does not exist at runtime"),
+            ("MAP_ROOTS", "no roots are declared, so nothing says what is mapped"),
+            ("map_staleness_trigger(", "nothing keeps the map true")):
+        if needle not in rt:
+            r.err(why)
+
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        (base / "pkg").mkdir()
+        (base / "pkg" / "a.py").write_text("def alpha():\n    return 1\n",
+                                           encoding="utf-8")
+        (base / "README.md").write_text("# top\n", encoding="utf-8")
+        m = KnowledgeMap(base, map_id="map-probe").build()
+
+        kinds = {n.kind for n in m.nodes.values()}
+        for want in ("directory", "file", "symbol"):
+            if want not in kinds:
+                r.err(f"the map holds no {want} nodes, so it is a flat list "
+                      "rather than submaps mapping their own parts")
+        child = m.nodes.get("pkg/a.py")
+        if child is None or child.parent_id != "pkg":
+            r.err("a file is not parented to its directory, so the hierarchy "
+                  "the owner asked for is not there")
+        if m.coverage_ratio is None:
+            r.err("the map reports no coverage, so an incomplete map cannot be "
+                  "told from a complete one")
+
+        # NO CONTENT, BY CONTRACT.
+        sample = next(iter(m.nodes.values())).to_dict()
+        if "content" in sample or "text" in sample or "body" in sample:
+            r.err(f"a map node carries content: {sorted(sample)}. The schema "
+                  "excludes it because a map that can hold content becomes the "
+                  "token dump SR-007 exists to replace.")
+
+        trig = map_staleness_trigger([m])
+        if anti_cron_probe(trig).get("fires_on_clock_alone"):
+            r.err("the map trigger fires on an empty world, which is the clock")
+
+        seen: list = []
+        clock = HybridLogicalClock("mp")
+        store = StoreSet(base / "s", node_id="mp")
+        bus = EventBus(clock, store, component="mp")
+        world = WorldModel(bus, clock)
+        bus.subscribe("autonomy.handled", lambda e: seen.append(e.payload),
+                      name="map-check", idempotency_key=lambda e: e.event_id)
+        loop = AutonomyLoop(bus, world, PredicateEvaluator(bus, world),
+                            now_ms=lambda: 0)
+        loop.register(trig)
+        subj, attr = MAP_TERM.rsplit(".", 1)
+
+        # 1. AN UNCHANGED CORPUS IS NOT RE-INDEXED.
+        if m.refresh():
+            r.err("an untouched corpus reported stale nodes, so the map would "
+                  "rebuild itself forever")
+        world.apply(Observation(subj, attr, False, clock.now(), source="p",
+                                confidence=1.0))
+        loop.dispatch(loop.tick())
+        if seen:
+            r.err("the map was re-indexed with nothing changed -- a nightly "
+                  "re-index is the SCHEDULE-class version REM-007 names as wrong")
+
+        # 2. A CHANGED FILE IS DETECTED AND THE MAP CATCHES UP.
+        (base / "pkg" / "a.py").write_text(
+            "def alpha():\n    return 99\n\ndef gamma():\n    pass\n",
+            encoding="utf-8")
+        if not m.refresh():
+            r.err("a file changed on disk and the map did not notice, so its "
+                  "locators are stale and it answers with them anyway")
+        world.apply(Observation(subj, attr, True, clock.now(), source="p",
+                                confidence=1.0))
+        seen.clear()
+        loop.dispatch(loop.tick())
+        if not seen:
+            r.err("the corpus changed and nothing re-indexed it")
+        if not any("gamma" in nid for nid in m.nodes):
+            r.err("a symbol added to a mapped file is absent after the rebuild, "
+                  "so the map went stale and stayed stale")
+
+    r.note("the runtime declares roots and builds a map over each; nodes are "
+           "directories, files and symbols with files parented to directories; "
+           "coverage is reported; no node carries content; an unchanged corpus "
+           "is left alone; and a changed file is detected and re-indexed")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
+    "map-built-and-kept-true": check_the_map_is_built_and_kept_true,
     "outbox-written-before-the-effect": check_the_outbox_is_written_before_the_effect,
     "autonomy-stops-when-nothing-arms-it": check_autonomy_stops_when_nothing_arms_it,
     "contradictions-reach-the-owner": check_contradictions_reach_the_owner,

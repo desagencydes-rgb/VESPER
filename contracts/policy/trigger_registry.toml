@@ -244,12 +244,25 @@ source = "REM-007 §4.5 · SR-007, SR-052, SR-053"
 enabled = true
 predicate_class = "STATE"
 predicate = """
-  maps.any(node.content_hash != locator.current_hash)
-  OR maps.any(freshness.valid_until_passed)
+  world.map.stale_present == true
 """
 predicate_note = """The worked example the corpus already uses to explain what
 a standing goal IS. Fires because the corpus changed. A nightly re-index
-would be the SCHEDULE-class version and is what REM-007 §4.5 names as wrong."""
+would be the SCHEDULE-class version and is what REM-007 §4.5 names as wrong.
+
+THE TERM WAS CORRECTED 2026-09-01, WHEN THIS SHIPPED. It read
+`maps.any(node.content_hash != locator.current_hash) OR
+maps.any(freshness.valid_until_passed)` -- a faithful description of the
+intent, and not a term any sensor writes or any snapshot resolves. A predicate
+snapshot splits `subject.attribute` on the last dot and reads the world model,
+so `maps.any(...)` would have left this trigger UNKNOWN and silent forever.
+`core/knowledge_map.refresh()` is the hash comparison, and the sensor publishes
+its result as `world.map.stale_present`.
+
+THE SECOND CLAUSE IS DELIBERATELY GONE. `valid_until_passed` is an AGE, and
+this file's own note says a nightly re-index is the SCHEDULE-class version REM-
+007 names as wrong. Hash, never age: under a time rule a file edited one second
+after a rebuild reads as fresh for the rest of the window."""
 debounce_s = 120
 cooldown_s = 900
 priority = "ambience"

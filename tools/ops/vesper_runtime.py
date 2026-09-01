@@ -47,6 +47,7 @@ from core.gateway import AllProvidersExhausted, ModelGateway    # noqa: E402
 from core.hlc import HybridLogicalClock                         # noqa: E402
 from core.home_state import HomeState                           # noqa: E402
 from core.intake import Intake                                  # noqa: E402
+from core.knowledge_map import KnowledgeMap                     # noqa: E402
 from core.interlock import EnableToken, SafetyInterlock         # noqa: E402
 from core.chooser import Chooser                                # noqa: E402
 from core import host_probes                                    # noqa: E402
@@ -57,6 +58,7 @@ from core.forgetter import expiry_trigger                       # noqa: E402
 from core.self_directed import all_triggers as self_directed_triggers  # noqa: E402
 from core.self_directed import memory_drift_trigger             # noqa: E402
 from core.self_directed import contradiction_trigger            # noqa: E402
+from core.self_directed import map_staleness_trigger            # noqa: E402
 from core.sensors import Sensor, SensorRegistry, SWEEP, TIMER   # noqa: E402
 from core.world import WorldModel                               # noqa: E402
 from core.difficulty import classify                            # noqa: E402
@@ -114,6 +116,24 @@ POLL_SECONDS = 0.15
 # here: `interlock` is a self-defeating path segment, refused by the prohibited
 # tier at every level including under an L5 grant.
 ENABLE_TOKEN_PATH = STATE / "interlock" / "enable_token.json"
+
+# WHAT GETS MAPPED. The owner's instruction was "map literally everything, with
+# submaps mapping their own parts" -- and submaps are already the shape
+# `build()` produces: a directory is a node, its files hang off it, and a
+# Python file's symbols hang off the file.
+#
+# THE ROOTS ARE DECLARED HERE RATHER THAN DISCOVERED, and that is deliberate.
+# The map holds locators, hashes and a ONE-LINE SUMMARY -- never content, by
+# contract -- but a summary is still derived from the file, so pointing this at
+# a tree is a decision about what VESPER reads. The repository and VESPER's own
+# workspace are unambiguous. Adding the owner's documents is one line and is
+# theirs to add, not mine to assume.
+MAP_ROOTS = (
+    ("repo", REPO),
+    ("workspace", STATE / "workspace"),
+    # ("documents", Path.home() / "Documents"),   # owner's call
+)
+
 
 
 def _present_enable_token(interlock) -> None:
@@ -401,6 +421,44 @@ def build(node: str = "vesper-runtime"):
                                 _contradictions_present, SWEEP,
                                 period_ms=600_000))
         autonomy.register(contradiction_trigger(arbiter))
+
+    # THE MAP, WHICH SR-007 EXISTS FOR: navigate the corpus instead of dumping
+    # it into context. Built here, kept true by the trigger below. Failure to
+    # build one root does not stop the others -- a partial map reports its own
+    # coverage rather than pretending to be complete.
+    maps = []
+    for _name, _root in MAP_ROOTS:
+        try:
+            if not Path(_root).is_dir():
+                continue
+            maps.append(KnowledgeMap(_root, map_id=f"map-{_name}").build())
+        except Exception as exc:                    # noqa: BLE001
+            bus.publish("map.build_failed", subject=_name,
+                        payload={"root": str(_root), "error": repr(exc)},
+                        component="runtime")
+    if maps:
+        bus.publish("map.built", subject="startup",
+                    payload={"maps": [{"map_id": m.map_id,
+                                       "nodes": len(m.nodes),
+                                       "coverage": m.coverage_ratio}
+                                      for m in maps]},
+                    component="runtime")
+
+        def _map_stale() -> Any:
+            try:
+                return any(m.refresh() for m in maps)
+            except Exception:                       # noqa: BLE001
+                return None                         # UNKNOWN, never False
+
+        # MEASURED, NOT CHOSEN. On this repository the map is 8,561 nodes --
+        # 210 directories, 1,704 files, 6,647 symbols -- and costs 3.95 s to
+        # build and 1.02 s to re-hash, holding roughly 4.3 MB. A five-minute
+        # sweep would re-read every mapped file twelve times an hour for a
+        # second each; fifteen minutes is a 0.1% duty cycle, which is the right
+        # trade on a laptop that is usually on battery. Measured 2026-09-01.
+        sensors.register(Sensor("map-staleness", "world.map", "stale_present",
+                                _map_stale, SWEEP, period_ms=900_000))
+        autonomy.register(map_staleness_trigger(maps))
 
     # VERIFICATION, REGISTERED RATHER THAN DECLARED. `core/verify.py` listed two
     # machine-checkable strategies and `Verifier` was a registry with nothing in
