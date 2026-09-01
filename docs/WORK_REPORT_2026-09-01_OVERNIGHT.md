@@ -1,6 +1,6 @@
-# Overnight report — 2026-09-01, 01:40 to 07:00
+# Overnight report — 2026-09-01, 01:40 to 07:15
 
-Written for the owner. Sixteen commits, all pushed to `feat/macos-host-profile`.
+Written for the owner. Nineteen commits, all pushed to `feat/macos-host-profile`.
 **Tier one of the approved build order is complete**, plus the two defects this
 survey found in our own code and two items from its own build list.
 

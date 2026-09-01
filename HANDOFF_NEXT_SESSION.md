@@ -1,12 +1,12 @@
 # Handoff — pick up here
 
-Rewritten 2026-09-01 07:00, at the end of the overnight session that completed
+Rewritten 2026-09-01 07:15, at the end of the overnight session that completed
 tier one of the build order. Read this, then
 `docs/WORK_REPORT_2026-09-01_OVERNIGHT.md`, then `CLAUDE.md`.
 
 ## State
 
-- **98 checks pass. 467/467 self-test cases** red under violation, green after
+- **99 checks pass. 470/470 self-test cases** red under violation, green after
   restore. Both lints, F0–F6 acceptance, placement and fabric stress all pass.
 - Working tree clean, everything pushed to `feat/macos-host-profile`.
 - Backup branch `backup/pre-overnight-2026-09-01` at `831a177` — the state
@@ -30,7 +30,11 @@ tier one of the build order. Read this, then
 3. **`tools/ops/vesper_keychain.py --migrate`** whenever they want credentials
    out of `secrets.env`. Built and verified; not run, because writing to their
    login keychain is a change to their machine.
-4. **Decide whether the loop is too cautious.** After a `shell.run`, the next
+4. **The event log wants a retention policy.** 1.6 GB, 1.9 M records, nothing
+   prunes it. The refusal storm that was two thirds of the growth is fixed, but
+   `autonomy.heartbeat` and `autonomy.noop` are one record per trigger per tick
+   forever, and two more triggers landed last night.
+5. **Decide whether the loop is too cautious.** After a `shell.run`, the next
    step above L1 asks. One table, `OBSERVATION_TRUST` in
    `core/capabilities.py`. The reasoning is in the report.
 
