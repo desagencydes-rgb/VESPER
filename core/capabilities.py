@@ -372,6 +372,46 @@ def shell_run(args: dict) -> dict:
             "session": str(sid) if sid else None}
 
 
+def agent_ask_level(args: dict) -> str:
+    """Asking a sub-agent is EGRESS, and it is levelled on what leaves.
+
+    A LEVEL ABOUT THE VERB WHILE THE EFFECT IS ABOUT THE TARGET is the defect
+    this module has already hit three times -- `shell.run("cat ~/.ssh/id_rsa")`
+    returning L1 because `cat` is allowlisted. Delegation is the same shape with
+    a friendlier name: "ask a sub-agent" sounds like thinking, and what it
+    actually does is send material to a provider. So the material is what is
+    levelled, by the rules that already govern reading it.
+    """
+    material = str(args.get("material") or "")
+    low = material.lower()
+    if any(m in low for m in SECRET_MARKERS):
+        # The same reasoning `fs_read_level` gives: putting a credential in a
+        # context window IS the step where it leaves.
+        return "L5"
+    if len(material) > SUBAGENT_MATERIAL_L3:
+        # Sending a lot of the owner's material to a provider is a bigger act
+        # than asking a question about a paragraph, and the size is the only
+        # thing about it this can see without reading it.
+        return "L3"
+    return "L2"
+
+
+def agent_ask(args: dict) -> dict:
+    """Ask a sub-agent. Bound with a gateway; refuses without one."""
+    agent = args.get("_agent")
+    if agent is None:
+        raise ValueError(
+            "a sub-agent was asked for and no agent was supplied, so the "
+            "question would have gone nowhere. Refused rather than answered "
+            "from nothing.")
+    return agent.ask(str(args.get("question") or ""),
+                     material=str(args.get("material") or ""))
+
+
+# How much material makes delegation an L3 act rather than an L2 one.
+SUBAGENT_MATERIAL_L3 = 4000
+
+
 # ------------------------------------------------------------ shell sessions
 
 # WHAT SURVIVES BETWEEN TWO `shell.run` CALLS. Codex keeps a real shell process
@@ -1043,6 +1083,12 @@ OBS_MAX_LINE_CHARS = 200
 # because a default that fails open is how the next capability becomes a hole.
 OBSERVATION_TRUST = {
     "shell.run": EXTERNAL,
+    # A SUB-AGENT'S ANSWER IS EXTERNAL CONTENT, and stating it here rather than
+    # leaning on the default is the point: delegation is the cleanest laundering
+    # path in the system -- hand it untrusted material, receive a confident
+    # proposal with no trace of where it came from -- and the default is a thing
+    # a later edit can change without noticing what it changed.
+    "agent.ask": EXTERNAL,
     "fs.read": "retrieved_local",
     "fs.edit": "retrieved_local",
     "fs.write": "verified_local",
@@ -1157,6 +1203,14 @@ def build_registry() -> CapabilityRegistry:
         LevelRule("other", "L3", {"cmd": "git status"}),
     ], external_effect=True, reversibility="irreversible")
 
+    reg.register("agent.ask", agent_ask_level, [
+        LevelRule("brief", "L2", {"question": "what does this do?",
+                                  "material": "class A: pass"}),
+        LevelRule("credential", "L5",
+                  {"question": "what is this?",
+                   "material": "OPENAI_API_KEY=sk-live-abc"}),
+    ], reversibility="reversible")
+
     reg.register("fs.read", fs_read_level, [
         LevelRule("ordinary", "L1", {"path": "README.md"}),
         LevelRule("credential", "L5", {"path": "~/.config/vesper/secrets.env"}),
@@ -1181,7 +1235,7 @@ def build_registry() -> CapabilityRegistry:
     return reg
 
 
-def bind_all(executor, *, jobs=None) -> None:
+def bind_all(executor, *, jobs=None, agent=None) -> None:
     """Attach implementations. `fs.write` cannot bind without its compensator.
 
     THE JOB REGISTRY IS BOUND, NOT PASSED IN ARGS. `background` is a flag the
@@ -1197,6 +1251,16 @@ def bind_all(executor, *, jobs=None) -> None:
         executor.bind("shell.run", _shell_with_jobs)
     else:
         executor.bind("shell.run", shell_run)
+
+    # THE SUB-AGENT IS BOUND, NOT PASSED IN ARGS, for the reason the job
+    # registry is: what a proposal may ASK for and what carries the request are
+    # different things, and the second must never be something a model supplies.
+    if agent is not None:
+        def _ask_with_agent(args: dict) -> dict:
+            return agent_ask({**args, "_agent": agent})
+        executor.bind("agent.ask", _ask_with_agent)
+    else:
+        executor.bind("agent.ask", agent_ask)
     executor.bind("fs.read", fs_read)
     executor.bind("fs.write", fs_write, compensator=fs_write_compensator)
     executor.bind("fs.edit", fs_edit, compensator=fs_edit_compensator)

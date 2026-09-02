@@ -3830,8 +3830,10 @@ CASES += [
      "whole-file replacement can be proposed as one and skip the escalation"),
 
     ("edit-names-one-place", INTENT_PY,
-     _sub('KNOWN = ("shell.run", "fs.read", "fs.write", "fs.edit")',
-          'KNOWN = ("shell.run", "fs.read", "fs.write")', 1),
+     # `agent.ask` joined KNOWN when delegation landed; dropping fs.edit from the
+     # tuple is still exactly this case's violation.
+     _sub('KNOWN = ("shell.run", "fs.read", "fs.write", "fs.edit", "agent.ask")',
+          'KNOWN = ("shell.run", "fs.read", "fs.write", "agent.ask")', 1),
      "fs.edit is registered, implemented, verified and unreachable: the "
      "proposer cannot name it, so nothing can ever ask for one"),
 

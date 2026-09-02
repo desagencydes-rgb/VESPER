@@ -131,7 +131,8 @@ class Actor:
                  target: str = "host", broker: Any = None,
                  now_ms: Any = None, profile_id: str = "",
                  shadow: Any = None, reconciler: Any = None,
-                 selfmod: Any = None, jobs: Any = None) -> None:
+                 selfmod: Any = None, jobs: Any = None,
+                 agent: Any = None) -> None:
         self._bus = bus
         self._registry = build_registry()
         # Turns waiting on an answer, keyed by the broker's own
@@ -186,7 +187,16 @@ class Actor:
         # `shell_run` refuses `background`, so an actor built without
         # one cannot start work that outlives its turn at all.
         self._jobs = jobs
-        bind_all(self._executor, jobs=jobs)
+        # THE SUB-AGENT, BUILT FROM THE ACTOR'S OWN GATEWAY IF NONE WAS GIVEN.
+        # It shares the gateway so delegation goes through the same choke point
+        # every other model call does -- the redactor, the cost policy and the
+        # quota ledger are not optional for a question asked on VESPER's behalf
+        # just because a sub-agent asked it.
+        if agent is None and gateway is not None:
+            from core.subagent import SubAgent
+            agent = SubAgent(gateway, bus=bus)
+        self._agent = agent
+        bind_all(self._executor, jobs=jobs, agent=agent)
         self._proposer = IntentProposer(gateway, bus=bus, profile_id=profile_id)
         self._ceiling = ContextCeiling(bus)
         self._subject = subject

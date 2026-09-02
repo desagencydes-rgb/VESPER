@@ -14859,6 +14859,200 @@ def check_a_batch_read_is_one_action_at_its_worst_level() -> Result:
            f"and on the ladder")
     return r
 
+def check_a_sub_agent_thinks_and_never_acts() -> Result:
+    """Delegation reads and reasons. It cannot act, and its answer is untrusted.
+
+    WHY THIS SHAPE IS FORCED RATHER THAN CHOSEN. `attenuate` returns None -- not
+    a weaker grant, NONE -- for a parent grant that is not delegable, and every
+    standing grant `Actor._issue_standing` issues is `delegable=False`.
+    `INV-AUTH-2` closes L4/L5 on top of that. So there is no path that gives a
+    sub-agent a capability, and "sub-agents read and propose, the parent acts"
+    is what the authorization model already says rather than a policy laid over
+    it.
+
+    ITS ANSWER IS AN OBSERVATION, WHICH IS THE ONLY THING STANDING BETWEEN
+    DELEGATION AND LAUNDERING. Hand a sub-agent a page of untrusted text and it
+    returns a confident, well-formed proposal with no trace of where the idea
+    came from. `INV-ACT-3` says content entering the system is
+    `retrieved_external` and may never raise the authority of any action, so the
+    reply is classed exactly as a shell command's output is: asking lowers the
+    ceiling for the rest of the turn.
+
+    AND IT IS LEVELLED ON WHAT LEAVES, not on the verb. "Ask a sub-agent" sounds
+    like thinking; what it does is send material to a provider. Levelling the
+    verb is the defect this module has already hit three times -- most memorably
+    `shell.run("cat ~/.ssh/id_rsa")` resolving to L1 because `cat` is
+    allowlisted. Material carrying a credential is L5.
+    """
+    r = Result("a-sub-agent-thinks-and-never-acts")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import json as _json
+    import tempfile as _tf
+    try:
+        from core.actor import Actor
+        from core.authorize import Grant, PolicyDecisionPoint
+        from core.bus import EventBus
+        from core.capabilities import (SUBAGENT_MATERIAL_L3, agent_ask,
+                                       agent_ask_level, build_registry,
+                                       observation_trust)
+        from core.checkpoint import ShadowGit
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+        from core.subagent import (MAX_ANSWER_CHARS, MAX_CONTEXT_CHARS,
+                                   SubAgent, SubAgentUnavailable)
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the delegation path did not import: {exc!r}")
+        return r
+
+    # 0. LEVELLED ON WHAT LEAVES -- ASSERTED FIRST, BEFORE ANYTHING BUILDS THE
+    #    REGISTRY. `reg.register` validates each declared LevelRule against the
+    #    level function, so a level function that stops returning L5 for a
+    #    credential makes `build_registry()` RAISE -- and this check, which
+    #    built the registry three assertions earlier, died with a traceback
+    #    instead of reporting. That mutation's red run came back green.
+    #
+    #    The registration refusing IS the mechanism working. It just cannot be
+    #    the thing a check learns from, because a crash aborts `checks.py all`
+    #    rather than reporting one red check.
+    brief = agent_ask_level({"material": "class A: pass"})
+    bulk = agent_ask_level({"material": "x" * (SUBAGENT_MATERIAL_L3 + 100)})
+    cred = agent_ask_level({"material": "OPENAI_API_KEY=sk-live-abc"})
+    if cred != "L5":
+        r.err(f"material carrying a credential is {cred}, not L5. Putting it in "
+              "a context window IS the step where it leaves, which is the "
+              "reason fs.read levels the same thing L5. 'Ask a sub-agent' "
+              "sounds like thinking; what it does is send material to a "
+              "provider.")
+        return r
+    if brief != "L2" or bulk == brief:
+        r.err(f"asking about a paragraph ({brief}) and shipping "
+              f"{SUBAGENT_MATERIAL_L3}+ characters of the owner's material to a "
+              f"provider ({bulk}) cost the same")
+
+    # 1. A SUB-AGENT HOLDS NOTHING THAT CAN ACT. Checked by attribute rather
+    #    than by reading the file: a class that gains an executor later gains
+    #    it at construction, not in a comment.
+    class _GW:
+        def __init__(self):
+            self.calls = []
+
+        def complete(self, prompt, **kw):
+            self.calls.append((prompt, kw))
+            return {"result": {"text": "it defines one class"}}
+
+    gw = _GW()
+    sa = SubAgent(gw)
+    for attr in ("_executor", "_registry", "_pdp", "_jobs", "_broker",
+                 "_shadow", "_agent"):
+        if getattr(sa, attr, None) is not None:
+            r.err(f"a sub-agent holds {attr}. It is reachable from a proposal, "
+                  "so anything it holds is authority a model can ask for "
+                  "without the ladder that governs the parent.")
+
+    # 2. NO NESTING. A sub-agent that can make one is an unbounded tree.
+    if hasattr(sa, "ask") and "SubAgent" in str(getattr(SubAgent.ask, "__doc__", "")):
+        pass
+    import inspect as _insp
+    if "SubAgent(" in _insp.getsource(SubAgent):
+        r.err("SubAgent constructs a SubAgent, so delegation nests and the "
+              "budget that bounds one call does not bound the tree")
+
+    # 3. AND THE AUTHORIZATION MODEL AGREES: a standing grant delegates to
+    #    nothing at all. This is the assertion the whole design rests on.
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("sub")
+        store = StoreSet(base / "s", node_id="sub")
+        bus = EventBus(clock, store, component="sub")
+        pdp = PolicyDecisionPoint(bus, build_registry())
+        standing = Grant(grant_id="g-standing", subject="vesper",
+                         capability_id="shell.run", target_scope=("host",),
+                         max_level="L2", expiry_ms=10**15, lease_epoch=0,
+                         delegable=False, issued_by="owner")
+        pdp.issue(standing)
+        if pdp.attenuate(standing, "sub-1", "g-child") is not None:
+            r.err("a non-delegable standing grant produced a child grant, so a "
+                  "sub-agent can inherit a capability and the whole 'it thinks, "
+                  "it never acts' argument is gone (INV-AUTH-2)")
+
+        # 4. ITS ANSWER IS EXTERNAL CONTENT.
+        if observation_trust("agent.ask") != "retrieved_external":
+            r.err(f"a sub-agent's answer is classed "
+                  f"{observation_trust('agent.ask')!r}. It is a model's words "
+                  "about material this system did not verify, and anything "
+                  "less than external makes delegation a way to launder "
+                  "untrusted content into a trusted proposal (INV-ACT-3).")
+        rec = sa.ask("what is this?", material="class A: pass")
+        if rec.get("trust_class") != "retrieved_external":
+            r.err("the record a sub-agent returns does not carry its own trust "
+                  "class, so a reader has to remember what it is")
+
+        # 6. BOUNDED IN BOTH DIRECTIONS.
+        big = sa.ask("q", material="y" * (MAX_CONTEXT_CHARS * 3))
+        if big["material_chars"] > MAX_CONTEXT_CHARS:
+            r.err("a sub-agent accepted unbounded material, so delegation is a "
+                  "way to spend the parent's context somewhere it cannot be "
+                  "seen")
+        long_gw = _GW()
+        long_gw.complete = lambda p, **kw: {"result": {"text": "z" * 99999}}
+        if len(SubAgent(long_gw).ask("q")["answer"]) > MAX_ANSWER_CHARS:
+            r.err("a sub-agent's answer is unbounded; an answer is an "
+                  "observation and observations are bounded so a runaway one "
+                  "cannot fill a context window")
+
+        # 7. NO GATEWAY, NO ANSWER. Refused rather than answered from nothing.
+        try:
+            SubAgent(None).ask("q")
+            r.err("a sub-agent with no gateway returned an answer")
+        except SubAgentUnavailable:
+            pass
+        try:
+            agent_ask({"question": "q"})
+            r.err("agent.ask ran with no sub-agent bound, so the question went "
+                  "nowhere and something was returned anyway")
+        except ValueError:
+            pass
+
+        # 8. AND IT IS REACHABLE FROM A TURN. Everything above is worth nothing
+        #    if no proposal can name it -- which was true until `KNOWN` was
+        #    widened, and is the state fifteen other subsystems were found in.
+        from core.intent import KNOWN
+        if "agent.ask" not in KNOWN:
+            r.err("no proposal may name agent.ask, so delegation is built and "
+                  "reachable from nothing")
+        seen: list = []
+
+        class _TurnGW:
+            def complete(self, prompt, **kw):
+                seen.append(str(kw.get("system") or ""))
+                if "You are a reader" in str(kw.get("system") or ""):
+                    return {"result": {"text": "one class, A"}}
+                return {"result": {"text": _json.dumps(
+                    {"action": "agent.ask",
+                     "args": {"question": "what is here?",
+                              "material": "class A: pass"},
+                     "why": "read it"})}}
+
+        act = Actor(bus, _TurnGW(), subject="sub", target="host",
+                    shadow=ShadowGit(base / "shadow"))
+        out = act.maybe_act("what does that define?", period="active")
+        if out is None or out.kind != "acted":
+            r.err(f"a turn proposing agent.ask ended as {out and out.kind!r} "
+                  "rather than acting on it")
+        if not any("You are a reader" in s for s in seen):
+            r.err("the sub-agent was never actually consulted, so the turn "
+                  "reported success for a question nobody asked")
+
+    r.note("a sub-agent holds no executor, registry, policy point or job "
+           "registry and cannot construct another; a non-delegable standing "
+           "grant attenuates to nothing, so the model already forbids it "
+           "inheriting a capability; its answer is retrieved_external and says "
+           "so in its own record; it is levelled on the material that leaves, "
+           "L5 for a credential; input and output are bounded; it refuses "
+           "without a gateway; and a real turn can propose it and reach it")
+    return r
+
 def check_credentials_can_leave_the_plaintext_file() -> Result:
     """A credential in the Keychain is used, and the file remains the fallback.
 
@@ -16720,6 +16914,7 @@ CHECK_FNS = {
     "the-stop-reaches-work-that-outlives-the-turn": check_the_stop_reaches_work_that_outlives_the_turn,
     "a-read-window-moves-and-proves-only-what-it-saw": check_a_read_window_moves_and_proves_only_what_it_saw,
     "a-batch-read-is-one-action-at-its-worst-level": check_a_batch_read_is_one_action_at_its_worst_level,
+    "a-sub-agent-thinks-and-never-acts": check_a_sub_agent_thinks_and_never_acts,
     "host-pressure-read-through-the-adapter": check_host_pressure_is_read_through_the_adapter,
     "floor-held-and-offered-to": check_the_floor_is_held_and_offered_to,
     "boundary-asked-before-the-write": check_the_boundary_is_asked_before_the_write,

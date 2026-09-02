@@ -76,7 +76,7 @@ Rules:
 # rather than passed on: `CapabilityRegistry.get` would raise `UnknownCapability`
 # anyway, but a proposal that cannot possibly be executed should not reach the
 # authorization path and appear in its records as a refusal.
-KNOWN = ("shell.run", "fs.read", "fs.write", "fs.edit")
+KNOWN = ("shell.run", "fs.read", "fs.write", "fs.edit", "agent.ask")
 
 
 @dataclass(slots=True)
