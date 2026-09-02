@@ -322,7 +322,35 @@ def shell_run(args: dict) -> dict:
 
     level = shell_level(args)
     env = {**os.environ, **env_over} if env_over else None
-    p = subprocess.run([SEATBELT, "-p", _seatbelt_profile(level), *argv],
+    argv_contained = [SEATBELT, "-p", _seatbelt_profile(level), *argv]
+
+    # BACKGROUND IS THE SAME COMMAND, CONTAINED THE SAME WAY. It is levelled by
+    # the same rules, wrapped in the same seatbelt profile and run in the same
+    # resolved directory -- the only difference is that nobody waits for it.
+    # Running a command in the background must never be a way to run a
+    # DIFFERENT command, which is what a separate path here would eventually
+    # become.
+    if args.get("background"):
+        jobs = args.get("_jobs")
+        if jobs is None:
+            raise ValueError(
+                "background was requested and no job registry was supplied, so "
+                "nothing could stop this command once it started. Refused: an "
+                "unstoppable process is exactly what the emergency stop exists "
+                "to prevent.")
+        started = jobs.start(argv_contained, cmd=cmd,
+                             period=str(args.get("period") or "active"),
+                             cwd=run_cwd, env=env)
+        if sid:
+            key = str(sid)
+            if key not in _SHELL_SESSIONS and len(_SHELL_SESSIONS) >= MAX_SHELL_SESSIONS:
+                _SHELL_SESSIONS.pop(next(iter(_SHELL_SESSIONS)))
+            _SHELL_SESSIONS[key] = {"cwd": run_cwd, "env": env_over}
+        return {**started, "contained": True, "containment_level": level,
+                "cwd": run_cwd, "session": str(sid) if sid else None,
+                "background": True}
+
+    p = subprocess.run(argv_contained,
                        capture_output=True, text=True,
                        timeout=timeout, check=False, cwd=run_cwd, env=env)
 
@@ -1023,9 +1051,22 @@ def build_registry() -> CapabilityRegistry:
     return reg
 
 
-def bind_all(executor) -> None:
-    """Attach implementations. `fs.write` cannot bind without its compensator."""
-    executor.bind("shell.run", shell_run)
+def bind_all(executor, *, jobs=None) -> None:
+    """Attach implementations. `fs.write` cannot bind without its compensator.
+
+    THE JOB REGISTRY IS BOUND, NOT PASSED IN ARGS. `background` is a flag the
+    proposer may set; the thing that can STOP a background command is not, and
+    must never be something a model supplies or omits. Binding it here means a
+    proposer can ask for background and cannot ask for background-without-a-way-
+    to-stop-it -- `shell_run` refuses that combination outright, and this is
+    what makes the refusal unreachable in practice rather than merely correct.
+    """
+    if jobs is not None:
+        def _shell_with_jobs(args: dict) -> dict:
+            return shell_run({**args, "_jobs": jobs})
+        executor.bind("shell.run", _shell_with_jobs)
+    else:
+        executor.bind("shell.run", shell_run)
     executor.bind("fs.read", fs_read)
     executor.bind("fs.write", fs_write, compensator=fs_write_compensator)
     executor.bind("fs.edit", fs_edit, compensator=fs_edit_compensator)

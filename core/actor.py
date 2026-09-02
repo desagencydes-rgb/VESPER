@@ -131,7 +131,7 @@ class Actor:
                  target: str = "host", broker: Any = None,
                  now_ms: Any = None, profile_id: str = "",
                  shadow: Any = None, reconciler: Any = None,
-                 selfmod: Any = None) -> None:
+                 selfmod: Any = None, jobs: Any = None) -> None:
         self._bus = bus
         self._registry = build_registry()
         # Turns waiting on an answer, keyed by the broker's own
@@ -182,7 +182,11 @@ class Actor:
                                   shadow=self._shadow,
                                   reconciler=self._reconciler,
                                   selfmod=self._selfmod)
-        bind_all(self._executor)
+        # THE STOP TRAVELS WITH THE CAPABILITY. Without a registry
+        # `shell_run` refuses `background`, so an actor built without
+        # one cannot start work that outlives its turn at all.
+        self._jobs = jobs
+        bind_all(self._executor, jobs=jobs)
         self._proposer = IntentProposer(gateway, bus=bus, profile_id=profile_id)
         self._ceiling = ContextCeiling(bus)
         self._subject = subject

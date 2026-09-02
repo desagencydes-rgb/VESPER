@@ -41,6 +41,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
+from core.background import BackgroundJobs                       # noqa: E402
 from core.bus import EventBus                                   # noqa: E402
 from core.cost import CostPolicy                                # noqa: E402
 from core.gateway import AllProvidersExhausted, ModelGateway    # noqa: E402
@@ -524,7 +525,8 @@ def build(node: str = "vesper-runtime"):
     # decision of 2026-08-31: stop, explain, ask by voice, and wait if nobody is
     # there. Without the broker it would still be safe and would simply say no,
     # which is safe in the way a system that cannot do anything is safe.
-    actor = Actor(bus, gw,
+    jobs = BackgroundJobs(bus)
+    actor = Actor(bus, gw, jobs=jobs,
                   broker=ConfirmationBroker(bus, InterruptionBudget(bus)))
     autonomy.attach_actor(actor)
 
@@ -577,7 +579,7 @@ def build(node: str = "vesper-runtime"):
     return (bus, gw, router, home, intake, triage, report, persona, bench,
             renderer, updater, misses, chooser, world, sensors, autonomy,
             devices, repairer, presence, context_cmds, verifier, speech,
-            transcriber, actor, floor, baseline, interlock)
+            transcriber, actor, floor, baseline, interlock, jobs)
 
 
 def answer(gw, router, persona, utterance, renderer=None,
@@ -798,7 +800,7 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          misses=None, chooser=None, sensors=None, autonomy=None,
          triage=None, repairer=None, presence=None,
          context_cmds=None, speech=None, transcriber=None, actor=None,
-         floor=None, baseline=None, interlock=None) -> int:
+         floor=None, baseline=None, interlock=None, jobs=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     # SENSORS FIRST, AND THE PERIOD DECIDES WHETHER ANYTHING ACTUALLY RUNS.
     # `poll()` returns immediately for any sensor that is not due, so calling it
@@ -839,6 +841,20 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             # holds zero of those records.
             if interlock is not None:
                 _present_enable_token(interlock)
+                # THE STOP REACHES WORK THAT OUTLIVES THE TURN. A background
+                # command has no step boundary to ask at, so the question is
+                # asked HERE instead, on the pass that already consults the
+                # interlock. `INV-STOP-2` forbids the interlock from holding
+                # the process table itself -- a dead-man's switch may not
+                # depend on anything that can hang -- so the side that holds
+                # the processes does the killing.
+                #
+                # `free_time` ONLY. STOP_AUTONOMY stops what VESPER started for
+                # itself; a build the owner asked for is not autonomous work,
+                # and an owner who loses it will not use the stop again.
+                if jobs is not None and not interlock.autonomy_permitted():
+                    jobs.terminate_all(period="free_time",
+                                       reason="autonomy_not_permitted")
             # PACED BY THE LOOP'S OWN DECLARED CADENCE, not by the pump's.
             # POLL_SECONDS is 0.15 because the SPEECH path needs it -- the
             # comment at the sleep says so -- and autonomy was hitched to the
@@ -1254,7 +1270,8 @@ def main() -> int:
     (bus, gw, router, home, intake, triage, report, persona, bench,
      renderer, updater, misses, chooser, world, sensors,
      autonomy, devices, repairer, presence, context_cmds, verifier,
-     speech, transcriber, actor, floor, baseline, interlock) = build()
+     speech, transcriber, actor, floor, baseline, interlock,
+     jobs) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -1314,6 +1331,7 @@ def main() -> int:
     if args.once or args.say or args.hear:
         n = pump(bus, gw, router, persona, bench, home, intake, transcript,
                  floor=floor, baseline=baseline, interlock=interlock,
+                 jobs=jobs,
                  once=True, renderer=renderer, updater=updater,
                  misses=misses, chooser=chooser, sensors=sensors,
                  autonomy=autonomy, triage=triage, repairer=repairer,
@@ -1360,6 +1378,7 @@ def main() -> int:
         try:
             pump(bus, gw, router, persona, bench, home, intake, transcript,
                  floor=floor, baseline=baseline, interlock=interlock,
+                 jobs=jobs,
                  renderer=renderer, updater=updater, misses=misses,
                  chooser=chooser, sensors=sensors, autonomy=autonomy,
                  triage=triage, repairer=repairer, presence=presence,

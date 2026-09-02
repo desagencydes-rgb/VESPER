@@ -3738,8 +3738,11 @@ CASES += [
 # --------------------------------------------------------------------------
 CASES += [
     ("shell-runs-contained", CAPS_PY,
-     _sub("    p = subprocess.run([SEATBELT, \"-p\", _seatbelt_profile(level), *argv],",
-          "    p = subprocess.run([*argv],", 1),
+     # The wrapped argv is built once and shared by the foreground and the
+     # background path, so dropping the sandbox is now one edit that
+     # affects BOTH -- which is the point of building it once.
+     _sub("    argv_contained = [SEATBELT, \"-p\", _seatbelt_profile(level), *argv]",
+          "    argv_contained = [*argv]", 1),
      "the sandbox is dropped from the invocation: shell.run is classified and "
      "not contained, which is the posture every path defect in this module has "
      "escaped through"),

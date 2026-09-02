@@ -14408,6 +14408,182 @@ def check_a_shell_session_carries_context_not_a_shell() -> Result:
            f"{MAX_SHELL_SESSIONS}")
     return r
 
+def check_the_stop_reaches_work_that_outlives_the_turn() -> Result:
+    """A background command is stoppable, contained, bounded and owner-aware.
+
+    THE HAZARD THIS EXISTS FOR. Everything else in the act path is bounded by
+    the turn: the step budget bounds the loop, a timeout bounds each command,
+    and `permitted()` is asked before every step -- which is what makes the
+    emergency stop reach work already running. A background process has NO STEP
+    BOUNDARY to ask at, so shipping one naively is shipping a way to start work
+    that never sees the stop, quietly undoing the fix that landed hours earlier.
+
+    THE INTERLOCK CANNOT DO THE KILLING. `INV-STOP-2` bans it from importing
+    anything that can fail, block or refuse: it is a dead-man's switch, and
+    every dependency that can hang is a way for stopping to become impossible
+    exactly when it is wanted. `engage()` marks in-flight work RESUMABLE and
+    kills nothing. So the side holding the processes asks the interlock, on the
+    pass that already asks it.
+
+    THE PROCESS GROUP, NOT THE PROCESS. `npm test` spawns node; killing the pid
+    alone leaves those children running with nothing holding a handle to them --
+    work VESPER started, still going after the stop, and invisible. Verified by
+    counting processes rather than by trusting the return value, after a first
+    version of that probe measured ZERO before the stop as well as after,
+    because its marker made the command exit instantly. A negative control that
+    passes is a defect.
+
+    A STOP OF AUTONOMY IS NOT A STOP OF THE OWNER'S WORK. Each job records the
+    period it began under. STOP_AUTONOMY ends what VESPER started for itself and
+    leaves what the owner asked for, because that is what the words mean -- and
+    an owner who says "stop working on your own" and loses their build will not
+    press it again.
+    """
+    r = Result("the-stop-reaches-work-that-outlives-the-turn")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import subprocess as _sp
+    import time as _t
+    try:
+        from core.background import (MAX_BACKGROUND, BackgroundJobs,
+                                     TooManyBackgroundCommands)
+        from core.capabilities import shell_level, shell_run
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the background path did not import: {exc!r}")
+        return r
+
+    def _alive(pat):
+        o = _sp.run(["pgrep", "-f", pat], capture_output=True, text=True)
+        return len([x for x in o.stdout.split() if x.strip()])
+
+    bg = BackgroundJobs()
+    try:
+        # 1. WITHOUT A REGISTRY, BACKGROUND IS REFUSED. An unstoppable process
+        #    is exactly what the stop exists to prevent, so it must be
+        #    impossible to start one rather than merely discouraged.
+        # CAUGHT BROADLY AND ASSERTED ON THE OUTCOME. Catching only ValueError
+        # meant the mutation that removed the guard raised AttributeError
+        # instead, which propagated out and CRASHED this check rather than
+        # failing it -- so that red run came back green.
+        started_unstoppably = False
+        refusal = None
+        try:
+            started_unstoppably = bool(shell_run(
+                {"cmd": "sleep 926", "background": True}).get("running"))
+        except Exception as exc:                       # noqa: BLE001
+            refusal = exc
+        if started_unstoppably:
+            r.err("a background command started with no registry to stop it. "
+                  "Nothing could end that process for the rest of the run.")
+        # AND THE REFUSAL SAYS WHY. Dropping the guard does not make this
+        # unsafe -- the call fails either way and no process starts -- so
+        # asserting "it did not start" pins nothing. What the guard buys is a
+        # LEGIBLE refusal instead of an AttributeError three frames down, and
+        # that is the difference between an owner who learns background needs a
+        # registry and one who files a crash. The mutation is worth catching
+        # for that reason and only that reason, so that is what is asserted.
+        elif not isinstance(refusal, ValueError) or "stop" not in str(refusal):
+            r.err(f"asking for background with no registry failed as "
+                  f"{type(refusal).__name__ if refusal else 'nothing'} rather "
+                  "than a refusal naming the reason. Nothing was started, so "
+                  "this is not unsafe -- it is unreadable, and an unreadable "
+                  "refusal is how a capability gets reported as broken instead "
+                  "of unconfigured.")
+
+        # 2. IT IS THE SAME COMMAND, CONTAINED AND LEVELLED THE SAME WAY.
+        h = shell_run({"cmd": "sleep 921", "background": True, "_jobs": bg,
+                       "period": "free_time"})
+        # THE ARGV, NOT THE CLAIM. `contained: True` is set by the same code
+        # that would be wrong; reading it back proved only that the dictionary
+        # had the key. The mutation that ran the raw argv instead of the
+        # seatbelt-wrapped one passed this assertion untouched.
+        from core.capabilities import SEATBELT as _SB
+        argv0 = bg.poll(h["job_id"]).get("argv0", "")
+        if argv0 != _SB:
+            r.err(f"a background command was executed as {argv0!r} rather than "
+                  f"through {_SB}. Putting a command in the background is a way "
+                  "to escape containment entirely.")
+        if h.get("containment_level") != shell_level({"cmd": "sleep 921"}):
+            r.err("a background command was levelled differently from the same "
+                  "command in the foreground")
+
+        # 3. THE STOP REACHES IT, AND ITS CHILDREN.
+        _t.sleep(0.4)
+        j = bg.start(["/bin/sh", "-c", "sleep 922 & sleep 923"],
+                     cmd="parent and child", period="free_time", cwd=str(REPO))
+        _t.sleep(0.6)
+        before_child = _alive("sleep 922")
+        if not before_child:
+            r.err("the fixture's child process never ran, so the orphan case "
+                  "is not being tested at all -- a control that cannot fail is "
+                  "not evidence")
+        else:
+            bg.terminate_all(period="free_time", reason="check")
+            _t.sleep(0.8)
+            if _alive("sleep 922"):
+                r.err("a child of a stopped background command is still "
+                      "running. Killing the process and not the group leaves "
+                      "work VESPER started going after the stop, with nothing "
+                      "holding a handle to it.")
+            if _alive("sleep 921"):
+                r.err("the stopped command itself is still running")
+
+        # 4. STOP_AUTONOMY LEAVES THE OWNER'S OWN WORK ALONE.
+        own = bg.start(["/bin/sh", "-c", "sleep 924"], cmd="owner build",
+                       period="active", cwd=str(REPO))
+        bg.terminate_all(period="free_time", reason="check")
+        if not bg.poll(own["job_id"])["running"]:
+            r.err("stopping AUTONOMY also killed work the owner asked for. "
+                  "STOP_AUTONOMY stops what VESPER started for itself; an "
+                  "owner who loses their build to it will not press it again.")
+
+        # 5. THE POOL IS BOUNDED. The proposer decides when to start one.
+        try:
+            for i in range(MAX_BACKGROUND + 4):
+                bg.start(["/bin/sh", "-c", "sleep 925"], cmd=f"j{i}",
+                         period="active", cwd=str(REPO))
+            r.err(f"more than {MAX_BACKGROUND} background commands started at "
+                  "once; an unbounded pool is a fork bomb a steered proposer "
+                  "reaches for free, on a laptop the owner is also using")
+        except TooManyBackgroundCommands:
+            pass
+
+        # 6. AND THE RUNTIME ASKS. A registry nothing consults is a registry
+        #    that stops nothing.
+        # PARSED AND SCOPED TO ITS GUARD. Searching for the call name passes
+        # against `if False:` -- the text survives, the behaviour does not.
+        # What matters is that the call is reached BECAUSE the interlock said
+        # no, so the guard is what gets checked.
+        import ast as _ast7
+        rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+        _guarded = False
+        for node in _ast7.walk(_ast7.parse(rt)):
+            if not isinstance(node, _ast7.If):
+                continue
+            test = _ast7.dump(node.test)
+            if "autonomy_permitted" not in test:
+                continue
+            for inner in _ast7.walk(node):
+                if (isinstance(inner, _ast7.Call)
+                        and getattr(inner.func, "attr", "") == "terminate_all"
+                        and any(k.arg == "period" for k in inner.keywords)):
+                    _guarded = True
+        if not _guarded:
+            r.err("no call to terminate_all is reached because the interlock "
+                  "refused. The stop reaches every step of a turn and nothing "
+                  "that outlives one, and the registry stops nothing.")
+    finally:
+        bg.terminate_all(reason="check_cleanup")
+        _sp.run(["pkill", "-f", "sleep 92"], capture_output=True)
+
+    r.note(f"background is refused without a registry to stop it; it is "
+           f"contained and levelled exactly as the foreground command is; the "
+           f"stop reaches the process AND its children, verified by counting "
+           f"processes; STOP_AUTONOMY leaves the owner's own work running; the "
+           f"pool is bounded at {MAX_BACKGROUND}; and the runtime asks on the "
+           f"pass that already consults the interlock")
+    return r
+
 def check_credentials_can_leave_the_plaintext_file() -> Result:
     """A credential in the Keychain is used, and the file remains the fallback.
 
@@ -16266,6 +16442,7 @@ CHECK_FNS = {
     "a-question-does-not-end-the-turn": check_a_question_does_not_end_the_turn,
     "the-runtime-resolves-every-name-it-uses": check_the_runtime_resolves_every_name_it_uses,
     "a-shell-session-carries-context-not-a-shell": check_a_shell_session_carries_context_not_a_shell,
+    "the-stop-reaches-work-that-outlives-the-turn": check_the_stop_reaches_work_that_outlives_the_turn,
     "host-pressure-read-through-the-adapter": check_host_pressure_is_read_through_the_adapter,
     "floor-held-and-offered-to": check_the_floor_is_held_and_offered_to,
     "boundary-asked-before-the-write": check_the_boundary_is_asked_before_the_write,
