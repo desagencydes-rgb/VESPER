@@ -105,6 +105,26 @@ STATE = Path.home() / "Library" / "Application Support" / "VESPER"
 # the cost of being too small is a fact left out rather than a request
 # refused by a provider.
 L1_BUDGET_TOKENS = 1500
+# WHEN THE LIVE LOG IS ARCHIVED AND A FRESH ONE STARTED. `StoreSet.rotate` keeps
+# the old file whole, continues the sequence past its high-water mark, and reads
+# walk every segment -- so this bounds the file the runtime writes to and queries
+# against, and loses nothing.
+#
+# HALF A GIGABYTE IS A THRESHOLD, NOT A MEASUREMENT, and is written here rather
+# than in a contract because it is a property of this host's disk rather than of
+# the design. The measured facts behind it: the live log reached 1.68 GB, of
+# which 545 MB was a repair storm fixed at source and 420 MB was silence written
+# one record per tick. Both of those are fixed; what remains grows at roughly 30
+# MB/day, so this rotates on the order of a fortnight rather than daily.
+#
+# CHECKED ON A SLOW PERIOD, because `stat` on every pass is a syscall six times a
+# second for an answer that changes over weeks. The same reasoning the host
+# sensors use for their `period_ms`.
+ROTATE_LOG_ABOVE_BYTES = 512 * 1024 * 1024
+ROTATE_CHECK_EVERY_S = 600.0
+# Module-level so the throttle survives across pump passes, which are separate
+# calls rather than one long-lived loop body.
+_LAST_ROTATE_CHECK = [0.0]
 OUTBOX = STATE / "say.jsonl"
 # The wake listener records and queues; the runtime transcribes and
 # answers. The split is deliberate: the credential and the egress
@@ -579,7 +599,7 @@ def build(node: str = "vesper-runtime"):
     return (bus, gw, router, home, intake, triage, report, persona, bench,
             renderer, updater, misses, chooser, world, sensors, autonomy,
             devices, repairer, presence, context_cmds, verifier, speech,
-            transcriber, actor, floor, baseline, interlock, jobs)
+            transcriber, actor, floor, baseline, interlock, jobs, store)
 
 
 def answer(gw, router, persona, utterance, renderer=None,
@@ -800,7 +820,8 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          misses=None, chooser=None, sensors=None, autonomy=None,
          triage=None, repairer=None, presence=None,
          context_cmds=None, speech=None, transcriber=None, actor=None,
-         floor=None, baseline=None, interlock=None, jobs=None) -> int:
+         floor=None, baseline=None, interlock=None, jobs=None,
+         store=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     # SENSORS FIRST, AND THE PERIOD DECIDES WHETHER ANYTHING ACTUALLY RUNS.
     # `poll()` returns immediately for any sensor that is not due, so calling it
@@ -879,6 +900,30 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
         except Exception as exc:                   # noqa: BLE001
             bus.publish("autonomy.loop_failed", subject="autonomy",
                         payload={"error": repr(exc)}, component="runtime")
+
+    # THE LIVE LOG IS BOUNDED, ON A SLOW CLOCK. Rotation keeps the old segment
+    # whole and continues the sequence, so nothing is lost and nothing is
+    # rewritten -- which is the only archival form the append-only triggers
+    # permit. The check is throttled because the answer changes over weeks.
+    #
+    # PUBLISHED WHEN IT HAPPENS. A file the owner has been watching grow
+    # suddenly being small is a surprise unless the system says what it did.
+    if store is not None:
+        now_s = time.time()
+        if now_s - _LAST_ROTATE_CHECK[0] >= ROTATE_CHECK_EVERY_S:
+            _LAST_ROTATE_CHECK[0] = now_s
+            try:
+                live = store.root / "log.db"
+                if live.exists() and live.stat().st_size > ROTATE_LOG_ABOVE_BYTES:
+                    was = live.stat().st_size
+                    info = store.rotate("log")
+                    bus.publish("store.rotated", subject="log",
+                                payload={**info, "was_bytes": was,
+                                         "threshold_bytes": ROTATE_LOG_ABOVE_BYTES},
+                                component="runtime")
+            except Exception as exc:                   # noqa: BLE001
+                bus.publish("store.rotate_failed", subject="log",
+                            payload={"error": repr(exc)}, component="runtime")
 
     # ONE REPAIR ATTEMPT PER PASS, OLDEST FIRST, AND NEVER A SWEEP. Repairing
     # everything open on every pass would retry a dead provider several times a
@@ -1271,7 +1316,7 @@ def main() -> int:
      renderer, updater, misses, chooser, world, sensors,
      autonomy, devices, repairer, presence, context_cmds, verifier,
      speech, transcriber, actor, floor, baseline, interlock,
-     jobs) = build()
+     jobs, store) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -1331,7 +1376,7 @@ def main() -> int:
     if args.once or args.say or args.hear:
         n = pump(bus, gw, router, persona, bench, home, intake, transcript,
                  floor=floor, baseline=baseline, interlock=interlock,
-                 jobs=jobs,
+                 jobs=jobs, store=store,
                  once=True, renderer=renderer, updater=updater,
                  misses=misses, chooser=chooser, sensors=sensors,
                  autonomy=autonomy, triage=triage, repairer=repairer,
@@ -1378,7 +1423,7 @@ def main() -> int:
         try:
             pump(bus, gw, router, persona, bench, home, intake, transcript,
                  floor=floor, baseline=baseline, interlock=interlock,
-                 jobs=jobs,
+                 jobs=jobs, store=store,
                  renderer=renderer, updater=updater, misses=misses,
                  chooser=chooser, sensors=sensors, autonomy=autonomy,
                  triage=triage, repairer=repairer, presence=presence,

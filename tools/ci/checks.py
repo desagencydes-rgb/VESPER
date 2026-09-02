@@ -15417,12 +15417,35 @@ def check_a_rotated_log_keeps_one_sequence_and_loses_nothing() -> Result:
         if st2.rotate("audit").get("rotated"):
             r.err("an empty store rotated, leaving a segment with nothing in it")
 
+    # 7. AND THE RUNTIME ACTUALLY ROTATES. A mechanism nothing calls bounds
+    #    nothing -- the state fifteen other subsystems were found in during this
+    #    same session. Parsed rather than grepped, and scoped to the call being
+    #    reached because the live file exceeded a threshold, since
+    #    `store.rotate(` survives being written under `if False:`.
+    import ast as _ast8
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    guarded = False
+    for node in _ast8.walk(_ast8.parse(rt)):
+        if not isinstance(node, _ast8.If):
+            continue
+        if "ROTATE_LOG_ABOVE_BYTES" not in _ast8.dump(node.test):
+            continue
+        for inner in _ast8.walk(node):
+            if (isinstance(inner, _ast8.Call)
+                    and getattr(inner.func, "attr", "") == "rotate"):
+                guarded = True
+    if not guarded:
+        r.err("the runtime never rotates the log because it grew past a "
+              "threshold, so the mechanism is built and bounds nothing -- and "
+              "the live file goes on being the only file")
+
     r.note("a rotated log reads back whole and in order across its segments; "
            "the sequence continues past the old high-water mark rather than "
            "restarting, so a tombstone still names one record; the archived "
            "segment keeps every record it had; the fresh file is still "
            "append-only; mutable stores refuse to rotate; and an empty one "
-           "does not produce an empty segment")
+           "does not produce an empty segment; and the runtime rotates when "
+           "the live file passes its threshold")
     return r
 
 def check_an_mcp_server_does_not_level_its_own_tools() -> Result:
