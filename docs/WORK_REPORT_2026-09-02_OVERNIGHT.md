@@ -262,3 +262,27 @@ pass in every sweep while naming no invariant and counting toward no coverage
 figure. `ci-registry` now prints that number beside the 80/144 it qualifies.
 Reported rather than refused: ratifying one means writing the invariant it
 enforces, which is the owner's act.
+
+---
+
+## Rotation, exercised on the real log rather than left for you to discover
+
+The runtime was started once after rotation was wired, which fired it against
+the live 1.68 GB log. Verified immediately afterwards:
+
+```
+segments   log-seg20260902T143801-to1896415.db  +  log.db (fresh)
+records readable through the store   1,896,416   — all of them
+seqs across the boundary   ...1896414, 1896415, 1896416   — continues, no restart
+the A-029 verifier sees    1,896,416              — the full history
+```
+
+**The live file is now empty and the history is intact.** The sequence continued
+past the old high-water mark rather than restarting, which is the property that
+keeps a tombstone naming one record; nothing is duplicated; and the evidence
+path for the owed endurance gate reads all of it.
+
+**But rotation bounds the working file, not the disk.** The archive is still
+1.68 GB and total usage is unchanged. Reclaiming it means compressing archived
+segments — measured at **13.7×** on this data, and safe because a rotated segment
+is immutable. That is the obvious next step and it is not done.
