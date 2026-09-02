@@ -15741,6 +15741,186 @@ def check_advice_can_add_caution_and_never_remove_it() -> Result:
            "PROCEED is indistinguishable from having no advisor at all")
     return r
 
+def check_a_compressed_archive_is_still_a_readable_log() -> Result:
+    """An archived segment sits compressed on disk and is read without unpacking.
+
+    THE REQUIREMENT IS THE OWNER'S AND IT DECIDES THE DESIGN. Compressing the
+    whole file reaches 15.7x, measured on this corpus -- and reading one record
+    would mean unpacking 1.6 GB first, which is what they ruled out. So each
+    RECORD is compressed separately and the file stays a database: SQLite opens
+    it, indexes still work, and only the row asked for is inflated.
+
+    THE DICTIONARY IS WHY THIS IS WORTH DOING AT ALL. Measured on 20,000 real
+    records: per-record compression alone reaches 1.8x, because a 600-byte event
+    has too little internal repetition for deflate to find. With a dictionary
+    trained on the corpus -- where the repetition actually lives, in the field
+    names, node ids and component strings repeated in every record -- 4.5x.
+
+    AND IT LIVES INSIDE THE ARCHIVE. A segment needing a dictionary kept
+    elsewhere is a file that stops being readable when that elsewhere is lost or
+    moved, which is precisely the failure an archive exists to prevent.
+
+    THE ORIGINAL IS REPLACED ONLY AFTER THE COPY IS VERIFIED, record for record.
+    "The compressor returned 0" is the instrument reporting on itself, and this
+    is the one operation in the system that could lose history silently.
+
+    ONLY AN ARCHIVE, NEVER THE LIVE FILE. A rotated segment never changes again,
+    which is what makes re-encoding it safe: no writer to race, no record able
+    to arrive mid-rewrite.
+    """
+    r = Result("a-compressed-archive-is-still-a-readable-log")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import sqlite3 as _sq
+    import tempfile as _tf
+    try:
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the store did not import: {exc!r}")
+        return r
+
+    with _tf.TemporaryDirectory() as td:
+        st = StoreSet(Path(td) / "s", node_id="zchk")
+        clock = HybridLogicalClock("zchk")
+        for i in range(600):
+            st.append("log", "autonomy.heartbeat",
+                      {"payload": {"tick": i, "at_ms": i * 1000},
+                       "source": {"component": "autonomy",
+                                  "node_id": "vesper-runtime"}}, clock.now())
+        st.rotate("log")
+        for i in range(4):
+            st.append("log", "probe", {"i": i}, clock.now())
+
+        before = [(rec.seq, rec.kind, rec.body) for rec in st.read("log")]
+        seg = st.segments("log")[0]
+        # WRAPPED, because compression can fail INSIDE itself -- an archive
+        # written without its dictionary cannot be verified against the
+        # original, and the verification step is where that surfaces. That
+        # crashed this check rather than failing it, which is the shape that
+        # turned three of its five red runs green.
+        try:
+            info = st.compress_segment(seg)
+        except Exception as exc:                    # noqa: BLE001
+            r.err(f"compressing an archived segment raised "
+                  f"{type(exc).__name__}: {exc}. The archive must end up "
+                  "readable or the original must be left untouched; a "
+                  "compression that raises partway is the one case that can "
+                  "lose history.")
+            return r
+        if not info.get("compressed"):
+            r.err(f"an archived segment did not compress: {info}")
+            return r
+
+        # 1. NOT ONE RECORD CHANGED. The assertion everything else rests on --
+        #    and READING IS WRAPPED, because every way of breaking compression
+        #    makes the read itself raise: a missing dictionary, a read path that
+        #    stops inflating, a double encoding. Three of this check's five red
+        #    runs came back GREEN the first time for exactly that reason, the
+        #    crash aborting the check instead of failing it. Fifth appearance of
+        #    that shape tonight.
+        try:
+            after = [(rec.seq, rec.kind, rec.body) for rec in st.read("log")]
+        except Exception as exc:                    # noqa: BLE001
+            r.err(f"reading the log after compression raised "
+                  f"{type(exc).__name__}: {exc}. A compressed archive that "
+                  "cannot be read is not an archive -- and the original has "
+                  "already been replaced by this point.")
+            return r
+        if after != before:
+            r.err(f"compression changed the log: {len(before)} records before, "
+                  f"{len(after)} after, identical={after == before}. This is the "
+                  "one operation that could lose history silently.")
+
+        # 2. IT IS STILL A DATABASE, opened directly, without unpacking.
+        c = _sq.connect(f"file:{seg.as_posix()}?mode=ro", uri=True)
+        try:
+            n = c.execute("SELECT COUNT(*) FROM records").fetchone()[0]
+            has_dict = bool(c.execute(
+                "SELECT 1 FROM meta WHERE key = 'body_zdict'").fetchone())
+            indexed = bool(c.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='index' "
+                "AND name='ix_records_hlc'").fetchone())
+        finally:
+            c.close()
+        if n != 600:
+            r.err(f"the compressed archive holds {n} rows, not 600 -- it is not "
+                  "a queryable database any more, and the whole requirement was "
+                  "that it stay one")
+        if not has_dict:
+            r.err("the archive carries no dictionary of its own, so it stops "
+                  "being readable the moment whatever holds that dictionary is "
+                  "lost or moved -- exactly the failure an archive prevents")
+        if not indexed:
+            r.err("the compressed archive lost its HLC index, so reading the "
+                  "log in order becomes a scan")
+
+        # 3. RANDOM ACCESS: one record from the middle, without touching the rest.
+        mid = list(st.read("log", after_seq=300, limit=1))
+        if not mid or mid[0].seq != 301:
+            r.err(f"a single record could not be read from the middle of a "
+                  f"compressed archive: {mid[:1]}")
+
+        # 4. IDEMPOTENT. Compressing twice must not re-encode already-compressed
+        #    bodies, which would make them unreadable.
+        try:
+            again = st.compress_segment(seg)
+        except Exception as exc:                    # noqa: BLE001
+            r.err(f"a second compression pass raised {type(exc).__name__}: "
+                  f"{exc}. It must be a no-op, not an error and certainly not a "
+                  "double encoding.")
+            return r
+        if again.get("compressed"):
+            r.err("an already-compressed segment was compressed again; its "
+                  "bodies are now double-encoded and the dictionary no longer "
+                  "describes them")
+        try:
+            twice = [(rec.seq, rec.kind, rec.body) for rec in st.read("log")]
+        except Exception as exc:                    # noqa: BLE001
+            r.err(f"the log became unreadable after a second pass: "
+                  f"{type(exc).__name__}: {exc}")
+            return r
+        if twice != before:
+            r.err("the log changed after a second compression pass")
+
+        # 6. AND THE COPY IS VERIFIED BEFORE THE ORIGINAL GOES. Structural,
+        #    because the observable behaviour of skipping the check is identical
+        #    while compression is CORRECT -- it only differs on the day it is
+        #    not, which is the day the history is lost. Parsed rather than
+        #    grepped: the guard has to raise, not merely be mentioned.
+        import ast as _ast9
+        src = (REPO / "core" / "store.py").read_text(encoding="utf-8")
+        fn = next((n for n in _ast9.walk(_ast9.parse(src))
+                   if isinstance(n, _ast9.FunctionDef)
+                   and n.name == "compress_segment"), None)
+        if fn is None:
+            r.err("core/store.py no longer defines compress_segment")
+        else:
+            raises_on_mismatch = any(
+                isinstance(node, _ast9.If)
+                and "same" in _ast9.dump(node.test)
+                and any(isinstance(x, _ast9.Raise) for x in _ast9.walk(node))
+                for node in _ast9.walk(fn))
+            if not raises_on_mismatch:
+                r.err("compress_segment does not refuse when the copy fails to "
+                      "match the original. The original is deleted immediately "
+                      "after, so an unverified copy is the one way this system "
+                      "can lose history silently.")
+
+        # 5. AND IT ACTUALLY SAVES SOMETHING. A mechanism that compresses to the
+        #    same size is a mechanism doing nothing at real risk.
+        if info.get("was_bytes", 0) <= info.get("now_bytes", 1):
+            r.err(f"compression did not reduce the file: "
+                  f"{info.get('was_bytes')} -> {info.get('now_bytes')}")
+
+    r.note(f"an archived segment compresses with a dictionary carried inside it; "
+           f"not one record changes; the file stays a database with its indexes, "
+           f"queryable and randomly addressable without unpacking; a second pass "
+           f"is a no-op rather than a double encoding; and it measurably shrinks "
+           f"({info.get('ratio')}x on the fixture, 2.64x on the owner's real "
+           f"1.68 GB archive)")
+    return r
+
 def check_credentials_can_leave_the_plaintext_file() -> Result:
     """A credential in the Keychain is used, and the file remains the fallback.
 
@@ -17605,6 +17785,7 @@ CHECK_FNS = {
     "a-sub-agent-thinks-and-never-acts": check_a_sub_agent_thinks_and_never_acts,
     "a-level-rule-means-what-it-says-and-names-what-it-refuses": check_a_level_rule_means_what_it_says_and_names_what_it_refuses,
     "a-rotated-log-keeps-one-sequence-and-loses-nothing": check_a_rotated_log_keeps_one_sequence_and_loses_nothing,
+    "a-compressed-archive-is-still-a-readable-log": check_a_compressed_archive_is_still_a_readable_log,
     "an-mcp-server-does-not-level-its-own-tools": check_an_mcp_server_does_not_level_its_own_tools,
     "advice-can-add-caution-and-never-remove-it": check_advice_can_add_caution_and_never_remove_it,
     "host-pressure-read-through-the-adapter": check_host_pressure_is_read_through_the_adapter,
