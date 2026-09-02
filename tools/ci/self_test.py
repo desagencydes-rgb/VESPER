@@ -2419,10 +2419,14 @@ CASES += [
      "session rather than an action instance"),
 
     ("no-ambient-authority", AUTHZ_PY,
-     _sub("        if grant.max_level in NEVER_DELEGABLE:\n"
+     # The gate gained `and consume` on 2026-09-02: the actor's pre-check asks
+     # whether an action WOULD be permitted, to decide whether to turn a
+     # refusal into a question, and spending the grant there left nothing for
+     # the executor's binding check.
+     _sub("        if grant.max_level in NEVER_DELEGABLE and consume:\n"
           "            with self._lock:\n"
           "                grant.consumed = True   # INV-AUTH-2: single use",
-          "        if cap.requires_owner_confirmation and grant.max_level in NEVER_DELEGABLE:\n"
+          "        if cap.requires_owner_confirmation and grant.max_level in NEVER_DELEGABLE and consume:\n"
           "            with self._lock:\n"
           "                grant.consumed = True   # INV-AUTH-2: single use", 1),
      "consumption keyed on the capability's declared confirmation again, not on "
@@ -3081,7 +3085,13 @@ CASES += [
 CASES += [
     # ----------------------------------------------- confirmation ladder
     ("confirmation-stops-explains-and-asks", CONFIRM_PY,
-     _sub("            decays=False,", "            decays=True,", 1),
+     # ANCHORED ON THE LINE THAT FOLLOWS IT, because "            decays=False,"
+     # is not unique: any MORE-indented `decays=False` contains those twelve
+     # spaces as a substring, so when `requeue` gained a Candidate of its own
+     # this mutation silently retargeted onto that one and left `request()`
+     # untouched -- the check passed and the case stopped being evidence.
+     _sub("            decays=False,\n            interruption_cost=0.8,",
+          "            decays=True,\n            interruption_cost=0.8,", 1),
      "the question DECAYS, so when the owner is away and the budget is zero it "
      "is dropped instead of queued -- which the owner experiences as VESPER "
      "silently abandoning the thing they asked for, and it is the entire second "
@@ -3552,12 +3562,17 @@ CASES += [
 CASES += [
     # ---------------------------------------------------------------- CI-093
     ("taint-ceiling-binds-the-act-path", ACTOR_PY,
+     # The pre-check gained a command id and `consume=False` on 2026-09-02.
      _sub("                                target=self._target, context_ceiling=ceil,\n"
           "                                authorization=strength,\n"
-          "                                current_lease_epoch=0)",
+          "                                current_lease_epoch=0,\n"
+          "                                command_id=command_id,\n"
+          "                                consume=False)",
           "                                target=self._target,\n"
           "                                authorization=strength,\n"
-          "                                current_lease_epoch=0)", 1),
+          "                                current_lease_epoch=0,\n"
+          "                                command_id=command_id,\n"
+          "                                consume=False)", 1),
      "the ceiling is computed and dropped at the authorize call -- exactly the "
      "state this corpus shipped in until 2026-09-01"),
 
@@ -3656,7 +3671,9 @@ CASES += [
 # --------------------------------------------------------------------------
 CASES += [
     ("loop-observes-and-is-bounded", ACTOR_PY,
-     _sub("        for step in range(max(1, int(max_steps))):",
+     # The range gained a start, so a turn parked on a question resumes at the
+     # step it stopped on rather than replaying the ones already taken.
+     _sub("        for step in range(int(st.get(\"start_step\") or 0), max(1, int(max_steps))):",
           "        for step in range(1):", 1),
      "the loop takes one step again: VESPER cannot run a command, look at the "
      "output and open the file it found -- the omission everything else sat on"),

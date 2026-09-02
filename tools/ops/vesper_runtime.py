@@ -77,7 +77,10 @@ from core.arbiter import Arbiter                                 # noqa: E402
 from core.compactor import Compactor                            # noqa: E402
 from core.context import ContextBudgetManager                   # noqa: E402
 from core.actor import Actor                                    # noqa: E402
-from core.confirm import ConfirmationBroker                     # noqa: E402
+from core import consent                                        # noqa: E402
+from core.confirm import (ConfirmationBroker,                    # noqa: E402
+                          NotTheQuestionInFront)
+from core.confirm import requeue as consent_requeue             # noqa: E402
 from core.evidence import ClaimChecker                          # noqa: E402
 from core.interruption import InterruptionBudget                # noqa: E402
 from core.memory import MemoryGraph                             # noqa: E402
@@ -574,7 +577,7 @@ def build(node: str = "vesper-runtime"):
     return (bus, gw, router, home, intake, triage, report, persona, bench,
             renderer, updater, misses, chooser, world, sensors, autonomy,
             devices, repairer, presence, context_cmds, verifier, speech,
-            transcriber, actor, floor, baseline)
+            transcriber, actor, floor, baseline, interlock)
 
 
 def answer(gw, router, persona, utterance, renderer=None,
@@ -795,7 +798,7 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          misses=None, chooser=None, sensors=None, autonomy=None,
          triage=None, repairer=None, presence=None,
          context_cmds=None, speech=None, transcriber=None, actor=None,
-         floor=None, baseline=None) -> int:
+         floor=None, baseline=None, interlock=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     # SENSORS FIRST, AND THE PERIOD DECIDES WHETHER ANYTHING ACTUALLY RUNS.
     # `poll()` returns immediately for any sensor that is not due, so calling it
@@ -824,7 +827,18 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             # PRESENT WHATEVER THE MINTER LEFT, BEFORE DECIDING. A token
             # already seen is refused by token_id, so this is idempotent and a
             # captured token cannot extend autonomy twice.
-            _present_enable_token(interlock)
+            # A PARAMETER, AND IT WAS A NAME FROM ANOTHER FUNCTION. `interlock`
+            # is built in `build()` and this line lives in `pump()`, so it
+            # resolved to nothing: every pass raised NameError, the broad
+            # `except Exception` below caught it and published
+            # `autonomy.loop_failed`, and the autonomy loop never ticked at all.
+            # Nothing looked broken -- the failure had a name, a record and a
+            # handler -- and the arming path for the emergency stop was
+            # unreachable the whole time. The stop landed today and the runtime
+            # has not been started since, which is the only reason the log
+            # holds zero of those records.
+            if interlock is not None:
+                _present_enable_token(interlock)
             # PACED BY THE LOOP'S OWN DECLARED CADENCE, not by the pump's.
             # POLL_SECONDS is 0.15 because the SPEECH path needs it -- the
             # comment at the sleep says so -- and autonomy was hitched to the
@@ -1029,10 +1043,71 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                 # description of an imagined outcome beside the real one, which
                 # is the competition INV-VERIF-1 exists to forbid: the actor's
                 # story standing in for what happened.
+                # IS THIS AN ANSWER TO A QUESTION VESPER IS ASKING? Checked
+                # BEFORE the utterance becomes new work, because it is not new
+                # work -- and checked deterministically, never by a model:
+                # `core/consent.py` opens with the reason, which is that a
+                # model deciding whether the owner agreed is a model that can
+                # be talked into agreeing on their behalf.
+                #
+                # ANYTHING NOT RECOGNISED RE-QUEUES THE QUESTION rather than
+                # settling it. The owner adding a task, changing the subject or
+                # asking what the action would actually do are all "not an
+                # answer", and all of them mean the question is no longer the
+                # thing in front of them: it goes back to the queue and must be
+                # ASKED AGAIN before a bare yes can settle it. Silence is not
+                # consent and neither is having been nearby.
                 did = None
-                if actor is not None:
+                spoken = intake.history[-1].text
+                if actor is not None and actor.parked():
+                    verdict, rest = consent.classify(spoken)
+                    if verdict == consent.OTHER or not actor.answerable():
+                        # Nothing is being asked, so nothing they said settles
+                        # anything: the questions go back to the queue and are
+                        # put in front of them again.
+                        consent_requeue(actor.broker)
+                    else:
+                        # THE QUESTION IN FRONT OF THEM, not the oldest one
+                        # waiting. This read `parked()[0]` -- insertion order --
+                        # so with two questions open a "yes" would settle a
+                        # different one and run ITS action, with a record
+                        # saying the owner agreed to it.
+                        pending = actor.answerable()
+                        try:
+                            actor.broker.answer(pending,
+                                          granted=(verdict == consent.YES))
+                        except NotTheQuestionInFront:
+                            # Queued, not in front of them: it is re-asked
+                            # rather than settled by something said meanwhile.
+                            consent_requeue(actor.broker)
+                        except (KeyError, ValueError):
+                            pass
+                        else:
+                            # THE STOP FOLLOWS THE ANSWER IN. A turn parked
+                            # on a question has by definition been waiting --
+                            # long enough for the owner to have changed their
+                            # mind and pressed the stop -- and only autonomous
+                            # work is subject to it, which is why the parked
+                            # turn's own period decides.
+                            was_auto = next(
+                                (t.get("period") == "free_time"
+                                 for t in actor.parked()
+                                 if t["request_id"] == pending), False)
+                            did = actor.resume(
+                                pending, granted=(verdict == consent.YES),
+                                instead=rest if verdict == consent.NO else "",
+                                permitted=(interlock.autonomy_permitted
+                                           if (was_auto and interlock is not None)
+                                           else None))
+                            # WORK ATTACHED TO AN ANSWER IS KEPT. "yes, and also
+                            # check the logs" is an answer and an instruction;
+                            # dropping the remainder makes the owner repeat
+                            # themselves, and it goes down the ladder from the
+                            # beginning as its own turn.
+                            spoken = rest if (verdict == consent.YES and rest) else ""
+                if actor is not None and did is None and spoken:
                     try:
-                        did = actor.maybe_act(intake.history[-1].text)
+                        did = actor.maybe_act(spoken)
                     except Exception as exc:           # noqa: BLE001
                         bus.publish("act.pass_failed", subject="actor",
                                     payload={"error": repr(exc)},
@@ -1179,7 +1254,7 @@ def main() -> int:
     (bus, gw, router, home, intake, triage, report, persona, bench,
      renderer, updater, misses, chooser, world, sensors,
      autonomy, devices, repairer, presence, context_cmds, verifier,
-     speech, transcriber, actor, floor, baseline) = build()
+     speech, transcriber, actor, floor, baseline, interlock) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -1238,7 +1313,7 @@ def main() -> int:
 
     if args.once or args.say or args.hear:
         n = pump(bus, gw, router, persona, bench, home, intake, transcript,
-                 floor=floor, baseline=baseline,
+                 floor=floor, baseline=baseline, interlock=interlock,
                  once=True, renderer=renderer, updater=updater,
                  misses=misses, chooser=chooser, sensors=sensors,
                  autonomy=autonomy, triage=triage, repairer=repairer,
@@ -1284,7 +1359,7 @@ def main() -> int:
     while True:
         try:
             pump(bus, gw, router, persona, bench, home, intake, transcript,
-                 floor=floor, baseline=baseline,
+                 floor=floor, baseline=baseline, interlock=interlock,
                  renderer=renderer, updater=updater, misses=misses,
                  chooser=chooser, sensors=sensors, autonomy=autonomy,
                  triage=triage, repairer=repairer, presence=presence,

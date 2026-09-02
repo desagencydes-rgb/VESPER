@@ -179,11 +179,49 @@ class PolicyDecisionPoint:
         return grant
 
     def find(self, subject: str, capability_id: str) -> Grant | None:
+        """The strongest grant this subject can actually use for this.
+
+        IT RETURNED THE FIRST MATCH IN INSERTION ORDER, AND THAT MADE THE
+        CONFIRMATION LADDER UNREACHABLE. `Actor._issue_standing` issues one L2
+        grant per capability at construction, so it is always first -- and a
+        stronger grant issued later, which is exactly what answering a
+        confirmation produces, was never found. Measured 2026-09-02: an
+        answered question issued an L5 single-use grant, `find` returned the
+        standing L2, and the approved action was refused `below_required_level`
+        a second time. The owner could say yes and nothing would happen.
+
+        A CONSUMED OR EXPIRED GRANT NO LONGER MASKS A USABLE ONE either, which
+        was the same bug wearing different clothes: the consumed/expired checks
+        run on whatever `find` returned, so a spent single-use grant sitting
+        ahead of a live standing grant denied everything with `grant_consumed`.
+
+        AND WHEN NOTHING IS USABLE IT STILL RETURNS ONE, deliberately. The
+        caller distinguishes `no_grant` from `grant_consumed` from
+        `grant_expired`, and collapsing all three into "no grant" would tell
+        the owner they never had permission when in fact they spent it.
+
+        THIS IS NOT AMBIENT AUTHORITY. Every grant returned here was issued to
+        this subject for this capability; picking the strongest of them is not
+        a path to a level nobody granted, which is what INV-AUTH-1 forbids. The
+        bound on a lingering strong grant is its own expiry -- an answered
+        grant lives five minutes and is single-use.
+        """
         with self._lock:
-            for g in self._grants.values():
-                if g.subject == subject and g.capability_id == capability_id:
-                    return g
-        return None
+            cands = [g for g in self._grants.values()
+                     if g.subject == subject and g.capability_id == capability_id]
+        if not cands:
+            return None
+        now = self._now_ms()
+        usable = [g for g in cands if not g.consumed and now < g.expiry_ms]
+        if not usable:
+            # WHICH REFUSAL THE OWNER HEARS DEPENDS ON WHICH GRANT WE RETURN,
+            # so it is chosen rather than left to insertion order. "You already
+            # spent this" is something they can act on -- ask again -- and "it
+            # expired" is not. A subject holding one spent and one stale grant
+            # should hear the actionable one.
+            return next((g for g in cands
+                         if g.consumed and now < g.expiry_ms), cands[0])
+        return max(usable, key=lambda g: LEVEL_RANK[g.max_level])
 
     def attenuate(self, parent: Grant, child_subject: str,
                   child_grant_id: str) -> Grant | None:
@@ -214,7 +252,8 @@ class PolicyDecisionPoint:
                   target: str, context_ceiling: str = "L5",
                   authorization: str = "owner_explicit",
                   current_lease_epoch: int = 0,
-                  command_id: str | None = None) -> Decision:
+                  command_id: str | None = None,
+                  consume: bool = True) -> Decision:
         cap = self._registry.get(capability_id)
         declared = cap.declared_level(args)
         required = cap.required(args)
@@ -300,7 +339,26 @@ class PolicyDecisionPoint:
         # "L4/L5 are never delegable and bind to one command instance" -- and
         # `issue()` twelve lines up already refuses an L4-delegable grant on the
         # level alone. Two triggers for one class of grant; this is now one.
-        if grant.max_level in NEVER_DELEGABLE:
+        # SPENT BY THE CHECK THAT IS ABOUT TO ACT, AND ONLY BY IT. One
+        # authorize call is one use -- the contract is explicit, and a grant
+        # bound to `cmd-2` is refused a SECOND authorize for `cmd-2`. But a
+        # command is checked twice by design: the actor asks first, purely to
+        # decide whether a refusal should become a QUESTION, and the executor
+        # re-checks immediately before invoking, which is the binding one.
+        #
+        # With both consuming, an L4/L5 grant was spent by the question-routing
+        # check and gone by the time anything could act on it. Measured
+        # 2026-09-02: the owner approved an fs.write, an L5 grant was issued,
+        # the actor's pre-check consumed it, and the executor then refused
+        # `below_required_level` against the standing L2 left behind. The owner
+        # said yes and nothing happened. It had never fired because no action
+        # above L1 had ever reached this path -- `no-ambient-authority` says so
+        # in its own REACH note.
+        #
+        # `consume=False` DOES NOT AUTHORISE ANYTHING. It answers "would this be
+        # permitted", which is what a caller deciding whether to ask needs, and
+        # it is not a second path to a level: nothing executes on its verdict.
+        if grant.max_level in NEVER_DELEGABLE and consume:
             with self._lock:
                 grant.consumed = True   # INV-AUTH-2: single use
 

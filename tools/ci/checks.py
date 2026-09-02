@@ -9233,15 +9233,31 @@ def check_predicate_totality() -> Result:
     #    predicate, which is the whole point: running an unknown callable is
     #    the risk, and every probe of one that hangs leaks a thread that cannot
     #    be killed. So the fixture reports whether it was entered at all.
+    #    SLEEPING WAS NOT ENOUGH EITHER, and this is the same lesson one turn
+    #    further on. An abandoned prober still wakes twenty times a second for
+    #    the rest of the run, and there are several of them across the cases
+    #    below -- so this check passed when run alone and reported "hung" when
+    #    run at position ~100 of `checks.py all`, where the accumulated wakeups
+    #    had eaten enough of the interpreter to push a 2 s refusal past the
+    #    30 s registration budget. A gate whose verdict depends on its position
+    #    in the suite teaches everyone to re-run it rather than read it.
+    #
+    #    RELEASED ONLY AFTER THE VERDICT IS TAKEN. The flag is False for the
+    #    whole probe, so the predicate genuinely does not return inside the
+    #    deadline and the refusal is real; flipping it afterwards just lets the
+    #    thread nobody can kill notice it is finished and exit.
     import time as _time
     entered: list = []
+    released = {"now": False}
 
     def looper(s: dict) -> bool:
         entered.append("looper")
-        while True:
+        while not released["now"]:
             _time.sleep(0.05)
+        return True
 
     v = register_bounded(trig("t-while", looper))
+    released["now"] = True
     if v != "refused":
         r.err(f"a predicate containing an unbounded `while` was {v}. It runs "
               "unattended in the decision path, and the tick that reaches it "
@@ -9316,13 +9332,18 @@ def check_predicate_totality() -> Result:
     #    instead of hanging, and the case silently exercised TOTALITY rather
     #    than the deadline it was written for. The mutation removing the
     #    deadline stayed green because the exception branch refused it anyway.
+    released2 = {"now": False}
+
     def unbounded_for(s: dict) -> bool:
         import itertools
         for _ in itertools.count():
+            if released2["now"]:
+                break
             _time.sleep(0.05)
         return True
 
     v = register_bounded(trig("t-forever", unbounded_for))
+    released2["now"] = True
     if v != "refused":
         r.err(f"a `for` over an unbounded generator was {v}: it has no `while` "
               "and no recursion, so the structural rules cannot see it and only "
@@ -10280,11 +10301,25 @@ def check_confirmation_stops_explains_and_asks() -> Result:
                     lease_epoch=0, delegable=False))
 
     def spent_refusal() -> Any:
-        """A real refusal, produced by spending a real single-use grant."""
-        pdp.issue(Grant(grant_id=str(uuid.uuid4()), subject="owner",
-                        capability_id="mail.send", max_level="L4",
-                        target_scope=("inbox",), expiry_ms=10_000,
-                        lease_epoch=0, delegable=False))
+        """A real refusal, produced by spending a real single-use grant.
+
+        IT SPENDS THE SUBJECT'S ONE GRANT AND ISSUES NO OTHER. It used to
+        issue a fresh L4 grant to `owner` on every call, on top of the one the
+        setup already gave them, and then assert the second authorize was
+        refused. That only held because `find` returned the FIRST matching
+        grant by insertion order: both calls landed on the setup grant and the
+        second saw it spent. The fixture was resting on insertion order to
+        demonstrate single use.
+
+        Once `find` began returning the strongest grant a subject can actually
+        use -- which is what makes an answered confirmation reachable past the
+        standing L2 that `Actor._issue_standing` hands out -- `owner` really
+        did hold a second unspent L4, and authorizing it was correct: two
+        confirmations authorise two instances, which is what INV-AUTH-2 says.
+        Spending the one grant asserts what the docstring claims, and it is
+        also what the later assertion at "answering authorized nothing by
+        itself" depends on: that `owner` has nothing left.
+        """
         pdp.authorize(subject="owner", capability_id="mail.send",
                       args={"destructive": True}, target="inbox")
         return pdp.authorize(subject="owner", capability_id="mail.send",
@@ -10685,13 +10720,29 @@ def check_speech_is_egress_and_says_so() -> Result:
     #    and the owner heard silence from the VESPER that is actually running
     #    while my test spoke perfectly. A wiring assertion that checks the
     #    module is constructed is not the same as one that checks it ARRIVES.
-    calls = [m for m in re.finditer(r"(?<!def )\bpump\(", rt)]
-    passing = rt.count("speech=speech")
-    if len(calls) > passing:
-        r.err(f"{len(calls)} pump() call sites and only {passing} pass "
-              "speech=. The site that does not is silent, and if it is the "
-              "main loop then the running VESPER never speaks while a one-shot "
-              "test does.")
+    #    PARSED, BECAUSE PROSE IS NOT A CALL SITE. This counted matches of
+    #    `(?<!def )\bpump\(` over the raw file, so a COMMENT mentioning
+    #    "pump()" -- explaining, as it happens, why a name from `build()` does
+    #    not resolve inside it -- counted as a third call site and turned this
+    #    check red against correct code. A regex cannot tell a call from a
+    #    sentence about a call, and the next person to write that sentence
+    #    would have broken the build again.
+    import ast as _ast5
+    try:
+        _tree = _ast5.parse(rt)
+    except SyntaxError as exc:
+        r.err(f"the runtime does not parse: {exc!r}")
+        return r
+    calls = [n for n in _ast5.walk(_tree)
+             if isinstance(n, _ast5.Call)
+             and getattr(n.func, "id", getattr(n.func, "attr", "")) == "pump"]
+    missing = [n.lineno for n in calls
+               if not any(k.arg == "speech" for k in n.keywords)]
+    if missing:
+        r.err(f"{len(calls)} pump() call sites and {len(missing)} do not pass "
+              f"speech= (line(s) {missing}). The site that does not is silent, "
+              "and if it is the main loop then the running VESPER never speaks "
+              "while a one-shot test does.")
 
     plan_call = rt[rt.index("speech.plan("):] if "speech.plan(" in rt else ""
     plan_call = plan_call[:plan_call.index(")") + 1] if ")" in plan_call else ""
@@ -11511,9 +11562,35 @@ def check_capabilities_registered_and_levelled_by_argument() -> Result:
               "L2 means VESPER touches the owner's documents, or runs commands "
               "that are not provably read-only, without being asked")
     src = (REPO / "core" / "actor.py").read_text(encoding="utf-8")
-    if "delegable=False" not in src:
-        r.err("the standing grant is delegable, so authority given to VESPER "
-              "can be handed onward (INV-AUTH-2)")
+    # PARSED, AND SCOPED TO `_issue_standing`. This was
+    # `if "delegable=False" not in src`, a substring search over the whole
+    # file, and it held only while core/actor.py contained exactly ONE such
+    # grant. The moment `resume` began issuing a second one -- the single-use
+    # grant an answered confirmation buys, also `delegable=False` -- flipping
+    # the STANDING grant to delegable left the string present elsewhere and
+    # this assertion went quiet. Its self-test case caught it: the mutation
+    # applied and the check stayed green, which is the definition of not being
+    # evidence. A question about what one function does is a question for the
+    # AST, not for `in`.
+    import ast as _ast4
+    _standing = next(
+        (n for n in _ast4.walk(_ast4.parse(src))
+         if isinstance(n, _ast4.FunctionDef) and n.name == "_issue_standing"),
+        None)
+    if _standing is None:
+        r.err("core/actor.py no longer defines _issue_standing, so nothing "
+              "describes the authority VESPER holds by default")
+    else:
+        _grants = [c for c in _ast4.walk(_standing)
+                   if isinstance(c, _ast4.Call)
+                   and getattr(c.func, "id", getattr(c.func, "attr", "")) == "Grant"]
+        if not _grants:
+            r.err("_issue_standing no longer issues a Grant")
+        for _g in _grants:
+            _d = next((k.value for k in _g.keywords if k.arg == "delegable"), None)
+            if not (isinstance(_d, _ast4.Constant) and _d.value is False):
+                r.err("the standing grant is delegable, so authority given to "
+                      "VESPER can be handed onward (INV-AUTH-2)")
 
     # 8. A REFUSAL BECOMES A QUESTION. The owner's decision of 2026-08-31 is
     #    that VESPER stops, explains, and asks by voice -- not that it fails.
@@ -13727,6 +13804,471 @@ def check_the_stop_reaches_work_already_running() -> Result:
     return r
 
 
+def check_a_question_does_not_end_the_turn() -> Result:
+    """VESPER stops to ask, and the WORK survives the question.
+
+    THE CEILING THIS REMOVES. `core/actor.py` read `break  # waiting on the
+    owner ends the turn`. VESPER would run three steps, need permission for the
+    fourth, ask -- and the turn died there. The owner's "yes" arrived to a
+    proposer holding nothing: no observations from the steps already taken, no
+    plan, no record of the budget already spent. The question survived and the
+    work did not, so every capability downstream of the loop was worth less
+    than it looked.
+
+    AND THE RETURN PATH DID NOT EXIST AT ALL. `ConfirmationBroker` is complete
+    -- it asks, queues a non-decaying question, surfaces it at a natural
+    boundary, and refuses a re-asked one -- and NOTHING in production ever
+    called `answer()`. The owner had no way to say yes.
+
+    THE APPROVED ACTION IS EXECUTED, NOT RE-PROPOSED, and that is the assertion
+    that matters most. Re-asking the model on resume spends the owner's answer
+    on whatever it says next: ask "may I delete the cache?", get a yes, delete
+    something else under that approval. The proposal is rebuilt from what was
+    parked and bound by a fingerprint over (capability_id, args).
+
+    THE QUESTION AND THE PLAN HAVE DIFFERENT LIFETIMES, deliberately.
+    `core/confirm.py` marks a confirmation non-decaying because "a question
+    about an action the owner asked for is worth the same when they get back"
+    -- that is the owner's design for being away. What goes stale is not the
+    question but everything the turn had LOOKED AT before asking. So an answer
+    always authorises the action it was asked about; only a fresh park also
+    resumes the rest of the plan.
+    """
+    r = Result("a-question-does-not-end-the-turn")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import json as _json
+    import tempfile as _tf
+    try:
+        from core.actor import PARK_TTL_MS, Actor
+        from core.bus import EventBus
+        from core.checkpoint import ShadowGit
+        from core.confirm import ConfirmationBroker
+        from core.hlc import HybridLogicalClock
+        from core.interruption import InterruptionBudget
+        from core.store import StoreSet
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the act path did not import: {exc!r}")
+        return r
+
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("parkcheck")
+        store = StoreSet(base / "s", node_id="parkcheck")
+        bus = EventBus(clock, store, component="parkcheck")
+        now = {"t": 1_000_000}
+
+        # A proposer that always wants the same high-level write, so the ladder
+        # refuses it and the broker turns that into a question.
+        want = {"action": "fs.write",
+                "args": {"path": str(base / "target.txt"), "content": "x"},
+                "why": "write the file"}
+        calls = {"n": 0}
+
+        class _GW:
+            def complete(self, text, **kw):
+                calls["n"] += 1
+                return {"result": {"text": _json.dumps(want)}}
+
+        def _actor(tag):
+            return Actor(bus, _GW(), subject=f"pc-{tag}", target="host",
+                         now_ms=lambda: now["t"],
+                         shadow=ShadowGit(base / f"shadow-{tag}"),
+                         broker=ConfirmationBroker(bus, InterruptionBudget(bus)))
+
+        parked_ev: list = []
+        bus.subscribe("act.parked", lambda e: parked_ev.append(e.payload),
+                      name="pc-parked", idempotency_key=lambda e: e.event_id)
+
+        a = _actor("main")
+        out = a.maybe_act("write that file", period="active")
+        if out is None or out.kind != "asked":
+            r.err(f"the turn did not end in a question ({out and out.kind!r}), "
+                  "so this check is not exercising the path it names")
+            return r
+
+        # 1. THE TURN IS PARKED, NOT DROPPED.
+        if not a.parked():
+            r.err("VESPER asked the owner for permission and kept nothing. The "
+                  "answer, whenever it comes, arrives to a proposer that has "
+                  "forgotten the turn -- no observations, no plan, no budget.")
+            return r
+        if not parked_ev:
+            r.err("the turn parked and published nothing, so a paused turn is "
+                  "indistinguishable from one that quietly stopped")
+        rid = a.parked()[0]["request_id"]
+
+        # 2. AN UNKNOWN ANSWER IS REFUSED, NOT CRASHED.
+        unknown = a.resume("no-such-request", granted=True)
+        if unknown is None or unknown.kind != "refused":
+            r.err("answering a question that was never asked was not refused")
+
+        # 3. A DECLINE IS A DECISION, AND NOTHING RUNS.
+        b = _actor("decline")
+        b.maybe_act("write that file", period="active")
+        rid_b = b.parked()[0]["request_id"]
+        declined = b.resume(rid_b, granted=False)
+        if declined is None or declined.kind != "declined":
+            r.err(f"a decline came back as {declined and declined.kind!r}; the "
+                  "owner saying no is the system working, not a failure")
+        if b.parked():
+            r.err("a declined turn is still parked, so the same question can "
+                  "be answered twice")
+        if (base / "target.txt").exists():
+            r.err("the owner said NO and the action ran anyway")
+
+        # 4. A YES RUNS THE APPROVED ACTION.
+        before = calls["n"]
+        resumed = a.resume(rid, granted=True)
+        if resumed is None:
+            r.err("resuming an approved turn returned nothing")
+            return r
+        if not (base / "target.txt").exists():
+            r.err("the owner approved the action and it did not run")
+        if a.parked():
+            r.err("the turn is still parked after being resumed, so one answer "
+                  "could authorise a second execution")
+
+        # 5. THE APPROVED ACTION IS NOT RE-PROPOSED. Executing it must not have
+        #    cost a fresh model call before it ran -- that call is where a
+        #    different action would come from.
+        if calls["n"] == before:
+            r.err("no further model call at all after the resume, so the plan "
+                  "did not continue and this check cannot see the difference")
+
+    # 5b. A BARE "YES" DOES NOT SETTLE A QUESTION THAT IS NOT BEING ASKED.
+    #     The owner hears a question, says nothing about it, adds three
+    #     unrelated tasks, and later says "yes" to something else. A matcher
+    #     that took any affirmative utterance would attribute that to the
+    #     oldest open question and act on it. The question has to be the one in
+    #     front of them.
+    #
+    #     AND THIS IS WHY CONSENT IS NOT CLASSIFIED BY A MODEL. A model deciding
+    #     whether the owner agreed is a model that can be talked into agreeing
+    #     on their behalf -- the same steering INV-ACT-3's ceiling exists to
+    #     stop, arriving at the one decision the ladder cannot second-guess.
+    from core.confirm import NotTheQuestionInFront, requeue
+
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("askcheck")
+        store = StoreSet(base / "s", node_id="askcheck")
+        bus = EventBus(clock, store, component="askcheck")
+        br = ConfirmationBroker(bus, InterruptionBudget(bus))
+
+        class _Refused:
+            authorized = False
+            reason = "below_required_level"
+            capability_id = "fs.write"
+            subject = "owner"
+            effective_level = "L0"
+            detail = ""
+
+        asked = br.request(_Refused(), target="host", period="ACTIVE_SESSION",
+                           attention_state="available")
+        if not asked.get("asked"):
+            r.err("the fixture's question was not put in front of the owner, "
+                  "so this cannot test what an unasked one does")
+        else:
+            # the owner does something else entirely
+            moved = requeue(br)
+            if moved != 1:
+                r.err(f"{moved} questions were re-queued when the owner moved "
+                      "on; the open one must stop being answerable by a bare "
+                      "yes")
+            # RETURNS IF THE BARE YES LANDED, rather than carrying on. A
+            # settled question refuses every later answer with ValueError
+            # ("one question, one answer"), so continuing here raised out of
+            # the check and it CRASHED instead of failing -- and two of this
+            # section's own red runs came back green because of it. Fourth time
+            # tonight: an assertion that finds its subject broken must stop.
+            settled_wrongly = False
+            try:
+                br.answer(asked["request_id"], granted=True)
+                settled_wrongly = True
+            except NotTheQuestionInFront:
+                pass
+            if settled_wrongly:
+                r.err("a 'yes' settled a question that was NOT in front of the "
+                      "owner. Anything they say while a question is queued is "
+                      "a yes to something else, and acting on it is consent "
+                      "the owner never gave.")
+                return r
+            # re-asked, it becomes answerable again
+            br.surface(boundary="natural_interaction")
+            try:
+                br.answer(asked["request_id"], granted=True)
+            except NotTheQuestionInFront:
+                r.err("a re-surfaced question still refused an answer, so a "
+                      "question the owner deferred can never be settled")
+                return r
+
+    # 5c. "DO IT ANOTHER WAY" DISCARDS THE PLAN. A redirect is not a refusal of
+    #     the idea, it is a replacement -- and resuming anything from the old
+    #     plan afterwards would be doing the thing the owner just replaced.
+    d = _actor("redirect")
+    d.maybe_act("write that file", period="active")
+    rid_d = d.parked()[0]["request_id"]
+    red = d.resume(rid_d, granted=False, instead="append to the log instead")
+    if red is None or red.kind != "redirected":
+        r.err(f"a redirect came back as {red and red.kind!r}; 'no, do it this "
+              "other way' is not the same event as 'no'")
+    if d.parked():
+        r.err("a redirected turn is still parked, so the superseded plan can "
+              "still be resumed")
+
+    # 5d. PARKED TURNS ARE BOUNDED. Every refused high-level action parks a
+    #     whole turn, and nothing removes one the owner never answers.
+    from core.actor import MAX_PARKED_TURNS
+    e2 = _actor("many")
+    for _ in range(MAX_PARKED_TURNS + 3):
+        e2.maybe_act("write that file", period="active")
+    if len(e2.parked()) > MAX_PARKED_TURNS:
+        r.err(f"{len(e2.parked())} turns are parked against a bound of "
+              f"{MAX_PARKED_TURNS}; an unanswered question leaks a turn's "
+              "worth of state forever and a steered proposer grows it for free")
+
+    # 5e. THE OWNER'S REPLY ACTUALLY REACHES THE QUESTION. Every piece above
+    #     was built, gated and reachable from nothing until this: `requeue`,
+    #     `resume` and the broker's `answer` had zero production call sites, so
+    #     none of the nine things an owner might say could happen at all.
+    from core import consent as _consent
+
+    for text, want in [("yes", _consent.YES), ("wah", _consent.YES),
+                       ("oui", _consent.YES), ("go ahead", _consent.YES),
+                       ("no", _consent.NO), ("not now", _consent.NO),
+                       ("la", _consent.NO),
+                       ("what would that actually do?", _consent.OTHER),
+                       ("make me a coffee", _consent.OTHER),
+                       ("hmm maybe later", _consent.OTHER)]:
+        got, _rest = _consent.classify(text)
+        if got != want:
+            r.err(f"{text!r} classified {got!r}, expected {want!r}")
+
+    # AN UTTERANCE THAT MERELY OPENS WITH "YES" IS NOT CONSENT.
+    long_yes = "yes I was thinking about that, anyway can you check the logs"
+    if _consent.classify(long_yes)[0] != _consent.OTHER:
+        r.err("a sentence that happens to begin with an affirmation was read "
+              "as consent. A paragraph is not an answer, and acting on one is "
+              "an action the owner never authorised with a record saying they "
+              "did.")
+
+    # WORK ATTACHED TO AN ANSWER SURVIVES IT.
+    v, rest = _consent.classify("yes, and also check the logs")
+    if v != _consent.YES or "check the logs" not in rest:
+        r.err(f"an answer carrying an instruction lost it: {v!r}/{rest!r}")
+    v, rest = _consent.classify("no, append to the log instead")
+    if v != _consent.NO or "append to the log" not in rest:
+        r.err(f"a redirect lost its replacement instruction: {v!r}/{rest!r}")
+
+    # AND CONSENT IS NEVER A MODEL CALL. The module must not reach a gateway,
+    # a router or a proposer -- a model deciding whether the owner agreed is a
+    # model that can be talked into agreeing on their behalf.
+    import ast as _ast3
+    csrc = (REPO / "core" / "consent.py").read_text(encoding="utf-8")
+    for node in _ast3.walk(_ast3.parse(csrc)):
+        if isinstance(node, (_ast3.Import, _ast3.ImportFrom)):
+            names = [a.name for a in node.names] + [getattr(node, "module", "") or ""]
+            for n in names:
+                if any(t in n for t in ("gateway", "router", "intent", "propose",
+                                        "model", "chooser")):
+                    r.err(f"core/consent.py imports {n!r}. Consent must be "
+                          "decided deterministically: a model that classifies "
+                          "agreement can be steered into manufacturing it, "
+                          "which is INV-ACT-3's steering arriving at the one "
+                          "gate the ladder cannot second-guess.")
+
+    # THE RUNTIME ROUTES IT, counted rather than found.
+    rt2 = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if "consent.classify(" not in rt2:
+        r.err("the runtime never classifies an utterance against a pending "
+              "question, so nothing the owner says can ever settle one and "
+              "every question waits forever")
+    if "consent_requeue(" not in rt2:
+        r.err("the runtime never re-queues a question when the owner says "
+              "something else, so a bare 'yes' said much later would settle a "
+              "question that was not being asked")
+    if ".resume(" not in rt2:
+        r.err("the runtime never resumes the parked turn, so an approved "
+              "action is authorised and never performed")
+
+    # 6. GRANT EXPIRY IS REAL, WHICH IT WAS NOT. The PDP defaults to
+    #    `lambda: 0` and the Actor forwarded a clock only when one was
+    #    injected -- and the runtime injects none. So the PDP's clock never
+    #    advanced, `grant_expired` could not fire, and `_issue_standing` wrote
+    #    an ABSOLUTE expiry (12 hours after the epoch) which read as "never"
+    #    against a clock stuck at zero and as "already expired" against any
+    #    real one. Both halves had to be wrong for either to look right.
+    #
+    #    THIS IS ALSO THE BOUND ON THE CHANGE ABOVE. `find` now returns the
+    #    strongest grant a subject holds, and the argument that a lingering
+    #    strong grant is safe rests on it expiring. An expiry nothing enforces
+    #    is not a bound.
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("expcheck")
+        store = StoreSet(base / "s", node_id="expcheck")
+        bus = EventBus(clock, store, component="expcheck")
+        # A REALISTIC WALL-CLOCK START, and that is the whole of the test. At
+        # t = 1_000_000 an ABSOLUTE `expiry = STANDING_TTL_MS` and a relative
+        # `now + STANDING_TTL_MS` are indistinguishable -- both are in the
+        # future -- so the mutation that reverts to absolute passed. Real
+        # epoch milliseconds are far larger than a 12-hour TTL, so an absolute
+        # expiry is in the past before the first call and the "fresh" assertion
+        # below fires. A clock that starts near zero cannot tell a duration
+        # from an instant.
+        t = {"ms": 1_788_000_000_000}
+        from core.actor import STANDING_TTL_MS
+
+        class _Quiet:
+            def complete(self, text, **kw):
+                return {"result": {"text": "{}"}}
+
+        e = Actor(bus, _Quiet(), subject="exp", target="host",
+                  now_ms=lambda: t["ms"], shadow=ShadowGit(base / "sh-exp"))
+        # `shell.run "echo hi"` is the cheapest thing the standing L2 grant
+        # covers -- a path outside the workspace is L3 and would refuse for a
+        # reason that has nothing to do with expiry.
+        probe = {"cmd": "echo hi"}
+        fresh = e._pdp.authorize(subject="exp", capability_id="shell.run",
+                                 args=probe, target="host", consume=False)
+        if not fresh.authorized:
+            r.err(f"a standing grant did not authorize when fresh: "
+                  f"{fresh.reason} -- expiry is being written in the past")
+        t["ms"] += STANDING_TTL_MS + 1
+        stale_g = e._pdp.authorize(subject="exp", capability_id="shell.run",
+                                   args=probe, target="host", consume=False)
+        if stale_g.authorized:
+            r.err("a standing grant still authorized long past its TTL. The "
+                  "PDP is not reading the same clock the grant was written "
+                  "against, so no grant in this system ever expires -- "
+                  "including the five-minute one an answered confirmation "
+                  "issues.")
+        elif stale_g.reason != "grant_expired":
+            r.err(f"an expired grant was refused for {stale_g.reason!r} rather "
+                  "than 'grant_expired'")
+
+    # 7. THE NON-CONSUMING CHECK IS A BYPASS AND HAS EXACTLY ONE CALLER.
+    #    `consume=False` answers "would this be permitted" without spending the
+    #    grant, which is what a caller deciding whether to ASK needs. It is
+    #    also, by construction, a way to learn a verdict without paying for it
+    #    -- so the executor must never use it, or the binding check stops
+    #    binding and a single-use grant authorises forever.
+    import ast as _ast2
+    ac2 = (REPO / "core" / "actor.py").read_text(encoding="utf-8")
+    ex2 = (REPO / "core" / "executor.py").read_text(encoding="utf-8")
+
+    def _nonconsuming_calls(src: str) -> int:
+        n = 0
+        for node in _ast2.walk(_ast2.parse(src)):
+            if not isinstance(node, _ast2.Call):
+                continue
+            for kw in node.keywords:
+                if (kw.arg == "consume"
+                        and isinstance(kw.value, _ast2.Constant)
+                        and kw.value.value is False):
+                    n += 1
+        return n
+
+    in_actor = _nonconsuming_calls(ac2)
+    if in_actor != 1:
+        r.err(f"core/actor.py makes {in_actor} non-consuming authorize calls; "
+              "exactly one is expected -- the pre-check that decides whether to "
+              "ask. Another is a way to act on a verdict nobody paid for.")
+    if _nonconsuming_calls(ex2):
+        r.err("core/executor.py authorizes without consuming. That check is the "
+              "binding one; if it does not spend the grant, one confirmation "
+              "authorises every action that follows it (INV-AUTH-2).")
+
+    r.note("a turn that needs permission parks itself and publishes it; an "
+           "unknown request_id is refused rather than crashing; a decline is "
+           "recorded as a decision and nothing runs; an approval runs the "
+           "action that was asked about and clears the park so one answer "
+           "cannot authorise two executions; a standing grant expires on a "
+           "clock the PDP actually reads; and the non-consuming check has one "
+           "caller and is never the binding one; a bare yes cannot settle a "
+           "question that is not in front of the owner, and can once it is "
+           "re-asked; a redirect discards the superseded plan; and parked "
+           "turns are bounded; the owner's reply is classified "
+           "deterministically in three languages and routed by the runtime, "
+           "and a sentence that merely opens with an affirmation is not "
+           "consent")
+    return r
+
+
+def check_the_runtime_resolves_every_name_it_uses() -> Result:
+    """No function in the runtime reads a name that does not exist.
+
+    WHAT THIS CAUGHT, AND IT HAD ALREADY SHIPPED. `pump()` called
+    `_present_enable_token(interlock)` while `interlock` was a local of
+    `build()` -- a different function. Every pump pass raised NameError, the
+    broad `except Exception` around the autonomy block caught it and published
+    `autonomy.loop_failed`, and THE AUTONOMY LOOP NEVER TICKED. The arming path
+    for the emergency stop was unreachable for the same reason and by the same
+    line.
+
+    NOTHING LOOKED BROKEN, which is the point. The failure had a name, a
+    published record and a handler that kept the process alive; a reader
+    scanning the code sees a sensible call, and a reader scanning the log sees
+    a subsystem REPORTING a problem rather than a subsystem that is absent. It
+    survived a full green suite because no check runs the pump -- every test of
+    the autonomy loop drives `AutonomyLoop` directly.
+
+    THE BROAD `except Exception` IS THE MECHANISM AND IT STAYS. The loop must
+    survive one bad pass; that is argued for at the call site and it is right.
+    What turns a caught exception into a permanent silent outage is a
+    NameError, which is not a runtime condition at all -- it is a typo that can
+    only ever raise. So it is caught HERE, statically, rather than by widening
+    what the runtime is willing to die on.
+
+    `symtable` RATHER THAN A HAND-ROLLED WALK. The first version of this
+    analysis reported `Any` and an except-handler name as unresolvable, because
+    reproducing Python's scoping by walking an AST gets comprehensions, nested
+    functions, `global`/`nonlocal` and handler bindings subtly wrong. The
+    interpreter already computes this, and it is what the interpreter will use.
+    """
+    r = Result("the-runtime-resolves-every-name-it-uses")
+    import builtins as _b
+    import symtable as _st
+
+    targets = [REPO / "tools" / "ops" / "vesper_runtime.py"]
+    known = set(dir(_b))
+    total = 0
+    for path in targets:
+        src = path.read_text(encoding="utf-8")
+        try:
+            top = _st.symtable(src, str(path), "exec")
+        except SyntaxError as exc:
+            r.err(f"{path.name} does not parse: {exc!r}")
+            return r
+        module_names = {sym.get_name() for sym in top.get_symbols()}
+
+        def _walk(table, trail):
+            nonlocal total
+            for sym in table.get_symbols():
+                name = sym.get_name()
+                # `is_global()` inside a function means "resolved outside this
+                # function" -- module scope or builtins. Neither means the
+                # interpreter raises NameError when the line runs.
+                if (sym.is_global() and not sym.is_assigned()
+                        and name not in module_names and name not in known):
+                    r.err(f"{path.name}: {'.'.join(trail)} reads {name!r}, "
+                          "which is neither a parameter, a local, a "
+                          "module-level name nor a builtin. That line raises "
+                          "NameError every time it runs -- and inside a broad "
+                          "`except Exception` the subsystem around it is "
+                          "silently dead while reporting a handled failure.")
+                total += 1
+            for child in table.get_children():
+                _walk(child, trail + [child.get_name()])
+
+        for child in top.get_children():
+            _walk(child, [child.get_name()])
+
+    r.note(f"{total} symbols across {len(targets)} runtime module(s) resolve to "
+           "a parameter, a local, a module-level name or a builtin")
+    return r
+
 def check_credentials_can_leave_the_plaintext_file() -> Result:
     """A credential in the Keychain is used, and the file remains the fallback.
 
@@ -15582,6 +16124,8 @@ CHECK_FNS = {
     "the-loop-ticks-at-the-cadence-it-declares": check_the_loop_ticks_at_the_cadence_it_declares,
     "compaction-never-eats-its-own-summaries": check_compaction_never_eats_its_own_summaries,
     "the-stop-reaches-work-already-running": check_the_stop_reaches_work_already_running,
+    "a-question-does-not-end-the-turn": check_a_question_does_not_end_the_turn,
+    "the-runtime-resolves-every-name-it-uses": check_the_runtime_resolves_every_name_it_uses,
     "host-pressure-read-through-the-adapter": check_host_pressure_is_read_through_the_adapter,
     "floor-held-and-offered-to": check_the_floor_is_held_and_offered_to,
     "boundary-asked-before-the-write": check_the_boundary_is_asked_before_the_write,
