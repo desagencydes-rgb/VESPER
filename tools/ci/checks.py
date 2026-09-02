@@ -14713,6 +14713,152 @@ def check_a_read_window_moves_and_proves_only_what_it_saw() -> Result:
            "file's; and paging past the end stops rather than raises")
     return r
 
+def check_a_batch_read_is_one_action_at_its_worst_level() -> Result:
+    """Several files in one read, levelled at the worst of them.
+
+    WHAT THIS IS INSTEAD OF. "Parallel independent actions" is on the build
+    list, and the value wanted from it is not concurrency -- it is not spending
+    four of six steps looking at four files. Doing it as PARALLEL ACTIONS would
+    break three things that are not incidental:
+
+      `ShadowGit.checkpoint` snapshots the CURRENT state of a path, so two
+      concurrent writes to one file leave the second checkpoint holding the
+      first's output as the thing to restore to -- undo would restore a state
+      that never existed before the turn.
+
+      `INV-ACT-3` is an ORDERING rule: the ceiling drops after an observation,
+      so the step that could be steered by what was just read is the step that
+      has to ask. Concurrent actions have no defined "after".
+
+      `core/intent.py` accepts only an object, deliberately -- "an array here
+      would mean the model answered a different question than the one asked" --
+      so a batch of actions needs a second proposal shape and a second parse
+      path.
+
+    ONE ACTION WITH SEVERAL PATHS KEEPS ALL THREE. One observation, one ceiling
+    drop, one step against the budget, no concurrent writes, and the parser
+    untouched.
+
+    THE WORST MEMBER SETS THE LEVEL, or burying the target becomes the
+    technique: one credential path among seven innocuous ones must make the
+    whole batch L5, exactly as `shell_level` already treats the path arguments
+    of a command.
+
+    AND EACH FILE VOUCHES ONLY FOR ITSELF. A batch of four where one truncated
+    returns three write-tokens and one refusal to vouch, never a blanket claim
+    over all four -- otherwise the batch becomes a way to launder the partial
+    read that L7 just closed.
+    """
+    r = Result("a-batch-read-is-one-action-at-its-worst-level")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf
+    try:
+        from core.capabilities import (MAX_READ_BATCH, fs_read, fs_read_level,
+                                       fs_write_level)
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the fs path did not import: {exc!r}")
+        return r
+
+    # INSIDE THE WORKSPACE, because that is the tree whose reads are L1. A
+    # temp directory is somebody's private business as far as `fs_read_level`
+    # is concerned and levels L3 on its own -- so a batch of two would have
+    # been L3 for reasons having nothing to do with batching, and the
+    # "worst member" assertion below would have proved nothing.
+    from core.capabilities import WORKSPACE as _WS
+    _WS.mkdir(parents=True, exist_ok=True)
+    with _tf.TemporaryDirectory(dir=str(_WS)) as td:
+        small = Path(td) / "a.txt"
+        small.write_text("alpha\n")
+        big = Path(td) / "b.txt"
+        big.write_text("".join(f"line {i}\n" for i in range(400)))
+
+        # 1. A BATCH IS ONE ACTION RETURNING MANY FILES.
+        out = fs_read({"paths": [str(small), str(big)], "limit": 10_000_000})
+        if out.get("count") != 2 or len(out.get("files") or []) != 2:
+            r.err(f"a two-path read returned {out.get('count')} files")
+        if [Path(p).name for p in out.get("paths", [])] != ["a.txt", "b.txt"]:
+            r.err("the batch did not preserve the order it was asked for, so a "
+                  "caller cannot tell which result belongs to which path")
+
+        # 2. ONE PATH STILL BEHAVES AS IT ALWAYS DID.
+        one = fs_read({"path": str(small), "limit": 10_000_000})
+        if one.get("files") is not None or not one.get("text"):
+            r.err("a single-path read changed shape, so every existing caller "
+                  "now has to know about batches")
+
+        # 3. THE WORST MEMBER SETS THE LEVEL. This is the assertion that stops
+        #    a batch being a cheaper door to an expensive file.
+        innocuous = fs_read_level({"paths": [str(small), str(big)]})
+        cred = "~/.config/vesper/secrets.env"
+        alone = fs_read_level({"path": cred})
+        buried = fs_read_level({"paths": [str(small), cred, str(big)]})
+        if alone != "L5":
+            r.err(f"the fixture's credential path is {alone}, not L5, so this "
+                  "cannot test whether burying it changes anything")
+        elif buried != alone:
+            r.err(f"a credential read alone is {alone} and the same credential "
+                  f"among two ordinary files is {buried}. Burying the target in "
+                  "a batch is a cheaper door to it, which is the whole reason "
+                  "the level is the worst member.")
+        if innocuous != "L1":
+            r.err(f"a batch of two ordinary files is {innocuous}, so reading "
+                  "several cheap things is more expensive than reading them "
+                  "one at a time and the batch buys nothing")
+
+        # 4. EACH FILE VOUCHES ONLY FOR ITSELF.
+        mixed = fs_read({"paths": [str(small), str(big)], "limit": 40})
+        got = {Path(f["path"]).name: f for f in mixed["files"]}
+        if got["a.txt"]["sha256"] is None:
+            r.err("a file read whole inside a batch carries no token, so "
+                  "batching costs the caller the level a single read earns")
+        if got["b.txt"]["sha256"] is not None:
+            r.err("a TRUNCATED file inside a batch handed back a whole-file "
+                  "token. Batching would then launder exactly the partial read "
+                  "that fs.read refuses on its own.")
+        if mixed.get("complete"):
+            r.err("a batch reported itself complete while one member was "
+                  "truncated, so a caller asking 'have I seen these' is told "
+                  "yes about a file it has seen the first page of")
+        # THE WRITE-LEVEL CONSEQUENCE IS TESTED OUTSIDE THE WORKSPACE, because
+        # the workspace is carved out at L2 whatever the token says -- "VESPER's
+        # own scratch space, and the one place a blind overwrite is not
+        # escalated". Asserting L4 on a workspace path tests the carve-out, not
+        # the token.
+        with _tf.TemporaryDirectory() as outside:
+            far = Path(outside) / "theirs.txt"
+            far.write_text("".join(f"line {i}\n" for i in range(400)))
+            pair = fs_read({"paths": [str(small), str(far)], "limit": 40})
+            far_res = next(f for f in pair["files"]
+                           if Path(f["path"]).name == "theirs.txt")
+            if far_res["sha256"] is not None:
+                r.err("a truncated member outside the workspace handed back a "
+                      "whole-file token")
+            if fs_write_level({"path": str(far),
+                               "expect_sha256": far_res["sha256"] or ""}) != "L4":
+                r.err("overwriting the truncated member is not L4, so the batch "
+                      "bought the level a full read is for")
+
+        # 5. BOUNDED. The proposer chooses the list.
+        try:
+            fs_read({"paths": [str(small)] * (MAX_READ_BATCH + 3)})
+            r.err(f"more than {MAX_READ_BATCH} paths were read in one action; "
+                  "an unbounded batch pulls a whole tree into one context "
+                  "window in a single step")
+        except ValueError:
+            pass
+        if fs_read_level({"paths": [str(small)] * (MAX_READ_BATCH + 3)}) != "L5":
+            r.err("an over-long batch is not levelled L5, so the bound is a "
+                  "runtime error rather than something the ladder can see")
+
+    r.note(f"a batch is one action returning each file in order; a single path "
+           f"is unchanged; the level is the worst member, so burying a "
+           f"credential among ordinary files does not make it cheaper; each "
+           f"file carries a write token only if IT was read whole; and the "
+           f"batch is bounded at {MAX_READ_BATCH} both in the implementation "
+           f"and on the ladder")
+    return r
+
 def check_credentials_can_leave_the_plaintext_file() -> Result:
     """A credential in the Keychain is used, and the file remains the fallback.
 
@@ -16573,6 +16719,7 @@ CHECK_FNS = {
     "a-shell-session-carries-context-not-a-shell": check_a_shell_session_carries_context_not_a_shell,
     "the-stop-reaches-work-that-outlives-the-turn": check_the_stop_reaches_work_that_outlives_the_turn,
     "a-read-window-moves-and-proves-only-what-it-saw": check_a_read_window_moves_and_proves_only_what_it_saw,
+    "a-batch-read-is-one-action-at-its-worst-level": check_a_batch_read_is_one_action_at_its_worst_level,
     "host-pressure-read-through-the-adapter": check_host_pressure_is_read_through_the_adapter,
     "floor-held-and-offered-to": check_the_floor_is_held_and_offered_to,
     "boundary-asked-before-the-write": check_the_boundary_is_asked_before_the_write,

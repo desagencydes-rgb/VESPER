@@ -534,9 +534,40 @@ def _norm(path: str) -> str:
     return str(path or "").replace("\\", "/").strip()
 
 
+# HOW MANY FILES ONE READ MAY NAME. Bounded because the proposer chooses the
+# list: an unbounded batch is a way to pull the whole repo into a context window
+# in one step, which is the opposite of what a step budget is for.
+MAX_READ_BATCH = 8
+
+
+def _read_paths(args: dict) -> list:
+    """The paths a read names, whether it named one or several."""
+    many = args.get("paths")
+    if isinstance(many, (list, tuple)):
+        return [p for p in many if _norm(p)]
+    one = _norm(args.get("path"))
+    return [one] if one else []
+
+
 def fs_read_level(args: dict) -> str:
-    """Levelled on the RESOLVED target, never on the string that named it."""
-    raw = _norm(args.get("path"))
+    """Levelled on the RESOLVED target, never on the string that named it.
+
+    A BATCH IS LEVELLED AT ITS WORST MEMBER. Reading four files in one action
+    must not be a way to read the expensive one cheaply: one credential path
+    among seven innocuous ones makes the whole batch L5, exactly as
+    `shell_level` already does for the path arguments of a command. Averaging,
+    or levelling on the first, would make burying the target the technique.
+    """
+    batch = _read_paths(args)
+    if len(batch) > 1:
+        if len(batch) > MAX_READ_BATCH:
+            return "L5"
+        worst = "L1"
+        for one in batch:
+            worst = _worst(worst, fs_read_level({"path": one}))
+        return worst
+
+    raw = _norm(args.get("path")) or (batch[0] if batch else "")
     if not raw:
         return "L5"
     target = resolve(raw)
@@ -605,6 +636,38 @@ def fs_write_level(args: dict) -> str:
 
 
 def fs_read(args: dict) -> dict:
+    """Read one file, or several in one action.
+
+    SEVERAL PATHS, ONE ACTION -- NOT SEVERAL ACTIONS IN PARALLEL. The value
+    wanted from "parallel independent calls" is not concurrency, it is not
+    spending four of six steps looking at four files. Doing it as one action
+    keeps every property the loop rests on: ONE observation, so `INV-ACT-3`'s
+    ceiling drops once and after all of it rather than racing; ONE step against
+    the budget, so reading widely does not quietly buy a bigger one; and no
+    concurrent writes, so `ShadowGit` still has a meaningful "previous" to
+    restore. `core/intent.py` also stays object-only, which it chose
+    deliberately -- "an array here would mean the model answered a different
+    question than the one asked".
+
+    EACH FILE VOUCHES ONLY FOR ITSELF. A batch of four where one was truncated
+    returns three tokens and one refusal to vouch, never a blanket claim over
+    all four.
+    """
+    if isinstance(args.get("paths"), (list, tuple)):
+        batch = _read_paths(args)
+        if len(batch) > MAX_READ_BATCH:
+            raise ValueError(
+                f"{len(batch)} paths in one read; the limit is "
+                f"{MAX_READ_BATCH}. A read that can name any number of files is "
+                "a way to pull a whole tree into one context window.")
+        files = [fs_read({**args, "paths": None, "path": one}) for one in batch]
+        return {"files": files, "count": len(files),
+                "paths": [f["path"] for f in files],
+                # THE BATCH IS COMPLETE ONLY IF EVERY MEMBER WAS. A caller
+                # reading this to decide whether it has "seen" the set gets one
+                # honest answer rather than having to check each.
+                "complete": all(f.get("complete") for f in files),
+                "bytes": sum(f.get("bytes") or 0 for f in files)}
     """Read, and hand back the hash of the WHOLE file.
 
     `sha256` is over the bytes on disk, NOT over the truncated text returned --
