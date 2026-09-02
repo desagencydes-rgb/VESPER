@@ -37,6 +37,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Iterator
@@ -105,6 +106,88 @@ class StoreSet:
 
     # ----------------------------------------------------------------- open
 
+    # ---------------------------------------------------------- rotation
+
+    # Which stores may be rotated into segments. The append-only three, because
+    # they are the ones that grow without bound by design -- `state` and
+    # `workspace` are mutable and stay one file each.
+    #
+    # WHY ROTATION IS THE ONLY ARCHIVAL FORM THIS LAYER PERMITS. The append-only
+    # stores are enforced by SQLite BEFORE triggers that raise on UPDATE and
+    # DELETE (ADR-002 D9: "a system that CAN rewrite its own audit log can be
+    # wrong in a way nobody can later detect"). So compressing records in place
+    # and moving old records out are not trade-offs to weigh -- they are
+    # impossible. Starting a NEW FILE is neither an UPDATE nor a DELETE, and the
+    # old segment stays exactly as it was written.
+    #
+    # AND NOTHING IS DELETED, which is the owner's own rule for the bin: comment
+    # out and append, never remove. A rotated segment is renamed, indexed and
+    # kept.
+
+    def segments(self, store: str) -> list:
+        """Every segment of a store, oldest first, live one last."""
+        pat = f"{store}-seg*.db"
+        old = sorted(self.root.glob(pat))
+        return [*old, self.root / f"{store}.db"]
+
+    def rotate(self, store: str) -> dict:
+        """Close the live file, name it a segment, and open a fresh one.
+
+        THE SEQUENCE MUST NOT RESTART, and this is the whole hazard. `seq` is
+        `INTEGER PRIMARY KEY AUTOINCREMENT`, so a new file begins at 1 -- and
+        `core/compactor.py` stores `log_seq` on every L2 fact and uses it three
+        ways: `erased_seqs()` compares tombstoned seqs to decide what the owner
+        removed, `verify()` keys the L2-vs-L3 comparison on it, and `project()`
+        carries it. With numbering restarted, a tombstone for seq 42 in segment
+        one would silently erase a DIFFERENT record at seq 42 in segment two:
+        not data loss, which is visible, but the wrong deletion succeeding
+        quietly.
+
+        So the new segment's `sqlite_sequence` is seeded past the old maximum.
+        SQLite exposes exactly that table for exactly this.
+        """
+        if store not in APPEND_ONLY:
+            raise ValueError(
+                f"{store!r} is not append-only, so it does not grow without "
+                "bound and rotating it would only scatter it")
+        with self._lock:
+            conn = self._conns[store]
+            high = int(conn.execute(
+                "SELECT COALESCE(MAX(seq), 0) FROM records").fetchone()[0])
+            if high == 0:
+                return {"store": store, "rotated": False,
+                        "reason": "empty; nothing to rotate"}
+            conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            conn.close()
+            live = self.root / f"{store}.db"
+            stamp = time.strftime("%Y%m%dT%H%M%S", time.gmtime())
+            seg = self.root / f"{store}-seg{stamp}-to{high}.db"
+            live.rename(seg)
+            # The WAL and shm files belong to the segment, not to the new live
+            # store. Leaving them behind hands a fresh database someone else's
+            # journal.
+            for suffix in ("-wal", "-shm"):
+                stray = live.with_name(live.name + suffix)
+                if stray.exists():
+                    stray.rename(seg.with_name(seg.name + suffix))
+            self._conns[store] = self._open(store)
+            self._migrate_one(store)
+            # SEEDED PAST THE OLD MAXIMUM, so `seq` keeps meaning one thing
+            # across the whole history rather than one thing per file.
+            # `sqlite_sequence` carries no UNIQUE constraint, so there is no
+            # upsert to bind to; it is also empty until the first insert, which
+            # is exactly the state a fresh segment is in.
+            seeded = self._conns[store]
+            seeded.execute("DELETE FROM sqlite_sequence WHERE name='records'")
+            seeded.execute(
+                "INSERT INTO sqlite_sequence(name, seq) VALUES('records', ?)",
+                (high,))
+        return {"store": store, "rotated": True, "segment": seg.name,
+                "seq_high_water": high,
+                "note": ("the previous file is kept whole and unmodified; the "
+                         "new one continues the sequence rather than "
+                         "restarting it")}
+
     def _open(self, name: str) -> sqlite3.Connection:
         path = self.root / f"{name}.db"
         c = sqlite3.connect(str(path), timeout=30.0, isolation_level=None,
@@ -116,6 +199,14 @@ class StoreSet:
 
     def _migrate(self) -> None:
         for name in STORES:
+            self._migrate_one(name)
+
+    def _migrate_one(self, name: str) -> None:
+        """The schema for one store. Split out of `_migrate` so a rotated
+        segment's replacement gets the same tables, indexes and append-only
+        triggers as the file it replaces -- a fresh log without the BEFORE
+        triggers would be an append-only store that is not."""
+        if True:
             c = self._conns[name]
             c.execute("""CREATE TABLE IF NOT EXISTS records (
                              seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -192,6 +283,25 @@ class StoreSet:
             )
             return int(cur.lastrowid)
 
+    def _rows(self, store: str, q: str, args: list):
+        """Rows from every segment of a store, oldest segment first.
+
+        A SEGMENT IS OPENED READ-ONLY AND CLOSED AGAIN. Holding a handle on
+        every archive would make a long-running VESPER keep the whole history
+        open; opening on demand costs a file open per read of a rotated store,
+        which is the trade this makes deliberately.
+        """
+        for path in self.segments(store)[:-1]:
+            if not path.exists():
+                continue
+            c = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True,
+                                timeout=30.0, check_same_thread=False)
+            try:
+                yield from c.execute(q, args)
+            finally:
+                c.close()
+        yield from self._conns[store].execute(q, args)
+
     def read(self, store: str, *, kind: str | None = None,
              after_seq: int = 0, limit: int | None = None) -> Iterator[Record]:
         """Read in HLC order — the total order, not insertion order.
@@ -209,7 +319,12 @@ class StoreSet:
         if limit is not None:
             q += " LIMIT ?"
             args.append(limit)
-        for row in self._conns[store].execute(q, args):
+        # ACROSS EVERY SEGMENT, oldest first. A read that saw only the live
+        # file would report the log as beginning at the last rotation -- and
+        # `verify_a029_from_log.py`, `Compactor.project` and every replay would
+        # quietly agree with it, because none of them has any other source of
+        # truth to notice the difference against.
+        for row in self._rows(store, q, args):
             yield Record(row[0], row[1], json.loads(row[2]),
                          HLC(row[3], row[4], row[5]), row[6])
 

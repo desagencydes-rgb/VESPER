@@ -15204,6 +15204,171 @@ def check_a_level_rule_means_what_it_says_and_names_what_it_refuses() -> Result:
            f"the path that escapes its prefix are all among them")
     return r
 
+def check_a_rotated_log_keeps_one_sequence_and_loses_nothing() -> Result:
+    """The log can be split into segments without the history changing meaning.
+
+    WHY ROTATION IS THE ONLY ARCHIVAL FORM THIS LAYER PERMITS. The three
+    append-only stores are enforced by SQLite BEFORE triggers that raise on
+    UPDATE and DELETE -- ADR-002 D9, "a system that CAN rewrite its own audit
+    log can be wrong in a way nobody can later detect". So compressing records
+    in place and moving old ones out are not options to weigh; they are
+    impossible. Starting a NEW FILE is neither an UPDATE nor a DELETE, and the
+    old segment is kept whole and unmodified, which is also the owner's own rule
+    for the bin: append and keep, never remove.
+
+    THE SEQUENCE MUST NOT RESTART, AND THAT IS THE HAZARD THIS CHECK EXISTS FOR.
+    `seq` is `INTEGER PRIMARY KEY AUTOINCREMENT`, so a fresh file begins at 1.
+    `core/compactor.py` stores `log_seq` on every L2 fact and uses it three
+    ways: `erased_seqs()` compares tombstoned seqs to decide what the owner
+    removed, `verify()` keys the L2-vs-L3 comparison on it, and `project()`
+    carries it. With numbering restarted, a tombstone for seq 42 in the first
+    segment would silently erase a DIFFERENT record at seq 42 in the second.
+    That is not data loss, which is visible -- it is the wrong deletion
+    succeeding quietly, and nothing downstream has another source of truth to
+    notice it against.
+
+    AND A READ MUST SEE THE WHOLE HISTORY. A read that returned only the live
+    file would report the log as beginning at the last rotation, and
+    `verify_a029_from_log.py`, `Compactor.project` and every replay would agree
+    with it for the same reason: they have nothing else to compare against.
+
+    THE NEW SEGMENT IS STILL APPEND-ONLY. A rotation that produced a fresh file
+    without the BEFORE triggers would leave an append-only store that is not
+    one -- and it would look identical from every call site until something
+    tried to rewrite it.
+    """
+    r = Result("a-rotated-log-keeps-one-sequence-and-loses-nothing")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import sqlite3 as _sq
+    import tempfile as _tf
+    try:
+        from core.hlc import HybridLogicalClock
+        from core.store import APPEND_ONLY, StoreSet
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the store did not import: {exc!r}")
+        return r
+
+    with _tf.TemporaryDirectory() as td:
+        st = StoreSet(Path(td) / "s", node_id="rotchk")
+        clock = HybridLogicalClock("rotchk")
+        for i in range(6):
+            st.append("log", "probe", {"i": i}, clock.now())
+        before = [(rec.seq, rec.body["i"]) for rec in st.read("log")]
+        if len(before) != 6:
+            r.err(f"the fixture wrote 6 records and read {len(before)} back")
+            return r
+
+        # THE ROTATION ITSELF MUST SURVIVE. Without the schema being applied to
+        # the replacement there is no `sqlite_sequence` to seed, so `rotate`
+        # raises here -- and the check died before reaching a single assertion.
+        try:
+            info = st.rotate("log")
+        except Exception as exc:                    # noqa: BLE001
+            r.err(f"rotating raised {type(exc).__name__}: {exc}. The live file "
+                  "has already been renamed by this point, so a rotation that "
+                  "cannot finish leaves the store with its history archived and "
+                  "nothing to write to.")
+            return r
+        if not info.get("rotated"):
+            r.err(f"a log with records in it did not rotate: {info}")
+            return r
+        # THE FRESH SEGMENT HAS TO BE A LOG. A rotation that opens a new file
+        # without running the schema leaves no `records` table at all, so this
+        # append raises -- and the check CRASHED there rather than reporting,
+        # which `checks.py all` propagates as an aborted suite. Caught and
+        # named, because "the replacement is not a log" is the finding.
+        try:
+            for i in range(6, 11):
+                st.append("log", "probe", {"i": i}, clock.now())
+        except Exception as exc:                    # noqa: BLE001
+            r.err(f"appending after rotation raised {type(exc).__name__}: "
+                  f"{exc}. The fresh segment did not get the schema, so it is "
+                  "not a log -- and a rotation that produces something that "
+                  "cannot be written to has lost the store, not archived it.")
+            return r
+
+        # 1. NOTHING IS LOST, AND THE ORDER SURVIVES.
+        after = [(rec.seq, rec.body["i"]) for rec in st.read("log")]
+        if [b for _, b in after] != list(range(11)):
+            r.err(f"reading after rotation returned {[b for _, b in after]}, "
+                  "not the whole history in order. A read that sees only the "
+                  "live file reports the log as beginning at the last rotation, "
+                  "and every replay agrees because it has nothing else to "
+                  "compare against.")
+        if after[:6] != before:
+            r.err("the records written before rotation changed identity across "
+                  "it")
+
+        # 2. THE SEQUENCE CONTINUES. This is the one that matters.
+        seqs = [s for s, _ in after]
+        if len(set(seqs)) != len(seqs):
+            dupes = sorted({s for s in seqs if seqs.count(s) > 1})
+            r.err(f"seq {dupes} appears in more than one segment. A tombstone "
+                  "for one of them erases a DIFFERENT record in the other, and "
+                  "core/compactor.py keys erasure, verification and projection "
+                  "on exactly this number.")
+        if seqs != sorted(seqs):
+            r.err(f"sequence numbers are not monotonic across the rotation: "
+                  f"{seqs}")
+        if min(seqs[6:], default=99) <= max(seqs[:6]):
+            r.err("the new segment restarted numbering below the old high-water "
+                  "mark")
+
+        # 3. THE OLD SEGMENT IS KEPT, WHOLE.
+        segs = st.segments("log")
+        if len(segs) < 2:
+            r.err("rotation left one file, so nothing was archived")
+        else:
+            archived = segs[0]
+            if not archived.exists():
+                r.err(f"the rotated segment {archived.name} does not exist -- "
+                      "rotation deleted history instead of keeping it")
+            else:
+                c = _sq.connect(f"file:{archived.as_posix()}?mode=ro", uri=True)
+                try:
+                    n = c.execute("SELECT COUNT(*) FROM records").fetchone()[0]
+                finally:
+                    c.close()
+                if n != 6:
+                    r.err(f"the archived segment holds {n} records, not the 6 "
+                          "written before rotation")
+
+        # 4. THE NEW SEGMENT IS STILL APPEND-ONLY.
+        try:
+            st._conns["log"].execute("DELETE FROM records WHERE seq = 7")  # noqa: SLF001
+            r.err("a record was DELETED from the post-rotation log. The fresh "
+                  "file did not get the BEFORE triggers, so it is an "
+                  "append-only store that is not one -- identical from every "
+                  "call site until something rewrites it.")
+        except Exception:                           # noqa: BLE001
+            pass
+
+        # 5. A MUTABLE STORE IS NOT ROTATABLE. `state` and `workspace` do not
+        #    grow without bound, and scattering them buys nothing.
+        for mutable in ("state", "workspace"):
+            if mutable in APPEND_ONLY:
+                continue
+            try:
+                st.rotate(mutable)
+                r.err(f"{mutable} rotated; only the append-only stores grow "
+                      "without bound and only they should be segmented")
+            except ValueError:
+                pass
+
+        # 6. AN EMPTY LOG DOES NOT PRODUCE AN EMPTY SEGMENT.
+        st2 = StoreSet(Path(td) / "s2", node_id="rotchk2")
+        if st2.rotate("audit").get("rotated"):
+            r.err("an empty store rotated, leaving a segment with nothing in it")
+
+    r.note("a rotated log reads back whole and in order across its segments; "
+           "the sequence continues past the old high-water mark rather than "
+           "restarting, so a tombstone still names one record; the archived "
+           "segment keeps every record it had; the fresh file is still "
+           "append-only; mutable stores refuse to rotate; and an empty one "
+           "does not produce an empty segment")
+    return r
+
 def check_credentials_can_leave_the_plaintext_file() -> Result:
     """A credential in the Keychain is used, and the file remains the fallback.
 
@@ -17067,6 +17232,7 @@ CHECK_FNS = {
     "a-batch-read-is-one-action-at-its-worst-level": check_a_batch_read_is_one_action_at_its_worst_level,
     "a-sub-agent-thinks-and-never-acts": check_a_sub_agent_thinks_and_never_acts,
     "a-level-rule-means-what-it-says-and-names-what-it-refuses": check_a_level_rule_means_what_it_says_and_names_what_it_refuses,
+    "a-rotated-log-keeps-one-sequence-and-loses-nothing": check_a_rotated_log_keeps_one_sequence_and_loses_nothing,
     "host-pressure-read-through-the-adapter": check_host_pressure_is_read_through_the_adapter,
     "floor-held-and-offered-to": check_the_floor_is_held_and_offered_to,
     "boundary-asked-before-the-write": check_the_boundary_is_asked_before_the_write,
