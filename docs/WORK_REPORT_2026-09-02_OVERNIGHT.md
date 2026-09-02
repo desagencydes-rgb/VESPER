@@ -190,3 +190,29 @@ showed it.
   making `predicate-totality` pass alone and fail at position ~100. Fixtures are
   released after the verdict now.
 - Backups are **local bundles** in `~/VESPER-backups`, per the owner's rule.
+
+---
+
+## Verified on the running system, not only in tests
+
+The report above says the runtime had not been started since the `NameError`
+fix. It has now, and the two findings that mattered most are confirmed against
+the real event log rather than a harness.
+
+**The autonomy loop runs.** One `--once` pass moved `autonomy.heartbeat` from
+625,172 to 625,173 and left `autonomy.loop_failed` at **0**. Before the fix,
+every pass would have produced one of those records and no heartbeat at all.
+
+**The cadence fix holds in production.** A 40-second run produced 27 heartbeats
+with a **median gap of 1111 ms**, against the 163 ms measured before. The
+declared `tick_interval_s = 1.0` is now what actually happens; the 111 ms over
+is the 0.15 s pump granularity, since a tick fires on the first pass at or after
+one second.
+
+**And the run-length encoding behaves as designed.** The first tick published
+one `autonomy.noop` per registered trigger — every snapshot is "changed" the
+first time it is seen — and the ticks after it published none. That is the
+shape: silence recorded once with the tick it has held since, not restated.
+
+`an instrument's self-report is not evidence` is this corpus's own rule, and a
+green test suite is an instrument. These numbers come from the durable log.
