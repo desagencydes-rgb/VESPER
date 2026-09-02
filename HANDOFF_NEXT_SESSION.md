@@ -6,7 +6,7 @@ tier one of the build order. Read this, then
 
 ## State
 
-- **124 checks pass. 516/516 self-test cases** red under violation, green after
+- **124 checks pass. 524/524 self-test cases** red under violation, green after
   restore. Both lints, F0–F6 acceptance, placement and fabric stress all pass.
 - Working tree clean, everything pushed to `feat/macos-host-profile`.
 - Backup branch `backup/pre-overnight-2026-09-01` at `831a177` — the state

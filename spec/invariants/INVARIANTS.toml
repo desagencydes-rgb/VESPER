@@ -113,7 +113,7 @@ kind = "structural"
 [invariants.INV-AUTH-2]
 statement = "A child's grant set is a subset of its parent's. L4/L5 are never delegable and bind to one command instance; a consumed L4 cannot authorize a second action."
 owner_rem = "REM-003"
-enforced_by = ["A-024"]
+enforced_by = ["A-024", "CI-095"]
 kind = "runtime"
 
 [invariants.INV-AUTH-3]
@@ -420,7 +420,7 @@ kind = "process"
 [invariants.INV-AUTO-1]
 statement = "The autonomy loop emits a heartbeat every evaluation cycle. Absence beyond 3x tick_interval is an incident, not a quiet period."
 owner_rem = "REM-008"
-enforced_by = ["A-029"]
+enforced_by = ["A-029", "CI-096"]
 kind = "runtime"
 
 [invariants.INV-AUTO-2]

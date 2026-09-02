@@ -2279,6 +2279,60 @@ authorize."""
 # a date on it, not an exemption.
 ##############################################################################
 
+[checks.CI-095]
+name = "a-sub-agent-thinks-and-never-acts"
+enforces = ["INV-AUTH-2"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py a-sub-agent-thinks-and-never-acts"
+blocking = "pr"
+self_test = """Class a sub-agent's answer as local rather than external; level
+delegation on the verb instead of the material it ships; give the sub-agent an
+executor; remove the input and output bounds; take agent.ask out of the
+proposable set."""
+self_test_evidence = """Seven red runs executed 2026-09-02, one of which came
+back green and was fixed: mutating the credential level makes `build_registry`
+REFUSE, because the declared LevelRule no longer matches the function -- so the
+check crashed rather than failing, and the level assertions now run before
+anything builds a registry."""
+subject = "core/subagent.py x core/capabilities.py x core/intent.py"
+note = """INV-AUTH-2's first clause -- a child's grant set is a subset of its
+parent's -- is what makes delegation safe here, and `attenuate` returns None
+rather than a weaker grant for a non-delegable parent. Every standing grant is
+`delegable=False`, so a sub-agent inherits NOTHING by construction: it reads and
+proposes, and the parent acts. The check asserts that directly rather than
+asserting the sub-agent behaves itself.
+
+AND ITS ANSWER IS EXTERNAL CONTENT, which is the other half. Delegation is
+otherwise the cleanest laundering path in the system: hand it untrusted material
+and receive a confident proposal with no trace of where the idea came from."""
+
+[checks.CI-096]
+name = "the-loop-ticks-at-the-cadence-it-declares"
+enforces = ["INV-AUTO-1"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py the-loop-ticks-at-the-cadence-it-declares"
+blocking = "pr"
+self_test = """Make due() always true; make it always false; stop the pump
+consulting it; delete the enable-token presentation; move that presentation
+inside the cadence gate; revert the standing expiry to an absolute instant."""
+self_test_evidence = """Six red runs executed 2026-09-02. One returned green
+first: the token-ordering assertion searched the whole runtime for
+`_present_enable_token(interlock)` and matched the FUNCTION DEFINITION rather
+than the call site, so deleting the call passed. Scoped to the pump's autonomy
+block."""
+subject = "core/autonomy.py x tools/ops/vesper_runtime.py"
+note = """INV-AUTO-1 says the loop emits a heartbeat every evaluation cycle and
+that absence beyond 3x tick_interval is an incident. That is only meaningful if
+`tick_interval` is real, and it was not: `tick_interval_s` defaulted to 1.0 and
+NOTHING CONSULTED IT. The pump called `tick()` every pass at POLL_SECONDS = 0.15
+-- an interval chosen for the speech path -- so the loop ran 6.7x faster than it
+declared. Measured on the live log: a 163 ms median gap between heartbeats.
+
+The check also holds the line on the stop's timing: A-031.1 declares a 2 s
+T_new_action budget, the interlock is consulted in `dispatch`, and pacing
+dispatch paces the stop with it. The enable-token presentation therefore stays
+on the fast pass, ahead of the cadence gate, and that ordering is asserted."""
+
 [unwired]
 "core/fabric.py" = """NOT YET REACHABLE BY DESIGN. Network fabric admission
 (SR-016, DF-FABRIC-ADMIT). There is one node, so there is no control plane to

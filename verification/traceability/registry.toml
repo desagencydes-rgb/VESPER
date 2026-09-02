@@ -213,7 +213,7 @@ tests = ["A-007", "A-024"]
 contracts = ["contracts/policy/authorization.schema.json"]
 decision_functions = ["DF-ATTENUATE"]
 invariants = ["INV-AUTH-2"]
-ci = ["CI-013"]
+ci = ["CI-013", "CI-095"]
 status = "SPECIFIED"
 
 [requirements.SR-015]
@@ -509,7 +509,7 @@ decision_functions = ["DF-TRIGGER-EVAL", "DF-GOVERNED-WRITE", "DF-AUTONOMY-ELIGI
 # with it. A-011 and A-029, INV-TRIG-2's other declared enforcers, are both
 # already listed here.
 invariants = ["INV-SELF-7", "INV-AUTO-1", "INV-AUTO-5", "INV-TRIG-2", "INV-TRIG-5"]
-ci = ["CI-015", "CI-024", "CI-026", "CI-023"]
+ci = ["CI-015", "CI-024", "CI-026", "CI-023", "CI-096"]
 state_machines = ["SM-TRIGGER"]
 status = "SPECIFIED"
 

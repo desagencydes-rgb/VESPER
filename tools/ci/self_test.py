@@ -1115,6 +1115,7 @@ MAIN_SWIFT = "app/island-macos/main.swift"
 CAPS_PY = "core/capabilities.py"
 ACTOR_PY = "core/actor.py"
 INTENT_PY = "core/intent.py"
+SUBAGENT_PY = "core/subagent.py"
 RUNTIME_PY = "tools/ops/vesper_runtime.py"
 CHECKS_PY = "tools/ci/checks.py"
 COST_PY = "core/cost.py"
@@ -4596,6 +4597,66 @@ CASES += [
      _sub("            self.failed += 1", "            pass", 1),
      "a failed write is not counted, so an unexplained gap in the record is "
      "indistinguishable from a quiet period"),
+]
+
+
+# --------------------------------------------------------------- CI-095/096
+# REGISTERED 2026-09-02. Both checks had been red-run by hand and neither was in
+# this file -- and `ci-registry` refused to count them for exactly that reason:
+# it derives coverage from THIS list rather than from a claim, because "a
+# coverage claim maintained by hand is the thing this is checking for".
+# Declaring the mutations here turns those one-off runs into evidence that
+# survives the next person moving the code.
+CASES += [
+    ("a-sub-agent-thinks-and-never-acts", CAPS_PY,
+     _sub('    "agent.ask": EXTERNAL,', '    "agent.ask": "verified_local",', 1),
+     "a sub-agent's answer becomes trusted local content, so delegation "
+     "launders untrusted material into a proposal with no trace of its origin"),
+
+    ("a-sub-agent-thinks-and-never-acts", CAPS_PY,
+     _sub("    if len(material) > SUBAGENT_MATERIAL_L3:", "    if False:", 1),
+     "shipping the owner's material to a provider in bulk costs the same as "
+     "asking about a paragraph"),
+
+    ("a-sub-agent-thinks-and-never-acts", SUBAGENT_PY,
+     _sub('        mat = str(material or "")[:MAX_CONTEXT_CHARS]',
+          '        mat = str(material or "")', 1),
+     "a sub-agent accepts unbounded material, so delegation is a way to spend "
+     "the parent's context somewhere it cannot be seen"),
+
+    ("a-sub-agent-thinks-and-never-acts", INTENT_PY,
+     _sub('"fs.edit", "agent.ask")', '"fs.edit")', 1),
+     "no proposal may name agent.ask, so delegation is built and reachable from "
+     "nothing -- the state fifteen other subsystems were found in"),
+
+    ("the-loop-ticks-at-the-cadence-it-declares", AUTONOMY,
+     _sub("        if self._last_tick_ms is None:\n            return True",
+          "        if True:\n            return True", 1),
+     "due() is always true, so the loop runs at the pump's cadence again and the "
+     "interval it declares is decoration"),
+
+    ("the-loop-ticks-at-the-cadence-it-declares", AUTONOMY,
+     _sub("        return (now - self._last_tick_ms) >= self.tick_interval_s * 1000.0",
+          "        return False", 1),
+     "due() is always false: the loop ticks once and never again"),
+
+    ("the-loop-ticks-at-the-cadence-it-declares", RUNTIME,
+     _sub("            if autonomy.due():", "            if True:", 1),
+     "the pump stops consulting the declared cadence"),
+
+    # THE STANDING-EXPIRY MUTATION BELONGS TO A DIFFERENT CHECK, and putting it
+    # here was a labelling error caught by the harness on its first run: this
+    # check knows nothing about grant expiry, so the violation ran green. The
+    # assertion that expiry is relative lives in
+    # `a-question-does-not-end-the-turn`, and moves there when that check is
+    # registered. What belongs HERE is the ordering the stop depends on.
+    ("the-loop-ticks-at-the-cadence-it-declares", RUNTIME,
+     _sub("            if interlock is not None:\n                _present_enable_token(interlock)",
+          "            if interlock is not None:\n                pass", 1),
+     "the enable token is no longer presented on the fast pass, so nothing arms "
+     "the interlock and autonomy fails toward stopped every interval -- A-031.1 "
+     "declares a 2 s T_new_action budget and this is how it silently stops "
+     "being true"),
 ]
 
 
