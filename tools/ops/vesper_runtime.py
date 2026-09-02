@@ -105,6 +105,19 @@ STATE = Path.home() / "Library" / "Application Support" / "VESPER"
 # the cost of being too small is a fact left out rather than a request
 # refused by a provider.
 L1_BUDGET_TOKENS = 1500
+# WHAT COMPACTION ASKS FOR, and the shape of the ask is load-bearing. The result
+# is written back to L2 at rank 5 as the system's reading of the owner's words,
+# so a summariser that editorialises, guesses, or resolves a contradiction on its
+# own has put an invention where a record should be. Contradictions belong to
+# core/arbiter.py, which exists precisely because the thing that WRITES memory
+# must not be the thing that decides which memory is right.
+COMPACTION_SYSTEM = (
+    "You merge several recorded statements about one topic into a single "
+    "faithful summary. Keep every distinct fact. Do not add anything that is "
+    "not in the input, do not guess, and do not resolve disagreements -- if the "
+    "statements conflict, say that they conflict and give both. Reply with the "
+    "summary only.")
+COMPACTION_PROMPT = "Statements to merge:\n{items}"
 # WHEN THE LIVE LOG IS ARCHIVED AND A FRESH ONE STARTED. `StoreSet.rotate` keeps
 # the old file whole, continues the sequence past its high-water mark, and reads
 # walk every segment -- so this bounds the file the runtime writes to and queries
@@ -393,7 +406,47 @@ def build(node: str = "vesper-runtime"):
         # the rule this memory design rests on -- project(L3), never
         # compact(L1) -- and nothing in the running system imported it, so
         # nothing had ever noticed L2 drifting from the log it is a view of.
-        compactor = Compactor(memory, store, clock, bus=bus)
+        # THE SUMMARISER, ON THE COMPACTOR'S OWN RUNGS. `purpose="compactor"`
+        # routes this to mistral-compactor and cf-compactor rather than to the
+        # text rungs a turn uses -- separate accounts, separate ledgers, so a
+        # night of compaction cannot spend the budget the owner talks to VESPER
+        # through. Checked against the contract before wiring: of 26 declared
+        # credentials only two are shared between purposes, and neither is the
+        # compactor's.
+        #
+        # BOTH RUNGS ARE metered_free_tier WITH provable_hard_cap = true, which
+        # is the only reason this may run in FREE_TIME at all: INV-COST-5 treats
+        # a metered free tier as PAID unless the cap is provable, and the
+        # contract carries the evidence for each.
+        #
+        # IT RAISES RATHER THAN RETURNING A PLACEHOLDER. A summariser that
+        # returned "" or "unavailable" would have that text written into L2 as a
+        # rank-5 fact -- the system's own reading of the owner's words -- and the
+        # failure would become memory. Raising is what lets the trigger's handler
+        # record it as `failed` instead.
+        compactor_profiles = measured_profiles(rows, purpose="compactor")
+        compactor_router = (Router(bus, compactor_profiles)
+                            if compactor_profiles else None)
+
+        def _compactor_summarise(values: list) -> str:
+            if compactor_router is None:
+                raise RuntimeError("no compactor rung is enrolled")
+            joined = "\n".join(f"- {v}" for v in values)
+            decision = compactor_router.select("moderate", prefer="cost",
+                                               task_id="memory-compaction")
+            out = gw.complete(
+                COMPACTION_PROMPT.format(items=joined),
+                task_id="memory-compaction", system=COMPACTION_SYSTEM,
+                profile_id=decision.profile_id, prefer="cost",
+                expected_output_tokens=256, difficulty="moderate")
+            text = ((out.get("result") or {}).get("text") or "").strip()
+            if not text:
+                raise RuntimeError("the summariser returned nothing")
+            return text
+
+        compactor = Compactor(memory, store, clock, bus=bus,
+                              summariser=(_compactor_summarise
+                                          if compactor_profiles else None))
         # THE ARBITER, WHICH THE UPDATER CANNOT BE. The updater runs after the
         # act and must never block a turn, so it has no way to surface anything
         # and no business deciding what happens when two things it wrote
