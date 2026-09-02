@@ -3403,9 +3403,14 @@ CASES += [
 CASES += [
     # ------------------------------------------------- capabilities and acting
     ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
-     _sub("    for tok in parts[1:]:\n"
-          "        if _looks_like_path(tok):\n"
-          "            base = _worst(base, fs_read_level({\"path\": tok}))\n", "", 1),
+     # The loop gained a root: relative arguments are resolved against the
+     # directory the command will run in, so the classifier and the
+     # execution agree on which tree is being levelled.
+     _sub("        probe = tok\n"
+          "            if not tok.startswith((\"/\", \"~\")):\n"
+          "                probe = str(pathlib.Path(root) / tok)\n"
+          "            base = _worst(base, fs_read_level({\"path\": probe}))\n",
+          "        pass\n", 1),
      "`shell.run(\"cat ~/.ssh/id_rsa\")` drops back to L1 while `fs.read` of the "
      "same file stays L5. The credential rule is real and there are two doors "
      "to it, so every path protection on the read side is bypassed by asking "
@@ -3477,8 +3482,11 @@ CASES += [
      "rebuild"),
 
     ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
-     _sub("timeout=timeout, check=False, cwd=str(REPO))",
-          "timeout=timeout, check=False)", 1),
+     # The run directory is computed now (a session may carry one), so the
+     # literal `cwd=str(REPO)` is gone; removing the argument entirely is
+     # still exactly the violation this case is about.
+     _sub("timeout=timeout, check=False, cwd=run_cwd, env=env)",
+          "timeout=timeout, check=False, env=env)", 1),
      "the working directory is inherited again. `workspace/` and `contracts/` "
      "are the whole basis of the level rules and they are relative, so the tree "
      "a command acts on becomes a function of who started the runtime -- a path "

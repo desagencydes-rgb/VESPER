@@ -11530,10 +11530,33 @@ def check_capabilities_registered_and_levelled_by_argument() -> Result:
     #     the same argument is levelled against one tree and executed against
     #     another.
     csrc = (REPO / "core" / "capabilities.py").read_text(encoding="utf-8")
-    if "cwd=str(REPO)" not in csrc:
+    #     THE PROPERTY IS "STATED AND SHARED", NOT A LITERAL. This required the
+    #     exact text `cwd=str(REPO)`, which held only while the root was a
+    #     constant. A session that carries a working directory makes the root a
+    #     computed value -- and makes the real requirement sharper, not weaker:
+    #     the root the CLASSIFIER resolves relative arguments against must be
+    #     the root the EXECUTION runs in, or a command is levelled against one
+    #     tree and executed against another. Both now call `_session_cwd`.
+    import ast as _ast6
+    _ctree = _ast6.parse(csrc)
+    _runs = [n for n in _ast6.walk(_ctree)
+             if isinstance(n, _ast6.Call)
+             and getattr(n.func, "attr", "") == "run"
+             and any(k.arg == "cwd" for k in n.keywords)]
+    if not _runs:
         r.err("shell.run inherits its working directory, so the tree it acts on "
               "depends on who started the runtime rather than on anything the "
               "level rules can see")
+    _lvl = next((n for n in _ast6.walk(_ctree)
+                 if isinstance(n, _ast6.FunctionDef) and n.name == "shell_level"),
+                None)
+    if _lvl is None or not any(
+            getattr(c.func, "id", "") == "_session_cwd"
+            for c in _ast6.walk(_lvl) if isinstance(c, _ast6.Call)):
+        r.err("shell_level does not resolve relative arguments against the "
+              "directory the command will run in, so a session that carries a "
+              "cwd is levelled against one tree and executed against another -- "
+              "and the level rules are entirely relative prefixes")
     if not str(caps.resolve("README.md")).startswith(str(REPO)):
         r.err("a relative path resolves outside the root the level rules reason "
               "about")
@@ -14269,6 +14292,122 @@ def check_the_runtime_resolves_every_name_it_uses() -> Result:
            "a parameter, a local, a module-level name or a builtin")
     return r
 
+def check_a_shell_session_carries_context_not_a_shell() -> Result:
+    """`cd`, env and a venv survive between commands -- without a live shell.
+
+    THE GAP. Every `shell.run` started from the repo root with the ambient
+    environment, so VESPER could not install a dependency and then use it, or
+    activate a venv and then run inside it. A straight line of independent
+    commands is not how anyone works, and Codex keeps a real shell process alive
+    for exactly this.
+
+    A LIVE SHELL IS THE WRONG SHAPE HERE, and the module says why in its own
+    words: no `shell=True`, because "the classifier would be reasoning about one
+    language and the execution happening in another". A persistent shell brings
+    back chaining, redirection and substitution as things the level rules cannot
+    see. So what persists is the CONTEXT -- cwd and environment -- while every
+    command remains one contained argv the classifier reads whole.
+
+    `PATH` AND THE LOADER VARIABLES ARE REFUSED, NOT LEVELLED UP. Each of them
+    changes WHICH BINARY RUNS or what it loads, so the argv that was classified
+    is no longer the program that executes: `npm test`, classified as a test
+    run, becomes whatever `npm` a prepended directory supplies. Raising the
+    level would make it the owner's question, and the owner cannot see the
+    difference between a fine PATH and an attack -- being unable to see it IS
+    the attack.
+
+    THE WORKING DIRECTORY IS SCOPED to the same two roots the seatbelt already
+    carves out. A session that could `cd` anywhere would run reads across the
+    owner's whole home under a level rule that never considered it.
+    """
+    r = Result("a-shell-session-carries-context-not-a-shell")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.capabilities import (MAX_SHELL_SESSIONS, ENV_NEVER_SETTABLE,
+                                       ShellCwdOutsideRoots, shell_run,
+                                       shell_session)
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the shell session path did not import: {exc!r}")
+        return r
+
+    base = shell_run({"cmd": "pwd", "session": "chk"})["stdout"].strip()
+    moved = shell_run({"cmd": "pwd", "session": "chk", "cwd": "core"})["stdout"].strip()
+    if moved == base or not moved.endswith("core"):
+        r.err(f"a session could not change directory: {base!r} -> {moved!r}")
+    again = shell_run({"cmd": "pwd", "session": "chk"})["stdout"].strip()
+    if again != moved:
+        r.err("the working directory did not survive to the next command, so "
+              "every step starts from the repo root again and a sequence like "
+              "'cd project && install && test' is impossible")
+
+    # ISOLATED. One session's cwd is not another's.
+    other = shell_run({"cmd": "pwd", "session": "chk2"})["stdout"].strip()
+    if other != base:
+        r.err("a fresh session inherited another session's directory")
+
+    # AND NO SESSION IS UNCHANGED BEHAVIOUR.
+    plain = shell_run({"cmd": "pwd"})
+    if plain["stdout"].strip() != base or plain["session"] is not None:
+        r.err("a command with no session did not behave as it did before "
+              "sessions existed")
+
+    # ENVIRONMENT CARRIES.
+    shell_run({"cmd": "printenv VESPER_CHK", "session": "chk",
+               "env": {"VESPER_CHK": "carried"}})
+    got = shell_run({"cmd": "printenv VESPER_CHK", "session": "chk"})["stdout"].strip()
+    if got != "carried":
+        r.err(f"an environment variable did not survive the next command "
+              f"({got!r}), so a venv cannot be activated and then used")
+
+    # THE REFUSALS. Every name that decides which binary runs.
+    for name in ("PATH", "DYLD_INSERT_LIBRARIES", "LD_PRELOAD", "PYTHONPATH",
+                 "NODE_OPTIONS", "BASH_ENV"):
+        if name not in ENV_NEVER_SETTABLE:
+            r.err(f"{name} may be set by a session, so the argv the level rules "
+                  "classified is not the program that runs")
+            continue
+        try:
+            shell_run({"cmd": "pwd", "session": "chk", "env": {name: "/tmp"}})
+            r.err(f"a session set {name} and the command still ran")
+        except ValueError:
+            pass
+    # AND LOWERCASE IS THE SAME NAME. `path=` must not slip past a check on
+    # `PATH` -- the shell does not care and neither should this.
+    try:
+        shell_run({"cmd": "pwd", "session": "chk", "env": {"path": "/tmp"}})
+        r.err("a session set 'path' in lower case, which the refusal list "
+              "missed and the environment treats identically")
+    except ValueError:
+        pass
+
+    # THE WORKING DIRECTORY IS SCOPED.
+    for outside in ("/etc", "/", "~"):
+        try:
+            shell_run({"cmd": "pwd", "session": "chk", "cwd": outside})
+            r.err(f"a session moved to {outside!r}, outside every root a level "
+                  "rule has considered")
+        except (ShellCwdOutsideRoots, Exception):     # noqa: BLE001
+            pass
+
+    # BOUNDED. Session ids come from the proposer, so the map must not grow
+    # with whatever it invents.
+    for i in range(MAX_SHELL_SESSIONS + 5):
+        shell_run({"cmd": "true", "session": f"grow-{i}"})
+    live = sum(1 for i in range(MAX_SHELL_SESSIONS + 5)
+               if shell_session(f"grow-{i}"))
+    if live > MAX_SHELL_SESSIONS:
+        r.err(f"{live} sessions are held against a bound of "
+              f"{MAX_SHELL_SESSIONS}; a steered proposer grows the map for free")
+
+    r.note(f"cwd and environment survive between commands in a session and do "
+           f"not leak between sessions; a command with no session is unchanged; "
+           f"{len(ENV_NEVER_SETTABLE)} environment names that decide which "
+           f"binary runs are refused in any case; a session cannot move outside "
+           f"the roots the seatbelt covers; and the map is bounded at "
+           f"{MAX_SHELL_SESSIONS}")
+    return r
+
 def check_credentials_can_leave_the_plaintext_file() -> Result:
     """A credential in the Keychain is used, and the file remains the fallback.
 
@@ -16126,6 +16265,7 @@ CHECK_FNS = {
     "the-stop-reaches-work-already-running": check_the_stop_reaches_work_already_running,
     "a-question-does-not-end-the-turn": check_a_question_does_not_end_the_turn,
     "the-runtime-resolves-every-name-it-uses": check_the_runtime_resolves_every_name_it_uses,
+    "a-shell-session-carries-context-not-a-shell": check_a_shell_session_carries_context_not_a_shell,
     "host-pressure-read-through-the-adapter": check_host_pressure_is_read_through_the_adapter,
     "floor-held-and-offered-to": check_the_floor_is_held_and_offered_to,
     "boundary-asked-before-the-write": check_the_boundary_is_asked_before_the_write,

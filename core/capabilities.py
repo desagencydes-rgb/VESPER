@@ -161,6 +161,25 @@ def _worst(a: str, b: str) -> str:
     return a if LEVEL_RANK.get(a, 5) >= LEVEL_RANK.get(b, 5) else b
 
 
+def _session_cwd(args: dict) -> str:
+    """The directory a command will run in, given its session. Never raises.
+
+    ONE ANSWER, USED BY BOTH THE CLASSIFIER AND THE EXECUTION. A second
+    computation of "where does this run" is a second thing to disagree with,
+    and the disagreement is invisible: the level rules would be judging a tree
+    the command never touches.
+    """
+    sid = args.get("session")
+    carried = _SHELL_SESSIONS.get(str(sid)) if sid else None
+    base = (carried or {}).get("cwd") or str(REPO)
+    try:
+        return _resolve_cwd(args.get("cwd"), base)
+    except Exception:                                  # noqa: BLE001
+        # An out-of-scope cwd is refused at execution with a reason; here it
+        # must not change the LEVEL, so the strictest root stands in.
+        return base
+
+
 def shell_level(args: dict) -> str:
     """`ls` -> L1, `rm -rf ~` -> L5, everything else -> L3. A-013's own case.
 
@@ -193,9 +212,21 @@ def shell_level(args: dict) -> str:
     # So every path-shaped argument is levelled by the rules that already govern
     # reading it, and the command inherits the worst answer. One classifier for
     # "what does this touch", used by both doors.
+    # RESOLVED AGAINST THE ROOT THE COMMAND WILL ACTUALLY RUN IN. The level
+    # rules are relative prefixes -- `workspace/` is L2, `contracts/` is L5 --
+    # so a relative argument means nothing without a root, and the root the
+    # CLASSIFIER assumes must be the root the EXECUTION uses. It was not: the
+    # classifier resolved against the process's own working directory while
+    # `shell.run` pinned execution to the repo, and a session that carries a
+    # `cwd` widens that gap into "levelled against one tree, executed against
+    # another". Same root, both doors.
+    root = _session_cwd(args)
     for tok in parts[1:]:
         if _looks_like_path(tok):
-            base = _worst(base, fs_read_level({"path": tok}))
+            probe = tok
+            if not tok.startswith(("/", "~")):
+                probe = str(pathlib.Path(root) / tok)
+            base = _worst(base, fs_read_level({"path": probe}))
     return base
 
 
@@ -266,20 +297,127 @@ def shell_run(args: dict) -> dict:
     if not argv:
         raise ValueError("no command to run")
 
+    # THE SESSION'S CARRIED CONTEXT. Absent a session id this behaves exactly as
+    # it did: one command, in the repo, with the ambient environment.
+    sid = args.get("session")
+    carried = _SHELL_SESSIONS.get(str(sid)) if sid else None
+    env_over = dict((carried or {}).get("env") or {})
+    for k, v in (args.get("env") or {}).items():
+        if str(k).upper() in ENV_NEVER_SETTABLE:
+            raise ValueError(
+                f"{k} may not be set for a contained command: it changes which "
+                "binary runs or what it loads, so the argv the level rules "
+                "classified would not be the program that executes.")
+        env_over[str(k)] = str(v)
+    # THE SAME ANSWER THE CLASSIFIER USED, from the same function -- but
+    # re-resolved rather than reused, so an out-of-scope cwd still RAISES here
+    # instead of silently falling back the way the level computation must.
+    base_cwd = ((carried or {}).get("cwd") or str(REPO))
+    run_cwd = _resolve_cwd(args.get("cwd"), base_cwd)
+
     if not os.path.exists(SEATBELT):
         raise ContainmentUnavailable(
             f"{SEATBELT} is not on this machine, so shell.run has no "
             "containment. The command was not run.")
 
     level = shell_level(args)
+    env = {**os.environ, **env_over} if env_over else None
     p = subprocess.run([SEATBELT, "-p", _seatbelt_profile(level), *argv],
                        capture_output=True, text=True,
-                       timeout=timeout, check=False, cwd=str(REPO))
+                       timeout=timeout, check=False, cwd=run_cwd, env=env)
+
+    # PERSISTED ONLY ON A SESSION THAT WAS ASKED FOR, and only after the command
+    # actually ran. Recording the cwd before the run would leave a session
+    # pointing somewhere a failed command never reached.
+    if sid:
+        key = str(sid)
+        if key not in _SHELL_SESSIONS and len(_SHELL_SESSIONS) >= MAX_SHELL_SESSIONS:
+            _SHELL_SESSIONS.pop(next(iter(_SHELL_SESSIONS)))
+        _SHELL_SESSIONS[key] = {"cwd": run_cwd, "env": env_over}
+
     return {"exit_code": p.returncode,
             "stdout": p.stdout[:4000],
             "stderr": p.stderr[:2000],
             "contained": True,
-            "containment_level": level}
+            "containment_level": level,
+            "cwd": run_cwd,
+            "session": str(sid) if sid else None}
+
+
+# ------------------------------------------------------------ shell sessions
+
+# WHAT SURVIVES BETWEEN TWO `shell.run` CALLS. Codex keeps a real shell process
+# alive so `cd`, exports and an activated venv persist; a straight line of
+# independent commands cannot install a dependency and then use it.
+#
+# THIS IS SESSION STATE, NOT A SESSION PROCESS, and the difference is the whole
+# reason it is safe here. A live shell would re-introduce exactly what
+# `shell.run` refuses on purpose -- the module says it in its own words: no
+# `shell=True`, because "the classifier would be reasoning about one language
+# and the execution happening in another". Chaining, redirection and
+# substitution would all become invisible again, and the level rules would be
+# classifying a string that is no longer what runs. So each command is still one
+# contained argv the classifier sees whole; only the CONTEXT it runs in carries
+# over.
+_SHELL_SESSIONS: dict = {}
+# Bounded, because a session dict keyed by whatever the proposer invents is a
+# map a steered model can grow without limit. Oldest out first.
+MAX_SHELL_SESSIONS = 16
+
+# ENVIRONMENT NAMES A SESSION MAY NEVER SET. Not a style rule -- each of these
+# changes WHICH BINARY RUNS or what it loads, which means the argv the level
+# classifier read is no longer the program that executes. `PATH` is the obvious
+# one: `npm test` classified as a test run becomes whatever `npm` a prepended
+# directory supplies. The loader variables are the same attack one layer down,
+# and they are how a contained process is made to load code nobody classified.
+#
+# REFUSED RATHER THAN LEVELLED UP. A higher level would make it the owner's
+# question, and the owner cannot see the difference between a PATH that is fine
+# and a PATH that is an attack -- that is the whole point of the substitution.
+ENV_NEVER_SETTABLE = ("PATH", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH",
+                      "DYLD_FRAMEWORK_PATH", "LD_PRELOAD", "LD_LIBRARY_PATH",
+                      "PYTHONPATH", "PYTHONSTARTUP", "NODE_OPTIONS",
+                      "BASH_ENV", "ENV", "SHELL", "IFS")
+
+
+class ShellCwdOutsideRoots(Exception):
+    """A session tried to run somewhere no capability level covers."""
+
+
+def _session_roots() -> tuple:
+    """Where a session may set its working directory.
+
+    The same two roots the seatbelt profile already carves out for writes. A
+    session that could `cd` anywhere would run reads from the owner's whole
+    home with a level rule that never considered it.
+    """
+    return (REPO, WORKSPACE)
+
+
+def _resolve_cwd(raw: str | None, base: str) -> str:
+    if not raw:
+        return base
+    cand = pathlib.Path(raw)
+    if not cand.is_absolute():
+        cand = pathlib.Path(base) / cand
+    cand = cand.resolve()
+    for root in _session_roots():
+        try:
+            cand.relative_to(pathlib.Path(root).resolve())
+        except ValueError:
+            continue
+        if cand.is_dir():
+            return str(cand)
+        raise ShellCwdOutsideRoots(f"{cand} is not a directory")
+    raise ShellCwdOutsideRoots(
+        f"{cand} is outside every root a session may run in "
+        f"({', '.join(str(r) for r in _session_roots())})")
+
+
+def shell_session(session_id: str) -> dict:
+    """Read one session's carried context. Read-only; for callers and checks."""
+    st = _SHELL_SESSIONS.get(session_id)
+    return {"cwd": st["cwd"], "env": dict(st["env"])} if st else {}
 
 
 # --------------------------------------------------------------- prohibited
