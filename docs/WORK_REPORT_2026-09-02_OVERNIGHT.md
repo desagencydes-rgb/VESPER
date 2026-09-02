@@ -216,3 +216,49 @@ shape: silence recorded once with the tick it has held since, not restated.
 
 `an instrument's self-report is not evidence` is this corpus's own rule, and a
 green test suite is an instrument. These numbers come from the durable log.
+
+---
+
+## Two mistakes of my own, and what closed them
+
+Both are in the report because they cost time and because the fix is now in the
+tool rather than in a rule someone has to remember.
+
+**I ran two `self_test` processes at once.** Each case reads a file, mutates it,
+runs a check and restores what *it* read — so the second restores its own copy
+over the first's. Eight `core/` modules were left holding `SpanVerdict(True)`,
+`if False:` and `permanent = False`, and the next suite reported **69 failures
+that were entirely the schedule**. I had written the "run it alone" rule to
+memory two hours earlier.
+
+**Then a foreground timeout SIGTERM'd it mid-run**, which skips the restore
+exactly like `pkill`. The memory warned about `pkill`; it had not occurred to me
+that a command timeout is the same signal.
+
+`self_test` now takes a pid-checked lock and refuses a second run by name, and
+restores the in-flight file on SIGTERM/SIGINT/SIGHUP —
+
+```
+interrupted by signal 15; restored .../core/capabilities.py
+```
+
+Both verified by doing them. The restore-on-signal was silent on three earlier
+attempts because the kill landed *between* cases with nothing mutated —
+correctly silent, and worth checking rather than assuming, because "nothing to
+restore" and "restore did not run" look identical from outside.
+
+## And two findings that came out of it
+
+**Rotation had a hidden blocker.** `verify_a029_from_log.py` opens `log.db` by
+path and is the primary evidence for the owed 24-hour A-029 gate. Rotating would
+have made it read only the newest segment — and because A-029 part 1 asserts the
+window is covered at *both ends*, that fails the gate for a reason having nothing
+to do with the loop, sending the next reader to debug the loop. Fixed; the
+verifier walks segments.
+
+**43 checks run in no registry entry.** `checks.py all` runs the dispatch table,
+`ci-registry` reads `CHECKS.toml`, and nothing compared them — so a check could
+pass in every sweep while naming no invariant and counting toward no coverage
+figure. `ci-registry` now prints that number beside the 80/144 it qualifies.
+Reported rather than refused: ratifying one means writing the invariant it
+enforces, which is the owner's act.
