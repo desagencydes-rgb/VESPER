@@ -180,3 +180,35 @@ piece of this work that changes nothing until someone sets it.
 **DO NOT RUN `self_test` CONCURRENTLY WITH ANYTHING.** It mutates live repo
 files. Three false failures tonight came from overlapping it with `checks.py
 all`, including one that read `CHECKS.toml` while it was deliberately broken.
+
+## The last log item, analysed and deliberately NOT done
+
+**94% of every event record is envelope.** A heartbeat is 579 bytes of which the
+useful content -- `{"tick": N, "at_ms": M}` -- is 35. The rest is `event_id`,
+the HLC stamp, `observed_at_wall`, a `source` block repeating the same three
+constants, and five fields that are `null`.
+
+Shrinking it is the supported move, not a hack: `INV-SCHEMA-2` says the log is
+never rewritten and migration is read-time upcasting, and `core/codec.py` exists
+for exactly that. New records would be written smaller and old ones upcast on
+read, with no migration pass -- which matters because a migration needs a moment
+when every node is present, and this system allows a node to be absent for days.
+
+**WHY IT WAS NOT DONE TONIGHT.** The codec is on `EventBus.replay()` and NOWHERE
+ELSE. `Compactor.project`, `verify_a029_from_log.py` and every other consumer
+calls `store.read("log", ...)` and reads `rec.body` raw. So a narrower record
+breaks any reader that indexes a field rather than `.get()`-ing it, and finding
+those is an audit rather than a guess. Doing that unattended, on the durable log,
+at 28% battery, is the wrong trade -- especially now that rotation bounds the
+live file and growth is about 30 MB/day.
+
+**THE ORDER FOR WHOEVER PICKS IT UP:** put the codec on the read path first (or
+give `StoreSet.read` an upcasting option), audit the direct consumers, and only
+then narrow the envelope. The win is roughly 4x on every record kind, which is
+also 4x on each archived segment.
+
+**And the cheaper one first:** archived segments are immutable and compress
+**13.7x** (measured: 20,000 heartbeats, 11.7 MB -> 0.85 MB). Rotation bounds the
+working file but not the disk -- the 1.68 GB archive is still 1.68 GB. Deciding
+what happens to archives is the owner's, since the bin doctrine says VESPER never
+deletes.
