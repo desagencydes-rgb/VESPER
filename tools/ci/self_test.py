@@ -44,6 +44,7 @@ import os
 import time
 import subprocess
 import re
+import signal
 import sys
 from pathlib import Path
 
@@ -650,7 +651,92 @@ def run_argv(argv: list[str]) -> tuple[int, str]:
     return p.returncode, p.stdout + p.stderr
 
 
+# ---------------------------------------------------------------- safety
+
+# THIS TOOL MUTATES THE LIVE WORKING TREE, and both of the ways that goes wrong
+# happened on 2026-09-02, hours apart, to someone who had already written the
+# rule down.
+#
+# TWO RUNS AT ONCE leave the tree broken. Each case reads a file, mutates it,
+# runs a check and restores what IT read -- so a second process running the same
+# case restores its own copy over the first's, and whichever finishes last wins.
+# Eight `core/` modules were left holding `SpanVerdict(True)`, `if False:` and
+# `permanent = False`, and the next suite reported 69 failures that were nothing
+# but the schedule.
+#
+# AND A KILLED RUN SKIPS THE RESTORE. `finally` covers exceptions; SIGTERM
+# terminates the process without unwinding, and a foreground timeout sends
+# exactly that. The file stays mutated with no record of why.
+LOCK = REPO / ".self_test.lock"
+# The path currently mutated, so a signal handler can put it back. One at a
+# time, because the loop is sequential -- if that ever stops being true this
+# has to become a stack.
+_IN_FLIGHT: dict = {}
+
+
+def _lock_holder() -> int:
+    """The pid holding the lock, 0 if none or if it is stale."""
+    try:
+        pid = int(LOCK.read_text().strip())
+    except Exception:                                  # noqa: BLE001
+        return 0
+    try:
+        os.kill(pid, 0)          # signal 0 asks "is it alive", changes nothing
+    except (ProcessLookupError, ValueError):
+        return 0
+    except PermissionError:
+        return pid               # alive and not ours
+    return pid
+
+
+def _acquire() -> None:
+    held = _lock_holder()
+    if held:
+        raise SystemExit(
+            f"self_test is already running as pid {held}. Refused rather than "
+            "run: this tool mutates the working tree, and two runs restore "
+            "each other's copies until the tree is left broken. Wait for it, "
+            f"or remove {LOCK.name} if that process is gone.")
+    LOCK.write_text(str(os.getpid()))
+
+
+def _release() -> None:
+    try:
+        if _lock_holder() in (0, os.getpid()):
+            LOCK.unlink(missing_ok=True)
+    except Exception:                                  # noqa: BLE001
+        pass
+
+
+def _restore_and_die(signum, _frame):
+    """Put the file back before going, however we were asked to go."""
+    path, raw = _IN_FLIGHT.get("path"), _IN_FLIGHT.get("raw")
+    if path is not None and raw is not None:
+        try:
+            restore(path, raw)
+            print(f"\n  interrupted by signal {signum}; restored {path}",
+                  file=sys.stderr)
+        except Exception as exc:                       # noqa: BLE001
+            print(f"\n  interrupted by signal {signum} and COULD NOT RESTORE "
+                  f"{path}: {exc!r}", file=sys.stderr)
+    _release()
+    raise SystemExit(128 + int(signum))
+
+
 def main() -> int:
+    for _sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        try:
+            signal.signal(_sig, _restore_and_die)
+        except (ValueError, OSError):
+            pass                 # not the main thread, or not this platform
+    _acquire()
+    try:
+        return _run()
+    finally:
+        _release()
+
+
+def _run() -> int:
     only = sys.argv[1] if len(sys.argv) > 1 else None
     cases = [c for c in CASES if only is None or c[0] == only]
     if not cases and not any(
@@ -675,10 +761,12 @@ def main() -> int:
             failures += 1
             continue
         try:
+            _IN_FLIGHT.update(path=path, raw=raw)
             write_mutated(path, mutated, crlf)
             rc_red, out_red = run_check(check)
         finally:
             restore(path, raw)
+            _IN_FLIGHT.clear()
         if digest(path) != before:
             failures += 1
             print(f"    FAILURE: {rel} was not restored byte-for-byte.")

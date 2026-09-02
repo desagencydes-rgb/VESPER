@@ -58,15 +58,40 @@ FACT = "world.fact_updated"
 
 
 def read_log(db: Path) -> list[tuple[int, str, dict]]:
-    """Every record in HLC order, read-only, safe against a live writer."""
-    uri = f"file:{db.as_posix()}?mode=ro"
-    con = sqlite3.connect(uri, uri=True, timeout=30.0)
-    try:
-        rows = con.execute(
-            "SELECT seq, kind, body FROM records "
-            "ORDER BY hlc_physical_ms, hlc_logical, hlc_node_id").fetchall()
-    finally:
-        con.close()
+    """Every record in HLC order, across every segment, read-only.
+
+    SEGMENTS, NOT ONE FILE. `StoreSet.rotate` archives a full log by renaming it
+    to `log-seg<stamp>-to<high>.db` and opening a fresh one; the sequence
+    continues and nothing is deleted. This function opens a PATH rather than
+    going through the store, and it is the PRIMARY EVIDENCE for A-029 -- so
+    reading only the live file after a rotation would under-report every
+    heartbeat, firing and no-op before it.
+
+    That failure would not have looked like a missing file. A-029 part 1
+    asserts the window is covered at BOTH ENDS, so a truncated read fails the
+    gate for a reason having nothing to do with the loop being alive, and the
+    natural response to that is to go looking at the loop. Rotation is built and
+    deliberately not wired yet; this is one of the two things it waits on.
+
+    ORDERED ACROSS SEGMENTS RATHER THAN WITHIN THEM. Each file is already in
+    HLC order and segments do not overlap in time, but sorting the union is what
+    makes that a property of the data instead of an assumption about how
+    rotation happened to be called.
+    """
+    files = sorted(db.parent.glob(f"{db.stem}-seg*.db")) + [db]
+    rows: list = []
+    for path in files:
+        if not path.exists():
+            continue
+        uri = f"file:{path.as_posix()}?mode=ro"
+        con = sqlite3.connect(uri, uri=True, timeout=30.0)
+        try:
+            rows.extend(con.execute(
+                "SELECT seq, kind, body, hlc_physical_ms, hlc_logical, "
+                "hlc_node_id FROM records").fetchall())
+        finally:
+            con.close()
+    rows.sort(key=lambda r: (r[3], r[4], r[5]))
     return [(r[0], r[1], json.loads(r[2])) for r in rows]
 
 

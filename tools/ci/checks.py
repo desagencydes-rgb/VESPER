@@ -258,6 +258,35 @@ def check_ci_registry() -> Result:
         f"bidirectionally consistent, red-run, non-vacuous check"
         + (f"; vacuous on this tree: {', '.join(sorted(vacuous))}" if vacuous else "")
     )
+
+    # AND THE CHECKS THAT RUN WITHOUT BEING IN THE REGISTRY AT ALL. This number
+    # was reachable only by writing a script: `checks.py all` runs the dispatch
+    # table, `ci-registry` reads CHECKS.toml, and nothing compared them. So a
+    # check could run green in every sweep for weeks while naming no invariant,
+    # appearing in no listing, and counting toward no coverage figure -- which
+    # is the same failure the `impl = PENDING` line exists to surface, arriving
+    # from the opposite direction.
+    #
+    # REPORTED, NOT REFUSED. An unregistered check is a check that has not been
+    # RATIFIED yet, and ratifying one means writing the invariant it enforces,
+    # which is the owner's act rather than a session's. Turning it into a
+    # failure would push a session toward registering things quickly instead of
+    # correctly. A number nobody acts on is a number nobody re-reads -- so it is
+    # printed beside the coverage figure it qualifies.
+    runners = ({"ci-registry", "status", "all"}
+               | {f"f{i}-acceptance" for i in range(7)}
+               | {"placement-stress", "fabric-stress", "host-stress"})
+    registered_names = {c.get("name") for c in checks.values()}
+    unregistered = sorted(set(CHECK_FNS) - registered_names - runners)
+    if unregistered:
+        r.note(
+            f"AND {len(unregistered)} runnable checks are in no registry entry: "
+            f"they pass in every sweep, name no invariant and count toward no "
+            f"coverage figure. Ratifying one means writing the invariant it "
+            f"enforces, which is the owner's act. "
+            f"{', '.join(unregistered[:6])}"
+            + (f", +{len(unregistered) - 6} more" if len(unregistered) > 6 else "")
+        )
     return r
 
 
@@ -15343,6 +15372,33 @@ def check_a_rotated_log_keeps_one_sequence_and_loses_nothing() -> Result:
                   "call site until something rewrites it.")
         except Exception:                           # noqa: BLE001
             pass
+
+        # 4b. THE A-029 EVIDENCE PATH SURVIVES IT. `verify_a029_from_log.py`
+        #     opens `log.db` BY PATH rather than through the store -- it is the
+        #     primary evidence for the owed 24-hour endurance gate -- so a
+        #     rotation it did not know about would make it under-report every
+        #     heartbeat, firing and no-op written before the rotation.
+        #
+        #     THAT FAILURE WOULD NOT HAVE LOOKED LIKE A MISSING FILE. A-029
+        #     part 1 asserts the window is covered at BOTH ENDS, so a truncated
+        #     read fails the gate for a reason having nothing to do with the
+        #     loop being alive, and the natural response is to go looking at the
+        #     loop.
+        import sys as _sys
+        vdir = str(REPO / "verification")
+        if vdir not in _sys.path:
+            _sys.path.insert(0, vdir)
+        try:
+            from verify_a029_from_log import read_log as _read_log
+        except Exception as exc:                    # noqa: BLE001
+            r.err(f"the A-029 log verifier did not import: {exc!r}")
+        else:
+            seen = _read_log(Path(td) / "s" / "log.db")
+            if len(seen) != 11:
+                r.err(f"the A-029 verifier sees {len(seen)} of 11 records "
+                      "across the rotation. It reads log.db by path, so it "
+                      "must walk the segments -- otherwise rotating the log "
+                      "silently truncates the evidence for the endurance gate.")
 
         # 5. A MUTABLE STORE IS NOT ROTATABLE. `state` and `workspace` do not
         #    grow without bound, and scattering them buys nothing.
