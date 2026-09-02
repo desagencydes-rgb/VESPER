@@ -3656,12 +3656,15 @@ CASES += [
      "the proposal was never formed against"),
 
     ("write-never-destroys-what-was-not-read", CAPS_PY,
-     _sub('    raw = path.read_bytes()\n'
-          '    text = raw.decode("utf-8", errors="replace")[:limit]',
-          '    raw = path.read_bytes()[:limit]\n'
-          '    text = raw.decode("utf-8", errors="replace")[:limit]', 1),
-     "fs.read hashes only what it returned, so a truncated look authorises the "
-     "replacement of a file nobody saw past its first page"),
+     # RETARGETED 2026-09-02, and the case now names the real hazard. It
+     # used to hash the EXCERPT, which makes a write FAIL on mismatch --
+     # over-strict, never permissive. The permissive direction is handing
+     # back the WHOLE-file hash for a read that did not cover the file,
+     # which is what `fs.read` did and what the check now refuses.
+     _sub('    complete = offset == 0 and len(whole) <= limit',
+          '    complete = True', 1),
+     "a truncated read hands back the whole-file token, so a first page "
+     "authorises replacing a file nobody saw the rest of"),
 
     ("write-never-destroys-what-was-not-read", ACTOR_PY,
      _sub('        if "previous" not in result:\n            return result',

@@ -12063,21 +12063,44 @@ def check_write_never_destroys_what_was_not_read() -> Result:
                   "delegable and is consumed by the single action it was "
                   "granted for, which is the weight this act needs.")
 
-        # 3. fs.read HANDS BACK THE TOKEN, over the WHOLE file. Hashing the
-        #    returned excerpt instead would let a truncated read authorise the
-        #    replacement of a file nobody saw past its first page -- so the
-        #    probe is deliberately longer than the limit it is read under.
+        # 3. A TRUNCATED READ HANDS BACK NO TOKEN AT ALL.
+        #
+        #    THIS ASSERTION WAS THE WRONG WAY ROUND, and its own comment said
+        #    the right thing: it warned about "a truncated read authorising the
+        #    replacement of a file nobody saw past its first page", and then
+        #    required `fs.read` to return the WHOLE-file hash on exactly that
+        #    truncated read -- which is the token `expect_sha256` accepts, and
+        #    therefore the thing that grants the L3. Hashing the excerpt, the
+        #    alternative it was guarding against, would have made the write FAIL
+        #    on mismatch: over-strict, never permissive. The dangerous direction
+        #    was the one being enforced.
+        #
+        #    So the property is now the one the comment describes. A read that
+        #    did not cover the file returns `sha256: None`, a proposer copying
+        #    it into `expect_sha256` produces no token, and the write escalates
+        #    to L4 and asks. Reading a file in full is what buys the cheaper
+        #    level, which is what `fs_write_level` says it is for.
         big = Path(td) / "big.txt"
         big.write_text("x" * 5000, encoding="utf-8")
         got = caps.fs_read({"path": str(big), "limit": 100})
         whole = _h.sha256(big.read_bytes()).hexdigest()
-        if got.get("sha256") != whole:
-            r.err("fs.read's sha256 is not the hash of the whole file. A hash "
-                  "over the truncated text would let a 100-byte look authorise "
-                  "an overwrite of 5000 bytes.")
+        if got.get("sha256") is not None:
+            r.err("a 100-byte read of a 5000-byte file handed back a token. "
+                  "`expect_sha256` accepts it, so seeing the first page "
+                  "authorises replacing all of it at a level the owner is "
+                  "never asked about.")
         if not got.get("truncated"):
             r.err("fs.read does not report that it truncated, so a caller "
                   "cannot tell a whole file from the start of one")
+        if caps.fs_write_level({"path": str(big),
+                                "expect_sha256": got.get("sha256") or ""}) != "L4":
+            r.err("overwriting a file after reading one page of it is not L4, "
+                  "so the partial read bought the level a full read is for")
+        full = caps.fs_read({"path": str(big), "limit": 10_000_000})
+        if full.get("sha256") != whole:
+            r.err("a COMPLETE read did not return the hash of the whole file, "
+                  "so a file that has genuinely been read can never be "
+                  "replaced without asking")
 
         # 4. WITH THE RIGHT TOKEN IT IS AN ORDINARY WRITE AGAIN.
         tok = caps.fs_read({"path": str(f)})["sha256"]
@@ -14584,6 +14607,112 @@ def check_the_stop_reaches_work_that_outlives_the_turn() -> Result:
            f"pass that already consults the interlock")
     return r
 
+def check_a_read_window_moves_and_proves_only_what_it_saw() -> Result:
+    """`fs.read` can page through a file, and a page is not a whole file.
+
+    THE FEATURE. Without an offset a file longer than the limit could only ever
+    be read from the top: VESPER saw `truncated: true` and had nothing to ask
+    for the rest with, so a long log or a large source file was permanently a
+    first page. A bounded window is only useful if it can move.
+
+    AND THE HOLE THE FEATURE WOULD HAVE WIDENED. `expect_sha256` drops a
+    whole-file overwrite from L4 to L3, and `fs_write_level` says precisely what
+    that buys: "Nothing anywhere established that the thing being destroyed had
+    ever been looked at." `fs_read` returned the hash of the WHOLE file even
+    when the read was truncated -- so a first page of a 2 MB file handed back
+    the token meaning "I have seen this", and the owner's confirmation was
+    skipped for a file VESPER had seen a hundredth of. `limit` made that
+    reachable already. An offset would have made it trivial.
+
+    SO THE TOKEN IS ISSUED ONLY FOR A COMPLETE READ, and the level rule now
+    means what its comment always said. Replacing a whole file at the lower
+    level requires having read the whole file. A partial read still reports the
+    size and the line count -- enough to ask for the rest -- and returns
+    `sha256: None`, so a proposer copying it into `expect_sha256` produces no
+    token and the write asks.
+
+    LINES, NOT BYTES, for the offset: a byte offset lands mid-character and
+    mid-line, and an excerpt beginning halfway through a line is a fragment the
+    reader has to guess the shape of.
+    """
+    r = Result("a-read-window-moves-and-proves-only-what-it-saw")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import hashlib as _h
+    import tempfile as _tf
+    try:
+        from core.capabilities import fs_read, fs_write_level
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the fs path did not import: {exc!r}")
+        return r
+
+    with _tf.TemporaryDirectory() as td:
+        f = Path(td) / "paged.txt"
+        body = "".join(f"line {i}\n" for i in range(1, 201))
+        f.write_text(body)
+
+        # 1. THE WINDOW MOVES, AND IT MOVES BY LINES.
+        first = fs_read({"path": str(f), "limit": 40})
+        later = fs_read({"path": str(f), "offset": 100, "limit": 40})
+        if not first["text"].startswith("line 1"):
+            r.err(f"a read with no offset did not start at the top: "
+                  f"{first['text'][:20]!r}")
+        if not later["text"].startswith("line 101"):
+            r.err(f"offset=100 did not begin at line 101: {later['text'][:20]!r}. "
+                  "A byte offset lands mid-line and hands back a fragment.")
+        if first["lines_total"] != 200 or later["lines_total"] != 200:
+            r.err("the line count describes the excerpt rather than the file, "
+                  "so nothing tells the reader how much is left")
+
+        # 2. A PARTIAL READ CARRIES NO WRITE TOKEN.
+        for label, res in (("truncated", first), ("offset", later)):
+            if res["sha256"] is not None:
+                r.err(f"a {label} read returned a whole-file hash. That is the "
+                      "token `expect_sha256` accepts, so seeing one page of a "
+                      "file would authorise replacing all of it at a level the "
+                      "owner is never asked about.")
+            if res.get("complete"):
+                r.err(f"a {label} read reported itself complete")
+
+        # 3. A COMPLETE READ DOES.
+        whole = fs_read({"path": str(f), "limit": 10_000_000})
+        if not whole.get("complete") or whole["sha256"] is None:
+            r.err("a complete read returned no hash, so a file that HAS been "
+                  "read in full can never be replaced without asking")
+        elif whole["sha256"] != _h.sha256(f.read_bytes()).hexdigest():
+            r.err("the hash of a complete read is not the hash of the file")
+
+        # 4. AND THE LEVEL RULE ACTUALLY MOVES ON IT. This is the assertion the
+        #    others rest on: without it the hash is a value nobody acts on.
+        partial_level = fs_write_level({"path": str(f),
+                                        "expect_sha256": first["sha256"] or ""})
+        whole_level = fs_write_level({"path": str(f),
+                                      "expect_sha256": whole["sha256"]})
+        if partial_level == whole_level:
+            r.err(f"replacing a file costs the same ({partial_level}) whether "
+                  "VESPER read one page of it or all of it, so reading it "
+                  "properly buys nothing and the cheaper path is the partial one")
+        if partial_level != "L4":
+            r.err(f"a blind-ish overwrite after a partial read is {partial_level}, "
+                  "not L4 -- L4 is the level that is never delegable and is "
+                  "consumed by the single action it was granted for")
+
+        # 5. AN OFFSET PAST THE END IS EMPTY, NOT AN ERROR. VESPER pages until
+        #    it runs out, and the last page must not raise.
+        try:
+            past = fs_read({"path": str(f), "offset": 5000, "limit": 40})
+            if past["text"]:
+                r.err("reading past the end returned content")
+        except Exception as exc:                    # noqa: BLE001
+            r.err(f"reading past the end raised {type(exc).__name__}, so paging "
+                  "to the end of a file is an error rather than a stop")
+
+    r.note("the window moves by lines and reports the file's true length; a "
+           "truncated or offset read returns no whole-file hash, so it cannot "
+           "buy the L3 that a complete read buys; a complete read's hash is the "
+           "file's; and paging past the end stops rather than raises")
+    return r
+
 def check_credentials_can_leave_the_plaintext_file() -> Result:
     """A credential in the Keychain is used, and the file remains the fallback.
 
@@ -16443,6 +16572,7 @@ CHECK_FNS = {
     "the-runtime-resolves-every-name-it-uses": check_the_runtime_resolves_every_name_it_uses,
     "a-shell-session-carries-context-not-a-shell": check_a_shell_session_carries_context_not_a_shell,
     "the-stop-reaches-work-that-outlives-the-turn": check_the_stop_reaches_work_that_outlives_the_turn,
+    "a-read-window-moves-and-proves-only-what-it-saw": check_a_read_window_moves_and_proves_only_what_it_saw,
     "host-pressure-read-through-the-adapter": check_host_pressure_is_read_through_the_adapter,
     "floor-held-and-offered-to": check_the_floor_is_held_and_offered_to,
     "boundary-asked-before-the-write": check_the_boundary_is_asked_before_the_write,

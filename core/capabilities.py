@@ -615,10 +615,55 @@ def fs_read(args: dict) -> dict:
     path = resolve(args.get("path"))
     limit = int(args.get("limit") or 20000)
     raw = path.read_bytes()
-    text = raw.decode("utf-8", errors="replace")[:limit]
-    return {"path": str(path), "text": text, "bytes": path.stat().st_size,
-            "sha256": hashlib.sha256(raw).hexdigest(),
-            "truncated": len(raw) > limit}
+    whole = raw.decode("utf-8", errors="replace")
+
+    # AN OFFSET, BECAUSE THE SECOND PAGE WAS UNREACHABLE. Without one, a file
+    # longer than the limit could only ever be read from the top: VESPER saw
+    # `truncated: true` and had no way to ask for the rest, so a long log or a
+    # large source file was permanently a first page. Codex and Claude Code
+    # both offer this and the reason is the same -- a bounded window is only
+    # useful if it can move.
+    #
+    # LINES, NOT BYTES. A byte offset can land mid-character and mid-line, and
+    # an excerpt starting halfway through a line is a fragment the reader has
+    # to guess the shape of. Lines are what the owner and the model both talk
+    # about, and what `fs.edit` matches on.
+    offset = max(0, int(args.get("offset") or 0))
+    if offset:
+        lines = whole.splitlines(keepends=True)
+        whole = "".join(lines[offset:])
+    text = whole[:limit]
+
+    # A PARTIAL READ HANDS BACK NO TOKEN, and this closes a hole rather than
+    # adding a rule. `expect_sha256` drops a whole-file overwrite from L4 to L3,
+    # and `fs_write_level` says exactly what that buys: "Nothing anywhere
+    # established that the thing being destroyed had ever been looked at." The
+    # hash was over the WHOLE file even when the read was truncated -- so
+    # reading the first page of a 2 MB file returned the token meaning "I have
+    # seen this", and the owner's confirmation was skipped for a file VESPER had
+    # seen a hundredth of. The `limit` made that reachable already; an offset
+    # would have made it easy.
+    #
+    # SO THE TOKEN IS ISSUED ONLY FOR A COMPLETE READ. Wanting to replace a
+    # whole file at the lower level now requires having read the whole file,
+    # which is what the invariant meant in the first place. A partial read
+    # still reports the size and the line count -- enough to ask for the rest --
+    # and `sha256` is None, so a proposer copying it into `expect_sha256`
+    # produces no token and the write asks the owner instead.
+    complete = offset == 0 and len(whole) <= limit
+    out = {"path": str(path), "text": text, "bytes": path.stat().st_size,
+           "offset": offset,
+           "lines_total": len(raw.decode("utf-8", "replace").splitlines()),
+           "truncated": len(whole) > limit,
+           "complete": complete}
+    if complete:
+        out["sha256"] = hashlib.sha256(raw).hexdigest()
+    else:
+        out["sha256"] = None
+        out["sha256_withheld"] = (
+            "this read did not cover the whole file, so it carries no proof "
+            "the file was seen. Read it whole to overwrite it without asking.")
+    return out
 
 
 def fs_write(args: dict) -> dict:
@@ -711,6 +756,28 @@ class EditNotUnique(Exception):
 # a git undo one keystroke away that is a reasonable trade; for an assistant
 # acting unattended at three in the morning it is not. Each rung here still
 # demands exactly one match and refuses otherwise.
+# `replace_all` IS SPECIFIED BY THE TOOLS THIS BORROWED FROM AND IS DELIBERATELY
+# NOT BUILT. Named here so the gap is visible in the code rather than only in a
+# decision nobody re-reads.
+#
+# THE REASON IS THE LADDER, NOT TASTE. `fs.write` escalates to L4 when it would
+# replace a file the turn cannot show it has read, and `fs.edit` is exempt for a
+# specific reason: an edit cannot be authored without knowing the content,
+# because `old` has to match what is on disk -- so producing one IS the
+# evidence. Matching exactly one place is what makes that argument hold.
+#
+# `replace_all` breaks it in the middle. Matching six places proves the author
+# knew ONE context and guessed that the other five are like it; the edit then
+# changes all six at the cheaper level that unique-match paid for. That is the
+# escalation exemption being spent on places nobody looked at -- which is the
+# same shape as `fs.write` on an unread file, arriving through the door that was
+# opened because it could not happen here.
+#
+# WHAT TO DO INSTEAD, when it is genuinely wanted: read the file, then write it
+# whole with `expect_sha256`. That costs L3 and it costs having actually read
+# the thing being changed, which is the price the ladder is asking for.
+REPLACE_ALL_NOT_BUILT = "replace_all"
+
 EDIT_STRATEGIES = (
     ("exact", lambda ln: ln),
     ("ignoring trailing whitespace", lambda ln: ln.rstrip()),
