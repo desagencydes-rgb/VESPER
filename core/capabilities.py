@@ -1197,28 +1197,65 @@ def build_registry() -> CapabilityRegistry:
     mistake is cheap.
     """
     reg = CapabilityRegistry()
+    # THE REFUTATIONS BELOW ARE THE BUGS THIS MODULE ACTUALLY HAD. Each one is
+    # an argument that WAS returning the cheap level and should not have been;
+    # carrying them as counter-examples means the same mistake fails at
+    # registration rather than in front of the owner.
     reg.register("shell.run", shell_level, [
-        LevelRule("read_only", "L1", {"cmd": "ls"}),
+        LevelRule("read_only", "L1", {"cmd": "ls"},
+                  refutes=(
+                      # `cat` is allowlisted and nothing looked at what it
+                      # pointed AT. This returned L1 while `fs.read` of the
+                      # same file returned L5 -- one protection, two doors.
+                      {"cmd": "cat ~/.ssh/id_rsa"},
+                      {"cmd": "cat ~/.config/vesper/secrets.env"},
+                      # An allowlisted verb followed by anything else. Both
+                      # halves are honest, which is the whole point of `;`.
+                      {"cmd": "ls; rm -rf ~"},
+                      {"cmd": "cat /etc/passwd | sudo tee /tmp/x"},
+                  )),
         LevelRule("destructive", "L5", {"cmd": "rm -rf ~"}),
         LevelRule("other", "L3", {"cmd": "git status"}),
     ], external_effect=True, reversibility="irreversible")
 
     reg.register("agent.ask", agent_ask_level, [
         LevelRule("brief", "L2", {"question": "what does this do?",
-                                  "material": "class A: pass"}),
+                                  "material": "class A: pass"},
+                  refutes=(
+                      # "Ask a sub-agent" sounds like thinking; what it does is
+                      # send this to a provider.
+                      {"question": "what is this?",
+                       "material": "OPENAI_API_KEY=sk-live-abc"},
+                      {"question": "summarise", "material": "x" * 9000},
+                  )),
         LevelRule("credential", "L5",
                   {"question": "what is this?",
                    "material": "OPENAI_API_KEY=sk-live-abc"}),
     ], reversibility="reversible")
 
     reg.register("fs.read", fs_read_level, [
-        LevelRule("ordinary", "L1", {"path": "README.md"}),
+        LevelRule("ordinary", "L1", {"path": "README.md"},
+                  refutes=(
+                      {"path": "~/.config/vesper/secrets.env"},
+                      {"path": "~/.ssh/id_rsa"},
+                      # Levelled on the string it was NAMED by rather than the
+                      # target it resolves to: this begins with `workspace/`
+                      # and opens /etc/passwd.
+                      {"path": "workspace/../../../../etc/passwd"},
+                  )),
         LevelRule("credential", "L5", {"path": "~/.config/vesper/secrets.env"}),
         LevelRule("system", "L3", {"path": "/etc/hosts"}),
     ], reversibility="reversible")
 
     reg.register("fs.write", fs_write_level, [
-        LevelRule("workspace", "L2", {"path": "workspace/note.txt"}),
+        LevelRule("workspace", "L2", {"path": "workspace/note.txt"},
+                  refutes=(
+                      {"path": "contracts/policy/cost_policy.toml"},
+                      # GOVERNED is asked of the ABSOLUTE path, so it must
+                      # still fire once a relative prefix has resolved away.
+                      {"path": "workspace/../contracts/policy/cost_policy.toml"},
+                      {"path": "~/.config/vesper/secrets.env"},
+                  )),
         LevelRule("governed", "L5", {"path": "contracts/policy/cost_policy.toml"}),
         LevelRule("ordinary", "L3", {"path": "documents/note.txt"}),
     ], reversibility="compensatable")

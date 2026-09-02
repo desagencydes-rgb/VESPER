@@ -34,6 +34,14 @@ REVERSIBILITY = ("reversible", "compensatable", "irreversible")
 ACTUATION_SCOPE = ("NONE", "AUTONOMOUS_ACTUATION", "ALARM_ACTUATION")
 
 
+class LevelRuleContradicted(Exception):
+    """A rule's own example or counter-example disagrees with its declaration.
+
+    REFUSED AT REGISTRATION, like every other statement about a level, because
+    after this point every call site trusts it.
+    """
+
+
 class ConstantLevelRefused(Exception):
     """A capability whose declared level does not vary with its arguments."""
 
@@ -44,16 +52,32 @@ class UnknownCapability(Exception):
 
 @dataclass(slots=True)
 class LevelRule:
-    """One (predicate, level) pair, plus an example that exercises it.
+    """One (predicate, level) pair, an example that reaches it, and what must not.
 
     `example` is required. Without it the registry cannot probe the function
     and the constant check degrades to trusting the declaration — which is the
     thing being checked.
+
+    `refutes` IS THE OTHER HALF, and it is where the bugs live. A positive
+    example says "this argument reaches this level"; a refutation says "this one
+    must NOT", and every path defect this corpus has found was of the second
+    kind. `shell.run("cat ~/.ssh/id_rsa")` returned L1 because `cat` is
+    allowlisted and nothing looked at what it pointed AT -- a rule that had
+    carried that command as a refutation of its read-only level would have
+    failed at registration on the day the rule was written. Codex's `execpolicy`
+    reaches the same conclusion from the other side: its rules carry `not_match`
+    cases and are validated when the policy loads.
+
+    THE ASYMMETRY IS DELIBERATE. A refutation only has to differ from THIS
+    rule's level, not equal some particular other one -- what is being asserted
+    is "this argument is not that cheap", and pinning the exact answer would
+    make every refutation a second place to update when a level changes.
     """
 
     name: str
     level: str
     example: dict
+    refutes: tuple = ()
 
 
 @dataclass(slots=True)
@@ -105,6 +129,34 @@ class CapabilityRegistry:
                 raise ValueError(
                     f"{capability_id!r} rule {r.name!r} produced level {lvl!r}, "
                     f"not in {LEVELS}")
+            # THE RULE MUST MEAN WHAT IT SAYS. This compared nothing: the
+            # example was called and its answer collected, and the `level` the
+            # rule DECLARED was never checked against it. A rule could claim L5
+            # while its own example resolved L2 and registration passed, as long
+            # as some other rule differed -- so the declared levels, which are
+            # what a reader learns the ladder from, were documentation rather
+            # than assertion.
+            if lvl != r.level:
+                raise LevelRuleContradicted(
+                    f"{capability_id!r} rule {r.name!r} declares {r.level} and "
+                    f"its own example resolves {lvl}. The declaration is what a "
+                    "reader believes and what the registry reports; it has to "
+                    "be what the function does.")
+            # AND WHAT MUST NOT REACH IT. A refutation that resolves to this
+            # rule's own level is the level rule failing to distinguish the
+            # thing it was written to distinguish.
+            for bad in (r.refutes or ()):
+                got = declared_level(bad)
+                if got not in LEVELS:
+                    raise ValueError(
+                        f"{capability_id!r} refutation of {r.name!r} produced "
+                        f"level {got!r}, not in {LEVELS}")
+                if got == r.level:
+                    raise LevelRuleContradicted(
+                        f"{capability_id!r} rule {r.name!r} is refuted by its "
+                        f"own declared counter-example: {bad!r} resolves "
+                        f"{got}, the level this rule is for. The rule does not "
+                        "distinguish the case it was written to distinguish.")
             seen.add(lvl)
         if len(seen) < 2:
             raise ConstantLevelRefused(

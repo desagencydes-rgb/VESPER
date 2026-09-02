@@ -8058,10 +8058,17 @@ def check_capability_argument_sensitivity() -> Result:
     def looks_sensitive(args: dict) -> str:
         return "L2" if args.get("mode") == "never-passed" else "L2"
 
+    #    BOTH RULES DECLARE L2, WHICH IS WHAT THE FUNCTION ACTUALLY RETURNS.
+    #    They used to declare L2 and L3, and once `register` began checking a
+    #    rule's declaration against its own example, THAT contradiction was
+    #    refused first -- so this fixture stopped exercising "constant in fact"
+    #    and started exercising "the rule lied", which the case above already
+    #    covers. Declaring the truth is what leaves the constant-ness as the
+    #    only thing wrong with it.
     try:
         reg.register("bad.in_fact", looks_sensitive,
                      [LevelRule("a", "L2", {"mode": "read"}),
-                      LevelRule("b", "L3", {"mode": "write"})],
+                      LevelRule("b", "L2", {"mode": "write"})],
                      required_level=lambda a: "L2")
         r.err("a declared_level that inspects its arguments and returns the "
               "same level for every declared example registered. Counting "
@@ -15053,6 +15060,150 @@ def check_a_sub_agent_thinks_and_never_acts() -> Result:
            "without a gateway; and a real turn can propose it and reach it")
     return r
 
+def check_a_level_rule_means_what_it_says_and_names_what_it_refuses() -> Result:
+    """A rule's declaration is checked against its function, and against what
+    must NOT reach it.
+
+    WHAT WAS NOT BEING CHECKED. `register` called each rule's example, demanded
+    a valid level, and demanded that not all rules agreed -- and never compared
+    the answer to the level the rule DECLARED. A rule could say L5 while its own
+    example resolved L2 and registration passed, provided some other rule
+    differed. The declared levels are what a reader learns the ladder from and
+    what `ci-registry` reports, so they were documentation rather than
+    assertion.
+
+    AND REFUTATIONS ARE WHERE THE BUGS LIVE. A positive example says "this
+    argument reaches this level". Every path defect this corpus has actually
+    found was the other kind -- an argument that reached a level it should not
+    have. `shell.run("cat ~/.ssh/id_rsa")` returned L1 because `cat` is
+    allowlisted and nothing looked at what it pointed AT, while `fs.read` of the
+    same file returned L5: one protection with two doors. A rule carrying that
+    command as a counter-example would have failed on the day it was written.
+    Codex's `execpolicy` reaches the same place from the other side, with
+    `not_match` cases validated when the policy loads.
+
+    THE COUNTER-EXAMPLES ARE THE HISTORY. Each one attached below is an argument
+    that WAS returning the cheap answer: the credential through an allowlisted
+    verb, the chained command whose halves are both honest, the path levelled on
+    the string it was named by rather than the target it resolves to, the
+    governed file reached through a relative prefix, and the credential shipped
+    to a provider as "material" for a sub-agent.
+
+    THE ASYMMETRY IS DELIBERATE. A refutation must differ from ITS rule's level,
+    not equal a particular other one. What is asserted is "this is not that
+    cheap"; pinning the exact answer would make every counter-example a second
+    place to edit when a level moves.
+    """
+    r = Result("a-level-rule-means-what-it-says-and-names-what-it-refuses")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.bus import EventBus
+        from core.capabilities import build_registry
+        from core.capability import (CapabilityRegistry, LevelRule,
+                                     LevelRuleContradicted)
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the capability path did not import: {exc!r}")
+        return r
+
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as td:
+        clock = HybridLogicalClock("lvl")
+        store = StoreSet(Path(td) / "s", node_id="lvl")
+        bus = EventBus(clock, store, component="lvl")
+
+        def _lvl(a):
+            return "L5" if a.get("bad") else "L1"
+
+        # 1. A RULE THAT LIES ABOUT ITS OWN EXAMPLE IS REFUSED.
+        reg = CapabilityRegistry()
+        try:
+            reg.register("t.lying", _lvl, [
+                LevelRule("cheap", "L1", {"bad": False}),
+                # declares L3; its own example resolves L5
+                LevelRule("expensive", "L3", {"bad": True}),
+            ])
+            r.err("a rule declaring L3 registered while its own example "
+                  "resolves L5. The declared level is what a reader learns the "
+                  "ladder from and what the registry reports -- if it is not "
+                  "checked it is a comment.")
+        except LevelRuleContradicted:
+            pass
+
+        # 2. A REFUTATION THAT REACHES THE RULE'S OWN LEVEL IS REFUSED. This is
+        #    the whole mechanism: the counter-example says the rule fails to
+        #    distinguish the case it exists for.
+        reg2 = CapabilityRegistry()
+        try:
+            reg2.register("t.blind", _lvl, [
+                LevelRule("cheap", "L1", {"bad": False},
+                          refutes=({"bad": False},)),
+                LevelRule("expensive", "L5", {"bad": True}),
+            ])
+            r.err("a rule registered with a counter-example that resolves to "
+                  "its own level, so the rule does not distinguish the case it "
+                  "was written to distinguish and nothing said so")
+        except LevelRuleContradicted:
+            pass
+
+        # 3. AN HONEST RULE WITH HONEST COUNTER-EXAMPLES STILL REGISTERS.
+        reg3 = CapabilityRegistry()
+        try:
+            reg3.register("t.honest", _lvl, [
+                LevelRule("cheap", "L1", {"bad": False},
+                          refutes=({"bad": True},)),
+                LevelRule("expensive", "L5", {"bad": True}),
+            ])
+        except Exception as exc:                    # noqa: BLE001
+            r.err(f"a correct rule was refused: {exc!r}")
+
+    # 4. AND THE REAL REGISTRY CARRIES THEM. A mechanism no rule uses is a
+    #    mechanism that protects nothing.
+    real = build_registry()
+    total = 0
+    per_cap = {}
+    for cid in real.ids():
+        cap = real.get(cid)
+        n = sum(len(rule.refutes or ()) for rule in cap.rules)
+        per_cap[cid] = n
+        total += n
+    if total < 8:
+        r.err(f"only {total} counter-examples across the whole registry. The "
+              "positive examples were never the part that caught anything.")
+    for needed in ("shell.run", "fs.read", "fs.write"):
+        if per_cap.get(needed, 0) == 0:
+            r.err(f"{needed} declares no counter-example, and every path defect "
+                  "this module has found was on that capability")
+
+    # 5. THE HISTORICAL BUGS ARE AMONG THEM, by argument rather than by name --
+    #    a check that a rule "has refutes" passes on a placeholder.
+    def _refuted(cid, pred):
+        cap = real.get(cid)
+        return any(pred(bad) for rule in cap.rules for bad in (rule.refutes or ()))
+
+    if not _refuted("shell.run", lambda a: "ssh" in str(a.get("cmd", ""))
+                    or "secrets" in str(a.get("cmd", ""))):
+        r.err("no rule refutes reading a credential through an allowlisted "
+              "verb -- the exact defect that had shell.run returning L1 for "
+              "`cat ~/.ssh/id_rsa` while fs.read returned L5")
+    if not _refuted("shell.run", lambda a: ";" in str(a.get("cmd", ""))
+                    or "|" in str(a.get("cmd", ""))):
+        r.err("no rule refutes a chained command, whose halves are both honest")
+    if not _refuted("fs.read", lambda a: ".." in str(a.get("path", ""))):
+        r.err("no rule refutes a path levelled on the string it was named by "
+              "rather than the target it resolves to")
+
+    r.note(f"a rule whose example contradicts its declaration is refused at "
+           f"registration, and so is a counter-example that reaches the rule's "
+           f"own level; an honest rule still registers; the real registry "
+           f"carries {total} counter-examples across "
+           f"{sum(1 for v in per_cap.values() if v)} capabilities; and the "
+           f"credential-through-an-allowlisted-verb, the chained command and "
+           f"the path that escapes its prefix are all among them")
+    return r
+
 def check_credentials_can_leave_the_plaintext_file() -> Result:
     """A credential in the Keychain is used, and the file remains the fallback.
 
@@ -16915,6 +17066,7 @@ CHECK_FNS = {
     "a-read-window-moves-and-proves-only-what-it-saw": check_a_read_window_moves_and_proves_only_what_it_saw,
     "a-batch-read-is-one-action-at-its-worst-level": check_a_batch_read_is_one_action_at_its_worst_level,
     "a-sub-agent-thinks-and-never-acts": check_a_sub_agent_thinks_and_never_acts,
+    "a-level-rule-means-what-it-says-and-names-what-it-refuses": check_a_level_rule_means_what_it_says_and_names_what_it_refuses,
     "host-pressure-read-through-the-adapter": check_host_pressure_is_read_through_the_adapter,
     "floor-held-and-offered-to": check_the_floor_is_held_and_offered_to,
     "boundary-asked-before-the-write": check_the_boundary_is_asked_before_the_write,
