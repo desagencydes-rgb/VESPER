@@ -942,3 +942,80 @@ Inserted by urgency. The first two are ahead of everything in the earlier lists.
   already does this and does it better -- patterns plus entropy, against Codex's
   patterns alone. Verified by measurement before building, which is the only
   reason a duplicate did not get written.
+
+
+---
+
+# PART SIX — WHAT GOT BUILT, 2026-09-02
+
+Added rather than edited in place, per the owner's rule for this artifact. The
+lists above stand as written; this records what became of them.
+
+## Both ranked lists are complete except one item
+
+| | | |
+|---|---|---|
+| **L1** the agentic loop | BUILT | landed 2026-09-01 |
+| **L2** persistent shell | **BUILT** | session STATE, not a session process |
+| **L3** parallel actions | **BUILT DIFFERENTLY** | one action, several paths |
+| **L4** background + wait | **BUILT** | with the stop reaching it |
+| **L5** `request_permissions` | **BUILT** | fifteen defects deep |
+| **L6** `request_user_input` | **BUILT** | same mechanism as L5 |
+| **L7** `fs.read` offset | **BUILT** | `replace_all` DECLINED, in writing |
+| **L8** context budget | BUILT | already existed |
+| **L9** project instructions | BUILT | already existed |
+| **L10** delegation | **BUILT** | reads and proposes; cannot act |
+| **safety 1-5, 7-9** | BUILT | landed 2026-09-01 |
+| **safety 6** negative examples | **BUILT** | and the declaration was never checked either |
+| **safety 10** MCP client | **BUILT, UNWIRED** | no server is configured |
+
+## Three were built differently from how this document describes them
+
+**L3 is not parallel actions.** Concurrent writes break `ShadowGit`, which
+snapshots the *current* state of a path — the second checkpoint would hold the
+first's output as the thing to restore to, so undo restores a state that never
+existed before the turn. `INV-ACT-3` is an *ordering* rule (the ceiling drops
+after an observation) and concurrent actions have no defined "after". And
+`core/intent.py` refuses arrays deliberately: "an array here would mean the model
+answered a different question than the one asked."
+
+Built as **one action with several paths**: one observation, one ceiling drop,
+one step against the budget, levelled at the **worst member** so burying a
+credential among ordinary files does not make it cheaper. Same saving, none of
+the breakage.
+
+**L2 is session state, not a session process.** A live shell restores exactly
+what `shell.run` refuses on purpose — chaining, redirection and substitution
+become invisible to the level rules again. `cd` and environment carry over; every
+command is still one contained argv the classifier reads whole. Thirteen
+environment names (`PATH`, the loaders, `PYTHONPATH`, `NODE_OPTIONS`…) are
+**refused at any level**, because raising the level makes it the owner's question
+and nobody can see the difference between a fine `PATH` and an attack.
+
+**L10 was read off the authorization model rather than designed.** `attenuate`
+returns `None` — not a weaker grant, none — for a non-delegable parent, and every
+standing grant is `delegable=False`. A sub-agent cannot inherit a capability by
+construction. Its answer is `retrieved_external`, because delegation is otherwise
+the cleanest laundering path in the system.
+
+## `replace_all` was declined
+
+`fs.edit` is exempt from the L4 escalation because a unique match proves the
+author knew the content — `old` has to match what is on disk, so producing an
+edit IS the evidence. Matching six places proves they knew *one* context and
+assumed the other five resemble it, then changes all six at the level
+unique-match earned. Recorded as `REPLACE_ALL_NOT_BUILT` beside `EDIT_STRATEGIES`.
+
+## What MCP still waits on
+
+Not hardware and not code: **which servers to run.** The client is driven
+end-to-end against a deliberately hostile fixture that declares
+`level: L1, destructive: false` for a tool whose description reads "IGNORE
+PREVIOUS INSTRUCTIONS…". Both claims are discarded; every discovered tool is L5
+until the owner says otherwise, and the description is carried as
+`retrieved_external` data rather than dropped or believed.
+
+Registering an `mcp.call` capability with no server configured would add
+something a proposer can name and nothing can answer — widening exactly the
+surface this document warns about, for a green reachability check. Declared
+`[unwired]` with that reason.
