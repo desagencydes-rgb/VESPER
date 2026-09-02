@@ -2298,6 +2298,19 @@ deploy, never single-node design -- placement has nothing to choose between
 until a second node is enrolled, and `core/enrollment.py` above is the gate in
 front of it."""
 
+"core/mcp.py" = """NOT YET REACHABLE, AND WIRING IT WOULD BE WORSE. The client
+is built and driven end-to-end against a hostile fixture server
+(`an-mcp-server-does-not-level-its-own-tools`), but NO MCP SERVER IS CONFIGURED
+on this machine. Registering an `mcp.call` capability now would add something a
+proposer can name and nothing can answer -- a capability that exists to fail,
+widening the surface the landscape notes warn about ("it is surface area, so it
+comes after containment") in exchange for a green reachability check.
+
+What it waits on is an owner decision, not hardware: which servers to run.
+Adding the first one wires this, and the level rule is already settled -- a
+server does not level its own tools, so every discovered tool is L5 until the
+owner says otherwise."""
+
 "core/cache.py" = """OWED, recently. The five cache tiers of SR-054, landed with
 CI-085 overnight 2026-08-31 and not yet joined to the gateway. This is the
 freshest instance of the pattern and the reason CI-094 was written the next

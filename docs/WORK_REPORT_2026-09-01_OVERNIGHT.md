@@ -4,7 +4,7 @@ Written for the owner. Overnight plus the day that followed. Thirty-two commits,
 **Tier one of the approved build order is complete**, plus the two defects this
 survey found in our own code and two items from its own build list.
 
-Gates as of the last commit: **122/122 checks pass, 516 self-test cases red
+Gates as of the last commit: **123/123 checks pass, 516 self-test cases red
 under violation and green after restore, both lints pass.** Up from 87 checks
 and 407 cases when the night began.
 
