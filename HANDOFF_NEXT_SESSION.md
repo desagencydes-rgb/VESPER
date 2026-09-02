@@ -148,3 +148,35 @@ NOT restart `caffeinate`: holding a 12% machine awake makes it die rather than
 sleep cleanly, and everything was committed and pushed (`9a953e6`, working tree
 clean, `origin/feat/macos-host-profile` level with HEAD) before that decision.
 If the machine slept, nothing was lost.
+
+## Added 2026-09-02 — the agent-landscape build list is done
+
+Twelve commits overnight. Full account in
+`docs/WORK_REPORT_2026-09-02_OVERNIGHT.md`; the parts that change what a next
+session should do:
+
+**THE AUTONOMY LOOP HAD NOT BEEN RUNNING.** `pump()` read `interlock` from
+another function's scope, so every pass raised NameError, the broad handler
+caught it and published `autonomy.loop_failed`, and the loop never ticked. Fixed,
+and gated by `the-runtime-resolves-every-name-it-uses`. **The runtime has not
+been started since the fix — starting it is the first thing worth doing, and the
+first real check of the night's work.**
+
+**BOTH BUILD LISTS ARE COMPLETE EXCEPT AN MCP CLIENT.** L1-L10 and safety 1-9
+are done; safety 10 (MCP) is not started. It is the highest-surface-area item on
+either list: tool names and descriptions are declared by the SERVER, so tool
+metadata is untrusted content and an unlevelled tool has to be L5.
+
+**GRANT EXPIRY HAD NEVER WORKED** and now does. `_issue_standing` wrote an
+absolute expiry and the PDP read a clock stuck at zero; each concealed the other.
+Anything that assumed grants never expire is now wrong.
+
+**SEGMENT ROTATION IS BUILT AND CALLED BY NOTHING.** `StoreSet.rotate()` archives
+a log segment, seeds the new file's sequence past the old high-water mark, and
+keeps the old one whole. There is no policy for WHEN to rotate -- that is a
+decision about the owner's disk, not a property of the store, and it is the one
+piece of this work that changes nothing until someone sets it.
+
+**DO NOT RUN `self_test` CONCURRENTLY WITH ANYTHING.** It mutates live repo
+files. Three false failures tonight came from overlapping it with `checks.py
+all`, including one that read `CHECKS.toml` while it was deliberately broken.
