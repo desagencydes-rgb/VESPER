@@ -675,6 +675,42 @@ credits. There is no request ceiling to count against, so the ledger holds no
 measured limit and this is opportunistic like Ollama."""
 
 [[provider]]
+id = "claude-advisor"
+tier = "strong"
+purpose = "advisor"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CLAUDE_ADVISOR_CONFIG_DIR"
+endpoint = "claude"
+wire = "cli_subprocess"
+argv = ["--model", "opus", "-p", "{prompt}"]
+config_dir_env = "CLAUDE_CONFIG_DIR"
+config_dir = "~/.config/vesper/claude-advisor"
+model = "opus"
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """A SECOND ACCOUNT, DELIBERATELY NOT THE ONE THE OTHER CLAUDE ROWS USE. The
+arbiter, forgetter and general sub share `~/.config/vesper/claude-vesper`; this
+points at `~/.config/vesper/claude-advisor`, so advice cannot consume the account
+VESPER does its ordinary work on, and a spent advisor does not take the arbiter
+down with it. Owner's decision 2026-09-02.
+
+`--model opus` IS PINNED RATHER THAN LEFT TO THE SUBSCRIPTION DEFAULT. The whole
+value of this rung is that it is a STRONGER model than the one that formed the
+plan; a default that quietly resolved to the same tier would make the review a
+second opinion from the same opinion.
+
+UNTIL THAT DIRECTORY IS AUTHENTICATED THIS ROW DOES NOT ENROL, and VESPER behaves
+exactly as it did before -- the advisor is consulted only when it exists, and its
+absence is never a reason to proceed with less caution."""
+egress_note = """E1 ONLY WITH TRAINING OFF ON THAT ACCOUNT, the same condition the other
+Claude rows carry. Advice is sought about the owner's own material -- what VESPER
+is about to do to their files and machine -- so this rung sees exactly the
+content the strict class exists for."""
+
+[[provider]]
 id = "claude-arbiter"
 tier = "strong"
 purpose = "arbiter"

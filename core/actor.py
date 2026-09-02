@@ -42,7 +42,9 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from core.authorize import Grant, PolicyDecisionPoint
+from core.advisor import STOP as ADVISOR_STOP
+from core.advisor import worth_reviewing
+from core.authorize import Decision, Grant, PolicyDecisionPoint
 from core.capabilities import (INDEPENDENT_VERIFIERS, bind_all,
                                WORKSPACE, build_registry,
                                observation_trust, observe)
@@ -132,7 +134,7 @@ class Actor:
                  now_ms: Any = None, profile_id: str = "",
                  shadow: Any = None, reconciler: Any = None,
                  selfmod: Any = None, jobs: Any = None,
-                 agent: Any = None) -> None:
+                 agent: Any = None, advisor: Any = None) -> None:
         self._bus = bus
         self._registry = build_registry()
         # Turns waiting on an answer, keyed by the broker's own
@@ -196,6 +198,10 @@ class Actor:
             from core.subagent import SubAgent
             agent = SubAgent(gateway, bus=bus)
         self._agent = agent
+        # ABSENT BY DEFAULT, AND ABSENCE IS NOT PERMISSION. With no advisor the
+        # act path is exactly what it was; a missing reviewer never becomes a
+        # reason to be more permissive than a system that never had one.
+        self._advisor = advisor
         bind_all(self._executor, jobs=jobs, agent=agent)
         self._proposer = IntentProposer(gateway, bus=bus, profile_id=profile_id)
         self._ceiling = ContextCeiling(bus)
@@ -722,6 +728,39 @@ class Actor:
                                 consume=False)
         if not d.authorized:
             return self._ask(d, p, level, attention_state, period)
+
+        # A SECOND OPINION ON WHAT CANNOT BE UNDONE, and only on that. The
+        # ladder has already decided this is ALLOWED; the advisor is asked
+        # whether it looks like a MISTAKE -- an irreversible action aimed at the
+        # wrong target, a misreading of what was asked. Reviewing every read
+        # would tax the ordinary path and teach everyone to skim the warnings.
+        #
+        # AND ITS VERDICT IS ONE-DIRECTIONAL. `PROCEED` does nothing: the action
+        # faces the identical ladder it faced a line ago. Only `STOP` has an
+        # effect, and the effect is to ASK THE OWNER rather than to refuse --
+        # which is what makes an advisor safe to consult at all. An advisor that
+        # could authorise would be a way to manufacture consent: feed it a
+        # document arguing for the action and receive approval. `INV-ACT-3` says
+        # content entering the system may never raise authority, and advice is
+        # content entering the system.
+        if self._advisor is not None:
+            try:
+                cap = self._registry.get(p.capability_id)
+            except Exception:                          # noqa: BLE001
+                cap = None
+            if cap is not None and worth_reviewing(cap, level):
+                seen = self._advisor.review(
+                    capability_id=p.capability_id, args=p.args,
+                    why=getattr(p, "why", ""), asked_for=text, level=level)
+                if seen.get("verdict") == ADVISOR_STOP:
+                    # Routed through the ordinary confirmation ladder rather
+                    # than refused, so the turn PARKS and the owner's answer
+                    # resumes it with the plan intact.
+                    return self._ask(
+                        Decision(False, "L0", "owner_confirmation_required",
+                                 p.capability_id, self._subject,
+                                 detail=str(seen.get("because") or "")[:300]),
+                        p, level, attention_state, period)
 
         try:
             ex = self._executor.execute(subject=self._subject,

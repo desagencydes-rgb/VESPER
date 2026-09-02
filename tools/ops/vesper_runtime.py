@@ -41,6 +41,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
+from core.advisor import Advisor                                 # noqa: E402
 from core.background import BackgroundJobs                       # noqa: E402
 from core.bus import EventBus                                   # noqa: E402
 from core.cost import CostPolicy                                # noqa: E402
@@ -599,7 +600,19 @@ def build(node: str = "vesper-runtime"):
     # there. Without the broker it would still be safe and would simply say no,
     # which is safe in the way a system that cannot do anything is safe.
     jobs = BackgroundJobs(bus)
-    actor = Actor(bus, gw, jobs=jobs,
+    # THE ADVISOR, ON ITS OWN ACCOUNT, AND ONLY IF THAT ACCOUNT EXISTS.
+    # `purpose="advisor"` routes to `claude-advisor`, which is bound to a
+    # SECOND config dir -- so advice cannot consume the account the arbiter and
+    # forgetter run on, and a spent advisor does not take them down with it.
+    #
+    # NO ROW, NO ADVISOR, AND THAT IS NOT A DEGRADED MODE. Until that directory
+    # is authenticated the rung does not enrol and the act path is exactly what
+    # it was: a missing reviewer never becomes a reason to be more permissive
+    # than a system that never had one.
+    advisor_profiles = measured_profiles(rows, purpose="advisor")
+    advisor = (Advisor(gw, router=Router(bus, advisor_profiles), bus=bus)
+               if advisor_profiles else None)
+    actor = Actor(bus, gw, jobs=jobs, advisor=advisor,
                   broker=ConfirmationBroker(bus, InterruptionBudget(bus)))
     autonomy.attach_actor(actor)
 

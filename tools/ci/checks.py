@@ -15577,6 +15577,170 @@ def check_an_mcp_server_does_not_level_its_own_tools() -> Result:
            "the machine is refused rather than reported as empty")
     return r
 
+def check_advice_can_add_caution_and_never_remove_it() -> Result:
+    """A stronger model may stop an action. It may never authorise one.
+
+    WHY AN ADVISOR AT ALL. VESPER plans with the model that fits the task, which
+    is usually the cheapest that can do it. For something that cannot be undone
+    -- replacing a file it has not read, running outside the workspace, touching
+    its own code -- one call to a stronger model is worth making before the
+    action rather than after.
+
+    AND WHY THE VERDICT IS ONE-DIRECTIONAL, which is the whole design. An
+    advisor whose "go ahead" MEANT something would be a way to manufacture the
+    owner's consent: feed it material that argues for the action, receive
+    approval, act. `INV-ACT-3` exists because content entering the system must
+    never raise the authority of anything, and advice is content entering the
+    system. So PROCEED changes NOTHING -- the action faces the identical ladder
+    it faced a line earlier -- and only STOP has an effect.
+
+    STOP ASKS RATHER THAN REFUSES. The action was already permitted; what the
+    advisor supplies is doubt, and doubt is the owner's to settle. Routing it
+    through the confirmation ladder also means the turn PARKS and their answer
+    resumes it with the plan intact, rather than the work being thrown away.
+
+    SILENCE IS NOT APPROVAL AND IS NOT A HALT. A rung that is missing,
+    unauthenticated, slow or broken yields UNAVAILABLE, and the action proceeds
+    down its normal ladder. An absent advisor must not make the system MORE
+    permissive than one that never had an advisor -- and must not halt
+    everything either, or an unauthenticated directory becomes a denial of
+    service on the owner's own machine.
+
+    AND A GARBLED ANSWER IS NOT A STOP. If every provider hiccup surfaced as a
+    warning, the owner would learn to wave them through, which is exactly how a
+    confirmation becomes a formality.
+    """
+    r = Result("advice-can-add-caution-and-never-remove-it")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import json as _json
+    import tempfile as _tf
+    try:
+        from core.actor import Actor
+        from core.advisor import (PROCEED, STOP, UNAVAILABLE, Advisor,
+                                  worth_reviewing)
+        from core.bus import EventBus
+        from core.checkpoint import ShadowGit
+        from core.confirm import ConfirmationBroker
+        from core.hlc import HybridLogicalClock
+        from core.interruption import InterruptionBudget
+        from core.store import StoreSet
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the advisor path did not import: {exc!r}")
+        return r
+
+    class _Say:
+        def __init__(self, text):
+            self.text = text
+
+        def complete(self, prompt, **kw):
+            return {"result": {"text": self.text}}
+
+    # 1. THE VERDICTS THEMSELVES.
+    cases = [("VERDICT: STOP\nBECAUSE: it leaves the workspace.", STOP),
+             ("VERDICT: PROCEED\nBECAUSE: routine.", PROCEED),
+             ("~~~ garbled ~~~", PROCEED),
+             ("", PROCEED)]
+    for text, want in cases:
+        got = Advisor(_Say(text), profile_id="p").review(
+            capability_id="fs.write", args={}, level="L4")["verdict"]
+        if got != want:
+            r.err(f"advice {text[:24]!r} resolved {got!r}, expected {want!r}"
+                  + ("; a garbled answer that halts the turn teaches the owner "
+                     "to wave warnings through" if want == PROCEED else ""))
+
+    if Advisor(None).review(capability_id="fs.write", args={},
+                            level="L4")["verdict"] != UNAVAILABLE:
+        r.err("an advisor with no rung returned a verdict rather than saying it "
+              "was unavailable")
+
+    class _Boom:
+        def complete(self, prompt, **kw):
+            raise RuntimeError("provider down")
+
+    broke = Advisor(_Boom(), profile_id="p").review(
+        capability_id="fs.write", args={}, level="L4")
+    if broke["verdict"] != UNAVAILABLE:
+        r.err(f"a broken advisor returned {broke['verdict']!r}. A rung that "
+              "cannot be reached must be no advice -- if it halted, an "
+              "unauthenticated directory would be a denial of service on the "
+              "owner's own machine.")
+
+    # 2. ADVICE IS EXTERNAL CONTENT, whatever it says.
+    v = Advisor(_Say("VERDICT: STOP\nBECAUSE: no."), profile_id="p").review(
+        capability_id="fs.write", args={}, level="L4")
+    if v.get("trust_class") != "retrieved_external":
+        r.err("an advisor's words are not classed external, so a reviewer's "
+              "text could be read as an instruction later")
+
+    # 3. WHAT IS WORTH REVIEWING. Trivia is not.
+    class _Irreversible:
+        external_effect = False
+        reversibility = "irreversible"
+
+    class _Ordinary:
+        external_effect = False
+        reversibility = "reversible"
+
+    if not worth_reviewing(_Irreversible(), "L2"):
+        r.err("an irreversible action is not reviewed; irreversibility is what "
+              "makes a mistake permanent rather than merely wrong")
+    if not worth_reviewing(_Ordinary(), "L5"):
+        r.err("an L5 action is not reviewed")
+    if worth_reviewing(_Ordinary(), "L1"):
+        r.err("an ordinary read is reviewed. An advisor consulted about trivia "
+              "is one whose warnings stop being read.")
+
+    # 4. AND THE EFFECT ON A REAL TURN -- the assertion the rest rests on.
+    with _tf.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("advchk")
+        store = StoreSet(base / "s", node_id="advchk")
+        bus = EventBus(clock, store, component="advchk")
+        want_action = {"action": "shell.run", "args": {"cmd": "echo hi"},
+                       "why": "say hi"}
+
+        class _Plan:
+            def complete(self, prompt, **kw):
+                return {"result": {"text": _json.dumps(want_action)}}
+
+        def _turn(advisor, tag):
+            a = Actor(bus, _Plan(), subject=f"advchk-{tag}", target="host",
+                      shadow=ShadowGit(base / f"shadow-{tag}"),
+                      broker=ConfirmationBroker(bus, InterruptionBudget(bus)),
+                      advisor=advisor)
+            out = a.maybe_act("say hi", period="active")
+            return out.kind if out else None
+
+        stopped = _turn(Advisor(_Say("VERDICT: STOP\nBECAUSE: leaves the "
+                                     "workspace."), profile_id="p"), "stop")
+        went = _turn(Advisor(_Say("VERDICT: PROCEED\nBECAUSE: routine."),
+                             profile_id="p"), "go")
+        none = _turn(None, "none")
+
+        if stopped != "asked":
+            r.err(f"an advisor saying STOP produced {stopped!r} rather than a "
+                  "question. Doubt about a permitted action is the owner's to "
+                  "settle, and refusing outright throws the turn away.")
+        if went != "acted":
+            r.err(f"an advisor saying PROCEED produced {went!r}. PROCEED must "
+                  "change NOTHING -- the moment it grants something, advice "
+                  "becomes a way to manufacture consent.")
+        if none != "acted":
+            r.err(f"a turn with no advisor produced {none!r}. An absent "
+                  "reviewer must leave the act path exactly as it was.")
+        if went != none:
+            r.err(f"a turn advised PROCEED ({went!r}) differs from one never "
+                  "advised at all ({none!r}), so advice is doing something in "
+                  "the permissive direction")
+
+    r.note("STOP, PROCEED, garbled, empty, no rung and a broken rung all "
+           "resolve as they should; advice is external content; irreversible "
+           "and L4/L5 actions are reviewed and ordinary reads are not; and on a "
+           "real turn STOP becomes a question the owner can answer while "
+           "PROCEED is indistinguishable from having no advisor at all")
+    return r
+
 def check_credentials_can_leave_the_plaintext_file() -> Result:
     """A credential in the Keychain is used, and the file remains the fallback.
 
@@ -17442,6 +17606,7 @@ CHECK_FNS = {
     "a-level-rule-means-what-it-says-and-names-what-it-refuses": check_a_level_rule_means_what_it_says_and_names_what_it_refuses,
     "a-rotated-log-keeps-one-sequence-and-loses-nothing": check_a_rotated_log_keeps_one_sequence_and_loses_nothing,
     "an-mcp-server-does-not-level-its-own-tools": check_an_mcp_server_does_not_level_its_own_tools,
+    "advice-can-add-caution-and-never-remove-it": check_advice_can_add_caution_and_never_remove_it,
     "host-pressure-read-through-the-adapter": check_host_pressure_is_read_through_the_adapter,
     "floor-held-and-offered-to": check_the_floor_is_held_and_offered_to,
     "boundary-asked-before-the-write": check_the_boundary_is_asked_before_the_write,
