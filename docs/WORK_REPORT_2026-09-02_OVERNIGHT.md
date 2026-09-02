@@ -286,3 +286,11 @@ path for the owed endurance gate reads all of it.
 1.68 GB and total usage is unchanged. Reclaiming it means compressing archived
 segments — measured at **13.7×** on this data, and safe because a rotated segment
 is immutable. That is the obvious next step and it is not done.
+
+---
+
+## Final state
+
+**123/123 checks. 516/516 self-test cases. All seven acceptance gates pass —
+F0, F1, F2, F3, F4, F5, F6. Traceability and reference lints pass.** Twenty-one
+commits since 21:00, every one landed green.
