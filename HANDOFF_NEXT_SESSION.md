@@ -47,35 +47,45 @@ other 45 rows carried forward. **A targeted re-probe is the way to add one rung*
 — it costs one call instead of a sweep, and the 24h cap still ages each carried
 row out individually.
 
-Still unusable, and why:
+All 48 rows answered as of `REMOTE-SUPPLY-20260903T131629Z.json`. The two
+speech rows were being filed as outages because the probe knew four wires and
+neither of theirs; they are probed with speech now (a committed audio fixture
+for the transcriber, the contract's own voice for the synthesiser).
 
-- `elevenlabs-speech`, `cf-transcribe` — speech endpoints; the probe posts a
-  chat payload at them. Wrong wire, not a dead provider.
+**The advisor is on its own Claude account** (verified 2026-09-03: a different
+`accountUuid` from `claude-vesper`), so exhausting the agent pool no longer
+silences the reviewer.
 
-**THE ADVISOR IS ON THE SAME ACCOUNT AS EVERYTHING ELSE.** Both config dirs
-resolve to the same `accountUuid` and the same email, so the separate-account
-isolation the advisor was asked for does not exist: it competes with the nine
-agent rungs for one subscription's allowance, and exhausting that account
-silences the reviewer at the same moment it silences the agents. Logging the
-advisor dir into a DIFFERENT Claude account is the fix; nothing in the code
-needs to change, because `config_dir` already points somewhere separate.
+## Voice and hearing scale by env var, not by commit
+
+`core/rung_credentials.py` expands one declared row into one rung per numbered
+credential present -- `ELEVENLABS_API_KEY`, `_2`, `_3` ... to a bound of 20 --
+and a GAP DOES NOT STOP THE SCAN. Adding an account is adding a line to
+`secrets.env`; no row, no commit. As of 2026-09-03:
+
+- **Voice: 6 ElevenLabs free accounts** = 60,000 chars/month, ~210 spoken
+  replies. `speech.rung_failed` fires per rung that refuses and
+  `speech.exhausted` when all do -- that is the signal to add `_7`, not a
+  guess about volume.
+- **Hearing: 2 rungs, 2 providers.** `cf-transcribe` on its OWN Cloudflare
+  account (3.32 neurons/clip against 10,000/day, so ~3,000 clips a day) and
+  `groq-transcribe` behind it, so a Cloudflare outage is not silence. Both
+  verified by descent: rung 1 broken, rung 2 answered, events in order.
 
 ## What needs the owner, in order
 
-1. **Log in the advisor account.** One command, above. It is the only rung
-   failing for a reason a session cannot fix.
-2. **Ratify some of the 23.** Each needs its invariant WRITTEN, which is a
+1. **Ratify some of the 23.** Each needs its invariant WRITTEN, which is a
    normative claim about VESPER. Three are worth writing on their own merits;
    four look like extensions of existing invariants rather than new ones. The
    file names which.
-3. **`tools/ops/vesper_keychain.py --migrate`** whenever they want credentials
+2. **`tools/ops/vesper_keychain.py --migrate`** whenever they want credentials
    out of `secrets.env`. Built and verified; not run, because writing to their
    login keychain is a change to their machine.
-4. **The event log wants a RETENTION policy, not a size fix.** Rotation works —
+3. **The event log wants a RETENTION policy, not a size fix.** Rotation works —
    the live `log.db` is 640 KB — and the archived segment is compressed and
    still readable a record at a time. What nothing decides is when history stops
    being kept at all.
-5. **Decide whether the loop is too cautious.** After a `shell.run`, the next
+4. **Decide whether the loop is too cautious.** After a `shell.run`, the next
    step above L1 asks. One table, `OBSERVATION_TRUST` in
    `core/capabilities.py`.
 
