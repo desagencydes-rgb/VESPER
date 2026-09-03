@@ -153,13 +153,26 @@ class Transcriber:
                               reason="no credential for the transcriber")
         endpoint = (_field(row, "endpoint") or "").replace("{account}", account) \
                                                   .replace("{model}", _field(row, "model") or "")
-        # THE LANGUAGE IS DECLARED, NOT DETECTED. Left to detect, Darija comes
-        # back as FRENCH -- measured 2026-08-31, when "salam a vesper, kidayr
-        # lbaraka" transcribed as "Salam et Vesper, qui dit le Besalik ?".
-        # Darija borrows French vocabulary and is written in Arabic script by
-        # this model, so the detector has a genuine ambiguity and resolves it
-        # the wrong way often enough to be useless. The owner speaks Darija;
-        # saying so costs nothing and removes the whole failure mode.
+        # THE LANGUAGE IS DETECTED, NOT DECLARED -- REVERSED 2026-09-03, and the
+        # reversal is why the mechanism stays. It was declared `ar` because
+        # Darija auto-detected as FRENCH on 2026-08-31. That no longer
+        # reproduces on `whisper-large-v3-turbo`, and the override had become
+        # the defect it was written to prevent: English and French audio came
+        # back as "ترجمة نانسي قنقر", a Whisper hallucination, while Darija was
+        # byte-identical with and without it across four samples.
+        #
+        # "SAYING SO COSTS NOTHING" WAS THE WRONG PART. Declaring a language
+        # costs every OTHER language the owner speaks, and this owner speaks
+        # three. Forcing the wrong one does not degrade -- it INVENTS: forcing
+        # `en` on Darija returns "What can you do for today's work?", fluent,
+        # plausible, and not what was said. A mistranscription that looks like a
+        # request is worse than one that looks like noise, because only the
+        # second is obviously wrong.
+        #
+        # The row may still declare `language` and it is honoured when present.
+        # What changed is that nothing declares it, so detection runs and the
+        # detected language reaches `Transcript.language` with its probability
+        # instead of being overwritten by a guess made in a contract file.
         payload = {"audio": base64.b64encode(data).decode()}
         lang = _field(row, "language") or ""
         if lang:

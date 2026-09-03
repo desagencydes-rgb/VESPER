@@ -11035,6 +11035,27 @@ def check_speech_in_declares_language_and_measures_confidence() -> Result:
         r.err(f"core.transcribe did not import: {exc!r}")
         return r
 
+    # 0. NO ROW MAY FORCE A LANGUAGE ON A MULTILINGUAL OWNER. Measured
+    #    2026-09-03: `cf-transcribe` declared `language = "ar"` and English and
+    #    French audio came back as "ترجمة نانسي قنقر" -- a Whisper
+    #    hallucination, not a mistranscription of anything said. Darija was
+    #    byte-identical with and without the override across four samples,
+    #    including the exact 2026-08-31 phrase that motivated it, so the
+    #    override bought nothing and cost the other two languages entirely.
+    #
+    #    FORCING THE WRONG LANGUAGE INVENTS RATHER THAN DEGRADES. Forcing `en`
+    #    on Darija returns "What can you do for today's work?" -- fluent,
+    #    plausible, and not what was said. That is the failure mode worth a
+    #    gate: a mishearing that reads as a request survives every downstream
+    #    check that a mishearing reading as noise would fail.
+    for _row in transcribe_rows():
+        _lang = _row.get("language") if isinstance(_row, dict) else getattr(_row, "language", None)
+        if _lang:
+            r.err(f"the transcriber {_row.get('id') if isinstance(_row, dict) else _row} "
+                  f"forces language {_lang!r}, so every utterance in another "
+                  "language the owner speaks is transcribed as invented text "
+                  "in that one rather than as what was said")
+
     # 1. THE ROUTE EXISTS ONLY FOR WHAT THE MACHINE CANNOT DO ITSELF.
     if needs_our_route("en-US"):
         r.err("en-US is routed off the machine although it has on-device "
@@ -11044,15 +11065,27 @@ def check_speech_in_declares_language_and_measures_confidence() -> Result:
         r.err("ar-MA is treated as on-device, which it is not on this machine "
               "-- measured 2026-08-30")
 
-    # 2. THE LANGUAGE IS DECLARED IN THE CONTRACT. Auto-detection is the
-    #    documented failure.
+    # 2. A TRANSCRIBER EXISTS, AND IT IS NOT ROUTED OFF THE LADDER.
+    #
+    #    THIS CHECK USED TO REQUIRE THE OPPOSITE OF SECTION 0, and reversing it
+    #    is the point rather than an edit in passing. It asserted that a
+    #    language MUST be declared, on the strength of one 2026-08-31 reading in
+    #    which Darija detected as French. That reading was true of the model
+    #    then and is not true of `whisper-large-v3-turbo`, so the check went on
+    #    enforcing a workaround after the fault it worked around had gone --
+    #    and the workaround had by then become the larger fault, silently
+    #    replacing English and French speech with hallucinated Arabic.
+    #
+    #    A CHECK CAN OUTLIVE ITS MEASUREMENT. That is the failure this comment
+    #    exists to name: nothing in a green sweep distinguishes a rule that
+    #    still holds from one whose evidence expired, and this one was green
+    #    every day it was wrong. Section 0 replaces it, and it is backed by a
+    #    measurement recorded in the row it governs, so the next reader can
+    #    check the evidence rather than inherit the conclusion.
     rows = transcribe_rows()
     if not rows:
         r.err("no transcriber is declared, so Darija speech has no route at all")
     for row in rows:
-        if not row.get("language"):
-            r.err(f"transcriber {row.get('id')!r} declares no language, so "
-                  "detection decides -- and it returns French for Darija")
         if row.get("egress_class") not in ("E1_PRIVATE", "E2_PUBLIC"):
             r.err(f"transcriber {row.get('id')!r} has no egress class; audio "
                   "carries whatever was said in the room and must obey the "

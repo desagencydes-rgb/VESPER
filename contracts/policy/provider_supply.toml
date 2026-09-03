@@ -863,7 +863,6 @@ wire = "cf_whisper"
 # DECLARED, NOT DETECTED. Left to auto-detect, Darija comes back as French --
 # it borrows French vocabulary and the detector resolves the ambiguity the
 # wrong way often enough to be useless. Measured 2026-08-31.
-language = "ar"
 
 
 # ======================================================================
@@ -881,6 +880,25 @@ language = "ar"
 # rung the agent reports UNAVAILABLE, which `core/agents.py` treats as a fact
 # VESPER can act on rather than a failure that breaks a turn.
 # ======================================================================
+# NO FORCED LANGUAGE, MEASURED 2026-09-03. This row declared `language = "ar"`
+# on the strength of a 2026-08-31 measurement in which Darija auto-detected as
+# FRENCH. That does not reproduce on `whisper-large-v3-turbo`, and the override
+# was doing active harm:
+#
+#   audio     detect          forced "ar"
+#   English   correct         "ترجمة نانسي قنقر"  (a Whisper hallucination)
+#   French    correct         "ترجمة نانسي قنقر"
+#   Darija    correct         IDENTICAL to detect
+#
+# Four Darija samples, including the exact 2026-08-31 phrase and three carrying
+# the French loanwords that caused the original ambiguity, transcribe
+# byte-identically with and without the override. Detection reports ar at
+# 0.968-0.996, en at 0.998, fr at 0.997.
+#
+# So the override bought nothing for Darija and destroyed the other two
+# languages the owner speaks. Forcing "en" or "fr" is worse still: Darija comes
+# back TRANSLATED rather than transcribed -- "What can you do for today's
+# work?" -- which reads as a plausible request and is not what was said.
 
 [[provider]]
 id = "claude-investigator"

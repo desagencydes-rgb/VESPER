@@ -3357,12 +3357,6 @@ CASES += [
 
 CASES += [
     # ------------------------------------------------------ speech in
-    ("speech-in-declares-language-and-measures-confidence", SUPPLY_TOML,
-     _sub('language = "ar"\n', "", 1),
-     "the transcriber stops declaring its language, so detection decides -- and "
-     "it returns FRENCH for Darija: a spoken greeting came back as 'Salam et "
-     "Vesper, qui dit le Besalik ?'"),
-
     ("speech-in-declares-language-and-measures-confidence", TRANSCRIBE_PY,
      _sub("    return round(weighted / total, 4) if total else 0.0",
           "    return round(weighted / total, 4) if total else 0.9", 1),
@@ -4976,6 +4970,23 @@ CASES += [
      "the installer stops preferring the bundle, so launchd is pointed back at "
      "a bare interpreter and the process that keeps autonomy alive runs "
      "outside the app that autonomy belongs to"),
+]
+
+
+# --------------------------------------------------------------------------
+# No transcriber may force a language on an owner who speaks three. Forcing the
+# wrong one INVENTS rather than degrades: forcing `en` on Darija returns "What
+# can you do for today's work?", which reads as a request and is not what was
+# said.
+# --------------------------------------------------------------------------
+SUPPLY_TOML_LANG = "contracts/policy/provider_supply.toml"
+
+CASES += [
+    ("speech-in-declares-language-and-measures-confidence", SUPPLY_TOML_LANG,
+     _sub('model = "@cf/openai/whisper-large-v3-turbo"',
+          'model = "@cf/openai/whisper-large-v3-turbo"\nlanguage = "ar"', 1),
+     "the transcriber forces Arabic again, so English and French utterances "
+     "come back as hallucinated Arabic instead of as what was said"),
 ]
 
 
