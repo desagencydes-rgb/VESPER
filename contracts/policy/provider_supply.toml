@@ -247,7 +247,7 @@ provable_hard_cap = true
 hard_cap_evidence = "Developer credits, no card attached; refuses at the ceiling."
 credential_env = "NVIDIA_NIM_API_KEY"
 endpoint = "https://integrate.api.nvidia.com/v1/chat/completions"
-model = "meta/llama-3.3-70b-instruct"
+model = "nvidia/nemotron-3-ultra-550b-a55b"
 model_note = """MULTI_ROUTE.md SS13.2 AGAIN, ON A SECOND VENDOR. This account's
 catalogue lists 95 models; `nvidia/llama-3.1-nemotron-70b-instruct` and
 `-51b-instruct` are both in it and both answer 404 -- "Function ...: Not found".
@@ -261,6 +261,14 @@ egress_note = """E2 PENDING, NOT E2 SETTLED. The no-training claim appears on a
 product page and not in a contract that could be fetched, and an instrument's
 self-report is not evidence. Held public-only until the terms are confirmed;
 promotion to E1 is a reviewed change to this row, not a runtime decision."""
+
+# Replaced 2026-09-03. `meta/llama-3.3-70b-instruct` answered 410: "has
+# reached its end of life on 2026-08-26". A withdrawn model is TERMINAL --
+# it descends rather than retrying -- so the rung was dead, not slow.
+# The replacement was CHOSEN BY CALLING IT: NVIDIA's own /v1/models list
+# serves 82 ids, and two of the four strongest (llama-3.1-nemotron-ultra-253b-v1,
+# llama-3.1-nemotron-70b-instruct) answer 404 at the chat endpoint. A model
+# list is not a promise that the model is callable.
 
 [[provider]]
 id = "openrouter-standard"

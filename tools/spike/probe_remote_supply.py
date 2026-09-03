@@ -302,6 +302,23 @@ def _worth_retrying(status, answered: bool, message: str | None = None) -> str |
         return "200 with no content"      # the empty-body case above
     if status in RETRYABLE_STATUS:
         return f"transient status {status}"
+    # A SAFETY CLASSIFIER IS NOT A SYNTAX ERROR. Measured 2026-09-03:
+    # `cf-image` refused `IMAGE_PROMPT` -- the literal string "a single grey
+    # square on a white background" -- with "Input prompt contains NSFW
+    # content (code 8007)", then returned 137680 bytes of image on the next
+    # call with the same prompt. The refusal EXPLAINS itself, so the rule below
+    # would have called it terminal, but a classifier verdict on a fixed benign
+    # prompt is stochastic in a way "model not found" is not.
+    #
+    # This is the narrow exception and it stays narrow: the message must name a
+    # content decision. A 400 explaining a MALFORMED request is still terminal,
+    # because retrying it is the codex-argv defect -- a second call confirming
+    # a wiring bug instead of surfacing it.
+    if status == 400 and message and any(
+            s in message.lower() for s in
+            ("nsfw", "content policy", "safety", "content_filter",
+             "flagged", "moderation")):
+        return "content classifier refused a benign prompt"
     if status == 400 and not message:
         # AN UNEXPLAINED 400 IS NOT THE SAME REFUSAL AS AN EXPLAINED ONE.
         # Measured 2026-09-03: `cf-image` returned 400 with no message during a

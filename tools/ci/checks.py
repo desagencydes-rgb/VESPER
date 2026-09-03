@@ -15962,6 +15962,9 @@ def check_a_broken_agent_is_never_a_bad_answer() -> Result:
     try:
         from core.agents import (ANSWERED, MAX_OUTPUT_CHARS, UNAVAILABLE,
                                  AgentRosterError, AgentRunner, load_roster)
+        # Imported by name: if the guard is deleted, this raises and the check
+        # reports it, rather than the assertion below quietly not running.
+        from core.agents import _exhaustion as _agent_exhaustion
         from core.capabilities import agent_run_level, observation_trust
     except Exception as exc:                        # noqa: BLE001
         r.err(f"the agent path did not import: {exc!r}")
@@ -16113,10 +16116,43 @@ def check_a_broken_agent_is_never_a_bad_answer() -> Result:
     if unknown_level is not None and unknown_level != "L5":
         r.err(f"an agent nobody declared levelled {unknown_level}, not L5.")
 
+    # A RUNG THAT IS OUT OF QUOTA IS NOT A RUNG THAT ANSWERED. Measured
+    # 2026-09-03: nine agent rungs share one Claude subscription and it printed
+    # "You've hit your session limit" as ordinary stdout. That is 65 characters,
+    # so every length bound in the runner admits it, and without this guard the
+    # caller receives a quota notice where a finding belongs.
+    #
+    # ASSERTED ON BEHAVIOUR, not on the constant's presence: a signature list
+    # that nothing consults is the shape of dead check this corpus keeps
+    # finding, so the runner is CALLED with a refusal and must report it
+    # unavailable.
+    spent = _agent_exhaustion(
+        "You've hit your session limit \u00b7 resets 4:10am")
+    # THE NEGATIVE PROBE MUST CONTAIN THE PHRASE, or it tests nothing. The
+    # first form used a short answer with no signature in it at all: deleting
+    # the length bound left it classified the same way, so the mutation stayed
+    # green and the bound was unguarded. What the bound actually separates is an
+    # agent DISCUSSING a rate limit from a rung REFUSING for one, so the probe
+    # has to be the discussion.
+    kept = _agent_exhaustion(
+        "Yes -- but note the provider will return a rate limit exceeded error "
+        "if you call it more than 8000 times per minute, so batch the probes "
+        "and expect a 429 on the fast rung. That is a property of the tier, "
+        "not of your code, and the retry path already handles it by "
+        "descending. The classifier treats 429 as TRANSIENT, which is right.")
+    if not spent:
+        r.err("a rung reporting it has hit its session limit is not recognised "
+              "as out of quota, so it is answered rather than descended from "
+              "and every lower rung sits idle")
+    if kept:
+        r.err("an ordinary answer is misread as a quota refusal, so a working "
+              "rung is abandoned on the strength of its wording")
+
     r.note(f"{len(roster)} agents declared and only the tester acts; a missing "
            f"roster raises rather than reading empty; a crash, empty output, "
            f"whitespace and output past {MAX_OUTPUT_CHARS} chars are all "
-           f"UNAVAILABLE with a reason and no text; a hung agent is bounded and "
+           f"UNAVAILABLE with a reason and no text; a rung reporting it is out "
+           f"of quota descends rather than answering; a hung agent is bounded and "
            f"its children die with it; and the ladder charges more for an agent "
            f"that runs commands than one that reads")
     return r

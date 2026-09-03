@@ -2535,7 +2535,7 @@ recording of the room outlives its processing window."""
 # to invariants the check has a failing assertion for; an invariant a check only
 # MENTIONS in a comment is not one it enforces, and claiming it would inflate
 # the one figure this corpus treats as honest.
-self_test_evidence = "tools/ci/self_test.py wake-word-listens-locally-and-starts-once -- 14 cases, executed 2026-09-03: red under violation, green after restore."
+self_test_evidence = "tools/ci/self_test.py wake-word-listens-locally-and-starts-once -- 15 cases, executed 2026-09-03: red under violation, green after restore."
 
 [checks.CI-105]
 name = "a-batch-read-is-one-action-at-its-worst-level"
@@ -2555,7 +2555,7 @@ impl = "tools/ci/checks.py a-broken-agent-is-never-a-bad-answer"
 blocking = "pr"
 self_test = """Let a truncated or empty sub-agent reply through as an ANSWER, so an
 unusable result is indistinguishable from a considered one."""
-self_test_evidence = "tools/ci/self_test.py a-broken-agent-is-never-a-bad-answer -- 2 cases, executed 2026-09-03: red under violation, green after restore."
+self_test_evidence = "tools/ci/self_test.py a-broken-agent-is-never-a-bad-answer -- 4 cases, executed 2026-09-03: red under violation, green after restore."
 
 [checks.CI-107]
 name = "a-question-does-not-end-the-turn"

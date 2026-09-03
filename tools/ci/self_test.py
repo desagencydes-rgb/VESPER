@@ -4851,9 +4851,6 @@ CASES += [
 ]
 
 
-if __name__ == "__main__":
-    sys.exit(main())
-
 # --------------------------------------------------------------------------
 # The wake path deletes the clip it just transcribed. INV-PRIV-3 says raw media
 # is not kept beyond its processing window, and a continuously-open microphone
@@ -4861,8 +4858,6 @@ if __name__ == "__main__":
 # a per-request one. Ratified as CI-104 on 2026-09-03; before that the check
 # ran green in every sweep and counted toward nothing.
 # --------------------------------------------------------------------------
-RUNTIME_PY = "tools/ops/vesper_runtime.py"
-
 CASES += [
     ("wake-word-listens-locally-and-starts-once", RUNTIME_PY,
      _sub("                pathlib.Path(path).unlink()     # the audio is not kept",
@@ -4870,3 +4865,30 @@ CASES += [
      "the captured clip is never deleted, so every wake-word utterance leaves a "
      "raw recording of the room on disk after it has been transcribed"),
 ]
+
+# --------------------------------------------------------------------------
+# A rung that is out of quota is not a rung that answered. Nine agent rungs
+# share one Claude subscription; on 2026-09-03 it printed "You've hit your
+# session limit" as ordinary stdout, 65 characters -- past every length bound
+# in the runner, and returned as the agent's considered answer.
+# --------------------------------------------------------------------------
+AGENTS_PY_Q = "core/agents.py"
+
+CASES += [
+    ("a-broken-agent-is-never-a-bad-answer", AGENTS_PY_Q,
+     _sub('    "hit your session limit",\n', "", 1),
+     "a rung reporting it has hit its session limit is no longer recognised, "
+     "so the quota notice is handed to the caller as the agent's finding while "
+     "every lower rung sits idle"),
+
+    ("a-broken-agent-is-never-a-bad-answer", AGENTS_PY_Q,
+     _sub("    if len(text) > MAX_EXHAUSTION_CHARS:\n        return None\n",
+          "    if False:\n        return None\n", 1),
+     "the length bound is removed, so an agent DISCUSSING a rate limit at "
+     "length is misread as a rung refusing for quota and a working rung is "
+     "abandoned on the strength of its wording"),
+]
+
+
+if __name__ == "__main__":
+    sys.exit(main())

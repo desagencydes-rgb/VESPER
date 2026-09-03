@@ -121,6 +121,65 @@ def _result(agent: str, status: str, *, text: str = "", why: str = "",
     })
 
 
+# What a subscription CLI prints INSTEAD OF AN ANSWER when the account it is
+# bound to has run out. Measured 2026-09-03: nine agent rungs share one Claude
+# subscription, a supply probe called them in succession, and the account
+# answered "You've hit your session limit - resets 4:10am" on stdout with the
+# rung otherwise behaving normally.
+#
+# THAT STRING IS 46 CHARACTERS, SO EVERY LENGTH BOUND ABOVE ADMITS IT. It is
+# not empty, not truncated, and the process need not exit non-zero to produce
+# it -- so without this it is returned as the agent's considered answer, and a
+# caller asking "is this change safe?" is told the session limit resets at
+# 4:10am and has no way to tell that from a finding.
+#
+# MATCHED ON THE WHOLE OUTPUT, not a prefix: the message can arrive after
+# warning lines. Kept deliberately narrow -- these are quota refusals, and an
+# agent legitimately DISCUSSING rate limits says so at length rather than
+# emitting one of these as its entire reply, which is why the guard also
+# requires the output to be short.
+EXHAUSTION_SIGNATURES = (
+    "hit your session limit",
+    "hit your usage limit",
+    "usage limit reached",
+    "rate limit exceeded",
+    "quota exceeded",
+    "insufficient credit",
+    "please run /login",
+    "invalid api key",
+)
+# 200, NOT 400. The first draft used 400 and a written false-positive case
+# caught it: an agent answering "expect a rate limit exceeded error on the fast
+# rung, batch the probes" is ~370 characters and was classified as a refusal.
+# A refusal is the WHOLE output and is short; an answer that happens to mention
+# a limit is neither.
+#
+# THE REMAINING RISK IS ACCEPTED, AND IT IS ACCEPTED IN THE SAFE DIRECTION. A
+# brief answer that names one of these phrases is still misread as exhaustion.
+# That costs one call on the next rung down and returns a real answer. The
+# opposite error -- reading a quota notice as a finding -- hands the caller
+# "You've hit your session limit" where a judgement belongs, with nothing in
+# the result to mark it as not an answer. One is a slower right answer, the
+# other is a confident wrong one.
+MAX_EXHAUSTION_CHARS = 200
+
+
+def _exhaustion(text: str) -> str | None:
+    """The rung's own words for "I have nothing left", or None.
+
+    A rung that refuses for quota is UNAVAILABLE, which descends to the next
+    rung. Returning it as an ANSWER would strand the caller on a dead rung
+    while every lower one sat idle -- the failure the ladder exists to avoid.
+    """
+    if len(text) > MAX_EXHAUSTION_CHARS:
+        return None
+    low = text.lower()
+    for s in EXHAUSTION_SIGNATURES:
+        if s in low:
+            return s
+    return None
+
+
 class AgentRunner:
     """Runs one named agent, and never lets it break the caller."""
 
@@ -219,6 +278,14 @@ class AgentRunner:
             return self._emit(_result(
                 agent, UNAVAILABLE, rung=binary,
                 why=f"produced {len(text)} characters, which is not an answer"))
+        spent = _exhaustion(text)
+        if spent is not None:
+            # NOT AN ANSWER, A RUNG THAT IS OUT. UNAVAILABLE descends; ANSWERED
+            # would hand the caller a quota notice where a finding belongs.
+            return self._emit(_result(
+                agent, UNAVAILABLE, rung=binary,
+                why=f"the rung reports it is out of quota ({spent!r}), so it "
+                    "answered nothing"))
         truncated = len(text) > MAX_OUTPUT_CHARS
         if truncated:
             # TRUNCATION IS UNAVAILABILITY, NOT A SHORTER ANSWER. A cut-off
