@@ -404,6 +404,34 @@ def _carry_forward(results: list, prev_path: str) -> tuple[list, list]:
         kept["carried_age_hours"] = round(age_h, 2)
         out.append(kept)
         carried.append(pid)
+
+    # AND ROWS THIS RUN NEVER TOUCHED. `--only <id>` probes one rung, so every
+    # other provider is absent from `results` rather than failing in it -- and
+    # writing that out would produce a one-row measurement that retires the
+    # entire ladder. Carrying them makes a targeted re-probe possible at all,
+    # which is the whole point: a single rung can be re-measured without
+    # spending a shared account's allowance on a full sweep.
+    #
+    # The 24h cap still applies to each row individually, so a file rebuilt this
+    # way repeatedly does not preserve stale numbers -- they age out one by one
+    # and go back to being UNAVAILABLE, which is what INV-HW-2 asks for.
+    seen = {r.get("provider_id") for r in results}
+    for pid, was in old.items():
+        if pid in seen or not was.get("usable"):
+            continue
+        stamp = was.get("measured_at") or prev.get("measured_at")
+        try:
+            age_h = (now - datetime.fromisoformat(stamp)).total_seconds() / 3600.0
+        except Exception:                          # noqa: BLE001
+            continue
+        if age_h > MAX_CARRY_AGE_H:
+            continue
+        kept = dict(was)
+        kept["carried_from"] = stamp
+        kept["carried_reason"] = "not probed in this run"
+        kept["carried_age_hours"] = round(age_h, 2)
+        out.append(kept)
+        carried.append(pid)
     return out, carried
 
 
@@ -566,7 +594,12 @@ def main() -> int:
         for pid in carried:
             print(f"  {pid:<12} CARRIED  last real measurement kept")
         if carried:
-            print(f"  {len(carried)} carried forward -> {usable}/{len(rows)} usable")
+            # AGAINST THE MERGED TOTAL, NOT THE PROBED ONE. `--only` probes a
+            # single rung, so `len(rows)` is 1 and the line read "46/1 usable"
+            # -- a denominator that describes this run rather than the file it
+            # just wrote, in the one place a reader checks the file's coverage.
+            print(f"  {len(carried)} carried forward -> "
+                  f"{usable}/{len(results)} usable in the merged file")
     if args.out:
         p = Path(args.out); p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps({

@@ -41,12 +41,24 @@ last report a usage limit. It is cumulative across sweeps, not per-sweep.
 terminal status, and refuses anything older than 24h. Three rows in the current
 file are carried and each says so.
 
+`REMOTE-SUPPLY-20260903T122430Z.json` supersedes it: the owner logged the
+advisor in, so `claude-advisor` was re-probed with `--only ... --merge` and the
+other 45 rows carried forward. **A targeted re-probe is the way to add one rung**
+— it costs one call instead of a sweep, and the 24h cap still ages each carried
+row out individually.
+
 Still unusable, and why:
 
-- `claude-advisor` — **needs the owner to log in**:
-  `CLAUDE_CONFIG_DIR=~/.config/vesper/claude-advisor claude`
 - `elevenlabs-speech`, `cf-transcribe` — speech endpoints; the probe posts a
   chat payload at them. Wrong wire, not a dead provider.
+
+**THE ADVISOR IS ON THE SAME ACCOUNT AS EVERYTHING ELSE.** Both config dirs
+resolve to the same `accountUuid` and the same email, so the separate-account
+isolation the advisor was asked for does not exist: it competes with the nine
+agent rungs for one subscription's allowance, and exhausting that account
+silences the reviewer at the same moment it silences the agents. Logging the
+advisor dir into a DIFFERENT Claude account is the fix; nothing in the code
+needs to change, because `config_dir` already points somewhere separate.
 
 ## What needs the owner, in order
 
