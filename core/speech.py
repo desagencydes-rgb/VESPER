@@ -46,6 +46,8 @@ import urllib.error
 import urllib.request
 import tempfile
 import tomllib
+
+from core.rung_credentials import expand_rows
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any
@@ -111,15 +113,18 @@ def speech_rows(path: Path | None = None) -> list:
         doc = tomllib.loads((path or SUPPLY_CONTRACT).read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError):
         return []
-    out = []
-    for row in doc.get("provider", []):
-        if row.get("purpose") != SPEECH_PURPOSE:
-            continue
-        env = row.get("credential_env", "")
-        if env and not (os.environ.get(env) or _secret(env)):
-            continue
-        out.append(row)
-    return out
+    declared = [row for row in doc.get("provider", [])
+                if row.get("purpose") == SPEECH_PURPOSE]
+
+    def present(env: str) -> bool:
+        return bool(os.environ.get(env) or _secret(env))
+
+    # EVERY NUMBERED SIBLING OF A DECLARED ROW IS A RUNG. `ELEVENLABS_API_KEY`
+    # is rung one; `ELEVENLABS_API_KEY_2`, `_3`, ... are additional free
+    # accounts of the SAME provider, added by dropping a line into
+    # `secrets.env` -- no row is written for them, `expand_rows` synthesises
+    # one per credential it finds. See `core/rung_credentials.py`.
+    return expand_rows(declared, present=present)
 
 
 def _secret(name: str) -> str:
@@ -380,23 +385,41 @@ class Speech:
             return row.get(name, default)
         return getattr(row, name, default)
 
+    def _candidates(self, privacy_class: str) -> list:
+        """Every PERMITTED row for this content, in the order to try them.
+
+        `self._supply` already carries every rung of every declared provider
+        -- `speech_rows()` expanded `ELEVENLABS_API_KEY`, `_2`, `_3`... into
+        one row apiece -- so this is a filter, not a search: egress-permitted
+        rows, in the order they were declared, which is rung order.
+        """
+        permitted = MAY_CARRY.get(privacy_class, frozenset())
+        return [row for row in self._supply
+                if self._field(row, "purpose") == SPEECH_PURPOSE
+                and self._field(row, "egress_class") in permitted]
+
     def _choose(self, privacy_class: str) -> tuple:
-        """The best PERMITTED synthesiser, and every one refused on the way.
+        """The FIRST permitted synthesiser, and every one refused on the way.
+
+        THIS PICKS FOR THE PLAN, NOT FOR THE CALL. `plan()` needs one id to
+        decide the script and narrate the reason; `speak()` needs the whole
+        ordered list, because the first rung may be out of characters this
+        month and the second one is not. `_candidates` is that list;
+        `_speak_external` walks it, this method reports only its head.
 
         REUSES `MAY_CARRY` RATHER THAN A LOCAL ALLOWLIST. An unknown privacy
         class yields an empty permitted set, so it falls to local -- absence is
         never permissive here, exactly as it is not in the cost policy.
         """
-        permitted = MAY_CARRY.get(privacy_class, frozenset())
-        refused = []
-        for row in self._supply:
-            if self._field(row, "purpose") != SPEECH_PURPOSE:
-                continue
-            cls = self._field(row, "egress_class")
-            rid = self._field(row, "id") or self._field(row, "provider_id") or "?"
-            if cls in permitted:
-                return rid, cls, tuple(refused)
-            refused.append(f"{rid}({cls})")
+        cands = self._candidates(privacy_class)
+        if cands:
+            row = cands[0]
+            return (self._field(row, "id") or self._field(row, "provider_id"),
+                    self._field(row, "egress_class"), ())
+        refused = [f"{self._field(row, 'id') or self._field(row, 'provider_id')}"
+                  f"({self._field(row, 'egress_class')})"
+                  for row in self._supply
+                  if self._field(row, "purpose") == SPEECH_PURPOSE]
         return LOCAL, None, tuple(refused)
 
     def _publish(self, plan: SpeechPlan) -> None:
@@ -421,27 +444,17 @@ class Speech:
 
     # ----------------------------------------------------------------- speak
 
-    def _speak_external(self, plan: SpeechPlan) -> dict:
-        """Synthesise through the declared provider, then play the audio.
-
-        THE CREDENTIAL NEVER TOUCHES THE TEXT PATH. It goes in a header; the
-        body carries the reply and the model id and nothing else.
-
-        AND A NON-200 IS A FAILURE, NOT SILENCE. Falling back to the local voice
-        here would be a second routing decision taken at the worst moment --
-        after the egress check has already passed -- so the caller is told and
-        the turn keeps its answer on screen.
+    def _speak_one(self, row: dict, plan: SpeechPlan) -> dict:
+        """One rung, one attempt. Never raises; the caller decides what a
+        failure here means -- try the next rung, or report the turn spoken
+        nowhere.
         """
-        row = next((r for r in self._supply
-                    if (self._field(r, "id") or
-                        self._field(r, "provider_id")) == plan.synthesiser), None)
-        if row is None:
-            return {"spoke": False, "reason": f"no row for {plan.synthesiser!r}"}
+        rid = self._field(row, "id") or self._field(row, "provider_id")
         key = os.environ.get(self._field(row, "credential_env") or "", "")
         if not key:
             key = _secret(self._field(row, "credential_env") or "")
         if not key:
-            return {"spoke": False, "attempted": plan.synthesiser,
+            return {"spoke": False, "attempted": rid,
                     "reason": "no credential in the environment or secrets file"}
         endpoint = (self._field(row, "endpoint") or "").replace(
             "{voice}", plan.voice or self._policy.get("darija_voice_id", ""))
@@ -455,10 +468,7 @@ class Speech:
                 audio = resp.read()
                 code = resp.status
         except (urllib.error.URLError, OSError) as exc:
-            self._bus.publish("speech.failed", subject=plan.synthesiser,
-                              payload={"error": repr(exc)}, component="speech")
-            return {"spoke": False, "attempted": plan.synthesiser,
-                    "reason": repr(exc)}
+            return {"spoke": False, "attempted": rid, "reason": repr(exc)}
         out = Path(tempfile.gettempdir()) / f"vesper-speech-{os.getpid()}.mp3"
         out.write_bytes(audio)
         player = shutil.which("afplay")
@@ -471,7 +481,7 @@ class Speech:
             except (OSError, subprocess.SubprocessError):
                 played = False
         self._bus.publish(
-            "speech.attempted", subject=plan.synthesiser,
+            "speech.attempted", subject=rid,
             payload={"http_status": code, "bytes": len(audio),
                      "played": played, "chars": len(plan.text),
                      "voice": plan.voice,
@@ -479,8 +489,56 @@ class Speech:
                               "`played` is the player's exit, which is also "
                               "not one")},
             component="speech")
-        return {"spoke": played, "attempted": plan.synthesiser,
+        return {"spoke": played, "attempted": rid,
                 "bytes": len(audio), "http_status": code}
+
+    def _speak_external(self, plan: SpeechPlan) -> dict:
+        """Try every permitted rung, in order, until one speaks.
+
+        THE FIRST RUNG BEING OUT OF CHARACTERS IS NOT THE SAME EVENT AS EVERY
+        RUNG BEING OUT. `speech.rung_failed` fires once per rung that did not
+        work, so a key nearing its monthly cap is visible in the log even on a
+        turn that a later rung saved -- otherwise "it always works" would keep
+        being true right up until the turn nothing saves.
+
+        THE CREDENTIAL NEVER TOUCHES THE TEXT PATH. It goes in a header; the
+        body carries the reply and the model id and nothing else.
+
+        AND EVERY RUNG FAILING IS A FAILURE, NOT SILENCE. Falling back to the
+        local voice here would be a second routing decision taken at the worst
+        moment -- after the egress check has already passed -- so the caller is
+        told and the turn keeps its answer on screen.
+        """
+        candidates = self._candidates(plan.privacy_class)
+        if not candidates:
+            return {"spoke": False, "reason": f"no row for {plan.synthesiser!r}"}
+        tried = []
+        for i, row in enumerate(candidates):
+            result = self._speak_one(row, plan)
+            if result["spoke"]:
+                if i > 0:
+                    self._bus.publish(
+                        "speech.rung_advanced", subject=result["attempted"],
+                        payload={"tried_first": [self._field(r, "id")
+                                                  or self._field(r, "provider_id")
+                                                  for r in candidates[:i]],
+                                 "spoke_on": result["attempted"]},
+                        component="speech")
+                return result
+            tried.append(result)
+            self._bus.publish(
+                "speech.rung_failed", subject=result.get("attempted"),
+                payload={"reason": result.get("reason"),
+                         "rungs_remaining": len(candidates) - i - 1},
+                component="speech")
+        self._bus.publish(
+            "speech.exhausted", subject=plan.synthesiser,
+            payload={"rungs_tried": len(tried),
+                     "reasons": [t.get("reason") for t in tried]},
+            component="speech")
+        return {"spoke": False, "attempted": plan.synthesiser,
+                "rungs_tried": len(tried),
+                "reason": tried[-1].get("reason") if tried else "no rung tried"}
 
     def speak(self, plan: SpeechPlan, *, voice: str | None = None) -> dict:
         """Execute a plan. Only local synthesis is implemented.

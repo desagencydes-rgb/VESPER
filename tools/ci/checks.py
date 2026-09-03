@@ -10831,6 +10831,64 @@ def check_speech_is_egress_and_says_so() -> Result:
               "read aloud with a stranger in the room -- the module wired and "
               "the one input that makes speaking safe left out.")
 
+    # A RUNG OUT OF QUOTA IS NOT THE LAST RUNG. Measured 2026-09-03: ElevenLabs
+    # free tier is 10,000 characters a MONTH, so one key covers roughly 40
+    # spoken replies before it refuses for the rest of the billing cycle --
+    # and until this landed, `_choose` picked the FIRST permitted row and
+    # `_speak_external` tried it once. A non-200 was a failure, full stop; a
+    # key that had already spent its month left every later reply unspoken for
+    # the rest of it, with a working second key sitting unused in the same
+    # file.
+    rc_path = REPO / "core" / "rung_credentials.py"
+    if not rc_path.exists():
+        r.err("core/rung_credentials.py does not exist, so a declared row can "
+              "have at most one credential and 'add another key' means editing "
+              "code, not adding a line to secrets.env")
+    else:
+        rc = rc_path.read_text(encoding="utf-8")
+        if "def expand_rows" not in rc:
+            r.err("rung_credentials.py has no expand_rows, so numbered "
+                  "credentials (ELEVENLABS_API_KEY_2, _3, ...) are not turned "
+                  "into rungs by anything")
+
+    sp = (REPO / "core" / "speech.py").read_text(encoding="utf-8")
+    if "from core.rung_credentials import expand_rows" not in sp:
+        r.err("core/speech.py does not import expand_rows, so speech_rows() "
+              "sees only the first credential of a declared row -- a second "
+              "ElevenLabs key added to secrets.env would never be tried")
+    # THE LOOP ITSELF, NOT A SLICE THAT HAPPENS TO MENTION IT. The first form
+    # looked for `candidates[:i]`, which lives in the rung_advanced publish --
+    # so bounding the loop to `candidates[:1]` left the assertion satisfied by
+    # a line that does not control how many rungs are tried.
+    if "_candidates" not in sp or "for i, row in enumerate(candidates):" not in sp:
+        r.err("core/speech.py has no notion of trying more than one candidate "
+              "in order, so a rung that is out of characters ends the turn "
+              "unspoken rather than falling to the next key")
+    for kind in ("speech.rung_failed", "speech.exhausted"):
+        if f'"{kind}"' not in sp:
+            r.err(f"core/speech.py never publishes {kind!r}, so a key running "
+                  "low is invisible until the turn it finally fails on")
+
+    tr = (REPO / "core" / "transcribe.py").read_text(encoding="utf-8")
+    if "from core.rung_credentials import expand_rows" not in tr:
+        r.err("core/transcribe.py does not import expand_rows, so a second "
+              "transcriber credential is never tried")
+    # THE DISPATCH, NOT THE WORD. `groq_whisper` appears in this module's own
+    # docstring, so a bare substring check stayed green when the branch that
+    # reads it was replaced by `if False:`.
+    if 'if wire == "groq_whisper":' not in tr or "cf_whisper" not in tr:
+        r.err("core/transcribe.py no longer distinguishes the Cloudflare and "
+              "Groq wire shapes, so one of the two transcriber providers "
+              "cannot be called at all")
+    # QUOTED, WITH THE CLOSING MARK -- "transcribe.exhausted" is a PREFIX of
+    # "transcribe.exhausted_unused", so a bare substring check would stay green
+    # under exactly the mutation that renames the event out from under it.
+    for kind in ("transcribe.rung_failed", "transcribe.exhausted"):
+        if f'"{kind}"' not in tr:
+            r.err(f"core/transcribe.py never publishes {kind!r}, so a "
+                  "transcriber running low on quota is invisible until it "
+                  "finally fails a turn")
+
     r.note(f"private content is refused an E2_PUBLIC synthesiser and permitted "
            f"an E1_PRIVATE one, using MAY_CARRY itself ({dict((k, sorted(v)) for k, v in MAY_CARRY.items())}) "
            f"rather than a copy; an unknown class falls to local; the script is "
@@ -10838,7 +10896,8 @@ def check_speech_is_egress_and_says_so() -> Result:
            f"owner's own words; the local fallback reports {LOCAL_MANGLES!r} on "
            f"Darija and reports nothing on English; an unidentified person in "
            f"the room means WITHHOLD; a selected-but-unimplemented synthesiser "
-           f"refuses rather than going quiet. Speech-purpose supply rows "
+           f"refuses rather than going quiet; a rung out of quota is tried and "
+           f"reported, never the last word. Speech-purpose supply rows "
            f"declared today: {declared or 'none -- the running system speaks locally'}")
     return r
 

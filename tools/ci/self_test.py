@@ -3277,9 +3277,9 @@ CASES += [
      "decision core/presence.py was built to feed"),
 
     ("speech-is-egress-and-says-so", SPEECH_PY,
-     _sub('            return {"spoke": False, "attempted": plan.synthesiser,\n'
+     _sub('            return {"spoke": False, "attempted": rid,\n'
           '                    "reason": "no credential in the environment or secrets file"}',
-          '            return {"spoke": True, "attempted": plan.synthesiser}', 1),
+          '            return {"spoke": True, "attempted": rid}', 1),
      "a synthesis that could not be performed reports spoke=True: the owner "
      "hears nothing and the record says VESPER spoke -- an instrument's "
      "self-report standing in for evidence"),
@@ -4987,6 +4987,46 @@ CASES += [
           'model = "@cf/openai/whisper-large-v3-turbo"\nlanguage = "ar"', 1),
      "the transcriber forces Arabic again, so English and French utterances "
      "come back as hallucinated Arabic instead of as what was said"),
+]
+
+
+# --------------------------------------------------------------------------
+# A rung out of quota is not the last rung. ElevenLabs' free tier is 10,000
+# characters a MONTH -- roughly 40 replies -- and until this landed, a key
+# that had spent its month left every later reply unspoken for the rest of it,
+# with a working second key sitting unused in the same file.
+# --------------------------------------------------------------------------
+CASES += [
+    ("speech-is-egress-and-says-so", SPEECH_PY,
+     _sub("from core.rung_credentials import expand_rows\n", "", 1),
+     "speech_rows no longer expands numbered credentials, so a second "
+     "ElevenLabs key added to secrets.env is never tried"),
+
+    ("speech-is-egress-and-says-so", SPEECH_PY,
+     _sub("        for i, row in enumerate(candidates):",
+          "        for i, row in enumerate(candidates[:1]):", 1),
+     "only the first candidate is ever tried, so a rung out of characters "
+     "ends the turn unspoken instead of falling to the next key"),
+
+    ("speech-is-egress-and-says-so", SPEECH_PY,
+     _sub('"speech.exhausted"', '"speech.exhausted_unused"', 1),
+     "the exhaustion event is renamed, so a key running low on every rung "
+     "is invisible until the turn nothing can save"),
+
+    ("speech-is-egress-and-says-so", TRANSCRIBE_PY,
+     _sub("from core.rung_credentials import expand_rows\n", "", 1),
+     "transcribe_rows no longer expands numbered credentials, so a second "
+     "transcriber credential added to secrets.env is never tried"),
+
+    ("speech-is-egress-and-says-so", TRANSCRIBE_PY,
+     _sub('if wire == "groq_whisper":', "if False:", 1),
+     "the Groq wire is never reached, so a transcriber row declaring it "
+     "fails every call regardless of credential"),
+
+    ("speech-is-egress-and-says-so", TRANSCRIBE_PY,
+     _sub('"transcribe.exhausted"', '"transcribe.exhausted_unused"', 1),
+     "the exhaustion event is renamed, so a transcriber out of quota on "
+     "every rung fails silently instead of being reported"),
 ]
 
 

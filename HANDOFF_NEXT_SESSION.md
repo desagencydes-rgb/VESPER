@@ -5,7 +5,7 @@ supply measurement. Read this, then `CLAUDE.md`.
 
 ## State
 
-- **127 checks pass. 559/559 self-test cases** red under violation, green after
+- **127 checks pass. 565/565 self-test cases** red under violation, green after
   restore. Both lints, F0–F6 acceptance, placement and fabric stress all pass.
 - **118 registered checks, 89/144 invariants enforced**, 18 still `PENDING`,
   **23 runnable checks unratified** — see

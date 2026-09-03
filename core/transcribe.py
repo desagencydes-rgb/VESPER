@@ -49,6 +49,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from core.rung_credentials import expand_rows
+
 # The purpose a supply row must declare to be considered a transcriber.
 TRANSCRIBE_PURPOSE = "transcribe"
 
@@ -104,39 +106,148 @@ class Transcriber:
         self._bus = bus
         self._supply = list(supply or ())
 
-    def choose(self, privacy_class: str = "private") -> tuple:
-        """The permitted transcriber, and every one refused on the way.
+    def _candidates(self, privacy_class: str = "private") -> tuple:
+        """Every permitted transcriber, in rung order, and every one refused.
 
-        REUSES `MAY_CARRY`, like the speech planner. There is no local fallback
-        here and that asymmetry is real: a synthesiser that may not speak can
-        fall back to the machine's own voice, and a transcriber that may not
-        transcribe has nothing to fall back to -- this locale is here precisely
-        because the machine cannot do it.
+        REUSES `MAY_CARRY`, like the speech planner. There is no local
+        fallback here and that asymmetry is real: a synthesiser that may not
+        speak can fall back to the machine's own voice, and a transcriber that
+        may not transcribe has nothing to fall back to -- this locale is here
+        precisely because the machine cannot do it.
         """
         from .gateway import MAY_CARRY
         permitted = MAY_CARRY.get(privacy_class, frozenset())
-        refused = []
+        rows, refused = [], []
         for row in self._supply:
             if _field(row, "purpose") != TRANSCRIBE_PURPOSE:
                 continue
             cls = _field(row, "egress_class")
             rid = _field(row, "id") or _field(row, "provider_id") or "?"
             if cls in permitted:
-                return row, cls, tuple(refused)
-            refused.append(f"{rid}({cls})")
-        return None, None, tuple(refused)
+                rows.append(row)
+            else:
+                refused.append(f"{rid}({cls})")
+        return tuple(rows), tuple(refused)
+
+    def choose(self, privacy_class: str = "private") -> tuple:
+        """The FIRST permitted transcriber, kept for callers that want one row."""
+        rows, refused = self._candidates(privacy_class)
+        if rows:
+            row = rows[0]
+            return row, _field(row, "egress_class"), refused
+        return None, None, refused
+
+    def _transcribe_one(self, row: Any, data: bytes) -> dict:
+        """One rung, one attempt. Returns a raw result dict, never raises.
+
+        TWO WIRES, ONE SHAPE OUT. `cf_whisper` posts JSON with the audio
+        base64-encoded and reads `result.text` / `result.transcription_info`;
+        `groq_whisper` posts multipart/form-data -- Groq's audio endpoint is
+        OpenAI-shaped, not JSON-body-shaped, and does not accept a base64
+        string -- and reads `text` / `segments` / `language` at the top level.
+        Both return through the same dict keys so the caller does not need to
+        know which one answered.
+        """
+        rid = _field(row, "id") or "?"
+        wire = _field(row, "wire") or "cf_whisper"
+        key = _secret(_field(row, "credential_env") or "")
+        if not key:
+            return {"ok": False, "id": rid,
+                    "reason": "no credential for the transcriber"}
+
+        # THE LANGUAGE IS DETECTED, NOT DECLARED -- REVERSED 2026-09-03, and the
+        # reversal is why the mechanism stays. It was declared `ar` because
+        # Darija auto-detected as FRENCH on 2026-08-31. That no longer
+        # reproduces on `whisper-large-v3-turbo`, and the override had become
+        # the defect it was written to prevent: English and French audio came
+        # back as "ترجمة نانسي قنقر", a Whisper hallucination, while Darija was
+        # byte-identical with and without it across four samples. The row may
+        # still declare `language` and it is honoured when present; nothing
+        # does, by default, so detection decides.
+        lang = _field(row, "language") or ""
+
+        try:
+            if wire == "groq_whisper":
+                boundary = "----vesperTranscribeBoundary"
+                parts = [
+                    "--{b}\r\nContent-Disposition: form-data; "
+                    "name=\"model\"\r\n\r\n{m}\r\n".format(
+                        b=boundary, m=_field(row, "model") or ""),
+                    "--{b}\r\nContent-Disposition: form-data; "
+                    "name=\"response_format\"\r\n\r\nverbose_json\r\n".format(b=boundary),
+                ]
+                if lang:
+                    parts.append(
+                        "--{b}\r\nContent-Disposition: form-data; "
+                        "name=\"language\"\r\n\r\n{l}\r\n".format(b=boundary, l=lang))
+                parts.append(
+                    "--{b}\r\nContent-Disposition: form-data; "
+                    "name=\"file\"; filename=\"a.wav\"\r\n"
+                    "Content-Type: audio/wav\r\n\r\n".format(b=boundary))
+                body = "".join(parts).encode() + data + "\r\n--{b}--\r\n".format(b=boundary).encode()
+                endpoint = _field(row, "endpoint") or ""
+                req = urllib.request.Request(
+                    endpoint, data=body, method="POST",
+                    headers={"Authorization": f"Bearer {key}",
+                             "User-Agent": "vesper/1.0",
+                             "Content-Type": f"multipart/form-data; boundary={boundary}"})
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    out = json.loads(resp.read())
+                text = out.get("text", "") or ""
+                # GROQ NAMES A LANGUAGE ("English"); CLOUDFLARE NAMES A CODE
+                # ("en"). `Transcript.language` means one thing regardless of
+                # which rung answered, so this is where the two are
+                # reconciled -- the owner speaks three languages and this maps
+                # exactly those, rather than importing a general-purpose table
+                # for languages nothing here will ever produce.
+                lang_out = {"english": "en", "french": "fr", "arabic": "ar"}.get(
+                    str(out.get("language") or "").strip().lower(),
+                    str(out.get("language") or ""))
+                return {"ok": bool(text.strip()), "id": rid, "text": text,
+                        "seconds": float(out.get("duration") or 0.0),
+                        "confidence": _confidence(out),
+                        "language": lang_out, "language_probability": 0.0}
+
+            account = _secret(_field(row, "account_env") or "")
+            endpoint = (_field(row, "endpoint") or "").replace("{account}", account) \
+                                                      .replace("{model}", _field(row, "model") or "")
+            payload = {"audio": base64.b64encode(data).decode()}
+            if lang:
+                payload["language"] = lang
+            body = json.dumps(payload).encode()
+            req = urllib.request.Request(
+                endpoint, data=body, method="POST",
+                headers={"Authorization": f"Bearer {key}",
+                         "Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                out = json.loads(resp.read())
+            res = (out or {}).get("result") or {}
+            text = res.get("text", "") or ""
+            info = res.get("transcription_info") or {}
+            return {"ok": bool(text.strip()), "id": rid, "text": text,
+                    "seconds": float(info.get("duration") or 0.0),
+                    "confidence": _confidence(res),
+                    "language": str(info.get("language") or ""),
+                    "language_probability": float(info.get("language_probability") or 0.0)}
+        except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
+            return {"ok": False, "id": rid, "reason": repr(exc)}
 
     def transcribe(self, audio: bytes | Path, *,
                    privacy_class: str = "private") -> Transcript:
         """Returns what was heard, or why it could not be.
+
+        TRIES EVERY PERMITTED RUNG IN ORDER. The first one out of quota is not
+        the last one available -- `transcribe.rung_failed` fires per rung that
+        did not work, so a key nearing its limit is visible in the log even on
+        a turn a later rung saved.
 
         NEVER RAISES INTO THE TURN. A failed transcription is silence, which is
         recoverable; an exception out of the listening path would take down the
         loop that is also how the owner types.
         """
         data = Path(audio).read_bytes() if isinstance(audio, (str, Path)) else audio
-        row, cls, refused = self.choose(privacy_class)
-        if row is None:
+        rows, refused = self._candidates(privacy_class)
+        if not rows:
             reason = (f"no transcriber may carry {privacy_class!r} content"
                       + (f"; refused {list(refused)}" if refused else
                          "; none is declared"))
@@ -145,65 +256,36 @@ class Transcriber:
                                               "reason": reason})
             return Transcript("", "none", None, ok=False, reason=reason)
 
-        rid = _field(row, "id") or "?"
-        key = _secret(_field(row, "credential_env") or "")
-        account = _secret(_field(row, "account_env") or "")
-        if not key:
-            return Transcript("", rid, cls, ok=False,
-                              reason="no credential for the transcriber")
-        endpoint = (_field(row, "endpoint") or "").replace("{account}", account) \
-                                                  .replace("{model}", _field(row, "model") or "")
-        # THE LANGUAGE IS DETECTED, NOT DECLARED -- REVERSED 2026-09-03, and the
-        # reversal is why the mechanism stays. It was declared `ar` because
-        # Darija auto-detected as FRENCH on 2026-08-31. That no longer
-        # reproduces on `whisper-large-v3-turbo`, and the override had become
-        # the defect it was written to prevent: English and French audio came
-        # back as "ترجمة نانسي قنقر", a Whisper hallucination, while Darija was
-        # byte-identical with and without it across four samples.
-        #
-        # "SAYING SO COSTS NOTHING" WAS THE WRONG PART. Declaring a language
-        # costs every OTHER language the owner speaks, and this owner speaks
-        # three. Forcing the wrong one does not degrade -- it INVENTS: forcing
-        # `en` on Darija returns "What can you do for today's work?", fluent,
-        # plausible, and not what was said. A mistranscription that looks like a
-        # request is worse than one that looks like noise, because only the
-        # second is obviously wrong.
-        #
-        # The row may still declare `language` and it is honoured when present.
-        # What changed is that nothing declares it, so detection runs and the
-        # detected language reaches `Transcript.language` with its probability
-        # instead of being overwritten by a guess made in a contract file.
-        payload = {"audio": base64.b64encode(data).decode()}
-        lang = _field(row, "language") or ""
-        if lang:
-            payload["language"] = lang
-        body = json.dumps(payload).encode()
-        req = urllib.request.Request(
-            endpoint, data=body, method="POST",
-            headers={"Authorization": f"Bearer {key}",
-                     "Content-Type": "application/json"})
-        try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
-                out = json.loads(resp.read())
-        except (urllib.error.URLError, OSError, json.JSONDecodeError) as exc:
-            self._emit("transcribe.failed", {"provider": rid, "error": repr(exc)})
-            return Transcript("", rid, cls, ok=False, reason=repr(exc))
+        tried = []
+        for i, row in enumerate(rows):
+            cls = _field(row, "egress_class")
+            result = self._transcribe_one(row, data)
+            if result["ok"]:
+                if i > 0:
+                    self._emit("transcribe.rung_advanced",
+                              {"tried_first": [_field(r, "id") for r in rows[:i]],
+                               "heard_on": result["id"]})
+                t = Transcript(
+                    result["text"].strip(), result["id"], cls,
+                    seconds=result.get("seconds", 0.0), ok=True, reason="",
+                    confidence=result.get("confidence", 0.0),
+                    language=result.get("language", ""),
+                    language_probability=result.get("language_probability", 0.0))
+                self._emit("transcribe.done", t.to_dict())
+                return t
+            tried.append(result)
+            self._emit("transcribe.rung_failed",
+                      {"id": result.get("id"), "reason": result.get("reason"),
+                       "rungs_remaining": len(rows) - i - 1})
 
-        res = (out or {}).get("result") or {}
-        text = res.get("text", "") or ""
-        info = res.get("transcription_info") or {}
-        conf = _confidence(res)
-        t = Transcript(
-            text.strip(), rid, cls,
-            seconds=float(info.get("duration") or 0.0),
-            ok=bool(text.strip()),
-            reason="" if text.strip() else "the transcriber returned nothing",
-            confidence=conf,
-            language=str(info.get("language") or ""),
-            language_probability=float(info.get("language_probability") or 0.0))
-        self._emit("transcribe.done", t.to_dict())
-        return t
-
+        self._emit("transcribe.exhausted",
+                  {"rungs_tried": len(tried),
+                   "reasons": [r.get("reason") for r in tried]})
+        last = tried[-1] if tried else {}
+        reason = last.get("reason") or "the transcriber returned nothing"
+        return Transcript("", last.get("id", "none"),
+                          _field(rows[-1], "egress_class") if rows else None,
+                          ok=False, reason=reason)
     def _emit(self, kind: str, payload: dict) -> None:
         if self._bus is not None:
             self._bus.publish(kind, subject="transcribe", payload=payload,
@@ -271,12 +353,11 @@ def transcribe_rows(path: Path | None = None) -> list:
         doc = tomllib.loads(p.read_text(encoding="utf-8"))
     except (OSError, tomllib.TOMLDecodeError):
         return []
-    out = []
-    for row in doc.get("provider", []):
-        if row.get("purpose") != TRANSCRIBE_PURPOSE:
-            continue
-        env = row.get("credential_env", "")
-        if env and not _secret(env):
-            continue
-        out.append(row)
-    return out
+    declared = [row for row in doc.get("provider", [])
+                if row.get("purpose") == TRANSCRIBE_PURPOSE]
+
+    # EVERY NUMBERED SIBLING OF A DECLARED ROW IS A RUNG, exactly as in
+    # `core/speech.py`. `CLOUDFLARE_API_TOKEN_TRANSCRIBE`, `_2`, `_3`... and a
+    # different provider entirely (`groq-transcribe`, its own `rung`) both
+    # arrive through this same expansion.
+    return expand_rows(declared, present=lambda env: bool(_secret(env)))

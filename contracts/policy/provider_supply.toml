@@ -855,31 +855,50 @@ egress_class = "E1_PRIVATE"
 cost_class = "metered_free_tier"
 provable_hard_cap = true
 hard_cap_evidence = "Free account, no payment method attached; the tier refuses at the ceiling rather than billing over it."
-credential_env = "CLOUDFLARE_API_TOKEN"
-account_env = "CLOUDFLARE_ACCOUNT_ID"
+# A DEDICATED ACCOUNT, NOT THE SHARED ONE -- moved 2026-09-03. This row used to
+# share `CLOUDFLARE_API_TOKEN` with `cf-strong` (text) and `cf-image`, all three
+# billing the same 10,000-neuron/day pool. That was never a volume problem for
+# transcription -- one clip costs ~3.32 neurons, measured, so even 1,000 clips a
+# day is a third of the pool -- it was a CONTENTION problem: a busy text/image
+# day could starve hearing, on an account transcription did not choose and does
+# not need to share. `cf-chooser`, `cf-updater`, `cf-compactor` and
+# `cf-implementer` already get their own free accounts for exactly this reason;
+# this row now matches that pattern.
+credential_env = "CLOUDFLARE_API_TOKEN_TRANSCRIBE"
+account_env = "CLOUDFLARE_ACCOUNT_ID_TRANSCRIBE"
 endpoint = "https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model}"
 model = "@cf/openai/whisper-large-v3-turbo"
 wire = "cf_whisper"
-# DECLARED, NOT DETECTED. Left to auto-detect, Darija comes back as French --
-# it borrows French vocabulary and the detector resolves the ambiguity the
-# wrong way often enough to be useless. Measured 2026-08-31.
 
+# ---------------------------------------------------------------------------
+# Rung 2: a DIFFERENT PROVIDER, not another Cloudflare account. Added
+# 2026-09-03. Cloudflare's headroom was never the constraint, so a second
+# Cloudflare account would buy nothing a busy day could not already survive on
+# one; what transcription had NONE of was protection against Cloudflare
+# Workers AI itself having an outage -- one rung, no fallback, meant an outage
+# there left VESPER unable to hear at all.
+#
+# GROQ, MEASURED 2026-09-03: its whisper-large-v3-turbo endpoint answered a
+# real test clip correctly (`/openai/v1/audio/transcriptions`, multipart, NOT
+# the JSON+base64 shape Cloudflare uses -- see `wire = "groq_whisper"` in
+# core/transcribe.py) and carries its own rate-limit bucket, separate from the
+# chat-completions traffic `groq-strong` already sends on this account family.
+# Given a DEDICATED credential anyway, matching the isolation rule above.
+# ---------------------------------------------------------------------------
+[[provider]]
+id = "groq-transcribe"
+purpose = "transcribe"
+tier = "standard"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "Free account, no payment method attached; the tier refuses at the ceiling rather than billing over it."
+credential_env = "GROQ_API_KEY_TRANSCRIBE"
+endpoint = "https://api.groq.com/openai/v1/audio/transcriptions"
+model = "whisper-large-v3-turbo"
+wire = "groq_whisper"
 
-# ======================================================================
-# THE SPECIALISED AGENTS (contracts/policy/subagents.toml declares what each
-# one may touch; this declares what powers it).
-#
-# EVERY AGENT HAS TWO RUNGS AND THE SHAPE IS ALWAYS THE SAME. Rung 1 is a
-# subscription CLI -- free, no per-token cost, and the owner's own account.
-# Rung 2 is an API key with `provable_hard_cap = true`, so an agent that spends
-# itself STOPS rather than reaching into the accounts the owner uses personally.
-#
-# A ROW WHOSE CREDENTIAL IS ABSENT DOES NOT ENROL, which is how these arrive
-# safely before the keys do: `supply.register` skips an http row with no secret,
-# so until a key is filled the agent simply has one fewer rung. With neither
-# rung the agent reports UNAVAILABLE, which `core/agents.py` treats as a fact
-# VESPER can act on rather than a failure that breaks a turn.
-# ======================================================================
 # NO FORCED LANGUAGE, MEASURED 2026-09-03. This row declared `language = "ar"`
 # on the strength of a 2026-08-31 measurement in which Darija auto-detected as
 # FRENCH. That does not reproduce on `whisper-large-v3-turbo`, and the override
@@ -900,6 +919,21 @@ wire = "cf_whisper"
 # back TRANSLATED rather than transcribed -- "What can you do for today's
 # work?" -- which reads as a plausible request and is not what was said.
 
+# ======================================================================
+# THE SPECIALISED AGENTS (contracts/policy/subagents.toml declares what each
+# one may touch; this declares what powers it).
+#
+# EVERY AGENT HAS TWO RUNGS AND THE SHAPE IS ALWAYS THE SAME. Rung 1 is a
+# subscription CLI -- free, no per-token cost, and the owner's own account.
+# Rung 2 is an API key with `provable_hard_cap = true`, so an agent that spends
+# itself STOPS rather than reaching into the accounts the owner uses personally.
+#
+# A ROW WHOSE CREDENTIAL IS ABSENT DOES NOT ENROL, which is how these arrive
+# safely before the keys do: `supply.register` skips an http row with no secret,
+# so until a key is filled the agent simply has one fewer rung. With neither
+# rung the agent reports UNAVAILABLE, which `core/agents.py` treats as a fact
+# VESPER can act on rather than a failure that breaks a turn.
+# ======================================================================
 [[provider]]
 id = "claude-investigator"
 tier = "strong"
