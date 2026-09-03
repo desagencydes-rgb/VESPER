@@ -42,6 +42,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 
 from core.advisor import Advisor                                 # noqa: E402
+from core.agents import AgentRunner, AgentRosterError            # noqa: E402
 from core.background import BackgroundJobs                       # noqa: E402
 from core.bus import EventBus                                   # noqa: E402
 from core.cost import CostPolicy                                # noqa: E402
@@ -600,6 +601,16 @@ def build(node: str = "vesper-runtime"):
     # there. Without the broker it would still be safe and would simply say no,
     # which is safe in the way a system that cannot do anything is safe.
     jobs = BackgroundJobs(bus)
+    # THE SPECIALISED AGENTS. The roster is a contract, so a missing or broken
+    # one is a deployment fault rather than "no agents configured" -- recorded
+    # and carried on from, because an unreadable roster must not stop VESPER
+    # answering the owner.
+    try:
+        runner = AgentRunner(bus=bus)
+    except AgentRosterError as exc:
+        bus.publish("agent.roster_unreadable", subject="agents",
+                    payload={"error": repr(exc)}, component="runtime")
+        runner = None
     # THE ADVISOR, ON ITS OWN ACCOUNT, AND ONLY IF THAT ACCOUNT EXISTS.
     # `purpose="advisor"` routes to `claude-advisor`, which is bound to a
     # SECOND config dir -- so advice cannot consume the account the arbiter and
@@ -612,7 +623,7 @@ def build(node: str = "vesper-runtime"):
     advisor_profiles = measured_profiles(rows, purpose="advisor")
     advisor = (Advisor(gw, router=Router(bus, advisor_profiles), bus=bus)
                if advisor_profiles else None)
-    actor = Actor(bus, gw, jobs=jobs, advisor=advisor,
+    actor = Actor(bus, gw, jobs=jobs, advisor=advisor, runner=runner,
                   broker=ConfirmationBroker(bus, InterruptionBudget(bus)))
     autonomy.attach_actor(actor)
 

@@ -134,7 +134,8 @@ class Actor:
                  now_ms: Any = None, profile_id: str = "",
                  shadow: Any = None, reconciler: Any = None,
                  selfmod: Any = None, jobs: Any = None,
-                 agent: Any = None, advisor: Any = None) -> None:
+                 agent: Any = None, advisor: Any = None,
+                 runner: Any = None) -> None:
         self._bus = bus
         self._registry = build_registry()
         # Turns waiting on an answer, keyed by the broker's own
@@ -202,7 +203,8 @@ class Actor:
         # act path is exactly what it was; a missing reviewer never becomes a
         # reason to be more permissive than a system that never had one.
         self._advisor = advisor
-        bind_all(self._executor, jobs=jobs, agent=agent)
+        self._runner = runner
+        bind_all(self._executor, jobs=jobs, agent=agent, runner=runner)
         self._proposer = IntentProposer(gateway, bus=bus, profile_id=profile_id)
         self._ceiling = ContextCeiling(bus)
         self._subject = subject

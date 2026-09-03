@@ -97,6 +97,21 @@ _STATUS_CLASS = {
     401: "auth_failed",
     403: "auth_failed",
     404: "bad_request",
+    # 410 GONE IS PERMANENT AND WAS BEING RETRIED. Unlisted statuses fall to
+    # `server_error`, which is TRANSIENT -- so a model the provider has
+    # WITHDRAWN was re-asked for until the retry budget ran out, on every turn
+    # that reached that rung, forever. Measured 2026-09-03 while enrolling the
+    # agents: NINE of ten models tried on one provider answered 410, the
+    # catalogue still listing every one of them.
+    #
+    # The cure is the same as a 404's -- descend to the next rung now -- and the
+    # difference between them is only how the provider phrases "that model is
+    # not here". Retrying either is asking a settled question again.
+    410: "bad_request",
+    # 405 AND 501 ARE ALSO SETTLED. The endpoint does not do this, and it will
+    # not start doing it inside a retry window.
+    405: "bad_request",
+    501: "bad_request",
     # 413 IS NOT A SERVER FAULT AND IT IS NOT A BAD REQUEST EITHER, and it fell
     # through to `server_error` -- a TRANSIENT class, so the chain retried a
     # request that could never succeed and then reported a healthy rung as

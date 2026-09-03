@@ -856,3 +856,403 @@ wire = "cf_whisper"
 # it borrows French vocabulary and the detector resolves the ambiguity the
 # wrong way often enough to be useless. Measured 2026-08-31.
 language = "ar"
+
+
+# ======================================================================
+# THE SPECIALISED AGENTS (contracts/policy/subagents.toml declares what each
+# one may touch; this declares what powers it).
+#
+# EVERY AGENT HAS TWO RUNGS AND THE SHAPE IS ALWAYS THE SAME. Rung 1 is a
+# subscription CLI -- free, no per-token cost, and the owner's own account.
+# Rung 2 is an API key with `provable_hard_cap = true`, so an agent that spends
+# itself STOPS rather than reaching into the accounts the owner uses personally.
+#
+# A ROW WHOSE CREDENTIAL IS ABSENT DOES NOT ENROL, which is how these arrive
+# safely before the keys do: `supply.register` skips an http row with no secret,
+# so until a key is filled the agent simply has one fewer rung. With neither
+# rung the agent reports UNAVAILABLE, which `core/agents.py` treats as a fact
+# VESPER can act on rather than a failure that breaks a turn.
+# ======================================================================
+
+[[provider]]
+id = "claude-investigator"
+tier = "strong"
+purpose = "investigator"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CLAUDE_CONFIG_DIR"
+endpoint = "claude"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+config_dir_env = "CLAUDE_CONFIG_DIR"
+config_dir = "~/.config/vesper/claude-vesper"
+model = "subscription-default"
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """The owner's own claude subscription, shared with the other agents on
+this account. Unmetered per token and unpublished per request, so the ledger
+books it as an unmeasured ceiling: when it is spent, rung 2 carries the agent."""
+
+[[provider]]
+id = "groq-investigator"
+tier = "standard"
+purpose = "investigator"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "OWED: the owner is provisioning this key on 2026-09-02. Free tier, no card attached; re-verify before first use and record the ceiling here."
+credential_env = "GROQ_API_KEY_INVESTIGATOR"
+endpoint = "https://api.groq.com/openai/v1/chat/completions"
+model = "openai/gpt-oss-120b"
+wire = "openai_chat"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 86_400
+quota_note = """Dedicated account for the investigator. Its own key so a spent agent
+starves only itself -- the pattern the compactor, chooser, updater, arbiter and
+forgetter already follow. Does not enrol until the credential exists."""
+
+[[provider]]
+id = "claude-implementer"
+tier = "strong"
+purpose = "implementer"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CLAUDE_CONFIG_DIR"
+endpoint = "claude"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+config_dir_env = "CLAUDE_CONFIG_DIR"
+config_dir = "~/.config/vesper/claude-vesper"
+model = "subscription-default"
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """The owner's own claude subscription, shared with the other agents on
+this account. Unmetered per token and unpublished per request, so the ledger
+books it as an unmeasured ceiling: when it is spent, rung 2 carries the agent."""
+
+[[provider]]
+id = "cf-implementer"
+tier = "standard"
+purpose = "implementer"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "OWED: the owner is provisioning this key on 2026-09-02. Free tier, no card attached; re-verify before first use and record the ceiling here."
+credential_env = "CLOUDFLARE_API_TOKEN_IMPLEMENTER"
+# THE ENDPOINT INTERPOLATES {account}, so the token alone is not enough --
+# without this the URL would be built with a literal "{account}" in it and
+# the rung would fail on first use rather than at registration.
+account_env = "CLOUDFLARE_ACCOUNT_ID_IMPLEMENTER"
+endpoint = "https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/{model}"
+model = "@cf/openai/gpt-oss-120b"
+wire = "cf_responses"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 86_400
+quota_note = """Dedicated account for the implementer. Its own key so a spent agent
+starves only itself -- the pattern the compactor, chooser, updater, arbiter and
+forgetter already follow. Does not enrol until the credential exists."""
+
+[[provider]]
+id = "claude-tester"
+tier = "strong"
+purpose = "tester"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CLAUDE_CONFIG_DIR"
+endpoint = "claude"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+config_dir_env = "CLAUDE_CONFIG_DIR"
+config_dir = "~/.config/vesper/claude-vesper"
+model = "subscription-default"
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """The owner's own claude subscription, shared with the other agents on
+this account. Unmetered per token and unpublished per request, so the ledger
+books it as an unmeasured ceiling: when it is spent, rung 2 carries the agent."""
+
+[[provider]]
+id = "mistral-tester"
+tier = "standard"
+purpose = "tester"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "OWED: the owner is provisioning this key on 2026-09-02. Free tier, no card attached; re-verify before first use and record the ceiling here."
+credential_env = "MISTRAL_API_KEY_TESTER"
+endpoint = "https://api.mistral.ai/v1/chat/completions"
+model = "mistral-medium-latest"
+wire = "openai_chat"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 86_400
+quota_note = """Dedicated account for the tester. Its own key so a spent agent
+starves only itself -- the pattern the compactor, chooser, updater, arbiter and
+forgetter already follow. Does not enrol until the credential exists."""
+
+[[provider]]
+id = "codex-researcher"
+tier = "strong"
+purpose = "researcher"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CODEX_CONFIG_DIR"
+endpoint = "codex"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+model = "subscription-default"
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """The owner's own codex subscription, shared with the other agents on
+this account. Unmetered per token and unpublished per request, so the ledger
+books it as an unmeasured ceiling: when it is spent, rung 2 carries the agent."""
+
+[[provider]]
+id = "nvidia-researcher"
+tier = "standard"
+purpose = "researcher"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "OWED: the owner is provisioning this key on 2026-09-02. Free tier, no card attached; re-verify before first use and record the ceiling here."
+credential_env = "NVIDIA_NIM_API_KEY_RESEARCHER"
+endpoint = "https://integrate.api.nvidia.com/v1/chat/completions"
+# ALSO FROM THE CATALOGUE. `meta/llama-3.3-70b-instruct` returned HTTP 410
+# Gone on this endpoint. The live listing offers 82 models; this is the largest
+# instruct model available to this key, and the researcher's job is reading long
+# specification documents.
+# TEN MODELS TRIED ON THIS KEY; NINE ARE GONE OR UNREACHABLE. The free NIM
+# endpoint returns 410 Gone for the llama and qwen families and 404 for the
+# nemotron instruct models -- the catalogue lists them and the key cannot reach
+# them. This one answered, after one 503 ResourceExhausted, so it is real but
+# CAPACITY-LIMITED: expect intermittent 503s and treat them as the rung being
+# busy rather than broken. That is survivable here because rung 1 is a
+# subscription CLI and this only carries the researcher when that is spent.
+model = "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"
+wire = "openai_chat"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 86_400
+quota_note = """Dedicated account for the researcher. Its own key so a spent agent
+starves only itself -- the pattern the compactor, chooser, updater, arbiter and
+forgetter already follow. Does not enrol until the credential exists."""
+
+[[provider]]
+id = "claude-navigator"
+tier = "strong"
+purpose = "navigator"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CLAUDE_CONFIG_DIR"
+endpoint = "claude"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+config_dir_env = "CLAUDE_CONFIG_DIR"
+config_dir = "~/.config/vesper/claude-vesper"
+model = "subscription-default"
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """The owner's own claude subscription, shared with the other agents on
+this account. Unmetered per token and unpublished per request, so the ledger
+books it as an unmeasured ceiling: when it is spent, rung 2 carries the agent."""
+
+[[provider]]
+id = "google-navigator"
+tier = "standard"
+purpose = "navigator"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "OWED: the owner is provisioning this key on 2026-09-02. Free tier, no card attached; re-verify before first use and record the ceiling here."
+credential_env = "GOOGLE_API_KEY_NAVIGATOR"
+endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
+model = "gemini-3.6-flash"
+wire = "google_generate"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 86_400
+quota_note = """Dedicated account for the navigator. Its own key so a spent agent
+starves only itself -- the pattern the compactor, chooser, updater, arbiter and
+forgetter already follow. Does not enrol until the credential exists."""
+
+[[provider]]
+id = "claude-auditor"
+tier = "strong"
+purpose = "auditor"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CLAUDE_CONFIG_DIR"
+endpoint = "claude"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+config_dir_env = "CLAUDE_CONFIG_DIR"
+config_dir = "~/.config/vesper/claude-vesper"
+model = "subscription-default"
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """The owner's own claude subscription, shared with the other agents on
+this account. Unmetered per token and unpublished per request, so the ledger
+books it as an unmeasured ceiling: when it is spent, rung 2 carries the agent."""
+
+[[provider]]
+id = "openrouter-auditor"
+tier = "standard"
+purpose = "auditor"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "OWED: the owner is provisioning this key on 2026-09-02. Free tier, no card attached; re-verify before first use and record the ceiling here."
+credential_env = "OPENROUTER_API_KEY_AUDITOR"
+endpoint = "https://openrouter.ai/api/v1/chat/completions"
+# CHOSEN FROM THE PROVIDER'S OWN CATALOGUE, NOT FROM MEMORY. The first value
+# here was `nvidia/nemotron-3-ultra-55b`, which I wrote from general knowledge
+# and which OpenRouter rejected with "is not a valid model ID" -- exactly what
+# CLAUDE.md's opening rule forbids. Queried the live /models endpoint on
+# 2026-09-03 and picked the largest-context free model, because auditing means
+# holding a check and the code it claims to test in view at once.
+# THIRD ATTEMPT, AND THE FIRST TWO WERE BOTH WRITTEN FROM MEMORY. The row
+# first said `nvidia/nemotron-3-ultra-55b` (rejected: "is not a valid model
+# ID"), then `thinkingmachines/inkling:free` picked off the catalogue by
+# context length (rejected: only available on a paid tier). This one was chosen
+# by CALLING four candidates and keeping the one that answered cleanly --
+# nemotron-lightning leaks its reasoning into the reply and ling returns empty.
+model = "minimax/minimax-m3:free"
+wire = "openai_chat"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 86_400
+quota_note = """Dedicated account for the auditor. Its own key so a spent agent
+starves only itself -- the pattern the compactor, chooser, updater, arbiter and
+forgetter already follow. Does not enrol until the credential exists."""
+
+[[provider]]
+id = "claude-drafter"
+tier = "strong"
+purpose = "drafter"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CLAUDE_CONFIG_DIR"
+endpoint = "claude"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+config_dir_env = "CLAUDE_CONFIG_DIR"
+config_dir = "~/.config/vesper/claude-vesper"
+model = "subscription-default"
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """The owner's own claude subscription, shared with the other agents on
+this account. Unmetered per token and unpublished per request, so the ledger
+books it as an unmeasured ceiling: when it is spent, rung 2 carries the agent."""
+
+[[provider]]
+id = "mistral-drafter"
+tier = "standard"
+purpose = "drafter"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "OWED: the owner is provisioning this key on 2026-09-02. Free tier, no card attached; re-verify before first use and record the ceiling here."
+credential_env = "MISTRAL_API_KEY_DRAFTER"
+endpoint = "https://api.mistral.ai/v1/chat/completions"
+model = "mistral-medium-latest"
+wire = "openai_chat"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 86_400
+quota_note = """Dedicated account for the drafter. Its own key so a spent agent
+starves only itself -- the pattern the compactor, chooser, updater, arbiter and
+forgetter already follow. Does not enrol until the credential exists."""
+
+[[provider]]
+id = "codex-briefer"
+tier = "strong"
+purpose = "briefer"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CODEX_CONFIG_DIR"
+endpoint = "codex"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+model = "subscription-default"
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """The owner's own codex subscription, shared with the other agents on
+this account. Unmetered per token and unpublished per request, so the ledger
+books it as an unmeasured ceiling: when it is spent, rung 2 carries the agent."""
+
+[[provider]]
+id = "google-briefer"
+tier = "standard"
+purpose = "briefer"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "OWED: the owner is provisioning this key on 2026-09-02. Free tier, no card attached; re-verify before first use and record the ceiling here."
+# THIS KEY IS REFUSED AT THE PROJECT LEVEL, measured 2026-09-03: 403
+# PERMISSION_DENIED, "Your project has been denied access. Please contact
+# support." It can LIST models and cannot call any of them, while
+# GOOGLE_API_KEY_NAVIGATOR answers the same model from a different project. So
+# the key is valid and its project is not enabled -- nothing in this repository
+# can fix that, and the row is left declared so it starts working the moment the
+# project is.
+enrolment_blocked = "google_project_denied_2026-09-03"
+credential_env = "GOOGLE_API_KEY_BRIEFER"
+endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
+model = "gemini-3.6-flash"
+wire = "google_generate"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 86_400
+quota_note = """Dedicated account for the briefer. Its own key so a spent agent
+starves only itself -- the pattern the compactor, chooser, updater, arbiter and
+forgetter already follow. Does not enrol until the credential exists."""
+
+[[provider]]
+id = "codex-advisor"
+tier = "strong"
+purpose = "advisor"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CODEX_CONFIG_DIR"
+endpoint = "codex"
+wire = "cli_subprocess"
+argv = ["exec", "{prompt}"]
+model = "subscription-default"
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """THE ADVISOR'S ONLY BACKUP, AND IT IS DELIBERATELY NOT AN API KEY.
+The owner's decision 2026-09-02: if both the second Claude account and Codex are
+spent, the advisor reports UNAVAILABLE and VESPER finds another way -- ask the
+owner, reason it out itself, consult another agent, test and investigate. An
+advisor that is merely absent must never make the system more permissive than one
+that never existed, so having fewer rungs is safe here in a way it would not be
+for an agent whose job is to produce work."""
+

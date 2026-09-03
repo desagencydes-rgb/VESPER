@@ -15921,6 +15921,312 @@ def check_a_compressed_archive_is_still_a_readable_log() -> Result:
            f"1.68 GB archive)")
     return r
 
+def check_a_broken_agent_is_never_a_bad_answer() -> Result:
+    """An agent answers, or says it did not. There is no third state.
+
+    THE OWNER'S REQUIREMENT, and it contains a tension worth naming: an agent
+    must serve its purpose in all cases, must not break the loop, must not fail,
+    and must not return broken or unfinished or confusing results. An agent that
+    always produces SOMETHING is one that produces fiction when it cannot do the
+    work -- so "must not fail" and "must not confuse" pull against each other,
+    and the resolution is that failing VISIBLY is not failing.
+
+    `UNAVAILABLE` IS A FACT, NOT A FAILURE. VESPER can act on "the investigator
+    could not answer" -- ask the owner, try another agent, do it itself. It
+    cannot act on half an answer, because at the point of use half an answer is
+    indistinguishable from a whole one. `core/baseline.py` draws the same line
+    for turns and for the same reason.
+
+    TRUNCATION IS UNAVAILABILITY, NOT A SHORTER ANSWER. A cut-off investigation
+    is the shape of finding that misleads most: it reads as complete and stops
+    before the part that mattered.
+
+    AND NOTHING CAN HANG THE TURN. Every call is bounded, and the subprocess is
+    killed AS A GROUP at the deadline -- a CLI that spawns a model client leaves
+    children a bare kill does not reach, and those children would outlive the
+    turn holding the owner's material.
+
+    THE TOOLS ARE THE RISK AND THE ROSTER IS THE BOUND. These run through the
+    `claude`/`codex` CLI, so a tool an agent holds operates on the filesystem
+    DIRECTLY -- outside the capability ladder, the seatbelt, the checkpoint and
+    the record. Eight of the nine are read-only for that reason; the tester acts
+    because there is no way to know whether something works without running it,
+    and its Bash patterns name two gate commands rather than `Bash`.
+    """
+    r = Result("a-broken-agent-is-never-a-bad-answer")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import os as _os
+    import subprocess as _sp
+    import time as _t
+    try:
+        from core.agents import (ANSWERED, MAX_OUTPUT_CHARS, UNAVAILABLE,
+                                 AgentRosterError, AgentRunner, load_roster)
+        from core.capabilities import agent_run_level, observation_trust
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the agent path did not import: {exc!r}")
+        return r
+
+    # 1. THE ROSTER IS A CONTRACT AND ONLY ONE AGENT ACTS.
+    roster = load_roster()
+    if len(roster) < 9:
+        r.err(f"{len(roster)} agents declared; the roster is the bound on what "
+              "VESPER may spawn and it is not supposed to shrink silently")
+    acting = [n for n, a in roster.items() if a.get("acts")]
+    if acting != ["tester"]:
+        r.err(f"agents that act: {acting}. Only the tester may, because tools "
+              "here are Claude Code's and operate on the filesystem OUTSIDE "
+              "the capability ladder, the seatbelt, the checkpoint and the "
+              "record -- VESPER would not know the action happened.")
+    for name, spec in roster.items():
+        for tool in (spec.get("tools") or []):
+            if tool in ("Bash", "Edit", "Write"):
+                r.err(f"{name!r} holds the bare {tool!r} tool, which is every "
+                      "command or every file. A pattern names what is allowed; "
+                      "the bare name allows the machine.")
+        if name != "advisor" and not spec.get("prompt"):
+            r.err(f"{name!r} declares no prompt, so what it does is whatever "
+                  "the model assumes")
+
+    # 2. A MISSING ROSTER RAISES rather than reading as an empty one.
+    try:
+        load_roster(Path("/nonexistent/agents-9931.toml"))
+        r.err("a missing roster read as an empty one, so 'no agents are "
+              "configured' and 'the contract could not be read' become the "
+              "same fact -- and the second is a deployment fault")
+    except AgentRosterError:
+        pass
+
+    runner = AgentRunner()
+    cli = REPO / "tests" / "fixtures" / "agents" / "fake_cli.sh"
+    if not cli.exists():
+        r.err(f"the fixture CLI is missing at {cli}")
+        return r
+    _os.environ["PATH"] = f"{cli.parent}:{_os.environ.get('PATH', '')}"
+
+    def _ask(mode, timeout=60.0, agent="investigator"):
+        _os.environ["FAKE_MODE"] = mode
+        return runner.run(agent, "what is here?", binary=cli.name,
+                          timeout_s=timeout)
+
+    # 3. EVERY FAILURE MODE IS UNAVAILABLE, AND EACH SAYS WHY.
+    good = _ask("ok")
+    if good["status"] != ANSWERED or not good["text"]:
+        r.err(f"a working agent did not answer: {good}")
+    for mode, label in (("crash", "a non-zero exit"),
+                        ("crash_loud", "a non-zero exit that still printed"),
+                        ("empty", "empty output"),
+                        ("whitespace", "whitespace-only output"),
+                        ("huge", "output past the bound")):
+        res = _ask(mode)
+        if res["status"] != UNAVAILABLE:
+            r.err(f"{label} came back as {res['status']!r} with "
+                  f"{len(res.get('text',''))} characters of 'answer'. "
+                  "Passing that on puts a blank or a fragment where the caller "
+                  "expects a finding, and both read as a result.")
+        elif not res.get("why"):
+            r.err(f"{label} gave no reason, so VESPER cannot tell a missing "
+                  "credential from a timeout from a defect -- one waits for the "
+                  "owner, one is worth retrying, one is a bug")
+        # NOT ASSERTED AS A RED-RUNNABLE PROPERTY, deliberately. `_result`
+        # blanks `text` unless the status is ANSWERED, and no unavailable path
+        # passes any -- so mutating that guard changes nothing observable and
+        # its red run came back green. It stays in the code as defence against
+        # a future path that does pass text, and is recorded here as untested
+        # rather than counted as evidence.
+        if res.get("text"):
+            r.err(f"{label} returned text alongside an unavailable status")
+
+    # 4. AN UNAVAILABLE RESULT CANNOT BE MISTAKEN FOR AN ANSWER.
+    if _ask("crash").ok or _ask("crash").text:
+        r.err("an unavailable result reports .ok or carries .text")
+
+    # 5. A HUNG AGENT IS BOUNDED, AND ITS CHILDREN DIE WITH IT.
+    t0 = _t.time()
+    hung = _ask("hang", timeout=3.0)
+    took = _t.time() - t0
+    if hung["status"] != UNAVAILABLE:
+        r.err("a hung agent did not resolve as unavailable")
+    if took > 12.0:
+        r.err(f"a 3s timeout took {took:.0f}s to return; nothing an agent does "
+              "may hold the turn open")
+    # CLEARED FIRST, AND THE CONTROL IS CHECKED. A stray from an earlier run
+    # would be counted as this one's leak -- which happened, and made the check
+    # fail against correct code. And if the fixture's children never start, a
+    # count of zero afterwards proves nothing at all: a negative control that
+    # cannot fail is not evidence.
+    _sp.run(["pkill", "-f", "sleep 300"], capture_output=True)
+    _t.sleep(0.5)
+
+    def _sleepers():
+        return len([x for x in _sp.run(["pgrep", "-f", "sleep 300"],
+                                       capture_output=True, text=True
+                                       ).stdout.split() if x.strip()])
+
+    if _sleepers():
+        r.err("stray fixture processes survived the pre-test cleanup, so this "
+              "cannot tell a leak from a leftover")
+    _os.environ["FAKE_MODE"] = "children"
+    import threading as _th
+    started: list = []
+    th = _th.Thread(
+        target=lambda: started.append(
+            runner.run("investigator", "q", binary=cli.name, timeout_s=3.0)),
+        daemon=True)
+    th.start()
+    _t.sleep(1.2)
+    if not _sleepers():
+        r.err("the fixture's children never ran, so 'no strays afterwards' "
+              "proves nothing -- the control has to fire before the assertion "
+              "means anything")
+    th.join(timeout=25.0)
+    _t.sleep(1.0)
+    stray = _sleepers()
+    if stray:
+        _sp.run(["pkill", "-f", "sleep 300"], capture_output=True)
+        r.err(f"{stray} child processes outlived a killed agent. A CLI that "
+              "spawns a model client leaves children a bare kill does not "
+              "reach, and they would outlive the turn holding the owner's "
+              "material.")
+
+    # 6. AND THE LADDER SEES WHAT AN AGENT IS.
+    if observation_trust("agent.run") != "retrieved_external":
+        r.err("an agent's output is not external content, so what it read "
+              "could raise the authority of the next action")
+    lv = {n: agent_run_level({"agent": n, "question": "q"}) for n in
+          ("navigator", "tester")}
+    if lv["tester"] == lv["navigator"]:
+        r.err(f"the agent that RUNS COMMANDS costs the same as one that reads "
+              f"({lv}); an agent that acts is never as cheap as one that looks")
+    # WRAPPED, because removing the unknown-agent guard does not make the level
+    # cheap -- it makes the level function RAISE on `None.get`, which crashed
+    # this check instead of failing it. Sixth time that shape has appeared.
+    try:
+        unknown_level = agent_run_level({"agent": "not-declared-9931",
+                                         "question": "q"})
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"levelling an undeclared agent raised {type(exc).__name__}. It "
+              "must resolve L5 -- unknown means unknown, and INV-HW-2's rule "
+              "about unmeasured values applies to authority exactly as it does "
+              "to throughput.")
+        unknown_level = None
+    if unknown_level is not None and unknown_level != "L5":
+        r.err(f"an agent nobody declared levelled {unknown_level}, not L5.")
+
+    r.note(f"{len(roster)} agents declared and only the tester acts; a missing "
+           f"roster raises rather than reading empty; a crash, empty output, "
+           f"whitespace and output past {MAX_OUTPUT_CHARS} chars are all "
+           f"UNAVAILABLE with a reason and no text; a hung agent is bounded and "
+           f"its children die with it; and the ladder charges more for an agent "
+           f"that runs commands than one that reads")
+    return r
+
+def check_a_withdrawn_model_descends_instead_of_being_retried() -> Result:
+    """A model that is gone is not asked for again, and a busy one still is.
+
+    MEASURED, NOT IMAGINED. Enrolling the specialised agents on 2026-09-03,
+    NINE of ten models tried on one provider answered `410 Gone` -- every one of
+    them still listed in that provider's own catalogue. A tenth answered `503
+    ResourceExhausted` and then worked on the next attempt.
+
+    THOSE TWO NEED OPPOSITE TREATMENT AND WERE GETTING THE SAME ONE. Unlisted
+    statuses fall to `server_error`, which is TRANSIENT, so `410` was retried --
+    a settled question asked again until the budget ran out, on every turn that
+    reached that rung, forever. `503` genuinely is a blip and must stay
+    retryable, because retiring a rung over one busy moment removes a working
+    provider.
+
+    THE DISTINCTION IS WHETHER ASKING AGAIN COULD CHANGE THE ANSWER. Gone,
+    not-found, method-not-allowed and not-implemented cannot; rate-limited,
+    server-error and unavailable can. `413` sits between and has its own class
+    already, for the reason written beside it: the rung is fine and the REQUEST
+    is too big.
+
+    AND EVERY AGENT HAS SOMEWHERE TO DESCEND TO. Descending is only a cure if
+    there is a next rung; a purpose with one rung has no failover, it has a
+    single point of failure with extra steps.
+    """
+    r = Result("a-withdrawn-model-descends-instead-of-being-retried")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tomllib as _toml
+    try:
+        from core.gateway import TERMINAL, TRANSIENT
+        from routing.http_completion import _STATUS_CLASS
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the routing path did not import: {exc!r}")
+        return r
+
+    # 1. SETTLED REFUSALS MUST NOT BE RETRIED.
+    for code, why in ((410, "the provider has WITHDRAWN the model"),
+                      (404, "the model is not there"),
+                      (405, "the endpoint does not accept this method"),
+                      (501, "the endpoint does not implement it")):
+        cls = _STATUS_CLASS.get(code, "server_error")
+        if cls in TRANSIENT:
+            r.err(f"HTTP {code} classifies {cls!r}, which is retried -- and "
+                  f"{why}, so asking again cannot change the answer. The retry "
+                  "budget is spent on a settled question and the next rung is "
+                  "reached later or not at all.")
+        elif cls not in TERMINAL and cls != "budget_too_large":
+            r.err(f"HTTP {code} classifies {cls!r}, which is neither retried "
+                  "nor a reason to descend")
+
+    # 2. AND A BLIP MUST STILL BE RETRIED. The opposite error is just as bad:
+    #    retiring a working rung over one busy moment.
+    for code, why in ((429, "rate limits pass"),
+                      (503, "a busy worker frees up"),
+                      (500, "a server fault may be one request"),
+                      (502, "a gateway hiccup passes")):
+        cls = _STATUS_CLASS.get(code, "server_error")
+        if cls not in TRANSIENT:
+            r.err(f"HTTP {code} classifies {cls!r}, which is not retried -- but "
+                  f"{why}. A rung retired over a blip is a working provider "
+                  "removed from the ladder.")
+
+    # 3. THE GATEWAY ACTUALLY DESCENDS. Classification is a label until the
+    #    chain acts on it, and this corpus has already shipped a decision that
+    #    could not reach the thing it decided.
+    import ast as _ast10
+    gsrc = (REPO / "core" / "gateway.py").read_text(encoding="utf-8")
+    if "TERMINAL" not in gsrc or "for p in providers" not in gsrc:
+        r.err("the gateway does not iterate providers against the TERMINAL "
+              "classification, so a refusal cannot descend to the next rung")
+
+    # 4. EVERY AGENT HAS A RUNG TO DESCEND TO.
+    supply = _toml.loads(
+        (REPO / "contracts" / "policy" / "provider_supply.toml"
+         ).read_text(encoding="utf-8"))["provider"]
+    roster = _toml.loads(
+        (REPO / "contracts" / "policy" / "subagents.toml"
+         ).read_text(encoding="utf-8")).get("agents", {})
+    counts = {}
+    for row in supply:
+        counts[row.get("purpose")] = counts.get(row.get("purpose"), 0) + 1
+    for name, spec in roster.items():
+        purpose = spec.get("purpose", name)
+        n = counts.get(purpose, 0)
+        if n < 2:
+            r.err(f"the {name!r} agent has {n} rung(s). Descending is only a "
+                  "cure if there is somewhere to descend to; one rung is a "
+                  "single point of failure with extra steps.")
+
+    # 5. AND THE TWO KINDS OF RUNG ARE DIFFERENT KINDS. Two rungs on the same
+    #    provider fail together, which is one rung wearing a hat.
+    for name, spec in roster.items():
+        purpose = spec.get("purpose", name)
+        wires = {row.get("wire") for row in supply
+                 if row.get("purpose") == purpose}
+        if len(wires) < 2 and purpose != "advisor":
+            r.err(f"the {name!r} agent's rungs all use {wires} -- an outage "
+                  "that takes one takes them all")
+
+    r.note(f"410, 404, 405 and 501 descend rather than being retried, and 429, "
+           f"500, 502 and 503 are still retried; the gateway iterates providers "
+           f"on the classification; and each of the {len(roster)} agents has at "
+           f"least two rungs on different transports")
+    return r
+
 def check_credentials_can_leave_the_plaintext_file() -> Result:
     """A credential in the Keychain is used, and the file remains the fallback.
 
@@ -17788,6 +18094,8 @@ CHECK_FNS = {
     "a-compressed-archive-is-still-a-readable-log": check_a_compressed_archive_is_still_a_readable_log,
     "an-mcp-server-does-not-level-its-own-tools": check_an_mcp_server_does_not_level_its_own_tools,
     "advice-can-add-caution-and-never-remove-it": check_advice_can_add_caution_and_never_remove_it,
+    "a-broken-agent-is-never-a-bad-answer": check_a_broken_agent_is_never_a_bad_answer,
+    "a-withdrawn-model-descends-instead-of-being-retried": check_a_withdrawn_model_descends_instead_of_being_retried,
     "host-pressure-read-through-the-adapter": check_host_pressure_is_read_through_the_adapter,
     "floor-held-and-offered-to": check_the_floor_is_held_and_offered_to,
     "boundary-asked-before-the-write": check_the_boundary_is_asked_before_the_write,

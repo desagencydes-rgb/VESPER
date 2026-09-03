@@ -372,6 +372,60 @@ def shell_run(args: dict) -> dict:
             "session": str(sid) if sid else None}
 
 
+def agent_run_level(args: dict) -> str:
+    """Consulting a named agent, levelled on what leaves AND what it may do.
+
+    TWO THINGS DECIDE THIS, not one. `agent.ask` is levelled on the material
+    because that is all that happens: text goes to a provider. A named agent
+    can also hold TOOLS, and one of them -- the tester -- runs commands. So the
+    level is the worse of "what is being sent" and "what this agent is allowed
+    to do", because either can be the dangerous half.
+
+    AN AGENT THAT ACTS IS L3 AT BEST. It runs gate commands on the owner's
+    machine outside VESPER's own containment, which is exactly the trade the
+    roster contract writes down. It is never cheaper than a command VESPER
+    would run itself.
+    """
+    material = str(args.get("material") or "")
+    low = material.lower()
+    if any(m in low for m in SECRET_MARKERS):
+        return "L5"
+    name = str(args.get("agent") or "")
+    spec = _agent_spec(name)
+    if spec is None:
+        # AN AGENT NOBODY DECLARED IS NOT A CHEAP ONE. Unknown means unknown,
+        # and INV-HW-2's rule about unmeasured values applies to authority the
+        # same way it applies to throughput.
+        return "L5"
+    if spec.get("acts"):
+        return "L3"
+    if len(material) > SUBAGENT_MATERIAL_L3:
+        return "L3"
+    return "L2"
+
+
+def _agent_spec(name: str):
+    """The declared agent, or None. Never raises, never invents one."""
+    try:
+        from core.agents import load_roster
+        return load_roster().get(str(name))
+    except Exception:                                  # noqa: BLE001
+        return None
+
+
+def agent_run(args: dict) -> dict:
+    """Run a named agent. Bound with a runner; refuses without one."""
+    runner = args.get("_runner")
+    if runner is None:
+        raise ValueError(
+            "a named agent was asked for and no runner was supplied, so the "
+            "question would have gone nowhere. Refused rather than answered "
+            "from nothing.")
+    res = runner.run(str(args.get("agent") or ""),
+                     str(args.get("question") or ""))
+    return dict(res)
+
+
 def agent_ask_level(args: dict) -> str:
     """Asking a sub-agent is EGRESS, and it is levelled on what leaves.
 
@@ -1089,6 +1143,10 @@ OBSERVATION_TRUST = {
     # proposal with no trace of where it came from -- and the default is a thing
     # a later edit can change without noticing what it changed.
     "agent.ask": EXTERNAL,
+    # A NAMED AGENT'S OUTPUT IS EXTERNAL FOR THE SAME REASON, and more
+    # so: several of them read files and run searches, so their answers
+    # carry whatever they found.
+    "agent.run": EXTERNAL,
     "fs.read": "retrieved_local",
     "fs.edit": "retrieved_local",
     "fs.write": "verified_local",
@@ -1218,6 +1276,22 @@ def build_registry() -> CapabilityRegistry:
         LevelRule("other", "L3", {"cmd": "git status"}),
     ], external_effect=True, reversibility="irreversible")
 
+    reg.register("agent.run", agent_run_level, [
+        LevelRule("reader", "L2", {"agent": "navigator",
+                                   "question": "where is the actor?"},
+                  refutes=(
+                      # An agent that runs commands is not a reader.
+                      {"agent": "tester", "question": "run the gates"},
+                      # And one nobody declared is not cheap.
+                      {"agent": "not-in-the-roster", "question": "do a thing"},
+                  )),
+        LevelRule("acts", "L3", {"agent": "tester",
+                                 "question": "run the gates"}),
+        LevelRule("credential", "L5",
+                  {"agent": "navigator", "question": "what is this?",
+                   "material": "OPENAI_API_KEY=sk-live-abc"}),
+    ], reversibility="reversible")
+
     reg.register("agent.ask", agent_ask_level, [
         LevelRule("brief", "L2", {"question": "what does this do?",
                                   "material": "class A: pass"},
@@ -1272,7 +1346,7 @@ def build_registry() -> CapabilityRegistry:
     return reg
 
 
-def bind_all(executor, *, jobs=None, agent=None) -> None:
+def bind_all(executor, *, jobs=None, agent=None, runner=None) -> None:
     """Attach implementations. `fs.write` cannot bind without its compensator.
 
     THE JOB REGISTRY IS BOUND, NOT PASSED IN ARGS. `background` is a flag the
@@ -1298,6 +1372,16 @@ def bind_all(executor, *, jobs=None, agent=None) -> None:
         executor.bind("agent.ask", _ask_with_agent)
     else:
         executor.bind("agent.ask", agent_ask)
+
+    # THE RUNNER IS BOUND, NOT PASSED IN ARGS, for the same reason the job
+    # registry and the sub-agent are: a proposal may name WHICH agent, and must
+    # never supply the thing that runs it.
+    if runner is not None:
+        def _run_with_runner(args: dict) -> dict:
+            return agent_run({**args, "_runner": runner})
+        executor.bind("agent.run", _run_with_runner)
+    else:
+        executor.bind("agent.run", agent_run)
     executor.bind("fs.read", fs_read)
     executor.bind("fs.write", fs_write, compensator=fs_write_compensator)
     executor.bind("fs.edit", fs_edit, compensator=fs_edit_compensator)

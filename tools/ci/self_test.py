@@ -3921,8 +3921,8 @@ CASES += [
     ("edit-names-one-place", INTENT_PY,
      # `agent.ask` joined KNOWN when delegation landed; dropping fs.edit from the
      # tuple is still exactly this case's violation.
-     _sub('KNOWN = ("shell.run", "fs.read", "fs.write", "fs.edit", "agent.ask")',
-          'KNOWN = ("shell.run", "fs.read", "fs.write", "agent.ask")', 1),
+     _sub('KNOWN = ("shell.run", "fs.read", "fs.write", "fs.edit", "agent.ask", "agent.run")',
+          'KNOWN = ("shell.run", "fs.read", "fs.write", "agent.ask", "agent.run")', 1),
      "fs.edit is registered, implemented, verified and unreachable: the "
      "proposer cannot name it, so nothing can ever ask for one"),
 
@@ -4614,7 +4614,16 @@ CASES += [
      "launders untrusted material into a proposal with no trace of its origin"),
 
     ("a-sub-agent-thinks-and-never-acts", CAPS_PY,
-     _sub("    if len(material) > SUBAGENT_MATERIAL_L3:", "    if False:", 1),
+     # ANCHORED WITH ITS OWN COMMENT, because the line alone is no longer
+     # unique: `agent_run_level` carries the identical test and is defined
+     # FIRST, so a bare `_sub(..., 1)` retargeted onto it and left
+     # `agent_ask_level` -- the function this case asserts on -- untouched. The
+     # violation ran green. Fourth time a mutation has landed on the wrong copy
+     # of a line in this session.
+     _sub("    if len(material) > SUBAGENT_MATERIAL_L3:\n"
+          "        # Sending a lot of the owner's material to a provider is a bigger act",
+          "    if False:\n"
+          "        # Sending a lot of the owner's material to a provider is a bigger act", 1),
      "shipping the owner's material to a provider in bulk costs the same as "
      "asking about a paragraph"),
 
@@ -4625,7 +4634,11 @@ CASES += [
      "the parent's context somewhere it cannot be seen"),
 
     ("a-sub-agent-thinks-and-never-acts", INTENT_PY,
-     _sub('"fs.edit", "agent.ask")', '"fs.edit")', 1),
+     # `KNOWN` gained "agent.run" when the specialised agents landed, so the
+     # two-element tail this matched is gone. Dropping fs.edit from the tuple
+     # is still exactly this case's violation.
+     _sub('KNOWN = ("shell.run", "fs.read", "fs.write", "fs.edit", "agent.ask", "agent.run")',
+          'KNOWN = ("shell.run", "fs.read", "fs.write", "fs.edit", "agent.run")', 1),
      "no proposal may name agent.ask, so delegation is built and reachable from "
      "nothing -- the state fifteen other subsystems were found in"),
 
