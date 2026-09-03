@@ -16008,6 +16008,7 @@ def check_a_broken_agent_is_never_a_bad_answer() -> Result:
         # Imported by name: if the guard is deleted, this raises and the check
         # reports it, rather than the assertion below quietly not running.
         from core.agents import _exhaustion as _agent_exhaustion
+        from core.agents import _argv_for as _agent_argv
         from core.capabilities import agent_run_level, observation_trust
     except Exception as exc:                        # noqa: BLE001
         r.err(f"the agent path did not import: {exc!r}")
@@ -16190,6 +16191,37 @@ def check_a_broken_agent_is_never_a_bad_answer() -> Result:
     if kept:
         r.err("an ordinary answer is misread as a quota refusal, so a working "
               "rung is abandoned on the strength of its wording")
+
+    # EACH CLI GETS THE FLAGS IT UNDERSTANDS. This was claude's flag set
+    # unconditionally, so every codex agent exited 2 before reading a word of
+    # its prompt -- `-p` is `--print` to claude and `--profile` to codex, so the
+    # question was passed as a profile name. A rung nothing can invoke is
+    # indistinguishable from a provider outage when seen from the outside, which
+    # is why this is asserted rather than left to the measurement to notice.
+    cx = _agent_argv("/x/codex", "codex", "QUESTION", "PERSONA", [], "", "/repo")
+    cl = _agent_argv("/x/claude", "claude", "QUESTION", "PERSONA", [], "", "/repo")
+    if "exec" not in cx:
+        r.err("the codex command line has no `exec`, so the agent's question "
+              "is parsed as a subcommand and the rung exits before reading it")
+    if "-p" in cx:
+        r.err("`-p` is passed to codex, where it means --profile: the prompt "
+              "is taken as a profile name and the rung answers nothing")
+    if "--append-system-prompt" in cx:
+        r.err("codex is given --append-system-prompt, which it does not accept")
+    if not any("PERSONA" in a and "QUESTION" in a for a in cx):
+        r.err("the codex prompt does not carry the agent's persona, so it "
+              "answers as a generic assistant while every other signal says "
+              "it is the agent that was asked")
+    if "--append-system-prompt" not in cl or "-p" not in cl:
+        r.err("the claude command line lost its own flags")
+    # AND CONTAINMENT IS THE SANDBOX. A thinking agent must be read-only at the
+    # process level, not merely un-asked to write.
+    if "read-only" not in cx:
+        r.err("a codex agent with no declared tools is not sandboxed read-only, "
+              "so a model that decides to write is refused by nothing")
+    cxw = _agent_argv("/x/codex", "codex", "Q", "P", ["Bash"], "", "/repo")
+    if "workspace-write" not in cxw:
+        r.err("the one agent that may act cannot write, so it cannot act")
 
     r.note(f"{len(roster)} agents declared and only the tester acts; a missing "
            f"roster raises rather than reading empty; a crash, empty output, "

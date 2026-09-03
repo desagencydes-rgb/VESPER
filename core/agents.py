@@ -180,6 +180,55 @@ def _exhaustion(text: str) -> str | None:
     return None
 
 
+# EVERY RUNG'S CLI TAKES ITS OWN FLAGS, AND ASSUMING OTHERWISE MAKES A RUNG THAT
+# NOTHING CAN CALL. Measured 2026-09-03: this function used to be claude's flag
+# set unconditionally, so every codex agent died with `exit 2: For more
+# information, try '--help'`. `-p` is the giveaway -- it is `--print` to claude
+# and `--profile` to codex, so the PROMPT was being passed as a profile name.
+# The supply probe had the identical bug in its own argv, which is what makes
+# this worth stating as a rule rather than a fix: a rung nothing can invoke
+# still measures as a provider outage, and the two are indistinguishable from
+# the outside.
+#
+# Flags below were read from `codex exec --help` on this machine rather than
+# recalled. `--append-system-prompt` has no codex equivalent, so the persona is
+# PREPENDED to the prompt: a system prompt that silently vanishes would leave
+# the agent answering as a generic assistant while every other signal said it
+# was the auditor.
+CODEX_SANDBOX_READONLY = "read-only"
+CODEX_SANDBOX_WRITE = "workspace-write"
+
+
+def _argv_for(exe: str, binary: str, task: str, persona: str,
+              tools: list, model: str, cwd: str) -> list:
+    """The command line this particular CLI understands."""
+    name = os.path.basename(binary).lower()
+    if name.startswith("codex"):
+        prompt = f"{persona}\n\n{task}" if persona else task
+        argv = [exe, "exec", "--skip-git-repo-check", "-C", cwd,
+                # CONTAINMENT IS THE SANDBOX, NOT THE PROMPT. An agent with no
+                # declared tools is read-only at the process level, so a model
+                # that decides to write anyway is refused by the OS rather than
+                # by having been asked not to.
+                "-s", CODEX_SANDBOX_WRITE if tools else CODEX_SANDBOX_READONLY]
+        if model:
+            argv += ["-m", model]
+        return argv + [prompt]
+
+    argv = [exe, "-p", task, "--append-system-prompt", persona]
+    if tools:
+        argv += ["--allowedTools", *tools]
+    else:
+        # NO TOOLS MEANS NO TOOLS, stated rather than implied. An empty
+        # allowlist and an absent flag are different: the second inherits
+        # whatever the CLI defaults to, which is not this contract's call.
+        argv += ["--disallowedTools", "Bash", "Edit", "Write", "Read",
+                 "Grep", "Glob", "WebFetch", "WebSearch"]
+    if model:
+        argv += ["--model", model]
+    return argv
+
+
 class AgentRunner:
     """Runs one named agent, and never lets it break the caller."""
 
@@ -212,19 +261,9 @@ class AgentRunner:
             return _result(agent, UNAVAILABLE,
                            why=f"{binary!r} is not on this machine")
 
-        argv = [exe, "-p", task,
-                "--append-system-prompt", str(spec.get("prompt") or "")]
+        persona = str(spec.get("prompt") or "")
         tools = list(spec.get("tools") or [])
-        if tools:
-            argv += ["--allowedTools", *tools]
-        else:
-            # NO TOOLS MEANS NO TOOLS, stated rather than implied. An empty
-            # allowlist and an absent flag are different: the second inherits
-            # whatever the CLI defaults to, which is not this contract's call.
-            argv += ["--disallowedTools", "Bash", "Edit", "Write", "Read",
-                     "Grep", "Glob", "WebFetch", "WebSearch"]
-        if model:
-            argv += ["--model", model]
+        argv = _argv_for(exe, binary, task, persona, tools, model, self._cwd)
 
         env = dict(os.environ)
         if config_dir:

@@ -2559,7 +2559,7 @@ impl = "tools/ci/checks.py a-broken-agent-is-never-a-bad-answer"
 blocking = "pr"
 self_test = """Let a truncated or empty sub-agent reply through as an ANSWER, so an
 unusable result is indistinguishable from a considered one."""
-self_test_evidence = "tools/ci/self_test.py a-broken-agent-is-never-a-bad-answer -- 4 cases, executed 2026-09-03: red under violation, green after restore."
+self_test_evidence = "tools/ci/self_test.py a-broken-agent-is-never-a-bad-answer -- 6 cases, executed 2026-09-03: red under violation, green after restore."
 
 [checks.CI-107]
 name = "a-question-does-not-end-the-turn"

@@ -4890,5 +4890,24 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# Each rung's CLI takes its own flags. Claude's set was used for every binary,
+# so codex agents exited 2 before reading their prompt: `-p` is --print to one
+# and --profile to the other.
+# --------------------------------------------------------------------------
+CASES += [
+    ("a-broken-agent-is-never-a-bad-answer", AGENTS_PY_Q,
+     _sub('    if name.startswith("codex"):', "    if False:", 1),
+     "codex is handed claude's flag set, so the prompt is parsed as a profile "
+     "name and every codex agent exits before reading the question"),
+
+    ("a-broken-agent-is-never-a-bad-answer", AGENTS_PY_Q,
+     _sub('"-s", CODEX_SANDBOX_WRITE if tools else CODEX_SANDBOX_READONLY]',
+          '"-s", CODEX_SANDBOX_WRITE]', 1),
+     "a thinking agent is sandboxed workspace-write, so an agent that may only "
+     "read is refused by nothing if it decides to write"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
