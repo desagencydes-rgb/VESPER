@@ -337,10 +337,83 @@ def _worth_retrying(status, answered: bool, message: str | None = None) -> str |
     return None                          # TERMINAL: the first verdict stands
 
 
+# How stale a carried-forward measurement may be. A number measured yesterday is
+# still a measurement; one measured last month is a claim about hardware that
+# may no longer be true, and INV-HW-2 would rather have UNAVAILABLE than that.
+MAX_CARRY_AGE_H = 24
+
+# Failures that mean the rung is GONE, never that this run could not reach it.
+# A withdrawn model, a rejected credential, a missing endpoint and a malformed
+# request are all statements about the rung itself, so carrying a previous
+# success forward over one of them would keep a dead rung on the ladder -- the
+# exact opposite of what this exists for.
+TERMINAL_FOR_CARRY = frozenset({400, 401, 403, 404, 405, 410, 501})
+
+
+def _carry_forward(results: list, prev_path: str) -> tuple[list, list]:
+    """Keep a rung's last real measurement when THIS run could not reach it.
+
+    THE PROBLEM THIS SOLVES IS SELF-INFLICTED. Nine agent rungs share one
+    Claude subscription, so a sweep that calls all of them spends that
+    account's allowance measuring it, and the rungs called last report a usage
+    limit rather than a rate. Measured 2026-09-03: a 03:16 run reached all
+    seven, a 03:59 run reached two. No single sweep can measure them all, so
+    every sweep produces a file in which some working rung looks dead -- and
+    `measured_profiles` skips a provider with no measured rate, so promoting
+    one RETIRES the rungs the probe itself exhausted.
+
+    INV-HW-2 SAYS MEASURED, NOT SIMULTANEOUS. A number carried forward here was
+    measured, on this fabric, by this probe; what it was not is measured in the
+    same sweep as its neighbours. So it travels with `carried_from` (when it was
+    actually taken) and `carried_reason` (why this run could not retake it),
+    which is the same provenance rule that makes a build tag part of a figure.
+    Nothing is invented and nothing is averaged.
+    """
+    prev_file = Path(prev_path)
+    if not prev_file.exists():
+        return results, []
+    try:
+        prev = json.loads(prev_file.read_text(encoding="utf-8"))
+    except Exception:                              # noqa: BLE001
+        return results, []
+    old = {r.get("provider_id"): r for r in prev.get("results", [])}
+    now = datetime.now(timezone.utc)
+    carried, out = [], []
+    for row in results:
+        pid = row.get("provider_id")
+        was = old.get(pid)
+        if (row.get("usable") or not was or not was.get("usable")
+                or row.get("status") in TERMINAL_FOR_CARRY):
+            out.append(row)
+            continue
+        stamp = was.get("measured_at") or prev.get("measured_at")
+        try:
+            age_h = (now - datetime.fromisoformat(stamp)).total_seconds() / 3600.0
+        except Exception:                          # noqa: BLE001
+            out.append(row)
+            continue
+        if age_h > MAX_CARRY_AGE_H:
+            out.append(row)                        # too old to stand for today
+            continue
+        kept = dict(was)
+        kept["carried_from"] = stamp
+        kept["carried_reason"] = (
+            f"this sweep got status {row.get('status')!r} after "
+            f"{row.get('attempts', 1)} attempt(s); "
+            f"{row.get('error') or 'no detail'}")
+        kept["carried_age_hours"] = round(age_h, 2)
+        out.append(kept)
+        carried.append(pid)
+    return out, carried
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=None, help="write results JSON here")
     ap.add_argument("--only", default=None, help="probe one provider id")
+    ap.add_argument("--merge", default=None,
+                    help="carry a rung's last measurement forward when this "
+                         "run could not reach it (never over a terminal status)")
     args = ap.parse_args()
 
     secrets = load_secrets()
@@ -486,6 +559,14 @@ def main() -> int:
               f"  completion={ctok}  {shown}{detail}")
 
     print(f"\n  {usable}/{len(rows)} providers answered correctly")
+    carried: list = []
+    if args.merge:
+        results, carried = _carry_forward(results, args.merge)
+        usable = sum(1 for r in results if r.get("usable"))
+        for pid in carried:
+            print(f"  {pid:<12} CARRIED  last real measurement kept")
+        if carried:
+            print(f"  {len(carried)} carried forward -> {usable}/{len(rows)} usable")
     if args.out:
         p = Path(args.out); p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps({
