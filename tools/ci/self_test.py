@@ -4909,5 +4909,29 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# A citation into an archived segment. `read()` -- the scan -- was segment-aware
+# from the start; `record()` -- the point lookup every citation uses -- read the
+# live file alone, so 1.9M rotated records resolved to None on the real archive.
+# --------------------------------------------------------------------------
+STORE_PY_CITE = "core/store.py"
+
+CASES += [
+    ("a-compressed-archive-is-still-a-readable-log", STORE_PY_CITE,
+     _sub("        for row in self._rows(store, q, [int(seq)]):\n"
+          "            return Record(row[0], row[1], json.loads(row[2]),\n"
+          "                          HLC(row[3], row[4], row[5]), row[6])\n"
+          "        return None",
+          "        row = self._conns[store].execute(q, [int(seq)]).fetchone()\n"
+          "        if row is None:\n"
+          "            return None\n"
+          "        return Record(row[0], row[1], json.loads(row[2]),\n"
+          "                      HLC(row[3], row[4], row[5]), row[6])", 1),
+     "the point lookup reads the live file alone again, so every citation into "
+     "an archived segment resolves to None and the claims resting on them are "
+     "withheld without anything reporting why"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

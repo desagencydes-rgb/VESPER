@@ -15904,6 +15904,28 @@ def check_a_compressed_archive_is_still_a_readable_log() -> Result:
             r.err(f"a single record could not be read from the middle of a "
                   f"compressed archive: {mid[:1]}")
 
+        # 4. AND A CITATION RESOLVES INTO IT. `read()` is the SCAN and this
+        #    check exercised only that, so it stayed green while `record()` --
+        #    the point lookup every citation uses -- read the live file alone.
+        #    Measured 2026-09-03 on the real archive: 1.9M records had rotated
+        #    out and every citation into them resolved to None, which
+        #    `memory-citations-resolve-or-are-withheld` turns into a withheld
+        #    claim rather than an error. The evidence for most of the history
+        #    was gone and nothing said so.
+        cited = st.record("log", 301)
+        if cited is None:
+            r.err("a citation by seq into a compressed archive resolves to "
+                  "None, so every claim supported by a record older than the "
+                  "last rotation loses its support silently -- withheld rather "
+                  "than wrong, which is the harder kind to notice")
+        elif mid and cited.body != mid[0].body:
+            r.err("the point lookup and the scan disagree about the same "
+                  "record, so which one a claim cites decides what it says")
+        live = st.record("log", 602)
+        if live is None:
+            r.err("making the point lookup segment-aware lost the LIVE file: a "
+                  "record written since the last rotation no longer resolves")
+
         # 4. IDEMPOTENT. Compressing twice must not re-encode already-compressed
         #    bodies, which would make them unreadable.
         try:

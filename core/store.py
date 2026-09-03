@@ -500,13 +500,31 @@ class StoreSet:
         immutable identity of the record it names. Two records can share an HLC
         physical millisecond; none can share a seq.
         """
-        row = self._conns[store].execute(
-            "SELECT seq, kind, body, hlc_physical_ms, hlc_logical, hlc_node_id, "
-            "lease_epoch FROM records WHERE seq = ?", (int(seq),)).fetchone()
-        if row is None:
-            return None
-        return Record(row[0], row[1], json.loads(row[2]),
-                      HLC(row[3], row[4], row[5]), row[6])
+        # THROUGH `_rows`, LIKE `read()`, AND FOR THE SAME REASON. This used to
+        # query `self._conns[store]` -- the LIVE file only -- so the moment a
+        # segment rotated out, every citation into it resolved to None. Measured
+        # 2026-09-03 against the real archive: 1,896,415 records had rotated and
+        # `record("log", 1)` returned None, as did seq 500,000 and the segment's
+        # own last record.
+        #
+        # A CITATION THAT RESOLVES TO NOTHING IS WORSE THAN ONE THAT ERRORS.
+        # `memory-citations-resolve-or-are-withheld` withholds a claim whose
+        # support cannot be fetched, so this did not produce a wrong answer --
+        # it silently retired the evidence for everything older than the last
+        # rotation, which is most of the history and all of the part worth
+        # citing.
+        #
+        # It was also the read path that could not see a COMPRESSED body:
+        # `json.loads` on a zlib blob raises, where `_rows` inflates per record
+        # against the archive's own dictionary. So compression made archived
+        # citations fail twice over, and the sequential path -- the one the
+        # check exercises -- was fine throughout.
+        q = ("SELECT seq, kind, body, hlc_physical_ms, hlc_logical, "
+             "hlc_node_id, lease_epoch FROM records WHERE seq = ?")
+        for row in self._rows(store, q, [int(seq)]):
+            return Record(row[0], row[1], json.loads(row[2]),
+                          HLC(row[3], row[4], row[5]), row[6])
+        return None
 
     def count(self, store: str, kind: str | None = None) -> int:
         if kind is None:

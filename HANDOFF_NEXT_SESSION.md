@@ -1,42 +1,74 @@
 # Handoff — pick up here
 
-Rewritten 2026-09-01 22:10, at the end of the overnight session that completed
-tier one of the build order. Read this, then
-`docs/WORK_REPORT_2026-09-01_OVERNIGHT.md`, then `CLAUDE.md`.
+Rewritten 2026-09-03 at the end of the overnight session that promoted the
+supply measurement. Read this, then `CLAUDE.md`.
 
 ## State
 
-- **127 checks pass. 549/549 self-test cases** red under violation, green after
+- **127 checks pass. 554/554 self-test cases** red under violation, green after
   restore. Both lints, F0–F6 acceptance, placement and fabric stress all pass.
-- Working tree clean, everything pushed to `feat/macos-host-profile`.
-- Backup branch `backup/pre-overnight-2026-09-01` at `831a177` — the state
-  before the overnight run.
+- **118 registered checks, 89/144 invariants enforced**, 18 still `PENDING`,
+  **23 runnable checks unratified** — see
+  `docs/planning/UNRATIFIED_CHECKS_2026-09-03.md`, which proposes the invariant
+  text for each so ratifying one is a decision rather than research.
 - `build.sh` has **not** been run since the last TCC grant. Speech and
   Accessibility are intact. `scheduleWakeRetry` is still committed and unbuilt;
   **the next build must be followed by re-granting** —
   `[[tcc-grants-die-on-every-rebuild]]`.
 
+## The measurement is promoted and the agents are reachable
+
+`REMOTE-SUPPLY-20260903T081316Z.json` is the live measurement: 45 of 48 rungs
+usable. Before it, `load_rows()` returned 27 and **every agent rung was among
+the skipped** — nine sub-agents that answered when probed and that the router
+could not reach, because `measured_profiles` drops a provider with no measured
+rate.
+
+**Do not take a fresh sweep without `--merge`.** Nine rungs share one Claude
+subscription, so a sweep spends that account's allowance and the rungs called
+last report a usage limit. It is cumulative across sweeps, not per-sweep.
+`--merge <previous.json>` carries a rung's last real measurement forward with
+`carried_from` / `carried_reason` / `carried_age_hours`, refuses to carry over a
+terminal status, and refuses anything older than 24h. Three rows in the current
+file are carried and each says so.
+
+Still unusable, and why:
+
+- `claude-advisor` — **needs the owner to log in**:
+  `CLAUDE_CONFIG_DIR=~/.config/vesper/claude-advisor claude`
+- `elevenlabs-speech`, `cf-transcribe` — speech endpoints; the probe posts a
+  chat payload at them. Wrong wire, not a dead provider.
+
 ## What needs the owner, in order
 
-1. **`cache` waits on a model-spend decision, not on work.** Its only valuable
-   tier is SUMMARY and nothing in this system summarises yet:
-   `Compactor(summariser=...)` is passed `None`. The dedicated keys already
-   exist (`MISTRAL_API_KEY_COMPACTOR` and seven more). Turning on summarising
-   compaction is the decision.
-2. **Ratify CI-094 … CI-103.** Ten checks run in every pass and are held out of
-   the registry because each asserts a new invariant, and promotion into a
-   contract is a separate reviewed act. Precedent: arabizi, presence,
-   context-control.
+1. **Log in the advisor account.** One command, above. It is the only rung
+   failing for a reason a session cannot fix.
+2. **Ratify some of the 23.** Each needs its invariant WRITTEN, which is a
+   normative claim about VESPER. Three are worth writing on their own merits;
+   four look like extensions of existing invariants rather than new ones. The
+   file names which.
 3. **`tools/ops/vesper_keychain.py --migrate`** whenever they want credentials
    out of `secrets.env`. Built and verified; not run, because writing to their
    login keychain is a change to their machine.
-4. **The event log wants a retention policy.** 1.6 GB, 1.9 M records, nothing
-   prunes it. The refusal storm that was two thirds of the growth is fixed, but
-   `autonomy.heartbeat` and `autonomy.noop` are one record per trigger per tick
-   forever, and two more triggers landed last night.
+4. **The event log wants a RETENTION policy, not a size fix.** Rotation works —
+   the live `log.db` is 640 KB — and the archived segment is compressed and
+   still readable a record at a time. What nothing decides is when history stops
+   being kept at all.
 5. **Decide whether the loop is too cautious.** After a `shell.run`, the next
    step above L1 asks. One table, `OBSERVATION_TRUST` in
-   `core/capabilities.py`. The reasoning is in the report.
+   `core/capabilities.py`.
+
+## Done since the last handoff, so do not redo it
+
+- **Compaction is wired.** `Compactor(summariser=_compactor_summarise)` in
+  `tools/ops/vesper_runtime.py`, and two compactor rungs are enrolled. The
+  handoff previously listed this as waiting on a decision; the decision was
+  made and the wiring landed.
+- **CI-097…CI-118 are registered**, taking enforcement 80 → 89. Fourteen of the
+  last fifteen named invariants other checks already defend, so the number moved
+  by one, not fifteen — check that before assuming a batch will move it.
+- **Segment rotation happened and the archive is compressed.** `rotate()` still
+  has no automatic trigger; the WHEN remains the owner's call.
 
 ## The stop exists now
 
