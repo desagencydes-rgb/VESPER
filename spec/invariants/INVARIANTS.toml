@@ -51,7 +51,7 @@ kind = "runtime"
 [invariants.INV-COORD-4]
 statement = "Wall-clock time never participates in ordering or supersession. Only HLC does."
 owner_rem = "REM-001"
-enforced_by = ["CI-005", "A-033"]
+enforced_by = ["CI-005", "A-033", "CI-116"]
 kind = "structural"
 
 [invariants.INV-COORD-5]
@@ -113,7 +113,7 @@ kind = "structural"
 [invariants.INV-AUTH-2]
 statement = "A child's grant set is a subset of its parent's. L4/L5 are never delegable and bind to one command instance; a consumed L4 cannot authorize a second action."
 owner_rem = "REM-003"
-enforced_by = ["A-024", "CI-095"]
+enforced_by = ["A-024", "CI-095", "CI-107", "CI-111"]
 kind = "runtime"
 
 [invariants.INV-AUTH-3]
@@ -131,13 +131,13 @@ kind = "runtime"
 [invariants.INV-AUTH-5]
 statement = "Every capability's declared_level is a function of its arguments. A constant is a registration failure."
 owner_rem = "REM-003"
-enforced_by = ["CI-011", "A-024"]
+enforced_by = ["CI-011", "A-024", "CI-118"]
 kind = "structural"
 
 [invariants.INV-AUTH-6]
 statement = "The planner context never contains a fragment whose trust_class is retrieved_external."
 owner_rem = "REM-003"
-enforced_by = ["CI-014", "CI-085", "A-025"]
+enforced_by = ["CI-014", "CI-085", "A-025", "CI-114"]
 kind = "structural"
 
 [invariants.INV-AUTH-7]
@@ -169,7 +169,7 @@ enforcement_status = "2026-08-12, later the same day: branch protection is now A
 [invariants.INV-SELF-3]
 statement = "effective_level == L5 AND subject.kind == runtime implies DENY, always, including under a valid L5 grant and under break-glass."
 owner_rem = "REM-004"
-enforced_by = ["A-030", "CI-098"]
+enforced_by = ["A-030", "CI-098", "CI-110"]
 kind = "runtime"
 
 [invariants.INV-SELF-4]
@@ -245,7 +245,7 @@ kind = "runtime"
 [invariants.INV-COST-1]
 statement = "Zero paid-provider requests may leave the gateway while OperatingPeriod = FREE_TIME, under any inference input."
 owner_rem = "REM-006"
-enforced_by = ["CI-021", "A-021", "A-004"]
+enforced_by = ["CI-021", "A-021", "A-004", "CI-113"]
 kind = "runtime"
 
 [invariants.INV-COST-2]
@@ -257,7 +257,7 @@ kind = "runtime"
 [invariants.INV-COST-3]
 statement = "No code path reaches a provider adapter without traversing the cost-class choke point."
 owner_rem = "REM-006"
-enforced_by = ["CI-020"]
+enforced_by = ["CI-020", "CI-117"]
 kind = "structural"
 
 [invariants.INV-COST-4]
@@ -269,13 +269,13 @@ kind = "structural"
 [invariants.INV-COST-5]
 statement = "metered_free_tier is treated as paid absent a provable hard spend cap."
 owner_rem = "REM-006"
-enforced_by = ["CI-021", "A-021"]
+enforced_by = ["CI-021", "A-021", "CI-113"]
 kind = "runtime"
 
 [invariants.INV-COST-6]
 statement = "A gateway with no loaded cost policy permits cost_class free only."
 owner_rem = "REM-006"
-enforced_by = ["CI-020", "A-021"]
+enforced_by = ["CI-020", "A-021", "CI-113"]
 kind = "runtime"
 enforcement_correction = "2026-08-12: CI-021 CLAIMED this clause. checks.py cost-policy only prints a note when cost_policy.toml is absent; it asserts nothing about gateway behaviour, so the claim was false in exactly the case that matters -- an unloaded policy is when a live gateway decides alone. Reassigned to CI-020 (gateway choke point), PENDING until the gateway exists."
 
@@ -476,7 +476,7 @@ kind = "structural"
 [invariants.INV-EVID-1]
 statement = "No model_prior claim is emitted as an assertion in research, memory writes, world facts, or inputs to consequential actions."
 owner_rem = "REM-010"
-enforced_by = ["CI-033", "CI-074", "CI-076", "CI-080", "A-003"]
+enforced_by = ["CI-033", "CI-074", "CI-076", "CI-080", "A-003", "CI-112"]
 kind = "structural"
 
 [invariants.INV-EVID-2]
@@ -550,7 +550,7 @@ kind = "runtime"
 [invariants.INV-PRIV-3]
 statement = "Raw media is not persisted beyond the processing window."
 owner_rem = "REM-011"
-enforced_by = ["A-039"]
+enforced_by = ["A-039", "CI-104"]
 kind = "runtime"
 
 [invariants.INV-PRIV-4]
@@ -574,7 +574,7 @@ kind = "structural"
 [invariants.INV-HW-2]
 statement = "sustained_tokens_per_sec is measured at enrollment, never declared."
 owner_rem = "REM-011"
-enforced_by = ["CI-034", "CI-034b", "CI-057", "A-042"]
+enforced_by = ["CI-034", "CI-034b", "CI-057", "A-042", "CI-106", "CI-116"]
 kind = "structural"
 
 [invariants.INV-TRUST-1]
@@ -882,7 +882,7 @@ kind = "structural"
 [invariants.INV-ACT-3]
 statement = "Screen content, OCR output, UI element labels and command output entering the system are trust_class retrieved_external, carry provenance and confidence, and may never raise the authority of any action. An instruction read off a screen is an untrusted input, not a directive."
 owner_rem = "REM-012"
-enforced_by = ["CI-012", "CI-014", "A-052"]
+enforced_by = ["CI-012", "CI-014", "A-052", "CI-105", "CI-107", "CI-108", "CI-109", "CI-114"]
 kind = "structural"
 
 [invariants.INV-ACT-4]
@@ -900,7 +900,7 @@ kind = "runtime"
 [invariants.INV-ACT-6]
 statement = "An endpoint action with an irreversible external effect writes an outbox record with an idempotency key BEFORE the effect. Replay after a crash or an unknown outcome re-uses that key and does not repeat the effect. A non-idempotent action is never retried on an UNKNOWN outcome."
 owner_rem = "REM-012"
-enforced_by = ["CI-037", "CI-054", "A-051"]
+enforced_by = ["CI-037", "CI-054", "A-051", "CI-115"]
 kind = "runtime"
 
 [invariants.INV-HOME-5]
@@ -973,7 +973,7 @@ note = "Declined and could_not are the same event in a log and nothing downstrea
 [invariants.INV-NARRATE-2]
 statement = "Script conversion for speech happens at the speech boundary only. Transliterated text is never persisted, never written to memory, and never replaces what the owner typed on any surface they can read."
 owner_rem = "REM-007"
-enforced_by = ["CI-090", "A-009"]
+enforced_by = ["CI-090", "A-009", "CI-117"]
 kind = "runtime"
 note = "The owner's own framing: the script on screen and the script in the speaker need not be the same. The conversion exists because a TTS engine reads Latin-typed Darija digits (3, 7, 9) as English numerals; converting to Arabic script fixes the pronunciation and is confirmed by ear on 2026-08-31. Persisting the converted form would make the transliteration authoritative over what the owner actually wrote, and every later reader -- search, recall, the owner -- would see a machine's guess in place of their own words. The converter also marks itself UNMEASURED (INV-HW-2's shape) because its accuracy has not been quantified, only listened to."
 

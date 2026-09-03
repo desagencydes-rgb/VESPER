@@ -4853,3 +4853,20 @@ CASES += [
 
 if __name__ == "__main__":
     sys.exit(main())
+
+# --------------------------------------------------------------------------
+# The wake path deletes the clip it just transcribed. INV-PRIV-3 says raw media
+# is not kept beyond its processing window, and a continuously-open microphone
+# is the one place in this system where that is a standing promise rather than
+# a per-request one. Ratified as CI-104 on 2026-09-03; before that the check
+# ran green in every sweep and counted toward nothing.
+# --------------------------------------------------------------------------
+RUNTIME_PY = "tools/ops/vesper_runtime.py"
+
+CASES += [
+    ("wake-word-listens-locally-and-starts-once", RUNTIME_PY,
+     _sub("                pathlib.Path(path).unlink()     # the audio is not kept",
+          "                pass  # the audio is kept", 1),
+     "the captured clip is never deleted, so every wake-word utterance leaves a "
+     "raw recording of the room on disk after it has been transcribed"),
+]

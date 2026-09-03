@@ -2512,3 +2512,165 @@ CI-085 overnight 2026-08-31 and not yet joined to the gateway. This is the
 freshest instance of the pattern and the reason CI-094 was written the next
 day."""
 
+
+# Ratified 2026-09-03. The check had run green in every sweep since it was
+# written while naming no invariant, so INV-PRIV-3 -- the one privacy invariant
+# with a continuously-open microphone behind it -- was defended by an acceptance
+# test and nothing mechanical.
+[checks.CI-104]
+name = "wake-word-listens-locally-and-starts-once"
+enforces = ["INV-PRIV-3"]
+kind = "structural"
+impl = "tools/ci/checks.py wake-word-listens-locally-and-starts-once"
+blocking = "pr"
+self_test = """Stop deleting the captured clip after transcription, so raw
+recording of the room outlives its processing window."""
+
+
+# ---------------------------------------------------------------- ratified 2026-09-03
+# Fourteen checks that had run green in every sweep while belonging to no
+# registry entry. Each already carried red-then-green cases in self_test.py --
+# what was missing was the NAMING, so none of them counted toward coverage and
+# none appeared in any listing that reads this file. `enforces` below is limited
+# to invariants the check has a failing assertion for; an invariant a check only
+# MENTIONS in a comment is not one it enforces, and claiming it would inflate
+# the one figure this corpus treats as honest.
+self_test_evidence = "tools/ci/self_test.py wake-word-listens-locally-and-starts-once -- 14 cases, executed 2026-09-03: red under violation, green after restore."
+
+[checks.CI-105]
+name = "a-batch-read-is-one-action-at-its-worst-level"
+enforces = ["INV-ACT-3"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py a-batch-read-is-one-action-at-its-worst-level"
+blocking = "pr"
+self_test = """Level a batch read at its best member instead of its worst, so eight reads
+whose worst is L4 authorise at L1."""
+self_test_evidence = "tools/ci/self_test.py a-batch-read-is-one-action-at-its-worst-level -- 1 case, executed 2026-09-03: red under violation, green after restore."
+
+[checks.CI-106]
+name = "a-broken-agent-is-never-a-bad-answer"
+enforces = ["INV-HW-2"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py a-broken-agent-is-never-a-bad-answer"
+blocking = "pr"
+self_test = """Let a truncated or empty sub-agent reply through as an ANSWER, so an
+unusable result is indistinguishable from a considered one."""
+self_test_evidence = "tools/ci/self_test.py a-broken-agent-is-never-a-bad-answer -- 2 cases, executed 2026-09-03: red under violation, green after restore."
+
+[checks.CI-107]
+name = "a-question-does-not-end-the-turn"
+enforces = ["INV-ACT-3", "INV-AUTH-2"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py a-question-does-not-end-the-turn"
+blocking = "pr"
+self_test = """Let a mid-task question end the turn, and let the answer to it carry
+authority forward to every action that follows."""
+self_test_evidence = "tools/ci/self_test.py a-question-does-not-end-the-turn -- 2 cases, executed 2026-09-03: red under violation, green after restore."
+
+[checks.CI-108]
+name = "advice-can-add-caution-and-never-remove-it"
+enforces = ["INV-ACT-3"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py advice-can-add-caution-and-never-remove-it"
+blocking = "pr"
+self_test = """Let an advisor's PROCEED lower a required level, so a model's opinion
+authorises what it was only asked to review."""
+self_test_evidence = "tools/ci/self_test.py advice-can-add-caution-and-never-remove-it -- 2 cases, executed 2026-09-03: red under violation, green after restore."
+
+[checks.CI-109]
+name = "an-mcp-server-does-not-level-its-own-tools"
+enforces = ["INV-ACT-3"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py an-mcp-server-does-not-level-its-own-tools"
+blocking = "pr"
+self_test = """Honour a server's own `level` and `destructive` fields, so an external
+tool declares itself safe and is believed."""
+self_test_evidence = "tools/ci/self_test.py an-mcp-server-does-not-level-its-own-tools -- 1 case, executed 2026-09-03: red under violation, green after restore."
+
+[checks.CI-110]
+name = "boundary-asked-before-the-write"
+enforces = ["INV-SELF-3"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py boundary-asked-before-the-write"
+blocking = "pr"
+self_test = """Ask the boundary after the write rather than before it."""
+self_test_evidence = "tools/ci/self_test.py boundary-asked-before-the-write -- 4 cases, executed 2026-09-03: red under violation, green after restore."
+
+[checks.CI-111]
+name = "capabilities-registered-and-levelled-by-argument"
+enforces = ["INV-AUTH-2"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py capabilities-registered-and-levelled-by-argument"
+blocking = "pr"
+self_test = """Level a capability by its name rather than its arguments, so one grant
+covers every argument the name can take."""
+self_test_evidence = "tools/ci/self_test.py capabilities-registered-and-levelled-by-argument -- 15 cases, executed 2026-09-03: red under violation, green after restore."
+
+[checks.CI-112]
+name = "compaction-never-eats-its-own-summaries"
+enforces = ["INV-EVID-1"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py compaction-never-eats-its-own-summaries"
+blocking = "pr"
+self_test = """Let a summary be compacted again, so a summary of a summary becomes
+evidence for what it can no longer reach."""
+self_test_evidence = "tools/ci/self_test.py compaction-never-eats-its-own-summaries -- 1 case, executed 2026-09-03: red under violation, green after restore."
+
+[checks.CI-113]
+name = "cost-policy"
+enforces = ["INV-COST-1", "INV-COST-5", "INV-COST-6"]
+kind = "structural"
+impl = "tools/ci/checks.py cost-policy"
+blocking = "pr"
+self_test = """Escalate to a paid class on exhaustion; treat metered_free_tier as free
+without a provable hard cap."""
+self_test_evidence = "tools/ci/self_test.py cost-policy -- 1 case, executed 2026-09-03: red under violation, green after restore."
+
+[checks.CI-114]
+name = "loop-observes-and-is-bounded"
+enforces = ["INV-ACT-3", "INV-AUTH-6"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py loop-observes-and-is-bounded"
+blocking = "pr"
+self_test = """Admit command output at the context ceiling rather than as
+retrieved_external; add a capability the loop may use unbounded."""
+self_test_evidence = "tools/ci/self_test.py loop-observes-and-is-bounded -- 7 cases, executed 2026-09-03: red under violation, green after restore."
+
+[checks.CI-115]
+name = "outbox-written-before-the-effect"
+enforces = ["INV-ACT-6"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py outbox-written-before-the-effect"
+blocking = "pr"
+self_test = """Write the outbox record after the send, so a send that crashes midway
+leaves no trace it happened."""
+self_test_evidence = "tools/ci/self_test.py outbox-written-before-the-effect -- 4 cases, executed 2026-09-03: red under violation, green after restore."
+
+[checks.CI-116]
+name = "projection-unknown-absent"
+enforces = ["INV-HW-2", "INV-COORD-4"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py projection-unknown-absent"
+blocking = "pr"
+self_test = """Render an UNAVAILABLE reading as a value; let an older projection
+supersede a newer one."""
+self_test_evidence = "tools/ci/self_test.py projection-unknown-absent -- 4 cases, executed 2026-09-03: red under violation, green after restore."
+
+[checks.CI-117]
+name = "speech-is-egress-and-says-so"
+enforces = ["INV-COST-3", "INV-NARRATE-2"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py speech-is-egress-and-says-so"
+blocking = "pr"
+self_test = """Open a second path to a provider that bypasses the choke point; let the
+spoken line differ from what is on screen."""
+self_test_evidence = "tools/ci/self_test.py speech-is-egress-and-says-so -- 9 cases, executed 2026-09-03: red under violation, green after restore."
+
+[checks.CI-118]
+name = "write-never-destroys-what-was-not-read"
+enforces = ["INV-AUTH-5"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py write-never-destroys-what-was-not-read"
+blocking = "pr"
+self_test = """Allow a write to a file this session has never read."""
+self_test_evidence = "tools/ci/self_test.py write-never-destroys-what-was-not-read -- 5 cases, executed 2026-09-03: red under violation, green after restore."

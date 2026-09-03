@@ -104,6 +104,44 @@ def load_secrets() -> dict:
     return read_secrets(SECRETS)
 
 
+def _error_message(body: dict) -> str | None:
+    """The provider's own words for why it refused, whatever shape it uses.
+
+    THIS RETURNED None FOR EVERY CLOUDFLARE FAILURE. The previous form read
+    `body["error"]["message"]` -- OpenAI's shape -- and Cloudflare answers with
+    `errors: [{code, message}]`. So a `cf-image` 400 arrived in the results file
+    with `error: null`, and the only way to learn what it said was to re-issue
+    the call by hand. Measured 2026-09-03: doing that returned 200 and 137680
+    bytes of image, which means the 400 was transient and the measurement had
+    recorded a permanent-looking refusal with no evidence attached to argue
+    with.
+
+    A refusal whose reason is discarded is indistinguishable from a refusal
+    with no reason, and the two call for opposite responses: one is a wiring
+    bug to fix, the other is a provider to descend from.
+    """
+    if not isinstance(body, dict):
+        return None
+    err = body.get("error")
+    if isinstance(err, dict) and err.get("message"):
+        return str(err["message"])
+    if isinstance(err, str) and err:
+        return err
+    errs = body.get("errors")
+    if isinstance(errs, list) and errs:
+        first = errs[0]
+        if isinstance(first, dict):
+            msg, code = first.get("message"), first.get("code")
+            if msg:
+                return f"{msg}" + (f" (code {code})" if code is not None else "")
+        elif first:
+            return str(first)
+    for k in ("message", "detail", "error_message"):
+        if body.get(k):
+            return str(body[k])
+    return None
+
+
 def _post(url: str, payload: dict, headers: dict, timeout: float = 90.0):
     body = json.dumps(payload).encode("utf-8")
     # See routing/http_completion.py: the urllib default User-Agent is 403'd
@@ -186,7 +224,7 @@ def call(row: dict, secrets: dict) -> dict:
     status, body = _post(url, payload, hdr)
     elapsed = time.perf_counter() - t0
     return {"status": status, "elapsed_s": round(elapsed, 3),
-            **extract(wire, body), "raw_error": (body.get("error") or {}).get("message")}
+            **extract(wire, body), "raw_error": _error_message(body)}
 
 
 def extract(wire: str, body: dict) -> dict:
@@ -228,6 +266,60 @@ def extract(wire: str, body: dict) -> dict:
             "prompt_tokens": prompt_toks}
 
 
+# Statuses on which a second attempt is worth making. Deliberately the
+# TRANSIENT half of `routing/http_completion.py`'s vocabulary and nothing more:
+# 400, 401, 403, 404, 405, 410 and 501 are TERMINAL there, and a probe that
+# retried them would spend a second call proving what the first already
+# settled. 410 in particular means the model is WITHDRAWN -- retrying it is the
+# exact defect `a-withdrawn-model-descends-instead-of-being-retried` refuses.
+#
+# 400 IS THE ONE EXCEPTION AND IT IS CONDITIONAL: see `_worth_retrying`. A 400
+# that carries no message is retried once; a 400 that explains itself is not.
+RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504})
+
+
+def _worth_retrying(status, answered: bool, message: str | None = None) -> str | None:
+    """Why a second attempt is justified, or None to record the first verdict.
+
+    THE CASE THIS EXISTS FOR IS A 200 THAT CARRIES NOTHING. Measured
+    2026-09-03: `ollama-updater` returned status 200 with completion_tokens
+    2048 and output_chars 0 -- a reasoning model that spent its entire budget
+    on hidden reasoning and emitted no content. It answered correctly on the
+    next two attempts. Recording that first verdict would have written
+    `usable = false` into the measurement file, and because `measured_profiles`
+    skips any provider without a measured rate, promoting it would have RETIRED
+    A WORKING RUNG on one unlucky call.
+
+    A retry is not leniency. INV-HW-2 says throughput is measured rather than
+    declared, and one sample of a stochastic decoder is a weak measurement, not
+    a strong one. What would be leniency is retrying a TERMINAL refusal, which
+    is why this returns None for those: a 401 twice is not better evidence than
+    a 401 once, it is the same evidence twice.
+    """
+    if answered:
+        return None
+    if status == 200:
+        return "200 with no content"      # the empty-body case above
+    if status in RETRYABLE_STATUS:
+        return f"transient status {status}"
+    if status == 400 and not message:
+        # AN UNEXPLAINED 400 IS NOT THE SAME REFUSAL AS AN EXPLAINED ONE.
+        # Measured 2026-09-03: `cf-image` returned 400 with no message during a
+        # sweep and 200 with 137680 bytes of image when re-issued by hand. A
+        # provider that refuses without saying why has not told us the request
+        # was wrong -- only that this attempt was.
+        #
+        # An EXPLAINED 400 stays terminal, and that distinction is the whole
+        # point: "model not found" is the codex-argv defect, a rung nothing
+        # could call, and retrying it would spend a second call confirming a
+        # wiring bug instead of surfacing it. The message is the evidence, so
+        # it decides.
+        return "unexplained 400"
+    if status is None:
+        return "no response"             # timeout or transport failure
+    return None                          # TERMINAL: the first verdict stands
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=None, help="write results JSON here")
@@ -262,6 +354,25 @@ def main() -> int:
         else:
             answered = bool(text) and all(w in text.lower() for w in EXPECT)
         ok = r.get("status") == 200 and answered
+
+        # ONE RETRY, RECORDED. `attempts` is written into the row so a
+        # second-attempt measurement is legible as one rather than passing for
+        # a clean first call -- the provenance rule this corpus already applies
+        # to build tags and rounding.
+        attempts, retried_for = 1, None
+        if not ok:
+            why = _worth_retrying(r.get("status"), answered, r.get("raw_error"))
+            if why is not None:
+                retried_for = why
+                print(f"  {pid:<12} retry    {why}")
+                r = call(row, secrets)
+                attempts = 2
+                text = (r.get("text") or "").strip()
+                if row["wire"] == "cf_image":
+                    answered = bool(r.get("image_chars"))
+                else:
+                    answered = bool(text) and all(w in text.lower() for w in EXPECT)
+                ok = r.get("status") == 200 and answered
         usable += 1 if ok else 0
         ctok = r.get("completion_tokens")
         # WHAT TO DO WHEN A PROVIDER WILL NOT SAY WHAT IT BILLED.
@@ -321,6 +432,7 @@ def main() -> int:
         # expression is the one failure it cannot have.
         results.append({
             "provider_id": pid, "usable": ok, "status": r.get("status"),
+            "attempts": attempts, "retried_for": retried_for,
             "elapsed_s": r.get("elapsed_s"),
             "completion_tokens": ctok, "prompt_tokens": r.get("prompt_tokens"),
             "measured_tokens_per_sec": rate,

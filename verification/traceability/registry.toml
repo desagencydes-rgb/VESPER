@@ -55,7 +55,7 @@ tests = ["A-004", "A-005"]
 contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json"]
 decision_functions = ["DF-PROVIDER-ADMIT"]
 invariants = ["INV-COST-3"]
-ci = ["CI-020"]
+ci = ["CI-020", "CI-117"]
 status = "SPECIFIED"
 
 [requirements.SR-002]
@@ -115,7 +115,7 @@ tests = ["A-004", "A-020"]
 contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json"]
 decision_functions = ["DF-PROVIDER-ADMIT"]
 invariants = ["INV-COST-6"]
-ci = ["CI-020"]
+ci = ["CI-020", "CI-113"]
 status = "SPECIFIED"
 
 [requirements.SR-006]
@@ -125,7 +125,7 @@ tests = ["A-005", "A-020", "A-022"]
 contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json", "contracts/entities/model_profile.schema.json", "contracts/policy/capability_profiles.toml"]
 decision_functions = ["DF-SURVIVAL-PROFILE", "DF-GOVERNOR-LEVEL"]
 invariants = ["INV-HW-1", "INV-HW-2", "INV-COST-9"]
-ci = ["CI-007", "CI-034", "CI-060"]
+ci = ["CI-007", "CI-034", "CI-060", "CI-106", "CI-116"]
 status = "SPECIFIED"
 raised = "2026-08-12: local model selection now resolves against MEASURED capability profiles rather than a name. The mechanism was already load-bearing (CI-007, CI-034, INV-HW-1/2) and had no artifact."
 raised_2026_08_25 = "CI-060 is listed here as well as under SR-003, and the split is deliberate rather than duplication. `enhance productivity/thinking` and `benchmarked for task quality` are about HOW HARD THE MODEL IS TOLD TO THINK, which is a different question from which provider answers -- measured 2026-08-25 at 4.6x completion tokens between low and high effort for an identical answer, and at low effort answering a hard problem CORRECTLY. Listing it only under SR-003 would have been the lazy answer, because SR-003 already carried the gateway."
@@ -213,7 +213,7 @@ tests = ["A-007", "A-024"]
 contracts = ["contracts/policy/authorization.schema.json"]
 decision_functions = ["DF-ATTENUATE"]
 invariants = ["INV-AUTH-2"]
-ci = ["CI-013", "CI-095"]
+ci = ["CI-013", "CI-095", "CI-107", "CI-111"]
 status = "SPECIFIED"
 
 [requirements.SR-015]
@@ -279,7 +279,7 @@ contracts = [
 state_machines = ["SM-SENSOR", "SM-ENDPOINT-EPISODE"]
 decision_functions = ["DF-ENDPOINT-ACT", "DF-ENDPOINT-OBSERVE", "DF-ENDPOINT-RECOVER"]
 invariants = ["INV-PRIV-4", "INV-ACT-1", "INV-ACT-2", "INV-ACT-3", "INV-ACT-4", "INV-ACT-5", "INV-ACT-6", "INV-NARRATE-2", "INV-PRIV-8"]
-ci = ["CI-052", "CI-053", "CI-054", "CI-090", "CI-091"]
+ci = ["CI-052", "CI-053", "CI-054", "CI-090", "CI-091", "CI-105", "CI-108", "CI-109", "CI-114", "CI-115"]
 status = "SPECIFIED"
 agency_clause = "2026-08-12: SR-020's 'self-interact across available hardware' clause traced only to semantic_scene.schema.json, SM-SENSOR and INV-PRIV-4 -- capture, sensor indicators and output rendering. None of them concerns ACTING. The status was SPECIFIED on the perception clause while the agency clause had no subsystem, no decision function and no contract. Rather than downgrade the requirement to make the registry honest, SPEC-30, SM-ENDPOINT-EPISODE, DF-ENDPOINT-ACT/OBSERVE/RECOVER, two contracts, INV-ACT-1..6 and A-051/A-052 were written. SPECIFIED is now earned on both clauses."
 
@@ -295,7 +295,7 @@ contracts = [
 state_machines = ["SM-ENDPOINT-EPISODE"]
 decision_functions = ["DF-AUTHORIZE", "DF-ENDPOINT-ACT", "DF-ENDPOINT-RECOVER"]
 invariants = ["INV-AUTH-1", "INV-AUTH-5", "INV-ACT-1", "INV-ACT-4", "INV-ACT-5", "INV-ACT-6"]
-ci = ["CI-011", "CI-013", "CI-052", "CI-054"]
+ci = ["CI-011", "CI-013", "CI-052", "CI-054", "CI-118"]
 status = "SPECIFIED"
 
 [requirements.SR-022]
@@ -435,7 +435,7 @@ tests = ["A-036"]
 contracts = ["contracts/entities/semantic_scene.schema.json", "contracts/policy/persona_policy.schema.json", "contracts/policy/persona.toml", "contracts/policy/voice.toml"]
 decision_functions = ["DF-PERSONA"]
 invariants = ["INV-EVID-1", "INV-EVID-3", "INV-PERSONA-1", "INV-PERSONA-2"]
-ci = ["CI-068", "CI-070"]
+ci = ["CI-068", "CI-070", "CI-112"]
 status = "SPECIFIED"
 raised = "2026-08-26: this row named persona_policy.schema.json and DF-PERSONA and carried no `ci` key, which was accurate -- the schema had been specified since IC-005 and never instantiated. Nothing composed a persona and no wire in routing/supply.py carried a system turn, so every request reached every supplier as a bare user turn. Asked its own name that day the ladder replied that Vesper was `one of my names`: a fabricated fact about itself, confidently stated, which is the class RB-001 forbids. CI-068 asserts the contract loads fail-closed; CI-070 asserts the composed preamble actually reaches the wire, because composing one that nothing sends is this tree's recurring failure."
 
@@ -486,6 +486,7 @@ tests = ["A-008"]
 contracts = ["contracts/entities/world_fact.schema.json"]
 state_machines = ["SM-SENSOR"]
 invariants = ["INV-PRIV-3"]
+ci = ["CI-104"]
 status = "SPECIFIED"
 
 [requirements.SR-041]
@@ -601,7 +602,7 @@ decision_functions = ["DF-GOVERNED-WRITE", "DF-ACTUATION-GATE", "DF-LOSS-CLASS"]
 # traverses a lease cannot happen during the partition it is most needed in.
 # A-031 was already listed here and is INV-STOP-2's other declared enforcer.
 invariants = ["INV-SELF-1", "INV-SELF-4", "INV-STOP-1", "INV-STOP-2", "INV-LOSS-2", "INV-LOSS-6", "INV-ADR-1", "INV-STOP-5"]
-ci = ["CI-008", "CI-015", "CI-018", "CI-048", "CI-016", "CI-019", "CI-098", "CI-099", "CI-102", "CI-103"]
+ci = ["CI-008", "CI-015", "CI-018", "CI-048", "CI-016", "CI-019", "CI-098", "CI-099", "CI-102", "CI-103", "CI-110"]
 contracts_note = "core/interlock.py is CI-019's subject"
 status = "SPECIFIED"
 
