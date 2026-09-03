@@ -9740,6 +9740,49 @@ def check_documented_counts_match_commands() -> Result:
     except Exception as exc:                        # noqa: BLE001
         r.err(f"tools/ci/self_test.py did not import: {exc!r}")
         return r
+    # AND NOTHING MAY EXTEND THOSE LISTS BELOW THE ENTRY POINT. This check
+    # COUNTS BY IMPORTING, and on import `if __name__ == "__main__"` is false,
+    # so every statement in the file runs and the count is complete. Run as a
+    # SCRIPT the guard is true, `main()` executes at the line it appears on, and
+    # anything below it never runs at all.
+    #
+    # The two readings then disagree in the one direction that cannot be
+    # noticed: this check reports MORE cases than the runner executes, and the
+    # extra ones are exactly the newly-added cases a session is relying on. It
+    # happened on 2026-09-03 -- two cases were appended, counted here, and
+    # absent from every actual run; the evidence recorded for CI-104 named a
+    # case that had not executed.
+    src = st_path.read_text(encoding="utf-8")
+    try:
+        tree = ast.parse(src)
+    except SyntaxError as exc:
+        r.err(f"tools/ci/self_test.py does not parse: {exc}")
+        return r
+    guard_line = None
+    for node in tree.body:
+        if (isinstance(node, ast.If)
+                and ast.dump(node.test).find("__name__") != -1):
+            guard_line = node.lineno
+    if guard_line is None:
+        r.err("tools/ci/self_test.py has no `if __name__ == \"__main__\"` "
+              "guard, so how it behaves as a script cannot be reasoned about")
+    else:
+        stranded = [n for n in tree.body if n.lineno > guard_line]
+        if stranded:
+            names = ", ".join(sorted({
+                getattr(n, "name", None)
+                or (n.targets[0].id if isinstance(n, ast.Assign)
+                    and isinstance(n.targets[0], ast.Name) else None)
+                or (n.target.id if isinstance(n, ast.AugAssign)
+                    and isinstance(n.target, ast.Name) else None)
+                or type(n).__name__
+                for n in stranded}))
+            r.err(f"tools/ci/self_test.py has {len(stranded)} top-level "
+                  f"statement(s) below the __main__ guard ({names}). They run "
+                  "on IMPORT, so this check counts them, and do NOT run as a "
+                  "SCRIPT, so the harness never executes them -- a case added "
+                  "there is counted as evidence and never tested")
+
     case_lists = ("CASES", "CREATE_CASES", "SCENARIO_CASES", "LINT_CASES")
     missing = [n for n in case_lists if not hasattr(mod, n)]
     if missing:

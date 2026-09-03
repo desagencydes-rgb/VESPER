@@ -2121,7 +2121,11 @@ self_test = """Stale the check count in CLAUDE.md; stale the self-test count in
 the status table; stale the PENDING count; delete one of the anchored
 patterns."""
 self_test_evidence = """tools/ci/self_test.py documented-counts-match-commands
--- 4 cases, red then green, 2026-08-31."""
+-- 4 cases, red then green, 2026-08-31. Also 2026-09-03: appending a CASES
+block below the __main__ guard is red (1 stranded statement) and green on
+restore -- verified by hand rather than as a harness case, because the
+mutation target IS the harness and a failed restore would leave it unable to
+run."""
 subject = "CLAUDE.md, VESPER_ENGINEERING_STATUS.md"
 note = """The two figures in CLAUDE.md drifted SEVEN times, every correction made
 by a person noticing. This is the eighth response and the first that can fail.
