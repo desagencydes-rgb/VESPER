@@ -11309,6 +11309,29 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
               "starter's check can only cover the paths it knows about; this one "
               "cannot be bypassed by any other way of launching home")
 
+    # THE MINTER IS A MODE OF THE BUNDLE. `core/interlock.py` is a dead-man's
+    # switch, so the process that hands out enable tokens is the one whose
+    # absence stops autonomy -- and it ran as a bare `python3` outside the app,
+    # with nothing tying its lifetime to VESPER's. `VESPER --arm` is that
+    # process now.
+    if 'args.contains("--arm")' not in main:
+        r.err("the bundle has no --arm mode, so the one process whose absence "
+              "stops autonomy runs outside the app that autonomy belongs to")
+    # ASSERTED AT THE CALL, NOT THE DEFINITION. The first form looked for
+    # `vesperRepoRoot()`, which the FUNCTION SIGNATURE also contains -- so
+    # renaming it away left the assertion matching its own definition and the
+    # mutation stayed green. What matters is that --arm actually calls it.
+    if "guard let repo = vesperRepoRoot()" not in main:
+        r.err("--arm resolves its repo from the working directory, which is "
+              "'/' when launchd starts the bundle: it works by hand and fails "
+              "as a login item, which is the same binary behaving two ways "
+              "depending on who started it")
+    arm_sh = (REPO / "app" / "island-macos" / "build.sh").read_text(encoding="utf-8")
+    if "vesper_arm.py" not in arm_sh:
+        r.err("the build does not pack the minter, so a bundle carrying the "
+              "runtime cannot arm it and autonomy stops one token lifetime "
+              "after the bundle is moved")
+
     # `--fn-fire` IS A TEST DOOR AND IT SHIPS. It calls the real
     # `launchVesper()`, which is the only way to confirm the single-instance
     # guard without synthesising a key event -- and that needs the same

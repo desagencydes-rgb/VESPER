@@ -5,16 +5,25 @@ supply measurement. Read this, then `CLAUDE.md`.
 
 ## State
 
-- **127 checks pass. 554/554 self-test cases** red under violation, green after
+- **127 checks pass. 558/558 self-test cases** red under violation, green after
   restore. Both lints, F0–F6 acceptance, placement and fabric stress all pass.
 - **118 registered checks, 89/144 invariants enforced**, 18 still `PENDING`,
   **23 runnable checks unratified** — see
   `docs/planning/UNRATIFIED_CHECKS_2026-09-03.md`, which proposes the invariant
   text for each so ratifying one is a decision rather than research.
-- `build.sh` has **not** been run since the last TCC grant. Speech and
-  Accessibility are intact. `scheduleWakeRetry` is still committed and unbuilt;
-  **the next build must be followed by re-granting** —
-  `[[tcc-grants-die-on-every-rebuild]]`.
+- **THE APP WAS REBUILT 2026-09-03 AND ITS TCC GRANTS ARE GONE.** cdhash moved
+  `2069a84a…` -> `1f015fc0…`, which is what invalidates them. `--speech-status`
+  reads `notDetermined` and `--fn-status` reads `accessibility: NOT trusted`.
+  `scheduleWakeRetry` is now built. **Nothing further is pending a build**, so
+  the grant taken next is the one that lasts:
+
+  ```
+  open -n app/VESPER.app --args --speech-consent
+  ```
+
+  Then Accessibility for the globe key in System Settings > Privacy & Security.
+  Read it back with `--speech-status` / `--fn-status`, never from a shell that
+  prompts — TCC attributes to the responsible process, which is the shell.
 
 ## The measurement is promoted and the agents are reachable
 

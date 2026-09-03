@@ -4933,5 +4933,33 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# The minter is a mode of the bundle. It ran as a bare python3 outside the app,
+# and it is the one process whose absence stops autonomy.
+# --------------------------------------------------------------------------
+MAIN_SWIFT = "app/island-macos/main.swift"
+BUILD_SH = "app/island-macos/build.sh"
+
+CASES += [
+    ("wake-word-listens-locally-and-starts-once", MAIN_SWIFT,
+     _sub('if args.contains("--arm") {', "if false {", 1),
+     "the bundle loses its --arm mode, so the process that keeps autonomy "
+     "alive runs outside the app and nothing ties its lifetime to VESPER's"),
+
+    ("wake-word-listens-locally-and-starts-once", MAIN_SWIFT,
+     _sub("guard let repo = vesperRepoRoot() else {",
+          "guard let repo = Optional(FileManager.default.currentDirectoryPath) "
+          "else {", 1),
+     "--arm resolves its repo from the working directory again: '/' under "
+     "launchd, so it works by hand and fails as a login item"),
+
+    ("wake-word-listens-locally-and-starts-once", BUILD_SH,
+     _sub('cp "$REPO/tools/ops/vesper_arm.py" '
+          '"$APP/Contents/Resources/runtime/tools/ops/"', "true", 1),
+     "the build stops packing the minter, so a relocated bundle cannot arm "
+     "itself and autonomy stops one token lifetime later"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

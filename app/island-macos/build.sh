@@ -59,6 +59,10 @@ cp -R "$REPO/core" "$REPO/routing" "$REPO/contracts" \
       "$APP/Contents/Resources/runtime/" 2>/dev/null
 mkdir -p "$APP/Contents/Resources/runtime/tools/ops"
 cp "$REPO/tools/ops/vesper_runtime.py" "$APP/Contents/Resources/runtime/tools/ops/"
+# THE MINTER SHIPS TOO. `VESPER --arm` is the process whose absence stops
+# autonomy -- interlock is a dead-man's switch -- and a bundle that carries the
+# runtime but not the thing that arms it is a bundle that cannot act.
+cp "$REPO/tools/ops/vesper_arm.py" "$APP/Contents/Resources/runtime/tools/ops/"
 
 # THE MEASUREMENTS SHIP WITH THE RUNTIME, and forgetting them was not a small
 # omission. INV-HW-2 refuses an unmeasured provider, so a bundle carrying the

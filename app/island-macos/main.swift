@@ -872,6 +872,86 @@ let snapshot = args.firstIndex(of: "--snapshot").flatMap { i -> String? in
 // Ask the system what it thinks, rather than inferring it from launchctl -- an
 // SMAppService agent does not appear under its own label there, so its absence
 // proves nothing either way.
+/// Where the repo is, asked of the binary's own location rather than of the cwd.
+///
+/// `FileManager.currentDirectoryPath` is "/" when launchd starts the bundle, so
+/// anything resolved against it works by hand and fails as a login item -- the
+/// failure mode that costs an evening because the same binary behaves both ways
+/// depending on who started it. Walking up from the executable finds the repo
+/// whether the bundle sits inside it or is invoked from anywhere at all.
+func vesperRepoRoot() -> String? {
+    if let i = CommandLine.arguments.firstIndex(of: "--repo"),
+       i + 1 < CommandLine.arguments.count {
+        return CommandLine.arguments[i + 1]
+    }
+    let fm = FileManager.default
+    // THE BUNDLE'S OWN COPY FIRST. `build.sh` ships the runtime under
+    // Contents/Resources/runtime, so a bundle moved out of the repo -- to
+    // /Applications, say -- still finds its minter instead of walking up into
+    // whatever happens to be above it.
+    if let res = Bundle.main.resourceURL?.appendingPathComponent("runtime"),
+       fm.fileExists(atPath: res.appendingPathComponent(
+           "tools/ops/vesper_arm.py").path) {
+        return res.path
+    }
+    var dir = URL(fileURLWithPath: CommandLine.arguments[0])
+        .resolvingSymlinksInPath().deletingLastPathComponent()
+    for _ in 0..<8 {
+        // MARKED BY A FILE THIS REPO ACTUALLY HAS, not by a directory name: a
+        // parent called "VESPER" proves nothing and there is more than one.
+        if fm.fileExists(atPath: dir.appendingPathComponent(
+                "tools/ops/vesper_arm.py").path) {
+            return dir.path
+        }
+        dir.deleteLastPathComponent()
+    }
+    let cwd = fm.currentDirectoryPath
+    return fm.fileExists(atPath: (cwd as NSString)
+        .appendingPathComponent("tools/ops/vesper_arm.py")) ? cwd : nil
+}
+
+// THE MINTER IS A MODE OF THIS BINARY, NOT A SHELL COMMAND. It is the one
+// process whose absence stops autonomy -- `core/interlock.py` is a dead-man's
+// switch, so no tokens means no acting -- and it had been running as a bare
+// `python3`, outside the bundle, with nothing tying its lifetime to VESPER's.
+//
+// THE TOKEN LOGIC IS NOT PORTED, DELIBERATELY. Rewriting the mint path in Swift
+// would mean reimplementing the one thing whose correctness the whole interlock
+// rests on, to gain nothing the wrapper does not already give: the process is
+// the signed bundle, it finds its own repo, and it dies when VESPER dies.
+if args.contains("--arm") {
+    guard let repo = vesperRepoRoot() else {
+        FileHandle.standardError.write(Data(
+            "--arm: cannot find the repo from \(CommandLine.arguments[0]); "
+            .utf8))
+        FileHandle.standardError.write(Data("pass --repo <path>\n".utf8))
+        exit(2)
+    }
+    let py = ["/Users/macbook/.local/bin/python3.13", "/usr/bin/python3",
+              "/usr/local/bin/python3"]
+        .first { FileManager.default.isExecutableFile(atPath: $0) }
+    guard let py else {
+        FileHandle.standardError.write(Data("--arm: no python3 found\n".utf8))
+        exit(2)
+    }
+    let script = (repo as NSString)
+        .appendingPathComponent("tools/ops/vesper_arm.py")
+    // EVERY OTHER FLAG IS FORWARDED, so `--install`, `--run` and `--status`
+    // stay the minter's vocabulary rather than being re-declared here and
+    // drifting from it.
+    let forwarded = args.dropFirst().filter { $0 != "--arm" }
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: py)
+    p.arguments = [script] + Array(forwarded)
+    p.currentDirectoryURL = URL(fileURLWithPath: repo)
+    do { try p.run() } catch {
+        FileHandle.standardError.write(Data("--arm: \(error)\n".utf8))
+        exit(2)
+    }
+    p.waitUntilExit()
+    exit(p.terminationStatus)
+}
+
 if args.contains("--login-item-status") {
     if #available(macOS 13.0, *) {
         let st = SMAppService.agent(plistName: "ai.vesper.island.plist").status
