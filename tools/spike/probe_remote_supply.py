@@ -31,6 +31,7 @@ TWO THINGS IT MEASURES THAT A NAIVE PROBE WOULD MISS, both found live on
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import os
 import re
@@ -84,6 +85,18 @@ MIN_TOKENS_FOR_RATE = 50
 # nothing. Its own prompt is deliberately trivial: this probe establishes that
 # the row ANSWERS and what it COSTS, not what it can draw.
 IMAGE_PROMPT = "a single grey square on a white background"
+
+# SPEECH IS PROBED WITH SPEECH. Both speech rows previously fell through to
+# `unknown wire format` and were recorded as failures -- so the measurement said
+# `elevenlabs-speech` and `cf-transcribe` were down while both answered
+# correctly when called by hand. A rung the probe cannot invoke is
+# indistinguishable, in the file, from a provider that is refusing.
+#
+# The transcriber needs AUDIO, and the audio has to say something the existing
+# oracle can check, so the fixture speaks the probe's own sentence and is
+# judged by the same `EXPECT` stem every text rung is judged by.
+AUDIO_FIXTURE = REPO / "tests" / "fixtures" / "audio" / "probe-retry-en.wav"
+SPEECH_TEXT = "A system that retries a failed request should wait longer."
 
 
 def load_secrets() -> dict:
@@ -142,6 +155,17 @@ def _error_message(body: dict) -> str | None:
     return None
 
 
+def _voice_id() -> str:
+    """The voice `contracts/policy/voice.toml` names, or "" to let the row decide."""
+    try:
+        doc = tomllib.loads(
+            (REPO / "contracts" / "policy" / "voice.toml").read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return ""
+    syn = doc.get("synthesis") or {}
+    return str(syn.get("english_voice_id") or syn.get("darija_voice_id") or "")
+
+
 def _post(url: str, payload: dict, headers: dict, timeout: float = 90.0):
     body = json.dumps(payload).encode("utf-8")
     # See routing/http_completion.py: the urllib default User-Agent is 403'd
@@ -151,7 +175,16 @@ def _post(url: str, payload: dict, headers: dict, timeout: float = 90.0):
     req = urllib.request.Request(url, data=body, headers=h)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.status, json.loads(r.read().decode("utf-8"))
+            raw = r.read()
+            # NOT EVERY 200 IS JSON. A text-to-speech endpoint answers with
+            # audio, and decoding it as JSON raised -- which the generic
+            # handler below turned into status 0, indistinguishable from a
+            # transport failure. The size IS the result for that wire.
+            ctype = (r.headers.get("Content-Type") or "").lower()
+            if "json" not in ctype:
+                return r.status, {"_audio_bytes": len(raw),
+                                  "_content_type": ctype}
+            return r.status, json.loads(raw.decode("utf-8"))
     except urllib.error.HTTPError as e:
         try:
             return e.code, json.loads(e.read().decode("utf-8"))
@@ -217,6 +250,22 @@ def call(row: dict, secrets: dict) -> dict:
     elif wire == "google_generate":
         hdr = {"x-goog-api-key": key}
         payload = {"contents": [{"parts": [{"text": PROMPT}]}]}
+    elif wire == "elevenlabs_tts":
+        # THE VOICE COMES FROM THE VOICE CONTRACT, not from a default. Measured
+        # 2026-09-03: a library voice id returns 402 `paid_plan_required` on
+        # this plan while the CONFIGURED voice returns audio, so a probe that
+        # picked its own would report the rung dead on a plan that can use it.
+        hdr = {"xi-api-key": key, "Accept": "audio/mpeg"}
+        payload = {"text": SPEECH_TEXT, "model_id": model}
+        url = url.replace("{voice}", _voice_id())
+    elif wire == "cf_whisper":
+        hdr = {"Authorization": f"Bearer {key}"}
+        try:
+            audio = base64.b64encode(AUDIO_FIXTURE.read_bytes()).decode()
+        except OSError:
+            return {"ok": False,
+                    "reason": f"audio fixture missing: {AUDIO_FIXTURE}"}
+        payload = {"audio": audio}
     else:
         return {"ok": False, "reason": f"unknown wire format {wire!r}"}
 
@@ -228,6 +277,20 @@ def call(row: dict, secrets: dict) -> dict:
 
 
 def extract(wire: str, body: dict) -> dict:
+    # Speech rows are judged on what came back, not on a token count neither
+    # endpoint reports: audio bytes for the synthesiser, the transcript for the
+    # transcriber -- which is then held to the same EXPECT stem as every text
+    # rung, so "it answered" means the same thing across the file.
+    if wire == "elevenlabs_tts":
+        n = int(body.get("_audio_bytes") or 0)
+        return {"text": SPEECH_TEXT if n > 1024 else "",
+                "completion_tokens": None, "prompt_tokens": None,
+                "audio_bytes": n}
+    if wire == "cf_whisper":
+        res = (body or {}).get("result") or {}
+        return {"text": (res.get("text") or "").strip(),
+                "completion_tokens": None, "prompt_tokens": None}
+
     """Pull text and billed tokens out of three different response shapes."""
     text, completion, prompt_toks = None, None, None
     try:
