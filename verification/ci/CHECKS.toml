@@ -2539,7 +2539,7 @@ recording of the room outlives its processing window."""
 # to invariants the check has a failing assertion for; an invariant a check only
 # MENTIONS in a comment is not one it enforces, and claiming it would inflate
 # the one figure this corpus treats as honest.
-self_test_evidence = "tools/ci/self_test.py wake-word-listens-locally-and-starts-once -- 18 cases, executed 2026-09-03: red under violation, green after restore."
+self_test_evidence = "tools/ci/self_test.py wake-word-listens-locally-and-starts-once -- 19 cases, executed 2026-09-03: red under violation, green after restore."
 
 [checks.CI-105]
 name = "a-batch-read-is-one-action-at-its-worst-level"

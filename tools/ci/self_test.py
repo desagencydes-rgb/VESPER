@@ -4961,5 +4961,23 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# What launchd is told to start. The --arm mode existed while the LaunchAgent
+# still named `python3 .../vesper_arm.py`, so the process keeping autonomy
+# alive stayed outside the bundle -- the fix committed, reality unchanged.
+# --------------------------------------------------------------------------
+ARM_PY = "tools/ops/vesper_arm.py"
+
+CASES += [
+    ("wake-word-listens-locally-and-starts-once", ARM_PY,
+     _sub("    for app in cands:\n"
+          "        if app.exists() and os.access(app, os.X_OK):\n"
+          "            return [str(app), \"--arm\", \"--run\"]\n", "", 1),
+     "the installer stops preferring the bundle, so launchd is pointed back at "
+     "a bare interpreter and the process that keeps autonomy alive runs "
+     "outside the app that autonomy belongs to"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

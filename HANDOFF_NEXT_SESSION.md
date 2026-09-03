@@ -5,14 +5,14 @@ supply measurement. Read this, then `CLAUDE.md`.
 
 ## State
 
-- **127 checks pass. 558/558 self-test cases** red under violation, green after
+- **127 checks pass. 559/559 self-test cases** red under violation, green after
   restore. Both lints, F0–F6 acceptance, placement and fabric stress all pass.
 - **118 registered checks, 89/144 invariants enforced**, 18 still `PENDING`,
   **23 runnable checks unratified** — see
   `docs/planning/UNRATIFIED_CHECKS_2026-09-03.md`, which proposes the invariant
   text for each so ratifying one is a decision rather than research.
 - **THE APP WAS REBUILT 2026-09-03 AND ITS TCC GRANTS ARE GONE.** cdhash moved
-  `2069a84a…` -> `1f015fc0…`, which is what invalidates them. `--speech-status`
+  `2069a84a…` -> `f0319f6d…` (two builds), which is what invalidates them. `--speech-status`
   reads `notDetermined` and `--fn-status` reads `accessibility: NOT trusted`.
   `scheduleWakeRetry` is now built. **Nothing further is pending a build**, so
   the grant taken next is the one that lasts:

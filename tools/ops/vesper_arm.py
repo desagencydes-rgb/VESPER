@@ -94,17 +94,46 @@ def mint(principal: str = "owner") -> dict:
     return token
 
 
+def _launch_argv() -> list:
+    """What launchd should start: the bundle if there is one, else this script.
+
+    THE MODE EXISTING IS NOT THE MODE RUNNING. `VESPER --arm` was added and the
+    plist still named `python3 .../vesper_arm.py`, so the process actually
+    keeping autonomy alive stayed outside the bundle -- the doctrinal fix
+    committed, and reality unchanged. launchd restarts whatever this array says
+    and nothing else, so this is the only place the switch can happen.
+
+    IT FALLS BACK RATHER THAN FAILING. A checkout with no built app must still
+    be able to arm itself; what it must not do is silently keep using the bare
+    interpreter once a bundle exists.
+    """
+    here = pathlib.Path(__file__).resolve()
+    cands = [here.parents[2] / "app" / "VESPER.app" / "Contents" / "MacOS" / "VESPER"]
+    # AND FROM INSIDE THE BUNDLE. `build.sh` ships this file at
+    # Contents/Resources/runtime/tools/ops/, where parents[2] is `runtime` and
+    # the repo layout above finds nothing. Running `VESPER --arm --install`
+    # therefore executed the BUNDLE's copy, fell through to the fallback, and
+    # wrote a plist naming `python3 <bundle>/vesper_arm.py` -- moving the
+    # minter further from the app rather than into it, while reporting success.
+    for parent in here.parents:
+        if parent.name == "Contents":
+            cands.append(parent / "MacOS" / "VESPER")
+            break
+    for app in cands:
+        if app.exists() and os.access(app, os.X_OK):
+            return [str(app), "--arm", "--run"]
+    return [sys.executable, str(here), "--run"]
+
+
 def install() -> int:
     PLIST.parent.mkdir(parents=True, exist_ok=True)
+    argv = "".join(f"\n    <string>{a}</string>" for a in _launch_argv())
     PLIST.write_text(f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>{LABEL}</string>
-  <key>ProgramArguments</key><array>
-    <string>{sys.executable}</string>
-    <string>{pathlib.Path(__file__).resolve()}</string>
-    <string>--run</string>
+  <key>ProgramArguments</key><array>{argv}
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>

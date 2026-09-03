@@ -11326,6 +11326,30 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
               "'/' when launchd starts the bundle: it works by hand and fails "
               "as a login item, which is the same binary behaving two ways "
               "depending on who started it")
+    # AND WHAT LAUNCHD IS TOLD TO START. A mode that exists is not a mode that
+    # runs: `VESPER --arm` was added while the LaunchAgent still named
+    # `python3 .../vesper_arm.py`, so the process actually keeping autonomy
+    # alive stayed outside the bundle. ASKED OF THE FUNCTION, by calling it,
+    # because a plist is machine state and this is the only place the choice is
+    # made.
+    try:
+        import importlib.util as _ilu
+        _s = _ilu.spec_from_file_location(
+            "_v_arm", REPO / "tools" / "ops" / "vesper_arm.py")
+        _m = _ilu.module_from_spec(_s)
+        _s.loader.exec_module(_m)
+        launch = _m._launch_argv()
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"tools/ops/vesper_arm.py has no _launch_argv: {exc!r}, so what "
+              "launchd starts is whatever was written last")
+    else:
+        if "--arm" not in launch:
+            r.err(f"the minter installs itself as {launch[:2]}, not as a mode "
+                  "of the bundle, so the process keeping autonomy alive runs "
+                  "outside the app even though the mode exists")
+        if launch and launch[0].endswith(".py"):
+            r.err("launchd is pointed at a script rather than the signed "
+                  "binary")
     arm_sh = (REPO / "app" / "island-macos" / "build.sh").read_text(encoding="utf-8")
     if "vesper_arm.py" not in arm_sh:
         r.err("the build does not pack the minter, so a bundle carrying the "
