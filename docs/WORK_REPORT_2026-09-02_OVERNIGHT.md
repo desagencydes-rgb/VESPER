@@ -1,7 +1,7 @@
 # Work report — 2026-09-02, overnight
 
 Twelve commits since 21:00 on 2026-09-01. Gates at the last one: **122/122
-checks, 524/524 self-test cases, F0/F1/F2/F5 acceptance PASS, traceability and
+checks, 549/549 self-test cases, F0/F1/F2/F5 acceptance PASS, traceability and
 reference lints PASS.** Every commit landed green, each with executed red runs.
 
 The instruction was the agent-landscape build list — the Claude Code / Codex
@@ -291,6 +291,6 @@ is immutable. That is the obvious next step and it is not done.
 
 ## Final state
 
-**123/123 checks. 524/524 self-test cases. All seven acceptance gates pass —
+**123/123 checks. 549/549 self-test cases. All seven acceptance gates pass —
 F0, F1, F2, F3, F4, F5, F6. Traceability and reference lints pass.** Twenty-one
 commits since 21:00, every one landed green.

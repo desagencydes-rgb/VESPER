@@ -1116,6 +1116,12 @@ CAPS_PY = "core/capabilities.py"
 ACTOR_PY = "core/actor.py"
 INTENT_PY = "core/intent.py"
 SUBAGENT_PY = "core/subagent.py"
+CAPABILITY_PY = "core/capability.py"
+MCP_PY = "core/mcp.py"
+HTTP_PY = "routing/http_completion.py"
+AGENTS_PY = "core/agents.py"
+ADVISOR_PY = "core/advisor.py"
+BACKGROUND_PY = "core/background.py"
 RUNTIME_PY = "tools/ops/vesper_runtime.py"
 CHECKS_PY = "tools/ci/checks.py"
 COST_PY = "core/cost.py"
@@ -4670,6 +4676,178 @@ CASES += [
      "the interlock and autonomy fails toward stopped every interval -- A-031.1 "
      "declares a 2 s T_new_action budget and this is how it silently stops "
      "being true"),
+]
+
+
+# ------------------------------------------------- 2026-09-03: the night's own
+# EVERY MUTATION BELOW WAS EXECUTED BY HAND when its check was written, and none
+# of them was in this file -- so `ci-registry` refused to count any of those
+# checks, correctly: it derives coverage from THIS list rather than from a
+# claim, "because a coverage claim maintained by hand is the thing this is
+# checking for". A red run I did once is not evidence that survives the next
+# person moving the code. Declaring them here is what makes it one.
+CASES += [
+    ("silence-is-recorded-once-not-every-tick", AUTONOMY,
+     _sub("                if changed or stale:", "                if True:", 1),
+     "silence is written once per trigger per tick again: 619,063 identical "
+     "records in 41.8 hours from ONE trigger, and five would have written 1.78 "
+     "million a day"),
+
+    ("silence-is-recorded-once-not-every-tick", AUTONOMY,
+     _sub("                stale = (not changed\n"
+          "                         and self.ticks - last_pub >= NOOP_KEEPALIVE_TICKS)",
+          "                stale = False", 1),
+     "the keepalive never fires, so a trigger whose world never changes is "
+     "heard from exactly once and 'last heard from' becomes unbounded"),
+
+    ("the-stop-reaches-work-already-running", ACTOR_PY,
+     _sub("            if permitted is not None and not permitted():",
+          "            if False:", 1),
+     "the stop is asked nowhere inside the loop: pressing it mid-turn stops the "
+     "NEXT dispatch and lets the remaining steps run, each a shell command or a "
+     "file write the owner had already said to stop"),
+
+    ("the-stop-reaches-work-already-running", AUTONOMY,
+     _sub("                    permitted=(self._interlock.autonomy_permitted",
+          "                    permitted=(None or self._interlock.autonomy_permitted", 1),
+     "dispatch stops handing the interlock to the actor, so autonomous work is "
+     "not covered by the stop at all"),
+
+    ("the-stop-reaches-work-that-outlives-the-turn", BACKGROUND_PY,
+     _sub("                os.killpg(os.getpgid(pid), sig)", "                os.kill(pid, sig)", 1),
+     "the kill reaches the process and not its group: `npm test`'s children "
+     "keep running after the stop with nothing holding a handle to them"),
+
+    ("the-stop-reaches-work-that-outlives-the-turn", BACKGROUND_PY,
+     _sub("                       and (period is None or j.period == period)]",
+          "                       ]", 1),
+     "stopping AUTONOMY also kills the work the owner asked for -- and an owner "
+     "who loses their build to the stop will not press it again"),
+
+    ("a-question-does-not-end-the-turn", CONFIRM_PY,
+     _sub("            if not req.asked:\n                raise NotTheQuestionInFront(",
+          "            if False:\n                raise NotTheQuestionInFront(", 1),
+     "a bare 'yes' settles a question that is NOT in front of the owner: "
+     "anything said while it was queued is a yes to something else, and acting "
+     "on it is consent they never gave"),
+
+    ("a-question-does-not-end-the-turn", AUTHZ_PY,
+     _sub("        return max(usable, key=lambda g: LEVEL_RANK[g.max_level])",
+          "        return cands[0]", 1),
+     "find() returns the first grant by insertion order again, so the grant an "
+     "answered question buys is unreachable behind the standing one and the "
+     "owner can say yes with nothing happening"),
+
+    ("advice-can-add-caution-and-never-remove-it", ADVISOR_PY,
+     _sub('        verdict = STOP if "VERDICT: STOP" in upper else PROCEED',
+          '        verdict = PROCEED if "VERDICT: PROCEED" in upper else STOP', 1),
+     "a garbled answer halts the turn, so every provider hiccup surfaces as a "
+     "warning and the owner learns to wave them through"),
+
+    ("advice-can-add-caution-and-never-remove-it", ACTOR_PY,
+     _sub('                if seen.get("verdict") == ADVISOR_STOP:',
+          '                if seen.get("verdict") != ADVISOR_STOP:', 1),
+     "PROCEED starts authorising things, which makes advice a way to "
+     "manufacture the owner's consent: feed it material arguing for the action "
+     "and receive approval"),
+
+    ("a-broken-agent-is-never-a-bad-answer", AGENTS_PY,
+     _sub("        if len(text) < MIN_ANSWER_CHARS:", "        if False:", 1),
+     "empty output is passed on as an answer, and a blank reads as 'nothing to "
+     "report' rather than 'nothing was produced'"),
+
+    ("a-broken-agent-is-never-a-bad-answer", AGENTS_PY,
+     _sub("        if truncated:\n            # TRUNCATION IS UNAVAILABILITY",
+          "        if False:\n            # TRUNCATION IS UNAVAILABILITY", 1),
+     "truncation becomes a shorter answer: a cut-off investigation reads as "
+     "complete and stops before the part that mattered"),
+
+    ("a-withdrawn-model-descends-instead-of-being-retried", HTTP_PY,
+     _sub('    410: "bad_request",', '    410: "server_error",', 1),
+     "410 Gone is retried again: a model the provider has WITHDRAWN is re-asked "
+     "until the retry budget runs out, on every turn reaching that rung"),
+
+    ("a-withdrawn-model-descends-instead-of-being-retried", HTTP_PY,
+     _sub('    429: "rate_limited",', '    429: "bad_request",', 1),
+     "a rate limit retires the rung, removing a working provider from the "
+     "ladder over one busy moment"),
+
+    ("a-compressed-archive-is-still-a-readable-log", STORE_PY,
+     _sub("                        row[2] = self._inflate(bytes(row[2]), zdict)",
+          "                        pass", 1),
+     "reads stop decompressing, so a compressed archive is unreadable and the "
+     "original has already been replaced by then"),
+
+    ("a-compressed-archive-is-still-a-readable-log", STORE_PY,
+     _sub("        if not same:\n            tmp.unlink(missing_ok=True)\n            raise ValueError(",
+          "        if False:\n            tmp.unlink(missing_ok=True)\n            raise ValueError(", 1),
+     "the copy is no longer verified before the original is deleted -- the one "
+     "operation in this system that can lose history silently"),
+
+    ("a-rotated-log-keeps-one-sequence-and-loses-nothing", STORE_PY,
+     _sub('            fresh.execute("INSERT INTO sqlite_sequence(name, seq) VALUES(?,?)",',
+          '            fresh.execute("SELECT ?, ?", ') if False else
+     # THE *INSERT* IS THE SEEDING. Removing the DELETE beside it changes
+     # nothing -- `sqlite_sequence` is empty in a fresh segment anyway, which
+     # the comment there says outright -- so that mutation ran green.
+     _sub('            seeded.execute(\n'
+          '                "INSERT INTO sqlite_sequence(name, seq) VALUES(\'records\', ?)",\n'
+          '                (high,))',
+          '            pass', 1),
+     "the sequence restarts at 1 in a new segment, so a tombstone for seq 42 in "
+     "the old one silently erases a DIFFERENT record at seq 42 in the new"),
+
+    ("a-shell-session-carries-context-not-a-shell", CAPS_PY,
+     _sub("        if str(k).upper() in ENV_NEVER_SETTABLE:", '        if str(k) in ("NOPE",):', 1),
+     "PATH becomes settable, so the argv the level rules classified is not the "
+     "program that runs -- and nobody can see the difference between a fine "
+     "PATH and an attack"),
+
+    ("a-read-window-moves-and-proves-only-what-it-saw", CAPS_PY,
+     _sub("    complete = offset == 0 and len(whole) <= limit", "    complete = True", 1),
+     "a partial read hands back the whole-file token, so seeing one page "
+     "authorises replacing all of it at a level the owner is never asked about"),
+
+    ("a-batch-read-is-one-action-at-its-worst-level", CAPS_PY,
+     _sub("        worst = \"L1\"\n"
+          "        for one in batch:\n"
+          "            worst = _worst(worst, fs_read_level({\"path\": one}))\n"
+          "        return worst",
+          "        return fs_read_level({\"path\": batch[0]})", 1),
+     "a batch is levelled on its FIRST member, so burying a credential among "
+     "ordinary files is a cheaper door to it"),
+
+    ("compaction-never-eats-its-own-summaries", COMPACTOR_PY,
+     _sub('            if int(f.get("rank", 0)) >= 5:\n                continue',
+          "            if False:\n                continue", 1),
+     "a compaction's own rank-5 output becomes its next input, so each run "
+     "summarises the last summary and L2 drifts off the log it is a view of"),
+
+    ("an-mcp-server-does-not-level-its-own-tools", MCP_PY,
+     _sub('                "level": UNLEVELLED,', '                "level": t.get("level") or UNLEVELLED,', 1),
+     "an MCP server levels its own tools, which is a server asserting the thing "
+     "the ladder exists to decide"),
+
+    ("the-runtime-resolves-every-name-it-uses", RUNTIME,
+     _sub("         floor=None, baseline=None, interlock=None, jobs=None,",
+          "         floor=None, baseline=None, jobs=None,", 1),
+     "the pump reads `interlock` from another function's scope again: NameError "
+     "every pass, swallowed by the broad handler, and the autonomy loop never "
+     "ticks while reporting a handled failure"),
+
+    ("a-level-rule-means-what-it-says-and-names-what-it-refuses", CAPABILITY_PY,
+     _sub("            if lvl != r.level:\n                raise LevelRuleContradicted(",
+          "            if False:\n                raise LevelRuleContradicted(", 1),
+     "a rule may declare one level while its own example resolves another, so "
+     "the declared levels a reader learns the ladder from are documentation "
+     "rather than assertion"),
+
+    ("a-level-rule-means-what-it-says-and-names-what-it-refuses", CAPABILITY_PY,
+     _sub("                if got == r.level:\n                    raise LevelRuleContradicted(",
+          "                if False:\n                    raise LevelRuleContradicted(", 1),
+     "a counter-example that reaches the rule's own level registers, so the rule "
+     "fails to distinguish the case it was written to distinguish and nothing "
+     "says so"),
 ]
 
 

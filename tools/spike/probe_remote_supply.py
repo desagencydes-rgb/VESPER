@@ -312,8 +312,13 @@ def main() -> int:
                  else (f"tok/s~{derived_tps} (derived from chars)"
                        if derived_tps is not None
                        else ("tok/s=LATENCY-BOUND" if latency_bound else "tok/s=None")))
-        print(f"  {pid:<12} {verdict:<9} {r.get('status')}  "
-              f"{r['elapsed_s']:>6.2f}s  completion={ctok}  {shown}{detail}")
+        # RECORDED BEFORE IT IS PRINTED, and read with `.get` like everything
+        # else around it. This line subscripted `r['elapsed_s']` while every
+        # neighbouring read used `.get`, and it ran BEFORE `results.append` --
+        # so one row whose result lacked that key raised KeyError and discarded
+        # FORTY-ONE measurements already taken, leaving no file at all. A probe
+        # exists to produce a measurement; losing the whole run to a formatting
+        # expression is the one failure it cannot have.
         results.append({
             "provider_id": pid, "usable": ok, "status": r.get("status"),
             "elapsed_s": r.get("elapsed_s"),
@@ -346,6 +351,10 @@ def main() -> int:
                      "reasoning tokens where the provider bills them that way, "
                      "which is what the ledger must charge against quota."),
         })
+        elapsed = r.get("elapsed_s")
+        print(f"  {pid:<12} {verdict:<9} {r.get('status')}  "
+              f"{(f'{elapsed:>6.2f}s' if isinstance(elapsed, (int, float)) else '     ?s')}"
+              f"  completion={ctok}  {shown}{detail}")
 
     print(f"\n  {usable}/{len(rows)} providers answered correctly")
     if args.out:

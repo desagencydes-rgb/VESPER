@@ -2333,6 +2333,148 @@ T_new_action budget, the interlock is consulted in `dispatch`, and pacing
 dispatch paces the stop with it. The enable-token presentation therefore stays
 on the fast pass, ahead of the cadence gate, and that ordering is asserted."""
 
+[checks.CI-097]
+name = "contradictions-reach-the-owner"
+enforces = ["INV-COORD-3"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py contradictions-reach-the-owner"
+blocking = "pr"
+self_test = """Let the arbiter pick silently; drop the emitted conflict; let a
+single outcome settle two values; let the updater resolve rather than record."""
+self_test_evidence = "tools/ci/self_test.py contradictions-reach-the-owner -- red then green."
+subject = "core/arbiter.py x core/updater.py"
+note = """INV-COORD-3 says no conflict may be RESOLVED without an emitted
+world.conflict event, and the check asserts the shape that makes that true: two
+values for the same thing become a question rather than a quiet pick. The
+arbiter is a separate subsystem from the updater for exactly this reason -- the
+thing that writes memory must not be the thing that decides which memory is
+right, or the resolution leaves no trace to emit."""
+
+[checks.CI-098]
+name = "prohibited-tier-no-grant-opens"
+enforces = ["INV-SELF-3"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py prohibited-tier-no-grant-opens"
+blocking = "pr"
+self_test = """Never consult the prohibition; move it below the grant lookup;
+empty the self-defeating set; turn path SEGMENTS into substrings and drop the
+scope; let a credential be read on an L5 grant."""
+self_test_evidence = """tools/ci/self_test.py prohibited-tier-no-grant-opens --
+5 cases, red then green. One was retargeted 2026-09-01 when the set gained
+'interlock'."""
+subject = "core/capabilities.py x core/authorize.py"
+note = """INV-SELF-3 is absolute -- L5 and a runtime subject is DENY "always,
+including under a valid L5 grant and under break-glass" -- and the gap it names
+was real: L5 was the top of the ladder, so an L5 grant plus an L5 declaration
+authorised anything, including erasing VESPER's own record of what it did. The
+prohibition is consulted BEFORE the grant lookup, which is what makes it a tier
+a grant cannot open rather than a tier a grant is checked against."""
+
+[checks.CI-099]
+name = "autonomy-stops-when-nothing-arms-it"
+enforces = ["INV-STOP-3"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py autonomy-stops-when-nothing-arms-it"
+blocking = "pr"
+self_test = """Let a stale token still permit; let the runtime mint its own; let
+a seen token be replayed; sever the arming path and keep running."""
+self_test_evidence = "tools/ci/self_test.py autonomy-stops-when-nothing-arms-it -- red then green."
+subject = "core/interlock.py x tools/ops/vesper_arm.py"
+note = """INV-STOP-3 is the fail-safe clause: severing, wedging, powering off or
+compromising the interlock halts autonomy within the token TTL, "Fail-safe, not
+fail-open". The check asserts the direction rather than the mechanism -- every
+failure of the arming path fails TOWARD stopped -- because a stop that depends on
+something working is a stop that fails exactly when it is needed."""
+
+[checks.CI-100]
+name = "confirmation-stops-explains-and-asks"
+enforces = ["INV-ADMIN-1"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py confirmation-stops-explains-and-asks"
+blocking = "pr"
+self_test = """Make the question decay so it is dropped rather than queued;
+authorise from the broker; answer a settled question twice; degrade the urgent
+branch to a queued question; speak the level instead of the reason."""
+self_test_evidence = """tools/ci/self_test.py confirmation-stops-explains-and-asks
+-- red then green. The decay case was retargeted 2026-09-02 after its anchor
+matched a more-indented copy of the same line."""
+subject = "core/confirm.py x core/interruption.py"
+note = """INV-ADMIN-1 requires per-instance owner confirmation that is never
+delegable, and this is the owner's own escalation ladder from 2026-08-31: a
+single-use action stops, VESPER explains, and it asks by voice at that moment --
+waiting if the owner is away, calling if it cannot wait. `decays=False` is the
+whole of "wait and ask me when I'm back", and getting it wrong would DROP the
+question rather than queue it."""
+
+[checks.CI-101]
+name = "silence-is-recorded-once-not-every-tick"
+enforces = ["INV-TRIG-6"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py silence-is-recorded-once-not-every-tick"
+blocking = "pr"
+self_test = """Publish a no-op every tick again; disable the keepalive so an
+unchanging trigger is heard from once and never again."""
+self_test_evidence = "tools/ci/self_test.py silence-is-recorded-once-not-every-tick -- 2 cases, red then green, 2026-09-03."
+subject = "core/autonomy.py"
+note = """INV-TRIG-6 says a recorded no-op carries a trigger_id and is
+auditable -- "silence is a decision with provenance". It does NOT say one record
+per tick, and the per-tick form was costing 619,063 identical records in 41.8
+hours from a SINGLE trigger, projecting to 1.78 million a day once four more
+landed.
+
+Run-length encoding carries MORE provenance rather than less: a record stating
+the snapshot and the tick it has held since describes a DURATION, where the
+per-tick form describes an instant and leaves the reader to infer the rest from
+absence. The keepalive is what bounds that inference."""
+
+[checks.CI-102]
+name = "the-stop-reaches-work-already-running"
+enforces = ["INV-STOP-5"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py the-stop-reaches-work-already-running"
+blocking = "pr"
+self_test = """Remove the per-step stop check; stop dispatch handing the
+interlock to the actor."""
+self_test_evidence = "tools/ci/self_test.py the-stop-reaches-work-already-running -- 2 cases, red then green, 2026-09-03."
+subject = "core/actor.py x core/autonomy.py"
+note = """INV-STOP-5 has two halves and only one was true. "Stop halts
+autonomous actuation" was enforced at dispatch, once, BEFORE the actor was
+called -- so a stop pressed during a six-step turn prevented the NEXT dispatch
+and let the remaining steps run, each a shell command or a file write the owner
+had already said to stop. Driven 2026-09-01: six steps, six model calls, the
+stop reachable at none of them.
+
+The other half -- "user-invoked interactive work continues" -- is why the
+callable is passed IN by dispatch rather than read by the actor.
+`autonomy_permitted()` is also false whenever no fresh enable token is present,
+which is by design every ninety seconds, so an actor consulting the interlock on
+its own would refuse the OWNER's typed requests on a schedule."""
+
+[checks.CI-103]
+name = "the-stop-reaches-work-that-outlives-the-turn"
+enforces = ["INV-STOP-5"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py the-stop-reaches-work-that-outlives-the-turn"
+blocking = "pr"
+self_test = """Kill the process rather than its group; stop narrowing
+termination to autonomous work."""
+self_test_evidence = "tools/ci/self_test.py the-stop-reaches-work-that-outlives-the-turn -- 2 cases, red then green, 2026-09-03."
+subject = "core/background.py x tools/ops/vesper_runtime.py"
+note = """THE SAME INVARIANT AT THE ONE PLACE THE STEP LOOP CANNOT REACH. A
+background command has no step boundary to ask the stop at, so shipping one
+without this is shipping a way to start work that never sees the stop.
+
+`INV-STOP-2` forbids the interlock from importing anything that can fail, block
+or refuse, so `engage()` MARKS in-flight work resumable and kills nothing -- the
+side holding the processes does the killing, on the pass that already consults
+the interlock. The kill is `killpg` because `npm test` spawns node and a bare
+kill leaves those children running after the stop with nothing holding a handle
+to them; verified by counting processes, 2 before and 0 after.
+
+And it narrows to `free_time`, which is INV-STOP-5's second half again: an owner
+who says "stop working on your own" and loses their build will not press it
+again."""
+
 [unwired]
 "core/fabric.py" = """NOT YET REACHABLE BY DESIGN. Network fabric admission
 (SR-016, DF-FABRIC-ADMIT). There is one node, so there is no control plane to

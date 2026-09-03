@@ -475,6 +475,7 @@ tests = ["A-038"]
 contracts = ["contracts/policy/authorization.schema.json"]
 decision_functions = ["DF-AUTHORIZE"]
 invariants = ["INV-ADMIN-1"]
+ci = ["CI-100"]
 status = "SPECIFIED"
 note = "Narrowing by RB-013 must be recorded as an owner-approved deviation; requires the L5 owner_administrative capability class to be implementable. Ref AR-021."
 
@@ -584,7 +585,7 @@ tests = ["A-003", "A-016", "A-029"]
 contracts = ["contracts/entities/trigger.schema.json"]
 decision_functions = ["DF-PROACTIVE", "DF-TRIGGER-EVAL"]
 invariants = ["INV-TRIG-3", "INV-TRIG-6", "INV-BASE-1"]
-ci = ["CI-025", "CI-073"]
+ci = ["CI-025", "CI-073", "CI-101"]
 state_machines = ["SM-TRIGGER"]
 status = "SPECIFIED"
 
@@ -599,8 +600,8 @@ decision_functions = ["DF-GOVERNED-WRITE", "DF-ACTUATION-GATE", "DF-LOSS-CLASS"]
 # what makes INV-STOP-1 achievable rather than aspirational: a stop that
 # traverses a lease cannot happen during the partition it is most needed in.
 # A-031 was already listed here and is INV-STOP-2's other declared enforcer.
-invariants = ["INV-SELF-1", "INV-SELF-4", "INV-STOP-1", "INV-STOP-2", "INV-LOSS-2", "INV-LOSS-6", "INV-ADR-1"]
-ci = ["CI-008", "CI-015", "CI-018", "CI-048", "CI-016", "CI-019"]
+invariants = ["INV-SELF-1", "INV-SELF-4", "INV-STOP-1", "INV-STOP-2", "INV-LOSS-2", "INV-LOSS-6", "INV-ADR-1", "INV-STOP-5"]
+ci = ["CI-008", "CI-015", "CI-018", "CI-048", "CI-016", "CI-019", "CI-098", "CI-099", "CI-102", "CI-103"]
 contracts_note = "core/interlock.py is CI-019's subject"
 status = "SPECIFIED"
 
@@ -735,7 +736,7 @@ state_machines = ["SM-LEASE", "SM-DEVICE"]
 decision_functions = ["DF-DOMAIN-WRITE", "DF-PROMOTE", "DF-SUPERSEDE"]
 invariants = ["INV-COORD-1", "INV-COORD-5", "INV-OWN-2", "INV-OWN-3"]
 tests = ["A-017", "A-033", "A-034"]
-ci = ["CI-004", "CI-009"]
+ci = ["CI-004", "CI-009", "CI-097"]
 status = "SPECIFIED"
 
 [requirements.SR-059]

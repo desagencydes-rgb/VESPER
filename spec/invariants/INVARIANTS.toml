@@ -45,7 +45,7 @@ kind = "runtime"
 [invariants.INV-COORD-3]
 statement = "No conflict may be resolved without an emitted world.conflict event."
 owner_rem = "REM-001"
-enforced_by = ["A-033"]
+enforced_by = ["A-033", "CI-097"]
 kind = "runtime"
 
 [invariants.INV-COORD-4]
@@ -169,7 +169,7 @@ enforcement_status = "2026-08-12, later the same day: branch protection is now A
 [invariants.INV-SELF-3]
 statement = "effective_level == L5 AND subject.kind == runtime implies DENY, always, including under a valid L5 grant and under break-glass."
 owner_rem = "REM-004"
-enforced_by = ["A-030"]
+enforced_by = ["A-030", "CI-098"]
 kind = "runtime"
 
 [invariants.INV-SELF-4]
@@ -214,7 +214,7 @@ kind = "structural"
 [invariants.INV-STOP-3]
 statement = "Severing, wedging, powering off or compromising the interlock halts autonomy within T_token_ttl. Fail-safe, not fail-open."
 owner_rem = "REM-005"
-enforced_by = ["A-031"]
+enforced_by = ["A-031", "CI-099"]
 kind = "runtime"
 
 [invariants.INV-STOP-4]
@@ -226,7 +226,7 @@ kind = "runtime"
 [invariants.INV-STOP-5]
 statement = "Stop halts autonomous actuation only. Observation, telemetry, checkpointing and user-invoked interactive work continue."
 owner_rem = "REM-005"
-enforced_by = ["A-031"]
+enforced_by = ["A-031", "CI-102", "CI-103"]
 kind = "runtime"
 
 [invariants.INV-STOP-6]
@@ -407,7 +407,7 @@ kind = "structural"
 [invariants.INV-TRIG-6]
 statement = "A recorded no-op carries a trigger_id and is auditable. Silence is a decision with provenance."
 owner_rem = "REM-007"
-enforced_by = ["A-011", "A-029"]
+enforced_by = ["A-011", "A-029", "CI-101"]
 kind = "runtime"
 
 [invariants.INV-TRIG-7]
@@ -672,7 +672,7 @@ kind = "runtime"
 [invariants.INV-ADMIN-1]
 statement = "owner_administrative requires per-instance owner confirmation, is never delegable, and is never invocable during FREE_TIME."
 owner_rem = "REM-012"
-enforced_by = ["A-038"]
+enforced_by = ["A-038", "CI-100"]
 kind = "runtime"
 
 [invariants.INV-HOST-1]

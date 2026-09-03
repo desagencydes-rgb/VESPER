@@ -1011,7 +1011,13 @@ cost_class = "free"
 credential_env = "VESPER_CODEX_CONFIG_DIR"
 endpoint = "codex"
 wire = "cli_subprocess"
-argv = ["-p", "{prompt}"]
+# `codex exec`, NOT `-p`. These rows were generated from the claude template and
+# inherited its flag: codex rejected the prompt outright with "error: invalid
+# value", which the probe reported as the rung failing rather than as a wiring
+# fault -- the same shape as the 2026-08-25 defect where a rung nothing could
+# call was carried on the ladder with a green measurement beside it.
+# `--skip-git-repo-check` matches `codex-sub`, which has been working.
+argv = ["exec", "--skip-git-repo-check", "{prompt}"]
 model = "subscription-default"
 quota_unit = "requests"
 quota_published = 0
@@ -1196,7 +1202,13 @@ cost_class = "free"
 credential_env = "VESPER_CODEX_CONFIG_DIR"
 endpoint = "codex"
 wire = "cli_subprocess"
-argv = ["-p", "{prompt}"]
+# `codex exec`, NOT `-p`. These rows were generated from the claude template and
+# inherited its flag: codex rejected the prompt outright with "error: invalid
+# value", which the probe reported as the rung failing rather than as a wiring
+# fault -- the same shape as the 2026-08-25 defect where a rung nothing could
+# call was carried on the ladder with a green measurement beside it.
+# `--skip-git-repo-check` matches `codex-sub`, which has been working.
+argv = ["exec", "--skip-git-repo-check", "{prompt}"]
 model = "subscription-default"
 quota_unit = "requests"
 quota_published = 0
@@ -1243,7 +1255,7 @@ cost_class = "free"
 credential_env = "VESPER_CODEX_CONFIG_DIR"
 endpoint = "codex"
 wire = "cli_subprocess"
-argv = ["exec", "{prompt}"]
+argv = ["exec", "--skip-git-repo-check", "{prompt}"]
 model = "subscription-default"
 quota_unit = "requests"
 quota_published = 0
