@@ -940,20 +940,132 @@ if args.contains("--arm") {
     // stay the minter's vocabulary rather than being re-declared here and
     // drifting from it.
     let forwarded = args.dropFirst().filter { $0 != "--arm" }
-    let p = Process()
-    p.executableURL = URL(fileURLWithPath: py)
-    p.arguments = [script] + Array(forwarded)
-    p.currentDirectoryURL = URL(fileURLWithPath: repo)
-    do { try p.run() } catch {
-        FileHandle.standardError.write(Data("--arm: \(error)\n".utf8))
-        exit(2)
+
+    // EXEC, NOT SPAWN-AND-WAIT. This used to `Process().run()` and then
+    // `waitUntilExit()`, which made every arm job TWO processes: this binary
+    // waiting, and python doing the work. launchd's SIGTERM went to the
+    // waiter, python was orphaned onto launchd, and the next bootstrap started
+    // a fresh pair beside it.
+    //
+    // MEASURED 2026-09-04: SEVEN `vesper_arm.py --run` processes alive at
+    // once, one per restart since the wrapper landed, each still minting an
+    // enable token every 30 seconds. Nothing was wrong with any of them, which
+    // is why nothing complained -- they were all doing their job, six times
+    // more often than anyone asked.
+    //
+    // `execv` replaces this image, so the launchd job IS the minter: one pid,
+    // one process, and a SIGTERM that lands on the thing actually working.
+    // There is nothing left to orphan.
+    FileManager.default.changeCurrentDirectoryPath(repo)
+    var cargs: [UnsafeMutablePointer<CChar>?] =
+        ([py, script] + Array(forwarded)).map { strdup($0) }
+    cargs.append(nil)
+    execv(py, &cargs)
+    // Only reachable if execv failed; it does not return on success.
+    FileHandle.standardError.write(Data("--arm: execv failed\n".utf8))
+    exit(2)
+}
+
+/// Stop VESPER for real, rather than exiting into a restart.
+///
+/// `NSApp.terminate` IS NOT A STOP HERE. Both agents are `KeepAlive = true`,
+/// so terminating returns within seconds as a fresh pid -- which is correct
+/// for a crash and wrong for a person deciding to stop. A quit that the
+/// system undoes is not a quit, and until this landed there was no owner-
+/// facing stop of any kind: no hotkey, no menu (the app is `.accessory`, so
+/// there is no menu bar to put one in), and a kill that launchd reversed.
+///
+/// THE STARTER DELIBERATELY SURVIVES. `ai.vesper.island.fnwatch` is the power
+/// button: booting it out too would make stopping VESPER unrecoverable
+/// without a terminal, which is the wrong trade for a hotkey anyone can press
+/// by accident. Globe x3 brings it back.
+///
+/// AUTONOMY STOPS FIRST, and stops harder than the app does. The minter hands
+/// out the enable tokens `core/interlock.py` requires, so leaving it running
+/// would keep arming a VESPER that was asked to stop. `pkill` follows the
+/// bootout because orphaned minters existed: seven of them, on 2026-09-04.
+func stopVesper() -> Never {
+    let uid = getuid()
+    func launchctl(_ argv: [String]) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        p.arguments = argv
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        try? p.run()
+        p.waitUntilExit()
     }
-    p.waitUntilExit()
-    exit(p.terminationStatus)
+    launchctl(["bootout", "gui/\(uid)/ai.vesper.arm"])
+    // ANY MINTER THAT OUTLIVED ITS JOB. Belt and braces: the exec fix above
+    // stops new ones being orphaned, and this clears any that already were.
+    let pk = Process()
+    pk.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+    pk.arguments = ["-f", "vesper_arm.py"]
+    pk.standardOutput = FileHandle.nullDevice
+    pk.standardError = FileHandle.nullDevice
+    try? pk.run(); pk.waitUntilExit()
+
+    print("VESPER stopped. Globe x3 starts it again.")
+    // Last, because it SIGTERMs this process.
+    launchctl(["bootout", "gui/\(uid)/ai.vesper.island"])
+    // Reached only if this process was not the island job (e.g. `--stop` run
+    // by hand from a terminal).
+    exit(0)
+}
+
+// The scriptable form of the chord, and the one a terminal can reach.
+if args.contains("--stop") {
+    stopVesper()
+}
+
+/// The way back, and it exists because the way back cannot be assumed.
+///
+/// A STOP THAT ONLY THE GLOBE KEY UNDOES IS A STOP YOU CAN GET STUCK BEHIND.
+/// `ai.vesper.island.fnwatch` -- the starter -- has been refusing to spawn
+/// under launchd since 2026-09-03 (`EX_CONFIG`, while running perfectly by
+/// hand), so on this machine right now globe x3 brings nothing back. Shipping
+/// a quit whose only undo is a broken agent would be shipping a one-way door.
+if args.contains("--start") {
+    if #available(macOS 13.0, *) {
+        // UNREGISTER FIRST, AND THAT IS THE WHOLE FIX. A bare `register()` on
+        // a service that has been `bootout`-ed does nothing useful: launchd
+        // still holds the old job record, the registration is a no-op, and the
+        // next spawn attempt dies `EX_CONFIG`. Measured 2026-09-04 -- after a
+        // `--stop`, `register()` left BOTH agents at `exit = 78` and a
+        // `kickstart` could not revive them either. The unregister/register
+        // pair clears the record and both came straight back up.
+        //
+        // This is also why the globe-key starter looked broken for a day: it
+        // was never re-registered after a rebuild, only re-registered ON TOP
+        // of a stale record, which is the same no-op.
+        for name in ["ai.vesper.island.plist", "ai.vesper.island.fnwatch.plist"] {
+            let svc = SMAppService.agent(plistName: name)
+            try? svc.unregister()
+            Thread.sleep(forTimeInterval: 1.0)
+            try? svc.register()
+        }
+    }
+    print("VESPER started. Autonomy stays off until `VESPER --arm --install`.")
+    exit(0)
 }
 
 if args.contains("--login-item-status") {
     if #available(macOS 13.0, *) {
+        // BOTH AGENTS. This reported only the app's own registration, so the
+        // globe-key starter could sit unapproved or unregistered for a day
+        // while this printed "enabled" and looked like the whole answer.
+        for extra in ["ai.vesper.island.fnwatch.plist"] {
+            let s = SMAppService.agent(plistName: extra).status
+            let n: String
+            switch s {
+            case .enabled: n = "enabled"
+            case .requiresApproval: n = "requiresApproval -- enable VESPER in System Settings > General > Login Items"
+            case .notRegistered: n = "notRegistered"
+            case .notFound: n = "notFound -- the plist is not in the bundle"
+            @unknown default: n = "unknown(\(s.rawValue))"
+            }
+            print("login item (\(extra)): \(n)")
+        }
         let st = SMAppService.agent(plistName: "ai.vesper.island.plist").status
         let name: String
         switch st {
@@ -975,11 +1087,23 @@ if args.contains("--login-item-status") {
 // this after signing, so the record always matches what is on disk.
 if args.contains("--reinstall-login-item") {
     if #available(macOS 13.0, *) {
-        let svc = SMAppService.agent(plistName: "ai.vesper.island.plist")
-        try? svc.unregister()
-        Thread.sleep(forTimeInterval: 1.0)
-        do { try svc.register(); print("login item re-registered") }
-        catch { print("re-registration failed: \(error)") }
+        // BOTH AGENTS, NOT JUST THE APP. This refreshed only
+        // `ai.vesper.island` and left `ai.vesper.island.fnwatch` holding a
+        // registration that named the PREVIOUS signature -- so every rebuild
+        // silently orphaned the globe-key starter while the app itself came
+        // back fine. Measured 2026-09-04, after two rebuilds the night
+        // before: `launchctl list` reported fnwatch at `last exit code = 78:
+        // EX_CONFIG`, never spawning, with an empty stderr because it never
+        // got far enough to write one. Globe x3 had been starting nothing for
+        // a day, and only did not bite because the app it starts was already
+        // running.
+        for name in ["ai.vesper.island.plist", "ai.vesper.island.fnwatch.plist"] {
+            let svc = SMAppService.agent(plistName: name)
+            try? svc.unregister()
+            Thread.sleep(forTimeInterval: 1.0)
+            do { try svc.register(); print("re-registered \(name)") }
+            catch { print("re-registration failed for \(name): \(error)") }
+        }
     }
     exit(0)
 }
@@ -1076,6 +1200,39 @@ if args.contains("--uninstall-login-item") {
 let app = NSApplication.shared
 // .accessory: no Dock tile, no menu bar of our own. The island is presence.
 app.setActivationPolicy(.accessory)
+
+// ---------------------------------------------------------------- the stop
+// THE OWNER'S QUIT, AND IT LIVES IN VESPER RATHER THAN BESIDE IT. There was
+// no way to stop VESPER from the keyboard at all: no hotkey, no menu (an
+// `.accessory` app has no menu bar to hang one in), and any kill undone by
+// `KeepAlive` within seconds.
+//
+// IN THIS PROCESS, NOT A SECOND WATCHER. The globe-key starter is a separate
+// job because it must exist while VESPER does NOT; a stop is the opposite --
+// it only means anything while VESPER is running, so it belongs to the
+// running process and costs no extra pid.
+//
+// HELD, NOT TAPPED. `flagsChanged` fires the instant the fourth modifier goes
+// down, and ctrl+opt+cmd is a real prefix in other people's shortcuts -- fn
+// makes it rare, not impossible. A hold is the cheapest confirmation that
+// does not need a dialog an `.accessory` app cannot easily show.
+let QUIT_HOLD_S = 0.6
+var quitTimer: Timer?
+NSEvent.addGlobalMonitorForEvents(matching: .flagsChanged) { ev in
+    let f = ev.modifierFlags
+    let chord = f.contains(.function) && f.contains(.control)
+             && f.contains(.option) && f.contains(.command)
+    if chord {
+        guard quitTimer == nil else { return }
+        quitTimer = Timer.scheduledTimer(withTimeInterval: QUIT_HOLD_S,
+                                         repeats: false) { _ in stopVesper() }
+    } else {
+        // Released before the hold elapsed: not a stop, and not a near miss
+        // worth reporting either.
+        quitTimer?.invalidate()
+        quitTimer = nil
+    }
+}
 
 guard let screen = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) ?? NSScreen.main else {
     FileHandle.standardError.write("no screen\n".data(using: .utf8)!); exit(1)

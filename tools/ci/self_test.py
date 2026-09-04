@@ -5030,5 +5030,38 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# The owner's stop, and the process leak found while building it. Asked for
+# twice before it landed: there was no hotkey, no menu (an .accessory app has
+# no menu bar), and any kill was undone by KeepAlive within seconds.
+# --------------------------------------------------------------------------
+CASES += [
+    ("wake-word-listens-locally-and-starts-once", MAIN_SWIFT,
+     _sub('if args.contains("--stop") {', "if false {", 1),
+     "the bundle loses --stop, so stopping VESPER is a launchctl incantation "
+     "the owner has to remember"),
+
+    ("wake-word-listens-locally-and-starts-once", MAIN_SWIFT,
+     # THE CONDITION, NOT THE CONSTANT. Renaming `QUIT_HOLD_S` where it is
+     # DECLARED leaves it at its use site, so a source-level check still finds
+     # the name and stays green under a mutation that does not compile.
+     _sub("    let chord = f.contains(.function) && f.contains(.control)",
+          "    let chord = false && f.contains(.control)", 1),
+     "the chord stops requiring fn, so the stop is either unreachable or "
+     "fires on modifiers the owner presses for other reasons"),
+
+    ("wake-word-listens-locally-and-starts-once", MAIN_SWIFT,
+     _sub("    execv(py, &cargs)", "    _ = cargs", 1),
+     "--arm goes back to spawn-and-wait, so every restart orphans a python "
+     "minter onto launchd and they accumulate, all still minting"),
+
+    ("wake-word-listens-locally-and-starts-once", BUILD_SH,
+     _sub('"$APP/Contents/MacOS/VESPER" --reinstall-login-item', "true", 1),
+     "the build stops re-registering the agents after signing, so a rebuild "
+     "leaves launchd holding the old signature and the globe-key starter "
+     "silently stops spawning"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

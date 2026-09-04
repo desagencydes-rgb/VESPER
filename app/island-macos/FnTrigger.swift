@@ -1,6 +1,7 @@
 import Foundation
 import AppKit
 import CoreGraphics
+import ServiceManagement
 
 // TRIPLE-TAP THE GLOBE KEY TO START VESPER.
 //
@@ -76,6 +77,25 @@ func launchVesper() {
         .deletingLastPathComponent()   // Contents
         .deletingLastPathComponent()   // VESPER.app
     note("globe x3 -- starting VESPER")
+
+    // SUPERVISED, NOT MERELY RUNNING. `--stop` boots the agent out of launchd,
+    // so opening the bundle after one gives an instance with no `KeepAlive`
+    // behind it: VESPER is up, and a crash now leaves it down for good. That
+    // is a worse state than the one before the stop, arrived at by using the
+    // stop -- so the start has to undo what the stop did, not just put a
+    // process back.
+    //
+    // `register()` throws when the service is already registered, which is the
+    // ordinary case and not an error; the result is discarded and the open
+    // below still runs if nothing came up.
+    if #available(macOS 13.0, *) {
+        try? SMAppService.agent(plistName: "ai.vesper.island.plist").register()
+        Thread.sleep(forTimeInterval: 1.5)
+        if homeIsRunning() {
+            note("globe x3 -- VESPER restored under launchd supervision")
+            return
+        }
+    }
     let cfg = NSWorkspace.OpenConfiguration()
     cfg.arguments = ["--home", "--on-empty-desktop", "--mode", "Home", "--chrome"]
     // TRUE, AND THAT IS NOT A LOOSENING. `false` means "activate an existing

@@ -177,7 +177,17 @@ cat > "$APP/Contents/Library/LaunchAgents/$ID.fnwatch.plist" <<PLIST
   <key>WorkingDirectory</key><string>$REPO</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>ProcessType</key><string>Background</string>
+  <!-- Interactive, NOT Background, and the difference is whether it runs at
+       all. This said Background -- honest about the job's importance and wrong
+       about its needs: `runFnWatch` opens an NSApplication and a global event
+       tap, both of which want the window server, and launchd refused the spawn
+       with EX_CONFIG rather than letting it start and fail visibly.
+
+       MEASURED 2026-09-04: `last exit code = 78: EX_CONFIG`, empty stderr,
+       never spawned -- for a full day, while `--login-item-status` reported
+       the service "enabled" and every plist field matched the island agent
+       that was working. The only field that differed was this one. -->
+  <key>ProcessType</key><string>Interactive</string>
   <key>StandardOutPath</key><string>$HOME/Library/Application Support/VESPER/fnwatch.out</string>
   <key>StandardErrorPath</key><string>$HOME/Library/Application Support/VESPER/fnwatch.err</string>
 </dict></plist>
@@ -212,6 +222,20 @@ codesign --force --sign - --identifier "$ID" "$APP" 2>/dev/null \
 # clears it, and it must happen on EVERY build that changes the signature.
 LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 [ -x "$LSREG" ] && "$LSREG" -f "$APP" && echo "LaunchServices registration refreshed"
+
+# AND THE SMAppService AGENTS, which are the ones actually running. The block
+# below refreshes a FILE-BASED agent under ~/Library/LaunchAgents; both agents
+# in use are registered from inside the bundle instead, so nothing here touched
+# them and the comment above about "EVERY build that changes the signature" was
+# describing an intention rather than a step.
+#
+# MEASURED 2026-09-04: after two rebuilds, `ai.vesper.island.fnwatch` sat at
+# `last exit code = 78: EX_CONFIG` and had not spawned since -- the globe-key
+# starter, dead for a day, with an empty stderr because it never ran far enough
+# to write one. `ai.vesper.island` survived only because it gets re-registered
+# on the app's own launch.
+"$APP/Contents/MacOS/VESPER" --reinstall-login-item 2>&1 | sed 's/^/  /' || \
+  echo "  WARNING: agent re-registration failed -- globe x3 may start nothing"
 
 # Reload the LaunchAgent if it is installed, so a rebuild does not leave launchd
 # supervising a binary that no longer exists.

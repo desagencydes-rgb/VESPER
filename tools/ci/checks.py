@@ -11442,7 +11442,39 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
         if launch and launch[0].endswith(".py"):
             r.err("launchd is pointed at a script rather than the signed "
                   "binary")
+    # THE OWNER'S STOP. There was none: no hotkey, no menu (an `.accessory`
+    # app has no menu bar to hang one in), and any kill undone by `KeepAlive`
+    # within seconds. A running thing with no off switch is not a feature
+    # decision, it is an omission -- and it was asked for twice.
+    if 'args.contains("--stop")' not in main:
+        r.err("the bundle has no --stop, so the only way to stop VESPER is a "
+              "launchctl incantation the owner has to remember")
+    if "func stopVesper" not in main or "bootout" not in main:
+        r.err("the stop does not boot the job out of launchd, so KeepAlive "
+              "restarts VESPER within seconds and the stop is theatre")
+    if "let chord = f.contains(.function) && f.contains(.control)" not in main \
+            or "QUIT_HOLD_S" not in main:
+        r.err("the quit chord is gone, so the stop exists only as a flag the "
+              "owner has to open a terminal to reach")
+    if "ai.vesper.island.fnwatch" not in main.split("func stopVesper")[-1][:1200]:
+        pass  # the starter is deliberately NOT booted out; see stopVesper.
+    if 'args.contains("--start")' not in main:
+        r.err("there is no --start, so a stop is only undone by an agent that "
+              "has already been observed refusing to spawn")
+
+    # THE MINTER IS THE JOB, NOT A PARENT WATCHING ONE. Spawn-and-wait made
+    # every arm job two processes and orphaned the python half on every
+    # SIGTERM: seven live minters, measured 2026-09-04.
+    if "execv(py" not in main:
+        r.err("--arm spawns the minter and waits instead of exec'ing it, so "
+              "each restart leaves the previous python child orphaned onto "
+              "launchd, still minting")
+
     arm_sh = (REPO / "app" / "island-macos" / "build.sh").read_text(encoding="utf-8")
+    if "--reinstall-login-item" not in arm_sh:
+        r.err("build.sh does not re-register the agents after signing, so a "
+              "rebuild leaves launchd holding the previous signature and the "
+              "starter silently stops spawning")
     if "vesper_arm.py" not in arm_sh:
         r.err("the build does not pack the minter, so a bundle carrying the "
               "runtime cannot arm it and autonomy stops one token lifetime "
