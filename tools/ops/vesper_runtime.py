@@ -892,6 +892,49 @@ def _drain_heard(bus, transcriber) -> int:
     return done
 
 
+# How much of the conversation the surface carries forward. The owner asked for
+# no visible sessions -- "at least the whole week" -- and a restart used to open
+# on an empty transcript, which is why starting VESPER felt like meeting a
+# stranger who had your history filed somewhere else.
+CONVERSATION_DAYS = 7
+CONVERSATION_MAX = 200
+
+
+def _recent_conversation(store, *, days: int = CONVERSATION_DAYS,
+                         limit: int = CONVERSATION_MAX) -> list:
+    """The last week of turns, rebuilt from the log, newest last.
+
+    THE LOG ALREADY HELD ALL OF IT. `turn` records carry `question` and
+    `answer` for every dispatched turn, so the conversation was durable the
+    whole time -- it simply was not read back, and the in-memory list started
+    empty on every launch. Restoring it is a read, not a new store: there is
+    one record of what was said and this is a view of it.
+
+    NEVER RAISES INTO STARTUP. A surface that opens without its history is a
+    worse morning than one that opens without a face; a runtime that refuses to
+    start because it could not read the history is worse than both.
+    """
+    out: list = []
+    try:
+        cutoff_ms = (time.time() - days * 86400) * 1000.0
+        for rec in store.read("log", kind="turn"):
+            body = rec.body if isinstance(rec.body, dict) else {}
+            p = body.get("payload") or body
+            q, a = str(p.get("question") or ""), str(p.get("answer") or "")
+            at = rec.hlc.physical_ms if getattr(rec, "hlc", None) else None
+            if at is not None and at < cutoff_ms:
+                continue
+            if q:
+                out.append({"who": "owner", "source": "typed",
+                            "certain": True, "text": q})
+            if a:
+                out.append({"who": "vesper", "source": "vesper",
+                            "certain": True, "text": a})
+    except Exception:                                  # noqa: BLE001
+        return []
+    return out[-limit:]
+
+
 def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          once: bool = False, renderer=None, updater=None,
          misses=None, chooser=None, sensors=None, autonomy=None,
@@ -1108,7 +1151,7 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                     said.append({"who": "vesper", "text": floor.status_line(),
                                  "source": "vesper", "certain": True})
                     transcript.extend(said)
-                    del transcript[:-40]
+                    del transcript[:-CONVERSATION_MAX]
                     said = []
                     home.set_transcript(list(transcript))
                     continue
@@ -1158,7 +1201,7 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             # Publishing here means the words land, the face turns to thinking,
             # and the dissolve happens when the answer actually arrives.
             transcript.extend(said)
-            del transcript[:-40]
+            del transcript[:-CONVERSATION_MAX]
             said = []
             home.set_transcript(list(transcript))
             if res["outcome"] == "dispatched" and floor is not None:
@@ -1267,6 +1310,28 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                         if did is not None and bench is not None:
                             why = (did.detail or {}).get("why") if isinstance(did.detail, dict) else None
                             bench.observe(why or did.said or did.capability_id)
+                            # EVERY STEP ON THE BOARD, not just the model call
+                            # that answered afterwards. A multi-step turn wrote
+                            # a file and then ran it; the surface showed
+                            # "answered / groq-strong" and nothing about
+                            # either.
+                            det = did.detail if isinstance(did.detail, dict) else {}
+                            steps = det.get("steps") or []
+                            for st in steps:
+                                if not isinstance(st, dict):
+                                    continue
+                                sd = st.get("detail") if isinstance(st.get("detail"), dict) else {}
+                                res = sd.get("result") if isinstance(sd.get("result"), dict) else {}
+                                bench.acted(
+                                    st.get("capability_id") or "",
+                                    st.get("args") or {},
+                                    state="done",
+                                    output=str(res.get("stdout")
+                                              or res.get("opened") or ""))
+                            bench.acted(
+                                did.capability_id, det.get("args") or {},
+                                state=("done" if did.kind == "acted" else "failed"),
+                                output=str(((det.get("result") or {}) if isinstance(det.get("result"), dict) else {}).get("stdout") or ""))
                     except Exception as exc:           # noqa: BLE001
                         bus.publish("act.pass_failed", subject="actor",
                                     payload={"error": repr(exc)},
@@ -1391,7 +1456,7 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
 
     if said:
         transcript.extend(said)
-        del transcript[:-40]
+        del transcript[:-CONVERSATION_MAX]
     home.set_transcript(list(transcript))
     # PUBLISHED EVERY PASS, including the passes that handled nothing -- a row
     # that opened during a call has to be seen to close, and closing is an event
@@ -1424,7 +1489,7 @@ def main() -> int:
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
-    transcript: list = []
+    transcript: list = _recent_conversation(store)
 
     if args.status:
         print(f"registered : {report['registered']}")

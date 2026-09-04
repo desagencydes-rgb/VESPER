@@ -265,8 +265,18 @@ LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchService
 # starter, dead for a day, with an empty stderr because it never ran far enough
 # to write one. `ai.vesper.island` survived only because it gets re-registered
 # on the app's own launch.
-"$APP/Contents/MacOS/VESPER" --reinstall-login-item 2>&1 | sed 's/^/  /' || \
-  echo "  WARNING: agent re-registration failed -- globe x3 may start nothing"
+# TWICE, WITH A SETTLE BETWEEN. Measured across four builds on 2026-09-04: the
+# first pass after a build reports "re-registered" for every agent and they
+# come up at `exit = 78: EX_CONFIG` anyway, while a second pass a few seconds
+# later brings them up at 0. The old processes are still going down while the
+# first registration lands, so launchd is handed a job whose previous instance
+# has not finished dying. One pass looked correct and left the globe key and
+# the microphone dead; the loop is what actually restores them.
+for _pass in 1 2; do
+  "$APP/Contents/MacOS/VESPER" --reinstall-login-item 2>&1 | sed "s/^/  pass $_pass: /" || \
+    echo "  WARNING: agent re-registration failed -- globe x3 may start nothing"
+  [ "$_pass" = "1" ] && sleep 6
+done
 
 # Reload the LaunchAgent if it is installed, so a rebuild does not leave launchd
 # supervising a binary that no longer exists.

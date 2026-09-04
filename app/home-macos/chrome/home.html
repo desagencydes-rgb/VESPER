@@ -553,6 +553,9 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
 
     window.__vesperStage = function (text, who) {
       if (!text || text === showing) return;
+      // WHAT THE STAGE HOLDS, so the list below does not print it a second
+      // time. See __vesperHistory.
+      window.__stageText = text;
       if (pendingTimer) { pending = { text: text, who: who }; return; }
       if (!showing) { arrive(text, who); return; }
 
@@ -683,6 +686,15 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
                         + '<span class="htext" style="opacity:.4">'
                         + 'nothing said yet</span></div>';
         return;
+      }
+      // THE LINE ON STAGE IS NOT REPEATED UNDERNEATH IT. The stage shows the
+      // newest line and this list showed every line INCLUDING that one, so
+      // every reply appeared twice in a row under one "vesper" label -- which
+      // is what the owner kept seeing and reported on 2026-09-04. The card and
+      // the log are two views of one conversation, not two conversations.
+      if (rows.length > 1 && window.__stageText
+          && rows[0] && rows[0].text === window.__stageText) {
+        rows = rows.slice(1);
       }
       var html = '';
       for (var i = 0; i < rows.length; i++) {

@@ -152,6 +152,50 @@ class Workbench:
 
     # ------------------------------------------------------------- actions
 
+    # What each capability is called while it is happening, in the words a
+    # person would use. The owner asked for the surface to say what VESPER is
+    # DOING -- "running command X", "reading", "opening" -- the way a coding
+    # agent narrates its tools, rather than only naming the provider that
+    # answered afterwards.
+    ACT_VERBS = {
+        "shell.run": ("running", "ran"),
+        "ui.open": ("opening", "opened"),
+        "fs.read": ("reading", "read"),
+        "fs.write": ("writing", "wrote"),
+        "fs.edit": ("editing", "edited"),
+        "agent.ask": ("asking", "asked"),
+        "agent.run": ("delegating", "delegated"),
+    }
+
+    @staticmethod
+    def _act_detail(capability_id: str, args: dict) -> str:
+        """The one thing worth showing about this action, and nothing else."""
+        a = args or {}
+        if capability_id == "shell.run":
+            return str(a.get("cmd") or "")[:120]
+        for k in ("path", "target", "agent", "question"):
+            if a.get(k):
+                return str(a[k])[:120]
+        return capability_id
+
+    def acted(self, capability_id: str, args: dict, *, state: str = "done",
+              seconds: float | None = None, output: str = "") -> None:
+        """Record one capability step, finished, with what it produced.
+
+        OUTPUT IS PART OF THE ACTION. "ran python3 hey.py" and "ran python3
+        hey.py -> hey there" are different amounts of use to someone watching:
+        the first says a thing happened, the second says what it did. Trimmed
+        hard, because this is a status line and not a terminal.
+        """
+        live, past = self.ACT_VERBS.get(capability_id, ("doing", "did"))
+        detail = self._act_detail(capability_id, args)
+        out = " ".join(str(output or "").split())[:80]
+        if out and state == "done":
+            detail = f"{detail} -> {out}"
+        key = f"act:{capability_id}:{detail[:40]}"
+        self.open(key, live, detail)
+        self.close(key, state=state, verb=past, detail=detail, seconds=seconds)
+
     def open(self, key: str, verb: str, detail: str) -> None:
         with self._lock:
             for a in self._actions:
