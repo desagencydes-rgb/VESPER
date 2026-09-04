@@ -33,11 +33,36 @@ something on its owner's computer, and if so, exactly what.
 
 Return ONLY a JSON object, no prose.
 
-If the request is a question, a greeting, chat, or asks you to REMEMBER
-something, return exactly: {"action": "none"}
+POLITE REQUESTS ARE REQUESTS, NOT QUESTIONS. "Can you run it", "could you
+write a file", "would you check", "are you able to open" all ASK YOU TO DO THE
+THING. The question mark is manners, not a request for information. Judge what
+the owner wants to HAPPEN, never the grammar of the sentence.
 
-If it asks you to run, read, write, check, open, list or change something,
-return: {"action": "<capability>", "args": {...}, "why": "<short reason>"}
+Return {"action": "none"} ONLY for: a greeting; small talk; a request to
+REMEMBER something; or a question whose answer is knowledge you already have
+and that needs nothing on this computer looked at or changed.
+
+If it asks you to run, read, write, check, open, list, create or change
+something -- however politely it is phrased -- return:
+  {"action": "<capability>", "args": {...}, "why": "<short reason>"}
+
+Examples that are ACTIONS, not questions:
+  "can you write a python file that prints hey there and run it"
+      -> {"action": "fs.write", "args": {"path": "workspace/hey.py",
+          "content": "print(\"hey there\")"}, "why": "create the script"}
+  "could you run it and show me the output"
+      -> {"action": "shell.run", "args": {"cmd": "python3 workspace/hey.py"},
+          "why": "run it and report what it printed"}
+  "are you able to check the disk space"
+      -> {"action": "shell.run", "args": {"cmd": "df -h"}, "why": "look"}
+
+A MULTI-STEP REQUEST STARTS WITH ITS FIRST STEP. "Write a file and run it" is
+`fs.write` now; you will be asked again with the result and can run it then.
+Never answer "none" because a request needs more than one action.
+
+NEVER CLAIM YOU CANNOT DO SOMETHING THESE CAPABILITIES COVER. Returning "none"
+for a request you can act on makes the assistant tell its owner it is unable to
+run a file, which is false and is the worst answer available.
 
 The only capabilities that exist are:
 
@@ -160,7 +185,8 @@ class IntentProposer:
             except Exception:                          # noqa: BLE001
                 pass
 
-    def propose(self, text: str, observations: list | None = None) -> Proposal | None:
+    def propose(self, text: str, observations: list | None = None,
+                recent: list | None = None) -> Proposal | None:
         """None means "this turn is not an action", which is the common case.
 
         `observations` is what the turn has ALREADY done -- the typed, bounded
@@ -179,6 +205,18 @@ class IntentProposer:
         text = (text or "").strip()
         if not text:
             return None
+        # WHAT "IT" MEANS. Without the turns either side of it, "run it" names
+        # nothing, and the proposer answered "none" to every follow-up -- so
+        # the owner rephrased, and got refused again, and was told VESPER
+        # could not run a file. Measured 2026-09-04 from the log: five
+        # consecutive `{"action": "none"}` against a request to run a script
+        # that had just been written one turn earlier.
+        #
+        # RECENT, NOT ALL OF IT. Enough to resolve a pronoun, not enough to
+        # turn a classifier prompt into a transcript: the last few utterances
+        # and the last thing actually done.
+        if recent:
+            text = _render_recent(recent) + "\n\n" + text
         if observations:
             text = text + "\n\n" + _render_observations(observations)
         try:
@@ -198,6 +236,28 @@ class IntentProposer:
                    {"proposal": p.to_dict() if p else None,
                     "raw": raw[:300] if p is None else ""})
         return p
+
+
+def _render_recent(recent: list) -> str:
+    """The last few turns, as context for a pronoun.
+
+    OWNER LINES AND WHAT WAS DONE, nothing else. A proposal needs to resolve
+    "it" and "that file"; it does not need the assistant's prose, which is the
+    part most likely to talk it into re-proposing something already finished.
+    """
+    lines = []
+    for item in recent[-6:]:
+        if isinstance(item, dict):
+            who = item.get("who") or "owner"
+            what = str(item.get("text") or "").strip()
+        else:
+            who, what = "owner", str(item).strip()
+        if what:
+            lines.append(f"  {who}: {what[:220]}")
+    if not lines:
+        return ""
+    return "Earlier in this conversation (for resolving what 'it' refers to):\n" \
+        + "\n".join(lines)
 
 
 def _render_observations(observations: list) -> str:

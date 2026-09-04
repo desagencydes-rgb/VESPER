@@ -235,6 +235,7 @@ class Actor:
                   period: str = "active", fragments: list | None = None,
                   max_steps: int = MAX_STEPS,
                   permitted: Any = None,
+                  recent: list | None = None,
                   resume_state: dict | None = None) -> Outcome | None:
         """Act, observe, and act again until the turn is finished. None means
         this turn was not a request to do anything at all.
@@ -319,7 +320,7 @@ class Actor:
                 break
 
             p = self._proposer.propose(
-                text, observations=observations if observations else None)
+                text, observations=observations if observations else None, recent=recent)
             if p is None:
                 break
 

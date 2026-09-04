@@ -900,6 +900,8 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          floor=None, baseline=None, interlock=None, jobs=None,
          store=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
+    # The last thing VESPER actually did, so the next turn's "it" resolves.
+    last_action = None
     # SENSORS FIRST, AND THE PERIOD DECIDES WHETHER ANYTHING ACTUALLY RUNS.
     # `poll()` returns immediately for any sensor that is not due, so calling it
     # every pass costs a dictionary lookup rather than a probe. Before the turn,
@@ -1245,12 +1247,28 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                             spoken = rest if (verdict == consent.YES and rest) else ""
                 if actor is not None and did is None and spoken:
                     try:
-                        did = actor.maybe_act(spoken)
+                        # THE TURNS EITHER SIDE OF THIS ONE. "run it" names
+                        # nothing on its own, and the proposer used to see
+                        # nothing else -- so a follow-up to a request it had
+                        # just satisfied came back "none" and the owner was
+                        # told VESPER could not do it.
+                        recent = [{"who": "owner", "text": u.text}
+                                  for u in intake.history[-6:] if u.final]
+                        if last_action is not None:
+                            recent.append({"who": "vesper (did)",
+                                           "text": last_action})
+                        did = actor.maybe_act(spoken, recent=recent)
                     except Exception as exc:           # noqa: BLE001
                         bus.publish("act.pass_failed", subject="actor",
                                     payload={"error": repr(exc)},
                                     component="runtime")
                 if did is not None:
+                    # WHAT WAS JUST DONE, kept for the next turn's pronoun.
+                    # `Outcome` carries no args -- `said` is the sentence the
+                    # owner was given, which is exactly the description a
+                    # pronoun in the next turn needs.
+                    last_action = (f"{did.capability_id}: {did.said}"[:200]
+                                   if did.said else did.capability_id)
                     bus.publish("act.outcome", subject=did.capability_id,
                                 payload=did.to_dict(), component="runtime")
                     reply = did.said

@@ -68,8 +68,17 @@ func homeIsRunning() -> Bool {
 }
 
 func launchVesper() {
+    // GLOBE x3 IS A TOGGLE, and that is the whole point of it being the same
+    // gesture. The owner already knows this key starts VESPER; asking them to
+    // learn a four-modifier chord to stop it was inventing a second vocabulary
+    // for one idea. Running -> stop. Not running -> start.
+    //
+    // THE WATCHER DOES NOT EXIT WITH IT. `exitAfter: false` because this is
+    // the starter's own process: booting out the island must not take down the
+    // thing that brings it back.
     if homeIsRunning() {
-        note("globe x3 -- VESPER home is already running, not starting a second one")
+        note("globe x3 -- VESPER is running, stopping it")
+        stopVesper(exitAfter: false)
         return
     }
     let app = URL(fileURLWithPath: CommandLine.arguments[0])

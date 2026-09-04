@@ -984,7 +984,7 @@ if args.contains("--arm") {
 /// out the enable tokens `core/interlock.py` requires, so leaving it running
 /// would keep arming a VESPER that was asked to stop. `pkill` follows the
 /// bootout because orphaned minters existed: seven of them, on 2026-09-04.
-func stopVesper() -> Never {
+func stopVesper(exitAfter: Bool = true) -> Void {
     let uid = getuid()
     func launchctl(_ argv: [String]) {
         let p = Process()
@@ -1006,11 +1006,12 @@ func stopVesper() -> Never {
     try? pk.run(); pk.waitUntilExit()
 
     print("VESPER stopped. Globe x3 starts it again.")
-    // Last, because it SIGTERMs this process.
+    // Last, because it SIGTERMs the island process -- which is US when the
+    // chord fired inside the app, and is NOT us when the globe-key watcher
+    // called this to toggle VESPER off. The watcher must survive: it is the
+    // only way back.
     launchctl(["bootout", "gui/\(uid)/ai.vesper.island"])
-    // Reached only if this process was not the island job (e.g. `--stop` run
-    // by hand from a terminal).
-    exit(0)
+    if exitAfter { exit(0) }
 }
 
 // The scriptable form of the chord, and the one a terminal can reach.
