@@ -126,6 +126,29 @@ class Outcome:
                 "level": self.level, "said": self.said, "detail": self.detail}
 
 
+def _ask_sentence(why: str) -> str:
+    """The permission question, in words the owner can answer.
+
+    THE OLD ONE DID NOT ASK ANYTHING. It read: "I stopped before doing that --
+    it needs your permission (L5). run the script to output "hey there!"" --
+    four separate faults in one line, heard aloud by the owner on 2026-09-04.
+    It named a LEVEL, which is this system's vocabulary and not theirs. It
+    appended `proposal.why`, which is a log fragment written for the record,
+    as though it were a sentence. It used a double dash, which a synthesiser
+    reads as a stumble. And it never posed a QUESTION, so nothing in it told
+    the owner that saying yes was available -- which is the entire point of
+    stopping to ask.
+
+    THE LEVEL STAYS IN `detail`. It belongs in the record, where a reader is
+    debugging the ladder, and not in a sentence spoken to the person who only
+    wants to know what VESPER is about to do.
+    """
+    w = (why or "").strip().rstrip(".!?").strip()
+    if not w:
+        return "I need your go-ahead before I do that. Say yes and I will."
+    return f"I need your go-ahead before I {w}. Say yes and I will."
+
+
 class Actor:
     """Proposes, authorizes, acts, verifies — or stops and asks."""
 
@@ -831,9 +854,9 @@ class Actor:
         """A refusal becomes a question, or stays a refusal and says why."""
         if self._broker is None:
             return Outcome("refused", proposal.capability_id, level,
-                           said=(f"that needs your say-so ({level}) and I have "
-                                 "no way to ask you right now"),
-                           detail={"reason": decision.reason})
+                           said=("I need your go-ahead for that, and I have no "
+                                 "way to ask you right now"),
+                           detail={"reason": decision.reason, "level": level})
         try:
             asked = self._broker.request(decision, target=self._target,
                                          period=period,
@@ -843,9 +866,9 @@ class Actor:
                            said="that needs your say-so and I could not ask",
                            detail={"error": repr(exc)})
         return Outcome("asked", proposal.capability_id, level,
-                       said=(f"I stopped before doing that -- it needs your "
-                             f"permission ({level}). {proposal.why}".strip()),
-                       detail={"reason": decision.reason, "asked": asked})
+                       said=_ask_sentence(proposal.why),
+                       detail={"reason": decision.reason, "asked": asked,
+                               "level": level})
 
     @staticmethod
     def _reportable(result: dict) -> dict:

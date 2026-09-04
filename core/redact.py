@@ -189,6 +189,40 @@ def _charset_mixed(tok: str) -> bool:
     return classes >= 2
 
 
+def _token_bits(tok: str) -> float:
+    """Entropy for the redaction decision, judged per path SEGMENT.
+
+    A FILESYSTEM PATH IS NOT A SECRET, AND IT SCORED LIKE ONE. The scan's
+    charset includes `/`, `.`, `-` and `_`, so an absolute path matches as a
+    single token -- and a four-segment home path carries 4.06 bits against a
+    3.6 floor purely because joining several ordinary words varies the
+    character distribution. Every segment of it is far below the floor: 1.92,
+    2.52, 2.52, 3.10.
+
+    WHAT IT COST. Measured 2026-09-04: the owner asked VESPER to run a script,
+    the proposer correctly emitted `shell.run python3 "<path>/hey.py"`, and the
+    redactor rewrote the path to `[REDACTED:high_entropy_token]`. The mangled
+    command then scored L5 instead of L3 -- fail-closed on an unparseable
+    token, which is right -- and L5 was above the ceiling for a later step of a
+    turn, so the action was refused as `weak_authorization`. The owner was told
+    VESPER needed permission it could not even ask for. Every stage after the
+    redactor behaved correctly on input the redactor had corrupted.
+
+    ONLY FOR THINGS SHAPED LIKE PATHS, and that narrowness is deliberate. A
+    secret can contain `/`, so this does not relax the rule for tokens
+    generally -- only for ones that BEGIN like a path, where the leading `/`,
+    `./`, `../` or `~/` is evidence no API key format produces. Within those,
+    the score is the WORST segment, so a real secret sitting inside a path is
+    still caught by the segment that holds it.
+    """
+    if not tok.startswith(("/", "./", "../", "~/")):
+        return shannon_bits(tok)
+    segments = [s for s in tok.split("/") if s]
+    if not segments:
+        return shannon_bits(tok)
+    return max(shannon_bits(s) for s in segments)
+
+
 def _is_benign(tok: str) -> bool:
     return any(p.match(tok) for p in BENIGN)
 
@@ -223,7 +257,7 @@ def scan(text: str, *, generous: bool = False, source: str = "unknown") -> list:
         tok = m.group()
         if _is_benign(tok) or not _charset_mixed(tok):
             continue
-        bits = shannon_bits(tok)
+        bits = _token_bits(tok)
         if bits >= floor:
             findings.append(Finding(kind="high_entropy_token", start=start,
                                     end=end, entropy=bits, source=source))

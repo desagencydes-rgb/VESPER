@@ -5063,5 +5063,31 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# A path is not a secret. Judging one as a single token scored a home path at
+# 4.06 bits against a 3.6 floor -- every segment sat between 1.92 and 3.10 --
+# so a command's path was rewritten to [REDACTED:high_entropy_token], the
+# mangled command levelled L5 instead of L3, and the owner was told VESPER
+# needed a permission it had no way to ask for.
+# --------------------------------------------------------------------------
+CASES += [
+    ("redactor-precedes-every-provider", REDACT_PY,
+     # RESTORE THE BLOB BEHAVIOUR, which is what the bug was. Deleting the
+     # early return makes the rule MORE lenient (everything judged per
+     # segment) and the path still survives -- a mutation that cannot fail.
+     _sub("    return max(shannon_bits(s) for s in segments)",
+          "    return shannon_bits(tok)", 1),
+     "path tokens are judged as one blob again, so an ordinary absolute path "
+     "is redacted as a secret and every command naming a file is corrupted "
+     "before it runs"),
+
+    ("redactor-precedes-every-provider", REDACT_PY,
+     _sub("    return max(shannon_bits(s) for s in segments)",
+          "    return min(shannon_bits(s) for s in segments)", 1),
+     "a path is scored by its WEAKEST segment, so a real secret sitting in "
+     "one segment of a path is averaged away and sent to the provider"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

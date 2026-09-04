@@ -4986,9 +4986,44 @@ def check_redactor_precedes_every_provider() -> Result:
         if not scan(probe):
             r.err(f"the detector no longer fires on a {name} credential")
 
+    # A PATH IS NOT A SECRET, AND OVER-REDACTION IS NOT THE SAFE DIRECTION
+    # HERE. The scan's charset covers `/`, `.`, `-` and `_`, so an absolute
+    # path matches as one token and scores on the variety of several joined
+    # words rather than on any one of them. Measured 2026-09-04: a home path
+    # scored 4.06 bits against a 3.6 floor while every segment sat between
+    # 1.92 and 3.10 -- so the redactor rewrote a command's path to
+    # `[REDACTED:high_entropy_token]`, the mangled command then levelled L5
+    # instead of L3, and the owner was told VESPER needed a permission it
+    # could not ask for. Egress redaction corrupts the request the owner
+    # actually made, which is why this direction matters as much as the other.
+    # NO SPACE IN THE FIXTURE, and that is not cosmetic: the scan matches runs
+    # of `[A-Za-z0-9_\-+/=.]{20,}`, so a space ENDS the token. A path fixture
+    # containing one is split into two short pieces, neither of which reaches
+    # the floor -- it passes whatever the code does, which is a negative
+    # control that cannot fail. Measured: this form is 3.98 bits whole against
+    # a 3.6 floor, 3.10 at its worst segment.
+    _path = "/Users/owner/Projects/VESPER/workspace"
+    if scan(_path):
+        r.err("an ordinary absolute path is redacted as a secret, so every "
+              "command naming a file is corrupted before it runs -- and the "
+              "corrupted form levels HIGHER than the real one, which turns a "
+              "routine action into a permission the owner cannot grant")
+    _sk = "sk-proj-Ab3xK9mQ7zRt2LpW8vNc4dYf6HgJ1sEu0iOa5T"
+    if not scan(_sk):
+        r.err("an API key is no longer redacted")
+    # A BLOB WITH NO RECOGNISED PREFIX, so this exercises the ENTROPY path
+    # rather than a named pattern. `sk-proj-...` is caught by `PATTERNS`
+    # whatever the entropy rule does, which makes it useless as evidence that
+    # the per-segment scoring still catches a secret inside a path.
+    _blob = "Xq7Rt2LpW8vNc4dYf6HgJ1sEu0iOa5TkZbMwPh3Vj9"      # 5.39 bits
+    if not scan("/Users/owner/data/" + _blob):
+        r.err("a high-entropy secret sitting INSIDE a path is not redacted, "
+              "so judging a path by its segments became a way to smuggle one "
+              "past the scan")
+
     r.note("prompt, system turn and history all cleared before the adapter; "
-           "paths and prose survive; findings carry no value; six credential "
-           "shapes still detected")
+           "paths and prose survive INTACT; findings carry no value; six "
+           "credential shapes still detected")
     return r
 
 
