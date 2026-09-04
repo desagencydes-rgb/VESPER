@@ -89,7 +89,31 @@ def resolve(path: str) -> pathlib.Path:
         if parts and parts[0] == "workspace":
             p = WORKSPACE.joinpath(*parts[1:])
         else:
-            p = REPO / p
+            # A BARE RELATIVE PATH MEANS THE OWNER'S HOME, NOT THE CODE'S ROOT.
+            # `REPO` is `__file__`'s parent, which inside the shipped bundle is
+            # `VESPER.app/Contents/Resources/runtime` -- so "Downloads/x.png"
+            # resolved to a Downloads folder inside the app. Measured
+            # 2026-09-04: the owner asked for a file that was sitting in
+            # ~/Downloads and got `FileNotFoundError` naming a path inside the
+            # bundle, then the sentence "I tried and it did not go through".
+            #
+            # WHEN A PERSON SAYS "Downloads" THEY MEAN THEIRS. Home is tried
+            # first and the repo second, so a relative path that names a real
+            # project file still resolves for work inside the checkout; when
+            # neither exists the HOME form is returned, because that is the one
+            # the owner meant and the error should name the place they looked.
+            # HOME ONLY WHEN THE FILE IS ACTUALLY THERE. The first version of
+            # this also sent NON-EXISTENT relative paths home, which is a
+            # different and worse thing: `fs.write "notes.txt"` became a write
+            # into the home ROOT and levelled L5, and the registry caught it --
+            # `fs.write` rule 'ordinary' declares L3 and its own example
+            # resolved L5. Naming an existing file is the case the owner meant
+            # ("the png in Downloads"); inventing a new one is not, and it
+            # belongs where it always went. `~/...` still reaches home for
+            # creating something there, which is what the proposer is told to
+            # write.
+            home_p = pathlib.Path.home() / p
+            p = home_p if home_p.exists() else (REPO / p)
     return pathlib.Path(os.path.normpath(str(p))).resolve()
 
 
@@ -296,6 +320,18 @@ def shell_run(args: dict) -> dict:
     argv = shlex.split(cmd)
     if not argv:
         raise ValueError("no command to run")
+
+    # `~` IS EXPANDED HERE BECAUSE NO SHELL WILL DO IT. `shell=True` is refused
+    # on purpose, so a `~` reaching the kernel is a literal directory named
+    # "~", and `open ~/Downloads/x.png` fails with "No such file or directory"
+    # while the same path spelled out works. Measured 2026-09-04.
+    #
+    # ONLY A LEADING `~`, and only where a shell would expand one -- this is
+    # not a general rewrite of relative paths. A bare `Downloads/x.png` still
+    # means "relative to the working directory", which is what every other
+    # command-line tool on this machine would also do with it; the proposer is
+    # told to write the owner's folders as `~/...` for exactly that reason.
+    argv = [(os.path.expanduser(a) if a.startswith("~") else a) for a in argv]
 
     # THE SESSION'S CARRIED CONTEXT. Absent a session id this behaves exactly as
     # it did: one command, in the repo, with the ambient environment.
@@ -534,6 +570,58 @@ def _resolve_cwd(raw: str | None, base: str) -> str:
     raise ShellCwdOutsideRoots(
         f"{cand} is outside every root a session may run in "
         f"({', '.join(str(r) for r in _session_roots())})")
+
+
+def ui_open_level(args: dict) -> str:
+    """Opening something FOR the owner, levelled on what it opens.
+
+    A SEPARATE CAPABILITY BECAUSE `shell.run` CANNOT DO IT. Commands run under
+    seatbelt, and the sandbox refuses to hand a file to LaunchServices --
+    `open ~/Downloads/x.png` returns `_LSOpenURLsWithCompletionHandler()
+    failed with error -54`. Measured 2026-09-04, when the owner asked VESPER to
+    open an image and got "I tried and it did not go through".
+    WIDENING THE SANDBOX FOR EVERY COMMAND WOULD HAVE BEEN THE WRONG FIX: this
+    is one narrow door -- hand a path to the system's default handler -- rather
+    than a general loosening of containment that every future command inherits.
+
+    IT SHOWS, IT DOES NOT READ. Opening a file puts it on the owner's screen
+    for the owner to look at; the contents never enter VESPER's context, so
+    this cannot be a way to read a credential that `fs.read` would refuse. It
+    is still levelled on the target, because putting a private file on screen
+    in a room with other people in it is a disclosure even when VESPER is blind
+    to it.
+    """
+    raw = str(args.get("path") or args.get("target") or "")
+    if not raw:
+        return "L5"
+    low = raw.lower()
+    if low.startswith(("http://", "https://")):
+        return "L2"                       # a link the owner asked to see
+    target = resolve(raw)
+    # The same targets `fs.read` guards, judged the same way.
+    return fs_read_level({"path": str(target)})
+
+
+def ui_open(args: dict) -> dict:
+    """Hand a path or URL to the system's default handler. Never reads it."""
+    raw = str(args.get("path") or args.get("target") or "").strip()
+    if not raw:
+        raise ValueError("nothing to open")
+    low = raw.lower()
+    if low.startswith(("http://", "https://")):
+        target = raw
+    else:
+        t = resolve(raw)
+        if not t.exists():
+            raise FileNotFoundError(str(t))
+        target = str(t)
+    # NOT UNDER SEATBELT, which is the entire reason this exists -- and the
+    # argument is a single resolved path passed as one argv element, never a
+    # shell string, so there is nothing here for a quoted command to escape.
+    proc = subprocess.run(["/usr/bin/open", target], capture_output=True,
+                          text=True, timeout=20, check=False)
+    return {"opened": target, "exit_code": proc.returncode,
+            "stderr": (proc.stderr or "").strip()[:300]}
 
 
 def shell_session(session_id: str) -> dict:
@@ -1307,6 +1395,16 @@ def build_registry() -> CapabilityRegistry:
                    "material": "OPENAI_API_KEY=sk-live-abc"}),
     ], reversibility="reversible")
 
+    reg.register("ui.open", ui_open_level, [
+        LevelRule("owner file", "L3", {"path": "~/Downloads/a.png"},
+                  refutes=(
+                      {"path": "~/.config/vesper/secrets.env"},
+                      {"path": "~/.ssh/id_rsa"},
+                  )),
+        LevelRule("link", "L2", {"path": "https://example.com"}),
+        LevelRule("credential", "L5", {"path": "~/.config/vesper/secrets.env"}),
+    ], reversibility="reversible")
+
     reg.register("fs.read", fs_read_level, [
         LevelRule("ordinary", "L1", {"path": "README.md"},
                   refutes=(
@@ -1362,6 +1460,8 @@ def bind_all(executor, *, jobs=None, agent=None, runner=None) -> None:
         executor.bind("shell.run", _shell_with_jobs)
     else:
         executor.bind("shell.run", shell_run)
+
+    executor.bind("ui.open", ui_open)
 
     # THE SUB-AGENT IS BOUND, NOT PASSED IN ARGS, for the reason the job
     # registry is: what a proposal may ASK for and what carries the request are

@@ -67,7 +67,24 @@ ASK_BY_PHONE = "phone_call"
 # A refusal for any other reason is not a confirmation problem: an expired lease
 # or a stale epoch is not something the owner can answer in the moment.
 CONFIRMABLE_REASONS = ("grant_consumed", "owner_confirmation_required",
-                       "no_grant", "below_required_level")
+                       "no_grant", "below_required_level",
+                       "weak_authorization")
+
+# `weak_authorization` MEANS "NOBODY ASKED FOR THIS STRONGLY ENOUGH", WHICH IS
+# THE ONE REFUSAL A QUESTION EXISTS TO RESOLVE. The authorization ceiling is
+# L3 for a later step of a turn and L2 for autonomous work, so any step above
+# those refused with this reason -- and because it was excluded here, VESPER
+# could not ask about it. Measured 2026-09-04: the owner asked for a script to
+# be run, the second step needed more than the ceiling carried, and they were
+# told "it needs your permission" by a system that had already decided it
+# could not request that permission.
+#
+# `context_ceiling` STAYS OUT, and the distinction is the whole point. That one
+# means a web page or a model's own output is in context, and INV-ACT-3 says
+# content entering the system may never raise authority -- so an owner saying
+# yes must NOT lift it, or steered content would have found a way to ask the
+# owner for its own promotion. "Nobody asked" is answerable by the owner
+# asking; "something untrusted is in the room" is not.
 
 # `below_required_level` WAS MISSING AND IT IS THE COMMON CASE. Measured
 # 2026-09-02: `fs.write` on a new file and on an existing one both refuse with

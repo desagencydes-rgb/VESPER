@@ -126,6 +126,31 @@ class Outcome:
                 "level": self.level, "said": self.said, "detail": self.detail}
 
 
+def _failed_sentence(err: Any) -> str:
+    """What failed, in one line the owner can act on.
+
+    AN ERROR THE OWNER CANNOT SEE IS AN ERROR THEY CANNOT FIX. The stock
+    sentence was the same for a missing file, a permission denial and a
+    timeout, so the one useful fact -- which of those it was -- reached only
+    the log. The exception text is short, already free of anything secret (the
+    redactor runs before it), and it is the difference between "it did not go
+    through" and "that file is not where I looked".
+    """
+    e = str(err or "").strip()
+    if not e:
+        return "that did not go through, and it gave no reason"
+    if "FileNotFoundError" in e or "No such file" in e:
+        import re as _re
+        m = _re.search(r"'([^']+)'", e)
+        where = f" -- I looked in {m.group(1)}" if m else ""
+        return f"I could not find that file{where}"
+    if "PermissionError" in e or "not permitted" in e:
+        return "the system refused me access to that"
+    if "TimeoutExpired" in e or "timed out" in e:
+        return "that took too long and I stopped it"
+    return f"that did not go through: {e[:160]}"
+
+
 def _ask_sentence(why: str) -> str:
     """The permission question, in words the owner can answer.
 
@@ -798,7 +823,7 @@ class Actor:
                                         current_lease_epoch=0)
         except Exception as exc:                       # noqa: BLE001
             return Outcome("failed", p.capability_id, level,
-                           said="I tried and it failed",
+                           said=_failed_sentence(repr(exc)),
                            detail={"error": repr(exc)})
 
         # `Execution.outcome == "VERIFIED"` MEANS THE INVOCATION COMPLETED, and
@@ -806,8 +831,14 @@ class Actor:
         # is reporting on the call it made, which is still the actor's own view
         # of itself. The world gets read back below.
         if ex.outcome != "VERIFIED":
+            # SAY WHAT WENT WRONG. "I tried and it did not go through" told the
+            # owner nothing while the actual reason -- a FileNotFoundError
+            # naming the wrong directory -- sat in the log where only a session
+            # reading events would find it. Measured 2026-09-04: the owner
+            # asked for a file that existed, got that sentence twice, and had
+            # no way to know the path had resolved somewhere absurd.
             return Outcome("failed", p.capability_id, level,
-                           said="I tried and it did not go through",
+                           said=_failed_sentence(ex.error),
                            detail={"outcome": ex.outcome, "error": ex.error})
 
         return self._verify(p, level, ex)

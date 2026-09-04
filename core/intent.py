@@ -55,6 +55,9 @@ Examples that are ACTIONS, not questions:
           "why": "run it and report what it printed"}
   "are you able to check the disk space"
       -> {"action": "shell.run", "args": {"cmd": "df -h"}, "why": "look"}
+  "open the nordvpn png from Downloads"
+      -> {"action": "ui.open", "args": {"path": "~/Downloads/NordVPN-Emblem.png"},
+          "why": "show the owner the image"}
 
 A MULTI-STEP REQUEST STARTS WITH ITS FIRST STEP. "Write a file and run it" is
 `fs.write` now; you will be asked again with the result and can run it then.
@@ -69,12 +72,20 @@ The only capabilities that exist are:
   shell.run   args: {"cmd": "<a single command, no pipes or semicolons>"}
               For looking at the machine: listing files, checking status,
               disk space, running processes.
+              Write the owner's own folders as `~/...`: their files live in
+              `~/Downloads`, `~/Desktop`, `~/Documents`.
               Also for the CURRENT TIME OR DATE -- use {"cmd": "date"}.
               "what time is it", "chhal men sa3a", "quelle heure" are all
               questions the machine can answer by looking, not by knowing.
 
+  ui.open     args: {"path": "<path or https:// url>"}
+              To SHOW the owner something: an image, a PDF, a folder, an app,
+              a link. "open the picture in Downloads", "show me that file",
+              "open the site" are all ui.open.
+              NOT fs.read -- reading a PNG's bytes shows the owner nothing.
+
   fs.read     args: {"path": "<path>"}
-              For reading a file's contents.
+              For reading a file's contents, when YOU need to look INSIDE it.
 
   fs.write    args: {"path": "<path>", "content": "<full new contents>"}
               For CREATING a file. Give the WHOLE content.
@@ -101,7 +112,8 @@ Rules:
 # rather than passed on: `CapabilityRegistry.get` would raise `UnknownCapability`
 # anyway, but a proposal that cannot possibly be executed should not reach the
 # authorization path and appear in its records as a refusal.
-KNOWN = ("shell.run", "fs.read", "fs.write", "fs.edit", "agent.ask", "agent.run")
+KNOWN = ("shell.run", "ui.open", "fs.read", "fs.write", "fs.edit",
+         "agent.ask", "agent.run")
 
 
 @dataclass(slots=True)
