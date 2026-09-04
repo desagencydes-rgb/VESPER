@@ -109,6 +109,32 @@ class Workbench:
 
     # ------------------------------------------------------------ thoughts
 
+    def observe(self, line: str) -> str | None:
+        """A thought in VESPER's OWN words, not one from the phrasebook.
+
+        `think` renders a canned line by key, which is right for the moods it
+        was built for -- "Straightforward enough." says something true about an
+        easy request and says it well. It is the WHOLE column that was the
+        problem: every thought on screen came from a fixed list, so the surface
+        showed a mood and never a reason. The owner asked for real thoughts
+        rather than templates, and this is the door for them: what the proposer
+        actually decided, what a step actually observed, in the words that
+        decision was actually made in.
+
+        SAME DEDUPE AND SAME BOUND as `think`, because a real thought repeated
+        is still one thought, and an unbounded column is a memory leak with a
+        typeface.
+        """
+        line = " ".join(str(line or "").split())
+        if not line:
+            return None
+        with self._lock:
+            if self._thoughts and self._thoughts[-1] == line:
+                return line
+            self._thoughts.append(line)
+            del self._thoughts[:-MAX_THOUGHTS_KEPT]
+        return line
+
     def think(self, key: str) -> str | None:
         """Render one hand line by name. Unknown keys are silent, not invented."""
         line = self._hand.get(key)

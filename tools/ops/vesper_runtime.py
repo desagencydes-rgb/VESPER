@@ -1258,6 +1258,15 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                             recent.append({"who": "vesper (did)",
                                            "text": last_action})
                         did = actor.maybe_act(spoken, recent=recent)
+                        # THE REAL THOUGHT, in the words the decision was made
+                        # in. Until now every line on the thinking column came
+                        # from the phrasebook in voice.toml, so the surface
+                        # showed a mood and never a reason -- the owner noticed
+                        # and said so. `why` is the proposer's own sentence
+                        # about what it is doing and why.
+                        if did is not None and bench is not None:
+                            why = (did.detail or {}).get("why") if isinstance(did.detail, dict) else None
+                            bench.observe(why or did.said or did.capability_id)
                     except Exception as exc:           # noqa: BLE001
                         bus.publish("act.pass_failed", subject="actor",
                                     payload={"error": repr(exc)},

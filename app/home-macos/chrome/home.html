@@ -19,7 +19,14 @@
         --face-emoji:"Apple Color Emoji";
         --face-hand:"Learning Curve","Bradley Hand","Noteworthy",
                     "Snell Roundhand"}
-  html,body{margin:0;height:100%;background:transparent;overflow:hidden;
+  /* TEXT IS SELECTABLE. Nothing set `user-select` at all, and a WKWebView
+   chrome defaults to refusing it -- so the owner could not copy a single line
+   VESPER had written, including the ones they most wanted to keep: a command,
+   a path, an error. Reported 2026-09-04. The face and the ambient layers stay
+   unselectable so a drag across the field does not paint a selection over it. */
+.say,.think,.acts,.history,.hrow,.htext{-webkit-user-select:text;user-select:text;
+  cursor:text}
+html,body{margin:0;height:100%;background:transparent;overflow:hidden;
             font-family:var(--face-body),var(--face-emoji);
             -webkit-font-smoothing:antialiased;
             color:var(--ink)}
@@ -187,10 +194,19 @@
      and `flex:0 0 auto` means the newest thought is never the thing that gives
      way when the card runs short. The ACTIONS give way instead: they are a log
      and a log can scroll, whereas a half-shown thought is just wrong. */
-  .think{flex:0 0 auto}
+  /* SCROLLABLE, ADDED 2026-09-04 AT THE OWNER'S REQUEST. The budget above
+     keeps the NEWEST thought whole, which is right; what it also did was make
+     older ones unreachable -- they were dropped before the renderer saw them,
+     so there was nothing to scroll back to. The budget now governs how much is
+     VISIBLE at rest, and the rest is reachable by scrolling rather than gone. */
+  .think{flex:0 0 auto;max-height:min(30vh,220px);overflow-y:auto;
+         scrollbar-width:none}
+  .think::-webkit-scrollbar{display:none}
   .think p{margin:0 0 2px}
   .think p + p{color:rgba(244,230,220,.46);font-size:17px}
   .think p + p + p{color:rgba(244,230,220,.30)}
+  /* Past the fold: present and reachable by scrolling, visibly older. */
+  .think p.folded{color:rgba(244,230,220,.26);font-size:16px}
   .acts{border-top:1px solid rgba(255,255,255,.09);padding-top:10px;
         flex:1 1 auto;min-height:0;overflow-y:auto;
         scrollbar-width:none}
@@ -620,10 +636,15 @@
         // being fixed, arriving through the guard meant to prevent a different
         // one. A long thought is still a thought; what gives way when the card
         // runs short is the actions list below, which scrolls.
+        // KEPT, NOT DROPPED -- CHANGED 2026-09-04. This removed every thought
+        // past the line budget, so the budget decided what EXISTED rather than
+        // what was visible, and the owner could not scroll back to anything
+        // because there was nothing behind the fold. The budget now marks where
+        // the fold IS: the block is capped in CSS and scrolls, and the older
+        // thoughts stay in the DOM behind it, dimmed by the `p + p` rules.
         if (i === 0) { continue; }
         if (thinkEl.getBoundingClientRect().height > budget) {
-          thinkEl.removeChild(p);
-          break;
+          p.classList.add('folded');
         }
       }
       actsEl.textContent = '';

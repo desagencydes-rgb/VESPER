@@ -161,6 +161,37 @@ cat > "$APP/Contents/Library/LaunchAgents/$ID.plist" <<PLIST
 </dict></plist>
 PLIST
 
+# THE WAKE LISTENER IS AN AGENT TOO, AND NOTHING STARTED IT UNTIL NOW. The
+# always-on recogniser existed, was correct, forced on-device recognition, and
+# ran only when someone launched it by hand -- so it did not survive a crash, a
+# logout or a reboot, and in ordinary use it was simply never running.
+# Measured 2026-09-04: no `--wake` process on the machine and `heard.jsonl`
+# untouched since 2026-08-31, while the owner was telling VESPER it could not
+# hear them. A feature that is fully correct and never running is not a feature.
+#
+# ITS OWN LABEL, for the reason the globe watcher has one: stopping VESPER must
+# not require stopping the microphone, and restarting one must not restart the
+# other.
+cat > "$APP/Contents/Library/LaunchAgents/$ID.wake.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$ID.wake</string>
+  <key>ProgramArguments</key><array>
+    <string>$APP/Contents/MacOS/VESPER</string>
+    <string>--wake</string>
+  </array>
+  <key>WorkingDirectory</key><string>$REPO</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <!-- Interactive, like the others: it opens the microphone and talks to the
+       on-device recogniser, both of which want a real session. -->
+  <key>ProcessType</key><string>Interactive</string>
+  <key>StandardOutPath</key><string>$HOME/Library/Application Support/VESPER/wake.out</string>
+  <key>StandardErrorPath</key><string>$HOME/Library/Application Support/VESPER/wake.err</string>
+</dict></plist>
+PLIST
+
 # THE GLOBE-KEY WATCHER IS ITS OWN AGENT, and it has to be. Its whole job is to
 # start home when home is down, so it cannot live inside home. It also cannot
 # share the island's Label: booting the island out to test something would take

@@ -1098,7 +1098,8 @@ if args.contains("--reinstall-login-item") {
         // got far enough to write one. Globe x3 had been starting nothing for
         // a day, and only did not bite because the app it starts was already
         // running.
-        for name in ["ai.vesper.island.plist", "ai.vesper.island.fnwatch.plist"] {
+        for name in ["ai.vesper.island.plist", "ai.vesper.island.fnwatch.plist",
+                     "ai.vesper.island.wake.plist"] {
             let svc = SMAppService.agent(plistName: name)
             try? svc.unregister()
             Thread.sleep(forTimeInterval: 1.0)
@@ -2169,6 +2170,8 @@ if args.contains("--home") {
     // service is a no-op that throws, which is why the result is discarded.
     if #available(macOS 13.0, *) {
         try? SMAppService.agent(plistName: "ai.vesper.island.fnwatch.plist").register()
+        // THE MICROPHONE, which nothing registered until 2026-09-04.
+        try? SMAppService.agent(plistName: "ai.vesper.island.wake.plist").register()
     }
 }
 
