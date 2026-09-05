@@ -295,11 +295,43 @@ def _seatbelt_profile(level: str) -> str:
              '(allow sysctl-read)', '(allow mach-lookup)',
              '(allow file-read*)',
              '(deny network*)']
-    if level != "L1":
-        for d in (str(WORKSPACE), tempfile.gettempdir()):
-            parts.append(f'(allow file-write* (subpath "{d}"))')
-    else:
+    if level == "L1":
         parts.append("(deny file-write*)")
+        return "".join(parts)
+
+    writable = [str(WORKSPACE), tempfile.gettempdir()]
+
+    # AUTO MODE REACHES THE OWNER'S OWN FILES, AND THE INCONSISTENCY THAT
+    # FORCED THIS IS WORTH RECORDING. `fs.write` is a Python call and is not
+    # seatbelted; `shell.run` is. So VESPER could CREATE ~/Downloads/hey.txt
+    # and then could not RENAME it -- measured 2026-09-05, `mv: Operation not
+    # permitted`, reported to the owner as "error code 1" with no reason. Two
+    # capabilities disagreeing about where the owner's files are is not a
+    # containment boundary, it is a bug that looks like one.
+    #
+    # HOME, NOT `/`. The system stays read-only: no writes to /System,
+    # /Library, /usr, /bin, another user's home, or the VESPER repo's own
+    # governed paths (INV-SELF-1..7 keeps the runtime out of its own source,
+    # and that rule is upstream of this one). And `(deny network*)` does NOT
+    # move in any mode -- `ModelGateway` is the only sanctioned egress and the
+    # redactor sits in front of it, so a shell that could open a socket would
+    # be a second exit with nothing in front of it whatever the owner approved.
+    #
+    # READ FRESH, NOT CACHED AT IMPORT. The owner switches modes to change what
+    # VESPER may do NOW; a profile fixed at process start would need a restart
+    # to take effect, and a restart is what the mode exists to avoid.
+    try:
+        from . import permission_mode as _pm
+        if _pm.read() == _pm.AUTO:
+            writable.append(str(pathlib.Path.home()))
+    except Exception:                                   # noqa: BLE001
+        # A mode that cannot be read is `ask`, here as everywhere else: the
+        # narrow profile is the safe one, so a broken read costs reach and
+        # never grants it.
+        pass
+
+    for d in writable:
+        parts.append(f'(allow file-write* (subpath "{d}"))')
     return "".join(parts)
 
 

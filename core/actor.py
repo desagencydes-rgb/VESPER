@@ -1075,7 +1075,24 @@ def _describe(proposal: Any, result: dict) -> str:
         out = (result.get("stdout") or "").strip()
         code = result.get("exit_code")
         if code not in (0, None):
-            return f"it ran and came back with error code {code}"
+            # THE EXIT CODE ALONE IS NOT A REASON, AND THE REASON WAS RIGHT
+            # THERE. This returned "it ran and came back with error code 1" for
+            # everything -- a missing file, a refused write, a syntax error --
+            # while stderr held the exact sentence the owner needed. Measured
+            # 2026-09-05: a rename failed with `mv: Operation not permitted`,
+            # the owner was told "error code 1" twice, and had no way to know
+            # what to do about it. A number is not a diagnosis.
+            #
+            # stderr FIRST, then stdout: a failing command usually says why on
+            # stderr, but some write the message to stdout and exit non-zero,
+            # and reporting nothing because we looked in one place is the same
+            # defect one layer down.
+            err = (result.get("stderr") or "").strip()
+            why = err or out
+            if why:
+                return f"it failed (exit {code}): {why[:400]}"
+            return (f"it ran and came back with exit code {code}, and said "
+                    f"nothing on either output")
         return out[:600] if out else "it ran and printed nothing"
     if cid == "fs.read":
         n = result.get("bytes")

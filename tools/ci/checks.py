@@ -13170,6 +13170,29 @@ def check_shell_runs_contained() -> Result:
         # error wearing containment's clothes, and the case written for this
         # mutation stayed green. Home is writable and is neither the workspace
         # (~/Library/Application Support/VESPER) nor a temp directory.
+        # THE CARVE-OUT FOLLOWS THE OWNER'S MODE, so this asserts per mode
+        # rather than asserting one boundary. `auto` reaches the owner's own
+        # files because `fs.write` already did and `shell.run` did not -- VESPER
+        # could create ~/Downloads/hey.txt and not rename it, which is a bug
+        # wearing containment's clothes, not a boundary.
+        #
+        # WHAT NO MODE MAY REACH IS ASSERTED SEPARATELY AND UNCONDITIONALLY,
+        # below. Widening the profile for `auto` is only defensible if the
+        # system stays out of reach in `auto` too, so that is checked there
+        # rather than left implied.
+        import contextlib as _ctx
+        _mode_env = caps.__dict__.get("_TEST_MODE_OVERRIDE")
+
+        @_ctx.contextmanager
+        def _as_mode(name):
+            from core import permission_mode as _pm
+            real = _pm.read
+            _pm.read = lambda *_a, **_k: name          # noqa: E731
+            try:
+                yield
+            finally:
+                _pm.read = real
+
         outside = Path.home() / "vesper_containment_probe.txt"
         outside.unlink(missing_ok=True)
         ctl2 = _sp.run(["/usr/bin/touch", str(outside)], capture_output=True,
@@ -13178,13 +13201,38 @@ def check_shell_runs_contained() -> Result:
             r.err("the control write to the home directory failed, so the "
                   "carve-out assertion below would prove nothing")
         outside.unlink(missing_ok=True)
-        out = _sp.run([caps.SEATBELT, "-p", caps._seatbelt_profile("L3"),
-                       "/usr/bin/touch", str(outside)],
-                      capture_output=True, text=True, check=False)
-        if outside.exists():
-            r.err(f"the L3 profile permitted a write to {outside}, which is "
-                  "neither the workspace nor a temp directory")
+
+        for mode, may_reach_home in (("ask", False), ("workspace", False),
+                                     ("auto", True)):
+            with _as_mode(mode):
+                prof = caps._seatbelt_profile("L3")     # noqa: SLF001
+            _sp.run([caps.SEATBELT, "-p", prof, "/usr/bin/touch", str(outside)],
+                    capture_output=True, text=True, check=False)
+            reached = outside.exists()
             outside.unlink(missing_ok=True)
+            if reached and not may_reach_home:
+                r.err(f"in {mode!r} mode the L3 profile permitted a write to "
+                      f"{outside}, which is neither the workspace nor a temp "
+                      f"directory. Only `auto` widens the carve-out.")
+            if may_reach_home and not reached:
+                r.err(f"in {mode!r} mode the L3 profile REFUSED a write to the "
+                      f"owner's own home. `fs.write` reaches it and shell.run "
+                      f"does not, so VESPER can create a file it cannot then "
+                      f"rename -- the defect this widening exists to close.")
+
+            # AND THE SYSTEM STAYS OUT OF REACH IN EVERY MODE, `auto` INCLUDED.
+            # This is the assertion that makes the widening defensible; without
+            # it "auto reaches home" and "auto reaches everything" look the same
+            # from here.
+            for sys_path in ("/Library/vesper_containment_probe.txt",
+                             "/usr/local/vesper_containment_probe.txt"):
+                _sp.run([caps.SEATBELT, "-p", prof, "/usr/bin/touch", sys_path],
+                        capture_output=True, text=True, check=False)
+                if Path(sys_path).exists():
+                    r.err(f"in {mode!r} mode the L3 profile permitted a write "
+                          f"to {sys_path}. No mode may reach the system; the "
+                          f"owner's own files are the widest any of them goes.")
+                    Path(sys_path).unlink(missing_ok=True)
 
     # 7. NETWORK IS DENIED AT EVERY LEVEL, because ModelGateway is the only
     #    sanctioned egress and the redactor sits in front of it. Skipped rather
@@ -13238,9 +13286,11 @@ def check_shell_runs_contained() -> Result:
 
     r.note("shell.run has one subprocess path and it carries the sandbox; a "
            "missing sandbox refuses rather than falls back; the L1 profile "
-           "denies writes while still running `date`; the L3 carve-out reaches "
-           "no further than the workspace and temp; and every refusal was "
-           "checked against an unsandboxed control that succeeded")
+           "denies writes while still running `date`; the L3 carve-out is the "
+           "workspace and temp in `ask` and `workspace` mode and additionally "
+           "the owner's own home in `auto`; NO mode reaches /Library or "
+           "/usr/local; network is denied at every level; and every refusal "
+           "was checked against an unsandboxed control that succeeded")
     return r
 
 

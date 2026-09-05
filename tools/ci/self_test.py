@@ -3863,9 +3863,14 @@ CASES += [
      "in front of it, whatever the owner approved the command for"),
 
     ("shell-runs-contained", CAPS_PY,
-     _sub('        for d in (str(WORKSPACE), tempfile.gettempdir()):\n'
-          '            parts.append(f\'(allow file-write* (subpath "{d}"))\')',
-          '        parts.append("(allow file-write*)")', 1),
+     # ANCHORED ON THE LOOP THAT EMITS THE CARVE-OUT, not on the list it
+     # iterates. The writable list became mode-dependent on 2026-09-05 (auto
+     # mode reaches the owner's home), and the old literal named the tuple
+     # that no longer exists -- so the case stopped applying and reported a
+     # changed artifact instead of testing containment.
+     _sub('    for d in writable:\n'
+          '        parts.append(f\'(allow file-write* (subpath "{d}"))\')',
+          '    parts.append("(allow file-write*)")', 1),
      "the above-L1 carve-out becomes the whole filesystem, so an approved "
      "action that should have touched VESPER's own space can write anywhere"),
 ]
