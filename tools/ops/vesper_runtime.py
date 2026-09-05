@@ -170,17 +170,28 @@ POLL_SECONDS = 0.15
 # fails back to UNKNOWN rather than vouching for a presence nobody observed.
 PRESENCE_FRESH_S = 20.0
 
-# How many pump passes an unchanged repair verdict may stay silent before it
-# says so anyway. Same purpose as `NOOP_KEEPALIVE_TICKS` in the autonomy loop:
-# without it, "the repairer has nothing new" and "the repairer is dead" produce
+# How long an unchanged repair verdict may stay silent before it says so
+# anyway. Same purpose as `NOOP_KEEPALIVE_TICKS` in the autonomy loop: without
+# it, "the repairer has nothing new" and "the repairer is dead" produce
 # identical silence.
-REPAIR_KEEPALIVE_PASSES = 500
+#
+# IN SECONDS, NOT IN PASSES, AND THAT WAS MEASURED. As a pass count of 500 the
+# keepalive fired every TWO MINUTES, because the pump turns over about four
+# times a second -- so a constant chosen to mean "rarely" meant "constantly",
+# and its meaning would drift again the next time the loop's cadence changed.
+# A keepalive is a statement about elapsed time; counting passes makes it a
+# statement about how busy VESPER is.
+REPAIR_KEEPALIVE_S = 30 * 60
 
-# The last verdict per triage item, and the pass it was published on. Module
-# level because `pump` is called fresh for a one-shot run and in a loop for the
-# real one, and the point is to be quiet ACROSS passes.
+# The last verdict per triage item, and the wall second it was published on.
+# Module level because `pump` is called fresh for a one-shot run and in a loop
+# for the real one, and the point is to be quiet ACROSS passes.
+#
+# WALL CLOCK HERE IS NOT AN ORDERING. INV-COORD-4 forbids a timestamp deciding
+# which record came first or superseding another; this asks "has half an hour
+# passed", which is the same permitted shape as "has 09:00 arrived". Nothing is
+# sorted or compared across nodes by it.
 _repair_state: dict = {}
-_pass_no = 0
 
 ENABLE_TOKEN_PATH = STATE / "interlock" / "enable_token.json"
 
@@ -1259,8 +1270,6 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             # Its docstring says "called when a rung reports healthy", which is
             # the cheaper trigger; the pump is the honest one until a rung
             # actually reports.
-            global _pass_no
-            _pass_no += 1
             triage.grade_all()
             # ASK ONLY FOR WHAT THE REPAIRER WILL ACT ON. `repair()` refuses
             # anything that is not CRITICAL_NOW -- "CAN_WAIT and NO_FIX_NEEDED
@@ -1297,25 +1306,38 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             # says "this has held since pass N" instead of repeating itself,
             # and a reader can still reconstruct any pass in between.
             for item in (triage.open_items(CRITICAL_NOW) or [])[:1]:
-                out = repairer.repair(item)
-                d = out.to_dict()
-                # The IDENTITY of the answer, not its wording: item, tier, and
-                # whether it worked. A guide sentence that re-renders slightly
-                # differently is not news.
-                sig = (item.item_id, d.get("tier"), bool(d.get("fixed")))
+                # THE GATE IS ON THE CALL, NOT ON THE PUBLISH, and the first
+                # version of this fix got that wrong. `Repairer.repair` publishes
+                # `repair.attempted` ITSELF (core/repair.py), so gating only the
+                # runtime's own publish silenced the duplicate and left the
+                # original firing on every pass -- measured 401 events in 90
+                # seconds after the "fix", every one with `reason: None`, which
+                # is precisely how you tell them apart. Two emitters, one gated.
+                #
+                # SO NOTHING IS RE-DERIVED AT ALL WHEN NOTHING CAN HAVE CHANGED.
+                # The verdict is a function of the item, so the item is the key:
+                # its id, how many attempts it carries, and its grade. Any of
+                # those moving is real news and runs the repairer again;
+                # otherwise the pass costs nothing, which is also the honest
+                # answer, because tier 2 means VESPER may never apply the fix to
+                # itself and the answer cannot change by being asked twice.
+                sig = (item.item_id, len(item.attempts or ()), item.grade)
+                now_s = time.time()
                 prev = _repair_state.get(item.item_id)
                 changed = prev is None or prev[0] != sig
                 stale = (not changed
-                         and (_pass_no - prev[1]) >= REPAIR_KEEPALIVE_PASSES)
-                if changed or stale:
-                    _repair_state[item.item_id] = (sig, _pass_no)
-                    bus.publish(
-                        "repair.attempted", subject=item.provider_id,
-                        payload={**d,
-                                 "since_pass": (_pass_no if changed
-                                                else prev[1]),
-                                 "reason": "changed" if changed else "keepalive"},
-                        component="runtime")
+                         and (now_s - prev[1]) >= REPAIR_KEEPALIVE_S)
+                if not (changed or stale):
+                    continue
+                _repair_state[item.item_id] = (sig, now_s)
+                out = repairer.repair(item)
+                bus.publish("repair.attempted", subject=item.provider_id,
+                            payload={**out.to_dict(),
+                                     "unchanged_for_s": (0 if changed
+                                                         else int(now_s - prev[1])),
+                                     "reason": ("changed" if changed
+                                                else "keepalive")},
+                            component="runtime")
         except Exception as exc:                   # noqa: BLE001
             bus.publish("repair.pass_failed", subject="repair",
                         payload={"error": repr(exc)}, component="runtime")
