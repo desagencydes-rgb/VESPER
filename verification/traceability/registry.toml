@@ -279,7 +279,7 @@ contracts = [
 state_machines = ["SM-SENSOR", "SM-ENDPOINT-EPISODE"]
 decision_functions = ["DF-ENDPOINT-ACT", "DF-ENDPOINT-OBSERVE", "DF-ENDPOINT-RECOVER"]
 invariants = ["INV-PRIV-4", "INV-ACT-1", "INV-ACT-2", "INV-ACT-3", "INV-ACT-4", "INV-ACT-5", "INV-ACT-6", "INV-NARRATE-2", "INV-PRIV-8"]
-ci = ["CI-052", "CI-053", "CI-054", "CI-090", "CI-091", "CI-105", "CI-108", "CI-109", "CI-114", "CI-115"]
+ci = ["CI-052", "CI-053", "CI-054", "CI-090", "CI-091", "CI-105", "CI-108", "CI-109", "CI-114", "CI-115", "CI-120"]
 status = "SPECIFIED"
 agency_clause = "2026-08-12: SR-020's 'self-interact across available hardware' clause traced only to semantic_scene.schema.json, SM-SENSOR and INV-PRIV-4 -- capture, sensor indicators and output rendering. None of them concerns ACTING. The status was SPECIFIED on the perception clause while the agency clause had no subsystem, no decision function and no contract. Rather than downgrade the requirement to make the registry honest, SPEC-30, SM-ENDPOINT-EPISODE, DF-ENDPOINT-ACT/OBSERVE/RECOVER, two contracts, INV-ACT-1..6 and A-051/A-052 were written. SPECIFIED is now earned on both clauses."
 
@@ -601,8 +601,8 @@ decision_functions = ["DF-GOVERNED-WRITE", "DF-ACTUATION-GATE", "DF-LOSS-CLASS"]
 # what makes INV-STOP-1 achievable rather than aspirational: a stop that
 # traverses a lease cannot happen during the partition it is most needed in.
 # A-031 was already listed here and is INV-STOP-2's other declared enforcer.
-invariants = ["INV-SELF-1", "INV-SELF-4", "INV-STOP-1", "INV-STOP-2", "INV-LOSS-2", "INV-LOSS-6", "INV-ADR-1", "INV-STOP-5"]
-ci = ["CI-008", "CI-015", "CI-018", "CI-048", "CI-016", "CI-019", "CI-098", "CI-099", "CI-102", "CI-103", "CI-110"]
+invariants = ["INV-SELF-1", "INV-SELF-4", "INV-STOP-1", "INV-STOP-2", "INV-LOSS-2", "INV-LOSS-6", "INV-ADR-1", "INV-STOP-4", "INV-STOP-5"]
+ci = ["CI-008", "CI-015", "CI-018", "CI-048", "CI-016", "CI-019", "CI-098", "CI-099", "CI-102", "CI-103", "CI-110", "CI-119"]
 contracts_note = "core/interlock.py is CI-019's subject"
 status = "SPECIFIED"
 

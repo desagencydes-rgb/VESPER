@@ -2687,3 +2687,12 @@ impl = "tools/ci/checks.py enable-token-presented-once-per-mint"
 blocking = "pr"
 self_test = """Present the minter's token on every tick of the main loop without asking whether the interlock already holds it, and count the refusals."""
 self_test_evidence = "tools/ci/self_test.py enable-token-presented-once-per-mint -- 4 cases, executed 2026-09-05: red under violation, green after restore. The live defect measured 13,886 refusals in one hour on a single token_id, and 343,470 records -- over 80% of the log."
+
+[checks.CI-120]
+name = "permission-mode-ceiling-only-lowers"
+enforces = ["INV-ACT-3"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py permission-mode-ceiling-only-lowers"
+blocking = "pr"
+self_test = """Corrupt the mode file and observe AUTO rather than ASK; grant NO_CEILING from workspace mode for outside-workspace actions; reject contained() paths that contain spaces; drop mode_ceiling from the PDP's _min_level call."""
+self_test_evidence = "tools/ci/self_test.py permission-mode-ceiling-only-lowers -- 4 cases, executed 2026-09-05: red under violation, green after restore."

@@ -18580,6 +18580,134 @@ def check_every_turn_is_recorded_with_its_outcome() -> Result:
     return r
 
 
+def check_permission_mode_ceiling_only_lowers() -> Result:
+    """A mode is the owner's switch: it may only lower authority, never raise it.
+
+    THREE SHAPES OF FAILURE, and the check covers all three.
+
+    READ FAIL-CLOSED. A corrupted or missing mode file reads back as ASK, the
+    least permissive mode. The dangerous failure is promotion: a deleted file
+    that reads back as AUTO gives VESPER full authority with no owner in the
+    loop, and no write path here can produce that outcome.
+
+    WORKSPACE MODE LOWERS, NEVER RAISES. `ceiling_for(WORKSPACE, ...)` returns
+    `ASK_LEVEL` when the action reaches outside the workspace; `NO_CEILING` when
+    it stays inside. ASK and AUTO never restrict anything -- they are expressed
+    entirely in the standing grant -- so `ceiling_for` is constant for both. The
+    discriminating input is workspace mode + an outside-workspace path: if that
+    path is not detected the mode is inert, and the check would pass on a build
+    where the whole workspace branch were deleted.
+
+    THE HISTORICAL BUG. An earlier version of `contained()` rejected any path
+    argument that contained a space, on the theory it was a command line rather
+    than a path. This workspace is under `~/Library/Application Support/`, so
+    every path in it contains a space, and workspace mode refused its own folder.
+    The mutation in the harness re-introduces that guard and this assertion fails.
+
+    THE PDP APPLIES IT. `authorize.py` must pass `mode_ceiling` to `_min_level`;
+    `actor.py` must compute it before the PDP call. Both are read structurally.
+    Dropping `mode_ceiling` from either makes the mode a dead letter regardless
+    of what `ceiling_for` returns.
+    """
+    r = Result("permission-mode-ceiling-only-lowers")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf
+    import json as _json
+    try:
+        import core.permission_mode as _pm
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"core.permission_mode does not import: {exc!r}")
+        return r
+
+    with _tf.TemporaryDirectory() as _td:
+        _tmp = Path(_td)
+
+        # 1. Fail-closed reads.
+        got = _pm.read(_tmp / "missing.json")
+        if got != _pm.ASK:
+            r.err(f"read() on a missing file returned {got!r}; expected ASK. "
+                  "A missing mode file must never promote VESPER -- the dangerous "
+                  "failure is AUTO, which gives full authority with no owner present")
+
+        bad = _tmp / "malformed.json"
+        bad.write_text("{not json}", encoding="utf-8")
+        got = _pm.read(bad)
+        if got != _pm.ASK:
+            r.err(f"read() on malformed JSON returned {got!r}; expected ASK")
+
+        unk = _tmp / "unknown.json"
+        unk.write_text(_json.dumps({"mode": "superuser"}), encoding="utf-8")
+        got = _pm.read(unk)
+        if got != _pm.ASK:
+            r.err(f"read() on an unknown mode name returned {got!r}; expected ASK. "
+                  "An unrecognised mode name must be ASK, not AUTO")
+
+        # 2. write() requires a named principal.
+        try:
+            _pm.write(_pm.AUTO, principal="", path=_tmp / "mode.json")
+            r.err("write() with an empty principal succeeded; a mode change with "
+                  "no principal is VESPER raising its own authority, which the "
+                  "required-principal rule exists to prevent")
+        except _pm.ModeRefused:
+            pass  # expected
+
+        # 3. ceiling_for: workspace mode lowers authority outside, not inside.
+        ws = _tmp / "workspace"
+        ws.mkdir()
+        outside = str(_tmp / "outside.txt")
+        inside = str(ws / "inside.txt")
+
+        c = _pm.ceiling_for(_pm.WORKSPACE, "fs.write", {"path": outside}, ws)
+        if c != _pm.ASK_LEVEL:
+            r.err(f"ceiling_for(WORKSPACE, outside-path) returned {c!r}; expected "
+                  f"{_pm.ASK_LEVEL!r}. Workspace mode must lower authority for "
+                  "actions that reach outside the owner's folder")
+
+        c = _pm.ceiling_for(_pm.WORKSPACE, "fs.write", {"path": inside}, ws)
+        if c != _pm.NO_CEILING:
+            r.err(f"ceiling_for(WORKSPACE, inside-path) returned {c!r}; expected "
+                  f"{_pm.NO_CEILING!r}. Workspace mode must not restrict "
+                  "actions that stay inside the owner's folder")
+
+        for mode in (_pm.AUTO, _pm.ASK):
+            c = _pm.ceiling_for(mode, "fs.write", {"path": outside}, ws)
+            if c != _pm.NO_CEILING:
+                r.err(f"ceiling_for({mode!r}, outside-path) returned {c!r}; "
+                      f"expected {_pm.NO_CEILING!r}. {mode!r} mode is expressed "
+                      "entirely in the standing grant and must never lower the ceiling")
+
+        # 4. Historical bug: contained() must not reject paths that contain spaces.
+        # The workspace is under ~/Library/Application Support/, so every path
+        # in it contains a space. An earlier version here rejected such strings
+        # as "command lines", and workspace mode refused its own folder.
+        ws_sp = _tmp / "Application Support" / "VESPER"
+        ws_sp.mkdir(parents=True)
+        c = _pm.ceiling_for(_pm.WORKSPACE, "fs.write",
+                            {"path": str(ws_sp / "data.json")}, ws_sp)
+        if c != _pm.NO_CEILING:
+            r.err(f"ceiling_for(WORKSPACE, inside-path-with-spaces) returned "
+                  f"{c!r}; expected {_pm.NO_CEILING!r}. An earlier version of "
+                  "contained() rejected any path argument containing a space; "
+                  "this workspace is under ~/Library/Application Support/ and "
+                  "every path in it contains a space")
+
+    # 5. Structural: mode_ceiling reaches the PDP and is computed by the actor.
+    auth_src = (REPO / "core" / "authorize.py").read_text(encoding="utf-8")
+    if ("_min_level(grant.max_level, declared, context_ceiling,\n"
+            "                               mode_ceiling, auth_ceiling)") not in auth_src:
+        r.err("mode_ceiling is absent from the _min_level call in core/authorize.py; "
+              "workspace mode computes a ceiling the PDP then ignores, and an "
+              "outside-workspace action passes as if the mode were AUTO")
+
+    actor_src = (REPO / "core" / "actor.py").read_text(encoding="utf-8")
+    if "mode_ceiling = permission_mode.ceiling_for(" not in actor_src:
+        r.err("core/actor.py does not compute mode_ceiling before the PDP call; "
+              "the permission mode is never consulted and the owner's switch is inert")
+
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -18710,6 +18838,7 @@ CHECK_FNS = {
     "face-follows-activity": check_face_follows_activity,
     "chrome-template-renders": check_chrome_template_renders,
     "effort-floor-and-null-answer": check_effort_floor,
+    "permission-mode-ceiling-only-lowers": check_permission_mode_ceiling_only_lowers,
 }
 
 

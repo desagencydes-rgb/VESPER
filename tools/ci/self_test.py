@@ -5130,6 +5130,53 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# CI-120 -- the permission mode is the owner's switch; it may only lower
+# authority, never raise it, and a corrupted or absent file must never promote.
+# --------------------------------------------------------------------------
+PERMISSION_MODE = "core/permission_mode.py"
+AUTHORIZE_PY = "core/authorize.py"
+
+CASES += [
+    ("permission-mode-ceiling-only-lowers", PERMISSION_MODE,
+     _sub("    except Exception:                                   # noqa: BLE001\n"
+          "        return ASK",
+          "    except Exception:                                   # noqa: BLE001\n"
+          "        return AUTO", 1),
+     "a missing or malformed mode file returns AUTO rather than ASK: the "
+     "dangerous failure, because a deleted file now gives VESPER full "
+     "authority with no owner in the loop"),
+
+    ("permission-mode-ceiling-only-lowers", PERMISSION_MODE,
+     _sub("    return (NO_CEILING if contained(capability_id, args, workspace)\n"
+          "            else ASK_LEVEL)",
+          "    return NO_CEILING", 1),
+     "ceiling_for in WORKSPACE mode always returns NO_CEILING: the mode never "
+     "restricts anything, so an outside-workspace action goes through as if "
+     "the mode were AUTO"),
+
+    ("permission-mode-ceiling-only-lowers", PERMISSION_MODE,
+     _sub("        if not tok:\n"
+          "            return False",
+          "        if not tok:\n"
+          "            return False\n"
+          "        if \" \" in tok:\n"
+          "            return False", 1),
+     "contained() rejects any path argument containing a space: this workspace "
+     "is under ~/Library/Application Support/ so every path in it contains a "
+     "space, and workspace mode refuses its own folder"),
+
+    ("permission-mode-ceiling-only-lowers", AUTHORIZE_PY,
+     _sub("        effective = _min_level(grant.max_level, declared, context_ceiling,\n"
+          "                               mode_ceiling, auth_ceiling)",
+          "        effective = _min_level(grant.max_level, declared, context_ceiling,\n"
+          "                               auth_ceiling)", 1),
+     "mode_ceiling is dropped from the _min_level call in the PDP: the "
+     "owner's workspace switch is computed by the actor but the PDP ignores "
+     "it, and an outside-workspace action passes as if the mode were AUTO"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
 

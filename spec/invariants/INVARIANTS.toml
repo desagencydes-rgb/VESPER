@@ -882,7 +882,7 @@ kind = "structural"
 [invariants.INV-ACT-3]
 statement = "Screen content, OCR output, UI element labels and command output entering the system are trust_class retrieved_external, carry provenance and confidence, and may never raise the authority of any action. An instruction read off a screen is an untrusted input, not a directive."
 owner_rem = "REM-012"
-enforced_by = ["CI-012", "CI-014", "A-052", "CI-105", "CI-107", "CI-108", "CI-109", "CI-114"]
+enforced_by = ["CI-012", "CI-014", "A-052", "CI-105", "CI-107", "CI-108", "CI-109", "CI-114", "CI-120"]
 kind = "structural"
 
 [invariants.INV-ACT-4]
