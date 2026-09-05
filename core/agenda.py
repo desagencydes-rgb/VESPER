@@ -324,8 +324,24 @@ def item_due(now_s: float | None = None) -> bool:
     return bool(ag.due_now(int(now * 1000)))
 
 
-def agenda_trigger():
+def agenda_trigger(handler=None):
     """`trg_agenda_item_due`, as a callable predicate.
+
+    `handler` IS NOT OPTIONAL IN PRACTICE, WHATEVER THE SIGNATURE SAYS. A
+    Trigger carrying neither a handler nor an `intent` is skipped outright by
+    `AutonomyLoop.dispatch` -- `if not intent: continue` -- so it fires,
+    dispatches, and does nothing. This trigger shipped that way on 2026-09-05:
+    the half that can SEE the owner's day, with no half that acts on it. The
+    default stays `None` because the predicate is worth testing on its own,
+    and because a handler built in `core/` could not reach the speech path
+    anyway; it is the runtime that holds the voice.
+
+    A HANDLER RATHER THAN AN `intent`. An intent is free text handed to
+    `Actor.maybe_act`, which proposes CAPABILITY actions -- shell, files,
+    sub-agents. Speaking is not one of them, so an intent would be routed to a
+    proposer that has no way to satisfy it and would answer "none". The owner
+    asked to be TOLD what is due; telling is the runtime's job, so the runtime
+    supplies the callable.
 
     NO CLOCK TERM, so it survives `CI-026`'s anti-cron probe: the probe
     evaluates with every clock term TRUE and every state term FALSE, and this
@@ -352,4 +368,5 @@ def agenda_trigger():
         # Once a minute at most. An item stays due until it is done, so without
         # this the trigger would fire on every tick for the whole window.
         debounce_s=60,
+        handler=handler,
     )

@@ -434,10 +434,6 @@ def build(node: str = "vesper-runtime"):
     autonomy = AutonomyLoop(bus, world, PredicateEvaluator(bus, world),
                             now_ms=lambda: int(time.time() * 1000))
     autonomy.register(expiry_trigger())
-    # Registered HERE and not beside its sensor above, because `autonomy` does
-    # not exist yet up there -- the sensor registry is built before the loop
-    # is. Putting the two lines together read better and did not run.
-    autonomy.register(agenda.agenda_trigger())
     # THE LOOP HAD ONE INSTRUCTION UNTIL 2026-09-01. It woke on every pass,
     # found memory expiry the only thing to consider, and went back to sleep.
     for _t in self_directed_triggers():
@@ -714,6 +710,70 @@ def build(node: str = "vesper-runtime"):
     except Exception as exc:                       # noqa: BLE001
         bus.publish("credentials.check_failed", subject="startup",
                     payload={"error": repr(exc)}, component="runtime")
+
+    # WHAT VESPER DOES WHEN SOMETHING COMES DUE. Registered here rather than
+    # beside its sensor, because the handler needs the voice and the voice is
+    # built two hundred lines further down than the sensor registry is.
+    #
+    # THE TRIGGER SHIPPED WITHOUT THIS AND WAS CALLED "LANDED". It fired,
+    # dispatched, hit `if not intent: continue`, and did nothing -- the sensing
+    # half of the owner's loop with no acting half, which is the exact defect
+    # this session spent its length finding elsewhere.
+    #
+    # THE MODEL PHRASES IT; IT DOES NOT DECIDE IT. What is due, and whether
+    # anything is, was settled by the predicate and the ranking before this
+    # runs -- no model touches the decision path (INV-AUTO-2). The model is
+    # asked only to say a sentence well. So its failure is a DEGRADATION and
+    # never a silence: `agenda.sentence()` is rendered first, the model is
+    # offered the chance to improve it, and anything that goes wrong leaves the
+    # deterministic line standing. The owner being told is the requirement; the
+    # phrasing is the nicety.
+    def _agenda_due_handler() -> dict:
+        now_ms = int(time.time() * 1000)
+        ag = agenda.build()
+        due = ag.due_now(now_ms)
+        if not due:
+            # The predicate and the handler read the agenda at slightly
+            # different instants. Nothing due by the time we got here is not a
+            # failure, and announcing an empty list would be worse than quiet.
+            return {"said": "", "note": "nothing due by the time it was read"}
+        line = agenda.sentence(ag, now_ms)
+        try:
+            from core.intake import Utterance as _U
+            prompt = (
+                "Tell the owner what is due, in one short spoken sentence, in "
+                "your own voice. Do not add anything that is not here. The "
+                f"facts: {line}")
+            spoken = answer(gw, router, persona,
+                            _U(text=prompt, source="scheduled"),
+                            renderer=renderer, updater=updater, misses=misses,
+                            chooser=chooser)
+            if spoken and spoken.strip():
+                line = spoken.strip()
+        except Exception as exc:                    # noqa: BLE001
+            bus.publish("agenda.phrasing_failed", subject="agenda",
+                        payload={"error": repr(exc), "fallback": line,
+                                 "note": ("the deterministic line is spoken "
+                                          "instead; the owner is still told")},
+                        component="runtime")
+        try:
+            plan = speech.plan(line, privacy_class="private",
+                               persons=(presence.persons()
+                                        if presence is not None else ("owner",)))
+            speech.speak(plan)
+        except Exception as exc:                    # noqa: BLE001
+            # Losing the audio is a degradation; the line still reaches the
+            # surface through the record below and the pump's transcript.
+            bus.publish("speech.failed", subject="agenda",
+                        payload={"error": repr(exc)}, component="runtime")
+        bus.publish("agenda.announced", subject="agenda",
+                    payload={"said": line,
+                             "due": [i.item_id for i in due],
+                             "unavailable": dict(ag.unavailable)},
+                    component="runtime")
+        return {"said": line}
+
+    autonomy.register(agenda.agenda_trigger(handler=_agenda_due_handler))
 
     return (bus, gw, router, home, intake, triage, report, persona, bench,
             renderer, updater, misses, chooser, world, sensors, autonomy,
@@ -1060,7 +1120,15 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                 # DECIDE, THEN ACT ON WHAT WAS DECIDED. Two calls rather than
                 # one because `tick` must hold no reference to the actor: that
                 # is what keeps "no model in the decision path" structural.
-                autonomy.dispatch(autonomy.tick())
+                # THE RETURN VALUE WAS DISCARDED, so anything autonomy did
+                # was audible and invisible: spoken aloud, absent from the
+                # surface the owner is looking at.
+                for _rec in (autonomy.dispatch(autonomy.tick()) or []):
+                    _said = ((_rec.get("result") or {}).get("said") or "").strip()
+                    if _said:
+                        transcript.append({"who": "vesper", "source": "vesper",
+                                           "certain": True, "text": _said})
+                        home.set_transcript(list(transcript))
         except Exception as exc:                   # noqa: BLE001
             bus.publish("autonomy.loop_failed", subject="autonomy",
                         payload={"error": repr(exc)}, component="runtime")
