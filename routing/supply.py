@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
 import re
 import subprocess
 import time
@@ -529,6 +530,45 @@ def _http_call(row: SupplyRow, endpoint: str, key: str, account: str,
     return call
 
 
+def _resolve_binary(binary: str) -> str:
+    """An absolute path to `binary`, or `binary` unchanged if it cannot be found.
+
+    LAUNCHD DOES NOT GIVE A JOB THE OWNER'S PATH. It hands out
+    `/usr/bin:/bin:/usr/sbin:/sbin` and nothing else -- no `~/.local/bin`, no
+    `/opt/homebrew/bin`, no `/usr/local/bin`. Every CLI rung in
+    `provider_supply.toml` therefore worked when a person ran VESPER from a
+    terminal and failed the moment launchd started it, which is how it actually
+    runs.
+
+    MEASURED 2026-09-05, and it had been costing the owner for days. `claude`
+    lives at `~/.local/bin/claude`; the advisor rung raised `FileNotFoundError`,
+    which this module classifies TERMINAL as `bad_request` -- "this call was
+    malformed" -- so triage filed VESPER'S OWN DEFECT, the repairer proposed a
+    patch to a wire format that was never wrong, and the workbench showed the
+    owner `claude-advisor -- bad_request 0.00s` on every action. The 0.00s was
+    the tell: no subprocess ever started.
+
+    `shutil.which` FIRST, so a machine that does have it on PATH is unchanged.
+    The fallbacks are the three places a per-user tool actually installs on
+    macOS, plus the Homebrew pair. Returning `binary` unchanged when nothing
+    matches preserves the existing error rather than inventing a new one.
+    """
+    import shutil
+    found = shutil.which(binary)
+    if found:
+        return found
+    if "/" in binary:                    # already a path; let it fail as given
+        return binary
+    home = pathlib.Path.home()
+    for cand in (home / ".local" / "bin" / binary,
+                 home / "bin" / binary,
+                 pathlib.Path("/opt/homebrew/bin") / binary,
+                 pathlib.Path("/usr/local/bin") / binary):
+        if cand.is_file() and os.access(cand, os.X_OK):
+            return str(cand)
+    return binary
+
+
 def _cli_call(row: SupplyRow, binary: str, argv: list, config_env: str | None,
               config_dir: str | None, timeout: float = 300.0):
     """A subscription rung. The official CLI, headless, as a subprocess.
@@ -577,7 +617,8 @@ def _cli_call(row: SupplyRow, binary: str, argv: list, config_env: str | None,
             convo += f"{who}: {str(h.get('content') or '')}\n"
         parts = [p for p in (system, convo.strip(), prompt) if p]
         text = "\n\n---\n\n".join(parts)
-        cmd = [binary] + [a.replace("{prompt}", text) for a in argv]
+        cmd = [_resolve_binary(binary)] + [a.replace("{prompt}", text)
+                                           for a in argv]
         try:
             cp = subprocess.run(cmd, capture_output=True, text=True,
                                 timeout=timeout, env=env, input="")

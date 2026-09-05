@@ -222,7 +222,15 @@ class Actor:
                  shadow: Any = None, reconciler: Any = None,
                  selfmod: Any = None, jobs: Any = None,
                  agent: Any = None, advisor: Any = None,
-                 runner: Any = None) -> None:
+                 runner: Any = None,
+                 # THE OWNER'S MODE, INJECTABLE FOR THE SAME REASON THE CLOCK
+                 # IS. It is read from a file outside the repo, so an Actor
+                 # built in a check answered differently depending on what the
+                 # owner had selected on THIS machine that afternoon --
+                 # measured 2026-09-05, when switching the live mode to `auto`
+                 # turned two unrelated gates red. A gate whose result depends
+                 # on machine state it does not control is not a gate.
+                 permission_mode_reader: Any = None) -> None:
         self._bus = bus
         self._registry = build_registry()
         # Turns waiting on an answer, keyed by the broker's own
@@ -297,6 +305,7 @@ class Actor:
         self._subject = subject
         self._target = target
         self._broker = broker
+        self._mode_reader = permission_mode_reader
         self._issue_standing()
 
     # ------------------------------------------------------------- grants
@@ -309,6 +318,8 @@ class Actor:
         product requirement; a value captured in `__init__` would need a
         restart, and a restart is what they were trying to stop doing.
         """
+        if self._mode_reader is not None:
+            return self._mode_reader()
         return permission_mode.read()
 
     def _issue_standing(self) -> None:

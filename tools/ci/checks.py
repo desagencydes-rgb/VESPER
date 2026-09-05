@@ -88,6 +88,21 @@ def _load(path: Path) -> dict:
     return tomllib.loads(path.read_text(encoding="utf-8"))
 
 
+# WHAT MODE A CHECK'S ACTOR RUNS IN, PINNED. `core/permission_mode.py` reads a
+# file in the owner's Application Support directory, so an Actor built here
+# answered differently depending on what the owner had selected on this machine.
+# Measured 2026-09-05: switching the live mode to `auto` turned
+# `a-question-does-not-end-the-turn` and `taint-ceiling-binds-the-act-path` red,
+# neither of which is about permission modes. A gate whose result depends on
+# machine state it does not control is not a gate -- the same argument this
+# corpus makes for injecting the clock.
+#
+# `ask` because that is what the suite was written against, and because the
+# modes have their own gate (CI-120) which pins each of the three deliberately.
+def _ASK_MODE() -> str:
+    return "ask"
+
+
 class Result:
     def __init__(self, name: str) -> None:
         self.name = name
@@ -12125,7 +12140,7 @@ def check_taint_ceiling_binds_the_act_path() -> Result:
         prop = {"action": "fs.write",
                 "args": {"path": str(base / "note.txt"), "text": "salam"},
                 "why": "a note"}
-        a = Actor(bus, _GW(prop), subject="ceil-check", target="host")
+        a = Actor(bus, _GW(prop), subject="ceil-check", target="host", permission_mode_reader=_ASK_MODE)
 
         clean = a.maybe_act("write a note")
         ext = a.maybe_act("write a note", fragments=[
@@ -12944,7 +12959,7 @@ def check_loop_observes_and_is_bounded() -> Result:
                           name=f"{subject}-{topic}",
                           idempotency_key=lambda e: e.event_id)
         gw = _GW(script)
-        return Actor(bus, gw, subject=subject, target="host"), gw, seen
+        return Actor(bus, gw, subject=subject, target="host", permission_mode_reader=_ASK_MODE), gw, seen
 
     with _tf.TemporaryDirectory() as td:
         # 1. IT TAKES A SECOND STEP, AND THE SECOND STEP KNOWS ABOUT THE FIRST.
@@ -13801,7 +13816,7 @@ def check_autonomy_can_act_and_still_cannot_decide() -> Result:
 
         gw = _GW()
         actor = Actor(bus, gw, subject="auto-check", target="host",
-                      shadow=ShadowGit(base / "shadow"))
+                      shadow=ShadowGit(base / "shadow"), permission_mode_reader=_ASK_MODE)
         loop = AutonomyLoop(bus, world, PredicateEvaluator(bus, world),
                             now_ms=lambda: 0)
         for t in triggers:
@@ -14512,7 +14527,7 @@ def check_the_stop_reaches_work_already_running() -> Result:
                           name=f"stopcheck-{tag}",
                           idempotency_key=lambda e: e.event_id)
             a = Actor(bus, _GW(), subject="stopcheck", target="host",
-                      shadow=ShadowGit(base / f"shadow-{tag}"))
+                      shadow=ShadowGit(base / f"shadow-{tag}"), permission_mode_reader=_ASK_MODE)
             a.maybe_act("look at the disk", period="free_time",
                         permitted=permitted)
             return calls["n"], seen
@@ -14628,7 +14643,7 @@ def check_a_question_does_not_end_the_turn() -> Result:
             return Actor(bus, _GW(), subject=f"pc-{tag}", target="host",
                          now_ms=lambda: now["t"],
                          shadow=ShadowGit(base / f"shadow-{tag}"),
-                         broker=ConfirmationBroker(bus, InterruptionBudget(bus)))
+                         broker=ConfirmationBroker(bus, InterruptionBudget(bus)), permission_mode_reader=_ASK_MODE)
 
         parked_ev: list = []
         bus.subscribe("act.parked", lambda e: parked_ev.append(e.payload),
@@ -14879,7 +14894,7 @@ def check_a_question_does_not_end_the_turn() -> Result:
                 return {"result": {"text": "{}"}}
 
         e = Actor(bus, _Quiet(), subject="exp", target="host",
-                  now_ms=lambda: t["ms"], shadow=ShadowGit(base / "sh-exp"))
+                  now_ms=lambda: t["ms"], shadow=ShadowGit(base / "sh-exp"), permission_mode_reader=_ASK_MODE)
         # `shell.run "echo hi"` is the cheapest thing the standing L2 grant
         # covers -- a path outside the workspace is L3 and would refuse for a
         # reason that has nothing to do with expiry.
@@ -15743,7 +15758,7 @@ def check_a_sub_agent_thinks_and_never_acts() -> Result:
                      "why": "read it"})}}
 
         act = Actor(bus, _TurnGW(), subject="sub", target="host",
-                    shadow=ShadowGit(base / "shadow"))
+                    shadow=ShadowGit(base / "shadow"), permission_mode_reader=_ASK_MODE)
         out = act.maybe_act("what does that define?", period="active")
         if out is None or out.kind != "acted":
             r.err(f"a turn proposing agent.ask ended as {out and out.kind!r} "
@@ -16380,7 +16395,7 @@ def check_advice_can_add_caution_and_never_remove_it() -> Result:
             a = Actor(bus, _Plan(), subject=f"advchk-{tag}", target="host",
                       shadow=ShadowGit(base / f"shadow-{tag}"),
                       broker=ConfirmationBroker(bus, InterruptionBudget(bus)),
-                      advisor=advisor)
+                      advisor=advisor, permission_mode_reader=_ASK_MODE)
             out = a.maybe_act("say hi", period="active")
             return out.kind if out else None
 
@@ -17956,7 +17971,7 @@ def check_autonomy_stops_when_nothing_arms_it() -> Result:
         now = [1_000_000]
         il = SafetyInterlock(bus, now_ms=lambda: now[0])
         actor = Actor(bus, _GW(), subject="il", target="host",
-                      shadow=ShadowGit(base / "sh"))
+                      shadow=ShadowGit(base / "sh"), permission_mode_reader=_ASK_MODE)
         loop = AutonomyLoop(bus, world, PredicateEvaluator(bus, world),
                             now_ms=lambda: now[0])
         loop.register(disk_pressure_trigger())
