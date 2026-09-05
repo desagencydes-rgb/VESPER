@@ -10858,13 +10858,35 @@ def check_speech_is_egress_and_says_so() -> Result:
               "and if it is the main loop then the running VESPER never speaks "
               "while a one-shot test does.")
 
-    plan_call = rt[rt.index("speech.plan("):] if "speech.plan(" in rt else ""
-    plan_call = plan_call[:plan_call.index(")") + 1] if ")" in plan_call else ""
-    if "persons=" not in plan_call:
-        r.err(f"the runtime computes presence and does not pass it to the "
-              f"speech plan: {plan_call.strip()!r}. A private reply would be "
-              "read aloud with a stranger in the room -- the module wired and "
-              "the one input that makes speaking safe left out.")
+    # EVERY `speech.plan` CALL SITE, NOT THE FIRST ONE IN THE FILE. This read
+    # `rt[rt.index("speech.plan("):]` -- the first occurrence, found by string
+    # search. On 2026-09-05 the agenda announcement added a SECOND call site
+    # above the reply path, and the check silently changed subject: it began
+    # inspecting the new one, which passes `persons=`, while the mutation that
+    # proves it works still targeted the reply path it no longer looked at.
+    # The self-test caught it, exit0/exit0 -- a negative control that cannot
+    # detect the fault it names.
+    #
+    # AST, SO A THIRD CALL SITE IS COVERED THE DAY IT IS WRITTEN rather than
+    # the day someone notices. Speaking is egress; a site that forgets presence
+    # reads a private reply aloud with a stranger in the room, and which site
+    # it is does not make it safer.
+    plan_calls = [n for n in _ast5.walk(_tree)
+                  if isinstance(n, _ast5.Call)
+                  and getattr(n.func, "attr", "") == "plan"
+                  and getattr(getattr(n.func, "value", None), "id", "") == "speech"]
+    if not plan_calls:
+        r.err("no `speech.plan(...)` call site in the runtime at all: nothing "
+              "decides whether a reply may be spoken, so this check has no "
+              "subject and is not evidence")
+    for call in plan_calls:
+        if not any(k.arg == "persons" for k in call.keywords):
+            r.err(f"the `speech.plan` call at line {call.lineno} does not pass "
+                  f"`persons=`. The runtime computes presence and leaves it out "
+                  f"here, so a private reply would be read aloud with a "
+                  f"stranger in the room -- the module wired and the one input "
+                  f"that makes speaking safe omitted at {len(plan_calls)} call "
+                  f"site(s), of which this is one.")
 
     # A RUNG OUT OF QUOTA IS NOT THE LAST RUNG. Measured 2026-09-03: ElevenLabs
     # free tier is 10,000 characters a MONTH, so one key covers roughly 40
@@ -11510,10 +11532,21 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
         r.err("build.sh does not re-register the agents after signing, so a "
               "rebuild leaves launchd holding the previous signature and the "
               "starter silently stops spawning")
-    if "vesper_arm.py" not in arm_sh:
-        r.err("the build does not pack the minter, so a bundle carrying the "
-              "runtime cannot arm it and autonomy stops one token lifetime "
-              "after the bundle is moved")
+    # THE COPY, NOT THE MENTION. This was `"vesper_arm.py" not in arm_sh`, and
+    # on 2026-09-05 a COMMENT was added to build.sh explaining why the minter
+    # agent uses KeepAlive -- naming the file. From that moment the `cp` could
+    # be deleted and the assertion still passed on the comment: the negative
+    # control went exit0/exit0, detecting nothing. A grep over a source file
+    # cannot tell an instruction from a sentence about one.
+    _arm_copied = any(
+        "vesper_arm.py" in ln and "Resources/runtime" in ln
+        and not ln.lstrip().startswith("#")
+        for ln in arm_sh.splitlines())
+    if not _arm_copied:
+        r.err("the build does not COPY the minter into the bundle (a line "
+              "naming both vesper_arm.py and Resources/runtime, outside a "
+              "comment). A bundle carrying the runtime cannot arm itself, and "
+              "autonomy stops one token lifetime after the bundle is moved")
 
     # `--fn-fire` IS A TEST DOOR AND IT SHIPS. It calls the real
     # `launchVesper()`, which is the only way to confirm the single-instance

@@ -3560,11 +3560,16 @@ CASES += [
      "on the proposer being right"),
 
     ("capabilities-registered-and-levelled-by-argument", CAPS_PY,
+     # ANCHORED ON THE BRANCH HEAD, not on the whole if/else. The else-branch
+     # gained an eight-line comment on 2026-09-04 explaining why a bare
+     # relative path means the owner's home, and this literal -- which spanned
+     # it -- silently stopped matching. Neutering the CONDITION sends every
+     # `workspace/...` path down the non-workspace branch, which is the same
+     # defect with a shorter anchor.
      _sub("        if parts and parts[0] == \"workspace\":\n"
-          "            p = WORKSPACE.joinpath(*parts[1:])\n"
-          "        else:\n"
-          "            p = REPO / p\n",
-          "        p = REPO / p\n", 1),
+          "            p = WORKSPACE.joinpath(*parts[1:])\n",
+          "        if False:\n"
+          "            p = WORKSPACE.joinpath(*parts[1:])\n", 1),
      "VESPER's writable space goes back to being module-relative, which inside "
      "the shipped bundle is `VESPER.app/Contents/Resources/runtime/workspace` -- "
      "a directory `build.sh` rewrites on every build. The write succeeds, the "
@@ -3660,17 +3665,14 @@ CASES += [
 CASES += [
     # ---------------------------------------------------------------- CI-093
     ("taint-ceiling-binds-the-act-path", ACTOR_PY,
-     # The pre-check gained a command id and `consume=False` on 2026-09-02.
-     _sub("                                target=self._target, context_ceiling=ceil,\n"
-          "                                authorization=strength,\n"
-          "                                current_lease_epoch=0,\n"
-          "                                command_id=command_id,\n"
-          "                                consume=False)",
-          "                                target=self._target,\n"
-          "                                authorization=strength,\n"
-          "                                current_lease_epoch=0,\n"
-          "                                command_id=command_id,\n"
-          "                                consume=False)", 1),
+     # ANCHORED ON THE ONE ARGUMENT THIS CASE IS ABOUT. The literal used to
+     # span five lines of the call, so every argument added to it broke the
+     # match: `command_id` and `consume=False` on 2026-09-02, `mode_ceiling`
+     # on 2026-09-05. Twice this case reported "the artifact changed shape"
+     # instead of testing anything, which is a self-test that decays every
+     # time its subject is improved.
+     _sub("                                target=self._target, context_ceiling=ceil,\n",
+          "                                target=self._target,\n", 1),
      "the ceiling is computed and dropped at the authorize call -- exactly the "
      "state this corpus shipped in until 2026-09-01"),
 
@@ -3780,9 +3782,11 @@ CASES += [
      "output and open the file it found -- the omission everything else sat on"),
 
     ("loop-observes-and-is-bounded", ACTOR_PY,
-     _sub("            p = self._proposer.propose(\n"
-          "                text, observations=observations if observations else None)",
-          "            p = self._proposer.propose(text)", 1),
+     # `recent=recent` was added to this call on 2026-09-04 (the turns either
+     # side of this one), so the literal stopped matching. Anchored on the
+     # observations argument, which is what this case is about.
+     _sub("                text, observations=observations if observations else None,",
+          "                text,", 1),
      "the next step is proposed without being told what the last one did -- a "
      "loop that cannot observe is a retry, and it will repeat itself blind"),
 
@@ -3920,10 +3924,12 @@ CASES += [
      "whole-file replacement can be proposed as one and skip the escalation"),
 
     ("edit-names-one-place", INTENT_PY,
-     # `agent.ask` joined KNOWN when delegation landed; dropping fs.edit from the
-     # tuple is still exactly this case's violation.
-     _sub('KNOWN = ("shell.run", "fs.read", "fs.write", "fs.edit", "agent.ask", "agent.run")',
-          'KNOWN = ("shell.run", "fs.read", "fs.write", "agent.ask", "agent.run")', 1),
+     # THE ELEMENT, NOT THE WHOLE TUPLE. Matching the entire `KNOWN` literal
+     # meant every capability ever added broke this case: `agent.ask` with
+     # delegation, `agent.run` with the specialised agents, `ui.open` on
+     # 2026-09-04 -- which also wrapped it onto two lines. Three silent decays
+     # for a case whose violation is one word.
+     _sub('"fs.write", "fs.edit",', '"fs.write",', 1),
      "fs.edit is registered, implemented, verified and unreachable: the "
      "proposer cannot name it, so nothing can ever ask for one"),
 
@@ -4137,11 +4143,12 @@ CASES += [
 # --------------------------------------------------------------------------
 CASES += [
     ("authorization-strength-is-its-own-axis", AUTHZ_PY2,
-     _sub("        auth_ceiling = authorization_ceiling(authorization)\n"
-          "        effective = _min_level(grant.max_level, declared, context_ceiling,\n"
-          "                               auth_ceiling)",
-          "        auth_ceiling = authorization_ceiling(authorization)\n"
-          "        effective = _min_level(grant.max_level, declared, context_ceiling)", 1),
+     # ANCHORED ON THE ARGUMENT, not the whole call. `mode_ceiling` was
+     # inserted into this `_min_level` on 2026-09-05 (the owner's permission
+     # modes) and the five-line literal stopped matching, so the case reported
+     # a changed artifact instead of testing the axis it is named for.
+     _sub("                               mode_ceiling, auth_ceiling)",
+          "                               mode_ceiling)", 1),
      "the axis is computed and dropped out of the minimum: an action nobody "
      "asked for carries the same authority as one the owner spoke"),
 
@@ -4635,11 +4642,9 @@ CASES += [
      "the parent's context somewhere it cannot be seen"),
 
     ("a-sub-agent-thinks-and-never-acts", INTENT_PY,
-     # `KNOWN` gained "agent.run" when the specialised agents landed, so the
-     # two-element tail this matched is gone. Dropping fs.edit from the tuple
-     # is still exactly this case's violation.
-     _sub('KNOWN = ("shell.run", "fs.read", "fs.write", "fs.edit", "agent.ask", "agent.run")',
-          'KNOWN = ("shell.run", "fs.read", "fs.write", "fs.edit", "agent.run")', 1),
+     # The element this case is actually about -- see the note on
+     # `edit-names-one-place` for why the whole-tuple literal kept decaying.
+     _sub('"agent.ask", "agent.run")', '"agent.run")', 1),
      "no proposal may name agent.ask, so delegation is built and reachable from "
      "nothing -- the state fifteen other subsystems were found in"),
 
@@ -5218,9 +5223,13 @@ CASES += [
      "indistinguishable from a free afternoon"),
 
     ("a-due-item-is-spoken-not-merely-noticed", RUNTIME_PY,
-     _sub("                for _rec in (autonomy.dispatch(autonomy.tick()) or []):",
-          "                autonomy.dispatch(autonomy.tick())\n"
-          "                for _rec in []:", 1),
+     # ANCHORED ON THE LOOP HEADER ALONE, not on the whole call. The call
+     # grew `period=` and `attention_state=` arguments the same day this case
+     # was written, and the literal stopped matching -- a self-test that does
+     # not apply reports that the artifact changed shape, which is true and is
+     # not what it was written to detect.
+     _sub("                for _rec in (autonomy.dispatch(",
+          "                autonomy.dispatch(", 1),
      "the pump throws away what autonomy did, so an announcement is spoken "
      "aloud and never appears on the surface -- audible and invisible, which "
      "reads as VESPER talking to itself"),
