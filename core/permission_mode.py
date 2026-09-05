@@ -62,7 +62,29 @@ MODES = (ASK, WORKSPACE, AUTO)
 # can never drift apart into "outside the workspace is somehow more permissive
 # than asking".
 ASK_LEVEL = "L2"
-FREE_LEVEL = "L5"
+
+# `L3`, AND NOT `L5`, AND THIS IS THE WHOLE DESIGN RATHER THAN A TIMID DEFAULT.
+#
+# INV-AUTH-2: "L4/L5 are never delegable and BIND TO ONE COMMAND INSTANCE; a
+# consumed L4 cannot authorize a second action." A STANDING grant at L5 is a
+# contradiction in terms -- and the ladder treats it as one. Measured
+# 2026-09-05: auto mode issued a standing L5, the first `shell.run` consumed it
+# (`grant.max_level in NEVER_DELEGABLE and consume`), and every action after it
+# was refused `grant_consumed` and became a question. The owner set "never ask
+# me" and got asked on every step but the first, which is worse than not having
+# built the mode.
+#
+# L3 IS THE HIGHEST LEVEL A GRANT CAN STAND AT, and it covers everything the
+# owner has actually been asking for: `shell.run` requires L3, `fs.write`
+# requires L2, `ui.open` and `fs.read` require L1. So auto mode means no
+# questions for running commands, writing files and opening things.
+#
+# WHAT STILL ASKS, AND WHY IT SHOULD. L4/L5 is the tier that cannot be undone
+# from the record alone -- overwriting a file this turn never read, deleting,
+# acting outside the owner's own space. Those bind to one command instance by
+# invariant, which means one confirmation buys one action, deliberately. Auto
+# mode is not a way to switch that off; nothing is.
+FREE_LEVEL = "L3"
 
 STANDING_LEVEL = {ASK: ASK_LEVEL, WORKSPACE: FREE_LEVEL, AUTO: FREE_LEVEL}
 
@@ -78,6 +100,37 @@ DESCRIPTION = {
                "anything else.",
     AUTO: "Do not ask. Full authority on everything the owner requests.",
 }
+
+
+def observations_taint(mode: str) -> bool:
+    """Does what VESPER just observed lower the ceiling for the next step?
+
+    IN `ask` AND `workspace`, YES, AND THAT IS INV-ACT-3 DOING ITS JOB: command
+    output and file contents are `retrieved_external`, so the step that could be
+    steered by what was just read is the step that has to ask.
+
+    IN `auto`, NO, BY THE OWNER'S EXPLICIT AND REPEATED INSTRUCTION (2026-09-05,
+    twice, in terms that left nothing to interpret). What that ceiling did in
+    practice was make MULTI-STEP WORK IMPOSSIBLE rather than careful:
+    `shell.run` requires L3, its own output is `retrieved_external`, so the
+    ceiling fell to L1 the instant VESPER ran anything and every later step was
+    refused for `context_ceiling` -- which is deliberately NOT confirmable, so
+    the owner could not approve it either. "Write a script and run it" was
+    unreachable in every mode, and the owner watched it fail for days.
+
+    WHAT IS ACTUALLY BEING ACCEPTED, stated plainly because it is a real trade:
+    with this off, text VESPER reads -- a file's contents, a command's output, a
+    sub-agent's answer -- can influence what it does next, up to `FREE_LEVEL`.
+
+    WHAT DOES NOT MOVE, because these bound the blast radius rather than the
+    intent: `shell.run` still executes under the seatbelt profile
+    (`(deny default)`, `(deny network*)`, writes confined to the workspace and
+    /tmp); L4/L5 still bind to one command instance and still ask; the interlock
+    still stops autonomy within a token lifetime; every action is still recorded
+    with the authority it ran under. This is the owner extending THEIR authority
+    over their own machine, and it is one word to undo: `--permission-mode ask`.
+    """
+    return mode != AUTO
 
 
 class ModeRefused(Exception):

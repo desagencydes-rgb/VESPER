@@ -814,8 +814,38 @@ class Actor:
         # when externally-retrieved content is in context -- which is the whole
         # point of the subsystem and was previously emitted by nothing that runs.
         frags = self._fragments_for(text, fragments, observations)
-        ceil = self._ceiling.check(level, frags, capability_id=p.capability_id,
-                                   subject=self._subject)["ceiling"]
+        # THE OWNER'S MODE, READ ONCE FOR THIS STEP. It reaches the ladder in
+        # two separate places -- the ceiling just below and `mode_ceiling`
+        # further down -- and reading it twice would let a mode change land
+        # between them, so a single step could be judged half under `auto` and
+        # half under `ask`.
+        mode = self.permission_mode()
+        # AUTO MODE DOES NOT ASK, AND THIS IS WHERE THAT WAS ACTUALLY DECIDED.
+        # Raising the standing grant was not enough. An observation classed
+        # `retrieved_external` caps the NEXT step at L1 whatever the owner
+        # granted, and `context_ceiling` is not a confirmable reason -- so the
+        # second step of every multi-step task refused, and no answer could lift
+        # it. `shell.run` needs L3 and its own output is external, so VESPER
+        # could run one command per turn and never a second.
+        #
+        # PUBLISHED, NOT SILENT. A protection that is off and unrecorded is the
+        # one nobody remembers is off; this way every waiver is in the log with
+        # the mode that caused it.
+        if observations and not permission_mode.observations_taint(mode):
+            self._bus.publish(
+                "authz.observation_taint_waived", subject=self._subject,
+                payload={"capability_id": p.capability_id, "mode": mode,
+                         "observations": len(observations),
+                         "note": ("auto mode: the owner has extended their own "
+                                  "authority to this session, so what VESPER "
+                                  "read does not cap what it may do next. The "
+                                  "seatbelt, the L4/L5 single-use rule and the "
+                                  "interlock are unaffected.")},
+                component="actor")
+            ceil = "L5"
+        else:
+            ceil = self._ceiling.check(level, frags, capability_id=p.capability_id,
+                                       subject=self._subject)["ceiling"]
 
         # ASKED BEFORE ACTING, so that the refusal carries the DECISION and not
         # just a string. `Executor.execute` authorizes again immediately before
@@ -840,7 +870,6 @@ class Actor:
         # Spending the grant here left nothing for the check that actually
         # runs, so an approved L4/L5 action was refused against whatever weaker
         # grant remained -- the owner said yes and nothing happened.
-        # THE OWNER'S MODE, APPLIED HERE AND NOWHERE ELSE IN THIS FUNCTION.
         # `mode_ceiling` only lowers, so `ask` and `auto` pass L5 and change
         # nothing; workspace mode is the one that reads the arguments, because
         # it is the only mode whose answer differs between two calls of the
@@ -848,7 +877,6 @@ class Actor:
         # written, they are rewritten first -- otherwise a drop from `auto`
         # back to `ask` would leave the old L5 grants on record and the switch
         # would appear to do nothing for twelve hours.
-        mode = self.permission_mode()
         if mode != getattr(self, "_standing_mode", None):
             self._issue_standing()
         mode_ceiling = permission_mode.ceiling_for(mode, p.capability_id, p.args,
