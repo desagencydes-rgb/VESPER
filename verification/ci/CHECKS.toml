@@ -2705,3 +2705,4 @@ impl = "tools/ci/checks.py a-due-item-is-spoken-not-merely-noticed"
 blocking = "pr"
 self_test = """Register the agenda trigger with no handler; stop dispatch skipping a trigger that carries neither handler nor intent; report a calendar the bridge never wrote as read-and-empty; let quiet() ignore an unreadable source; discard dispatch's return value in the pump."""
 self_test_evidence = "tools/ci/self_test.py a-due-item-is-spoken-not-merely-noticed -- 5 cases, executed 2026-09-05: red under violation, green after restore. The first version of assertion 1 passed under its own violation because dispatch skips a handler-less trigger twice; an actor is now attached so the guard's removal is observable."
+

@@ -501,6 +501,31 @@ class Actor:
                                  "capability_id": p.capability_id},
                         component="actor")
                     break
+                # A FAILURE IS AN OBSERVATION, AND UNTIL NOW IT WAS NOT. This
+                # branch counted the refusal and recorded NOTHING, so the next
+                # step's proposer was never told what went wrong -- it could
+                # not read the error, so it could not fix it. The owner asked
+                # to rename a file, the rename failed with `Operation not
+                # permitted`, and VESPER reported the failure and stopped:
+                # "i don't want to hear these failures and just stay like that
+                # with no solution" (2026-09-05). A loop that cannot see its
+                # own mistakes is a retry, not a loop.
+                #
+                # IT STILL COUNTS TOWARD THE BREAKER. Seeing the error is what
+                # makes a second attempt worth making; it is not a licence to
+                # grind, so MAX_CONSECUTIVE_REFUSALS is unchanged and a
+                # proposer that keeps failing still stops after three.
+                #
+                # AND IT CARRIES THE SAME TAINT AS A SUCCESS. Error text is
+                # output from outside VESPER exactly as stdout is -- a hostile
+                # filename lands in a `mv` error verbatim -- so it goes through
+                # `observe()` and is classed by the same table rather than
+                # spliced into the prompt raw.
+                observations.append(
+                    observe(p.capability_id, p.args,
+                            {**((out.detail or {}).get("result") or {}),
+                             "failed": True,
+                             "error": (out.detail or {}).get("error") or out.said}))
             else:
                 consecutive_refusals = 0
                 observations.append(
@@ -1093,7 +1118,23 @@ def _describe(proposal: Any, result: dict) -> str:
                 return f"it failed (exit {code}): {why[:400]}"
             return (f"it ran and came back with exit code {code}, and said "
                     f"nothing on either output")
-        return out[:600] if out else "it ran and printed nothing"
+        if out:
+            return out[:600]
+        # A SILENT SUCCESS IS THE COMMON CASE, AND "it ran and printed nothing"
+        # IS NOT AN ANSWER TO ANYTHING. `mv`, `cp`, `mkdir`, `rm` and `chmod`
+        # all succeed in silence; the owner asked to rename a file, VESPER did
+        # it, and reported the absence of output. That describes the MECHANISM
+        # where the owner asked about the OUTCOME -- 2026-09-05, and the owner's
+        # comparison was to Claude Code, which says what it did.
+        #
+        # `why` IS THE PROPOSER'S OWN SENTENCE about what this step is for
+        # ("rename the file to haye.txt"), already written, already in the
+        # record, and previously shown nowhere the owner could see it. On a
+        # silent success it is exactly the right thing to say.
+        why = str(getattr(proposal, "why", "") or "").strip().rstrip(".")
+        if why:
+            return f"Done — {why}."
+        return "Done."
     if cid == "fs.read":
         n = result.get("bytes")
         return f"{result.get('path')} — {n} bytes:\n{(result.get('text') or '')[:600]}"

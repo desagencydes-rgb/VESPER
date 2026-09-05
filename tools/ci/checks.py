@@ -12892,6 +12892,123 @@ def check_a_due_item_is_spoken_not_merely_noticed() -> Result:
            "all; and what is said reaches the surface rather than only the air")
     return r
 
+
+def check_a_failure_is_something_the_next_step_can_see() -> Result:
+    """VESPER can fix what it just got wrong, and can say what it did.
+
+    TWO FAULTS, ONE SHAPE: the loop knew something the owner and the proposer
+    both needed and told neither.
+
+    THE FAILURE WAS INVISIBLE TO THE NEXT STEP. `maybe_act` recorded an
+    observation only on the success branch, so a step that failed left the
+    proposer with no record that it had happened, let alone why. The owner
+    asked to rename a file, the rename failed with `Operation not permitted`,
+    and VESPER reported the failure and stopped -- not because the loop was
+    exhausted but because the next proposal was formed in ignorance of the
+    last one. A loop that cannot see its own mistakes is a retry.
+
+    THE SUCCESS WAS DESCRIBED AS A MECHANISM. `mv`, `cp`, `mkdir` and `chmod`
+    succeed in silence, and the answer was "it ran and printed nothing" --
+    true, and not an answer to "rename it". The proposer's own `why` was
+    already in the record and shown nowhere the owner could see it.
+
+    AND THE BREAKER MUST SURVIVE BOTH. Recording failures is what makes a
+    second attempt informed; it is not a licence to grind. If seeing the error
+    also reset the refusal counter, a proposer that fails forever would loop to
+    the step budget every time -- so this asserts the counter still trips.
+    """
+    r = Result("a-failure-is-something-the-next-step-can-see")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.actor import Actor, MAX_CONSECUTIVE_REFUSALS, _describe
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"core.actor does not import: {exc!r}")
+        return r
+
+    class Bus:
+        def publish(self, *_a, **_k):
+            pass
+
+    # 1. A SILENT SUCCESS IS REPORTED AS WHAT WAS DONE, not as the absence of
+    #    output. This is the sentence the owner actually reads.
+    class P:
+        capability_id = "shell.run"
+        why = "rename the file to haye.txt"
+        args = {"cmd": "mv a b"}
+
+    said = _describe(P(), {"exit_code": 0, "stdout": "", "stderr": ""})
+    if "printed nothing" in said or not said.strip():
+        r.err(f"a silent success is described as {said!r}. `mv`, `cp`, `mkdir` "
+              f"and `chmod` all succeed in silence, so this is the ordinary "
+              f"case, and it answers a question about the outcome by "
+              f"describing the mechanism")
+    if "rename" not in said.lower():
+        r.err(f"the silent-success sentence {said!r} does not say what was "
+              f"done. The proposer's `why` is already in the record and is the "
+              f"one sentence the owner is waiting for")
+
+    # 2. A FAILURE STILL CARRIES ITS REASON.
+    failed = _describe(P(), {"exit_code": 1, "stdout": "",
+                             "stderr": "mv: Operation not permitted"})
+    if "Operation not permitted" not in failed:
+        r.err(f"a failure is described as {failed!r}, dropping the stderr that "
+              f"says why. An exit code is not a diagnosis")
+
+    # 3. THE OBSERVATION IS RECORDED ON THE FAILURE BRANCH. Read from the
+    #    source, because driving a real failing turn needs a gateway, a
+    #    proposer and an executor, and the property is structural: the branch
+    #    that increments `consecutive_refusals` must also append an
+    #    observation.
+    #
+    #    THE BODY, NOT THE WHOLE `If`. `ast.get_source_segment` on an If node
+    #    includes its `else:` clause, so the success branch's
+    #    `consecutive_refusals = 0` read as if it were inside the failure
+    #    branch and assertion 4 fired on correct code. A check that cannot tell
+    #    a branch from its alternative is not reading the thing it claims to.
+    import ast as _ast
+    src = (REPO / "core" / "actor.py").read_text(encoding="utf-8")
+    tree = _ast.parse(src)
+
+    def _seg(stmts) -> str:
+        return "\n".join((_ast.get_source_segment(src, n) or "") for n in stmts)
+
+    found_branch = False
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.If):
+            continue
+        body = _seg(node.body)
+        if "consecutive_refusals += 1" not in body:
+            continue
+        found_branch = True
+        if "observations.append" not in body:
+            r.err("the failure branch of the act loop increments the refusal "
+                  "counter and records NO observation, so the next proposal is "
+                  "formed in ignorance of what just went wrong. VESPER reports "
+                  "the failure and stops -- which is the state the owner "
+                  "described as 'no solution'")
+        # 4. AND THE BREAKER STILL TRIPS. A counter reset because the failure
+        #    was observed turns "learn from it" into "grind forever", and that
+        #    passes assertion 3 perfectly.
+        if "consecutive_refusals = 0" in body:
+            r.err("the failure branch also RESETS the refusal counter, so a "
+                  "proposer that fails every time never trips the breaker and "
+                  "grinds to the step budget on every turn")
+    if not found_branch:
+        r.err("no branch incrementing `consecutive_refusals` was found in "
+              "core/actor.py, so this check has lost its subject and is not "
+              "evidence about the loop's failure path")
+    if MAX_CONSECUTIVE_REFUSALS < 1:
+        r.err(f"MAX_CONSECUTIVE_REFUSALS is {MAX_CONSECUTIVE_REFUSALS}: the "
+              f"circuit breaker cannot trip")
+
+    r.note("a silent success says what was done rather than that nothing was "
+           "printed; a failure carries its stderr; the failure branch records "
+           "an observation so the next step can see the error and fix it; and "
+           "the refusal breaker still trips, so seeing an error is not a "
+           "licence to grind")
+    return r
+
 def check_loop_observes_and_is_bounded() -> Result:
     """VESPER can take a second step, and every way of not stopping is bounded.
 
@@ -19072,6 +19189,7 @@ CHECK_FNS = {
     "write-never-destroys-what-was-not-read": check_write_never_destroys_what_was_not_read,
     "enable-token-presented-once-per-mint": check_enable_token_presented_once_per_mint,
     "a-due-item-is-spoken-not-merely-noticed": check_a_due_item_is_spoken_not_merely_noticed,
+    "a-failure-is-something-the-next-step-can-see": check_a_failure_is_something_the_next_step_can_see,
     "taint-ceiling-binds-the-act-path": check_taint_ceiling_binds_the_act_path,
     "gated-subsystems-are-reachable": check_gated_subsystems_are_reachable,
     "f0-acceptance": check_f0_acceptance,

@@ -5241,6 +5241,50 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# CI-122 -- the loop knew what went wrong and told neither the owner nor the
+# next step. A rename failed, VESPER said "it ran and came back with error
+# code 1", and the following proposal was formed with no record that anything
+# had happened at all.
+# --------------------------------------------------------------------------
+CASES += [
+    ("a-failure-is-something-the-next-step-can-see", ACTOR_PY,
+     _sub('        why = str(getattr(proposal, "why", "") or "").strip().rstrip(".")\n'
+          '        if why:\n'
+          '            return f"Done — {why}."\n'
+          '        return "Done."',
+          '        return "it ran and printed nothing"', 1),
+     "a silent success is reported as the absence of output again: the owner "
+     "asks to rename a file, VESPER renames it, and answers by describing the "
+     "mechanism instead of the outcome"),
+
+    ("a-failure-is-something-the-next-step-can-see", ACTOR_PY,
+     _sub("            why = err or out\n", "            why = out\n", 1),
+     "a failing command's stderr is dropped, so `mv: Operation not permitted` "
+     "reaches the owner as a bare exit code -- a number where the diagnosis "
+     "was already in hand"),
+
+    ("a-failure-is-something-the-next-step-can-see", ACTOR_PY,
+     _sub("                observations.append(\n"
+          "                    observe(p.capability_id, p.args,\n"
+          "                            {**((out.detail or {}).get(\"result\") or {}),\n"
+          "                             \"failed\": True,\n"
+          "                             \"error\": (out.detail or {}).get(\"error\") or out.said}))\n",
+          "", 1),
+     "the failure branch records no observation again, so the next proposal is "
+     "formed in ignorance of the error and VESPER reports a failure and stops "
+     "-- the state the owner called 'no solution'"),
+
+    ("a-failure-is-something-the-next-step-can-see", ACTOR_PY,
+     _sub("                consecutive_refusals += 1\n",
+          "                consecutive_refusals += 1\n"
+          "                consecutive_refusals = 0\n", 1),
+     "seeing the error also resets the refusal counter, so a proposer that "
+     "fails every time never trips the breaker and grinds to the step budget "
+     "on every turn -- which passes the observation assertion perfectly"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
 
