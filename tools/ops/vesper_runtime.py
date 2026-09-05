@@ -170,6 +170,18 @@ POLL_SECONDS = 0.15
 # fails back to UNKNOWN rather than vouching for a presence nobody observed.
 PRESENCE_FRESH_S = 20.0
 
+# How many pump passes an unchanged repair verdict may stay silent before it
+# says so anyway. Same purpose as `NOOP_KEEPALIVE_TICKS` in the autonomy loop:
+# without it, "the repairer has nothing new" and "the repairer is dead" produce
+# identical silence.
+REPAIR_KEEPALIVE_PASSES = 500
+
+# The last verdict per triage item, and the pass it was published on. Module
+# level because `pump` is called fresh for a one-shot run and in a loop for the
+# real one, and the point is to be quiet ACROSS passes.
+_repair_state: dict = {}
+_pass_no = 0
+
 ENABLE_TOKEN_PATH = STATE / "interlock" / "enable_token.json"
 
 # WHAT GETS MAPPED. The owner's instruction was "map literally everything, with
@@ -1247,6 +1259,8 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             # Its docstring says "called when a rung reports healthy", which is
             # the cheaper trigger; the pump is the honest one until a rung
             # actually reports.
+            global _pass_no
+            _pass_no += 1
             triage.grade_all()
             # ASK ONLY FOR WHAT THE REPAIRER WILL ACT ON. `repair()` refuses
             # anything that is not CRITICAL_NOW -- "CAN_WAIT and NO_FIX_NEEDED
@@ -1263,10 +1277,45 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             #
             # A decline is not an attempt. The filter already existed on
             # `open_items`; nothing was passing it.
+            # AND PUBLISHED ON CHANGE, NOT ON PASS. The filter above fixed
+            # half of it: a DECLINED item is no longer attempted. What it did
+            # not fix is an item that IS critical, is attempted, and comes back
+            # with the same answer every time.
+            #
+            # Measured 2026-09-05, after that fix: 6,884 events in ten minutes
+            # -- ~11 a second -- every one of them
+            # `claude-advisor::unknown::bad_request`, every one `tier2_proposed`
+            # with `fixed: false`. Tier 2 means VESPER'S OWN DEFECT, and the
+            # tier's whole rule is that the runtime proposes a patch and may
+            # never apply it to itself. So this outcome CANNOT change by being
+            # re-taken; the loop was re-deriving an unchangeable answer eleven
+            # times a second and writing each one to an append-only store.
+            #
+            # THE SHAPE IS BORROWED FROM `autonomy.noop`, which solved exactly
+            # this: publish when the ANSWER changes, plus a keepalive so a long
+            # silence is distinguishable from a dead repairer. The record then
+            # says "this has held since pass N" instead of repeating itself,
+            # and a reader can still reconstruct any pass in between.
             for item in (triage.open_items(CRITICAL_NOW) or [])[:1]:
                 out = repairer.repair(item)
-                bus.publish("repair.attempted", subject=item.provider_id,
-                            payload=out.to_dict(), component="runtime")
+                d = out.to_dict()
+                # The IDENTITY of the answer, not its wording: item, tier, and
+                # whether it worked. A guide sentence that re-renders slightly
+                # differently is not news.
+                sig = (item.item_id, d.get("tier"), bool(d.get("fixed")))
+                prev = _repair_state.get(item.item_id)
+                changed = prev is None or prev[0] != sig
+                stale = (not changed
+                         and (_pass_no - prev[1]) >= REPAIR_KEEPALIVE_PASSES)
+                if changed or stale:
+                    _repair_state[item.item_id] = (sig, _pass_no)
+                    bus.publish(
+                        "repair.attempted", subject=item.provider_id,
+                        payload={**d,
+                                 "since_pass": (_pass_no if changed
+                                                else prev[1]),
+                                 "reason": "changed" if changed else "keepalive"},
+                        component="runtime")
         except Exception as exc:                   # noqa: BLE001
             bus.publish("repair.pass_failed", subject="repair",
                         payload={"error": repr(exc)}, component="runtime")
