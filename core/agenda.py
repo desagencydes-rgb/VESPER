@@ -330,11 +330,20 @@ def agenda_trigger(handler=None):
     `handler` IS NOT OPTIONAL IN PRACTICE, WHATEVER THE SIGNATURE SAYS. A
     Trigger carrying neither a handler nor an `intent` is skipped outright by
     `AutonomyLoop.dispatch` -- `if not intent: continue` -- so it fires,
-    dispatches, and does nothing. This trigger shipped that way on 2026-09-05:
-    the half that can SEE the owner's day, with no half that acts on it. The
-    default stays `None` because the predicate is worth testing on its own,
-    and because a handler built in `core/` could not reach the speech path
-    anyway; it is the runtime that holds the voice.
+    dispatches, and does nothing.
+
+    THE RUNTIME PASSES ONE (`vesper_runtime.py`, `_agenda_due_handler`), and
+    `CI-121` fails if it ever stops. This paragraph used to describe the day
+    the trigger shipped WITHOUT a handler as though that were the current
+    state, and on 2026-09-05 a later session read it, believed the agenda was
+    inert, and reported it to the owner as an open defect that had been fixed
+    hours earlier. A docstring that narrates a past bug in the present tense
+    is a bug report with no expiry date -- so the history lives in the commit
+    message and this says what is true now.
+
+    The default stays `None` because the predicate is worth testing on its
+    own, and because a handler built in `core/` could not reach the speech
+    path anyway; it is the runtime that holds the voice.
 
     A HANDLER RATHER THAN AN `intent`. An intent is free text handed to
     `Actor.maybe_act`, which proposes CAPABILITY actions -- shell, files,

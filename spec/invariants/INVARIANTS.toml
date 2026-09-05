@@ -426,7 +426,7 @@ kind = "runtime"
 [invariants.INV-AUTO-2]
 statement = "100% of autonomous actions and recorded no-ops resolve to exactly one registered trigger_id with a reconstructible snapshot."
 owner_rem = "REM-008"
-enforced_by = ["A-029"]
+enforced_by = ["A-029", "CI-121"]
 kind = "runtime"
 
 [invariants.INV-AUTO-3]

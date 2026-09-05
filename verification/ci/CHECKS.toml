@@ -2696,3 +2696,12 @@ impl = "tools/ci/checks.py permission-mode-ceiling-only-lowers"
 blocking = "pr"
 self_test = """Corrupt the mode file and observe AUTO rather than ASK; grant NO_CEILING from workspace mode for outside-workspace actions; reject contained() paths that contain spaces; drop mode_ceiling from the PDP's _min_level call."""
 self_test_evidence = "tools/ci/self_test.py permission-mode-ceiling-only-lowers -- 4 cases, executed 2026-09-05: red under violation, green after restore."
+
+[checks.CI-121]
+name = "a-due-item-is-spoken-not-merely-noticed"
+enforces = ["INV-AUTO-2"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py a-due-item-is-spoken-not-merely-noticed"
+blocking = "pr"
+self_test = """Register the agenda trigger with no handler; stop dispatch skipping a trigger that carries neither handler nor intent; report a calendar the bridge never wrote as read-and-empty; let quiet() ignore an unreadable source; discard dispatch's return value in the pump."""
+self_test_evidence = "tools/ci/self_test.py a-due-item-is-spoken-not-merely-noticed -- 5 cases, executed 2026-09-05: red under violation, green after restore. The first version of assertion 1 passed under its own violation because dispatch skips a handler-less trigger twice; an actor is now attached so the guard's removal is observable."

@@ -1097,6 +1097,7 @@ PLACE_PY = "core/placement.py"
 STORE_PY = "core/store.py"
 TASKS_PY = "core/tasks.py"
 AUTON_PY = "core/autonomy.py"
+AGENDA_PY = "core/agenda.py"
 TELEM_PY = "core/telemetry.py"
 FORGET_PY = "core/forgetter.py"
 ENROL_PY = "core/enrollment.py"
@@ -5174,6 +5175,55 @@ CASES += [
      "mode_ceiling is dropped from the _min_level call in the PDP: the "
      "owner's workspace switch is computed by the actor but the PDP ignores "
      "it, and an outside-workspace action passes as if the mode were AUTO"),
+]
+
+
+# --------------------------------------------------------------------------
+# CI-121 -- the agenda trigger could see the owner's day and had no way to
+# mention it. It fired, dispatched, and fell through `if not intent: continue`,
+# passing every gate in the suite because every gate asked whether it FIRED.
+# --------------------------------------------------------------------------
+# The whole branch `read_eventkit` takes when the bridge has never run.
+_CI121_EK_MISSING = (
+    '        why = ("the calendar bridge has not run; VESPER has no reading of "\n'
+    '               "your calendar or reminders")\n'
+    '        return [], {"calendar": why, "reminders": why}'
+)
+
+CASES += [
+    ("a-due-item-is-spoken-not-merely-noticed", RUNTIME_PY,
+     _sub("agenda.agenda_trigger(handler=_agenda_due_handler)",
+          "agenda.agenda_trigger()", 1),
+     "the runtime registers the trigger with no handler again: the owner's day "
+     "is watched, the trigger fires when something comes due, and nothing is "
+     "ever said -- which is the state this check was written for"),
+
+    ("a-due-item-is-spoken-not-merely-noticed", AUTON_PY,
+     _sub("            if not intent:\n                continue\n", "", 1),
+     "dispatch stops skipping a trigger that carries neither handler nor "
+     "intent, so a handler-less trigger looks handled and the defect becomes "
+     "invisible to the assertion that names it"),
+
+    ("a-due-item-is-spoken-not-merely-noticed", AGENDA_PY,
+     _sub(_CI121_EK_MISSING, "        return [], {}", 1),
+     "a calendar the bridge never wrote reports as READ AND EMPTY, so an "
+     "unseen day is indistinguishable from a clear one -- INV-HW-2 in the one "
+     "place it costs the owner an appointment"),
+
+    ("a-due-item-is-spoken-not-merely-noticed", AGENDA_PY,
+     _sub("        return not self.unavailable and not self.due_now(now_ms)",
+          "        return not self.due_now(now_ms)", 1),
+     "`quiet()` stops caring whether a source could be read, so VESPER falls "
+     "silent on a day it never managed to look at and the silence is "
+     "indistinguishable from a free afternoon"),
+
+    ("a-due-item-is-spoken-not-merely-noticed", RUNTIME_PY,
+     _sub("                for _rec in (autonomy.dispatch(autonomy.tick()) or []):",
+          "                autonomy.dispatch(autonomy.tick())\n"
+          "                for _rec in []:", 1),
+     "the pump throws away what autonomy did, so an announcement is spoken "
+     "aloud and never appears on the surface -- audible and invisible, which "
+     "reads as VESPER talking to itself"),
 ]
 
 

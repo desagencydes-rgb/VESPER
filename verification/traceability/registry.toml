@@ -511,7 +511,12 @@ decision_functions = ["DF-TRIGGER-EVAL", "DF-GOVERNED-WRITE", "DF-AUTONOMY-ELIGI
 # with it. A-011 and A-029, INV-TRIG-2's other declared enforcers, are both
 # already listed here.
 invariants = ["INV-SELF-7", "INV-AUTO-1", "INV-AUTO-5", "INV-TRIG-2", "INV-TRIG-5"]
-ci = ["CI-015", "CI-024", "CI-026", "CI-023", "CI-096"]
+# CI-121 added 2026-09-05. SR-042 owns DF-TRIGGER-EVAL and already lists
+# A-029, INV-AUTO-2's other enforcer. The gap CI-121 closes is that every
+# existing gate here describes a trigger's DECISION -- the anti-cron probe,
+# predicate totality, the registry -- and none can tell a trigger that
+# announces something from one that notices it silently.
+ci = ["CI-015", "CI-024", "CI-026", "CI-023", "CI-096", "CI-121"]
 state_machines = ["SM-TRIGGER"]
 status = "SPECIFIED"
 

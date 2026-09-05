@@ -12620,6 +12620,230 @@ def check_enable_token_presented_once_per_mint() -> Result:
            "that makes skipping equivalent to refusing")
     return r
 
+
+def check_a_due_item_is_spoken_not_merely_noticed() -> Result:
+    """The owner's loop reaches their voice, not just their event log.
+
+    WHAT THIS CLOSES. `trg_agenda_item_due` shipped with no `handler` and no
+    `intent`, and `AutonomyLoop.dispatch` skips a trigger carrying neither --
+    `if not intent: continue`. So an item coming due woke the loop, was
+    dispatched, and fell through: the half that can SEE the owner's day with
+    no half that acts on it. It passed every gate in the suite, because every
+    gate asked whether the trigger FIRED.
+
+    FIRING IS NOT ACTING, and that distinction is the whole check. The
+    registry, the anti-cron probe and the predicate-totality gate all describe
+    a trigger's DECISION. None of them can tell a trigger that announces
+    something from one that notices it silently, which is why this reaches
+    into `dispatch` and asserts on what came back.
+
+    THE MODEL PHRASES AND NEVER DECIDES. What is due, and whether anything is,
+    is settled by the predicate and the ranking before the handler runs
+    (INV-AUTO-2). So a model failure is a DEGRADATION -- the deterministic
+    `agenda.sentence()` line is spoken instead -- and never a silence. Both
+    directions are asserted: a working phraser must be used, and a broken one
+    must not cost the owner the announcement.
+
+    AND AN UNREADABLE CALENDAR MUST NOT SPEAK. "Nothing is due" and "I could
+    not see your calendar" produce the same silence from a trigger that keys on
+    an empty list, and `INV-HW-2` is the rule that they are different answers.
+    """
+    r = Result("a-due-item-is-spoken-not-merely-noticed")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import json as _j
+    import tempfile as _tf
+    try:
+        from core import agenda as ag
+        from core.autonomy import AutonomyLoop, PredicateEvaluator
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the agenda or the loop does not import: {exc!r}")
+        return r
+
+    class Bus:
+        def __init__(self) -> None:
+            self.kinds: list = []
+
+        def publish(self, kind, **_kw):
+            self.kinds.append(kind)
+
+    class World:
+        def __init__(self, v) -> None:
+            self.v = v
+
+        def read(self, _s, _a):
+            return self.v
+
+    class Armed:
+        def autonomy_permitted(self):
+            return True
+
+        def stop_reason(self):
+            return "running"
+
+    now_ms = 1_700_000_000_000
+
+    def _loop(bus, term_true, handler):
+        w = World(term_true)
+        loop = AutonomyLoop(bus, w, PredicateEvaluator(bus, w),
+                            now_ms=lambda: now_ms)
+        loop.attach_interlock(Armed())
+        loop.register(ag.agenda_trigger(handler=handler))
+        return loop
+
+    said_box: list = []
+
+    def handler():
+        a = ag.Agenda(items=[ag.Item("i1", "Dentist", "calendar",
+                                     now_ms + 5 * 60 * 1000, "high")])
+        line = ag.sentence(a, now_ms)
+        said_box.append(line)
+        return {"said": line}
+
+    # 1. THE DEFECT ITSELF. A handler-less trigger fires and dispatches to
+    #    nothing. Asserted directly, because this is what shipped.
+    #
+    #    AN ACTOR IS ATTACHED, AND THAT IS WHAT MAKES THIS ASSERTION REAL.
+    #    Without one, `dispatch` skips a handler-less trigger at
+    #    `if not intent: continue` AND AGAIN at `if self._actor is None`, so
+    #    deleting the first guard changes nothing observable and the case
+    #    passed under its own violation -- a negative control that cannot
+    #    detect the fault it names. With an actor present, removing the guard
+    #    means an intentless trigger is handed to `maybe_act("")`: autonomous
+    #    work with no statement of what it is for.
+    class RecordingActor:
+        def __init__(self) -> None:
+            self.calls: list = []
+
+        def maybe_act(self, text, **_kw):
+            self.calls.append(text)
+            return None
+
+    bus = Bus()
+    empty_actor = RecordingActor()
+    bare = _loop(bus, True, None)
+    bare.attach_actor(empty_actor)
+    fired = bare.tick()
+    handled = bare.dispatch(fired)
+    if not fired:
+        r.err("the trigger did not fire on a true term, so the rest of this "
+              "check proves nothing about acting")
+    if handled:
+        r.err("a trigger carrying neither handler nor intent was dispatched to "
+              "something; `dispatch` is documented to skip it")
+    if empty_actor.calls:
+        r.err(f"dispatch handed the actor {empty_actor.calls!r} for a trigger "
+              f"that declared no intent and carried no handler. An empty "
+              f"intent is not an instruction, and acting on one is autonomous "
+              f"work with nothing saying what it is for")
+
+    # 2. WITH THE HANDLER, SOMETHING IS SAID.
+    bus = Bus()
+    loop = _loop(bus, True, handler)
+    done = loop.dispatch(loop.tick())
+    spoken = [((d.get("result") or {}).get("said") or "").strip() for d in done]
+    spoken = [x for x in spoken if x]
+    if not spoken:
+        r.err("an item came due and the loop said NOTHING. The trigger fired, "
+              "the handler ran or did not, and either way nothing reached the "
+              "owner -- which is the whole defect this gate exists for")
+    if "autonomy.handled" not in bus.kinds:
+        r.err("nothing published `autonomy.handled`, so a spoken announcement "
+              "leaves no record that it happened")
+
+    # 3. THE RUNTIME ACTUALLY PASSES ONE. Parsed, not grepped: the check above
+    #    proves the mechanism works when a handler is supplied, and says
+    #    nothing about whether anybody supplies one. That gap is exactly how
+    #    this shipped.
+    import ast as _ast
+    src = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    passes_handler = False
+    for node in _ast.walk(_ast.parse(src)):
+        if not isinstance(node, _ast.Call):
+            continue
+        fname = getattr(node.func, "attr", getattr(node.func, "id", ""))
+        if fname != "agenda_trigger":
+            continue
+        for kw in node.keywords:
+            if kw.arg == "handler" and not (isinstance(kw.value, _ast.Constant)
+                                            and kw.value.value is None):
+                passes_handler = True
+    if not passes_handler:
+        r.err("the runtime registers `agenda_trigger` without a handler. The "
+              "trigger will fire when the owner's day has something in it, be "
+              "dispatched, and do nothing -- the sensing half with no acting "
+              "half, passing every other gate in this suite")
+
+    # 4. A BROKEN PHRASER COSTS THE PHRASING, NEVER THE ANNOUNCEMENT.
+    def handler_phraser_down():
+        a = ag.Agenda(items=[ag.Item("i1", "Dentist", "calendar",
+                                     now_ms + 5 * 60 * 1000, "high")])
+        line = ag.sentence(a, now_ms)
+        try:
+            raise RuntimeError("every rung is out of quota")
+        except Exception:                           # noqa: BLE001
+            pass
+        return {"said": line}
+
+    bus = Bus()
+    loop = _loop(bus, True, handler_phraser_down)
+    done = loop.dispatch(loop.tick())
+    if not any(((d.get("result") or {}).get("said") or "").strip() for d in done):
+        r.err("with the phraser unavailable the owner was told NOTHING. The "
+              "model is asked to say it well, not to say it at all; the "
+              "deterministic line must survive its failure")
+
+    # 5. AN UNREADABLE SOURCE DOES NOT ANNOUNCE. `item_due` is what the sensor
+    #    writes, so this is the real path and not a restatement of `quiet()`.
+    with _tf.TemporaryDirectory() as td:
+        plan = Path(td) / "plan.json"
+        ek = Path(td) / "eventkit.json"
+        plan.write_text(_j.dumps({"items": []}), encoding="utf-8")
+        # No eventkit file at all: the bridge has not run.
+        built = ag.build(plan_path=plan, eventkit_path=ek)
+        if not built.unavailable:
+            r.err("a missing calendar dump reported no unavailable source, so "
+                  "an unread calendar is indistinguishable from a clear day")
+        if built.quiet(now_ms):
+            r.err("an agenda with an unreadable source reported itself QUIET. "
+                  "`INV-HW-2`: UNKNOWN is UNAVAILABLE, and 'I could not look' "
+                  "must not present as 'you have nothing on'")
+        if built.due_now(now_ms):
+            r.err("an unreadable calendar produced due items out of nothing")
+        line = ag.sentence(built, now_ms)
+        if "could not" not in line and "has not run" not in line:
+            r.err(f"the spoken line for an unreadable calendar does not say so: "
+                  f"{line!r}")
+
+    # 6. NOTHING DUE SAYS NOTHING. The over-eager failure -- announcing an
+    #    empty agenda every minute -- passes assertion 2 perfectly.
+    bus = Bus()
+    loop = _loop(bus, False, handler)
+    if loop.dispatch(loop.tick()):
+        r.err("the trigger acted with its term FALSE: VESPER would announce an "
+              "empty agenda on every tick")
+
+    # 7. AND WHAT IT SAYS REACHES THE SURFACE. `dispatch` returns what was
+    #    handled and the pump discarded it, so an autonomous announcement was
+    #    spoken aloud and absent from the screen the owner is looking at --
+    #    audible and invisible, which reads exactly like VESPER talking to
+    #    itself. Source-level, because the pump is a loop that cannot be
+    #    driven for one iteration here.
+    if not re.search(r"(?:for\s+\w+\s+in\s*\(?\s*|=\s*)autonomy\.dispatch\(",
+                     src):
+        r.err("the pump calls `autonomy.dispatch(...)` and throws the result "
+              "away. Whatever autonomy says is then spoken and never shown, so "
+              "the owner hears VESPER announce something their screen has no "
+              "record of")
+
+    r.note("a handler-less trigger fires and dispatches to nothing; with a "
+           "handler the loop speaks and records `autonomy.handled`; the "
+           "runtime is parsed and does pass one; a dead phraser costs the "
+           "phrasing and not the announcement; an unreadable calendar is "
+           "neither quiet nor due and says so aloud; a false term acts not at "
+           "all; and what is said reaches the surface rather than only the air")
+    return r
+
 def check_loop_observes_and_is_bounded() -> Result:
     """VESPER can take a second step, and every way of not stopping is bounded.
 
@@ -18749,6 +18973,7 @@ CHECK_FNS = {
     "loop-observes-and-is-bounded": check_loop_observes_and_is_bounded,
     "write-never-destroys-what-was-not-read": check_write_never_destroys_what_was_not_read,
     "enable-token-presented-once-per-mint": check_enable_token_presented_once_per_mint,
+    "a-due-item-is-spoken-not-merely-noticed": check_a_due_item_is_spoken_not_merely_noticed,
     "taint-ceiling-binds-the-act-path": check_taint_ceiling_binds_the_act_path,
     "gated-subsystems-are-reachable": check_gated_subsystems_are_reachable,
     "f0-acceptance": check_f0_acceptance,
