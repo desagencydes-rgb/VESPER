@@ -64,8 +64,8 @@ renders it.
 had. Use `python3.13` (`~/.local/bin/python3.13`). Verified 2026-08-23.
 
 ```sh
-python3.13 tools/ci/checks.py all       # 127 checks
-python3.13 tools/ci/self_test.py        # red-then-green, 571 cases
+python3.13 tools/ci/checks.py all       # 128 checks
+python3.13 tools/ci/self_test.py        # red-then-green, 575 cases
 python3.13 tools/traceability_lint.py
 python3.13 tools/reference_lint.py
 python3.13 verification/run_f0_acceptance.py   # ... f1 .. f6
@@ -100,12 +100,12 @@ Six were DECLARED WHEN THE REGISTRY WAS FIRST WRITTEN and never implemented:
 subsystem that has been complete and correct since it was built -- so a
 regression in `core/bus.py`, `core/taint.py`, `core/authorize.py`,
 `core/capability.py`, `core/evidence.py` or the gateway's cost choke point would
-have been caught by nothing at all. **18 of 118 registered checks are still
+have been caught by nothing at all. **18 of 119 registered checks are still
 `impl = "PENDING"`**, and that number is the one worth watching now: it is a
 better measure of this corpus's real coverage than the check count is, because
 a PENDING entry looks like enforcement in every listing that does not read the
 `impl` field. `python3.13 tools/ci/checks.py ci-registry` prints the honest
-figure -- **89 of 144 invariants** are named by an implemented, bidirectionally
+figure -- **90 of 144 invariants** are named by an implemented, bidirectionally
 consistent, red-run, non-vacuous check.
 
 **Corrected 2026-08-30:** they read 47 and 160 while the commands printed 57

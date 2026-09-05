@@ -79,11 +79,14 @@ from core.blocks import L1Renderer                              # noqa: E402
 from core.arbiter import Arbiter                                 # noqa: E402
 from core.compactor import Compactor                            # noqa: E402
 from core.context import ContextBudgetManager                   # noqa: E402
-from core.actor import Actor                                    # noqa: E402
+from core.actor import Actor, ACTIVE_SESSION                    # noqa: E402
+from core import permission_mode                                # noqa: E402
+from core import agenda                                         # noqa: E402
 from core import consent                                        # noqa: E402
 from core.confirm import (ConfirmationBroker,                    # noqa: E402
                           NotTheQuestionInFront)
 from core.confirm import requeue as consent_requeue             # noqa: E402
+from core.confirm import ATTENTION_UNKNOWN                      # noqa: E402
 from core.evidence import ClaimChecker                          # noqa: E402
 from core.interruption import InterruptionBudget                # noqa: E402
 from core.memory import MemoryGraph                             # noqa: E402
@@ -158,6 +161,14 @@ POLL_SECONDS = 0.15
 # Where `tools/ops/vesper_arm.py` leaves a fresh token. VESPER cannot write
 # here: `interlock` is a self-defeating path segment, refused by the prohibited
 # tier at every level including under an L5 grant.
+# HOW LONG AN OWNER UTTERANCE PROVES THE OWNER IS THERE. Deliberately short:
+# it is not "how long until they leave", it is "how long may this pump lag
+# before the reading it took stops being a reading". A turn is dispatched and
+# acted on in the same iteration, so the normal age here is milliseconds; a
+# value this size only ever matters when something has gone wrong, and then it
+# fails back to UNKNOWN rather than vouching for a presence nobody observed.
+PRESENCE_FRESH_S = 20.0
+
 ENABLE_TOKEN_PATH = STATE / "interlock" / "enable_token.json"
 
 # WHAT GETS MAPPED. The owner's instruction was "map literally everything, with
@@ -191,8 +202,24 @@ def _present_enable_token(interlock) -> None:
     try:
         raw = ENABLE_TOKEN_PATH.read_text(encoding="utf-8")
         d = json.loads(raw)
+        token_id = str(d["token_id"])
+        # "IF IT IS NEW" WAS IN THIS DOCSTRING AND NOWHERE IN THE CODE. This
+        # runs every tick of the main loop; the minter rewrites the file every
+        # couple of minutes. Between two mints the same token was presented
+        # ~4 times a second, each one correctly refused as a replay and each
+        # refusal published: 13,886 events in one hour, 343,470 in the live
+        # log -- over 80% of every record VESPER has written. Nothing was
+        # attacking it. It was asking itself the same question 4 times a
+        # second and writing down the answer.
+        #
+        # Asking the interlock what it holds, rather than remembering what we
+        # last sent, is what makes this safe: a fresh interlock holds nothing
+        # and the token is presented normally. `_token` is never cleared, so
+        # a match here is a token `present_token` would refuse anyway.
+        if interlock.held_token_id() == token_id:
+            return
         interlock.present_token(EnableToken(
-            token_id=str(d["token_id"]), issued_at_ms=int(d["issued_at_ms"]),
+            token_id=token_id, issued_at_ms=int(d["issued_at_ms"]),
             ttl_ms=int(d["ttl_ms"]), issued_by=str(d["issued_by"]),
             signature=str(d.get("signature", ""))))
     except Exception:                              # noqa: BLE001
@@ -380,6 +407,17 @@ def build(node: str = "vesper-runtime"):
     sensors.register(Sensor("fact-expiry", "world.facts", "expired_present",
                             world.expired_present, SWEEP, period_ms=30_000))
 
+    # THE OWNER'S DAY, WHICH NOTHING WATCHED UNTIL NOW. Same sweep shape and
+    # the same reason: an appointment becoming imminent emits nothing, so the
+    # only way to see it is to ask. `core/agenda.py` reads VESPER's own plan
+    # file plus whatever the app's EventKit bridge last wrote, and reports an
+    # unreadable calendar as UNAVAILABLE rather than as a clear day -- so this
+    # term is False both when there is nothing due AND when VESPER cannot see,
+    # and the two are told apart in words rather than by acting on the second
+    # as though it were the first.
+    sensors.register(Sensor("agenda-due", "world.agenda", "item_due",
+                            agenda.item_due, SWEEP, period_ms=60_000))
+
     # THE AUTONOMY LOOP. `tick()` DECIDES AND PUBLISHES; IT DOES NOT ACT --
     # actuation is a separate concern with its own gate, and the interlock is
     # what will stand in front of it. Wiring the decision half now means the
@@ -396,6 +434,10 @@ def build(node: str = "vesper-runtime"):
     autonomy = AutonomyLoop(bus, world, PredicateEvaluator(bus, world),
                             now_ms=lambda: int(time.time() * 1000))
     autonomy.register(expiry_trigger())
+    # Registered HERE and not beside its sensor above, because `autonomy` does
+    # not exist yet up there -- the sensor registry is built before the loop
+    # is. Putting the two lines together read better and did not run.
+    autonomy.register(agenda.agenda_trigger())
     # THE LOOP HAD ONE INSTRUCTION UNTIL 2026-09-01. It woke on every pass,
     # found memory expiry the only thing to consider, and went back to sleep.
     for _t in self_directed_triggers():
@@ -1242,6 +1284,29 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                 # consent and neither is having been nearby.
                 did = None
                 spoken = intake.history[-1].text
+                # THE OWNER IS HERE, AND UNTIL NOW NOTHING SAID SO.
+                #
+                # `world.owner.attention_state` has no producer -- `core/
+                # confirm.py` says so in its own docstring -- so every call
+                # into the actor carried the default UNKNOWN. An unknown
+                # attention state means `budget_for` returns DEFAULT_BUDGET = 0,
+                # which means every confirmation was QUEUED instead of asked,
+                # which sets `asked = False`, which is exactly the flag
+                # `Actor.answerable` requires before a "yes" may settle a
+                # question. So no "yes" the owner has ever said could resolve
+                # anything: measured 2026-09-05, three of them in a row, each
+                # one re-planned from scratch into a new parked turn.
+                #
+                # THIS IS A MEASUREMENT AND NOT A DEFAULT, which is the whole
+                # distinction `confirm.py` warns about: hard-coding "available"
+                # would turn "I do not know if you are there" into "speak now",
+                # and that is the declared-versus-measured error INV-HW-2
+                # exists to refuse. What is measured here is narrow and true:
+                # an utterance FROM THE OWNER was dispatched in this very
+                # iteration, milliseconds ago. If the pump ever falls behind,
+                # the age check below returns the state to UNKNOWN on its own
+                # rather than vouching for a presence nobody observed.
+                dispatched_at_s = time.time()
                 if actor is not None and actor.parked():
                     verdict, rest = consent.classify(spoken)
                     if verdict == consent.OTHER or not actor.answerable():
@@ -1300,7 +1365,14 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                         if last_action is not None:
                             recent.append({"who": "vesper (did)",
                                            "text": last_action})
-                        did = actor.maybe_act(spoken, recent=recent)
+                        # Presence decays: fresh only while the utterance
+                        # that proves it is fresh.
+                        attention = ("available"
+                                     if (time.time() - dispatched_at_s)
+                                     <= PRESENCE_FRESH_S else ATTENTION_UNKNOWN)
+                        did = actor.maybe_act(spoken, recent=recent,
+                                              attention_state=attention,
+                                              period=ACTIVE_SESSION)
                         # THE REAL THOUGHT, in the words the decision was made
                         # in. Until now every line on the thinking column came
                         # from the phrasebook in voice.toml, so the surface
@@ -1479,7 +1551,33 @@ def main() -> int:
     # uses. One entry point, so voice and text are the same conversation.
     ap.add_argument("--hear", nargs="?", const=6, type=float, metavar="SECONDS",
                     help="record, transcribe through the gateway, and answer")
+    ap.add_argument("--permission-mode", metavar="MODE",
+                    help="set how much VESPER may do without asking: "
+                         + " | ".join(permission_mode.MODES))
+    ap.add_argument("--permission-mode-status", action="store_true",
+                    help="print the current permission mode and exit")
     args = ap.parse_args()
+
+    # BEFORE `build()`, AND THAT IS THE WHOLE REASON THESE TWO ARE HERE RATHER
+    # THAN INSIDE THE PUMP. Reading or setting the mode must not require a
+    # working gateway, a model, a microphone or an enable token: the owner
+    # reaches for this switch precisely when something is not working, and a
+    # switch that needs the system it governs to be healthy is not a switch.
+    if args.permission_mode_status:
+        m = permission_mode.read()
+        print(f"permission mode: {m}")
+        print(f"  {permission_mode.DESCRIPTION[m]}")
+        print(f"  standing level: {permission_mode.standing_level(m)}")
+        return 0
+    if args.permission_mode:
+        try:
+            rec = permission_mode.write(args.permission_mode, principal="owner")
+        except permission_mode.ModeRefused as exc:
+            print(f"refused: {exc}")
+            return 2
+        print(f"permission mode: {rec['mode']}")
+        print(f"  {permission_mode.DESCRIPTION[rec['mode']]}")
+        return 0
 
     (bus, gw, router, home, intake, triage, report, persona, bench,
      renderer, updater, misses, chooser, world, sensors,

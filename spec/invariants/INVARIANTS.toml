@@ -220,7 +220,7 @@ kind = "runtime"
 [invariants.INV-STOP-4]
 statement = "The runtime cannot mint, extend, replay or forge an enable token; the signing key is not reachable by any runtime capability."
 owner_rem = "REM-005"
-enforced_by = ["A-031"]
+enforced_by = ["A-031", "CI-119"]
 kind = "runtime"
 
 [invariants.INV-STOP-5]

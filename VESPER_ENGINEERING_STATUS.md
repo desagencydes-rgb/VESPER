@@ -45,7 +45,7 @@ gating, not building, is where this corpus loses ground.**
 `documented-counts-match-commands` reads every figure this file and `CLAUDE.md`
 quote from a command and compares it to what the command produces. It found two
 further live claims stale by years on its first run — *"41 of 56 CI checks
-unimplemented"* and *"18 of 118 invariants enforced"* — in the table below that
+unimplemented"* and *"18 of 119 invariants enforced"* — in the table below that
 says every number in it is produced by a command.
 
 **One security question is open and deliberately undecided** — see
@@ -96,10 +96,10 @@ tools/traceability_lint.py                    PASS   0 errors, 0 warnings, 0 inf
 tools/traceability_lint.py --profile release  FAIL   2 errors, DEPTH only (SR-017, SR-034)
 tools/reference_lint.py                       PASS   0 errors — 179 normative files scanned
 tools/reference_lint.py --self-test           PASS   6/6 red-then-green
-tools/ci/checks.py all                        PASS   127/127 runnable checks
-tools/ci/self_test.py                         PASS   571/571 red under violation, green after restore
-tools/ci/checks.py status                            100/118 check IDs implemented, 18 PENDING
-tools/ci/checks.py ci-registry                       ENFORCED TODAY: 89/144 invariants
+tools/ci/checks.py all                        PASS   128/128 runnable checks
+tools/ci/self_test.py                         PASS   575/575 red under violation, green after restore
+tools/ci/checks.py status                            101/119 check IDs implemented, 18 PENDING
+tools/ci/checks.py ci-registry                       ENFORCED TODAY: 90/144 invariants
 verification/run_f0_acceptance.py             PASS
 verification/run_f1_acceptance.py             PASS
 verification/run_f2_acceptance.py             PASS
@@ -124,7 +124,7 @@ the point of naming that defect was to stop repeating it. Start the endpoint wit
 `~/VESPER-runtime/serve.sh` — llama.cpp **b10405-e79e4bf66**, the same build node 1 runs,
 so the two nodes' figures are comparable rather than merely both present.
 
-**The two figures that matter, and the difference between them.** *"21 of 56 checks implemented"* is true and flattering. *"23 of 118 invariants are enforced today"* is the number a reader actually wants. An invariant counts as enforced today only if a check names it that is **implemented**, **symmetric in both registries**, **red-run by the harness**, and **not vacuous on this tree**. `ci-registry` computes it on every run, so it cannot go stale.
+**The two figures that matter, and the difference between them.** *"21 of 56 checks implemented"* is true and flattering. *"23 of 119 invariants are enforced today"* is the number a reader actually wants. An invariant counts as enforced today only if a check names it that is **implemented**, **symmetric in both registries**, **red-run by the harness**, and **not vacuous on this tree**. `ci-registry` computes it on every run, so it cannot go stale.
 
 **The vacuity exclusion is now empty, and the prose that said otherwise was stale.** Until 2026-08-18 this paragraph named `CI-007` and `CI-008` as excluded for having nothing to scan. `_vacuous_checks()` adds `CI-007` only when *no* scope directory exists and `CI-008` only when `core/`, `tasks/` and `memory/` are all empty — and `core/` has held 65 files since F0 landed. Neither has been excluded for some time; the sentence describing them as excluded outlived the condition it described. Read the command, not this file.
 
@@ -225,9 +225,9 @@ And one requirement gap:
 
 | Gap | Detail | Why it is acceptable now |
 |---|---|---|
-| **18 of 118 CI checks unimplemented** | `tools/ci/checks.py status` for the live figure | Most are structural checks over source code that does not exist. Each declares its self-test and lands **with** its subsystem. `CI-022`, `CI-034b`, `CI-046b` were deliberately split or held at `PENDING` rather than let a partial implementation be reported as full coverage. |
+| **18 of 119 CI checks unimplemented** | `tools/ci/checks.py status` for the live figure | Most are structural checks over source code that does not exist. Each declares its self-test and lands **with** its subsystem. `CI-022`, `CI-034b`, `CI-046b` were deliberately split or held at `PENDING` rather than let a partial implementation be reported as full coverage. |
 | **7 SRs below `SPECIFIED`** | SR-016, 017 (`DESIGNED`); SR-023, 033, 034, 035, 038 (`CONTRACTED`) | Each names the artifact required and why it is absent. **SR-034 is the worked example of the discriminator**: a decision function for *"clean hierarchy, formatting, vocabulary"* would be a document written to move a linter. |
-| **89 of 144 invariants enforced by an implemented, red-run, non-vacuous check** | Computed by `ci-registry` on every run; the remainder are enforced by acceptance tests or by nothing yet. | Visible in every `ci-registry` run as a note. Most require runtime state to check at all. |
+| **90 of 144 invariants enforced by an implemented, red-run, non-vacuous check** | Computed by `ci-registry` on every run; the remainder are enforced by acceptance tests or by nothing yet. | Visible in every `ci-registry` run as a note. Most require runtime state to check at all. |
 | **Acceptance tests are specifications** | 52 tests with procedures and assertions | Executable fixtures require the runtime. **None is executable today.** 49 name the wrong build that must fail; 3 record why a negative control cannot exist. |
 | **`A-029` and `A-031` never run** | The two decisive gates | Cannot run before the autonomy engine and interlock exist. `CI-027` blocks the autonomy release without their evidence. |
 | **11 of 12 spikes unrun; `capability_profiles.toml` still entirely `UNKNOWN`** | `SPIKE-001` is `RUNNING` — see below. The other 11 are `NOT_STARTED`. The profile file carries 31 unmeasured fields and `measured = false`. | Deliberate and enforced: `CI-034` fails the file if any figure is filled in from a datasheet while `measured = false`. Unmeasured is treated as **unavailable**, not as available. **Measured-but-unpromoted is the correct state**: SPIKE-001 has real numbers on disk and none of them has been written into the contract, because promotion is a separate deliberate act and the spike's own pass criteria are not all met. |

@@ -2678,3 +2678,12 @@ impl = "tools/ci/checks.py write-never-destroys-what-was-not-read"
 blocking = "pr"
 self_test = """Allow a write to a file this session has never read."""
 self_test_evidence = "tools/ci/self_test.py write-never-destroys-what-was-not-read -- 5 cases, executed 2026-09-03: red under violation, green after restore."
+
+[checks.CI-119]
+name = "enable-token-presented-once-per-mint"
+enforces = ["INV-STOP-4"]
+kind = "runtime-fixture"
+impl = "tools/ci/checks.py enable-token-presented-once-per-mint"
+blocking = "pr"
+self_test = """Present the minter's token on every tick of the main loop without asking whether the interlock already holds it, and count the refusals."""
+self_test_evidence = "tools/ci/self_test.py enable-token-presented-once-per-mint -- 4 cases, executed 2026-09-05: red under violation, green after restore. The live defect measured 13,886 refusals in one hour on a single token_id, and 343,470 records -- over 80% of the log."

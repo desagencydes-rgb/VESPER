@@ -27,7 +27,7 @@ HOME_SRC=../home-macos
 # CGWindowListCreateImage obsoleted=15.0. Every call above 13.0 in these
 # sources is already behind #available, so the floor costs nothing.
 swiftc -O -swift-version 5 -target arm64-apple-macosx13.0 \
-  main.swift FaceRenderer.swift Behaviour.swift SpeechConsent.swift Listener.swift WakeWord.swift FnTrigger.swift \
+  main.swift FaceRenderer.swift Behaviour.swift SpeechConsent.swift AgendaBridge.swift Listener.swift WakeWord.swift FnTrigger.swift \
   "$HOME_SRC/Home.swift" "$HOME_SRC/HomeAmbience.swift" "$HOME_SRC/SpaceWatch.swift" \
   "$HOME_SRC/HomeVerify.swift" "$HOME_SRC/GlassGuard.swift" \
   "$HOME_SRC/HomeChrome.swift" "$HOME_SRC/HomeSurfaces.swift" "$HOME_SRC/RuntimeHost.swift" "$HOME_SRC/HomeCost.swift" \
@@ -120,6 +120,18 @@ cat > "$APP/Contents/Info.plist" <<PLIST
        claim everything stays on the machine, because for Darija it does not. -->
   <key>NSMicrophoneUsageDescription</key><string>VESPER listens for what you say to it. Nothing is captured until you allow this.</string>
   <key>NSSpeechRecognitionUsageDescription</key><string>VESPER turns speech into text so it can answer. English is recognised on this Mac; other languages are sent to a transcription service.</string>
+  <!-- EventKit, and the reason these two exist rather than Full Disk Access:
+       the raw stores under ~/Library/Group Containers answer "Operation not
+       permitted" without FDA, which would hand VESPER mail, messages and
+       browser history to read a list of appointments. These ask for the two
+       things it needs and can be revoked one at a time. Both the legacy and
+       the macOS 14+ key names are declared: the framework picks the one it
+       wants and a missing string is a SIGABRT at request time, not a dialog
+       the owner can decline. -->
+  <key>NSCalendarsUsageDescription</key><string>VESPER reads your calendar so it knows what is coming up and when to bring it to you. It never writes to it.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>VESPER reads your calendar so it knows what is coming up and when to bring it to you. It never writes to it.</string>
+  <key>NSRemindersUsageDescription</key><string>VESPER reads your reminders so it can rank what is due against everything else you have asked of it.</string>
+  <key>NSRemindersFullAccessUsageDescription</key><string>VESPER reads your reminders so it can rank what is due against everything else you have asked of it.</string>
 </dict>
 </plist>
 PLIST
@@ -272,11 +284,6 @@ LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchService
 # first registration lands, so launchd is handed a job whose previous instance
 # has not finished dying. One pass looked correct and left the globe key and
 # the microphone dead; the loop is what actually restores them.
-for _pass in 1 2; do
-  "$APP/Contents/MacOS/VESPER" --reinstall-login-item 2>&1 | sed "s/^/  pass $_pass: /" || \
-    echo "  WARNING: agent re-registration failed -- globe x3 may start nothing"
-  [ "$_pass" = "1" ] && sleep 6
-done
 
 # Reload the LaunchAgent if it is installed, so a rebuild does not leave launchd
 # supervising a binary that no longer exists.
@@ -309,6 +316,72 @@ if [ -f "$HOME/Library/LaunchAgents/$ID.plist" ]; then
   else
     echo "WARNING: $ID is not in launchctl after reload." >&2
   fi
+fi
+
+# --------------------------------------------------------------- the agents
+#
+# AFTER the reload, not before, and VERIFIED rather than counted.
+#
+# This was two passes with `sleep 6` between them, on the measurement that a
+# second pass "a few seconds later brings them up at 0". MEASURED 2026-09-04,
+# on the build that added this block: both passes ran, the build printed
+# "re-registered" six times and exited 0, and `ai.vesper.island.wake` and
+# `.fnwatch` were BOTH sitting at `exit = 78: EX_CONFIG` when the build
+# finished. A third pass by hand, seconds later, brought both up at 0.
+#
+# So the number of passes was never the variable -- the old processes finish
+# dying when they finish dying, and a fixed count is a guess about that. Two
+# guesses in a row still left the globe key and the microphone dead while the
+# build said it had fixed them. This asks launchd for a PID after every pass
+# and stops when it has one for all three, which is the only reading that
+# distinguishes "registered" from "running". It also runs AFTER the LaunchAgent
+# reload above, because that reload restarts the island underneath whatever the
+# registration just did.
+# WHAT "UP" MEANS, AND WHY IT IS NOT "HAS A PID". `ai.vesper.island.wake`
+# exits 1 on purpose until the owner grants speech recognition, and KeepAlive
+# restarts it, so at any instant it may legitimately have no PID. Requiring a
+# PID here made the build print "the wake word will do nothing" on a correctly
+# registered agent whose only problem was an ungranted permission -- a warning
+# that sends the reader to the wrong place.
+#
+# `78` (EX_CONFIG) is the one that means REGISTRATION failed: launchd never got
+# far enough to run the binary, which is the stale-record symptom this loop
+# exists for. An agent that ran and exited is reached; an agent at 78 is not.
+# THE THREE LABELS ARE WRITTEN OUT, NOT SPLIT FROM A STRING. Looping over an
+# unquoted variable relies on word-splitting, which is a bash behaviour; zsh
+# does not split, so the loop runs ONCE with all three labels glued together,
+# matches nothing, and reports every agent down. Measured 2026-09-04: the
+# string form said "NOT UP" about three agents, two of which were plainly
+# running with PIDs. A predicate whose answer depends on which shell read it is
+# worse than no predicate, and this file is run by hand as often as by its
+# shebang.
+_up() {
+  for _a in "$ID" "$ID.fnwatch" "$ID.wake"; do
+    _row="$(launchctl list 2>/dev/null | awk -v l="$_a" '$3 == l {print $1 "|" $2}')"
+    [ -z "$_row" ] && return 1                    # not registered at all
+    case "${_row%%|*}" in
+      ''|*[!0-9]*)                                # no PID -- judge by exit code
+        [ "${_row##*|}" = "78" ] && return 1 ;;
+    esac
+  done
+  return 0
+}
+for _pass in 1 2 3 4 5 6; do
+  _up && break
+  "$APP/Contents/MacOS/VESPER" --reinstall-login-item >/dev/null 2>&1 || true
+  sleep 3
+done
+if _up; then
+  echo "agents running:"
+  for _a in "$ID" "$ID.fnwatch" "$ID.wake"; do
+    echo "  $_a (pid $(launchctl list 2>/dev/null | awk -v l="$_a" '$3 == l {print $1}'))"
+  done
+else
+  echo "WARNING: an agent is registered but NOT RUNNING after 6 passes." >&2
+  echo "         globe x3 and/or the wake word will do nothing. Status:" >&2
+  for _a in "$ID" "$ID.fnwatch" "$ID.wake"; do
+    launchctl list 2>/dev/null | awk -v l="$_a" '$3 == l {print "         " l " pid=" $1 " exit=" $2}' >&2
+  done
 fi
 
 echo "built: $APP"

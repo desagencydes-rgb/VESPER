@@ -1191,6 +1191,26 @@ if args.contains("--speech-consent") {
     exit(0)
 }
 
+// THE AGENDA BRIDGE. Same shape and same reason as the speech modes above:
+// before NSApplication.shared, because asking for a permission must not put
+// VESPER's face over the owner's Desktop, and because the runtime cannot ask
+// for these -- a child interpreter does not inherit this bundle's right to
+// prompt.
+if args.contains("--agenda-status") {
+    agendaStatus()
+    exit(0)
+}
+
+if args.contains("--agenda-consent") {
+    requestAgendaConsent()
+    exit(0)
+}
+
+if args.contains("--agenda-dump") {
+    dumpAgenda()
+    exit(0)
+}
+
 if args.contains("--uninstall-login-item") {
     if #available(macOS 13.0, *) {
         try? SMAppService.agent(plistName: "ai.vesper.island.plist").unregister()

@@ -61,6 +61,7 @@ DENY_REASONS = (
     "owner_confirmation_required",
     "prohibited",               # no grant satisfies this, including L5
     "weak_authorization",       # nobody asked for this strongly enough
+    "outside_workspace",        # workspace mode, and this reaches outside it
 )
 
 NEVER_DELEGABLE = ("L4", "L5")
@@ -250,6 +251,7 @@ class PolicyDecisionPoint:
 
     def authorize(self, *, subject: str, capability_id: str, args: dict,
                   target: str, context_ceiling: str = "L5",
+                  mode_ceiling: str = "L5",
                   authorization: str = "owner_explicit",
                   current_lease_epoch: int = 0,
                   command_id: str | None = None,
@@ -304,9 +306,17 @@ class PolicyDecisionPoint:
                               f"grant is bound to command "
                               f"{grant.issued_for_command_id!r}, not {command_id!r}")
 
+        # `mode_ceiling` IS THE OWNER'S SWITCH, AND IT ONLY EVER LOWERS.
+        # `core/permission_mode.py` raises the STANDING GRANT to express "stop
+        # asking me"; this ceiling is how WORKSPACE mode takes that authority
+        # back the moment an action reaches outside the workspace. It is a
+        # separate parameter from `context_ceiling` on purpose and the two must
+        # never be merged: this one is the owner choosing, that one is
+        # INV-ACT-3 refusing to let content choose, and a single field could be
+        # widened by whichever caller passed it last.
         auth_ceiling = authorization_ceiling(authorization)
         effective = _min_level(grant.max_level, declared, context_ceiling,
-                               auth_ceiling)
+                               mode_ceiling, auth_ceiling)
         if LEVEL_RANK[effective] < LEVEL_RANK[required]:
             # THE REASON NAMES THE AXIS THAT BOUND. "Refused" is not useful to
             # the owner; "refused because nobody asked for this" and "refused
@@ -317,12 +327,18 @@ class PolicyDecisionPoint:
                 reason = "weak_authorization"
             elif LEVEL_RANK[context_ceiling] < LEVEL_RANK[required]:
                 reason = "context_ceiling"
+            elif LEVEL_RANK[mode_ceiling] < LEVEL_RANK[required]:
+                # Answerable: the owner can say yes to this one action, or
+                # change the mode. Distinct from `context_ceiling`, which no
+                # answer may lift.
+                reason = "outside_workspace"
             else:
                 reason = "below_required_level"
             return self._deny(subject, cap, reason, effective,
                               f"effective {effective} < required {required} "
                               f"(grant {grant.max_level}, declared {declared}, "
                               f"ceiling {context_ceiling}, "
+                              f"mode {mode_ceiling}, "
                               f"authorization {authorization}/{auth_ceiling})")
 
         # THE LEVEL ALONE DECIDES, owner decision 2026-08-31. This read

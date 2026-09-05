@@ -68,7 +68,14 @@ ASK_BY_PHONE = "phone_call"
 # or a stale epoch is not something the owner can answer in the moment.
 CONFIRMABLE_REASONS = ("grant_consumed", "owner_confirmation_required",
                        "no_grant", "below_required_level",
-                       "weak_authorization")
+                       "weak_authorization", "outside_workspace")
+
+# `outside_workspace` IS THE POINT OF WORKSPACE MODE, NOT A FAILURE OF IT. The
+# owner chose "free in your folder, ask before anything else", so an action
+# reaching outside is precisely the case a question exists for -- and one they
+# can settle with a yes without leaving the mode. Excluding it would have made
+# workspace mode a dead end: VESPER would refuse and the owner's only recourse
+# would be to switch the whole machine to `auto`.
 
 # `weak_authorization` MEANS "NOBODY ASKED FOR THIS STRONGLY ENOUGH", WHICH IS
 # THE ONE REFUSAL A QUESTION EXISTS TO RESOLVE. The authorization ceiling is

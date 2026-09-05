@@ -45,6 +45,7 @@ from typing import Any
 from core.advisor import STOP as ADVISOR_STOP
 from core.advisor import worth_reviewing
 from core.authorize import Decision, Grant, PolicyDecisionPoint
+from core import permission_mode
 from core.capabilities import (INDEPENDENT_VERIFIERS, bind_all,
                                WORKSPACE, build_registry,
                                observation_trust, observe)
@@ -151,8 +152,39 @@ def _failed_sentence(err: Any) -> str:
     return f"that did not go through: {e[:160]}"
 
 
-def _ask_sentence(why: str) -> str:
+# THE PERIOD THIS ACTOR RUNS IN WHEN NOBODY SAYS OTHERWISE, AND IT MUST BE A
+# REAL ONE. This default was the string "active", which is not a member of
+# `interruption.PERIODS` -- so `InterruptionBudget.budget_for` missed every
+# lookup and returned `DEFAULT_BUDGET = 0`, and every confirmation queued
+# instead of being asked. A `dict.get` returning the fail-closed default for a
+# TYPO is indistinguishable from the same default returned as policy, which is
+# why this sat unnoticed under a working-looking system: the owner was asked
+# nothing and told "say yes and I will".
+#
+# Imported rather than spelled, so a rename in `interruption.py` breaks the
+# import instead of silently reintroducing a value nothing matches.
+from .interruption import PERIODS as _PERIODS       # noqa: E402
+
+ACTIVE_SESSION = "ACTIVE_SESSION"
+assert ACTIVE_SESSION in _PERIODS, (
+    f"{ACTIVE_SESSION!r} is not one of {_PERIODS!r}; an unmatched period "
+    f"silently costs every confirmation its budget")
+
+
+def _ask_sentence(why: str, *, asked: bool = True) -> str:
     """The permission question, in words the owner can answer.
+
+    `asked` IS NOT COSMETIC, AND GETTING IT WRONG IS WHAT THE OWNER HIT. The
+    broker decides whether a confirmation is put in front of the owner NOW or
+    QUEUED for later, and only a question it actually asked can be settled by
+    a "yes" -- `Actor.answerable` reads exactly that flag, deliberately, so a
+    bare yes can never resolve a question the owner was never shown.
+    This sentence used to say "Say yes and I will" either way. Measured
+    2026-09-05: the owner said yes three times, each one arrived as a brand
+    new request because the question had only ever been QUEUED, and each one
+    was answered with the same invitation to say yes. Three parked turns,
+    three request_ids, no action. A sentence that invites an answer nothing is
+    waiting for is worse than silence -- it is a loop with no exit.
 
     THE OLD ONE DID NOT ASK ANYTHING. It read: "I stopped before doing that --
     it needs your permission (L5). run the script to output "hey there!"" --
@@ -169,6 +201,13 @@ def _ask_sentence(why: str) -> str:
     wants to know what VESPER is about to do.
     """
     w = (why or "").strip().rstrip(".!?").strip()
+    if not asked:
+        # QUEUED. Do not invite a yes: nothing is listening for one.
+        if not w:
+            return ("That needs your go-ahead, and I have put the question "
+                    "aside for when you are free.")
+        return (f"That needs your go-ahead before I {w}, and I have put the "
+                f"question aside for when you are free.")
     if not w:
         return "I need your go-ahead before I do that. Say yes and I will."
     return f"I need your go-ahead before I {w}. Say yes and I will."
@@ -262,25 +301,45 @@ class Actor:
 
     # ------------------------------------------------------------- grants
 
+    def permission_mode(self) -> str:
+        """The owner's switch, read fresh. See `core/permission_mode.py`.
+
+        READ PER ACTION RATHER THAN CACHED AT STARTUP. The owner changing the
+        mode and it taking effect on the next thing they say is the entire
+        product requirement; a value captured in `__init__` would need a
+        restart, and a restart is what they were trying to stop doing.
+        """
+        return permission_mode.read()
+
     def _issue_standing(self) -> None:
-        """One grant per capability, all at L2, none delegable."""
+        """One grant per capability at whatever the current mode carries.
+
+        RE-ISSUED WHENEVER THE MODE CHANGES, not only at startup, because a
+        `Grant` is a stored object and the PDP reads the stored one. Lowering
+        matters more than raising here: dropping from `auto` back to `ask` has
+        to actually take the authority away, and it only does if the grants on
+        record are rewritten.
+        """
         # RELATIVE TO NOW, and it was absolute. `expiry = STANDING_TTL_MS` is
         # the instant 12 hours after the epoch: unreachable under the PDP's old
         # zero clock, and already twelve hours past under any real one. It read
         # as "never expires" only because nothing ever advanced the clock it
         # was compared against.
         expiry = self._now_ms() + STANDING_TTL_MS
+        mode = self.permission_mode()
+        level = permission_mode.standing_level(mode)
+        self._standing_mode = mode
         for cid in self._registry.ids():
             self._pdp.issue(Grant(
                 grant_id=f"standing:{cid}", subject=self._subject,
                 capability_id=cid, target_scope=(self._target,),
-                max_level=STANDING_LEVEL, expiry_ms=expiry, lease_epoch=0,
+                max_level=level, expiry_ms=expiry, lease_epoch=0,
                 delegable=False, issued_by="owner"))
 
     # --------------------------------------------------------------- act
 
     def maybe_act(self, text: str, *, attention_state: str = "UNKNOWN",
-                  period: str = "active", fragments: list | None = None,
+                  period: str = ACTIVE_SESSION, fragments: list | None = None,
                   max_steps: int = MAX_STEPS,
                   permitted: Any = None,
                   recent: list | None = None,
@@ -511,7 +570,7 @@ class Actor:
         """What is waiting on an answer. Read-only."""
         return [{"request_id": k, "capability_id": v["capability_id"],
                  "step": v["step"], "parked_at_ms": v["parked_at_ms"],
-                 "period": v.get("period", "active")}
+                 "period": v.get("period", ACTIVE_SESSION)}
                 for k, v in self._parked.items()]
 
     def answerable(self) -> str:
@@ -770,9 +829,23 @@ class Actor:
         # Spending the grant here left nothing for the check that actually
         # runs, so an approved L4/L5 action was refused against whatever weaker
         # grant remained -- the owner said yes and nothing happened.
+        # THE OWNER'S MODE, APPLIED HERE AND NOWHERE ELSE IN THIS FUNCTION.
+        # `mode_ceiling` only lowers, so `ask` and `auto` pass L5 and change
+        # nothing; workspace mode is the one that reads the arguments, because
+        # it is the only mode whose answer differs between two calls of the
+        # same capability. If the mode moved since the standing grants were
+        # written, they are rewritten first -- otherwise a drop from `auto`
+        # back to `ask` would leave the old L5 grants on record and the switch
+        # would appear to do nothing for twelve hours.
+        mode = self.permission_mode()
+        if mode != getattr(self, "_standing_mode", None):
+            self._issue_standing()
+        mode_ceiling = permission_mode.ceiling_for(mode, p.capability_id, p.args,
+                                              WORKSPACE)
         d = self._pdp.authorize(subject=self._subject,
                                 capability_id=p.capability_id, args=p.args,
                                 target=self._target, context_ceiling=ceil,
+                                mode_ceiling=mode_ceiling,
                                 authorization=strength,
                                 current_lease_epoch=0,
                                 command_id=command_id,
@@ -896,8 +969,11 @@ class Actor:
             return Outcome("refused", proposal.capability_id, level,
                            said="that needs your say-so and I could not ask",
                            detail={"error": repr(exc)})
+        # THE SENTENCE FOLLOWS THE BROKER, NOT THE INTENTION TO ASK.
+        was_asked = bool((asked or {}).get("asked")) if isinstance(asked, dict) \
+            else bool(asked)
         return Outcome("asked", proposal.capability_id, level,
-                       said=_ask_sentence(proposal.why),
+                       said=_ask_sentence(proposal.why, asked=was_asked),
                        detail={"reason": decision.reason, "asked": asked,
                                "level": level})
 

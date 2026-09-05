@@ -462,3 +462,27 @@ resource_budget = { max_runtime_ms = 60000, max_tool_calls = 6, cost_class_ceili
 stop_conditions = ["six-step turn budget", "three consecutive refusals", "an immediate repeat of the previous action", "enable token absent"]
 reporting_policy = "queue_to_boundary"
 provenance = "authored"
+
+[triggers.trg_agenda_item_due]
+name = "Bring the owner what has come due on their own agenda"
+source = "owner request 2026-09-05 · core/agenda.py · INV-HW-2"
+enabled = true
+predicate_class = "STATE"
+predicate = """
+  world.agenda.item_due
+"""
+predicate_note = """Fires because something on the owner's agenda has come
+due, not because a poll interval arrived -- there is no clock term, so the
+anti-cron probe cannot make it fire on time alone. The term is FALSE both when
+nothing is due AND when a source could not be read; `core/agenda.py` keeps
+those apart in words, and a trigger that fired on an unreadable calendar would
+be acting on an absence of information, which is what INV-HW-2 refuses."""
+debounce_s = 60
+cooldown_s = 0
+priority = "active_user_task"
+required_authority = "L1"
+actuation_scope = "NONE"
+resource_budget = { max_runtime_ms = 5000, max_tool_calls = 0, cost_class_ceiling = "free" }
+stop_conditions = ["nothing on the agenda is due"]
+reporting_policy = "notify"
+provenance = "authored"

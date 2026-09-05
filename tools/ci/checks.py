@@ -12454,6 +12454,172 @@ def check_write_never_destroys_what_was_not_read() -> Result:
     return r
 
 
+
+def check_enable_token_presented_once_per_mint() -> Result:
+    """The runtime asks to replay a token it already holds, thousands of times.
+
+    WHAT THIS COST. `_present_enable_token` runs on every tick of the main
+    loop and re-reads the minter's file; the minter rewrites that file every
+    couple of minutes. Between two mints the runtime handed the interlock the
+    SAME token about four times a second, the interlock correctly refused each
+    one as a replay, and published an event saying so. Measured 2026-09-04 on
+    the owner's machine: 13,886 refusals in one hour, one token_id, one node.
+    343,470 records in the live log -- OVER 80% OF EVERY EVENT VESPER HAS EVER
+    WRITTEN -- plus 610,931 in a rotated 636 MB segment. Nothing was attacking
+    it. It was asking itself the same question four times a second and writing
+    down the answer, into an append-only store that by design cannot forget.
+
+    WHY THE REFUSAL IS NOT THE DEFECT. INV-STOP-4 is why the interlock refuses
+    a replayed token, and that refusal, its exception and its event all stay
+    exactly as they were -- a genuine replay from anywhere is still refused and
+    still audited, and this check asserts that directly. What was wrong was the
+    ASKING. The docstring on `_present_enable_token` said "if it is new" and
+    the code had no such test.
+
+    WHY SKIPPING IS SAFE, AND WHY THAT IS ASSERTED HERE RATHER THAN ARGUED.
+    The skip is sound only because `SafetyInterlock._token` is never cleared:
+    expiry is a comparison against `expires_at_ms()`, not a reset. If some
+    later change nulls `_token` on expiry, a same-id token WOULD become
+    acceptable again and skipping it would suppress a legitimate re-enable --
+    a dead-man's switch that stays dead. So the assertion below reads the
+    source: `_token = None` may appear in `__init__` and nowhere else.
+
+    A LOG NOBODY CAN READ IS A LOG NOBODY CHECKS, and the store's own triggers
+    refuse DELETE (ADR-002 D9), so volume here is not recoverable later. That
+    is the whole argument for gating it.
+    """
+    r = Result("enable-token-presented-once-per-mint")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import json as _j
+    import tempfile as _tf
+    try:
+        from core.interlock import SafetyInterlock, TokenMintingRefused
+        import importlib
+        rt = importlib.import_module("tools.ops.vesper_runtime")
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the interlock or the runtime does not import: {exc!r}")
+        return r
+
+    class CountingBus:
+        def __init__(self) -> None:
+            self.counts: dict = {}
+
+        def publish(self, kind, **_kw):
+            self.counts[kind] = self.counts.get(kind, 0) + 1
+
+    def _write(path, token_id):
+        path.write_text(_j.dumps({
+            "token_id": token_id, "issued_at_ms": 1_000_000,
+            "ttl_ms": 3_600_000, "issued_by": "owner", "signature": "x"}),
+            encoding="utf-8")
+
+    saved_path = rt.ENABLE_TOKEN_PATH
+    with _tf.TemporaryDirectory() as td:
+        tok = Path(td) / "enable_token.json"
+        _write(tok, "aaaaaaaaaaaaaaaa")
+        rt.ENABLE_TOKEN_PATH = tok
+        try:
+            bus = CountingBus()
+            lock = SafetyInterlock(bus, now_ms=lambda: 1_000_100)
+
+            # 1. A FRESH INTERLOCK HOLDS NOTHING, so the first tick presents.
+            #    The over-strict failure -- skip everything, never arm -- is a
+            #    real one and it looks identical in the event count.
+            if lock.held_token_id() is not None:
+                r.err("a fresh interlock reports holding a token; the first "
+                      "presentation would be skipped and autonomy would never "
+                      "be enabled at all")
+
+            # 2. THE RATE. 240 ticks is about a minute of the real loop.
+            TICKS = 240
+            for _ in range(TICKS):
+                rt._present_enable_token(lock)
+            refused = bus.counts.get("safety.token_replay_refused", 0)
+            accepted = bus.counts.get("safety.token_accepted", 0)
+            if refused:
+                r.err(f"{TICKS} ticks over ONE unchanged token produced "
+                      f"{refused} replay refusals. At the measured loop rate "
+                      f"that is ~{refused * 15} events an hour, into a store "
+                      f"whose DELETE is refused at the storage layer")
+            if accepted != 1:
+                r.err(f"one token over {TICKS} ticks was accepted {accepted} "
+                      f"times; it must be exactly 1")
+
+            # 3. THE MEMO MUST NOT DEAFEN THE INTERLOCK. A new mint still
+            #    lands, or the skip has turned a dead-man's switch into a dead
+            #    man -- which passes assertion 2 perfectly.
+            _write(tok, "bbbbbbbbbbbbbbbb")
+            rt._present_enable_token(lock)
+            if bus.counts.get("safety.token_accepted", 0) != 2:
+                r.err("a NEWLY MINTED token was not accepted after the first "
+                      "one; the skip is matching more than the held id and "
+                      "autonomy can never be re-enabled")
+            if lock.held_token_id() != "bbbbbbbbbbbbbbbb":
+                r.err("held_token_id does not follow the token the interlock "
+                      "actually holds, so the caller's skip is keyed on "
+                      "something other than the condition it is avoiding")
+
+            # 4. INV-STOP-4 ITSELF IS UNTOUCHED. A genuine replay -- presented
+            #    directly, as a compromised runtime would -- is still refused
+            #    AND still audited. If this ever passes silently, the storm is
+            #    gone because the defence is gone.
+            before = bus.counts.get("safety.token_replay_refused", 0)
+            from core.interlock import EnableToken as _ET
+            try:
+                lock.present_token(_ET(token_id="bbbbbbbbbbbbbbbb",
+                                       issued_at_ms=1_000_000, ttl_ms=3_600_000,
+                                       issued_by="attacker", signature="x"))
+                r.err("the interlock ACCEPTED a replayed token presented "
+                      "directly. INV-STOP-4 is the reason this refusal exists; "
+                      "quieting the log must not be done by removing it")
+            except TokenMintingRefused:
+                pass
+            if bus.counts.get("safety.token_replay_refused", 0) != before + 1:
+                r.err("a genuine replay was refused without publishing "
+                      "safety.token_replay_refused -- refused but not audited")
+        finally:
+            rt.ENABLE_TOKEN_PATH = saved_path
+
+    # 5. THE SOURCE PROPERTY THE SKIP DEPENDS ON. Parsed, not grepped: the only
+    #    `self._token = None` allowed is the one in __init__.
+    import ast as _ast
+    src = (REPO / "core" / "interlock.py").read_text(encoding="utf-8")
+    tree = _ast.parse(src)
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.ClassDef) or node.name != "SafetyInterlock":
+            continue
+        for meth in node.body:
+            if not isinstance(meth, (_ast.FunctionDef, _ast.AsyncFunctionDef)):
+                continue
+            if meth.name == "__init__":
+                continue
+            for sub in _ast.walk(meth):
+                if not isinstance(sub, _ast.Assign):
+                    continue
+                if not (isinstance(sub.value, _ast.Constant)
+                        and sub.value.value is None):
+                    continue
+                for tgt in sub.targets:
+                    if (isinstance(tgt, _ast.Attribute) and tgt.attr == "_token"
+                            and isinstance(tgt.value, _ast.Name)
+                            and tgt.value.id == "self"):
+                        r.err(f"SafetyInterlock.{meth.name} clears `_token` to "
+                              f"None. The caller skips presenting a token the "
+                              f"interlock already holds, which is only safe "
+                              f"while a held id can NEVER be accepted again. "
+                              f"Clearing it makes a legitimate re-enable "
+                              f"skippable -- a dead-man's switch that stays "
+                              f"dead, with a silent event log")
+
+    r.note("240 ticks over one unchanged token: 1 accepted, 0 refused; a fresh "
+           "interlock holds nothing so the first tick still presents; a newly "
+           "minted token is still accepted and held_token_id follows it; a "
+           "replay presented directly is still refused AND still audited; and "
+           "`_token` is cleared nowhere outside __init__, which is the property "
+           "that makes skipping equivalent to refusing")
+    return r
+
 def check_loop_observes_and_is_bounded() -> Result:
     """VESPER can take a second step, and every way of not stopping is bounded.
 
@@ -18454,6 +18620,7 @@ CHECK_FNS = {
     "shell-runs-contained": check_shell_runs_contained,
     "loop-observes-and-is-bounded": check_loop_observes_and_is_bounded,
     "write-never-destroys-what-was-not-read": check_write_never_destroys_what_was_not_read,
+    "enable-token-presented-once-per-mint": check_enable_token_presented_once_per_mint,
     "taint-ceiling-binds-the-act-path": check_taint_ceiling_binds_the_act_path,
     "gated-subsystems-are-reachable": check_gated_subsystems_are_reachable,
     "f0-acceptance": check_f0_acceptance,

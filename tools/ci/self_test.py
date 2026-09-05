@@ -5089,5 +5089,47 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# CI-119 -- the enable token was presented on every tick, and every one after
+# the first was correctly refused and loudly recorded. 343,470 of those events
+# in the live log, over 80% of everything VESPER has ever written, into a store
+# whose DELETE is refused at the storage layer.
+# --------------------------------------------------------------------------
+CASES += [
+    ("enable-token-presented-once-per-mint", RUNTIME_PY,
+     _sub("        if interlock.held_token_id() == token_id:\n"
+          "            return\n", "", 1),
+     "the loop presents the minter's file every tick again: one token, 239 "
+     "refusals in 240 ticks, each one an event in an append-only store"),
+
+    ("enable-token-presented-once-per-mint", RUNTIME_PY,
+     _sub("        if interlock.held_token_id() == token_id:",
+          "        if interlock.held_token_id() is not None:", 1),
+     "the skip is keyed on HOLDING A TOKEN rather than holding THIS one, so "
+     "the first token is accepted and no later mint ever is -- the log goes "
+     "quiet because the dead-man's switch has stopped being re-armed, which "
+     "passes the refusal count perfectly"),
+
+    ("enable-token-presented-once-per-mint", INTERLOCK,
+     _sub("                raise TokenMintingRefused(\n"
+          '                    f"token {token.token_id!r} has already been presented")',
+          "                pass", 1),
+     "a replayed token presented directly is accepted: the storm is gone "
+     "because INV-STOP-4's defence is gone, which is the one way of quieting "
+     "this log that must never pass"),
+
+    ("enable-token-presented-once-per-mint", INTERLOCK,
+     _sub('            if self._now_ms() >= self._token.expires_at_ms():\n'
+          '                return "enable_token_expired"',
+          '            if self._now_ms() >= self._token.expires_at_ms():\n'
+          '                self._token = None\n'
+          '                return "enable_token_expired"', 1),
+     "an expired token is cleared, which looks like tidying up and is the one "
+     "change that makes the caller's skip unsafe: a re-minted token with the "
+     "same id would now be acceptable, and the caller would skip it"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
+

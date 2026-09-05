@@ -92,6 +92,25 @@ class SafetyInterlock:
 
     # --------------------------------------------------------------- tokens
 
+    def held_token_id(self) -> str | None:
+        """The token_id currently held, or None.
+
+        EXISTS SO A CALLER CAN AVOID PRESENTING WHAT IS ALREADY HELD. A caller
+        in a loop that re-reads the minter's file every tick would otherwise
+        present the same token thousands of times between mints, and every one
+        of those is a refusal WITH AN EVENT: measured 13,886 in one hour, one
+        token_id, 343,470 records -- over 80% of the live log. The refusal is
+        correct and stays; what was wrong is asking for it.
+
+        `self._token` is never cleared -- expiry is a comparison against
+        `expires_at_ms()`, not a reset (see `autonomy_permitted`) -- so an id
+        this returns can NEVER be accepted again by `present_token`. Skipping
+        on a match is therefore refusing exactly what would have been refused,
+        and cannot let autonomy run one millisecond longer.
+        """
+        with self._lock:
+            return self._token.token_id if self._token is not None else None
+
     def present_token(self, token: EnableToken) -> None:
         """Accept a token minted OUTSIDE the runtime.
 
