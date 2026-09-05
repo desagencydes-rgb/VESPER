@@ -51,6 +51,8 @@ TOKEN_PATH = TOKEN_DIR / "enable_token.json"
 KEY_PATH = pathlib.Path.home() / ".config" / "vesper" / "interlock.key"
 
 LABEL = "ai.vesper.arm"
+# What the bundle calls its minter. The one that should be running.
+BUNDLE_LABEL = "ai.vesper.island.arm"
 PLIST = pathlib.Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
 
 # How long one token is good for. Short enough that a dead minter stops VESPER
@@ -126,6 +128,34 @@ def _launch_argv() -> list:
 
 
 def install() -> int:
+    """REFUSES. The bundle owns the minter now.
+
+    THERE WERE SEVEN MINTERS ON THIS MACHINE AT ONCE, every one of them
+    presenting a token, and the log recorded a replay refusal for each. Two
+    ways to install the same agent is how that happens: this function wrote
+    `ai.vesper.arm` while `build.sh` wrote `ai.vesper.island.arm`, both
+    RunAtLoad, both KeepAlive, neither aware of the other.
+
+    The bundle's copy is the one that survives, for the reason every other
+    helper became a mode of the app binary: a minter running outside the bundle
+    whose autonomy it keeps alive is a second identity on the machine with a
+    claim on VESPER's authority. `--run` and `--once` are untouched; it is only
+    the second INSTALLER that is gone.
+    """
+    print("refused: the minter is installed by the app bundle, as "
+          f"{BUNDLE_LABEL}, and re-registered on every build.")
+    print("  install it:  bash app/island-macos/build.sh")
+    print(f"  check it:    launchctl list | grep {BUNDLE_LABEL}")
+    print("  this file still mints: --run (loop) and --once (single token).")
+    if PLIST.exists():
+        print(f"\nNOTE: a stale {LABEL} plist exists at {PLIST}.")
+        print("  It is a second minter. Remove it:")
+        print(f"    launchctl bootout gui/$(id -u)/{LABEL} 2>/dev/null")
+        print(f"    rm {PLIST}")
+    return 2
+
+
+def _install_disabled() -> int:
     PLIST.parent.mkdir(parents=True, exist_ok=True)
     argv = "".join(f"\n    <string>{a}</string>" for a in _launch_argv())
     PLIST.write_text(f"""<?xml version="1.0" encoding="UTF-8"?>

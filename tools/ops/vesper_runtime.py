@@ -88,7 +88,8 @@ from core.confirm import (ConfirmationBroker,                    # noqa: E402
 from core.confirm import requeue as consent_requeue             # noqa: E402
 from core.confirm import ATTENTION_UNKNOWN                      # noqa: E402
 from core.evidence import ClaimChecker                          # noqa: E402
-from core.interruption import InterruptionBudget                # noqa: E402
+from core.interruption import (InterruptionBudget,              # noqa: E402
+                               Candidate)
 from core.memory import MemoryGraph                             # noqa: E402
 from core.extract import FactExtractor                          # noqa: E402
 from core.updater import MissRecorder, Updater                  # noqa: E402
@@ -728,7 +729,14 @@ def build(node: str = "vesper-runtime"):
     # offered the chance to improve it, and anything that goes wrong leaves the
     # deterministic line standing. The owner being told is the requirement; the
     # phrasing is the nicety.
-    def _agenda_due_handler() -> dict:
+    # ITS OWN BUDGET INSTANCE, NOT THE BROKER'S. The broker's allowance is for
+    # questions it must ask to finish a turn; this is VESPER volunteering
+    # something. Sharing one counter would let a busy afternoon of
+    # confirmations silence the calendar, and vice versa.
+    _interruptions = InterruptionBudget(bus)
+
+    def _agenda_due_handler(*, period: str = "FREE_TIME",
+                            attention_state: str = "UNKNOWN") -> dict:
         now_ms = int(time.time() * 1000)
         ag = agenda.build()
         due = ag.due_now(now_ms)
@@ -738,6 +746,46 @@ def build(node: str = "vesper-runtime"):
             # failure, and announcing an empty list would be worse than quiet.
             return {"said": "", "note": "nothing due by the time it was read"}
         line = agenda.sentence(ag, now_ms)
+
+        # MAY VESPER SPEAK RIGHT NOW? Asked BEFORE the model is called, so a
+        # question nobody will hear does not cost a rung.
+        #
+        # WHY THIS EXISTS. `LEAD_S` is fifteen minutes, so this fires a quarter
+        # hour before a calendar event -- right while the owner is up, and
+        # wrong at three in the morning. Nothing else in this path knows what
+        # hour it is: the ranking is about importance and time-until-due, not
+        # about whether a person is available to be interrupted. That is what
+        # `InterruptionBudget` is for, and it was built and reached by nothing
+        # here.
+        #
+        # DECAYS = FALSE, so an item that cannot be surfaced now QUEUES rather
+        # than being dropped: a meeting is worth the same when the owner wakes
+        # up. `is_alarm` is deliberately NOT set -- an alarm bypasses the budget
+        # entirely, and a calendar entry is not an alarm. The 09:00 alarm has
+        # its own path and its own rung ladder.
+        #
+        # THE PERIOD AND ATTENTION ARE READ, NOT ASSUMED. `dispatch` hands them
+        # down; its defaults are FREE_TIME and ABSENT, which is the fail-closed
+        # pair -- budget 0, so an announcement waits until something establishes
+        # that the owner is there. Defaulting to "available" here would be the
+        # same declared-vs-measured error the yes-loop was.
+        allowed = _interruptions.allocate(
+            [Candidate(candidate_id="agenda", expected_value=0.8,
+                       decays=False, interruption_cost=0.3)],
+            period=period, attention_state=attention_state)
+        if "agenda" not in allowed.surfaced:
+            bus.publish("agenda.withheld", subject="agenda",
+                        payload={"said": line,
+                                 "due": [i.item_id for i in due],
+                                 "period": period,
+                                 "attention_state": attention_state,
+                                 "note": ("the interruption budget for this "
+                                          "period and attention state is spent "
+                                          "or zero; the announcement is queued, "
+                                          "not dropped")},
+                        component="runtime")
+            return {"said": "", "withheld": True}
+
         try:
             from core.intake import Utterance as _U
             prompt = (
@@ -1047,6 +1095,13 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
     # The last thing VESPER actually did, so the next turn's "it" resolves.
     last_action = None
+    # WHEN THE OWNER WAS LAST DEMONSTRABLY HERE. Survives across pump
+    # iterations, unlike the per-turn reading the yes-loop takes, because
+    # the autonomy dispatch happens at the TOP of an iteration -- before
+    # anything the owner might say in it. Starts at 0, which is "never
+    # observed" and reads as UNKNOWN, so a fresh runtime volunteers
+    # nothing until the owner speaks to it once.
+    _last_owner_s = 0.0
     # SENSORS FIRST, AND THE PERIOD DECIDES WHETHER ANYTHING ACTUALLY RUNS.
     # `poll()` returns immediately for any sensor that is not due, so calling it
     # every pass costs a dictionary lookup rather than a probe. Before the turn,
@@ -1123,7 +1178,24 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                 # THE RETURN VALUE WAS DISCARDED, so anything autonomy did
                 # was audible and invisible: spoken aloud, absent from the
                 # surface the owner is looking at.
-                for _rec in (autonomy.dispatch(autonomy.tick()) or []):
+                # WHEN IT IS, MEASURED. `dispatch`'s own defaults are
+                # FREE_TIME and UNKNOWN -- budget zero, so a volunteered
+                # announcement waits rather than speaking into an empty room.
+                # The pump is the one place that knows better: an owner
+                # utterance was dispatched here, milliseconds ago. Same
+                # measurement the yes-loop uses, same decay back to UNKNOWN
+                # when the pump falls behind, and for the same reason --
+                # defaulting to "available" would turn "I do not know if you
+                # are there" into "speak now".
+                _auto_attention = (
+                    "available"
+                    if (time.time() - _last_owner_s) <= PRESENCE_FRESH_S
+                    else "UNKNOWN")
+                for _rec in (autonomy.dispatch(
+                        autonomy.tick(),
+                        period=(ACTIVE_SESSION if _auto_attention == "available"
+                                else "FREE_TIME"),
+                        attention_state=_auto_attention) or []):
                     _said = ((_rec.get("result") or {}).get("said") or "").strip()
                     if _said:
                         transcript.append({"who": "vesper", "source": "vesper",
@@ -1375,6 +1447,7 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                 # the age check below returns the state to UNKNOWN on its own
                 # rather than vouching for a presence nobody observed.
                 dispatched_at_s = time.time()
+                _last_owner_s = dispatched_at_s
                 if actor is not None and actor.parked():
                     verdict, rest = consent.classify(spoken)
                     if verdict == consent.OTHER or not actor.answerable():

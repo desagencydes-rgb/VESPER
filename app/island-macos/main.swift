@@ -1098,8 +1098,15 @@ if args.contains("--reinstall-login-item") {
         // got far enough to write one. Globe x3 had been starting nothing for
         // a day, and only did not bite because the app it starts was already
         // running.
+        // ALL FIVE. Every agent this bundle ships must be listed here or a
+        // rebuild leaves it holding a stale record: registered, reported
+        // enabled, and never spawned. `.fnwatch` sat at EX_CONFIG for a day
+        // that way. `.agenda` and `.arm` were added 2026-09-05 -- the calendar
+        // reader and the minter, which are the two agents whose silence looks
+        // most like "VESPER simply had nothing to say".
         for name in ["ai.vesper.island.plist", "ai.vesper.island.fnwatch.plist",
-                     "ai.vesper.island.wake.plist"] {
+                     "ai.vesper.island.wake.plist", "ai.vesper.island.agenda.plist",
+                     "ai.vesper.island.arm.plist"] {
             let svc = SMAppService.agent(plistName: name)
             try? svc.unregister()
             Thread.sleep(forTimeInterval: 1.0)

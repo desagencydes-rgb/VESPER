@@ -204,6 +204,86 @@ cat > "$APP/Contents/Library/LaunchAgents/$ID.wake.plist" <<PLIST
 </dict></plist>
 PLIST
 
+# THE CALENDAR BRIDGE IS AN AGENT AND NOT A THREAD OF THE RUNTIME, and the
+# reason is TCC rather than tidiness. Calendar and Reminders access is granted
+# to THIS BUNDLE; the Python runtime is a child interpreter and does not
+# inherit the right to ask for it or to use it. So the thing that reads the
+# calendar has to be the app, and the app has to be started by launchd.
+#
+# `StartInterval`, NOT `KeepAlive`. `--agenda-dump` writes a file and exits;
+# KeepAlive would restart it instantly, forever. Ten minutes against a fifteen
+# minute freshness window in `core/agenda.py`, so one missed run still leaves a
+# reading the runtime will trust, and two missed runs read as UNAVAILABLE
+# rather than as a clear day.
+#
+# `RunAtLoad` SO A COLD BOOT HAS AN AGENDA. Without it the first dump would be
+# up to ten minutes after login, and for those ten minutes VESPER would
+# correctly report it cannot see the calendar -- true, and needlessly true.
+cat > "$APP/Contents/Library/LaunchAgents/$ID.agenda.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$ID.agenda</string>
+  <key>ProgramArguments</key><array>
+    <string>$APP/Contents/MacOS/VESPER</string>
+    <string>--agenda-dump</string>
+  </array>
+  <key>WorkingDirectory</key><string>$REPO</string>
+  <key>RunAtLoad</key><true/>
+  <key>StartInterval</key><integer>600</integer>
+  <!-- Background is correct HERE and wrong for the other three: this opens no
+       window, no event tap and no microphone. It reads EventKit and writes a
+       file. The fnwatch agent sat at EX_CONFIG for a day because it was
+       declared Background and needed the window server; this one genuinely
+       does not. -->
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>$HOME/Library/Application Support/VESPER/agenda.out</string>
+  <key>StandardErrorPath</key><string>$HOME/Library/Application Support/VESPER/agenda.err</string>
+</dict></plist>
+PLIST
+
+# THE MINTER, WHICH IS WHAT MAKES AUTONOMY POSSIBLE AT ALL. `VESPER --arm`
+# writes the enable token the interlock needs; without it `autonomy_permitted()`
+# is false, every fired trigger is recorded as `autonomy.stopped`, and the
+# agenda watches the owner's day and may never act on it. Measured 2026-09-04:
+# stopped since 19:13, reason `enable_token_expired`, no minter process
+# anywhere on the machine.
+#
+# `KeepAlive`, NOT `StartInterval`, AND THE DIFFERENCE WAS MEASURED RATHER
+# THAN ASSUMED. `tools/ops/vesper_arm.py` mints in its own `while True` with
+# its own sleep, so it never exits; StartInterval would have launchd firing a
+# second copy every interval on top of a process still running. That is how
+# seven minters ended up on this machine at once, all presenting tokens, and
+# the log recording a replay refusal for each. One supervised process, restarted
+# if it dies.
+#
+# AS A MODE OF THE APP BINARY, never a bare `python3`. A minter running outside
+# the bundle whose autonomy it keeps alive is a second identity on the machine
+# with a claim on VESPER's authority.
+cat > "$APP/Contents/Library/LaunchAgents/$ID.arm.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>$ID.arm</string>
+  <key>ProgramArguments</key><array>
+    <string>$APP/Contents/MacOS/VESPER</string>
+    <string>--arm</string>
+    <!-- `--run` OR IT PRINTS STATUS AND EXITS. `vesper_arm.py` defaults to
+         `status()`; only `--run` enters the minting loop. A plist missing this
+         word installs cleanly, launches cleanly, exits 0, and mints nothing --
+         and the interlock stops autonomy 90 seconds later with a reason that
+         points at the token rather than at the launcher. -->
+    <string>--run</string>
+  </array>
+  <key>WorkingDirectory</key><string>$REPO</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>$HOME/Library/Application Support/VESPER/arm.out</string>
+  <key>StandardErrorPath</key><string>$HOME/Library/Application Support/VESPER/arm.err</string>
+</dict></plist>
+PLIST
+
 # THE GLOBE-KEY WATCHER IS ITS OWN AGENT, and it has to be. Its whole job is to
 # start home when home is down, so it cannot live inside home. It also cannot
 # share the island's Label: booting the island out to test something would take
@@ -356,7 +436,7 @@ fi
 # worse than no predicate, and this file is run by hand as often as by its
 # shebang.
 _up() {
-  for _a in "$ID" "$ID.fnwatch" "$ID.wake"; do
+  for _a in "$ID" "$ID.fnwatch" "$ID.wake" "$ID.agenda" "$ID.arm"; do
     _row="$(launchctl list 2>/dev/null | awk -v l="$_a" '$3 == l {print $1 "|" $2}')"
     [ -z "$_row" ] && return 1                    # not registered at all
     case "${_row%%|*}" in
@@ -373,13 +453,13 @@ for _pass in 1 2 3 4 5 6; do
 done
 if _up; then
   echo "agents running:"
-  for _a in "$ID" "$ID.fnwatch" "$ID.wake"; do
+  for _a in "$ID" "$ID.fnwatch" "$ID.wake" "$ID.agenda" "$ID.arm"; do
     echo "  $_a (pid $(launchctl list 2>/dev/null | awk -v l="$_a" '$3 == l {print $1}'))"
   done
 else
   echo "WARNING: an agent is registered but NOT RUNNING after 6 passes." >&2
   echo "         globe x3 and/or the wake word will do nothing. Status:" >&2
-  for _a in "$ID" "$ID.fnwatch" "$ID.wake"; do
+  for _a in "$ID" "$ID.fnwatch" "$ID.wake" "$ID.agenda" "$ID.arm"; do
     launchctl list 2>/dev/null | awk -v l="$_a" '$3 == l {print "         " l " pid=" $1 " exit=" $2}' >&2
   done
 fi

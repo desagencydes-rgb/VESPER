@@ -65,6 +65,42 @@ PREDICATE_CLASSES = ("STATE", "EVENT", "COMPOSITE", "SCHEDULE")
 ModelCallInDecisionPath = _ModelCallInDecisionPath
 
 
+# Imported so a rename in `interruption.py` is a broken import rather than a
+# default that silently stops matching its own table. See `dispatch`.
+from .interruption import PERIODS as _PERIODS, ATTENTION_STATES as _ATT_STATES
+
+_FREE_TIME = "FREE_TIME"
+assert _FREE_TIME in _PERIODS, (
+    f"{_FREE_TIME!r} is not one of {_PERIODS!r}; an unmatched period returns "
+    f"the fail-closed budget for a reason nobody chose")
+
+# Spelled here rather than imported from `core.confirm`, which imports this
+# module's neighbours; the property that matters is asserted instead, and it is
+# the property `confirm.py` states about it -- the absence of a state, never a
+# member, so no budget row can accidentally serve it.
+_ATTENTION_UNKNOWN = "UNKNOWN"
+assert _ATTENTION_UNKNOWN not in _ATT_STATES, (
+    f"{_ATTENTION_UNKNOWN!r} became a real attention state; it is the ABSENCE "
+    f"of one, and a budget row matching it would serve an owner nobody has "
+    f"observed")
+
+
+def _accepts_timing(fn) -> bool:
+    """Does this handler want the period and attention state?
+
+    Inspected rather than attempted, because `try: fn(**kw) except TypeError`
+    would swallow a TypeError raised INSIDE a handler that does accept them and
+    silently retry it with no arguments -- running the handler twice and
+    blaming the signature.
+    """
+    import inspect
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):                 # noqa: BLE001
+        return False
+    return "period" in params and "attention_state" in params
+
+
 class CronDisguisedAsTrigger(Exception):
     """A trigger that fires on the clock alone, whatever it is labelled."""
 
@@ -584,8 +620,9 @@ class AutonomyLoop:
         self._actor = actor
         return self
 
-    def dispatch(self, actions: list, *, period: str = "free_time",
-                 attention_state: str = "ABSENT") -> list:
+    def dispatch(self, actions: list, *,
+                 period: str = _FREE_TIME,
+                 attention_state: str = _ATTENTION_UNKNOWN) -> list:
         """Act on triggers that have ALREADY fired. Never part of the decision.
 
         THE LAYER THAT WAS MISSING. `core/autonomy.py` had `Trigger`,
@@ -601,7 +638,18 @@ class AutonomyLoop:
         decision path" is structural rather than a rule someone has to
         remember. A check can read `tick` and see it.
 
-        FREE_TIME AND ABSENT ARE THE DEFAULTS, and they are not decoration. A
+        THE DEFAULTS ARE IMPORTED, NOT SPELLED, AND THEY USED NOT TO BE. They
+        read `period="free_time"` and `attention_state="ABSENT"` -- neither of
+        which is a member of `interruption.PERIODS` or `ATTENTION_STATES`, so
+        `budget_for` missed the table entirely and returned `DEFAULT_BUDGET`.
+        The OUTCOME was right (zero, fail-closed) and the reason was an
+        accident: a typo and a policy produce the same number here, which is
+        the same shape as the actor's `period="active"` that cost every
+        confirmation its budget and left the owner saying "yes" to nothing.
+        Importing them means a rename breaks the import instead of silently
+        restoring a value nothing matches.
+
+        FREE_TIME AND UNKNOWN ARE THE DEFAULTS, and they are not decoration. A
         refusal here reaches `ConfirmationBroker.request`, which allocates
         against the interruption budget for that period -- and the refusals
         VESPER's own work produces most often (`below_required_level`,
@@ -643,7 +691,18 @@ class AutonomyLoop:
 
             if handler is not None:
                 try:
-                    got = handler()
+                    # THE HANDLER IS TOLD WHEN IT IS, if it asks. A handler that
+                    # volunteers something to the owner -- as the agenda's does
+                    # -- has to consult the interruption budget, and the budget
+                    # is a function of the period and the attention state that
+                    # THIS dispatch was called with. Passed by keyword only to
+                    # handlers that declare them, so a handler that does not
+                    # care keeps its zero-argument signature.
+                    if _accepts_timing(handler):
+                        got = handler(period=period,
+                                      attention_state=attention_state)
+                    else:
+                        got = handler()
                 except Exception as exc:            # noqa: BLE001
                     self._bus.publish(
                         "autonomy.handler_failed", subject=tid,
