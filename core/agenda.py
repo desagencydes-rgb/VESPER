@@ -294,7 +294,12 @@ def sentence(agenda: Agenda, now_ms: int) -> str:
         parts.append(f"{head.title} is next" if len(due) == 1
                      else f"{head.title} is next, and {len(due) - 1} more are due")
     if agenda.unavailable:
-        parts.append("but " + "; ".join(sorted(agenda.unavailable.values())))
+        # "BUT" ONLY WHEN THERE IS SOMETHING TO CONTRAST WITH. This was
+        # unconditional, so with nothing due VESPER opened with "But VESPER has
+        # not been granted access to calendar" -- a sentence that answers a
+        # question nobody asked. Heard on the first live run, 2026-09-05.
+        why = "; ".join(sorted(agenda.unavailable.values()))
+        parts.append(("but " + why) if parts else why)
     if not parts:
         return "Nothing is due."
     return ". ".join(p[0].upper() + p[1:] for p in parts) + "."
