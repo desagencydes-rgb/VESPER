@@ -13542,7 +13542,12 @@ def check_the_board_survives_a_restart() -> Result:
     first = Workbench()
     first.command(["echo", "before"], cwd="/tmp", exit_code=0, stdout="before")
     first.explain("hlc:1", "a question", [{"kind": "text", "text": "an answer"}])
-    first.think("straightforward")
+    # `observe`, NOT `think`. `think` renders a canned line BY KEY out of
+    # voice.toml and returns None for a key that is not there -- so a fixture
+    # built on it can silently produce no thought at all, which is exactly how
+    # this check first reported the restore broken when it was working.
+    first.observe("checked the calendar before answering")
+    first.observe("then wrote the file")
     first.acted("shell.run", {"cmd": "echo before"}, state="done")
     saved = first.state()
 
@@ -13579,15 +13584,43 @@ def check_the_board_survives_a_restart() -> Result:
         r.err("seeding a board that already has rows added more of them, so a "
               "second call duplicates the whole history")
 
-    # AND THE LIVE STATE IS NOT RESTORED.
-    if got.get("thoughts"):
-        r.err("thoughts were restored: a thought is about a turn that ended "
-              "when the process did, and putting it back makes the surface "
-              "narrate work that is not happening")
-    if got.get("actions"):
-        r.err("action rows were restored. An action can be `live`, so this puts "
-              "a pulsing spinner on the board for work that no longer exists "
-              "-- the same defect as a face stuck on `thinking`.")
+    # THE FINISHED HALF IS RESTORED AND THE LIVE HALF IS NOT.
+    #
+    # THIS ASSERTION USED TO SAY THE OPPOSITE, and the owner reported what that
+    # cost: "the card where vesper's thoughts, actions, and providers is gone,
+    # where the fuck did it go". `.work.idle` HIDES the card when it holds
+    # nothing, so restoring neither did not make it empty -- it made it vanish.
+    if not got.get("thoughts"):
+        r.err("thoughts were not restored, so the thinking column comes up "
+              "blank after every rebuild and the card hides itself")
+    elif got["thoughts"] != saved["thoughts"]:
+        # ORDER, NOT JUST PRESENCE. `state()` publishes newest-first while the
+        # record is chronological, so a restore that does not reverse on the
+        # way in brings the card up BACKWARDS -- and the renderer spends its
+        # line budget on the oldest thought, which is the one defect the budget
+        # was written to prevent.
+        r.err(f"restored thoughts came back in a different order: "
+              f"{got['thoughts']} against {saved['thoughts']}")
+    if not got.get("actions"):
+        r.err("finished actions were not restored, so the board VANISHES on a "
+              "restart rather than merely emptying")
+    elif any(a.get("state") not in ("done", "failed") for a in got["actions"]):
+        r.err("a live action row was restored: it puts a pulsing spinner on "
+              "the board for work that stopped existing when the process did, "
+              "which is the same defect as a face stuck on `thinking`")
+    # AND A LIVE ROW IS DROPPED RATHER THAN GUESSED AT.
+    b4 = Workbench()
+    b4.acted("shell.run", {"cmd": "echo done"}, state="done")
+    b4.open("still-running", "running", "mid-flight")
+    b5 = Workbench()
+    b5.seed(b4.state())
+    kept = b5.state().get("actions") or []
+    if any(a.get("detail") == "mid-flight" for a in kept):
+        r.err("an interrupted action was carried across the restart. Neither "
+              "`done` nor `failed` is a thing anyone knows about it, and "
+              "asserting either puts a false outcome on the board.")
+    if not kept:
+        r.err("dropping the live row dropped the finished one with it")
 
     # AND THE RUNTIME ACTUALLY CALLS IT. Every gap this tree has found has been
     # in the joint, not in the piece.
@@ -13607,8 +13640,9 @@ def check_the_board_survives_a_restart() -> Result:
     r.note("a restarted runtime takes back the commands and explanations that "
            "were on screen, from home.json rather than from a second store; "
            "new ids do not collide with restored ones; seeding twice does not "
-           "duplicate; and the live half -- thoughts and action rows, which can "
-           "be mid-flight -- is deliberately not restored")
+           "duplicate; the thoughts and FINISHED actions come back so the card "
+           "does not vanish; and a mid-flight row is dropped rather than "
+           "guessed at")
     return r
 
 

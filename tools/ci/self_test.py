@@ -5781,6 +5781,26 @@ CASES += [
 ]
 
 
+# The board's live half is restored too, since 2026-09-06 -- the owner reported
+# the thoughts-and-actions card VANISHING on a restart, because `.work.idle`
+# hides a card with nothing in it.
+CASES += [
+    ("the-board-survives-a-restart", WORKBENCH,
+     _sub("                    if a.get(\"state\") not in (\"done\", \"failed\"):\n"
+          "                        continue\n", "", 1),
+     "a `live` action row is restored, so the board comes up with a pulsing "
+     "spinner for work that stopped existing when the process did -- the same "
+     "defect as a face stuck on `thinking`"),
+
+    ("the-board-survives-a-restart", WORKBENCH,
+     _sub("                for t in list(reversed(state.get(\"thoughts\") or []))[-MAX_THOUGHTS_KEPT:]:",
+          "                for t in (state.get(\"thoughts\") or [])[-MAX_THOUGHTS_KEPT:]:", 1),
+     "restored thoughts keep the PUBLISHED order instead of the stored one, so "
+     "the card comes up backwards and the renderer spends its line budget on "
+     "the oldest thought"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
 

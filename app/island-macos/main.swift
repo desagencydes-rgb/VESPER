@@ -1617,6 +1617,29 @@ if args.contains("--glass-verify") {
 // modes and before anything that opens a window, because the probe must never
 // take a Desktop -- it is the instrument the surface gates use, and an
 // instrument that disturbs the thing it measures is not one.
+// WHAT `SpaceWatch.fingerprint()` ACTUALLY SEES, named, one line each.
+//
+// The home refuses to take a Desktop with the owner's windows on it, and it
+// reports that refusal as a COUNT -- "here now: 5 foreign window(s)". A count
+// is not a diagnosis: the owner reported Desktop 2 empty while VESPER counted
+// five, and from a number there is no way to tell a real window from a helper,
+// a pinned one, or one of VESPER's own processes. This prints the owners.
+if args.contains("--spaces") {
+    let me = Int(ProcessInfo.processInfo.processIdentifier)
+    let all = SpaceWatch.onScreen()
+    print("active Desktop, every on-screen window:")
+    for w in all.sorted(by: { $0.layer < $1.layer }) {
+        let mine = w.pid == me ? "  (this process)" : ""
+        let counted = (w.pid != me && w.layer == 0) ? "COUNTS" : "      "
+        print(String(format: "  %@ layer %3d  pid %6d  %-28@ %.0fx%.0f%@",
+                     counted, w.layer, w.pid, w.owner as NSString,
+                     w.bounds.width, w.bounds.height, mine))
+    }
+    let fp = SpaceWatch.fingerprint()
+    print("fingerprint: \(fp.count) foreign window(s) -> home \(fp.isEmpty ? "WOULD start here" : "REFUSES this Desktop")")
+    exit(0)
+}
+
 if args.contains("--chrome-probe") {
     func after(_ flag: String) -> String? {
         guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }

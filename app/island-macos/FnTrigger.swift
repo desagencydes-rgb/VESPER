@@ -106,7 +106,24 @@ func launchVesper() {
         }
     }
     let cfg = NSWorkspace.OpenConfiguration()
-    cfg.arguments = ["--home", "--on-empty-desktop", "--mode", "Home", "--chrome"]
+    // NO `--on-empty-desktop` HERE, AND THAT IS THE WHOLE POINT OF THIS PATH.
+    //
+    // That flag exists so VESPER does not STEAL a Desktop the owner is working
+    // on -- it belongs on the LOGIN agent, which starts unasked. Pressing the
+    // globe three times is not unasked: it is the owner saying "come here,
+    // now". Making that request wait for an empty Desktop means the owner
+    // presses the key, nothing appears, and the only place VESPER says why is
+    // a log file they have no reason to open.
+    //
+    // MEASURED 2026-09-06, and reported in exactly those words: "i hit the
+    // globe 3 times and i see no vesper". The runtime was up, the home was
+    // alive, and it was printing "here now: 5 foreign window(s) -- not
+    // VESPER's Desktop" to `island.out` on a two-second timer.
+    //
+    // The owner's own rule (2026-08-24) is about not taking "something i have
+    // work on" -- which is about VESPER helping itself, not about VESPER
+    // answering when called.
+    cfg.arguments = ["--home", "--mode", "Home", "--chrome"]
     // TRUE, AND THAT IS NOT A LOOSENING. `false` means "activate an existing
     // instance of this bundle instead of launching" -- and the wake listener is
     // an instance of this bundle. So the triple-tap raised the LISTENER and

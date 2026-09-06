@@ -600,7 +600,7 @@ Accessibility (already on the grant trip) plus a window-target vocabulary in
 
 ---
 
-## 9c. THE HOST CARD HAD A PRODUCER AND NOTHING CALLED IT
+## 9b. THE HOST CARD HAD A PRODUCER AND NOTHING CALLED IT — FIXED
 
 Not part of the owner's request; found while building the stack, and fixed
 because the card sits in the middle of it reading "no producer".
@@ -633,7 +633,7 @@ power source is exactly the row that changes while nobody is reloading.
 
 ---
 
-## 9b. NOTES — QUEUED, AND NOT STARTED
+## 9c. NOTES — QUEUED, AND NOT STARTED
 
 **Owner's instruction, 2026-09-06: "put notes in the plan doc as next after
 finishing everything else and leave them for now."** So this is the next item
@@ -677,6 +677,116 @@ different trust class for what comes back.
 
 ---
 
+## 9d. PROVIDER FAILURES — THE OWNER'S POLICY, NOT YET BUILT
+
+**Owner's instruction, 2026-09-06, in their words, recorded here so it stops
+being re-explained.** They have said this before and it has not been built. It
+is queued immediately after §9b (Notes).
+
+Today every provider failure lands in one place: retry, then classify, then a
+triage item the owner never sees, and a sentence on the stage reading *"that
+provider returned an error"*. That sentence is the whole of what the owner
+gets, and it is true of five completely different situations that call for five
+different responses.
+
+**THE FIVE CASES AND WHAT EACH ONE OWES THE OWNER:**
+
+| The failure | What VESPER does |
+|---|---|
+| **Usage limit hit** | Retry. This is the ONLY case where plain retrying is the right answer — the request was fine and the world will change on its own. |
+| **Bad request / VESPER's own mistake** | **Fix the request and send a good one.** Not retry the same malformed call: the wire format, the argv, the field that was wrong is VESPER's to correct, and re-sending it unchanged is the definition of a loop. |
+| **The provider dropped that model** | Mark THAT MODEL unavailable and use another **from the same provider**. Not a failover down the whole ladder — the account, the credential and the egress class are all still good; one row's `model` is not. |
+| **Anything else** | **Investigate, prepare a fix plan, and ASK.** Permission granted → do it. |
+| **A fix VESPER cannot make** | **Explain it, and give a manual guide.** |
+
+**AND WHERE EACH PART GOES ON THE SURFACE, which is the half that is new:**
+
+- The **explanation** — what broke, what was tried, why — goes to the
+  **explanations card**. It is long, it is not spoken, and §4's split already
+  routes exactly this shape.
+- **Asking for permission, and raising the issue at all**, goes to **VESPER's
+  talk** — the stage and the conversation card. A question the owner has to
+  answer belongs where they are already looking, not on a board.
+
+That division is the owner's, stated twice, and it matches the split §4 already
+built: the sentence is spoken, the detail is shown, and the two are joined by
+the turn.
+
+**WHAT EXISTS TO BUILD ON.** `core/triage.py` already grades and stores
+attempts with their detail; `core/repair.py` already proposes a patch and
+already refuses to apply it to the running system (`INV-SELF-1..7`, `A-030.6` —
+a patch plus its failing test goes to `workspace/` for review). `gateway.py`
+already has `TERMINAL` and a classifier. What is missing is the ROUTING: which
+class goes to which of the five, and the two surfaces above. The classifier
+also has to stop conflating cases — 2026-09-05's `FileNotFoundError` was filed
+as `bad_request`, so triage recorded VESPER'S OWN DEFECT and the repairer
+proposed a patch to a wire format that was never wrong.
+
+**AND ONE MEASURED TRAP TO CARRY IN.** A rung can fail for a reason that is
+invisible from inside the process: `claude-advisor` returns `server_error`
+because its credential is in the login keychain and a launchd job cannot read
+it. No amount of request-fixing helps, the model was never dropped, and it is
+not a usage limit. It is case four — investigate, explain, ask — and it is the
+example to test the routing against, because it is the one that looks like
+every other case from where the classifier stands.
+
+---
+
+## 9e. THE ISLAND HAS NOT CAUGHT UP — QUEUED LAST
+
+**Owner's instruction, 2026-09-06: "the island also doesn't show some stuff we
+just built, it was blocked before because they weren't built yet, but now we
+have them and they should be integrated there."** Queued LAST, at their
+request, after §9c (Notes) and §9d (provider failures).
+
+The island is the notch element — the surface that is visible when the home is
+not. Several of its slots were left empty because the thing they would show did
+not exist. It now does: commands, explanations, the changes board, the
+terminal's state, and the permission mode.
+
+**AND IT RENDERS NO TEXT AT ALL TODAY.** Measured 2026-09-06 while looking for
+somewhere to put a status line: there is no label, no `NSTextField`, no
+`CATextLayer` anywhere in `app/island-macos/`. Whatever is integrated has to
+bring its own text rendering, and that is the bulk of this work rather than the
+wiring.
+
+---
+
+## 9f. "5 FOREIGN WINDOWS" ON AN EMPTY DESKTOP — MEASURED, PARTLY FIXED
+
+The owner pressed the globe three times and no VESPER appeared. The home was
+alive and printing `here now: 5 foreign window(s) — not VESPER's Desktop` to a
+log file on a two-second timer. The owner's answer: *"desktop 2, it's desktop
+was already empty, no windows were open there"*.
+
+**WHAT THE FIVE ACTUALLY WERE.** A count is not a diagnosis, so `--spaces` was
+added — a mode that prints every on-screen window with its owner, layer and
+size instead of a number. It named them: Terminal, Finder, Notes, Reminders and
+Calendar. **Those are Desktop 1's windows.** The owner was on Desktop 2.
+
+**SO THE READING IS NOT RELIABLE FROM A BACKGROUND PROCESS.**
+`CGWindowListCopyWindowInfo(.optionOnScreenOnly)` is documented as the active
+Space's windows, and for a process with no window on the active Space it does
+not track the Space the OWNER is looking at. `SpaceWatch.fingerprint()` is
+therefore answering a different question from the one the home asks it, and it
+fails in the direction that refuses to start.
+
+**WHAT WAS FIXED, AND WHAT WAS NOT.** The explicit path no longer consults it:
+the globe launch drops `--on-empty-desktop` entirely, because pressing that key
+three times is the owner saying "come here, now", and their own rule
+(2026-08-24) is about VESPER not taking "something i have work on" — which is
+about VESPER helping itself, not about VESPER answering when called. The LOGIN
+agent keeps the flag, because that one does start unasked and erring toward
+refusing is correct there.
+
+**WHAT IS STILL OPEN:** a reading of the owner's active Space that works from a
+background process. Without one, the login path can still decline to start on a
+Desktop that is genuinely empty. The public API does not appear to offer it;
+the honest options are a helper window on each Space, or accepting that the
+login path is best-effort and the globe is the reliable one. Not decided.
+
+---
+
 ## 10. BUILD ORDER
 
 Each step ends with the §0 gate. **No step begins before the previous one has
@@ -692,6 +802,10 @@ been driven against the running surface.**
 | 6 | **Terminal** (§6) | `CI-126`, live: the owner types and gets a shell |
 | 7 | **Command buttons** (§7) | live: Run runs, Paste does not |
 | 8 | `CI-127` cross-cutting | red-run on each of its five rules |
-| 9 | **HOST card producer** (§9c) | `CI-130`, live: the card shows a real reading |
+| 9 | **HOST card producer** (§9b) | `CI-130`, live: the card shows a real reading |
+| 10 | **Notes as an agenda source** (§9c) | owner-queued, not started |
+| 11 | **Provider-failure routing** (§9d) | owner-queued, not started |
+| 12 | **Island integration** (§9e) | owner-queued LAST, not started |
+| 13 | **Active-Space reading from a background process** (§9f) | open, no decided approach |
 
 Steps 2, 3 and 4 are what the owner named as the starting point.

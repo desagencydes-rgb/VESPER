@@ -230,11 +230,22 @@ class Workbench:
         Adding a store beside it would be a second answer to a question that
         has one, and the two would eventually disagree.
 
-        THOUGHTS AND ACTIONS ARE NOT RESTORED, DELIBERATELY. A thought is about
-        a turn that is over and an action row can be `live` -- restoring one
-        would put a spinner on the board for work that stopped existing when
-        the process did. Commands and explanations are records of things that
-        happened and stay true across a restart.
+        FINISHED ACTIONS AND THOUGHTS ARE RESTORED; LIVE ROWS ARE NOT.
+        The first version restored neither, on the reasoning that an action row
+        can be `live` and putting a spinner on the board for work that stopped
+        existing with the process would be a lie. The `live` half of that is
+        right and still holds. The rest was wrong, and the owner reported it in
+        as many words -- "the card where vesper's thoughts, actions, and
+        providers is gone, where the fuck did it go" -- because `.work.idle`
+        hides the card when it has nothing, so a restart made it VANISH rather
+        than empty.
+
+        A finished action is a record of something that happened and stays true
+        across a restart, exactly like a command. A thought is VESPER's own
+        sentence about a decision it really made. Both are restorable; a `live`
+        row is the only thing that is not, and it is dropped rather than
+        coerced -- guessing that an interrupted action completed would put a
+        false outcome on the board, which is worse than a shorter list.
         """
         state = state if isinstance(state, dict) else {}
         n = 0
@@ -265,6 +276,33 @@ class Workbench:
                 for e in (state.get("explanations") or [])[-EXPLANATIONS_MAX:]:
                     if isinstance(e, dict) and e.get("blocks"):
                         self._explanations.append(e)
+                        n += 1
+            if not self._actions:
+                for a in (state.get("actions") or [])[-MAX_ACTIONS:]:
+                    if not isinstance(a, dict):
+                        continue
+                    # A `live` ROW IS DROPPED, NOT COERCED. Whatever it was
+                    # doing stopped when the process did, and neither "done"
+                    # nor "failed" is a thing anyone knows.
+                    if a.get("state") not in ("done", "failed"):
+                        continue
+                    self._actions.append(Action(
+                        verb=str(a.get("verb") or ""),
+                        detail=str(a.get("detail") or ""),
+                        state=str(a["state"]),
+                        seconds=(a.get("seconds")
+                                 if isinstance(a.get("seconds"), (int, float)) else None),
+                        key=f"restored:{len(self._actions)}",
+                        meta=str(a.get("meta") or ""),
+                        at_ms=int(a.get("at_ms") or 0)))
+                    n += 1
+            if not self._thoughts:
+                # STORED CHRONOLOGICALLY, PUBLISHED NEWEST-FIRST. `state()`
+                # reverses on the way out, so what comes back has to be
+                # reversed on the way in or the card comes up backwards.
+                for t in list(reversed(state.get("thoughts") or []))[-MAX_THOUGHTS_KEPT:]:
+                    if isinstance(t, str) and t.strip():
+                        self._thoughts.append(t)
                         n += 1
         return n
 
