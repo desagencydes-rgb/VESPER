@@ -1712,7 +1712,7 @@ CASES += [
      "     credential, and reports a clean scan while missing them"),
 
     ("redactor-precedes-every-provider", REDACT_PY,
-     _sub("        if _is_benign(tok) or not _charset_mixed(tok):",
+     _sub("        if _is_benign(tok) or not _charset_mixed(_worst_segment(tok)):",
           "        if False:", 1),
      "the entropy net widened until it eats ordinary text: file paths and "
      "prose are redacted out of every request, which presents as VESPER "
@@ -5136,15 +5136,21 @@ CASES += [
      # RESTORE THE BLOB BEHAVIOUR, which is what the bug was. Deleting the
      # early return makes the rule MORE lenient (everything judged per
      # segment) and the path still survives -- a mutation that cannot fail.
-     _sub("    return max(shannon_bits(s) for s in segments)",
-          "    return shannon_bits(tok)", 1),
+     #
+     # AND IT MUST DEFEAT BOTH NARROWINGS, not one. Since 2026-09-06 the
+     # charset test asks the same segment the entropy test does, so making the
+     # ENTROPY judge the blob no longer redacts a path -- the charset test
+     # still narrows and the case passed under its own violation. Mutating
+     # `_worst_segment` is what puts the whole token back in front of both.
+     _sub("    return max(segments, key=shannon_bits)",
+          "    return tok", 1),
      "path tokens are judged as one blob again, so an ordinary absolute path "
      "is redacted as a secret and every command naming a file is corrupted "
      "before it runs"),
 
     ("redactor-precedes-every-provider", REDACT_PY,
-     _sub("    return max(shannon_bits(s) for s in segments)",
-          "    return min(shannon_bits(s) for s in segments)", 1),
+     _sub("    return max(segments, key=shannon_bits)",
+          "    return min(segments, key=shannon_bits)", 1),
      "a path is scored by its WEAKEST segment, so a real secret sitting in "
      "one segment of a path is averaged away and sent to the provider"),
 ]
@@ -5390,23 +5396,20 @@ CASES += [
      "every single tick"),
 
     ("commands-card-shows-what-ran", WORKBENCH,
-     _sub('                    "commands": [c.to_dict() for c in self._commands]}',
-          '                    "commands": []}', 1),
+     _sub('"commands": [c.to_dict() for c in self._commands]',
+          '"commands": []', 1),
      "the record never reaches home.json, so the card is a renderer with "
      "nothing behind it and the whole path is correct up to the last joint"),
 
     ("commands-card-shows-what-ran", CHROME_TPL,
-     _sub("      renderCommands((w && w.commands) || []);\n"
-          "      if (!work) return;\n"
-          "      if (!thoughts.length && !actions.length) { work.classList.add('idle'); return; }\n"
-          "      work.classList.remove('idle');",
-          "      if (!work) return;\n"
-          "      if (!thoughts.length && !actions.length) { work.classList.add('idle'); return; }\n"
-          "      work.classList.remove('idle');\n"
-          "      renderCommands((w && w.commands) || []);", 1),
-     "the render call moved below the early return, so commands are drawn only "
-     "on the ticks where VESPER also has a thought to show -- the pane fills "
-     "and empties for reasons the owner cannot see"),
+     # ANCHORED ON THE CALL ALONE. The first version quoted the three lines
+     # that follow it, and adding `renderExplanations` beside it broke the
+     # match -- the case reported N/A and tested nothing. A case anchored on
+     # its subject's NEIGHBOURS decays every time the subject is improved.
+     _sub("      renderCommands((w && w.commands) || []);\n",
+          "", 1),
+     "the render call is gone from `__vesperWork`, so every command is "
+     "recorded, published and pushed into a page that draws none"),
 
     ("commands-card-shows-what-ran", CHROME_TPL,
      _sub("      cmdrows.textContent = '';", "      cmdrows.innerHTML = '';", 1),
