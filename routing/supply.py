@@ -569,6 +569,38 @@ def _resolve_binary(binary: str) -> str:
     return binary
 
 
+def _cli_token(raw: dict, secrets: dict) -> str:
+    """The headless token for THIS rung's account, not a shared one.
+
+    ONE TOKEN PER ACCOUNT, KEYED ON THE ROW'S OWN CREDENTIAL NAME. The rungs
+    already group themselves: `claude-advisor` declares
+    `VESPER_CLAUDE_ADVISOR_CONFIG_DIR` and every other Claude rung declares
+    `VESPER_CLAUDE_CONFIG_DIR`, because they run on two DIFFERENT accounts on
+    purpose -- so advice cannot spend the subscription VESPER does its ordinary
+    work on.
+
+    A single `CLAUDE_CODE_OAUTH_TOKEN` in `secrets.env` would have applied to
+    every one of them and quietly merged the two accounts back together, which
+    is the opposite of what the separate config directories are for. So the
+    name is derived from the row: `..._CONFIG_DIR` becomes `..._TOKEN`.
+
+        VESPER_CLAUDE_ADVISOR_TOKEN   the advisor's account
+        VESPER_CLAUDE_TOKEN           the account the other Claude rungs share
+        VESPER_CODEX_TOKEN            codex, if it ever needs one
+
+    THE SHARED NAME IS STILL HONOURED as a fallback, for the case where the
+    owner genuinely wants one account everywhere -- but a per-row token always
+    wins, so setting one cannot be undone by a stray environment variable.
+    """
+    cred = str(raw.get("credential_env") or "")
+    if cred:
+        specific = secrets.get(cred.replace("_CONFIG_DIR", "").replace("_HOME", "")
+                               + "_TOKEN", "")
+        if specific:
+            return specific
+    return secrets.get("CLAUDE_CODE_OAUTH_TOKEN", "")
+
+
 def _cli_call(row: SupplyRow, binary: str, argv: list, config_env: str | None,
               config_dir: str | None, timeout: float = 300.0,
               oauth_token: str = ""):
@@ -613,6 +645,13 @@ def _cli_call(row: SupplyRow, binary: str, argv: list, config_env: str | None,
         # the way it does today and says why.
         if oauth_token:
             env["CLAUDE_CODE_OAUTH_TOKEN"] = oauth_token
+            # AND THE DEFAULT ONE IS CLEARED WHEN A ROW HAS ITS OWN. Otherwise
+            # a token inherited from the surrounding environment would win for
+            # a rung whose account is deliberately different, and the two
+            # accounts would collapse into one silently -- which is the whole
+            # thing the separate config directories exist to prevent.
+        elif "CLAUDE_CODE_OAUTH_TOKEN" in env:
+            env.pop("CLAUDE_CODE_OAUTH_TOKEN")
         # A SUBSCRIPTION CLI HAS NO SYSTEM ARGUMENT WE CAN RELY ON. `claude`
         # takes `--append-system-prompt` and `codex exec` takes nothing of the
         # kind, and the argv template lives in the contract where a per-vendor
@@ -732,7 +771,7 @@ def register(gateway, cost, ledger: QuotaLedger, *,
         if row.wire == "cli_subprocess":
             call = _cli_call(row, raw["endpoint"], raw.get("argv", []),
                              raw.get("config_dir_env"), raw.get("config_dir"),
-                             oauth_token=secrets.get("CLAUDE_CODE_OAUTH_TOKEN", ""))
+                             oauth_token=_cli_token(raw, secrets))
         else:
             call = _http_call(row, raw["endpoint"],
                               secrets.get(raw.get("credential_env", ""), ""),
