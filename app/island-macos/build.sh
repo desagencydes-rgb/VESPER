@@ -31,6 +31,8 @@ swiftc -O -swift-version 5 -target arm64-apple-macosx13.0 \
   "$HOME_SRC/Home.swift" "$HOME_SRC/HomeAmbience.swift" "$HOME_SRC/SpaceWatch.swift" \
   "$HOME_SRC/HomeVerify.swift" "$HOME_SRC/GlassGuard.swift" \
   "$HOME_SRC/HomeChrome.swift" "$HOME_SRC/HomeSurfaces.swift" "$HOME_SRC/RuntimeHost.swift" "$HOME_SRC/HomeCost.swift" \
+  "$HOME_SRC/ChromeProbe.swift" "$HOME_SRC/ActBridge.swift" \
+  "$HOME_SRC/TerminalBridge.swift" \
   "$HOME_SRC/OcclusionWatch.swift" "$HOME_SRC/DockSwap.swift" \
   -o island
 
@@ -141,6 +143,16 @@ PLIST
 # Items then shows a generic `exec` icon, and a second entry appears for whatever
 # interpreter the helper used. From inside the bundle it is one entry, with the
 # app's own name and mark.
+# BACKTICKS ARE FORBIDDEN INSIDE THESE HEREDOCS, and this comment is the only
+# place that can say so. The delimiters are UNQUOTED because the bodies need
+# `$APP`, `$ID` and `$HOME` expanded -- which also means the shell performs
+# COMMAND SUBSTITUTION on them. Measured 2026-09-06: the arm plist's own
+# explanatory comment quoted four flag names in backticks, bash ran each of
+# them as a command, and the words vanished from the file the build wrote. The
+# plist survived only because the pairs happened to fall inside an XML comment;
+# a pair spanning a <string> would have deleted a launch argument silently,
+# which is precisely the failure that comment was written to prevent. Quote
+# with single quotes here.
 cat > "$APP/Contents/Library/LaunchAgents/$ID.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -268,8 +280,8 @@ cat > "$APP/Contents/Library/LaunchAgents/$ID.arm.plist" <<PLIST
   <key>ProgramArguments</key><array>
     <string>$APP/Contents/MacOS/VESPER</string>
     <string>--arm</string>
-    <!-- `--run` OR IT PRINTS STATUS AND EXITS. `vesper_arm.py` defaults to
-         `status()`; only `--run` enters the minting loop. A plist missing this
+    <!-- '--run' OR IT PRINTS STATUS AND EXITS. 'vesper_arm.py' defaults to
+         'status()'; only '--run' enters the minting loop. A plist missing this
          word installs cleanly, launches cleanly, exits 0, and mints nothing --
          and the interlock stops autonomy 90 seconds later with a reason that
          points at the token rather than at the launcher. -->
@@ -302,12 +314,12 @@ cat > "$APP/Contents/Library/LaunchAgents/$ID.fnwatch.plist" <<PLIST
   <key>KeepAlive</key><true/>
   <!-- Interactive, NOT Background, and the difference is whether it runs at
        all. This said Background -- honest about the job's importance and wrong
-       about its needs: `runFnWatch` opens an NSApplication and a global event
+       about its needs: 'runFnWatch' opens an NSApplication and a global event
        tap, both of which want the window server, and launchd refused the spawn
        with EX_CONFIG rather than letting it start and fail visibly.
 
-       MEASURED 2026-09-04: `last exit code = 78: EX_CONFIG`, empty stderr,
-       never spawned -- for a full day, while `--login-item-status` reported
+       MEASURED 2026-09-04: 'last exit code = 78: EX_CONFIG', empty stderr,
+       never spawned -- for a full day, while '--login-item-status' reported
        the service "enabled" and every plist field matched the island agent
        that was working. The only field that differed was this one. -->
   <key>ProcessType</key><string>Interactive</string>

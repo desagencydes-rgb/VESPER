@@ -1613,6 +1613,21 @@ if args.contains("--glass-verify") {
     app.run()
 }
 
+// Ask the chrome what it PAINTED, offscreen. Placed with the other verify
+// modes and before anything that opens a window, because the probe must never
+// take a Desktop -- it is the instrument the surface gates use, and an
+// instrument that disturbs the thing it measures is not one.
+if args.contains("--chrome-probe") {
+    func after(_ flag: String) -> String? {
+        guard let i = args.firstIndex(of: flag), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+    ChromeProbe.run(expand: after("--probe-expand"),
+                    click: after("--probe-click"),
+                    clickTurn: after("--probe-turn"),
+                    runLine: after("--probe-run"))
+}
+
 if args.contains("--home-verify") {
     HomeVerify.identity()
     let secs = args.firstIndex(of: "--seconds").flatMap { i -> Double? in

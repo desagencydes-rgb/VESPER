@@ -84,6 +84,7 @@ class HomeState:
         self._since = time.time()
         self._reason = "no activity yet"
         self._workbench: dict = {}
+        self._changes: dict = {}
         self._transcript: list = []
         self._rows: list = []
         self._writes = 0
@@ -218,6 +219,18 @@ class HomeState:
             self._workbench = dict(state or {})
         self.write()
 
+    def set_changes(self, state: dict) -> None:
+        """The changed-files board, for the third pane.
+
+        A FOURTH KEY AND STILL ONE MERGE, for the same reason `set_workbench`
+        is written the way it is: this object owns the merge into `home.json`
+        and a second writer is how the face state and the metrics rows came to
+        delete each other.
+        """
+        with self._lock:
+            self._changes = dict(state or {})
+        self.write()
+
     def set_rows(self, rows: list) -> None:
         """The metrics card's rows. Owned by whoever measured them."""
         with self._lock:
@@ -248,6 +261,10 @@ class HomeState:
             # last contents when the source goes quiet reports work that is not
             # happening, which is the same defect as a face stuck on `thinking`.
             existing["workbench"] = self._workbench
+            # Written unconditionally, like the workbench above: a board
+            # that keeps its last contents when the source goes quiet
+            # reports work that is not happening.
+            existing["changes"] = self._changes
             if self._rows:
                 existing["rows"] = self._rows
             self._path.parent.mkdir(parents=True, exist_ok=True)

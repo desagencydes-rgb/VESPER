@@ -34,7 +34,9 @@ time somebody forgets, and `core/home_state.py`'s header records what that costs
 from __future__ import annotations
 
 import re
+import shlex
 import threading
+import time
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -49,7 +51,12 @@ DIGIT = re.compile(r"\d")
 
 # How many rows the board holds. Enough to see a failover through; short enough
 # that the card is a glance and not a log.
-MAX_ACTIONS = 12
+# THE OWNER ASKED FOR MORE HERE, in these words: "add more to the place showing
+# activity so they show up with more details". Twelve rows was a glance at the
+# last failover; a turn that runs a command, reads a file and writes another
+# spends three of them, so a session's worth of work scrolled off within
+# minutes. The card scrolls, so depth costs nothing but the list itself.
+MAX_ACTIONS = 40
 
 # HOW MANY THOUGHTS ARE KEPT, WHICH IS NOT HOW MANY ARE SHOWN.
 #
@@ -69,6 +76,91 @@ MAX_ACTIONS = 12
 MAX_THOUGHTS_KEPT = 4
 
 
+# ------------------------------------------------------------------ commands
+#
+# THE COMMAND RECORD IS NOT THE ACTION ROW, AND CONFLATING THEM WAS THE THING
+# THE OWNER KEPT HITTING. An action row is a status line -- eighty characters,
+# one verb, gone in twelve rows. A command is something the owner needs to READ:
+# what ran, where, what it printed, and, when it failed, why. Compressing the
+# second into the first is how "it ran and came back with error code 1" became
+# the whole of what VESPER could say about a rename that failed for a reason
+# `mv` had already written down.
+#
+# Enough to see a session's work; short enough that it stays a card.
+COMMANDS_MAX = 50
+
+# What one command may contribute. Two bounds because they fail differently: a
+# single enormous line blows the byte budget without ever reaching the line
+# count, and a million short lines blow the line count while each is tiny.
+COMMAND_OUT_MAX_BYTES = 16_384
+COMMAND_OUT_MAX_LINES = 400
+
+# The board's depth, owned by the module that decides what goes on it.
+# Imported rather than restated so the two cannot drift.
+from .longform import EXPLANATIONS_MAX          # noqa: E402
+
+
+@dataclass(slots=True)
+class Command:
+    """One command VESPER ran, with everything needed to judge the result.
+
+    ARGV IS THE RECORD; `display` IS THE RENDERING. `shell_run` refuses
+    `shell=True`, so the argv list is what the kernel actually received. A
+    single string is a RECONSTRUCTION of it, and the gap between the two is
+    where a reader believes one thing ran while another did -- the same class
+    of mistake as a classifier reading a command the shell never saw. So the
+    list is stored, `display` is derived from it for the owner's eye and for
+    the copy button, and nothing ever parses `display` back.
+    """
+    id: str
+    argv: tuple[str, ...]
+    cwd: str = ""
+    state: str = "ok"                     # ok | failed | running
+    exit_code: int | None = None
+    stdout: str = ""
+    stderr: str = ""
+    elapsed_ms: int | None = None
+    truncated: bool = False
+
+    @property
+    def display(self) -> str:
+        return shlex.join(self.argv)
+
+    def to_dict(self) -> dict:
+        return {"id": self.id, "argv": list(self.argv), "display": self.display,
+                "cwd": self.cwd, "state": self.state,
+                "exit_code": self.exit_code, "stdout": self.stdout,
+                "stderr": self.stderr, "elapsed_ms": self.elapsed_ms,
+                "truncated": self.truncated}
+
+
+def _clip(text: str) -> tuple[str, bool]:
+    """Trim one output stream to the card's budget, keeping the FIRST lines.
+
+    THE FIRST LINES, NOT THE LAST. A traceback names its cause at the top and a
+    failing build names the first error first; keeping the tail keeps the
+    summary and throws away the diagnosis. The owner reads this to find out
+    what went wrong, and what went wrong is at the beginning.
+
+    AND THE CUT IS VISIBLE. Silent truncation reads as "the command printed
+    nothing more", which is a false statement the owner would act on.
+    """
+    text = str(text or "")
+    lines = text.split("\n")
+    cut = len(lines) > COMMAND_OUT_MAX_LINES
+    if cut:
+        lines = lines[:COMMAND_OUT_MAX_LINES]
+    out = "\n".join(lines)
+    # Measured in BYTES, because the budget is about what crosses into a JSON
+    # file and a webview, and a character count is not that at any non-ASCII
+    # input -- which VESPER's own output regularly is.
+    raw = out.encode("utf-8")
+    if len(raw) > COMMAND_OUT_MAX_BYTES:
+        out = raw[:COMMAND_OUT_MAX_BYTES].decode("utf-8", "ignore")
+        cut = True
+    return out, cut
+
+
 class HandRuleViolation(Exception):
     """A line in the hand breaks SS5. Refused at load, not at 3 a.m."""
 
@@ -81,10 +173,20 @@ class Action:
     state: str = "live"          # live | done | failed
     seconds: float | None = None
     key: str = ""
+    # WHAT KIND OF THING THIS WAS, in the system's own vocabulary: a capability
+    # id, a provider id, a profile. Kept beside the human sentence rather than
+    # folded into it, because the two answer different questions -- `detail`
+    # says what happened and this says which machinery it happened in, and a
+    # row that concatenates them is unreadable at eleven pixels.
+    meta: str = ""
+    # WHEN, so a board read after the fact is a record and not just a state.
+    # Wall clock, and INV-COORD-4 has nothing to say about it: this orders
+    # nothing and supersedes nothing, it is rendered next to the row.
+    at_ms: int = 0
 
     def to_dict(self) -> dict:
         return {"verb": self.verb, "detail": self.detail, "state": self.state,
-                "seconds": self.seconds}
+                "seconds": self.seconds, "meta": self.meta, "at_ms": self.at_ms}
 
 
 class Workbench:
@@ -106,6 +208,65 @@ class Workbench:
         self._lock = threading.RLock()
         self._thoughts: list[str] = []
         self._actions: list[Action] = []
+        self._commands: list[Command] = []
+        self._explanations: list[dict] = []
+        self._seq = 0
+
+    # -------------------------------------------------------------- restore
+
+    def seed(self, state: Any) -> int:
+        """Take back the board that was on screen before the last restart.
+
+        THE OWNER WATCHED A CARD DISAPPEAR AND SAID SO. Every rebuild restarts
+        the runtime, the lists live in memory, and `home.json` is overwritten
+        with an empty workbench on the first pump -- so a restart blanked the
+        commands and the explanations while everything was working correctly.
+        A surface that empties for reasons the owner cannot see is exactly the
+        failure this whole chunk was asked for.
+
+        SEEDED FROM `home.json` ITSELF, NOT FROM A SECOND FILE. That file is
+        already the contract between the runtime and the chrome, it already
+        survives a restart, and it is already bounded by these same caps.
+        Adding a store beside it would be a second answer to a question that
+        has one, and the two would eventually disagree.
+
+        THOUGHTS AND ACTIONS ARE NOT RESTORED, DELIBERATELY. A thought is about
+        a turn that is over and an action row can be `live` -- restoring one
+        would put a spinner on the board for work that stopped existing when
+        the process did. Commands and explanations are records of things that
+        happened and stay true across a restart.
+        """
+        state = state if isinstance(state, dict) else {}
+        n = 0
+        with self._lock:
+            if not self._commands:
+                for c in (state.get("commands") or [])[-COMMANDS_MAX:]:
+                    if not isinstance(c, dict) or not c.get("argv"):
+                        continue
+                    self._commands.append(Command(
+                        id=str(c.get("id") or f"cmd{len(self._commands)}"),
+                        argv=tuple(str(a) for a in c["argv"]),
+                        cwd=str(c.get("cwd") or ""),
+                        state=str(c.get("state") or "ok"),
+                        exit_code=(c.get("exit_code")
+                                   if isinstance(c.get("exit_code"), int) else None),
+                        stdout=str(c.get("stdout") or ""),
+                        stderr=str(c.get("stderr") or ""),
+                        elapsed_ms=(c.get("elapsed_ms")
+                                    if isinstance(c.get("elapsed_ms"), int) else None),
+                        truncated=bool(c.get("truncated"))))
+                    n += 1
+                # THE COUNTER RESUMES PAST WHAT WAS RESTORED. Starting from
+                # zero would mint `cmd1` a second time, and the page keys its
+                # open rows on that id -- so a restored row and a new one would
+                # be the same row as far as the surface is concerned.
+                self._seq = max(self._seq, len(self._commands))
+            if not self._explanations:
+                for e in (state.get("explanations") or [])[-EXPLANATIONS_MAX:]:
+                    if isinstance(e, dict) and e.get("blocks"):
+                        self._explanations.append(e)
+                        n += 1
+        return n
 
     # ------------------------------------------------------------ thoughts
 
@@ -179,7 +340,8 @@ class Workbench:
         return capability_id
 
     def acted(self, capability_id: str, args: dict, *, state: str = "done",
-              seconds: float | None = None, output: str = "") -> None:
+              seconds: float | None = None, output: str = "",
+              meta: str = "") -> None:
         """Record one capability step, finished, with what it produced.
 
         OUTPUT IS PART OF THE ACTION. "ran python3 hey.py" and "ran python3
@@ -193,16 +355,96 @@ class Workbench:
         if out and state == "done":
             detail = f"{detail} -> {out}"
         key = f"act:{capability_id}:{detail[:40]}"
-        self.open(key, live, detail)
+        self.open(key, live, detail, meta=(meta or capability_id))
         self.close(key, state=state, verb=past, detail=detail, seconds=seconds)
 
-    def open(self, key: str, verb: str, detail: str) -> None:
+    # ----------------------------------------------------------- commands
+
+    def command(self, argv: Any, *, cwd: str = "",
+                exit_code: int | None = None, stdout: str = "",
+                stderr: str = "", elapsed_ms: int | None = None) -> str | None:
+        """Record one command exactly as it ran. Returns its id, or None.
+
+        NOTHING IS INFERRED HERE. The state comes from the exit code, the
+        output comes from the streams, and a command with no argv is refused
+        rather than recorded as an empty one -- a row saying VESPER ran
+        something and declining to say what is worse than no row.
+        """
+        if isinstance(argv, str):
+            # A STRING IS ACCEPTED AND SPLIT ONCE, HERE, so callers that only
+            # have the `cmd` field are not silently dropped. `shell_run` splits
+            # the same way, so this reproduces its argv rather than inventing a
+            # different one.
+            try:
+                argv = shlex.split(argv)
+            except ValueError:
+                return None
+        argv = tuple(str(a) for a in (argv or ()))
+        if not argv:
+            return None
+        out, cut_o = _clip(stdout)
+        err, cut_e = _clip(stderr)
+        with self._lock:
+            self._seq += 1
+            cmd = Command(
+                id=f"cmd{self._seq}",
+                argv=argv,
+                cwd=str(cwd or ""),
+                state=("ok" if exit_code in (0, None) else "failed"),
+                exit_code=(int(exit_code) if isinstance(exit_code, int) else None),
+                stdout=out, stderr=err,
+                elapsed_ms=(int(elapsed_ms)
+                            if isinstance(elapsed_ms, (int, float)) else None),
+                truncated=(cut_o or cut_e))
+            self._commands.append(cmd)
+            del self._commands[:-COMMANDS_MAX]
+            return cmd.id
+
+    # ------------------------------------------------------- explanations
+
+    def explain(self, turn_id: str, title: str, blocks: Any) -> str | None:
+        """The long half of a reply, for the board. Never spoken.
+
+        THE SPLIT IS MADE IN `core/longform.py` AND NOT HERE. This stores what
+        it decided. Putting the rule in the store would mean the only way to
+        find out what VESPER will say aloud is to write a record and read it
+        back -- and the speech path does not go through this object at all.
+
+        KEYED ON THE TURN, so the reply on the stage and the explanation on the
+        board can find each other. `turn_id` is the utterance's HLC: an
+        identity, not an ordering, so `INV-COORD-4` has nothing to say about it.
+
+        SAME TURN REPLACES, DOES NOT STACK. A turn produces one explanation; a
+        second arriving for the same id means the turn was re-run, and two
+        entries would show the owner one answer twice.
+        """
+        rows = [b.to_dict() if hasattr(b, "to_dict") else dict(b)
+                for b in (blocks or ())]
+        rows = [b for b in rows if b.get("kind") in ("text", "code", "list")]
+        if not rows:
+            return None
+        turn_id = str(turn_id or "")
+        entry = {"id": f"exp:{turn_id}" if turn_id else f"exp{len(self._explanations)}",
+                 "turn_id": turn_id,
+                 "title": " ".join(str(title or "").split())[:70],
+                 "blocks": rows}
+        with self._lock:
+            self._explanations = [e for e in self._explanations
+                                  if e["id"] != entry["id"]]
+            self._explanations.append(entry)
+            del self._explanations[:-EXPLANATIONS_MAX]
+        return entry["id"]
+
+    def open(self, key: str, verb: str, detail: str, *, meta: str = "") -> None:
         with self._lock:
             for a in self._actions:
                 if a.key == key and a.state == "live":
                     a.verb, a.detail = verb, detail
+                    if meta:
+                        a.meta = meta
                     return
-            self._actions.append(Action(verb, detail, "live", None, key))
+            self._actions.append(Action(verb, detail, "live", None, key,
+                                        meta, int(time.time() * 1000)))
             del self._actions[:-MAX_ACTIONS]
 
     def close(self, key: str, *, state: str = "done", verb: str | None = None,
@@ -234,7 +476,8 @@ class Workbench:
             p = getattr(ev, "payload", {}) or {}
             task = str(p.get("task_id") or "task")
             prof = p.get("profile_id") or "a profile"
-            self.open(f"route:{task}", "routing", str(prof))
+            self.open(f"route:{task}", "routing", str(prof),
+                      meta=f"difficulty {p.get('difficulty') or '?'}")
             # The difficulty is the request's own classification and is the one
             # thing here VESPER genuinely decided about the question itself.
             d = p.get("difficulty")
@@ -261,7 +504,7 @@ class Workbench:
                            seconds=secs)
             elif outcome == "error":
                 cls = str(p.get("classification") or "failed")
-                self.open(key, "asking", pid)
+                self.open(key, "asking", pid, meta=cls)
                 self.close(key, state="failed", detail=f"{pid} — {cls}", seconds=secs)
                 self.think("failing_over")
             elif outcome == "skipped":
@@ -312,4 +555,10 @@ class Workbench:
         with self._lock:
             return {"thoughts": list(reversed(self._thoughts)),
                     "max_lines": self._max_lines,
-                    "actions": [a.to_dict() for a in self._actions]}
+                    "actions": [a.to_dict() for a in self._actions],
+                    # CHRONOLOGICAL HERE, NEWEST-FIRST IN THE CARD. Same
+                    # decision as the thoughts above and for the same reason:
+                    # the record does not reorder itself for a view, and the
+                    # renderer is the layer allowed to make that choice.
+                    "commands": [c.to_dict() for c in self._commands],
+                    "explanations": list(self._explanations)}

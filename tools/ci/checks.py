@@ -2536,6 +2536,49 @@ CHROME_TEMPLATE = "app/home-macos/chrome/home.html"
 CHROME_SWIFT = "app/home-macos/HomeChrome.swift"
 
 
+
+def _js_body(src: str, opener: str) -> str:
+    """One JavaScript function's body, brace-balanced, with comments removed.
+
+    TWO REASONS THIS EXISTS, AND BOTH ARE MISTAKES THIS FILE ALREADY MADE.
+
+    A SEGMENT BETWEEN TWO LANDMARKS IS NOT A FUNCTION. `tpl[find("function
+    renderCommands"):find("document.addEventListener")]` was 25,000 characters
+    after three more renderers landed between them -- so a check that meant to
+    read one function was reading a quarter of the page, and would have fired
+    on anything anywhere in it.
+
+    AND A GREP CANNOT TELL AN INSTRUCTION FROM A SENTENCE ABOUT ONE. The
+    terminal renderer carries the comment `// NEVER innerHTML: this is a
+    shell`, and three checks went red on it -- on a line that exists precisely
+    because the rule is being followed. This tree has now had that failure in
+    both directions: a check satisfied by a comment, and a check broken by one.
+
+    Returns "" when the opener is absent, so a caller that has already asserted
+    the function exists gets an empty body rather than the whole file.
+    """
+    i = src.find(opener)
+    if i < 0:
+        return ""
+    j = src.find("{", i)
+    if j < 0:
+        return ""
+    depth, k = 0, j
+    while k < len(src):
+        c = src[k]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                break
+        k += 1
+    body = src[j:k + 1]
+    # Line comments only: a `//` inside a string would be mangled by anything
+    # cleverer, and the page has no block comments in its script.
+    return "\n".join(re.sub(r"//.*$", "", ln) for ln in body.split("\n"))
+
+
 def check_chrome_template_renders() -> Result:
     """The home's markup is complete, substitutable, and matches its fallback.
 
@@ -2615,6 +2658,51 @@ def check_chrome_template_renders() -> Result:
                   "by definition the copy nobody looks at, so it drifts "
                   "silently and the divergence surfaces during the failure it "
                   "was written for.")
+
+        # 3b. AND THEY MUST AGREE ON THEIR CONTENT, NOT MERELY ON THEIR TOKENS.
+        #
+        # THIS ASSERTION EXISTS BECAUSE THE ONE ABOVE WAS GREEN WHILE THE PAIR
+        # HAD DIVERGED BY FIVE HUNDRED LINES. Measured 2026-09-06: the fallback
+        # was 514 lines against the file's 726, across thirty hunks, and among
+        # what it was missing was the rule that makes VESPER's text selectable
+        # at all -- a defect the owner had already reported once and which would
+        # have come back the first time the template file went missing. The
+        # token sets matched perfectly the entire time, because tokens are a
+        # handful of names and the drift was in everything else.
+        #
+        # A COPY MAINTAINED BY HAND DRIFTS; THE ANSWER IS TO STOP MAINTAINING IT
+        # BY HAND. `tools/sync_chrome_fallback.py` GENERATES the literal from
+        # the file, and this asserts the generator's output is what is committed
+        # -- so the fallback cannot be stale, rather than being asked nicely not
+        # to be. Same move `INV-HW-2` makes for throughput: stop declaring,
+        # start deriving.
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location(
+            "_sync_chrome_fallback", REPO / "tools" / "sync_chrome_fallback.py")
+        if _spec is None or _spec.loader is None:
+            r.err("tools/sync_chrome_fallback.py is missing, so the inline "
+                  "fallback is hand-maintained again and nothing can tell "
+                  "whether it matches the template.")
+        else:
+            _mod = _ilu.module_from_spec(_spec)
+            try:
+                _spec.loader.exec_module(_mod)
+                _want = _mod.render()
+            except SystemExit as exc:                       # noqa: BLE001
+                r.err(f"the fallback generator refuses to run: {exc}. Until it "
+                      f"does, the fallback cannot be verified against the "
+                      f"template at all.")
+                _want = None
+            except Exception as exc:                        # noqa: BLE001
+                r.err(f"the fallback generator raised {exc!r}")
+                _want = None
+            if _want is not None and _want != swift:
+                r.err("the inline fallback does not match "
+                      f"{CHROME_TEMPLATE}. Regenerate it with "
+                      "`python3.13 tools/sync_chrome_fallback.py`. The fallback "
+                      "is the copy that paints when the file is gone, so a "
+                      "stale one is only ever discovered during the failure it "
+                      "was written to survive -- in front of the owner.")
 
     # 4. STRUCTURE. Checked by presence rather than by parsing: the point is
     # that the page still HAS its parts, not that the HTML is well-formed.
@@ -13009,6 +13097,1172 @@ def check_a_failure_is_something_the_next_step_can_see() -> Result:
            "licence to grind")
     return r
 
+
+def check_commands_card_shows_what_ran() -> Result:
+    """The owner can see the command, and can see why it failed.
+
+    THE DEFECT THIS ENDS. `shell.run` returned an exit code, a stdout and a
+    stderr, and the surface rendered one status line of at most eighty
+    characters with the output trimmed to the first eighty of those. So a
+    rename that failed reached the owner as "it ran and came back with error
+    code 1" -- while `mv` had already written the reason down and VESPER was
+    holding it. The owner's words for that were "no solution".
+
+    DRIVEN THROUGH THE REAL EXECUTOR. `shell_run` is called, its result is fed
+    to the runtime's own recorder, and the record is read back out of the
+    workbench and then out of `home.json` -- because the property is not "a
+    `command()` method exists". It is that a command run by VESPER arrives, with
+    what it printed, in the file the surface reads. Every gap this tree has
+    found has been in one of those joints and not in the pieces.
+    """
+    r = Result("commands-card-shows-what-ran")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.capabilities import shell_run
+        from core.workbench import (Workbench, COMMANDS_MAX,
+                                    COMMAND_OUT_MAX_LINES)
+        import importlib.util as ilu
+        spec = ilu.spec_from_file_location(
+            "_vrt_for_ci123", REPO / "tools" / "ops" / "vesper_runtime.py")
+        _rt = ilu.module_from_spec(spec)          # noqa: F841 -- loaded below
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the command path does not import: {exc!r}")
+        return r
+
+    # THE RECORDER IS TAKEN FROM THE RUNTIME, NOT REIMPLEMENTED HERE. A check
+    # that writes its own translation from a step to a record asserts that its
+    # own copy works and says nothing about the one that runs. Importing the
+    # module executes it, so the function is pulled out of the source instead --
+    # `vesper_runtime` builds a whole system at import time.
+    rt_src = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    import ast as _ast
+    _rec_src = None
+    for node in _ast.parse(rt_src).body:
+        if isinstance(node, _ast.FunctionDef) and node.name == "_record_command":
+            _rec_src = _ast.get_source_segment(rt_src, node)
+    if _rec_src is None:
+        r.err("tools/ops/vesper_runtime.py has no `_record_command`, so nothing "
+              "translates a completed step into a row on the commands card. "
+              "The card would render an empty list forever while every command "
+              "ran correctly -- the exact 'built and nothing reaches it' shape "
+              "this tree has now found six times.")
+        return r
+    ns: dict = {}
+    exec(compile(_rec_src, "vesper_runtime.py", "exec"), ns)
+    record = ns["_record_command"]
+
+    bench = Workbench()
+
+    # 1. A REAL COMMAND, RUN THROUGH THE REAL EXECUTOR, ARRIVES ON THE CARD.
+    res = shell_run({"cmd": "echo hey there", "level": "L2"})
+    record(bench, "shell.run", {"cmd": "echo hey there"}, res)
+    cmds = bench.state().get("commands") or []
+    if len(cmds) != 1:
+        r.err(f"one command was run and the card holds {len(cmds)} rows")
+        return r
+    c = cmds[0]
+
+    # 2. THE ARGV IS WHAT THE EXECUTOR RAN, compared against the executor's own
+    #    record rather than against a re-parse of the rendered string. The
+    #    display is a rendering of the argv; deriving the argv back out of it
+    #    would make this check agree with itself no matter what was stored.
+    if list(c.get("argv") or []) != list(res.get("argv") or []):
+        r.err(f"the card records argv {c.get('argv')!r} while the executor ran "
+              f"{res.get('argv')!r}. A command line rebuilt from a string is a "
+              f"reconstruction, and the card exists to say what RAN.")
+    if "hey there" not in (c.get("stdout") or ""):
+        r.err(f"the command printed 'hey there' and the card recorded "
+              f"stdout {c.get('stdout')!r}")
+    if c.get("state") != "ok" or c.get("exit_code") != 0:
+        r.err(f"a command that exited 0 is recorded as state={c.get('state')!r} "
+              f"exit={c.get('exit_code')!r}")
+
+    # 3. A FAILURE KEEPS ITS REASON. This is the whole point of the card.
+    bad = shell_run({"cmd": "ls /nonexistent-vesper-ci123", "level": "L2"})
+    record(bench, "shell.run", {"cmd": "ls /nonexistent-vesper-ci123"}, bad)
+    c2 = (bench.state().get("commands") or [])[-1]
+    if c2.get("state") != "failed":
+        r.err(f"a command that exited {bad.get('exit_code')!r} is recorded as "
+              f"{c2.get('state')!r}")
+    if not (c2.get("stderr") or "").strip():
+        r.err("a failed command reached the card with an EMPTY stderr, so the "
+              "surface can only show an exit code -- which is the state the "
+              "owner reported as being given a number where the diagnosis was "
+              "already in hand")
+
+    # 4. THE FILTER KEYS ON THE CAPABILITY, NOT ON THE SHAPE OF THE PAYLOAD.
+    #
+    #    THE FIRST VERSION OF THIS PROBE PASSED UNDER ITS OWN VIOLATION. It
+    #    offered an `fs.write` -- whose result has no argv and whose args have
+    #    no `cmd` -- so with the capability check deleted the recorder still
+    #    dropped it, at the next guard down, for a completely different reason.
+    #    A negative control that cannot reach the code it is aimed at is not a
+    #    control; it is a line that always passes.
+    #
+    #    So the payload is command-SHAPED and the capability is not `shell.run`.
+    #    That is the only probe that distinguishes "filters on the id" from
+    #    "happens to reject things that do not look like commands".
+    shaped = {"argv": ["echo", "x"], "exit_code": 0, "stdout": "x"}
+    before = len(bench.state().get("commands") or [])
+    record(bench, "agent.run", {"cmd": "echo x"}, shaped)
+    if len(bench.state().get("commands") or []) != before:
+        r.err("a capability that is not `shell.run` was recorded as a command "
+              "because its payload happened to look like one. The card would "
+              "become a second and worse copy of the actions column.")
+    #    AND THE CONTROL PASSES: the same payload under `shell.run` IS
+    #    recorded. Without this half, the assertion above is satisfied by a
+    #    recorder that refuses everything -- which protects the card by
+    #    deleting it.
+    record(bench, "shell.run", {"cmd": "echo x"}, shaped)
+    if len(bench.state().get("commands") or []) != before + 1:
+        r.err("the same command-shaped payload under `shell.run` was NOT "
+              "recorded, so the assertion above proves nothing: a recorder "
+              "that drops everything would satisfy it")
+
+    # 5. TRUNCATION IS BOUNDED, VISIBLE, AND KEEPS THE FIRST LINES. A traceback
+    #    names its cause at the top; keeping the tail keeps the summary and
+    #    throws away the diagnosis.
+    b2 = Workbench()
+    b2.command(["true"], exit_code=0,
+               stdout="\n".join(f"line{i}" for i in range(COMMAND_OUT_MAX_LINES * 3)))
+    t = (b2.state().get("commands") or [])[0]
+    if not t.get("truncated"):
+        r.err("output far past the cap was stored without `truncated` being "
+              "set, so the card would show a cut as though it were the whole "
+              "output -- a false statement the owner would act on")
+    if not (t.get("stdout") or "").startswith("line0"):
+        r.err("truncation kept the END of the output. A traceback names its "
+              "cause at the top and a failing build names the first error "
+              "first: keeping the tail keeps the summary and discards the "
+              "diagnosis.")
+    if len((t.get("stdout") or "").split("\n")) > COMMAND_OUT_MAX_LINES:
+        r.err("the line cap did not apply")
+
+    # 6. THE LIST IS BOUNDED AND DROPS THE OLDEST.
+    b3 = Workbench()
+    for i in range(COMMANDS_MAX + 12):
+        b3.command(["echo", str(i)], exit_code=0)
+    kept = b3.state().get("commands") or []
+    if len(kept) != COMMANDS_MAX:
+        r.err(f"{COMMANDS_MAX + 12} commands left {len(kept)} rows; the card is "
+              f"unbounded and grows for as long as VESPER runs")
+    elif kept[-1]["argv"][-1] != str(COMMANDS_MAX + 11):
+        r.err("the cap dropped the NEWEST commands rather than the oldest")
+
+    # 7. AND IT REACHES THE FILE THE SURFACE ACTUALLY READS. Everything above
+    #    is true of an object in memory; the chrome reads `home.json` and
+    #    nothing else.
+    import json as _json
+    import pathlib as _pl
+    import tempfile as _tf
+    from core.home_state import HomeState
+    with _tf.TemporaryDirectory() as d:
+        hs = HomeState(path=_pl.Path(d) / "home.json")
+        hs.set_workbench(bench.state())
+        wrote = _json.loads((_pl.Path(d) / "home.json").read_text(encoding="utf-8"))
+        got = ((wrote.get("workbench") or {}).get("commands") or [])
+        if not got:
+            r.err("the commands never reach home.json, so the whole card is a "
+                  "renderer with nothing behind it")
+        elif got[0].get("display") != " ".join(res.get("argv") or []):
+            r.err(f"home.json carries display {got[0].get('display')!r} for a "
+                  f"command whose argv was {res.get('argv')!r}")
+
+    # 8. AND THE PAGE RENDERS IT, AND RENDERS IT AS TEXT.
+    tpl = (REPO / CHROME_TEMPLATE).read_text(encoding="utf-8")
+    if "renderCommands" not in tpl:
+        r.err("the page has no commands renderer: the runtime records every "
+              "command, writes it to home.json and pushes it into the webview, "
+              "and nothing draws it")
+    if 'id="cmdrows"' not in tpl or 'id="pcmds"' not in tpl:
+        r.err("the commands pane is missing from the markup")
+    # THE CALL MUST NOT SIT AFTER THE EARLY RETURN. `__vesperWork` gives up as
+    # soon as there are no thoughts and no actions, so a render call placed
+    # below that line runs only on ticks where VESPER happens to be thinking --
+    # and the card would fill and empty for reasons the owner cannot see.
+    body = tpl[tpl.find("window.__vesperWork"):]
+    call = body.find("renderCommands(")
+    ret = body.find("work.classList.add('idle'); return;")
+    if call < 0 or (0 <= ret < call):
+        r.err("`renderCommands` is called AFTER `__vesperWork`'s early return, "
+              "so commands are drawn only on the ticks where VESPER also has a "
+              "thought or an action to show. A command outlives the turn that "
+              "produced it and the pane must too.")
+    # A COMMAND LINE AND A PROCESS'S OWN STDERR ARE NOT MARKUP.
+    seg = _js_body(tpl, "function renderCommands")
+    if "innerHTML" in seg:
+        r.err("the commands renderer assigns innerHTML. These rows carry a "
+              "command line and a process's own stderr straight off the wire.")
+
+    r.note("a real command run through the real executor reaches the card with "
+           "the argv the kernel received, its output and its exit code; a "
+           "failure keeps the stderr that explains it; output past the cap is "
+           "trimmed from the END and says so; the list is bounded and drops "
+           "oldest; the record reaches home.json; and the page renders it as "
+           "text, on every tick rather than only while VESPER is thinking")
+    return r
+
+
+def check_an_explanation_is_shown_and_never_spoken() -> Result:
+    """The long half of a reply reaches the board and never the room.
+
+    THE OWNER'S INSTRUCTION, IN THEIR WORDS: the explanations and the big text
+    "will not say them, they just show up there, what it says stays on the
+    dialog that was made for it, they should be connected."
+
+    WHY THIS NEEDS A GATE RATHER THAN CARE. The reply is produced once and read
+    by two consumers -- the stage and `speech.plan` -- and they are ninety lines
+    apart. A split applied to one of them leaves the other reading four hundred
+    words, or a shell command, into whatever room VESPER is in. Nothing about
+    that is visible in the code near either call site, and it is not visible on
+    screen either: the transcript would look exactly right.
+
+    AND THE CONNECTION IS ASSERTED, NOT ASSUMED. The two halves are paired by
+    the turn's HLC. Pairing them by "the newest of each" is correct until the
+    first turn that produces a reply and no explanation, and silently wrong for
+    every turn after it.
+    """
+    r = Result("an-explanation-is-shown-and-never-spoken")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.longform import (split, SPOKEN_MAX_CHARS, EXPLANATIONS_MAX,
+                                   NO_PROSE)
+        from core.workbench import Workbench
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the longform path does not import: {exc!r}")
+        return r
+
+    long_reply = (
+        "The rename failed because the target directory is not writable.\n\n"
+        "Here is what to run instead:\n\n"
+        "```bash\nsudo chown -R me /srv/data && mv a b\n```\n\n"
+        "- check the owner of the directory\n"
+        "- then run the move again\n")
+
+    # 1. THE SPOKEN HALF IS A SENTENCE AND CARRIES NO CODE.
+    sp = split(long_reply, question="why did the rename fail?")
+    if not sp.blocks:
+        r.err("a reply with a fenced code block was not treated as longform, "
+              "so the whole of it -- shell command included -- goes to the "
+              "synthesiser and is read into the room")
+    if "sudo chown" in sp.spoken:
+        r.err(f"the spoken line contains the command: {sp.spoken!r}. A command "
+              f"read aloud is not a command anyone can act on, and this one "
+              f"begins with sudo.")
+    if len(sp.spoken) > SPOKEN_MAX_CHARS:
+        r.err(f"the spoken line is {len(sp.spoken)} characters against a cap of "
+              f"{SPOKEN_MAX_CHARS}. Speech has no skimming and no scrollback.")
+
+    # 1b. AND THE CAP IS EXERCISED BY A PARAGRAPH THAT EXCEEDS IT.
+    #
+    #     THE PROBE ABOVE COULD NOT SEE THIS. Its leading paragraph is sixty
+    #     characters, so "speak the first sentence" and "speak the whole
+    #     paragraph" produce the same string and the assertion passed happily
+    #     with the sentence cut deleted. A control that cannot reach the code
+    #     it is aimed at is a line that always passes.
+    sentences = ("The directory is owned by root and your user cannot write to "
+                 "it. ") * 8
+    wide = split(sentences + "\n\n```bash\nid -un\n```",
+                 question="why can't I write there?")
+    if len(wide.spoken) > SPOKEN_MAX_CHARS:
+        r.err(f"a long leading paragraph is spoken whole: {len(wide.spoken)} "
+              f"characters against a cap of {SPOKEN_MAX_CHARS}")
+    if wide.spoken.endswith("…"):
+        r.err("a paragraph made of complete sentences was cut mid-word and "
+              "ellipsised, when there were sentence boundaries to stop at")
+    elif not wide.spoken.endswith("."):
+        r.err(f"the spoken line does not end at a sentence boundary: "
+              f"{wide.spoken[-40:]!r}")
+
+    # 2. A SHORT REPLY IS NOT SPLIT AT ALL. Without this the board fills with
+    #    one-line answers and buries the explanations it exists to hold --
+    #    a feature that destroys itself by succeeding too often.
+    short = split("Done.", question="rename it")
+    if short.blocks or short.spoken != "Done.":
+        r.err(f"a one-word reply was turned into an explanation: "
+              f"{short.spoken!r} + {len(short.blocks)} blocks")
+
+    # 3. A REPLY THAT OPENS WITH CODE STILL SAYS SOMETHING, and says a fixed
+    #    line rather than a generated one. Summarising an answer with a model
+    #    produces a second generation about the first -- text shaped like a
+    #    summary and downstream of nothing.
+    codefirst = split("```bash\nls -la\n```", question="show me")
+    if not codefirst.spoken:
+        r.err("a reply that is only code leaves nothing on the stage, so the "
+              "owner is answered by silence")
+    elif codefirst.spoken != NO_PROSE:
+        r.err(f"a reply with no prose was answered with {codefirst.spoken!r} "
+              f"rather than the fixed line -- which means something invented "
+              f"a sentence about text it was not asked to describe")
+
+    # 4. THE RECORD IS TYPED, KEYED ON THE TURN, AND BOUNDED.
+    bench = Workbench()
+    bench.explain("hlc:aaa", sp.title, sp.blocks)
+    exps = bench.state().get("explanations") or []
+    if len(exps) != 1:
+        r.err(f"one explanation produced {len(exps)} entries")
+        return r
+    if exps[0].get("turn_id") != "hlc:aaa":
+        r.err("the explanation does not carry the turn it belongs to, so the "
+              "reply on the stage and the text on the board cannot find each "
+              "other and 'connected' is a claim rather than a feature")
+    kinds = {b.get("kind") for b in exps[0].get("blocks") or []}
+    if not kinds <= {"text", "code", "list"}:
+        r.err(f"untyped blocks reached the record: {sorted(kinds)}. Anything "
+              f"the page cannot draw with a fixed template is a place a "
+              f"model's output becomes markup.")
+    #    OFFERED ONE DIRECTLY, because `split` only ever emits the three kinds
+    #    and a probe built from its output cannot test the filter at all -- it
+    #    passed with the filter deleted. The record is what a future caller
+    #    hands in, not only what `split` produced.
+    bench.explain("hlc:untyped", "t",
+                  [{"kind": "html", "text": "<script>alert(1)</script>"},
+                   {"kind": "text", "text": "kept"}])
+    got = [e for e in bench.state()["explanations"] if e["turn_id"] == "hlc:untyped"]
+    if not got:
+        r.err("an explanation containing one untyped block was dropped whole, "
+              "so a single unknown kind loses the owner the entire answer")
+    else:
+        ks = [b.get("kind") for b in got[0]["blocks"]]
+        if "html" in ks:
+            r.err("a block of an unknown kind was stored. The page draws three "
+                  "kinds with fixed templates; anything else is a model's "
+                  "output looking for a renderer.")
+        if "text" not in ks:
+            r.err("the known blocks were discarded alongside the unknown one, "
+                  "so this assertion would pass for a store that keeps nothing")
+    bench.explain("hlc:aaa", sp.title, sp.blocks)
+    # COUNTED FOR THAT TURN, not across the whole list -- other turns are in
+    # here by now, and a total would make this assertion depend on how many
+    # probes ran above it.
+    again = [e for e in bench.state()["explanations"] if e["turn_id"] == "hlc:aaa"]
+    if len(again) != 1:
+        r.err(f"re-running one turn left {len(again)} copies of its "
+              f"explanation, so the owner is shown the same answer twice")
+    b2 = Workbench()
+    for i in range(EXPLANATIONS_MAX + 6):
+        b2.explain(f"hlc:{i}", "t", sp.blocks)
+    if len(b2.state().get("explanations") or []) != EXPLANATIONS_MAX:
+        r.err("the explanations list is unbounded; every tick carries all of "
+              "it through home.json")
+
+    # 5. AND THE RUNTIME ACTUALLY ROUTES IT THAT WAY. Everything above is true
+    #    of `longform.split`; this is the joint where it is used, and every
+    #    defect this tree has found has been in a joint.
+    src = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if "longform.split(" not in src:
+        r.err("the runtime never splits the reply, so `core/longform.py` is a "
+              "module nothing calls and every answer is spoken whole -- the "
+              "'built and nothing reaches it' shape again")
+        return r
+    i_split = src.find("reply = _split.spoken")
+    i_speak = src.find("speech.plan(reply")
+    i_stage = src.find('said.append({"who": "vesper", "text": reply,')
+    if i_split < 0:
+        r.err("the runtime computes a split and does not assign the spoken "
+              "half to `reply`, so both consumers below still read the whole "
+              "answer")
+    if i_speak < 0:
+        r.err("the reply no longer reaches `speech.plan`")
+    if 0 <= i_speak < i_split:
+        r.err("the reply is spoken BEFORE it is shortened, so the room hears "
+              "the whole answer while the board shows the split")
+    if 0 <= i_stage < i_split:
+        r.err("the stage is given the reply before it is shortened")
+    if "speech.plan(reply_full" in src:
+        r.err("the synthesiser is handed the FULL reply explicitly. That is "
+              "the one destination the long half must never reach.")
+    # THE RECORDS KEEP THE WHOLE ANSWER. `baseline` is a corpus of what VESPER
+    # actually answered, and shortening it there makes every comparative
+    # question about memory unanswerable -- quietly, and only in hindsight.
+    if "answer=reply_full" not in src:
+        r.err("the baseline record was given the shortened line instead of the "
+              "answer. That corpus exists to be compared against later, and a "
+              "truncated one cannot be.")
+
+    # 6. THE PAGE DRAWS IT, AS TEXT, ON EVERY TICK.
+    tpl = (REPO / CHROME_TEMPLATE).read_text(encoding="utf-8")
+    if "renderExplanations" not in tpl or 'id="exprows"' not in tpl:
+        r.err("the explanations pane is missing from the page: the runtime "
+              "records every explanation and nothing draws it")
+        return r
+    body = tpl[tpl.find("window.__vesperWork"):]
+    if 0 <= body.find("work.classList.add('idle'); return;") < body.find("renderExplanations("):
+        r.err("`renderExplanations` is called after `__vesperWork`'s early "
+              "return, so the board is drawn only on ticks where VESPER also "
+              "has a thought to show")
+    seg = _js_body(tpl, "function renderExplanations")
+    if "innerHTML" in seg:
+        r.err("the explanations renderer assigns innerHTML, on blocks that are "
+              "a model's own output")
+    if "data-turn" not in tpl:
+        r.err("nothing on the page carries the turn id, so a reply and its "
+              "explanation cannot be linked in either direction")
+
+    r.note("a long reply is divided once, before either consumer sees it: the "
+           "room and the stage get a sentence of VESPER's own, the board gets "
+           "the typed blocks, and the records keep the whole answer. A short "
+           "reply is not divided. A reply that is only code still says "
+           "something, and says a fixed line rather than a generated one. The "
+           "two halves are joined by the turn, the list is bounded, and the "
+           "page draws it as text on every tick.")
+    return r
+
+
+def check_the_board_survives_a_restart() -> Result:
+    """What VESPER did last session is still on the board this session.
+
+    THE OWNER REPORTED THIS AS "some card may have disappeared". The commands
+    and explanations lived only in memory, `home.json` was overwritten with an
+    empty workbench on the first pump after a restart, and an empty pane hides
+    itself -- so every rebuild, every login and every crash blanked the board
+    while everything underneath was working correctly. A surface that empties
+    for reasons the owner cannot see is the failure this whole chunk was asked
+    to fix, arriving through the feature meant to fix it.
+
+    SEEDED FROM `home.json`, NOT FROM A SECOND STORE. That file is already the
+    contract between the runtime and the chrome and already survives a restart.
+
+    AND NOT EVERYTHING IS RESTORED. A thought is about a turn that is over, and
+    an action row can be `live` -- restoring one would put a spinner on the
+    board for work that stopped existing when the process did.
+    """
+    r = Result("the-board-survives-a-restart")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.workbench import Workbench
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"core.workbench does not import: {exc!r}")
+        return r
+
+    # A FULL BOARD, WRITTEN THE WAY THE RUNTIME WRITES ONE.
+    first = Workbench()
+    first.command(["echo", "before"], cwd="/tmp", exit_code=0, stdout="before")
+    first.explain("hlc:1", "a question", [{"kind": "text", "text": "an answer"}])
+    first.think("straightforward")
+    first.acted("shell.run", {"cmd": "echo before"}, state="done")
+    saved = first.state()
+
+    # AND A COLD PROCESS THAT TAKES IT BACK.
+    second = Workbench()
+    n = second.seed(saved)
+    got = second.state()
+    if not got.get("commands"):
+        r.err("a restarted runtime came up with an empty commands list while "
+              "home.json still held the rows, so the pane hides itself and the "
+              "owner watches a card disappear on every rebuild")
+    elif got["commands"][0]["display"] != "echo before":
+        r.err(f"the restored command reads {got['commands'][0]['display']!r}")
+    if not got.get("explanations"):
+        r.err("the explanations were not restored, so every answer VESPER "
+              "wrote out is lost the next time the process starts")
+    if n < 2:
+        r.err(f"seed reported restoring {n} rows from a board holding two")
+
+    # THE ROW IDS DO NOT COLLIDE WITH NEW ONES. The page keys its open rows on
+    # the id, so a restored `cmd1` and a fresh `cmd1` are the same row as far
+    # as the surface is concerned -- open one and the other opens too.
+    second.command(["echo", "after"], exit_code=0)
+    ids = [c["id"] for c in second.state()["commands"]]
+    if len(set(ids)) != len(ids):
+        r.err(f"a command minted after a restart reused an id that was "
+              f"restored: {ids}. The page keys its expanded rows on that id.")
+
+    # SEEDING IS NOT MERGING. A board that already has rows must not take a
+    # second copy of them -- which is what would happen if the runtime ever
+    # seeded twice, and it is one `except` away from doing so.
+    again = second.seed(saved)
+    if again or len(second.state()["commands"]) != len(ids):
+        r.err("seeding a board that already has rows added more of them, so a "
+              "second call duplicates the whole history")
+
+    # AND THE LIVE STATE IS NOT RESTORED.
+    if got.get("thoughts"):
+        r.err("thoughts were restored: a thought is about a turn that ended "
+              "when the process did, and putting it back makes the surface "
+              "narrate work that is not happening")
+    if got.get("actions"):
+        r.err("action rows were restored. An action can be `live`, so this puts "
+              "a pulsing spinner on the board for work that no longer exists "
+              "-- the same defect as a face stuck on `thinking`.")
+
+    # AND THE RUNTIME ACTUALLY CALLS IT. Every gap this tree has found has been
+    # in the joint, not in the piece.
+    src = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if "bench.seed(" not in src:
+        r.err("`Workbench.seed` exists and the runtime never calls it, so the "
+              "board still blanks on every restart -- built, and reached by "
+              "nothing")
+    else:
+        i_seed = src.find("bench.seed(")
+        i_pub = src.find("home.set_workbench(")
+        if 0 <= i_pub < i_seed:
+            r.err("the workbench is published before it is seeded, so the first "
+                  "pump overwrites home.json with an empty board and the seed "
+                  "reads back what it just erased")
+
+    r.note("a restarted runtime takes back the commands and explanations that "
+           "were on screen, from home.json rather than from a second store; "
+           "new ids do not collide with restored ones; seeding twice does not "
+           "duplicate; and the live half -- thoughts and action rows, which can "
+           "be mid-flight -- is deliberately not restored")
+    return r
+
+
+def check_a_path_is_not_a_secret() -> Result:
+    """The redactor does not rewrite the owner's own file paths.
+
+    THIS DEFECT HAS NOW HAPPENED TWICE, IN TWO FORMS, AND WAS GATED BY NOTHING.
+
+    2026-09-04: the owner asked VESPER to run a script. The proposer correctly
+    emitted `shell.run python3 "<path>/hey.py"`, the redactor rewrote the path
+    to `[REDACTED:high_entropy_token]`, and the mangled command then scored L5
+    instead of L3 -- fail-closed on an unparseable token, which is right -- so
+    the action was refused for authorization VESPER could not even ask for.
+    `_token_bits` was narrowed to score a path per SEGMENT and the incident was
+    written into its docstring.
+
+    2026-09-06: the owner asked VESPER to write `~/Downloads/
+    vesper_changes_demo.txt`. It happened again, because only ONE of the two
+    tests had been narrowed: `_charset_mixed` still read the WHOLE token, and a
+    path mixes character classes by being JOINED -- an uppercase letter from
+    one segment, lowercase from another. VESPER created a file literally named
+    `~[REDACTED:high_entropy_token]` inside its own app bundle.
+
+    A COMMENT RECORDING AN INCIDENT IS NOT A GUARD AGAINST IT. Both times,
+    every stage after the redactor behaved correctly on input the redactor had
+    corrupted, and nothing anywhere could tell. This is that guard.
+
+    AND IT ASSERTS BOTH DIRECTIONS. A redactor that passes everything protects
+    no paths and no secrets, so every "this survives" below is paired with a
+    "this does not" -- including a real credential sitting INSIDE a path, which
+    is the case the narrowing must not have opened.
+    """
+    r = Result("a-path-is-not-a-secret")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.redact import redact, scan, _worst_segment, _charset_mixed
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"core.redact does not import as expected: {exc!r}")
+        return r
+
+    # 1. PATHS SURVIVE. Each of these is a shape that has reached the redactor
+    #    in real use, and the first two are the two incidents by name.
+    survives = [
+        "create a file at ~/Downloads/vesper_changes_demo.txt containing alpha",
+        "run python3 /Users/macbook/Projects/VESPER/workspace/hey.py",
+        "open ~/Downloads/vesper_demo2.txt",
+        "read ./tools/ci/self_test.py",
+        "the log is at /Users/macbook/Library/Application Support/VESPER/home.json",
+        "check ../VESPER-runtime/llama.cpp/serve.sh",
+    ]
+    for text in survives:
+        out = redact(text)[0]
+        if "[REDACTED" in out:
+            r.err(f"the redactor rewrote an ordinary path: {out!r}. Every stage "
+                  f"after it then behaves correctly on corrupted input, which "
+                  f"is why this failure is so hard to see from anywhere else.")
+
+    # 2. AND SECRETS DO NOT. Without this half, the assertion above is passed
+    #    by a redactor that has been switched off -- which would protect the
+    #    owner's paths by publishing their keys.
+    caught = [
+        "my key is sk-proj-k3Jx9QmZ2vLp0aB7RtY4uE1nW8cV6dF0gH",
+        "export GEMINI_API_KEY=AIzaSyD-1234567890abcdefGHIJKLMNOPqrstu",
+        "token AKIAIOSFODNN7EXAMPLE",
+    ]
+    for text in caught:
+        if "[REDACTED" not in redact(text)[0]:
+            r.err(f"a credential passed the redactor untouched: {text[:40]!r}")
+
+    # 3. A SECRET INSIDE A PATH IS STILL CAUGHT. This is the case the narrowing
+    #    could have opened, and it is the reason the score is taken from the
+    #    WORST segment rather than from the whole token or from the last one.
+    inpath = "the token lives at /etc/secrets/AKIAIOSFODNN7EXAMPLE"
+    if "[REDACTED" not in redact(inpath)[0]:
+        r.err("a credential sitting inside a path was not redacted. The "
+              "per-segment narrowing exists so a path stops SCORING like a "
+              "secret, not so a path becomes a place to hide one.")
+
+    # 4. BOTH TESTS ASK THE SAME SEGMENT. Structural, because this is exactly
+    #    what was wrong: the entropy test was narrowed in September and the
+    #    charset test was not, and the two disagreeing is invisible in every
+    #    fixture where the path happens to score low.
+    src = (REPO / "core" / "redact.py").read_text(encoding="utf-8")
+    import ast as _ast
+    tree = _ast.parse(src)
+    scan_fn = next((n for n in tree.body
+                    if isinstance(n, _ast.FunctionDef) and n.name == "scan"), None)
+    if scan_fn is None:
+        r.err("core/redact.py has no `scan`")
+        return r
+    seg = _ast.get_source_segment(src, scan_fn) or ""
+    if "_charset_mixed(_worst_segment(" not in seg:
+        r.err("`scan` asks `_charset_mixed` about the whole token while the "
+              "entropy test asks about one segment. A path mixes character "
+              "classes by being JOINED -- an uppercase letter from one segment "
+              "and lowercase from another -- so it passes a test that is "
+              "supposed to mean 'this looks generated'. That disagreement is "
+              "what rewrote the owner's path on 2026-09-06.")
+
+    # 5. AND THE SEGMENT CHOSEN IS THE WORST ONE, not the last. A filename is
+    #    the obvious thing to exempt and it is the wrong one: a secret dropped
+    #    into a directory name would walk straight through.
+    if _worst_segment("/etc/secrets/AKIAIOSFODNN7EXAMPLE/readme.txt") != "AKIAIOSFODNN7EXAMPLE":
+        r.err("the segment that decides is not the highest-entropy one, so a "
+              "credential in a directory name is judged by a filename beside it")
+    if _charset_mixed("vesper_changes_demo.txt"):
+        r.err("an all-lowercase filename reads as charset-mixed, so the "
+              "narrowing above cannot help it")
+
+    r.note("the two paths that were rewritten in real use -- 2026-09-04's "
+           "`workspace/hey.py` and 2026-09-06's `~/Downloads/"
+           "vesper_changes_demo.txt` -- both survive, along with four other "
+           "shapes; three credential forms are still caught, including one "
+           "inside a path; and the entropy and charset tests are asserted to "
+           "read the SAME segment, which is the disagreement that caused the "
+           "second incident")
+    return r
+
+
+def check_auto_mode_does_not_ask_and_does_not_overreach() -> Result:
+    """Auto mode acts without asking, and still cannot exceed its ceilings.
+
+    THE OWNER'S INSTRUCTION, IN THEIR WORDS: "when auto mode is on, it should
+    not fucking ask for permission i don't care". `permission_mode` already
+    writes it down as "Do not ask. Full authority on everything the owner
+    requests."
+
+    AND A STANDING GRANT CANNOT SAY IT. `INV-AUTH-2` makes L4 and L5 single-use
+    and bound to one command instance, so a standing L5 is consumed by the
+    first action -- which is why `FREE_LEVEL` is L3. Measured 2026-09-06: the
+    owner asked for a file in `~/Downloads`, the PROPOSER declared the action
+    L5, the standing L3 could not cover it, and VESPER asked for a go-ahead in
+    the one mode whose meaning is that it does not ask.
+
+    SO THE STANDING INSTRUCTION IS APPLIED PER ACTION: a grant bound to one
+    command id, non-delegable, consumed by use. That is the shape `INV-AUTH-2`
+    describes, used rather than bent.
+
+    THIS CHECK IS MOSTLY ABOUT WHAT IT STILL WILL NOT DO. An elevation that is
+    unbounded is not a permission mode, it is the removal of the ladder -- so
+    every ceiling is asserted to survive it, and ASK mode is asserted to be
+    unaffected, because an "auto only" behaviour that fires in every mode is
+    the most expensive kind of correct-looking.
+    """
+    r = Result("auto-mode-does-not-ask-and-does-not-overreach")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.actor import Actor, AUTO_GRANT_TTL_MS
+        from core.authorize import Decision, NEVER_DELEGABLE
+        from core import permission_mode as pm
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the actor does not import: {exc!r}")
+        return r
+
+    src = (REPO / "core" / "actor.py").read_text(encoding="utf-8")
+    import ast as _ast
+    tree = _ast.parse(src)
+    fn_node = next((n for n in _ast.walk(tree)
+                    if isinstance(n, _ast.FunctionDef)
+                    and n.name == "_elevate_in_auto"), None)
+    if fn_node is None:
+        r.err("`_elevate_in_auto` is gone: auto mode asks for permission again, "
+              "in the one mode whose entire meaning is that it does not")
+        return r
+    body = _ast.get_source_segment(src, fn_node) or ""
+
+    # 1. IT ONLY FIRES IN AUTO. An "auto only" behaviour that fires in `ask`
+    #    would silently delete the mode the owner chose for safety.
+    if "mode != permission_mode.AUTO" not in body:
+        r.err("elevation does not check the mode, so `ask` and `workspace` "
+              "silently gain the same authority as `auto` and the setting the "
+              "owner chose for safety does nothing")
+
+    # 2. IT NEVER EXCEEDS THE CONTEXT CEILING. This is `INV-ACT-3`: content
+    #    entering the system may never raise authority. Without this line a
+    #    page VESPER read becomes a reason to act above the ceiling that had
+    #    already refused it.
+    if "_min_level(mode_ceiling, context_ceiling)" not in body:
+        r.err("the elevated grant is not clamped to the mode and context "
+              "ceilings. INV-ACT-3 says retrieved content may never raise "
+              "authority, and an elevation that ignores the context ceiling is "
+              "exactly that -- from inside the system, where it looks like a "
+              "setting rather than an escalation.")
+
+    # 3. THE GRANT IS BOUND, SINGLE-USE AND NOT DELEGABLE -- INV-AUTH-2's own
+    #    three properties, which is what makes this a use of the invariant
+    #    rather than a hole in it.
+    if "issued_for_command_id=command_id" not in body:
+        r.err("the elevated grant is not bound to one command instance, so it "
+              "authorises the NEXT action too. INV-AUTH-2 exists to stop "
+              "precisely that.")
+    if "delegable=False" not in body:
+        r.err("the elevated grant is delegable, which INV-AUTH-2 forbids at "
+              "L4 and L5")
+
+    # 4. ONLY LEVEL-SHAPED DENIALS. A refusal for being outside the workspace,
+    #    or an advisor STOP, is not a statement the owner has already agreed to.
+    if set(Actor.ELEVATABLE) - {"below_required_level", "no_grant", "grant_consumed"}:
+        r.err(f"elevation answers denials it should not: {Actor.ELEVATABLE}. "
+              f"`outside_workspace` and `owner_confirmation_required` are "
+              f"different objections and auto mode does not answer them.")
+    for must in ("below_required_level",):
+        if must not in Actor.ELEVATABLE:
+            r.err(f"{must!r} is not elevatable, which is the denial the owner "
+                  f"actually hit")
+
+    # 5. IT RE-ASKS THE LADDER RATHER THAN DECIDING. A function that returns a
+    #    fabricated `Decision(True, ...)` would authorise without the target
+    #    scope, the capability rules or the ceilings ever being consulted again.
+    if "self._pdp.authorize(" not in body:
+        r.err("elevation returns a verdict of its own instead of re-asking the "
+              "policy decision point. A grant is one INPUT to the ladder, not "
+              "a decision -- anything else is a second path to a level.")
+    if "Decision(True" in body:
+        r.err("elevation constructs an authorised Decision directly, bypassing "
+              "the ladder entirely")
+
+    # 6. AND IT SAYS SO. A mode that means "do not ask" must not also mean
+    #    "do not say" -- the elevation is the one record that an action above
+    #    the standing level happened at all.
+    if "authz.auto_elevated" not in body:
+        r.err("an elevation is not published, so nothing afterwards can tell "
+              "an action the owner standingly authorised from one the ladder "
+              "permitted outright")
+    #    AND THE RECORD NAMES THE ACTION. A published event carrying neither
+    #    the capability nor the level is a count of elevations, which answers
+    #    no question anyone would ask of it. The topic being present is not the
+    #    same claim as the record being useful, and only the first was asserted
+    #    until this line existed.
+    #    READ INSIDE THE `authz.auto_elevated` PUBLISH, not anywhere in the
+    #    function. The refusal publish beside it carries the same field name,
+    #    so a search over the whole body was satisfied by the wrong record and
+    #    passed with the elevation's own payload gutted.
+    _i = body.find('"authz.auto_elevated"')
+    elevated_payload = body[_i:_i + 700] if _i >= 0 else ""
+    if '"capability_id": p.capability_id' not in elevated_payload:
+        r.err("the elevation record does not name the capability it elevated")
+    if '"level": top' not in elevated_payload:
+        r.err("the elevation record does not say what level it granted")
+
+    # 7. IT IS REACHED, and reached BEFORE the question is asked. Placed after
+    #    `_ask` it would be dead code behind a sentence the owner already saw.
+    #    PARSED, NOT SEARCHED. A textual search for the call is satisfied by
+    #    `d = d or self._elevate_in_auto(...)` -- which never runs, because a
+    #    `Decision` is truthy -- so the call is present, correctly placed, and
+    #    dead. The assertion is that `d` is assigned the call's result and
+    #    nothing else.
+    call_ok = False
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.Assign):
+            continue
+        if not (len(node.targets) == 1 and isinstance(node.targets[0], _ast.Name)
+                and node.targets[0].id == "d"):
+            continue
+        v = node.value
+        if (isinstance(v, _ast.Call) and isinstance(v.func, _ast.Attribute)
+                and v.func.attr == "_elevate_in_auto"):
+            call_ok = True
+    if not call_ok:
+        r.err("`d` is never assigned the result of `_elevate_in_auto` directly. "
+              "A call wrapped in anything -- `d or ...`, a guard, a ternary -- "
+              "leaves the elevation present, correctly placed and DEAD, and "
+              "auto mode goes back to asking while the code that stops it reads "
+              "perfectly.")
+    i_elev = src.find("self._elevate_in_auto(")
+    i_ask = src.find("return self._ask(d, p, level, attention_state, period)")
+    if i_elev < 0:
+        r.err("`_elevate_in_auto` is defined and never called: auto mode still "
+              "asks, and the code that would stop it is right there")
+    elif 0 <= i_ask < i_elev:
+        r.err("elevation happens after the turn has already been parked and "
+              "the owner already asked -- correct code, reached too late")
+
+    # 8. THE TTL IS SHORT. A long-lived per-command grant left on record is a
+    #    thing a later reader has to reason about, and a thing an attacker
+    #    would rather find.
+    if AUTO_GRANT_TTL_MS > 600_000:
+        r.err(f"the per-command grant lives {AUTO_GRANT_TTL_MS} ms. It covers "
+              f"one action already in flight and is consumed by use; a long "
+              f"expiry leaves spent-looking grants on record")
+
+    # 9. THE MODES THEMSELVES STILL DIFFER. If `standing_level` returned the
+    #    same thing for every mode, everything above would pass while the
+    #    setting did nothing.
+    if pm.standing_level(pm.ASK) == pm.standing_level(pm.AUTO):
+        r.err("`ask` and `auto` carry the same standing level, so the mode the "
+              "owner picks changes nothing")
+    if pm.FREE_LEVEL in NEVER_DELEGABLE:
+        r.err(f"the standing level is {pm.FREE_LEVEL}, which INV-AUTH-2 makes "
+              f"single-use -- a standing grant at that level is consumed by "
+              f"the first action and the mode stops working after one step")
+
+    r.note("auto mode answers a level-shaped denial with a grant bound to one "
+           "command, non-delegable and consumed by use -- INV-AUTH-2 used, not "
+           "bent; the grant is clamped to the mode and context ceilings so "
+           "INV-ACT-3 still holds; only three denial reasons are answered; the "
+           "ladder is re-asked rather than bypassed; every elevation is "
+           "published; and the other modes are untouched")
+    return r
+
+
+def check_changes_are_shown_with_their_source() -> Result:
+    """Every file VESPER touches is on the board, with a real diff and a label.
+
+    THE OWNER'S REQUEST: "anything it does to any file (addings+deletes)", shown
+    "in a comprehensive clean way", each file expandable, additions and
+    deletions compared, and buttons to push, pull and create.
+
+    TWO SOURCES AND THEY ARE NOT INTERCHANGEABLE. VESPER writes to paths in no
+    repository at all -- the workspace, `~/Downloads`. Git covers files the
+    owner edits and VESPER never saw. Both belong in one list, and only one of
+    them can be pushed, so the row carries its source and the git buttons are
+    disabled on rows git has never heard of. Merging them into one fake git
+    view is the obvious shortcut and it makes the buttons lie.
+
+    THE "BEFORE" IS NOT INVENTED. `core/checkpoint.py` already mirrors every
+    file VESPER is about to touch, because the executor fails closed on a
+    capability whose pre-state it cannot record. The diff is computed against
+    that. A second store of previous bytes would eventually disagree with the
+    one the undo path uses.
+
+    AND IT IS NOT EVIDENCE. `Actor._reportable` strips file contents from the
+    durable record on purpose. This board is a VIEW CACHE and nothing may cite
+    it -- asserted below, because the next session to find a file full of diffs
+    will reasonably assume it is a log.
+    """
+    r = Result("changes-are-shown-with-their-source")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.changes import (Changes, Change, diff, repo_of, CHANGES_MAX,
+                                  DIFF_MAX_LINES, DIFF_TOTAL_MAX_BYTES)
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"core.changes does not import: {exc!r}")
+        return r
+    import difflib as _dl
+    import pathlib as _pl2
+
+    # 1. THE COUNTS ARE THE DIFF'S OWN. A card reading "+900 -4" over four
+    #    visible lines is describing something other than what it is showing.
+    before, after = "one\ntwo\n", "one\ntwo\nthree\n"
+    text, add, rem, cut = diff(before, after, "/tmp/x")
+    ref = list(_dl.unified_diff(before.splitlines(keepends=True),
+                                after.splitlines(keepends=True),
+                                fromfile="/tmp/x", tofile="/tmp/x", n=3))
+    ref_add = sum(1 for l in ref if l.startswith("+") and not l.startswith("+++"))
+    if add != ref_add or rem != 0:
+        r.err(f"the diff counts (+{add} -{rem}) disagree with difflib over the "
+              f"same two texts (+{ref_add} -0)")
+    if "+three" not in text:
+        r.err("the diff does not contain the added line")
+
+    # 2. A CREATION AND A DELETION ARE BOTH REPRESENTABLE. The owner asked for
+    #    "addings+deletes" in those words, and a deletion whose diff is empty
+    #    is a row that says a file changed and will not say how.
+    made, a2, r2, _ = diff("", "hello\n", "/tmp/new")
+    if a2 != 1 or "+hello" not in made:
+        r.err(f"a created file does not diff as all additions: +{a2} {made!r}")
+    gone, a3, r3, _ = diff("hello\n", "", "/tmp/gone")
+    if r3 != 1 or "-hello" not in gone:
+        r.err(f"a deleted file does not diff as all removals: -{r3} {gone!r}")
+
+    # 3. TRUNCATION IS BOUNDED AND DECLARED.
+    big_a = "".join(f"line{i}\n" for i in range(DIFF_MAX_LINES * 4))
+    _, _, _, cut2 = diff("", big_a, "/tmp/big")
+    if not cut2:
+        r.err("a diff far past the line cap was not marked truncated, so the "
+              "card shows a fragment as though it were the whole change")
+
+    # 4. THE SOURCE DECIDES THE BUTTONS. A `vesper` row with no repository
+    #    cannot be pushed, and the page is asserted to key the buttons on that
+    #    rather than on the row simply existing.
+    c = Change(path="/Users/x/Downloads/a.txt", source="vesper",
+               status="added", in_repo="")
+    if c.to_dict()["in_repo"]:
+        r.err("a path outside every repository was given one")
+    if c.to_dict()["name"] != "a.txt":
+        r.err("the row does not carry the file's name")
+
+    # 5. THE LIST AND THE PAYLOAD ARE BOTH BOUNDED. This board travels through
+    #    home.json on a timer; an unbounded one is a megabyte of diff text
+    #    rewritten to disk on a laptop the owner has asked not to heat up.
+    if CHANGES_MAX > 200:
+        r.err(f"CHANGES_MAX is {CHANGES_MAX}: the card is a place to read a "
+              f"diff, not to page through a rebase")
+    if DIFF_TOTAL_MAX_BYTES > 400_000:
+        r.err(f"the total diff budget is {DIFF_TOTAL_MAX_BYTES} bytes, which "
+              f"is rewritten into home.json every time the board moves")
+
+    # 6. IT IS DRIVEN BY THE BUS, NOT CALLED. A board somebody has to remember
+    #    to update is accurate until the first time somebody forgets.
+    src = (REPO / "core" / "changes.py").read_text(encoding="utf-8")
+    if "tool.checkpointed" not in src or "tool.completed" not in src:
+        r.err("the changes board does not subscribe to the executor's "
+              "checkpoint and completion events, so it cannot see what VESPER "
+              "wrote without being told")
+
+    # 7. THE DIFF IS REDACTED. This renders file contents into a webview and
+    #    through home.json; a file VESPER wrote may contain a key it was asked
+    #    to write. The redactor guards egress and there is no argument for it
+    #    not guarding the screen.
+    #    DRIVEN, NOT GREPPED. `_redact(` appears at several call sites, so a
+    #    search over the file is satisfied while the one that matters has been
+    #    removed -- this probe passed under exactly that mutation. A real
+    #    repository with a real credential in it is the only version that
+    #    cannot be satisfied by a neighbour.
+    import subprocess as _sp
+    import tempfile as _tf2
+    with _tf2.TemporaryDirectory() as td:
+        def _git(*a):
+            return _sp.run(["git", "-C", td, *a], capture_output=True,
+                           text=True, check=False, timeout=20)
+        _git("init", "-q")
+        _git("config", "user.email", "ci@vesper.local")
+        _git("config", "user.name", "ci")
+        f = _pl2.Path(td) / "conf.env"
+        f.write_text("SETTING=one\n", encoding="utf-8")
+        _git("add", "-A")
+        _git("commit", "-q", "-m", "base")
+        secret = "AKIAIOSFODNN7EXAMPLE"
+        f.write_text(f"SETTING=one\nAWS_ACCESS_KEY_ID={secret}\n", encoding="utf-8")
+        board = Changes()
+        board.refresh_git(td)
+        rows = board.state()["changes"]
+        if not rows:
+            r.err("a modified tracked file produced no row at all")
+        else:
+            blob = "".join(x.get("hunks") or "" for x in rows)
+            if not blob:
+                r.err("the row carries no diff, so this probe cannot see "
+                      "whether the redactor ran")
+            elif secret in blob:
+                r.err("a credential in a changed file reached the board "
+                      "verbatim. This board is rendered into a webview and "
+                      "written to home.json; the redactor guards egress and "
+                      "there is no argument for it not guarding the screen.")
+            elif "REDACTED" not in blob:
+                r.err("the credential is absent and no redaction marker is "
+                      "present either, so the diff may simply be empty and "
+                      "this assertion proves nothing")
+
+    # 8. AND IT IS NOT EVIDENCE. Nothing that answers a question about what
+    #    happened may read this board.
+    for mod in ("evidence.py", "verify.py", "memory.py"):
+        f = REPO / "core" / mod
+        if f.is_file() and "core.changes" in f.read_text(encoding="utf-8"):
+            r.err(f"core/{mod} reads the changes board. It is a view cache: "
+                  f"bounded, rebuilt, and not append-only. The audit trail is "
+                  f"the bus log, which deliberately holds no file contents.")
+
+    # 9. THE ROOT IS RESOLVED RATHER THAN TRUSTED. Measured 2026-09-06: the
+    #    runtime executes from inside the app bundle, so its `REPO` constant is
+    #    a directory INSIDE the repository but not its top level. `git status`
+    #    there still worked, the card filled with eighteen rows, and every
+    #    single diff came back empty -- a card confidently wrong.
+    if "repo_of(root" not in src:
+        r.err("`refresh_git` trusts the root it is handed. A path inside a "
+              "repository is not its top level, and every relative path -- so "
+              "every diff -- is computed against it.")
+    here = repo_of(REPO / "core")
+    if here != str(REPO):
+        r.err(f"repo_of resolved {here!r} for a directory inside {REPO}")
+
+    # 10. AND THE PAGE DRAWS IT, AS TEXT.
+    tpl = (REPO / CHROME_TEMPLATE).read_text(encoding="utf-8")
+    for need in ("renderChanges", 'id="chgrows"', 'id="pchgs"', "data-git",
+                 "paintDiff"):
+        if need not in tpl:
+            r.err(f"the changes pane is missing {need!r} from the page")
+    seg = _js_body(tpl, "function renderChanges")
+    if "innerHTML" in seg:
+        r.err("the changes renderer assigns innerHTML, on rows carrying file "
+              "contents straight off the disk")
+    # ADDITIONS AND DELETIONS ARE TOLD APART BY MORE THAN COLOUR. Hue alone
+    # fails for anyone who cannot separate these two, and the +/- is already
+    # the first character of every line.
+    if ".dhunks .a" not in tpl or ".dhunks .r" not in tpl:
+        r.err("additions and deletions have no distinct rule in the diff view")
+
+    r.note("counts come from the diff that is shown; creations and deletions "
+           "both render; truncation is declared; the row carries its source so "
+           "the git buttons cannot lie about a path git never heard of; the "
+           "board is bus-driven, redacted, bounded, resolved against the real "
+           "repository root, and cited by no evidence path; and the page draws "
+           "it as text with additions and deletions distinguished by the "
+           "gutter as well as by colour")
+    return r
+
+
+def check_the_terminal_is_the_owners() -> Result:
+    """Nothing VESPER produces can be typed into the owner's shell.
+
+    THIS IS THE HIGHEST-RISK THING IN THE HOME. Every other surface here
+    RENDERS what VESPER produced. This one can EXECUTE it -- outside the
+    seatbelt, with the owner's environment and the owner's authority, on a
+    machine where `sudo` is a password away. The rows above it are built from
+    `home.json`, which carries a model's output; if any path led from that to a
+    file descriptor, a sentence VESPER generated would be a command the owner
+    never typed.
+
+    SO THE RULE IS STRUCTURAL, NOT CAREFUL. One function writes to the PTY, one
+    message reaches it, and that message is posted from exactly two gestures:
+    a keypress in the terminal's own field, and a click on a Run button.
+
+    AND PASTE HAS NO BRIDGE AT ALL. The obvious design is one message with a
+    `run: false` flag; it is wrong, because a flag is one inverted condition
+    away from being a writer and that inversion is invisible in review. "Paste
+    without running" happens entirely in the page: it writes to an input
+    element and returns. There is no Swift function for it, so there is no path
+    to get wrong.
+
+    THIS CHECK IS THE ONE THAT MUST NOT BE WEAKENED FOR CONVENIENCE. Every
+    assertion below is about something NOT existing.
+    """
+    r = Result("the-terminal-is-the-owners")
+    tb = REPO / "app" / "home-macos" / "TerminalBridge.swift"
+    if not tb.is_file():
+        r.err("TerminalBridge.swift is gone; the terminal pane has no shell")
+        return r
+    src = tb.read_text(encoding="utf-8")
+    tpl = (REPO / CHROME_TEMPLATE).read_text(encoding="utf-8")
+
+    # 1. ONE WRITER. Counted, because "there is one" is the whole property.
+    writers = re.findall(r"Darwin\.write\(master", src)
+    if len(writers) != 1:
+        r.err(f"{len(writers)} places write to the PTY. There must be exactly "
+              f"one, or the claim that only two gestures reach it cannot be "
+              f"checked by reading a single function.")
+    # 2. AND ONE CALLER OF IT. `write(` appears in the `input` case and nowhere
+    #    else; a second call site is a second way in.
+    calls = re.findall(r"^\s*write\(", src, re.M)
+    if len(calls) != 1:
+        r.err(f"the PTY writer is called from {len(calls)} places. Each one is "
+              f"a path that has to be shown to originate in a gesture.")
+
+    # 3. THE MESSAGE THAT REACHES IT IS `input`, AND NOTHING ELSE DOES. Parsed
+    #    from the switch rather than searched, so a new case cannot quietly
+    #    acquire a write.
+    body = src[src.find("func userContentController"):]
+    for case, may_write in (('case "input"', True), ('case "open"', False),
+                            ('case "resize"', False), ('case "close"', False)):
+        i = body.find(case)
+        if i < 0:
+            r.err(f"the bridge no longer handles {case}")
+            continue
+        j = min([x for x in (body.find("case \"", i + 6), body.find("default:", i))
+                 if x > 0] or [len(body)])
+        seg = body[i:j]
+        writes = "write(" in seg and "Darwin.write" not in seg
+        if writes != may_write:
+            r.err(f"{case} {'does not write' if may_write else 'WRITES'} to the "
+                  f"PTY. Only `input` may, and `input` must.")
+
+    # 4. PASTE HAS NO BRIDGE. Asserted in both files: no Swift case for it, and
+    #    the page's paste handler must not post to the terminal channel.
+    #    READ AS CODE, NOT AS PROSE. The class header explains at length why
+    #    paste has no bridge, so a search for the word is satisfied by the
+    #    comment that documents its absence -- which is how this assertion
+    #    first fired on correct code. What must not exist is a CASE.
+    #    EVERY LABEL ON EVERY CASE, because `case "input", "paste":` is a
+    #    perfectly ordinary Swift multi-label case and a regex anchored on
+    #    `case "paste"` does not see it -- which is exactly how this passed
+    #    under its own violation the first time it ran.
+    case_labels = " ".join(re.findall(r"^\s*case\s+([^:\n]+):", src, re.M))
+    if '"paste"' in case_labels or re.search(r'kind\s*==\s*"paste"', src):
+        r.err("TerminalBridge handles a paste message. Paste must have NO Swift "
+              "path at all -- the moment it has one, 'run' and 'paste' are one "
+              "code path apart and the difference is a boolean.")
+    #    THE HANDLER, NOT THE BUTTON. `data-paste` appears first where the
+    #    button is CREATED, and nine hundred characters from there is nowhere
+    #    near the click handler -- so the first version of this read the wrong
+    #    region and passed while the paste button ran commands.
+    i = tpl.find("closest('[data-paste]')")
+    seg = tpl[i:i + 700] if i >= 0 else ""
+    if not seg:
+        r.err("the page has no paste handler")
+    elif "termInput(" in seg or "vesperTerm" in seg:
+        r.err("the paste handler reaches the terminal channel. Paste must set "
+              "the input element's value and return -- that is the entire "
+              "difference between showing the owner a command and running it.")
+
+    # 5. THE TWO GESTURES, AND ONLY THEY, CALL `termInput`. Anything else is a
+    #    path from something VESPER rendered to something the shell executes.
+    #    NOT A COUNT -- A PLACE. The first version capped the number of call
+    #    sites, which fired on correct code the moment ctrl-C, ctrl-D and Tab
+    #    were wired up. Those are keypresses in the owner's own field and are
+    #    exactly what this pane is for. What matters is not HOW MANY call
+    #    sites there are but WHERE they are: nothing that runs unattended may
+    #    contain one.
+    for fname, start in (("renderCommands", "function renderCommands"),
+                         ("renderExplanations", "function renderExplanations"),
+                         ("renderChanges", "function renderChanges"),
+                         ("__vesperWork", "window.__vesperWork"),
+                         ("__vesperChanges", "window.__vesperChanges"),
+                         ("__vesperHistory", "window.__vesperHistory"),
+                         ("__vesperStage", "window.__vesperStage")):
+        i = tpl.find(start)
+        if i < 0:
+            continue
+        # to the next top-level function or handler, whichever comes first
+        ends = [x for x in (tpl.find("\n    function ", i + 10),
+                            tpl.find("\n    window.", i + 10),
+                            tpl.find("\n    document.addEventListener", i + 10))
+                if x > 0]
+        seg = tpl[i:min(ends) if ends else len(tpl)]
+        if "termInput(" in seg or "vesperTerm" in seg:
+            r.err(f"`{fname}` can reach the terminal. It runs on a timer with "
+                  f"nobody present, over data that came out of home.json -- a "
+                  f"command VESPER only rendered would be one it ran.")
+    for must in ("ev.key === 'Enter'", "data-run"):
+        if must not in tpl:
+            r.err(f"the page is missing {must!r}: one of the two gestures that "
+                  f"may reach the shell is gone")
+    # THE STATE PUSH MUST NOT TOUCH IT. `home.json` is where a model's output
+    # lands, and the tick that renders it runs unattended.
+    push = tpl[tpl.find("window.__vesperWork"):tpl.find("window.__vesperChanges")]
+    if "termInput" in push or "vesperTerm" in push:
+        r.err("the state push reaches the terminal. `home.json` carries model "
+              "output and is rendered on a timer with nobody present.")
+
+    # 6. IT IS THE OWNER'S SHELL, AND IT IS NOT SANDBOXED. A seatbelted
+    #    terminal would be VESPER's, which is the thing this must not be -- and
+    #    a terminal that cannot run the owner's tools is not a terminal.
+    if 'environment["SHELL"]' not in src:
+        r.err("the pane does not use the owner's own shell")
+    if "sandbox-exec" in src or "SEATBELT" in src:
+        r.err("the owner's terminal is sandboxed. VESPER's containment bounds "
+              "VESPER's actions; this is not one of them.")
+
+    # 7. RUN IS NEVER A DEFAULT. No shortcut, no enter-to-run on a code block,
+    #    no run-on-expand -- the command must be read before it is executed.
+    i = tpl.find("data-run")
+    runseg = tpl[max(0, i - 400):i + 400] if i >= 0 else ""
+    if "autoRun" in tpl or "runOnOpen" in tpl:
+        r.err("something runs a command without a click")
+
+    # 8. AND IT IS REAPED. A login shell held open for the life of the home is
+    #    a login shell held open all day.
+    #    MATCHED ON THE DECLARATION, not the name anywhere. Renaming it to
+    #    `reapIfIdleX` leaves the substring behind, and the first version of
+    #    this line was satisfied by it.
+    if "func reapIfIdle()" not in src or "idleKillAfter" not in src:
+        r.err("the shell is never reaped when idle")
+
+    r.note("exactly one function writes to the PTY and exactly one message "
+           "reaches it; the other three cases cannot write; paste has no Swift "
+           "path at all and the page's paste handler never touches the "
+           "terminal channel; the state push -- which renders model output on "
+           "a timer -- cannot reach it either; the shell is the owner's, "
+           "unsandboxed, and reaped when idle")
+    return r
+
 def check_loop_observes_and_is_bounded() -> Result:
     """VESPER can take a second step, and every way of not stopping is bounded.
 
@@ -15106,11 +16360,36 @@ def check_a_question_does_not_end_the_turn() -> Result:
                     n += 1
         return n
 
-    in_actor = _nonconsuming_calls(ac2)
-    if in_actor != 1:
-        r.err(f"core/actor.py makes {in_actor} non-consuming authorize calls; "
-              "exactly one is expected -- the pre-check that decides whether to "
-              "ask. Another is a way to act on a verdict nobody paid for.")
+    #    TWO CALLERS NOW, AND THE PROPERTY IS UNCHANGED. `_elevate_in_auto`
+    #    re-asks the same question after minting the owner's standing consent
+    #    as a per-command grant -- it is the SAME pre-check, run once more, and
+    #    it is still not the binding one. What this assertion is really about
+    #    is that no non-consuming call is ever acted upon: the executor's
+    #    check, which consumes, is what stands between a verdict and an effect,
+    #    and the line below asserts the executor has none of these at all.
+    #
+    #    NAMED, NOT COUNTED. A bare count would rise again with the next
+    #    legitimate caller and be raised again without anyone re-deciding
+    #    anything; requiring both to sit in functions that only DECIDE WHETHER
+    #    TO ASK is the property, and a call appearing anywhere else is what
+    #    should be red.
+    allowed = {"_one_step", "_elevate_in_auto"}
+    hosts = set()
+    for fnode in _ast2.walk(_ast2.parse(ac2)):
+        if not isinstance(fnode, (_ast2.FunctionDef, _ast2.AsyncFunctionDef)):
+            continue
+        if _nonconsuming_calls(_ast2.get_source_segment(ac2, fnode) or ""):
+            hosts.add(fnode.name)
+    stray = hosts - allowed
+    if stray:
+        r.err(f"non-consuming authorize calls appear in {sorted(stray)}. Only "
+              f"the functions that decide WHETHER TO ASK may make one; "
+              f"anywhere else it is a way to learn a verdict without paying "
+              f"for it, and then to act on it.")
+    if not hosts:
+        r.err("core/actor.py makes no non-consuming authorize call at all, so "
+              "the actor either asks without checking or spends the grant "
+              "before the executor can")
     if _nonconsuming_calls(ex2):
         r.err("core/executor.py authorizes without consuming. That check is the "
               "binding one; if it does not spend the grant, one confirmation "
@@ -15121,8 +16400,9 @@ def check_a_question_does_not_end_the_turn() -> Result:
            "recorded as a decision and nothing runs; an approval runs the "
            "action that was asked about and clears the park so one answer "
            "cannot authorise two executions; a standing grant expires on a "
-           "clock the PDP actually reads; and the non-consuming check has one "
-           "caller and is never the binding one; a bare yes cannot settle a "
+           "clock the PDP actually reads; and every non-consuming check sits in a "
+           "function that only decides whether to ask, never in one that acts; "
+           "a bare yes cannot settle a "
            "question that is not in front of the owner, and can once it is "
            "re-asked; a redirect discards the superseded plan; and parked "
            "turns are bounded; the owner's reply is classified "
@@ -19190,6 +20470,13 @@ CHECK_FNS = {
     "enable-token-presented-once-per-mint": check_enable_token_presented_once_per_mint,
     "a-due-item-is-spoken-not-merely-noticed": check_a_due_item_is_spoken_not_merely_noticed,
     "a-failure-is-something-the-next-step-can-see": check_a_failure_is_something_the_next_step_can_see,
+    "commands-card-shows-what-ran": check_commands_card_shows_what_ran,
+    "an-explanation-is-shown-and-never-spoken": check_an_explanation_is_shown_and_never_spoken,
+    "the-board-survives-a-restart": check_the_board_survives_a_restart,
+    "a-path-is-not-a-secret": check_a_path_is_not_a_secret,
+    "auto-mode-does-not-ask-and-does-not-overreach": check_auto_mode_does_not_ask_and_does_not_overreach,
+    "changes-are-shown-with-their-source": check_changes_are_shown_with_their_source,
+    "the-terminal-is-the-owners": check_the_terminal_is_the_owners,
     "taint-ceiling-binds-the-act-path": check_taint_ceiling_binds_the_act_path,
     "gated-subsystems-are-reachable": check_gated_subsystems_are_reachable,
     "f0-acceptance": check_f0_acceptance,

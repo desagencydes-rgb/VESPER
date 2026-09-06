@@ -99,7 +99,16 @@ trap cleanup EXIT INT TERM
 
 # Keep display and system awake for the whole run. -d display, -i idle,
 # -m disk, -s system, -u asserts user activity.
-caffeinate -dimsu &
+# `-is`, NEVER `-dimsu`. The `-d` in that flag set prevents DISPLAY sleep, and
+# this script is meant to hold a MEASUREMENT open, not to keep a screen lit in
+# a room somebody is sleeping in. The owner reported exactly that on
+# 2026-09-06: "make sure the pc can turn its screen off, all this time it's
+# been on, it didn't let me fucking sleep."
+#
+# `-i` prevents idle system sleep and `-s` prevents sleep on AC, which is the
+# whole of what a long run needs. The display stays free to go dark, which
+# changes nothing about the measurement.
+caffeinate -is &
 CAF_PID=$!
 
 # cpu_power and gpu_power are criteria 1 and 5; battery is criterion 6. One

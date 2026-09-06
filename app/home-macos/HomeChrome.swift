@@ -280,6 +280,22 @@ final class HomeChrome {
         return String(data: out, encoding: .utf8) ?? "{}"
     }
 
+    /// The changed-files board, as the runtime last published it.
+    ///
+    /// READ FROM THE SAME FILE ON THE SAME TICK as everything else. One poll,
+    /// one register: a second timer over one file is how the two come to
+    /// disagree about the same moment.
+    static func changesJSON() -> String {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/VESPER/home.json")
+        guard let d = try? Data(contentsOf: url),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let c = o["changes"],
+              let out = try? JSONSerialization.data(withJSONObject: c)
+        else { return "{}" }
+        return String(data: out, encoding: .utf8) ?? "{}"
+    }
+
     static func faceBehaviour() -> String {
         let url = FileManager.default
             .homeDirectoryForCurrentUser
@@ -306,9 +322,16 @@ final class HomeChrome {
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let entries = obj["transcript"] as? [[String: Any]]
         else { return "[]" }
+        // THE TURN ID TRAVELS WITH THE ROW. Without it the history bar and the
+        // explanations pane are two lists of text with no way to say that one
+        // line and one explanation are halves of the same turn -- which is the
+        // whole of what the owner asked for when they said the two "should be
+        // connected". Empty for rows that predate the field and for the
+        // owner's own lines, which have no explanation to point at.
         let rows: [[String: String]] = entries.compactMap { e in
             guard let text = e["text"] as? String, !text.isEmpty else { return nil }
-            return ["who": (e["who"] as? String) ?? "owner", "text": text]
+            return ["who": (e["who"] as? String) ?? "owner", "text": text,
+                    "id": (e["id"] as? String) ?? ""]
         }
         guard let out = try? JSONSerialization.data(withJSONObject: rows),
               let s = String(data: out, encoding: .utf8) else { return "[]" }
@@ -348,7 +371,7 @@ final class HomeChrome {
     }
 
     static func page(cardWidth: Int, cardHeight: Int, left: Int, top: Int,
-                     convoLeft: Int,
+                     convoLeft: Int, stackTop: Int, stackHeight: Int,
                      fill: Double) -> String {
         let slots = menuSlots.enumerated().map { i, name in
             """
@@ -367,6 +390,8 @@ final class HomeChrome {
             .replacingOccurrences(of: "{{cardHeight}}", with: String(cardHeight))
             .replacingOccurrences(of: "{{left}}",       with: String(left))
             .replacingOccurrences(of: "{{top}}",        with: String(top))
+            .replacingOccurrences(of: "{{stackTop}}",   with: String(stackTop))
+            .replacingOccurrences(of: "{{stackHeight}}", with: String(stackHeight))
             .replacingOccurrences(of: "{{fill}}",       with: String(fill))
             .replacingOccurrences(of: "{{slots}}",      with: slots)
             .replacingOccurrences(of: "{{METRIC_ROWS}}", with: metricRows())
@@ -406,9 +431,25 @@ final class HomeChrome {
                 --face-body:"Aeonik","Outfit","Futura",-apple-system,system-ui,
                             "Helvetica Neue",sans-serif;
                 --face-emoji:"Apple Color Emoji";
-                --face-hand:"Learning Curve","Bradley Hand",
-                            "Noteworthy","Snell Roundhand"}
-          html,body{margin:0;height:100%;background:transparent;overflow:hidden;
+                /* A COMMAND IS NOT PROSE AND MUST NOT BE SET LIKE IT. Proportional
+                   digits and a variable space turn `mv  a   b` into something the owner
+                   cannot compare against what they typed, and an ellipsised
+                   proportional path hides exactly the characters that distinguish two
+                   similar ones. This is the single departure from SS5's stack, and it
+                   is confined to the things that came off a terminal. */
+                --face-mono:"Berkeley Mono","SF Mono","Menlo",ui-monospace,monospace;
+                --face-hand:"Learning Curve","Bradley Hand","Noteworthy",
+                            "Snell Roundhand"}
+          /* TEXT IS SELECTABLE. Nothing set `user-select` at all, and a WKWebView
+           chrome defaults to refusing it -- so the owner could not copy a single line
+           VESPER had written, including the ones they most wanted to keep: a command,
+           a path, an error. Reported 2026-09-04. The face and the ambient layers stay
+           unselectable so a drag across the field does not paint a selection over it. */
+        .say,.think,.acts,.history,.hrow,.htext,.cmd,.cdisp,.cout,.cerr,.ccwd,
+        .btext,.bcode,.blist,.etitle,.dpath,.dhunks
+          {-webkit-user-select:text;user-select:text;
+          cursor:text}
+        html,body{margin:0;height:100%;background:transparent;overflow:hidden;
                     font-family:var(--face-body),var(--face-emoji);
                     -webkit-font-smoothing:antialiased;
                     color:var(--ink)}
@@ -432,6 +473,273 @@ final class HomeChrome {
           .row:first-of-type{border-top:0}
           .k{font-size:12px;color:rgba(244,230,220,.72)}
           .v{font-size:12px;letter-spacing:.04em;color:rgba(244,230,220,.38)}
+
+          /* ---- the work stack, under the host card --------------------------------
+
+             A FLEX COLUMN, NOT FOUR ABSOLUTE OFFSETS. The panes below open and close,
+             and every pane under an opened one has to move. Four hardcoded `top`s
+             would be four numbers that have to be re-solved on every toggle and on
+             every screen -- and the first display with a different height would put
+             the last pane through the floor. The container is placed by Swift, which
+             is the only layer that knows where the host card ended and where the main
+             menu begins; inside it the browser does the arithmetic.
+
+             ONE OPEN AT A TIME, ENFORCED IN THE SCRIPT rather than left to the owner.
+             The column is about 250 px on this display. Two open panes would each get
+             half of it and neither would be readable, so opening one closes the rest --
+             which is also what makes the resting state fit on any screen: every pane
+             is a bar until it is asked for. */
+          .stack{position:absolute;left:{{left}}px;top:{{stackTop}}px;
+                 width:{{cardWidth}}px;height:{{stackHeight}}px;
+                 display:flex;flex-direction:column;gap:12px;box-sizing:border-box}
+          .pane{flex:0 0 auto;box-sizing:border-box;overflow:hidden;
+                display:flex;flex-direction:column;
+                border-radius:22px;
+                background-color:rgba(255,255,255,.055);
+                background-image:linear-gradient(rgba(0,0,0,{{fill}}),
+                                                 rgba(0,0,0,{{fill}}));
+                -webkit-backdrop-filter:blur(24px) saturate(180%);
+                backdrop-filter:blur(24px) saturate(180%);
+                border:1px solid rgba(255,255,255,.14);
+                box-shadow:0 8px 32px rgba(0,0,0,.22),
+                           inset 0 1px 0 rgba(255,255,255,.22);
+                transition:flex-grow .28s cubic-bezier(.32,.72,0,1)}
+          /* EMPTY MEANS ABSENT, the same rule the workbench card follows. A pane
+             holding a heading and no rows says VESPER did something and will not say
+             what. */
+          .pane.idle{display:none}
+          .pane.open{flex:1 1 auto;min-height:0}
+          /* The header is the whole collapsed pane, so the bar IS the hit target. */
+          .phead{flex:0 0 auto;display:flex;align-items:center;gap:10px;
+                 padding:13px 20px;cursor:default;
+                 transition:background .2s ease}
+          .phead:hover{background:rgba(255,255,255,.045)}
+          .ptitle{font-size:10px;letter-spacing:.16em;text-transform:uppercase;
+                  color:rgba(244,230,220,.55)}
+          .pcount{font-size:10px;letter-spacing:.06em;
+                  color:rgba(244,230,220,.32);font-variant-numeric:tabular-nums}
+          .pgrow{flex:1}
+          /* THE SUMMARY IS WHAT THE PANE SAYS WHILE IT IS SHUT. A bar reading only
+             "COMMANDS" is a drawer; a bar reading the last command is a status line
+             that happens to open. */
+          .psum{max-width:58%;font-size:11px;color:rgba(244,230,220,.42);
+                font-family:var(--face-mono);
+                overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+          .pane.open .psum{opacity:0;transition:opacity .18s ease}
+          .pchev{flex:0 0 auto;width:9px;height:9px;
+                 border-right:1.4px solid rgba(244,230,220,.38);
+                 border-bottom:1.4px solid rgba(244,230,220,.38);
+                 transform:rotate(45deg) translate(-1px,-1px);
+                 transition:transform .28s cubic-bezier(.32,.72,0,1)}
+          .pane.open .pchev{transform:rotate(-135deg) translate(-1px,-1px)}
+          /* A SHUT PANE IS EXACTLY ITS BAR, AND `overflow:hidden` DOES NOT ACHIEVE
+             THAT. The first version left the body in the layout and clipped it, so the
+             pane's own height still grew with its contents -- measured at 108 px for a
+             single command against the 40 px a bar should be, which by the fourth pane
+             would have pushed the stack through the main menu. The body is REMOVED
+             from the flow while shut, so a pane holding fifty commands is the same
+             height as one holding none. */
+          .pbody{display:none}
+          .pane.open .pbody{display:block;flex:1 1 auto;min-height:0;overflow-y:auto;
+                 padding:0 20px 16px;scrollbar-width:none}
+          .pbody::-webkit-scrollbar{display:none}
+
+          /* ---- one command ---------------------------------------------------- */
+          .cmd{border-top:1px solid rgba(255,255,255,.07)}
+          .cmd:first-child{border-top:0}
+          .chead{display:flex;align-items:baseline;gap:9px;padding:7px 0;
+                 cursor:default}
+          .cdot{flex:0 0 auto;width:5px;height:5px;border-radius:50%;
+                background:rgba(244,230,220,.34);transform:translateY(-2px)}
+          .cmd.running .cdot{background:rgba(244,230,220,.85);
+                             box-shadow:0 0 8px rgba(244,230,220,.45);
+                             animation:pulse 1.6s ease-in-out infinite}
+          .cmd.failed .cdot{background:rgba(232,130,110,.90);
+                            box-shadow:0 0 8px rgba(232,130,110,.40)}
+          .cdisp{flex:1;min-width:0;font-family:var(--face-mono);font-size:11.5px;
+                 line-height:1.45;color:rgba(244,230,220,.74);
+                 overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+          .cmd.failed .cdisp{color:rgba(240,178,166,.82)}
+          .cms{flex:0 0 auto;font-size:10px;color:rgba(244,230,220,.32);
+               font-variant-numeric:tabular-nums}
+          /* A FAILED COMMAND SHOWS ITS REASON WITHOUT BEING OPENED. The owner spent a
+             day being told "it ran and came back with error code 1" while the sentence
+             that explained it sat one field away, unread. One line, always. */
+          .cwhy{padding:0 0 7px 14px;font-family:var(--face-mono);font-size:10.5px;
+                line-height:1.4;color:rgba(232,130,110,.72);
+                overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+          .cbody{display:none;padding:2px 0 12px 14px}
+          .cmd.open .cbody{display:block}
+          .cmd.open .cwhy{display:none}
+          .ccwd{font-size:10px;letter-spacing:.03em;color:rgba(244,230,220,.34);
+                font-family:var(--face-mono);margin-bottom:8px;
+                overflow-wrap:anywhere}
+          .clab{font-size:9px;letter-spacing:.15em;text-transform:uppercase;
+                color:rgba(244,230,220,.30);margin:8px 0 4px}
+          .cout,.cerr{font-family:var(--face-mono);font-size:11px;line-height:1.5;
+                      white-space:pre-wrap;overflow-wrap:anywhere;
+                      max-height:180px;overflow:auto;scrollbar-width:none;
+                      padding:8px 10px;border-radius:10px;
+                      background:rgba(0,0,0,.22)}
+          .cout::-webkit-scrollbar,.cerr::-webkit-scrollbar{display:none}
+          .cout{color:rgba(244,230,220,.72)}
+          .cerr{color:rgba(240,178,166,.80)}
+          /* A CUT IS SAID OUT LOUD. Silent truncation reads as "there was no more
+             output", which is a false statement the owner would act on. */
+          .ccut{font-size:10px;letter-spacing:.04em;color:rgba(244,230,220,.34);
+                margin-top:6px}
+
+          /* ---- one explanation ---------------------------------------------------
+
+             THE LONG HALF OF A REPLY, AND IT IS NEVER SPOKEN. `core/longform.py` makes
+             the split; this is where the half that is shown lands. The stage keeps the
+             sentence, and the two are joined by the turn's HLC rather than by both
+             being the newest of their kind -- see the click handler. */
+          .exp{border-top:1px solid rgba(255,255,255,.07);padding:10px 0 4px}
+          .exp:first-child{border-top:0}
+          /* THE LINK, MADE VISIBLE FOR A MOMENT. Clicking a line in the conversation
+             lights its explanation and the other way round, because "connected" that
+             the owner cannot see is a claim rather than a feature. */
+          .exp.lit,.hrow.lit{background:rgba(255,255,255,.075);border-radius:10px}
+          .etitle{font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+                  color:rgba(244,230,220,.42);margin-bottom:8px;
+                  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+          .btext{margin:0 0 9px;font-size:12.5px;line-height:1.55;
+                 color:rgba(244,230,220,.80)}
+          .blist{margin:0 0 9px;padding-left:16px;font-size:12.5px;line-height:1.55;
+                 color:rgba(244,230,220,.80)}
+          .blist li{margin:0 0 3px}
+          .bcodewrap{position:relative;margin:0 0 10px}
+          .blang{font-size:9px;letter-spacing:.15em;text-transform:uppercase;
+                 color:rgba(244,230,220,.30);margin-bottom:4px}
+          .bcode{font-family:var(--face-mono);font-size:11px;line-height:1.5;
+                 white-space:pre-wrap;overflow-wrap:anywhere;margin:0;
+                 max-height:220px;overflow:auto;scrollbar-width:none;
+                 padding:9px 11px;border-radius:10px;
+                 background:rgba(0,0,0,.24);color:rgba(244,230,220,.80)}
+          .bcode::-webkit-scrollbar{display:none}
+          /* A BLOCK KIND NOBODY RENDERS IS SAID OUT LOUD RATHER THAN DROPPED. A future
+             kind silently vanishing would show the owner a partial explanation that
+             looks complete. */
+          .bskip{font-size:10px;letter-spacing:.04em;color:rgba(232,130,110,.60);
+                 margin:0 0 8px}
+
+          /* ---- the changed files -------------------------------------------------
+
+             TWO SOURCES IN ONE LIST, LABELLED. VESPER writes to paths in no repository
+             at all; git covers files the owner also edits. The owner asked for both,
+             so both are here with a badge saying which -- and the git buttons are
+             disabled on a row git has never heard of, rather than the list pretending
+             everything is a repository file. */
+          .ctlrow{display:flex;align-items:center;gap:6px;padding:0 0 10px;
+                  flex-wrap:wrap}
+          .seg{display:flex;border-radius:9px;overflow:hidden;
+               border:1px solid rgba(255,255,255,.11)}
+          .seg button{border:0;background:rgba(255,255,255,.03);
+                      color:rgba(244,230,220,.46);
+                      font-family:inherit;font-size:9px;letter-spacing:.11em;
+                      text-transform:uppercase;padding:5px 9px;cursor:default;
+                      transition:background .18s ease,color .18s ease}
+          .seg button + button{border-left:1px solid rgba(255,255,255,.09)}
+          .seg button:hover{background:rgba(255,255,255,.075)}
+          .seg button.on{background:rgba(255,255,255,.14);color:rgba(244,230,220,.86)}
+          .gitbtns{display:flex;gap:6px;margin-left:auto}
+          .gbtn{border:1px solid rgba(255,255,255,.13);border-radius:9px;
+                background:rgba(255,255,255,.04);color:rgba(244,230,220,.62);
+                font-family:inherit;font-size:9px;letter-spacing:.11em;
+                text-transform:uppercase;padding:5px 10px;cursor:default;
+                transition:background .18s ease}
+          .gbtn:hover{background:rgba(255,255,255,.10)}
+          .gbtn[disabled]{opacity:.32}
+          .gbtn.arm{border-color:rgba(232,178,110,.55);color:rgba(244,214,178,.92);
+                    background:rgba(232,178,110,.14)}
+
+          .chg{border-top:1px solid rgba(255,255,255,.07)}
+          .chg:first-child{border-top:0}
+          .dhead{display:flex;align-items:baseline;gap:8px;padding:7px 0;cursor:default}
+          .dsrc{flex:0 0 auto;font-size:8px;letter-spacing:.12em;text-transform:uppercase;
+                padding:2px 5px;border-radius:5px;
+                border:1px solid rgba(255,255,255,.13);color:rgba(244,230,220,.40)}
+          .chg[data-src="vesper"] .dsrc{border-color:rgba(232,178,110,.38);
+                                        color:rgba(240,206,160,.72)}
+          .dpath{flex:1;min-width:0;font-family:var(--face-mono);font-size:11.5px;
+                 color:rgba(244,230,220,.74);
+                 overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+                 direction:rtl;text-align:left}
+          .dstat{flex:0 0 auto;font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+                 color:rgba(244,230,220,.34)}
+          .chg[data-status="deleted"] .dpath{color:rgba(240,178,166,.74);
+                                             text-decoration:line-through}
+          .dadd{flex:0 0 auto;font-size:10px;color:rgba(150,208,158,.80);
+                font-variant-numeric:tabular-nums}
+          .drem{flex:0 0 auto;font-size:10px;color:rgba(232,130,110,.80);
+                font-variant-numeric:tabular-nums}
+          .dbody{display:none;padding:2px 0 12px 8px}
+          .chg.open .dbody{display:block}
+          .drow{display:flex;gap:6px;margin-bottom:8px}
+          .dhunks{font-family:var(--face-mono);font-size:11px;line-height:1.5;
+                  white-space:pre;overflow:auto;scrollbar-width:none;margin:0;
+                  max-height:240px;padding:9px 11px;border-radius:10px;
+                  background:rgba(0,0,0,.24);color:rgba(244,230,220,.66)}
+          .dhunks::-webkit-scrollbar{display:none}
+          /* ADDITIONS AND DELETIONS COMPARED BY COLOUR AND BY THE GUTTER CHARACTER
+             BOTH. Colour alone fails for anyone who cannot separate these two hues,
+             and the `+`/`-` is already the first character of every line. */
+          .dhunks .a{color:rgba(150,208,158,.92);background:rgba(120,190,130,.10);
+                     display:block}
+          .dhunks .r{color:rgba(240,150,132,.92);background:rgba(210,110,95,.10);
+                     display:block}
+          .dhunks .h{color:rgba(244,230,220,.34);display:block}
+
+          /* ---- the terminal ------------------------------------------------------
+
+             VESPER'S DESIGN, NOT A TERMINAL'S -- the owner asked for that in as many
+             words. Same glass, same type stack, same palette as every card above it.
+             The one departure is the mono face, because a shell's output is columnar
+             and a proportional face makes `ls` unreadable.
+
+             AND NO VENDORED EMULATOR. xterm.js brings its own look, its own theme
+             system and 300 KB of it; what this pane needs is CR, LF, backspace and
+             SGR colour, which is a page of code and stays in VESPER's design. What it
+             therefore does NOT do is full-screen curses -- `vim` and `htop` will not
+             paint correctly here, and the pane says so the first time one is run
+             rather than leaving the owner to work it out from the mess. */
+          .pane.term .pbody{padding:0 16px 12px}
+          .tout{font-family:var(--face-mono);font-size:11.5px;line-height:1.5;
+                white-space:pre-wrap;overflow-wrap:anywhere;margin:0;
+                color:rgba(244,230,220,.76);
+                overflow-y:auto;scrollbar-width:none;max-height:100%}
+          .tout::-webkit-scrollbar{display:none}
+          .tin{display:flex;align-items:center;gap:8px;padding:7px 0 2px}
+          .tps{flex:0 0 auto;font-family:var(--face-mono);font-size:11.5px;
+               color:rgba(232,178,110,.72)}
+          .tfield{flex:1;background:transparent;border:0;outline:none;
+                  font-family:var(--face-mono);font-size:11.5px;
+                  color:rgba(244,230,220,.92);caret-color:rgba(232,178,110,.9)}
+          /* The 16 ANSI colours, pulled toward VESPER's palette rather than taken from
+             a terminal theme -- warm neutrals, the same reds and greens the diff uses. */
+          .tout .c30,.tout .c90{color:rgba(244,230,220,.34)}
+          .tout .c31,.tout .c91{color:rgba(240,150,132,.92)}
+          .tout .c32,.tout .c92{color:rgba(150,208,158,.92)}
+          .tout .c33,.tout .c93{color:rgba(232,196,130,.92)}
+          .tout .c34,.tout .c94{color:rgba(150,184,224,.92)}
+          .tout .c35,.tout .c95{color:rgba(206,162,220,.92)}
+          .tout .c36,.tout .c96{color:rgba(150,206,206,.92)}
+          .tout .c37,.tout .c97{color:rgba(244,230,220,.92)}
+          .tout .bold{font-weight:600;color:rgba(244,230,220,.96)}
+
+          /* ---- a command inside an answer ---------------------------------------
+             Four things the owner can do with a command VESPER wrote, and RUN is never
+             the default: no shortcut, no enter-to-run, no run-on-expand. */
+          .cmdbar{display:flex;gap:6px;margin-top:6px}
+          .cmdbar button{border:1px solid rgba(255,255,255,.13);border-radius:8px;
+                         background:rgba(255,255,255,.04);color:rgba(244,230,220,.58);
+                         font-family:inherit;font-size:9px;letter-spacing:.11em;
+                         text-transform:uppercase;padding:4px 9px;cursor:default;
+                         transition:background .18s ease}
+          .cmdbar button:hover{background:rgba(255,255,255,.10)}
+          .cmdbar button.run{border-color:rgba(232,178,110,.42);
+                             color:rgba(244,214,178,.86)}
 
           /* ---- the main menu (§10, §14.2) -------------------------------- */
           /* Dock tier: blur 42, saturate 200%, fill .085, radius 34. The bar
@@ -527,11 +835,25 @@ final class HomeChrome {
                box-shadow:0 0 12px rgba(244,190,150,.45)}
           @keyframes pulse{0%,100%{opacity:1}50%{opacity:.45}}
 
-          /* The workbench, top left. Thoughts in the HAND (SS5), actions in the
-             body face because SS5 forbids the hand a number and the owner needs
-             one. Reduced against the template, deliberately -- this is the
-             surface a MISSING template file falls back to, and it has to be
-             correct rather than complete. */
+
+          /* ---- the workbench, top left -----------------------------------------
+             TWO COLUMNS OF DIFFERENT KINDS OF CLAIM, and the type is what keeps them
+             apart. Thoughts are VESPER in the first person, in the HAND (SS5). Actions
+             are the instrument -- a provider, an outcome, a duration -- in the body
+             face, because SS5 forbids the hand to carry a number and the owner needs
+             the number.
+
+             SS5 NAMES LEARNING CURVE AND IT IS NOT INSTALLED HERE. It is free and
+             installable today, so it is named FIRST and takes over the moment it
+             arrives; Bradley Hand is what this machine actually has that shares its
+             character -- informal, single-stroke, unjoined. Snell Roundhand is behind
+             it as formal copperplate rather than as an equal.
+
+             ABOVE THE HOST CARD IN THE SAME COLUMN, sharing its `left` so the two read
+             as one cluster rather than two decisions. */
+          /* THE CARD IS BOUNDED BY THE HOST CARD BELOW IT, not by a guess. `{{top}}`
+             is where the metrics card starts, computed in Swift off the face, so this
+             can grow to fill the gap and never into it. */
           .work{position:absolute;left:{{left}}px;top:38px;width:{{cardWidth}}px;
                 max-height:calc({{top}}px - 58px);
                 display:flex;flex-direction:column;
@@ -541,31 +863,67 @@ final class HomeChrome {
                                                  rgba(0,0,0,{{fill}}));
                 -webkit-backdrop-filter:blur(24px) saturate(180%);
                 backdrop-filter:blur(24px) saturate(180%);
-                border:1px solid rgba(255,255,255,.14)}
-          .work.idle{opacity:0}
-          /* Newest first and brightest; never shrinks, never clipped. The
-             ACTIONS give way when the card runs short -- a log can scroll, a
-             half-shown thought is just wrong. */
-          .think{font-family:var(--face-hand),cursive;font-size:19px;
-                 line-height:1.34;color:rgba(244,230,220,.82);margin:0 0 14px;
-                 flex:0 0 auto}
+                border:1px solid rgba(255,255,255,.14);
+                box-shadow:0 8px 32px rgba(0,0,0,.22),
+                           inset 0 1px 0 rgba(255,255,255,.22);
+                transition:opacity .5s cubic-bezier(.32,.72,0,1)}
+          /* EMPTY MEANS ABSENT, not an empty box. A card holding a heading and nothing
+             else says VESPER is doing something and declining to say what. */
+          .work.idle{opacity:0;pointer-events:none}
+          /* NEWEST FIRST AND BRIGHTEST. It rendered the other way round: thoughts were
+             appended chronologically and `nth-child(2)` was the dimmed rule, so the
+             NEW thought was the faded one under a stale bright one. */
+          .think{font-family:var(--face-hand),cursive;
+                 font-size:19px;line-height:1.34;letter-spacing:.005em;
+                 color:rgba(244,230,220,.82);min-height:26px;
+                 margin:0 0 14px;
+                 transition:opacity .45s ease}
+          /* NO CLIPPING AND NO SHRINKING, DELIBERATELY, AND THIS IS THE WHOLE POINT.
+             Clipping is what "packed and hidden" looks like. The line budget is spent
+             by REMOVING older thoughts in the script, so whatever survives is whole --
+             and `flex:0 0 auto` means the newest thought is never the thing that gives
+             way when the card runs short. The ACTIONS give way instead: they are a log
+             and a log can scroll, whereas a half-shown thought is just wrong. */
+          /* SCROLLABLE, ADDED 2026-09-04 AT THE OWNER'S REQUEST. The budget above
+             keeps the NEWEST thought whole, which is right; what it also did was make
+             older ones unreachable -- they were dropped before the renderer saw them,
+             so there was nothing to scroll back to. The budget now governs how much is
+             VISIBLE at rest, and the rest is reachable by scrolling rather than gone. */
+          .think{flex:0 0 auto;max-height:min(30vh,220px);overflow-y:auto;
+                 scrollbar-width:none}
+          .think::-webkit-scrollbar{display:none}
           .think p{margin:0 0 2px}
           .think p + p{color:rgba(244,230,220,.46);font-size:17px}
           .think p + p + p{color:rgba(244,230,220,.30)}
+          /* Past the fold: present and reachable by scrolling, visibly older. */
+          .think p.folded{color:rgba(244,230,220,.26);font-size:16px}
           .acts{border-top:1px solid rgba(255,255,255,.09);padding-top:10px;
-                flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:none}
+                flex:1 1 auto;min-height:0;overflow-y:auto;
+                scrollbar-width:none}
           .acts::-webkit-scrollbar{display:none}
           .act{display:flex;align-items:baseline;gap:9px;padding:4px 0;
-               font-size:11.5px}
+               font-size:11.5px;line-height:1.4}
           .adot{flex:0 0 auto;width:5px;height:5px;border-radius:50%;
-                background:rgba(244,230,220,.30)}
-          .act.live .adot{background:rgba(244,230,220,.85)}
-          .act.failed .adot{background:rgba(232,130,110,.90)}
+                background:rgba(244,230,220,.30);transform:translateY(-2px)}
+          .act.live .adot{background:rgba(244,230,220,.85);
+                          box-shadow:0 0 8px rgba(244,230,220,.45);
+                          animation:pulse 1.6s ease-in-out infinite}
+          .act.failed .adot{background:rgba(232,130,110,.90);
+                            box-shadow:0 0 8px rgba(232,130,110,.40)}
           .averb{flex:0 0 auto;min-width:52px;font-size:9px;letter-spacing:.15em;
                  text-transform:uppercase;color:rgba(244,230,220,.34)}
-          .adet{flex:1;color:rgba(244,230,220,.66);overflow:hidden;
-                text-overflow:ellipsis;white-space:nowrap}
-          .asec{flex:0 0 auto;font-size:10px;color:rgba(244,230,220,.34)}
+          .adet{flex:1;color:rgba(244,230,220,.66);
+                overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+          .asec{flex:0 0 auto;font-size:10px;letter-spacing:.03em;
+                color:rgba(244,230,220,.34);font-variant-numeric:tabular-nums}
+          /* THE MACHINERY'S OWN NAME AND THE CLOCK, on a second line so the sentence
+             above stays a sentence. The owner asked for "more details" here; putting
+             them on the same row at eleven pixels makes the row unreadable, which is
+             less detail rather than more. */
+          .ameta{display:flex;gap:8px;padding:0 0 3px 14px;font-size:9px;
+                 letter-spacing:.09em;color:rgba(244,230,220,.26)}
+          .ameta .at{margin-left:auto;font-variant-numeric:tabular-nums}
+
           /* ---- the conversation, bottom right ---------------------------------
              A CARD, not a bare line on the ground. The line read as a caption over the
              wallpaper; at this length it needs a ground of its own to stay legible,
@@ -645,13 +1003,86 @@ final class HomeChrome {
 
         </style>
 
-            <div class="work idle" id="work">
-              <div class="think" id="think"></div>
-              <div class="acts" id="acts"></div>
-            </div>
+        <div class="work idle" id="work">
+          <div class="think" id="think"></div>
+          <div class="acts" id="acts"></div>
+        </div>
         <div class="card">
           <div class="t">host</div>
           {{METRIC_ROWS}}
+        </div>
+
+        <!-- The work stack. Every pane is a bar until it is opened, and the rows are
+             built by the script from data pushed out of home.json -- never as markup,
+             because these carry a command line and a process's own stderr. -->
+        <div class="stack" id="stack">
+          <div class="pane idle" id="pcmds">
+            <div class="phead" data-pane="pcmds">
+              <span class="ptitle">commands</span>
+              <span class="pcount" id="cmdcount"></span>
+              <span class="pgrow"></span>
+              <span class="psum" id="cmdsum"></span>
+              <span class="pchev"></span>
+            </div>
+            <div class="pbody" id="cmdrows"></div>
+          </div>
+          <div class="pane idle" id="pexps">
+            <div class="phead" data-pane="pexps">
+              <span class="ptitle">explanations</span>
+              <span class="pcount" id="expcount"></span>
+              <span class="pgrow"></span>
+              <span class="psum" id="expsum"></span>
+              <span class="pchev"></span>
+            </div>
+            <div class="pbody" id="exprows"></div>
+          </div>
+          <div class="pane idle" id="pchgs">
+            <div class="phead" data-pane="pchgs">
+              <span class="ptitle">changes</span>
+              <span class="pcount" id="chgcount"></span>
+              <span class="pgrow"></span>
+              <span class="psum" id="chgsum"></span>
+              <span class="pchev"></span>
+            </div>
+            <div class="pbody" id="chgbody">
+              <div class="ctlrow">
+                <div class="seg" id="chgshow">
+                  <button data-show="all" class="on">all</button>
+                  <button data-show="vesper">vesper</button>
+                  <button data-show="git">git</button>
+                </div>
+                <div class="seg" id="chgsort">
+                  <button data-sort="recent" class="on">recent</button>
+                  <button data-sort="path">path</button>
+                  <button data-sort="size">most changed</button>
+                </div>
+                <div class="gitbtns">
+                  <button class="gbtn" data-git="pull">pull</button>
+                  <button class="gbtn" data-git="push">push</button>
+                  <button class="gbtn" data-git="commit">create</button>
+                </div>
+              </div>
+              <div id="chgrows"></div>
+            </div>
+          </div>
+          <!-- The owner's shell. Nothing VESPER produces reaches it; see
+               TerminalBridge.swift for why that is structural rather than careful. -->
+          <div class="pane term" id="pterm">
+            <div class="phead" data-pane="pterm">
+              <span class="ptitle">terminal</span>
+              <span class="pgrow"></span>
+              <span class="psum" id="termsum">your shell</span>
+              <span class="pchev"></span>
+            </div>
+            <div class="pbody">
+              <pre class="tout" id="tout"></pre>
+              <div class="tin">
+                <span class="tps">›</span>
+                <input class="tfield" id="tin" type="text" autocomplete="off"
+                       spellcheck="false" placeholder="run something">
+              </div>
+            </div>
+          </div>
         </div>
 
 
@@ -745,8 +1176,15 @@ final class HomeChrome {
               return Array.from(s);
             }
 
-            // The card shows 288 characters (48 per line over six lines, measured).
-            // Every glyph past that was split, animated, and then clipped.
+            // HOW MANY GLYPHS THE CARD CAN ACTUALLY SHOW, measured rather than picked:
+            // 48 characters per line at the real type size in a 420 px card, and
+            // `max-height: 132px` over a 21.7 px line box is six lines. 288.
+            //
+            // EVERY GLYPH PAST IT WAS BEING SPLIT, GIVEN ITS OWN SCATTER VECTOR, ITS
+            // OWN DELAY AND ITS OWN ANIMATION, AND THEN CLIPPED BY `overflow: hidden`.
+            // A 250-word reply built hundreds of elements to animate text nobody could
+            // see. The margin is there because the card's width is derived from the
+            // face's position and a narrower face means more lines.
             var ANIMATED_MAX = 320;
 
             function paint(text, who, mode) {
@@ -769,7 +1207,14 @@ final class HomeChrome {
                 b.style.animationDelay = ((mode === 'out' ? (1 - mid) : mid) * 240).toFixed(0) + 'ms';
                 stage.appendChild(b);
               }
+              // APPENDED AFTER THE LOOP, not before it. Appended first it came out at
+              // the FRONT of the card -- the tail of the sentence rendered ahead of its
+              // own beginning, which is a worse bug than the one being fixed.
               if (all.length > n) {
+                // The remainder still goes in -- clipped today, and the card is not
+                // guaranteed to stay this size. It arrives as ONE element with no
+                // per-glyph treatment, because a per-glyph treatment on text that
+                // cannot be seen is the cost without the effect.
                 var rest = document.createElement('b');
                 rest.textContent = all.slice(n).join('');
                 rest.style.animationDelay = '240ms';
@@ -777,6 +1222,96 @@ final class HomeChrome {
               }
             }
 
+            // WHAT THE FACE IS TOLD WHILE VESPER IS TALKING.
+            //
+            // §6 is explicit that speaking is DRIVEN AND NOT LOOPED -- "a sine wave
+            // pretending to be speech is the same failure as a status column reading
+            // 41 C on a host with no thermometer". There is no audio path yet, so the
+            // honest driver available is the delivery itself: which word of the reply
+            // is on screen right now. That is a real fact about real output. It is not
+            // amplitude and is not reported as amplitude -- Swift receives it tagged
+            // `textReveal`, and Behaviour.swift drives a shallower envelope for it than
+            // it will for `audio`, because a reveal cursor carries no loudness.
+            //
+            // PER WORD, NOT PER FRAME OF A RAMP. A monotonic ramp would render as a
+            // slow zoom, which is the THINKING channel and would make the two states
+            // indistinguishable -- the exact thing §6 keeps them on separate channels
+            // to avoid. Word boundaries are real structure in the real sentence, so the
+            // envelope rises and falls on them and the face moves the way the sentence
+            // is shaped.
+            var speakTimer = null;
+            function tellFace(level, source) {
+              try {
+                window.webkit.messageHandlers.vesperSpeaking.postMessage(
+                  JSON.stringify({ level: level, source: source }));
+              } catch (e) {}
+            }
+            function stopSpeaking() {
+              if (speakTimer) { clearInterval(speakTimer); speakTimer = null; }
+              tellFace(0, 'none');
+            }
+            function speakOut(text) {
+              stopSpeaking();
+              var words = String(text).split(/\\s+/).filter(Boolean);
+              if (!words.length) return;
+              // Cadence from the text, not a constant: a long word occupies the mouth
+              // for longer than a short one. ~165 wpm is unhurried speech; the per-word
+              // share is proportional to its length so the total tracks the sentence.
+              var totalChars = words.join('').length || 1;
+              var totalMs = Math.min(14000, (words.length / 165) * 60000);
+              var t0 = Date.now(), acc = [], run = 0;
+              for (var i = 0; i < words.length; i++) {
+                var share = (words[i].length / totalChars) * totalMs;
+                acc.push([run, run + share, words[i].length]);
+                run += share;
+              }
+              speakTimer = setInterval(function () {
+                var el = Date.now() - t0;
+                if (el >= run) { stopSpeaking(); return; }
+                for (var i = 0; i < acc.length; i++) {
+                  if (el >= acc[i][0] && el < acc[i][1]) {
+                    // Within a word: open toward the middle, close toward its end.
+                    // Height from the word's own length, capped -- a fifteen-letter
+                    // word does not open the mouth three times as far as a five.
+                    var p = (el - acc[i][0]) / Math.max(1, acc[i][1] - acc[i][0]);
+                    var h = Math.min(1, 0.45 + acc[i][2] / 12);
+                    tellFace(h * Math.sin(p * Math.PI), 'textReveal');
+                    return;
+                  }
+                }
+              }, 33);
+            }
+
+            // ONE PENDING TRANSITION, NOT ONE PER ARRIVAL.
+            //
+            // This scheduled a fresh `setTimeout(next, 860)` on every call, with `text`
+            // captured per closure. A typed turn publishes the owner's line and then
+            // the reply, and since replies now come back in about half a second BOTH
+            // land inside the same 860 ms dissolve -- so two timers were pending, each
+            // holding a different line. The first painted, and a few milliseconds later
+            // the second wiped it and painted over. The owner's own words appeared for
+            // a few frames and vanished with no dissolve at all, on every single turn.
+            // Reproduced offscreen 2026-08-26 with `layout_probe --eval`.
+            //
+            // Now the dissolve is started once and the QUEUED TEXT is replaced. A line
+            // superseded before it was ever shown is simply never shown, which is the
+            // honest outcome: the card holds one line, and the newest is the one that
+            // matters.
+            var pending = null, pendingTimer = null;
+
+            function arrive(text, who) {
+              showing = text;
+              paint(text, who, 'in');
+              // ONLY VESPER'S OWN LINES SPEAK. The owner's line appears on the same
+              // card and is not VESPER talking; driving the face from it would have
+              // the face mouthing the owner's words back at them.
+              if (who === 'vesper') speakOut(text); else stopSpeaking();
+            }
+
+            // The mirror of `paint`'s delay line, applied to children that already
+            // exist. Kept here rather than inside `paint` because the outgoing line is
+            // never re-created -- re-creating it would restart it from its `from` frame,
+            // which is a flash, not a dissolve.
             function restagger(el, mode) {
               var kids = el.children, n = kids.length;
               for (var i = 0; i < n; i++) {
@@ -786,80 +1321,883 @@ final class HomeChrome {
               }
             }
 
-            // ONE PENDING TRANSITION. This scheduled a timer per arrival, and a
-            // typed turn publishes the owner's line and then the reply -- both
-            // inside the same 860 ms dissolve. Two timers, two different lines,
-            // the first painted and wiped a few milliseconds later.
-            var pending = null, pendingTimer = null;
-
             window.__vesperStage = function (text, who) {
               if (!text || text === showing) return;
+              // WHAT THE STAGE HOLDS, so the list below does not print it a second
+              // time. See __vesperHistory.
+              window.__stageText = text;
               if (pendingTimer) { pending = { text: text, who: who }; return; }
-              if (!showing) { showing = text; paint(text, who, 'in'); return; }
+              if (!showing) { arrive(text, who); return; }
+
               // DISSOLVE FIRST, THEN ARRIVE. The wait matches the scatter animation
               // plus its stagger; cutting it short would overlap two lines in the
               // one place they share, which is the whole reason this is a card and
-              // not a list. Re-staggered on the way out -- `paint(.., 'out')` was
-              // never called, so the dissolve replayed the ARRIVAL's stagger.
+              // not a list.
+              //
+              // RE-STAGGERED ON THE WAY OUT, and until now it never was. `paint` has
+              // always computed a mirrored delay for `out` -- edges first, middle last,
+              // so the line comes apart from its ends -- and `paint(text, who, 'out')`
+              // was never once called. The outgoing children kept the delays they were
+              // given when they arrived, so the dissolve played the ARRIVAL's stagger
+              // backwards-in-name-only. Measured: the two delay sequences were
+              // identical, element for element.
               restagger(stage, 'out');
               stage.classList.remove('in');
               stage.classList.add('out');
               pending = { text: text, who: who };
               pendingTimer = setTimeout(function () {
                 pendingTimer = null;
-                var q = pending; pending = null;
-                if (q) { showing = q.text; paint(q.text, q.who, 'in'); }
+                var p = pending; pending = null;
+                if (p) arrive(p.text, p.who);
               }, 860);
             };
 
-            // The history bar. Collapsed it shows the OLDEST line, which is what makes
 
+            // The workbench. Rows are pushed as DATA and written with textContent --
+            // these lines carry provider names and error classifications straight off
+            // the wire, and the day one contains a tag is the day that stops being
+            // theoretical.
             var work = document.getElementById('work');
             var thinkEl = document.getElementById('think');
             var actsEl = document.getElementById('acts');
             var lastWork = '';
             window.__vesperWork = function (json) {
-              if (json === lastWork || !work) return;
+              if (json === lastWork) return;
               lastWork = json;
-              var w; try { w = JSON.parse(json); } catch (e) { return; }
-              var th = (w && w.thoughts) || [], ac = (w && w.actions) || [];
-              if (!th.length && !ac.length) { work.classList.add('idle'); return; }
+              var w;
+              try { w = JSON.parse(json); } catch (e) { return; }
+              var thoughts = (w && w.thoughts) || [], actions = (w && w.actions) || [];
+              // THE PANES ARE RENDERED BEFORE THE EARLY RETURN BELOW, and that
+              // ordering is the whole of why they work. The thoughts-and-actions card
+              // returns as soon as it has nothing to draw, so anything written after
+              // that line is painted only on ticks where VESPER happens to be thinking
+              // -- which is the "built and nothing reaches it" shape this tree has
+              // found five times. Commands outlive the turn that produced them.
+              renderCommands((w && w.commands) || []);
+              renderExplanations((w && w.explanations) || []);
+              if (!work) return;
+              if (!thoughts.length && !actions.length) { work.classList.add('idle'); return; }
               work.classList.remove('idle');
-              // The line budget, spent newest-first, measured rather than
-              // counted -- and the gaps between lines are part of it. See the
-              // template for the full reasoning.
+              // THE LINE BUDGET IS SPENT NEWEST-FIRST, AND THE NEWEST IS NEVER THE
+              // CASUALTY.
+              //
+              // SS5's rule is about LINES on screen -- "never more than ~two lines" --
+              // and it had been implemented as a cap of two THOUGHTS, discarded before
+              // the renderer ever saw them. That is wrong in both directions: one long
+              // thought is already several lines and passed the count, while two short
+              // ones are one line each and hit the ceiling. And with exactly two
+              // strings arriving there was no way to prefer the new one, so a fresh
+              // thought had to share the budget with a stale one even when it needed
+              // all of it.
+              //
+              // MEASURED, NOT ASSUMED. A line is a rendered height, which only the
+              // engine knows -- a character count would be a guess that is wrong at
+              // every width and every typeface, and the hand is a typeface nobody has
+              // measured. So each older thought is appended and KEPT only if the block
+              // still fits; the first is appended unconditionally and never tested.
               thinkEl.textContent = '';
               var lh = parseFloat(getComputedStyle(thinkEl).lineHeight) || 26;
               var lines = w.max_lines || 2;
+              // THE GAPS BETWEEN THE LINES ARE PART OF THE BUDGET. Without them two
+              // one-line thoughts measured 51.00 px against a budget of 50.92 and the
+              // second was dropped -- SS5's "~two lines" decided by eight hundredths of
+              // a pixel. Read from the DOM rather than hardcoded, so a change to the
+              // paragraph spacing does not silently re-tune what fits.
               var probe = document.createElement('p');
               thinkEl.appendChild(probe);
               var gap = parseFloat(getComputedStyle(probe).marginBottom) || 0;
               thinkEl.removeChild(probe);
               var budget = lh * lines + gap * (lines - 1);
-              for (var i = 0; i < th.length; i++) {
+              for (var i = 0; i < thoughts.length; i++) {
                 var p = document.createElement('p');
-                p.textContent = th[i]; thinkEl.appendChild(p);
-                if (i === 0) { continue; }     // the newest, never tested
+                p.textContent = thoughts[i];
+                thinkEl.appendChild(p);
+                // THE NEWEST IS APPENDED AND NEVER TESTED. The first version gave it a
+                // ceiling of six lines and clipped it past that -- which is the defect
+                // being fixed, arriving through the guard meant to prevent a different
+                // one. A long thought is still a thought; what gives way when the card
+                // runs short is the actions list below, which scrolls.
+                // KEPT, NOT DROPPED -- CHANGED 2026-09-04. This removed every thought
+                // past the line budget, so the budget decided what EXISTED rather than
+                // what was visible, and the owner could not scroll back to anything
+                // because there was nothing behind the fold. The budget now marks where
+                // the fold IS: the block is capped in CSS and scrolls, and the older
+                // thoughts stay in the DOM behind it, dimmed by the `p + p` rules.
+                if (i === 0) { continue; }
                 if (thinkEl.getBoundingClientRect().height > budget) {
-                  thinkEl.removeChild(p); break;
+                  p.classList.add('folded');
                 }
               }
               actsEl.textContent = '';
-              for (var j = ac.length - 1; j >= 0; j--) {
-                var a = ac[j], row = document.createElement('div');
+              // NEWEST FIRST. The board is read at a glance and the thing that just
+              // happened is the thing being looked for.
+              for (var j = actions.length - 1; j >= 0; j--) {
+                var a = actions[j];
+                var row = document.createElement('div');
                 row.className = 'act ' + (a.state || 'done');
-                var parts = [['adot',''], ['averb', a.verb || ''],
-                             ['adet', a.detail || ''],
-                             ['asec', (typeof a.seconds === 'number')
-                                      ? a.seconds.toFixed(2) + 's' : '']];
-                for (var k = 0; k < parts.length; k++) {
-                  var e = document.createElement('span');
-                  e.className = parts[k][0]; e.textContent = parts[k][1];
-                  row.appendChild(e);
-                }
+                var dot = document.createElement('span'); dot.className = 'adot';
+                var verb = document.createElement('span'); verb.className = 'averb';
+                verb.textContent = a.verb || '';
+                var det = document.createElement('span'); det.className = 'adet';
+                det.textContent = a.detail || '';
+                var sec = document.createElement('span'); sec.className = 'asec';
+                // ROUNDED HERE AND NOWHERE ELSE. Rounding is presentation and belongs
+                // to whoever renders it; the record keeps what was measured.
+                sec.textContent = (typeof a.seconds === 'number')
+                  ? a.seconds.toFixed(a.seconds < 10 ? 2 : 1) + 's' : '';
+                row.appendChild(dot); row.appendChild(verb);
+                row.appendChild(det); row.appendChild(sec);
                 actsEl.appendChild(row);
+                // The second line, and only when there is something on it. An empty
+                // strip under every row is noise that looks like a layout bug.
+                if (a.meta || a.at_ms) {
+                  var m = document.createElement('div');
+                  m.className = 'ameta';
+                  if (a.meta) {
+                    var mk = document.createElement('span');
+                    mk.textContent = a.meta;
+                    m.appendChild(mk);
+                  }
+                  if (a.at_ms) {
+                    var t = document.createElement('span');
+                    t.className = 'at';
+                    // LOCAL CLOCK TIME, not "12 seconds ago". A relative label is
+                    // wrong the moment the surface stops re-rendering, and this one
+                    // re-renders on a timer that can stall -- a board that says "just
+                    // now" about something from an hour ago is worse than no time.
+                    var d = new Date(a.at_ms);
+                    t.textContent = String(d.getHours()).padStart(2, '0') + ':'
+                                  + String(d.getMinutes()).padStart(2, '0') + ':'
+                                  + String(d.getSeconds()).padStart(2, '0');
+                    m.appendChild(t);
+                  }
+                  actsEl.appendChild(m);
+                }
               }
             };
+
+            // ---- the commands pane ------------------------------------------------
+            //
+            // WHAT IS OPEN SURVIVES A RE-RENDER. The state push runs every 700 ms and
+            // rebuilds these rows from scratch; without a record of which rows the
+            // owner had opened, any row they opened would shut again within the second
+            // -- reading, from the owner's side, as a card that refuses to stay open.
+            // Keyed on the command's id, which is stable for the life of the record.
+            var openCmds = Object.create(null);
+            var cmdrows = document.getElementById('cmdrows');
+            var cmdcount = document.getElementById('cmdcount');
+            var cmdsum = document.getElementById('cmdsum');
+            var pcmds = document.getElementById('pcmds');
+
+            function ms(n) {
+              if (typeof n !== 'number') return '';
+              return n < 1000 ? n + 'ms' : (n / 1000).toFixed(n < 10000 ? 2 : 1) + 's';
+            }
+
+            // EVERY ONE OF THESE IS textContent. The strings below are a command line
+            // the owner may have dictated, a path off the filesystem, and a process's
+            // own stderr -- three sources, none of which this page is entitled to
+            // treat as markup.
+            function el(tag, cls, text) {
+              var e = document.createElement(tag);
+              if (cls) e.className = cls;
+              if (text !== undefined && text !== null) e.textContent = text;
+              return e;
+            }
+
+            function renderCommands(cmds) {
+              if (!cmdrows || !pcmds) return;
+              if (!cmds.length) { pcmds.classList.add('idle'); return; }
+              pcmds.classList.remove('idle');
+              cmdcount.textContent = String(cmds.length);
+              // The bar says what ran LAST, which is what someone glancing at a shut
+              // pane is looking for.
+              cmdsum.textContent = (cmds[cmds.length - 1] || {}).display || '';
+              cmdrows.textContent = '';
+              // NEWEST FIRST, like the actions column. The record stays chronological;
+              // the reversal is a presentation decision and is made here.
+              for (var i = cmds.length - 1; i >= 0; i--) {
+                var c = cmds[i];
+                var row = el('div', 'cmd ' + (c.state || 'ok'));
+                if (openCmds[c.id]) row.classList.add('open');
+                row.setAttribute('data-cmd', c.id);
+
+                var head = el('div', 'chead');
+                head.appendChild(el('span', 'cdot'));
+                head.appendChild(el('span', 'cdisp', c.display || ''));
+                head.appendChild(el('span', 'cms', ms(c.elapsed_ms)));
+                row.appendChild(head);
+
+                // The first line of stderr, shown whether or not the row is open.
+                if (c.state === 'failed') {
+                  var why = String(c.stderr || '').split('\\n')[0]
+                         || String(c.stdout || '').split('\\n')[0]
+                         || ('exit ' + c.exit_code);
+                  row.appendChild(el('div', 'cwhy', why));
+                }
+
+                var body = el('div', 'cbody');
+                if (c.cwd) body.appendChild(el('div', 'ccwd', c.cwd));
+                if (c.stdout) {
+                  body.appendChild(el('div', 'clab', 'output'));
+                  body.appendChild(el('pre', 'cout', c.stdout));
+                }
+                if (c.stderr) {
+                  body.appendChild(el('div', 'clab', 'errors'));
+                  body.appendChild(el('pre', 'cerr', c.stderr));
+                }
+                if (!c.stdout && !c.stderr) {
+                  body.appendChild(el('div', 'clab',
+                    c.exit_code === 0 ? 'finished without printing anything'
+                                      : 'exit ' + c.exit_code + ', nothing on either stream'));
+                }
+                if (c.truncated) {
+                  body.appendChild(el('div', 'ccut',
+                    'output truncated — this is not all of it'));
+                }
+                row.appendChild(body);
+                cmdrows.appendChild(row);
+              }
+            }
+
+            // ---- the explanations pane --------------------------------------------
+            var exprows = document.getElementById('exprows');
+            var expcount = document.getElementById('expcount');
+            var expsum = document.getElementById('expsum');
+            var pexps = document.getElementById('pexps');
+
+            function renderExplanations(exps) {
+              if (!exprows || !pexps) return;
+              if (!exps.length) { pexps.classList.add('idle'); return; }
+              pexps.classList.remove('idle');
+              expcount.textContent = String(exps.length);
+              expsum.textContent = (exps[exps.length - 1] || {}).title || '';
+              exprows.textContent = '';
+              for (var i = exps.length - 1; i >= 0; i--) {
+                var e = exps[i];
+                var box = el('div', 'exp');
+                box.setAttribute('data-turn', e.turn_id || '');
+                box.appendChild(el('div', 'etitle', e.title || ''));
+                var blocks = e.blocks || [];
+                for (var j = 0; j < blocks.length; j++) {
+                  var b = blocks[j];
+                  if (b.kind === 'text') {
+                    box.appendChild(el('p', 'btext', b.text || ''));
+                  } else if (b.kind === 'list') {
+                    var ul = el('ul', 'blist');
+                    var items = b.items || [];
+                    for (var k = 0; k < items.length; k++) ul.appendChild(el('li', '', items[k]));
+                    box.appendChild(ul);
+                  } else if (b.kind === 'code') {
+                    var wrap = el('div', 'bcodewrap');
+                    if (b.lang) wrap.appendChild(el('div', 'blang', b.lang));
+                    wrap.appendChild(el('pre', 'bcode', b.text || ''));
+                    // FOUR THINGS THE OWNER CAN DO WITH A COMMAND VESPER WROTE.
+                    //
+                    // RUN IS ALWAYS A DELIBERATE CLICK. No keyboard shortcut, no
+                    // enter-to-run, no run-on-expand -- and the command is rendered in
+                    // full above, never elided, because the owner has to be able to
+                    // read what they are about to execute. A truncated command with a
+                    // Run button beside it is the one arrangement this must not have.
+                    //
+                    // Only for shells. A python block is code to read, not a line to
+                    // hand to zsh, and a Run button on one would be an invitation to
+                    // paste a program into a prompt.
+                    var lang = String(b.lang || '').toLowerCase();
+                    if (lang === 'bash' || lang === 'sh' || lang === 'zsh'
+                        || lang === 'shell' || lang === 'console') {
+                      var bar = el('div', 'cmdbar');
+                      var mk = function (label, attr, cls) {
+                        var btn = el('button', cls || '', label);
+                        btn.setAttribute(attr, b.text || '');
+                        bar.appendChild(btn);
+                      };
+                      mk('run', 'data-run', 'run');
+                      mk('paste', 'data-paste');
+                      mk('ask vesper', 'data-ask');
+                      mk('copy', 'data-copycmd');
+                      wrap.appendChild(bar);
+                    }
+                    box.appendChild(wrap);
+                  } else {
+                    // SAID OUT LOUD RATHER THAN DROPPED. A kind this page does not know
+                    // how to draw is a partial explanation, and a partial one that
+                    // looks complete is worse than a visible gap.
+                    box.appendChild(el('p', 'bskip',
+                      'a part of this explanation is in a form this surface cannot '
+                      + 'draw yet (' + String(b.kind) + ')'));
+                  }
+                }
+                exprows.appendChild(box);
+              }
+            }
+
+            // ---- the changed files ------------------------------------------------
+            var chgrows = document.getElementById('chgrows');
+            var chgcount = document.getElementById('chgcount');
+            var chgsum = document.getElementById('chgsum');
+            var pchgs = document.getElementById('pchgs');
+            var openChgs = Object.create(null);
+            // THE VIEW SURVIVES A RE-RENDER, like the open rows above: the state push
+            // rebuilds this list every 700 ms and a filter that reset itself within
+            // the second would be unusable. Per-viewer and per-session, which is what
+            // `localStorage` is for -- and it is wrapped, because a webview can refuse
+            // it and a card that throws is worse than one that forgets.
+            var chgView = {show: 'all', sort: 'recent'};
+            try {
+              var stored = localStorage.getItem('vesper.chgView');
+              if (stored) chgView = JSON.parse(stored);
+            } catch (e) {}
+            function saveView() {
+              try { localStorage.setItem('vesper.chgView', JSON.stringify(chgView)); }
+              catch (e) {}
+            }
+            var lastChanges = [];
+
+            // A DIFF IS COLOURED BY ITS GUTTER CHARACTER, and the character stays.
+            // Colour alone fails for anyone who cannot separate these two hues, and
+            // the +/- is already the first thing on every line.
+            function paintDiff(pre, text) {
+              pre.textContent = '';
+              var rows = String(text || '').split('\\n');
+              for (var i = 0; i < rows.length; i++) {
+                var line = rows[i];
+                var cls = line.charAt(0) === '+' ? 'a'
+                        : line.charAt(0) === '-' ? 'r'
+                        : line.charAt(0) === '@' ? 'h' : '';
+                // +++ and --- are the file headers, not an addition and a deletion.
+                if (line.indexOf('+++') === 0 || line.indexOf('---') === 0) cls = 'h';
+                pre.appendChild(el('span', cls, line + '\\n'));
+              }
+            }
+
+            function sortChanges(rows) {
+              var out = rows.slice();
+              if (chgView.sort === 'path') {
+                out.sort(function (a, b) { return (a.path || '') < (b.path || '') ? -1 : 1; });
+              } else if (chgView.sort === 'size') {
+                out.sort(function (a, b) {
+                  return ((b.added || 0) + (b.removed || 0)) - ((a.added || 0) + (a.removed || 0));
+                });
+              }
+              // 'recent' is the order the runtime published, which is the order things
+              // happened. Re-deriving it from a timestamp here would be a second
+              // opinion about an ordering the record already has.
+              return out;
+            }
+
+            function renderChanges(payload) {
+              if (!chgrows || !pchgs) return;
+              var rows = (payload && payload.changes) || [];
+              lastChanges = rows;
+              if (!rows.length) { pchgs.classList.add('idle'); return; }
+              pchgs.classList.remove('idle');
+              var shown = rows.filter(function (c) {
+                return chgView.show === 'all' || c.source === chgView.show;
+              });
+              chgcount.textContent = String(shown.length)
+                + (shown.length !== rows.length ? ' of ' + rows.length : '');
+              chgsum.textContent = shown.length ? (shown[0].name || '') : 'nothing shown';
+              // The controls reflect the view they are controlling.
+              var segs = document.querySelectorAll('#chgshow button, #chgsort button');
+              for (var s = 0; s < segs.length; s++) {
+                var k = segs[s].getAttribute('data-show') || segs[s].getAttribute('data-sort');
+                var mine = segs[s].hasAttribute('data-show') ? chgView.show : chgView.sort;
+                segs[s].classList.toggle('on', k === mine);
+              }
+              chgrows.textContent = '';
+              var list = sortChanges(shown);
+              for (var i = 0; i < list.length; i++) {
+                var c = list[i];
+                var row = el('div', 'chg');
+                row.setAttribute('data-src', c.source || '');
+                row.setAttribute('data-status', c.status || '');
+                row.setAttribute('data-path', c.path || '');
+                if (openChgs[c.path]) row.classList.add('open');
+                var head = el('div', 'dhead');
+                head.appendChild(el('span', 'dsrc', c.source === 'vesper' ? 'vesper' : 'git'));
+                // The PATH, not just the name: two files called `index.html` are the
+                // whole reason a list like this becomes useless. `direction:rtl` keeps
+                // the filename visible when the middle is elided.
+                head.appendChild(el('span', 'dpath', c.path || ''));
+                head.appendChild(el('span', 'dstat', c.status || ''));
+                if (c.added) head.appendChild(el('span', 'dadd', '+' + c.added));
+                if (c.removed) head.appendChild(el('span', 'drem', '−' + c.removed));
+                row.appendChild(head);
+
+                var body = el('div', 'dbody');
+                var bar = el('div', 'drow');
+                var ide = el('button', 'gbtn', 'open in editor');
+                ide.setAttribute('data-open', c.path || '');
+                bar.appendChild(ide);
+                var cp = el('button', 'gbtn', 'copy diff');
+                cp.setAttribute('data-copy', c.path || '');
+                bar.appendChild(cp);
+                body.appendChild(bar);
+                if (c.binary) {
+                  body.appendChild(el('div', 'ccut',
+                    'a binary file — changed, and there is no diff to show'));
+                } else if (c.hunks) {
+                  var pre = el('pre', 'dhunks');
+                  paintDiff(pre, c.hunks);
+                  body.appendChild(pre);
+                } else {
+                  body.appendChild(el('div', 'ccut', 'no textual difference'));
+                }
+                if (c.truncated) {
+                  body.appendChild(el('div', 'ccut',
+                    'diff truncated — this is not all of it'));
+                }
+                row.appendChild(body);
+                chgrows.appendChild(row);
+              }
+              // A ROW GIT HAS NEVER HEARD OF CANNOT BE PUSHED. Disabled rather than
+              // hidden, so the buttons stay where the owner left them.
+              var anyGit = rows.some(function (c) { return c.in_repo; });
+              var gb = document.querySelectorAll('.gbtn[data-git]');
+              for (var g = 0; g < gb.length; g++) gb[g].disabled = !anyGit;
+            }
+
+            window.__vesperChanges = function (json) {
+              var payload;
+              try { payload = JSON.parse(json); } catch (e) { return; }
+              renderChanges(payload);
+            };
+
+            // ---- the owner's terminal ---------------------------------------------
+            //
+            // THE ONE RULE: `termInput` is the only function that posts `input`, and
+            // it is called from exactly two gestures -- a keypress in the field below,
+            // and a click on a Run button. Paste does NOT call it and has no bridge at
+            // all: it writes to the input element and returns, so there is no path
+            // from a command VESPER wrote to the shell without the owner pressing
+            // something. Nothing in the state push touches any of this.
+            var tout = document.getElementById('tout');
+            var tin = document.getElementById('tin');
+            var pterm = document.getElementById('pterm');
+            // Bounded scrollback. A `find /` left running would otherwise grow the DOM
+            // until the surface stops painting.
+            var TERM_MAX_CHARS = 60000;
+            var termSeenAlt = false;
+
+            function termSend(payload) {
+              try { window.webkit.messageHandlers.vesperTerm.postMessage(payload); }
+              catch (e) {}
+            }
+            function termInput(text) {
+              // THE PAGE PRINTS THE LINE, ONCE, because the shell no longer echoes it
+              // -- see TerminalBridge.swift for why. Printed in VESPER's own prompt
+              // colour so what the owner asked and what came back are told apart by
+              // the design rather than by guessing.
+              var shown = String(text).replace(/\\n$/, '');
+              if (shown) appendTerm('\\n› ' + shown + '\\n', 'c33');
+              termSend({kind: 'input', text: text});
+              if (tout) tout.scrollTop = tout.scrollHeight;
+            }
+            // EXPOSED FOR THE OFFSCREEN PROBE, and it is the SAME function the keydown
+            // handler calls -- a probe with its own private path to the shell would
+            // verify a path that does not ship.
+            window.termInputForProbe = termInput;
+
+            // A SMALL ANSI RENDERER, deliberately. It handles what a shell session
+            // actually emits between prompts -- SGR colour, carriage return, backspace
+            // -- and DECLINES the rest. A full-screen program repaints with cursor
+            // addressing this does not implement, so rather than showing the owner a
+            // scrambled screen and letting them work out why, the pane says so once.
+            var termBuf = '';
+            var sgr = '';
+            function termWrite(text) {
+              if (!tout) return;
+              if (!termSeenAlt && /\\x1b\\[\\?1049[hl]/.test(text)) {
+                termSeenAlt = true;
+                appendTerm('\\n[this pane draws line output, not full-screen programs — '
+                         + 'vim, htop and less will not paint correctly here]\\n', 'c33');
+              }
+              var i = 0, plain = '';
+              while (i < text.length) {
+                var ch = text.charAt(i);
+                if (ch === '\\x1b') {
+                  // `?` AND `>` BELONG IN THE PARAMETER PART. Without them the
+                  // private-mode sequences a shell emits constantly -- bracketed
+                  // paste is `ESC [ ? 2 0 0 4 h` -- fail to match, fall through to
+                  // the two-character skip below, and the page prints `?2004h` as
+                  // text. Measured on the first real command this pane ever ran.
+                  var m = /^\\x1b\\[([?>!0-9;]*)([A-Za-z])/.exec(text.slice(i));
+                  if (m) {
+                    var priv = /^[?>!]/.test(m[1]);
+                    if (m[2] === 'm' && !priv) {
+                      if (plain) { appendTerm(plain, sgr); plain = ''; }
+                      sgr = sgrClass(m[1]);
+                    } else if (m[2] === 'K' && !priv) {
+                      // erase-to-end-of-line: drop the tail of the current line
+                      if (plain) { appendTerm(plain, sgr); plain = ''; }
+                      trimCurrentLine();
+                    } else if (m[2] === 'C' && !priv) {
+                      // CURSOR FORWARD, RENDERED AS SPACES. Dropping it entirely is
+                      // what split the shell's own echo across three lines on the
+                      // first real command: zsh's line editor redraws with cursor
+                      // moves, and a renderer that keeps the text and discards the
+                      // positioning turns one line into several.
+                      plain += " ".repeat(Math.min(parseInt(m[1] || "1", 10) || 1, 200));
+                    } else if (m[2] === 'D' && !priv) {
+                      var back = Math.min(parseInt(m[1] || "1", 10) || 1, 200);
+                      for (var bk = 0; bk < back; bk++) {
+                        if (plain) plain = plain.slice(0, -1); else backspaceTerm();
+                      }
+                    }
+                    i += m[0].length;
+                    continue;
+                  }
+                  // An escape this renderer does not implement is DROPPED, not shown.
+                  // Printing the raw bytes is how a terminal pane fills with `[?2004h`.
+                  var m2 = /^\\x1b[\\]P^_].*?(\\x07|\\x1b\\\\)/.exec(text.slice(i));
+                  i += m2 ? m2[0].length : 2;
+                  continue;
+                }
+                if (ch === '\\r') {
+                  if (plain) { appendTerm(plain, sgr); plain = ''; }
+                  trimCurrentLine();
+                  i++;
+                  continue;
+                }
+                if (ch === '\\b') {
+                  if (plain) { plain = plain.slice(0, -1); }
+                  else { backspaceTerm(); }
+                  i++;
+                  continue;
+                }
+                if (ch === '\\x07') { i++; continue; }      // the bell is not a glyph
+                plain += ch;
+                i++;
+              }
+              if (plain) appendTerm(plain, sgr);
+              tout.scrollTop = tout.scrollHeight;
+            }
+            function sgrClass(codes) {
+              var out = '';
+              var parts = String(codes || '0').split(';');
+              for (var i = 0; i < parts.length; i++) {
+                var n = parseInt(parts[i], 10);
+                if (n === 0) out = '';
+                else if (n === 1) out += ' bold';
+                else if ((n >= 30 && n <= 37) || (n >= 90 && n <= 97)) out += ' c' + n;
+              }
+              return out.trim();
+            }
+            function appendTerm(text, cls) {
+              var span = document.createElement('span');
+              if (cls) span.className = cls;
+              span.textContent = text;                 // NEVER innerHTML: this is a shell
+              tout.appendChild(span);
+              while (tout.textContent.length > TERM_MAX_CHARS && tout.firstChild) {
+                tout.removeChild(tout.firstChild);
+              }
+            }
+            function trimCurrentLine() {
+              // Remove trailing text back to the last newline, which is what \\r and
+              // erase-to-end-of-line both mean for a line-oriented renderer.
+              while (tout.lastChild) {
+                var t = tout.lastChild.textContent || '';
+                var nl = t.lastIndexOf('\\n');
+                if (nl >= 0) { tout.lastChild.textContent = t.slice(0, nl + 1); return; }
+                tout.removeChild(tout.lastChild);
+              }
+            }
+            function backspaceTerm() {
+              if (!tout.lastChild) return;
+              var t = tout.lastChild.textContent || '';
+              if (t.length > 1) tout.lastChild.textContent = t.slice(0, -1);
+              else tout.removeChild(tout.lastChild);
+            }
+            window.__vesperTermOut = function (text) { termWrite(String(text)); };
+
+            if (tin) {
+              tin.addEventListener('keydown', function (ev) {
+                // GESTURE ONE. The owner typed a line and pressed return.
+                if (ev.key === 'Enter') {
+                  termInput(tin.value + '\\n');
+                  tin.value = '';
+                  ev.preventDefault();
+                } else if (ev.key === 'c' && ev.ctrlKey) {
+                  termInput('\\x03');
+                  ev.preventDefault();
+                } else if (ev.key === 'd' && ev.ctrlKey) {
+                  termInput('\\x04');
+                  ev.preventDefault();
+                } else if (ev.key === 'Tab') {
+                  termInput(tin.value + '\\t');
+                  ev.preventDefault();
+                }
+              });
+              tin.addEventListener('focus', focusVesper);
+            }
+
+            // Opened lazily: no shell is spawned until the owner opens the pane, so a
+            // home that sits on the Desktop all day is not also a login shell all day.
+            function termOpen() {
+              termSend({kind: 'open'});
+              if (tout) {
+                var cw = 7.0, ch = 17.0;                 // the mono face's box at 11.5px
+                termSend({kind: 'resize',
+                          cols: Math.max(20, Math.floor(tout.clientWidth / cw)),
+                          rows: Math.max(6, Math.floor(tout.clientHeight / ch))});
+              }
+              try { tin.focus(); } catch (e) {}
+            }
+            window.termOpenForProbe = termOpen;
+
+            // THE CONNECTION, AND IT IS KEYED ON THE TURN. Clicking a line VESPER said
+            // opens its explanation and lights it; clicking an explanation lights the
+            // line. Pairing them by "the newest of each" would be right until the first
+            // turn that produces one and not the other.
+            function lightTurn(turn, openPane) {
+              if (!turn) return;
+              var was = document.querySelectorAll('.lit');
+              for (var i = 0; i < was.length; i++) was[i].classList.remove('lit');
+              var hits = document.querySelectorAll('[data-turn="' + turn + '"]');
+              for (var j = 0; j < hits.length; j++) hits[j].classList.add('lit');
+              if (openPane && pexps && !pexps.classList.contains('idle')) {
+                var panes = document.querySelectorAll('.pane');
+                for (var k = 0; k < panes.length; k++) panes[k].classList.remove('open');
+                pexps.classList.add('open');
+                var target = exprows.querySelector('[data-turn="' + turn + '"]');
+                if (target && target.scrollIntoView) target.scrollIntoView({block: 'nearest'});
+              }
+            }
+
+            // VESPER IS AN ACCESSORY APP, so a click does not make it active on its
+            // own and the field beside these cards stays untypable without this. Every
+            // handler below calls it for the same reason the history bar always has.
+            // ONE OPEN AT A TIME, in one place. The column is short enough that two
+            // open panes are two unreadable ones.
+            function openPane(id) {
+              var panes = document.querySelectorAll('.pane');
+              for (var i = 0; i < panes.length; i++) panes[i].classList.remove('open');
+              var pane = document.getElementById(id);
+              if (pane) pane.classList.add('open');
+            }
+
+            function focusVesper() {
+              try { window.webkit.messageHandlers.vesperFocus.postMessage('1'); } catch (e) {}
+            }
+
+            function act(payload) {
+              try { window.webkit.messageHandlers.vesperAct.postMessage(payload); }
+              catch (e) {}
+            }
+
+            // PUSH, PULL AND CREATE CONFIRM FIRST, AND THE CONFIRMATION NAMES THE
+            // COMMAND. These are outward-facing and hard to reverse. The first click
+            // asks Swift what it WOULD run -- the real remote, the real branch, read
+            // out of git rather than guessed -- and puts that on the button; the
+            // second click, within the window below, runs it.
+            var armed = {op: '', until: 0, says: ''};
+            var ARM_MS = 8000;
+            function onGit(btn) {
+              var op = btn.getAttribute('data-git');
+              var now = Date.now();
+              if (armed.op === op && now < armed.until) {
+                var msg = '';
+                if (op === 'commit') {
+                  var field = document.getElementById('cmsg');
+                  msg = field ? field.value : '';
+                }
+                act({kind: 'git', op: op, confirm: true, message: msg});
+                disarm();
+                return;
+              }
+              disarm();
+              armed = {op: op, until: now + ARM_MS, says: ''};
+              btn.classList.add('arm');
+              btn.textContent = 'asking…';
+              if (op === 'commit') showCommitField();
+              act({kind: 'git', op: op, confirm: false,
+                   message: (document.getElementById('cmsg') || {}).value || ''});
+              setTimeout(function () { if (armed.op === op) disarm(); }, ARM_MS);
+            }
+            function disarm() {
+              armed = {op: '', until: 0, says: ''};
+              var gb = document.querySelectorAll('.gbtn[data-git]');
+              for (var i = 0; i < gb.length; i++) {
+                gb[i].classList.remove('arm');
+                gb[i].textContent = gb[i].getAttribute('data-git') === 'commit'
+                  ? 'create' : gb[i].getAttribute('data-git');
+              }
+              var f = document.getElementById('cmsgwrap');
+              if (f) f.remove();
+            }
+            function showCommitField() {
+              if (document.getElementById('cmsgwrap')) return;
+              var wrap = el('div', 'drow');
+              wrap.id = 'cmsgwrap';
+              var inp = document.createElement('input');
+              inp.id = 'cmsg';
+              inp.type = 'text';
+              inp.placeholder = 'what this commit does';
+              inp.setAttribute('autocomplete', 'off');
+              inp.style.cssText = 'flex:1;background:rgba(0,0,0,.24);border:1px solid '
+                + 'rgba(255,255,255,.13);border-radius:9px;padding:6px 10px;'
+                + 'color:rgba(244,230,220,.86);font-family:inherit;font-size:11.5px;'
+                + 'outline:none';
+              wrap.appendChild(inp);
+              var body = document.getElementById('chgbody');
+              if (body) body.insertBefore(wrap, document.getElementById('chgrows'));
+              try { inp.focus(); } catch (e) {}
+            }
+
+            // WHAT SWIFT SAYS CAME BACK, ON THE BUTTON. A button that does its work in
+            // silence is a button the owner presses twice -- and the second press of a
+            // push is not free.
+            window.__vesperActResult = function (json) {
+              var res;
+              try { res = JSON.parse(json); } catch (e) { return; }
+              var line = String(res.says || '');
+              if (res.kind === 'git') {
+                var btn = document.querySelector('.gbtn[data-git="' + res.op + '"]');
+                if (btn) {
+                  btn.textContent = res.armed ? (line + '  — again to run') : line;
+                  btn.classList.toggle('arm', !!res.armed);
+                  if (!res.armed) setTimeout(disarm, 4000);
+                }
+                if (!res.armed) armed = {op: '', until: 0, says: ''};
+                return;
+              }
+              var sum = document.getElementById('chgsum');
+              if (sum) {
+                var was = sum.textContent;
+                sum.textContent = line;
+                setTimeout(function () { sum.textContent = was; }, 2200);
+              }
+            };
+
+            // ONE DELEGATED LISTENER, ON A CONTAINER THAT IS NEVER REPLACED. Attaching
+            // a handler per row would attach a new set every 700 ms to elements the
+            // next tick discards, which leaks for as long as VESPER is running.
+            document.addEventListener('click', function (ev) {
+              var head = ev.target.closest ? ev.target.closest('.phead') : null;
+              if (head) {
+                var id = head.getAttribute('data-pane');
+                var pane = document.getElementById(id);
+                if (!pane) return;
+                var wasOpen = pane.classList.contains('open');
+                // ONE OPEN AT A TIME. The column is short enough that two open panes
+                // are two unreadable ones.
+                var panes = document.querySelectorAll('.pane');
+                for (var i = 0; i < panes.length; i++) panes[i].classList.remove('open');
+                if (!wasOpen) {
+                  pane.classList.add('open');
+                  // THE SHELL STARTS WHEN THE PANE DOES, not when the home does.
+                  if (id === 'pterm') setTimeout(termOpen, 60);
+                }
+                // Focus first: VESPER is an accessory app, so a click does not make it
+                // active on its own and the field beside it stays untypable without
+                // this. Same reason the history bar does it.
+                try { window.webkit.messageHandlers.vesperFocus.postMessage('1'); } catch (e) {}
+                return;
+              }
+              // ---- a command VESPER wrote --------------------------------------
+              var runb = ev.target.closest ? ev.target.closest('[data-run]') : null;
+              if (runb) {
+                openPane('pterm');
+                setTimeout(termOpen, 60);
+                // GESTURE TWO, and the only other one. See TerminalBridge.swift.
+                setTimeout(function () {
+                  termInput(runb.getAttribute('data-run') + '\\n');
+                }, 220);
+                focusVesper();
+                return;
+              }
+              var pasteb = ev.target.closest ? ev.target.closest('[data-paste]') : null;
+              if (pasteb) {
+                // PASTE HAS NO BRIDGE. It writes to an input element and returns;
+                // there is no function anywhere that could carry this to the shell.
+                openPane('pterm');
+                setTimeout(termOpen, 60);
+                setTimeout(function () {
+                  if (tin) { tin.value = pasteb.getAttribute('data-paste'); tin.focus(); }
+                }, 220);
+                focusVesper();
+                return;
+              }
+              var askb = ev.target.closest ? ev.target.closest('[data-ask]') : null;
+              if (askb) {
+                try {
+                  window.webkit.messageHandlers.vesperSay.postMessage(
+                    'about this command: ' + askb.getAttribute('data-ask'));
+                } catch (e) {}
+                focusVesper();
+                return;
+              }
+              var copyc = ev.target.closest ? ev.target.closest('[data-copycmd]') : null;
+              if (copyc) {
+                act({kind: 'copy', text: copyc.getAttribute('data-copycmd')});
+                focusVesper();
+                return;
+              }
+
+              // ---- the changes card's controls and buttons -----------------------
+              var seg = ev.target.closest ? ev.target.closest('.seg button') : null;
+              if (seg) {
+                if (seg.hasAttribute('data-show')) chgView.show = seg.getAttribute('data-show');
+                else chgView.sort = seg.getAttribute('data-sort');
+                saveView();
+                renderChanges({changes: lastChanges});
+                focusVesper();
+                return;
+              }
+              var opener = ev.target.closest ? ev.target.closest('[data-open]') : null;
+              if (opener) {
+                act({kind: 'open', path: opener.getAttribute('data-open')});
+                focusVesper();
+                return;
+              }
+              var copier = ev.target.closest ? ev.target.closest('[data-copy]') : null;
+              if (copier) {
+                var want = copier.getAttribute('data-copy');
+                for (var ci = 0; ci < lastChanges.length; ci++) {
+                  if (lastChanges[ci].path === want) {
+                    act({kind: 'copy', text: lastChanges[ci].hunks || ''});
+                    break;
+                  }
+                }
+                focusVesper();
+                return;
+              }
+              var gb = ev.target.closest ? ev.target.closest('.gbtn[data-git]') : null;
+              if (gb) {
+                onGit(gb);
+                focusVesper();
+                return;
+              }
+              var dhead = ev.target.closest ? ev.target.closest('.dhead') : null;
+              if (dhead) {
+                var crow = dhead.parentNode;
+                var cp = crow.getAttribute('data-path');
+                if (openChgs[cp]) { delete openChgs[cp]; crow.classList.remove('open'); }
+                else { openChgs[cp] = true; crow.classList.add('open'); }
+                focusVesper();
+                return;
+              }
+              var exp = ev.target.closest ? ev.target.closest('.exp') : null;
+              if (exp) { lightTurn(exp.getAttribute('data-turn'), false); return; }
+              var hrow = ev.target.closest ? ev.target.closest('.hrow') : null;
+              if (hrow && hrow.getAttribute('data-turn')) {
+                lightTurn(hrow.getAttribute('data-turn'), true);
+                try { window.webkit.messageHandlers.vesperFocus.postMessage('1'); } catch (e) {}
+                return;
+              }
+              var chead = ev.target.closest ? ev.target.closest('.chead') : null;
+              if (chead) {
+                var rowEl = chead.parentNode;
+                var cid = rowEl.getAttribute('data-cmd');
+                if (!cid) return;
+                if (openCmds[cid]) { delete openCmds[cid]; rowEl.classList.remove('open'); }
+                else { openCmds[cid] = true; rowEl.classList.add('open'); }
+                try { window.webkit.messageHandlers.vesperFocus.postMessage('1'); } catch (e) {}
+              }
+            });
+
+            // The history bar. Collapsed it shows the OLDEST line, which is what makes
             // it a way back into the conversation rather than a duplicate of the card.
             var lastJSON = '';
             window.__vesperHistory = function (json) {
@@ -872,6 +2210,15 @@ final class HomeChrome {
                                 + '<span class="htext" style="opacity:.4">'
                                 + 'nothing said yet</span></div>';
                 return;
+              }
+              // THE LINE ON STAGE IS NOT REPEATED UNDERNEATH IT. The stage shows the
+              // newest line and this list showed every line INCLUDING that one, so
+              // every reply appeared twice in a row under one "vesper" label -- which
+              // is what the owner kept seeing and reported on 2026-09-04. The card and
+              // the log are two views of one conversation, not two conversations.
+              if (rows.length > 1 && window.__stageText
+                  && rows[0] && rows[0].text === window.__stageText) {
+                rows = rows.slice(1);
               }
               var html = '';
               for (var i = 0; i < rows.length; i++) {
@@ -888,6 +2235,20 @@ final class HomeChrome {
               // theoretical.
               var cells = hrows.querySelectorAll('.htext');
               for (var j = 0; j < rows.length; j++) cells[j].textContent = rows[j].text;
+              // THE TURN ID RIDES THE ROW so a reply can find its explanation, and it
+              // is set through the DOM rather than interpolated into the markup above.
+              //
+              // THE FIRST VERSION INTERPOLATED IT AND SANITISED IT ON THE WAY IN --
+              // which is correct for markup and silently broke the link: an HLC is
+              // `<ms>.<counter>@<node>`, the filter dropped the `@`, and the row's id
+              // no longer equalled the explanation's. Everything rendered, nothing
+              // matched, and no error was raised anywhere. Set as a property, the
+              // value is never markup, needs no filter, and cannot be altered on the
+              // way to the attribute.
+              var hcells = hrows.querySelectorAll('.hrow');
+              for (var k = 0; k < rows.length; k++) {
+                hcells[k].setAttribute('data-turn', String(rows[k].id || ''));
+              }
             };
 
             if (hist) {
@@ -938,6 +2299,8 @@ final class HomeChrome {
     static var pushFailures = 0
     static var pushCount = 0
     private let bridge = SayBridge()
+    private let acts = ActBridge()
+    private let term = TerminalBridge()
 
     /// What the page last reported about VESPER's own delivery, for the host's
     /// render tick. `(level, isDriven)` -- and `isDriven` is not redundant with
@@ -1029,6 +2392,10 @@ final class HomeChrome {
             // two come to disagree.
             self.onFaceBehaviour?(face)
             let (line, who) = Self.stageLine()
+            let chgSafe = Self.changesJSON()
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "`", with: "\\`")
+                .replacingOccurrences(of: "$", with: "\\$")
             let workSafe = Self.workbenchJSON()
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "`", with: "\\`")
@@ -1047,6 +2414,7 @@ final class HomeChrome {
               if (window.__vesperStage) window.__vesperStage(`\(safe)`, '\(who)');
               if (window.__vesperHistory) window.__vesperHistory(`\(histSafe)`);
               if (window.__vesperWork) window.__vesperWork(`\(workSafe)`);
+              if (window.__vesperChanges) window.__vesperChanges(`\(chgSafe)`);
             })();
             """
             // REPORT WHAT THE PUSH DID. `completionHandler: nil` swallowed
@@ -1108,6 +2476,17 @@ final class HomeChrome {
             cfg.userContentController.add(self.bridge, name: SayBridge.name)
             cfg.userContentController.add(self.bridge, name: SayBridge.focusName)
             cfg.userContentController.add(self.bridge, name: SayBridge.speakingName)
+            // The card's buttons. A SEPARATE handler from `SayBridge`, because
+            // these ask the machine to do things and that channel must be
+            // readable on its own -- see ActBridge's header for what it will
+            // and will not accept from a page.
+            cfg.userContentController.add(self.acts, name: ActBridge.name)
+            // The owner's shell. A THIRD handler, kept apart from the other
+            // two on purpose: this one writes to a file descriptor with no
+            // sandbox in front of it, and the rule that keeps that safe is
+            // that only two gestures can reach it. A channel like that has to
+            // be readable on its own line.
+            cfg.userContentController.add(self.term, name: TerminalBridge.name)
             let w = WKWebView(frame: host.bounds, configuration: cfg)
             w.autoresizingMask = [.width, .height]
             GlassGuard.makeTransparent(w)
@@ -1120,6 +2499,8 @@ final class HomeChrome {
             w.layer?.zPosition = 20
             host.addSubview(w)
             self.web = w
+            self.acts.web = w
+            self.term.web = w
             self.mounted = true
 
             // Left cluster: clear of the face's square, vertically centred on
@@ -1140,7 +2521,38 @@ final class HomeChrome {
             // so it does not sprawl on a wide screen.
             let convoLeft = Int(faceRect.maxX) + 40
             let top = Int(host.bounds.height - faceRect.midY) - ch / 2
-            let t = max(48, top)
+            var t = max(48, top)
+
+            // THE WORK STACK'S ROOM IS SOLVED, NOT ASSUMED, AND THE CLUSTER
+            // MOVES RATHER THAN THE PANES FALLING OFF THE BOTTOM.
+            //
+            // The host card is centred on the face, which on this display puts
+            // its lower edge around two-thirds of the way down -- leaving the
+            // panes beneath it a couple of hundred points to share with the
+            // main menu. Fixed offsets would have put the last of them through
+            // the floor on the first screen that was not this one, which is
+            // exactly the kind of geometry this tree has had to redo before
+            // (see `convoLeft`, and the card that sat over the face).
+            //
+            // So: the stack states the minimum it needs, and if centring the
+            // card would leave less, the WHOLE left cluster moves up until it
+            // fits. The floor at 158 is the work card's own minimum -- its top
+            // edge is at 38 and it must keep something like 120 points to be a
+            // card rather than a strip.
+            let stackGap = 12
+            let stackBarH = 40          // one shut pane: 13 + 13 padding + a 10px line
+            let stackPanes = 4          // commands, explanations, changes, terminal
+            let stackFloor = Int(host.bounds.height) - 96   // clear of the main menu
+            let stackNeeds = stackPanes * stackBarH + (stackPanes - 1) * stackGap
+            let deficit = (t + ch + stackGap + stackNeeds) - stackFloor
+            if deficit > 0 { t = max(158, t - deficit) }
+            let stackTop = t + ch + stackGap
+            // NEVER NEGATIVE. A negative height is a CSS value the parser
+            // discards, and a container with no height lays its children out
+            // at full size over whatever is beneath them -- the panes would
+            // paint across the main menu rather than not painting at all,
+            // which is the harder failure to read.
+            let stackHeight = max(0, stackFloor - stackTop)
             self.cardRect = CGRect(x: CGFloat(left),
                                    y: host.bounds.height - CGFloat(t + ch),
                                    width: CGFloat(cw), height: CGFloat(ch))
@@ -1166,6 +2578,8 @@ final class HomeChrome {
 
             w.loadHTMLString(Self.page(cardWidth: cw, cardHeight: ch,
                                        left: left, top: t, convoLeft: convoLeft,
+                                       stackTop: stackTop,
+                                       stackHeight: stackHeight,
                                        fill: self.cardFill),
                              baseURL: nil)
             self.startRefresh()

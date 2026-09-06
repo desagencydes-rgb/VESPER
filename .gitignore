@@ -60,3 +60,4 @@ f1b_last_run.log
 # self_test's concurrency lock: a runtime artefact, never committed.
 # It was picked up by a 'git add -A' and shipped in d00ab1b.
 .self_test.lock
+.vesper-preview/

@@ -44,6 +44,7 @@ import pathlib
 import shlex
 import subprocess
 import tempfile
+import time
 from typing import Any
 
 from core.capability import CapabilityRegistry, LevelRule
@@ -418,9 +419,15 @@ def shell_run(args: dict) -> dict:
                 "cwd": run_cwd, "session": str(sid) if sid else None,
                 "background": True}
 
+    # WALL CLOCK, AND THIS IS ONE OF THE TWO THINGS IT IS FOR. `INV-COORD-4`
+    # forbids a timestamp to ORDER or SUPERSEDE anything; "how long did this
+    # take" is a duration, orders nothing, and is measured the only way a
+    # duration can be.
+    _t0 = time.monotonic()
     p = subprocess.run(argv_contained,
                        capture_output=True, text=True,
                        timeout=timeout, check=False, cwd=run_cwd, env=env)
+    _elapsed_ms = int((time.monotonic() - _t0) * 1000)
 
     # PERSISTED ONLY ON A SESSION THAT WAS ASKED FOR, and only after the command
     # actually ran. Recording the cwd before the run would leave a session
@@ -431,7 +438,18 @@ def shell_run(args: dict) -> dict:
             _SHELL_SESSIONS.pop(next(iter(_SHELL_SESSIONS)))
         _SHELL_SESSIONS[key] = {"cwd": run_cwd, "env": env_over}
 
+    # ARGV IS RETURNED BECAUSE ARGV IS WHAT RAN. Everything downstream that
+    # wants to show the owner this command had only the `cmd` STRING, and
+    # rebuilding a command line from a string it was already split from is a
+    # reconstruction that can differ from the thing the kernel received. The
+    # commands card shows what ran, so it is given what ran.
+    #
+    # UNCONTAINED, DELIBERATELY: `argv` without the seatbelt wrapper. The
+    # wrapper is how the command was confined, not what the owner asked for,
+    # and `containment_level` beside it already says the confinement happened.
     return {"exit_code": p.returncode,
+            "argv": list(argv),
+            "elapsed_ms": _elapsed_ms,
             "stdout": p.stdout[:4000],
             "stderr": p.stderr[:2000],
             "contained": True,

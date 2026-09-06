@@ -44,7 +44,8 @@ from typing import Any
 
 from core.advisor import STOP as ADVISOR_STOP
 from core.advisor import worth_reviewing
-from core.authorize import Decision, Grant, PolicyDecisionPoint
+from core.authorize import (Decision, Grant, PolicyDecisionPoint,
+                            _min_level)
 from core import permission_mode
 from core.capabilities import (INDEPENDENT_VERIFIERS, bind_all,
                                WORKSPACE, build_registry,
@@ -63,6 +64,12 @@ STANDING_LEVEL = "L2"
 # to be a nuisance, short enough that a runtime left running for days is not
 # still acting on authority issued in a state nobody remembers.
 STANDING_TTL_MS = 12 * 60 * 60 * 1000
+
+# How long an auto-mode per-command grant lives. Short on purpose: it exists to
+# cover ONE action that is already in flight, and it is consumed by the
+# executor's check anyway. A long expiry would leave spent-looking grants on
+# record that a later reader has to reason about.
+AUTO_GRANT_TTL_MS = 60_000
 
 # How many actions one turn may take. The loop exists so a task can be
 # finished, not so work can go on indefinitely; six is enough for read ->
@@ -346,6 +353,55 @@ class Actor:
                 capability_id=cid, target_scope=(self._target,),
                 max_level=level, expiry_ms=expiry, lease_epoch=0,
                 delegable=False, issued_by="owner"))
+
+    # Denials that mean "the owner has not said yes to something this strong".
+    # In auto mode the owner HAS, standingly, and these are the only reasons
+    # that elevation answers. Everything else is a different objection and is
+    # left alone.
+    ELEVATABLE = ("below_required_level", "no_grant", "grant_consumed")
+
+    def _elevate_in_auto(self, d: Any, p: Any, *, mode: str, mode_ceiling: str,
+                         context_ceiling: str, strength: str,
+                         command_id: str, level: str) -> Any:
+        """One single-use grant for one command, or the denial unchanged."""
+        if mode != permission_mode.AUTO:
+            return d
+        if getattr(d, "reason", "") not in self.ELEVATABLE:
+            return d
+        # NEVER ABOVE WHAT THE CONTEXT AND THE MODE ALREADY PERMIT. This is the
+        # line that keeps `INV-ACT-3` true: a page VESPER read cannot become a
+        # reason to act at a level the ceiling had already refused.
+        top = _min_level(mode_ceiling, context_ceiling)
+        try:
+            self._pdp.issue(Grant(
+                grant_id=f"auto:{command_id}:{p.capability_id}",
+                subject=self._subject, capability_id=p.capability_id,
+                target_scope=(self._target,), max_level=top,
+                expiry_ms=self._now_ms() + AUTO_GRANT_TTL_MS, lease_epoch=0,
+                delegable=False, issued_by="owner",
+                issued_for_command_id=command_id))
+        except Exception as exc:                       # noqa: BLE001
+            self._bus.publish("authz.auto_elevation_refused",
+                              subject=self._subject,
+                              payload={"capability_id": p.capability_id,
+                                       "error": repr(exc)}, component="actor")
+            return d
+        self._bus.publish(
+            "authz.auto_elevated", subject=self._subject,
+            payload={"capability_id": p.capability_id, "level": top,
+                     "was": getattr(d, "reason", ""), "command_id": command_id,
+                     "why": "the owner set permission mode to auto, which is a "
+                            "standing instruction not to ask; this grant is "
+                            "bound to one command and is consumed by use"},
+            component="actor")
+        # RE-ASKED, NOT ASSUMED. The new grant is one input to the ladder, not
+        # a decision -- the ceilings, the target scope and the capability's own
+        # rules all get their say again, and a second denial is a real one.
+        return self._pdp.authorize(
+            subject=self._subject, capability_id=p.capability_id, args=p.args,
+            target=self._target, context_ceiling=context_ceiling,
+            mode_ceiling=mode_ceiling, authorization=strength,
+            current_lease_epoch=0, command_id=command_id, consume=False)
 
     # --------------------------------------------------------------- act
 
@@ -914,6 +970,42 @@ class Actor:
                                 current_lease_epoch=0,
                                 command_id=command_id,
                                 consume=False)
+        if not d.authorized:
+            # AUTO MODE DOES NOT ASK. THE OWNER SAID SO, IN THESE WORDS: "when
+            # auto mode is on, it should not fucking ask for permission i don't
+            # care", and `permission_mode.DESCRIPTION[AUTO]` already writes it
+            # down as "Do not ask. Full authority on everything the owner
+            # requests."
+            #
+            # AND A STANDING L5 GRANT CANNOT EXPRESS THAT. `INV-AUTH-2` makes
+            # L4 and L5 single-use and bound to one command instance, so a
+            # standing one is consumed by the first action and gone -- which is
+            # why `FREE_LEVEL` is L3. The consequence, measured 2026-09-06: the
+            # owner asked for a file in `~/Downloads`, the PROPOSER declared the
+            # action L5, the standing L3 could not cover it, and VESPER asked
+            # for a go-ahead in a mode whose entire meaning is that it does not.
+            #
+            # SO THE OWNER'S STANDING INSTRUCTION IS APPLIED PER ACTION instead
+            # of as a standing grant: a fresh grant, bound to THIS command id,
+            # non-delegable, consumed by the executor's check. That is exactly
+            # the shape `INV-AUTH-2` describes for L4/L5 -- the invariant is not
+            # bent, it is used.
+            #
+            # WHAT IT STILL WILL NOT DO, and this is the part worth reading:
+            #   * it never exceeds the context ceiling, so `INV-ACT-3` holds and
+            #     retrieved content still cannot raise authority beyond what the
+            #     mode already waived and published;
+            #   * it never exceeds the mode ceiling;
+            #   * it only answers a denial that is ABOUT LEVEL. A refusal for
+            #     any other reason -- outside the workspace, a consumed
+            #     confirmation, an advisor STOP -- still asks, because those are
+            #     not statements that the owner has already agreed;
+            #   * it retries ONCE. A second failure is a real refusal.
+            #   * every elevation is published, so a mode that means "do not ask"
+            #     does not also mean "do not say".
+            d = self._elevate_in_auto(d, p, mode=mode, mode_ceiling=mode_ceiling,
+                                      context_ceiling=ceil, strength=strength,
+                                      command_id=command_id, level=level)
         if not d.authorized:
             return self._ask(d, p, level, attention_state, period)
 

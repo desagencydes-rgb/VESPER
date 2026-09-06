@@ -189,6 +189,51 @@ def _charset_mixed(tok: str) -> bool:
     return classes >= 2
 
 
+def _path_segments(tok: str) -> list | None:
+    """The segments of a path-shaped token, or None if it is not one.
+
+    ONLY FOR THINGS SHAPED LIKE PATHS, and that narrowness is deliberate: a
+    secret can contain `/`, so this does not relax the rule for tokens
+    generally -- only for ones that BEGIN like a path, where the leading `/`,
+    `./`, `../` or `~/` is evidence no API key format produces.
+    """
+    if not tok.startswith(("/", "./", "../", "~/")):
+        return None
+    segments = [s for s in tok.split("/") if s]
+    return segments or None
+
+
+def _worst_segment(tok: str) -> str:
+    """The part of a path-shaped token that decides, or the token itself.
+
+    THE SAME PART MUST DECIDE BOTH TESTS, AND IT DID NOT. `_token_bits` was
+    already narrowed to score a path per SEGMENT -- because joining several
+    ordinary words varies the character distribution and pushes an innocent
+    path over the floor. `_charset_mixed` was left reading the WHOLE token, so
+    a path went on mixing classes the same accidental way: `~/Downloads/x.txt`
+    has an uppercase `D` from one segment and lowercase from another and passes
+    a test that is supposed to mean "this looks generated".
+
+    WHAT IT COST, TWICE. Measured 2026-09-06: the owner asked VESPER to write
+    `~/Downloads/vesper_changes_demo.txt`. `vesper_changes_demo.txt` is all
+    lowercase and would have been skipped on its own; joined to `Downloads` it
+    read as mixed, its entropy was 3.92 against a 3.6 floor, and the redactor
+    rewrote the owner's own path to `[REDACTED:high_entropy_token]` before the
+    model ever saw it. VESPER then created a file literally named
+    `~[REDACTED:high_entropy_token]` inside its own app bundle. Every stage
+    after the redactor behaved correctly on input the redactor had corrupted --
+    the same sentence the 2026-09-04 note above had to write.
+
+    A REAL SECRET INSIDE A PATH IS STILL CAUGHT, because it is the worst
+    segment: it carries both the entropy and the mixed charset, and both tests
+    now ask that one segment rather than asking the join.
+    """
+    segments = _path_segments(tok)
+    if not segments:
+        return tok
+    return max(segments, key=shannon_bits)
+
+
 def _token_bits(tok: str) -> float:
     """Entropy for the redaction decision, judged per path SEGMENT.
 
@@ -215,12 +260,7 @@ def _token_bits(tok: str) -> float:
     the score is the WORST segment, so a real secret sitting inside a path is
     still caught by the segment that holds it.
     """
-    if not tok.startswith(("/", "./", "../", "~/")):
-        return shannon_bits(tok)
-    segments = [s for s in tok.split("/") if s]
-    if not segments:
-        return shannon_bits(tok)
-    return max(shannon_bits(s) for s in segments)
+    return shannon_bits(_worst_segment(tok))
 
 
 def _is_benign(tok: str) -> bool:
@@ -255,7 +295,11 @@ def scan(text: str, *, generous: bool = False, source: str = "unknown") -> list:
         if any(start < c_end and c_start < end for c_start, c_end in claimed):
             continue                      # a pattern already owns this span
         tok = m.group()
-        if _is_benign(tok) or not _charset_mixed(tok):
+        # BOTH TESTS ASK THE SAME SEGMENT. Asking `_charset_mixed` about the
+        # whole token while `_token_bits` asks about one segment is how a path
+        # kept passing the "this looks generated" test on evidence that came
+        # from the join rather than from any part of it. See `_worst_segment`.
+        if _is_benign(tok) or not _charset_mixed(_worst_segment(tok)):
             continue
         bits = _token_bits(tok)
         if bits >= floor:

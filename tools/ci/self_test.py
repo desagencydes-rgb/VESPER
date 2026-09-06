@@ -723,6 +723,28 @@ def _restore_and_die(signum, _frame):
     raise SystemExit(128 + int(signum))
 
 
+
+def _resync_chrome_fallback(rel: str) -> list[tuple[Path, bytes]]:
+    """Regenerate the Swift inline fallback after a mutation to `home.html`.
+
+    Returns what to restore: the Swift file and its ORIGINAL bytes, or an empty
+    list when nothing was touched. See the call site for why this is here.
+    """
+    if rel != CHROME_TPL:
+        return []
+    swift = REPO / CHROME_SW
+    raw = swift.read_bytes()
+    import importlib.util as ilu
+    spec = ilu.spec_from_file_location(
+        "_sync_chrome_fallback_selftest", REPO / "tools" / "sync_chrome_fallback.py")
+    if spec is None or spec.loader is None:
+        return []
+    mod = ilu.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    swift.write_text(mod.render(), encoding="utf-8")
+    return [(swift, raw)]
+
+
 def main() -> int:
     for _sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
         try:
@@ -760,12 +782,33 @@ def _run() -> int:
                   f"and this self-test is no longer testing anything.")
             failures += 1
             continue
+        resynced: list[tuple[Path, bytes]] = []
         try:
             _IN_FLIGHT.update(path=path, raw=raw)
             write_mutated(path, mutated, crlf)
+            # A CASE MUST GO RED FOR ITS OWN REASON AND FOR NO OTHER.
+            #
+            # `chrome-template-renders` now asserts that the Swift's inline
+            # fallback is what `tools/sync_chrome_fallback.py` generates from
+            # `home.html`. Without this, EVERY mutation of the template would
+            # trip that assertion as well -- so all eight template cases would
+            # go red whatever else was wrong, and each would keep passing after
+            # the assertion it was actually written for had been deleted. That
+            # is the "alive and useless" shape this harness exists to catch, and
+            # a self-test is not exempt from it.
+            #
+            # A REAL EDIT RE-SYNCS, so the harness re-syncs too: the mutation
+            # simulates someone changing the template, and the generated copy
+            # follows it exactly as it would in the tree. What is left over is
+            # only the assertion the case names. The drift itself is covered by
+            # its own case, which mutates the FALLBACK and leaves the template
+            # alone -- the honest shape of "the copy fell behind".
+            resynced = _resync_chrome_fallback(rel)
             rc_red, out_red = run_check(check)
         finally:
             restore(path, raw)
+            for spath, sraw in resynced:
+                restore(spath, sraw)
             _IN_FLIGHT.clear()
         if digest(path) != before:
             failures += 1
@@ -1768,6 +1811,13 @@ CASES += [
           "static func fallbackTemplateX() -> String {", 1),
      "the inline fallback removed, so a missing template file blanks a layer "
      "covering the owner's whole Desktop"),
+
+    ("chrome-template-renders", CHROME_SW,
+     _sub('placeholder="say something to VESPER"',
+          'placeholder="say something"', 1),
+     "the inline fallback drifted from the template by one line -- the shape "
+     "that was green for weeks at five hundred lines, because the gate "
+     "compared only the two copies' substitution tokens"),
 
     ("face-follows-activity", HOME_STATE,
      _sub('THINKING = "thinking"', 'THINKING = "working"', 1),
@@ -5282,6 +5332,449 @@ CASES += [
      "seeing the error also resets the refusal counter, so a proposer that "
      "fails every time never trips the breaker and grinds to the step budget "
      "on every turn -- which passes the observation assertion perfectly"),
+]
+
+
+# --------------------------------------------------------------------------
+# CI-123 -- the owner could not see what VESPER ran. `shell.run` held the
+# argv, the exit code, the stdout and the stderr, and the surface rendered one
+# eighty-character status line; a failed rename reached the owner as "error
+# code 1" while `mv` had already written down why.
+# --------------------------------------------------------------------------
+CASES += [
+    ("commands-card-shows-what-ran", RUNTIME_PY,
+     _sub("def _record_command(bench, capability_id, args, result) -> None:",
+          "def _record_command_disabled(bench, capability_id, args, result) -> None:", 1),
+     "nothing translates a finished step into a row, so the card renders an "
+     "empty list forever while every command runs correctly -- the sixth "
+     "instance of built-and-nothing-reaches-it in this tree"),
+
+    ("commands-card-shows-what-ran", CAPS_PY,
+     _sub('    return {"exit_code": p.returncode,\n            "argv": list(argv),\n',
+          '    return {"exit_code": p.returncode,\n', 1),
+     "the executor stops reporting the argv it handed the kernel, so the card "
+     "can only show a command line rebuilt from the string it was split from "
+     "-- a reconstruction that is right until the day it is not"),
+
+    ("commands-card-shows-what-ran", CAPS_PY,
+     _sub('            "stderr": p.stderr[:2000],\n            "contained": True,',
+          '            "stderr": "",\n            "contained": True,', 1),
+     "a failing command reaches the card with an empty stderr, so the surface "
+     "can only offer an exit code -- the owner called that 'no solution'"),
+
+    ("commands-card-shows-what-ran", RUNTIME_PY,
+     _sub('    if capability_id != "shell.run" or bench is None:',
+          '    if bench is None:', 1),
+     "every capability lands on the commands card, so writing a file and "
+     "opening a window appear as commands and the card becomes a second, "
+     "worse copy of the actions column"),
+
+    ("commands-card-shows-what-ran", WORKBENCH,
+     _sub("    return out, cut", "    return out, False", 1),
+     "output past the cap is trimmed and the cut is not declared, so the card "
+     "shows a fragment as though it were the whole output -- a false statement "
+     "the owner would act on"),
+
+    ("commands-card-shows-what-ran", WORKBENCH,
+     _sub("        lines = lines[:COMMAND_OUT_MAX_LINES]",
+          "        lines = lines[-COMMAND_OUT_MAX_LINES:]", 1),
+     "truncation keeps the END of the output: a traceback names its cause at "
+     "the top, so this keeps the summary and discards the diagnosis"),
+
+    ("commands-card-shows-what-ran", WORKBENCH,
+     _sub("            self._commands.append(cmd)\n"
+          "            del self._commands[:-COMMANDS_MAX]\n",
+          "            self._commands.append(cmd)\n", 1),
+     "the commands list is unbounded and grows for as long as VESPER runs, "
+     "carrying up to sixteen kilobytes of output per row into home.json on "
+     "every single tick"),
+
+    ("commands-card-shows-what-ran", WORKBENCH,
+     _sub('                    "commands": [c.to_dict() for c in self._commands]}',
+          '                    "commands": []}', 1),
+     "the record never reaches home.json, so the card is a renderer with "
+     "nothing behind it and the whole path is correct up to the last joint"),
+
+    ("commands-card-shows-what-ran", CHROME_TPL,
+     _sub("      renderCommands((w && w.commands) || []);\n"
+          "      if (!work) return;\n"
+          "      if (!thoughts.length && !actions.length) { work.classList.add('idle'); return; }\n"
+          "      work.classList.remove('idle');",
+          "      if (!work) return;\n"
+          "      if (!thoughts.length && !actions.length) { work.classList.add('idle'); return; }\n"
+          "      work.classList.remove('idle');\n"
+          "      renderCommands((w && w.commands) || []);", 1),
+     "the render call moved below the early return, so commands are drawn only "
+     "on the ticks where VESPER also has a thought to show -- the pane fills "
+     "and empties for reasons the owner cannot see"),
+
+    ("commands-card-shows-what-ran", CHROME_TPL,
+     _sub("      cmdrows.textContent = '';", "      cmdrows.innerHTML = '';", 1),
+     "the commands renderer goes back to markup, on rows carrying a command "
+     "line and a process's own stderr straight off the wire"),
+
+    ("commands-card-shows-what-ran", CHROME_TPL,
+     _sub('<div class="pbody" id="cmdrows"></div>',
+          '<div class="pbody" id="cmdrowsX"></div>', 1),
+     "the pane's row container loses the id the renderer writes into, so every "
+     "command is recorded, published and pushed into a page that draws none"),
+]
+
+
+# --------------------------------------------------------------------------
+# CI-124 -- the reply is produced once and read by two consumers ninety lines
+# apart. A split applied to one leaves the other reading four hundred words,
+# or a sudo command, into whatever room VESPER is in.
+# --------------------------------------------------------------------------
+LONGFORM = "core/longform.py"
+
+CASES += [
+    ("an-explanation-is-shown-and-never-spoken", LONGFORM,
+     _sub("    if not (has_code or long_enough):", "    if not long_enough:", 1),
+     "a reply whose only longform signal is a fenced code block is spoken "
+     "whole, so `sudo chown -R me /srv/data` is read into the room"),
+
+    ("an-explanation-is-shown-and-never-spoken", LONGFORM,
+     _sub("    spoken = _first_sentence(lead) or NO_PROSE",
+          "    spoken = lead or NO_PROSE", 1),
+     "the whole leading paragraph is spoken instead of its first sentence, so "
+     "the cap that makes speech bearable stops applying"),
+
+    ("an-explanation-is-shown-and-never-spoken", LONGFORM,
+     _sub("    if not (has_code or long_enough):\n        return Split(spoken=reply)",
+          "    if False:\n        return Split(spoken=reply)", 1),
+     "every reply becomes an explanation, so the board fills with one-word "
+     "answers and buries the explanations it exists to hold"),
+
+    ("an-explanation-is-shown-and-never-spoken", LONGFORM,
+     _sub('NO_PROSE = "That one is written out on the board."',
+          'NO_PROSE = ""', 1),
+     "a reply that is only code leaves the stage empty, so the owner asks a "
+     "question and is answered by silence"),
+
+    ("an-explanation-is-shown-and-never-spoken", WORKBENCH,
+     _sub('        rows = [b for b in rows if b.get("kind") in ("text", "code", "list")]\n',
+          "", 1),
+     "untyped blocks reach the record, so whatever a model emitted is handed "
+     "to a page that has a fixed template for three kinds and nothing for the "
+     "rest"),
+
+    ("an-explanation-is-shown-and-never-spoken", WORKBENCH,
+     _sub('            self._explanations = [e for e in self._explanations\n'
+          '                                  if e["id"] != entry["id"]]\n',
+          "", 1),
+     "re-running one turn stacks a second copy of its explanation, so the "
+     "owner is shown the same answer twice under one question"),
+
+    ("an-explanation-is-shown-and-never-spoken", WORKBENCH,
+     _sub("            del self._explanations[:-EXPLANATIONS_MAX]\n", "", 1),
+     "the explanations list is unbounded, and every one of them travels "
+     "through home.json on every tick for as long as VESPER runs"),
+
+    ("an-explanation-is-shown-and-never-spoken", WORKBENCH,
+     _sub('                 "turn_id": turn_id,\n', '                 "turn_id": "",\n', 1),
+     "the explanation stops carrying its turn, so the line on the stage and "
+     "the text on the board can no longer find each other and `connected` "
+     "becomes a claim"),
+
+    ("an-explanation-is-shown-and-never-spoken", RUNTIME_PY,
+     _sub("                reply = _split.spoken\n", "", 1),
+     "the split is computed and the spoken half is never assigned, so the "
+     "stage and the synthesiser both go back to reading the whole answer "
+     "while the board looks correct"),
+
+    ("an-explanation-is-shown-and-never-spoken", RUNTIME_PY,
+     _sub("                        plan = speech.plan(reply, privacy_class=\"private\",",
+          "                        plan = speech.plan(reply_full, privacy_class=\"private\",", 1),
+     "the synthesiser is handed the FULL reply explicitly -- the one "
+     "destination the long half must never reach"),
+
+    ("an-explanation-is-shown-and-never-spoken", RUNTIME_PY,
+     _sub("                        question=text, answer=reply_full, outcome=outcome,",
+          "                        question=text, answer=reply, outcome=outcome,", 1),
+     "the baseline corpus records the shortened line instead of the answer, so "
+     "every comparative question about memory becomes unanswerable -- quietly, "
+     "and only discoverable in hindsight"),
+
+    ("an-explanation-is-shown-and-never-spoken", CHROME_TPL,
+     _sub("      renderExplanations((w && w.explanations) || []);\n", "", 1),
+     "the page loses its explanations renderer: every explanation is still "
+     "split, recorded, published and pushed, and drawn by nothing"),
+
+    ("an-explanation-is-shown-and-never-spoken", CHROME_TPL,
+     _sub("      exprows.textContent = '';", "      exprows.innerHTML = '';", 1),
+     "the explanations renderer goes back to markup, on blocks that are a "
+     "model's own output"),
+]
+
+
+# --------------------------------------------------------------------------
+# CI-125 -- the owner watched a card disappear. The board lived in memory and
+# home.json was overwritten with an empty one on the first pump after every
+# restart, so a rebuild blanked it while everything underneath worked.
+# --------------------------------------------------------------------------
+CASES += [
+    ("the-board-survives-a-restart", WORKBENCH,
+     _sub("    def seed(self, state: Any) -> int:",
+          "    def seed_disabled(self, state: Any) -> int:", 1),
+     "the board has no way back at all, so every rebuild and every login "
+     "empties the commands and explanations panes and they hide themselves"),
+
+    ("the-board-survives-a-restart", WORKBENCH,
+     _sub("                self._seq = max(self._seq, len(self._commands))\n", "", 1),
+     "the id counter restarts at zero after a restore, so the next command "
+     "mints an id a restored row already has -- and the page, which keys its "
+     "expanded rows on that id, opens two rows for one click"),
+
+    ("the-board-survives-a-restart", WORKBENCH,
+     _sub("            if not self._commands:\n", "            if True:\n", 1),
+     "seeding a board that already holds rows appends a second copy of all of "
+     "them, so one stray second call duplicates the whole history"),
+
+    ("the-board-survives-a-restart", WORKBENCH,
+     _sub('                    self._explanations.append(e)\n', "", 1),
+     "explanations are not restored, so every answer VESPER wrote out is lost "
+     "the next time the process starts"),
+
+    ("the-board-survives-a-restart", RUNTIME_PY,
+     _sub("        _n = bench.seed(_prior.get(\"workbench\") or {})\n", "", 1),
+     "`Workbench.seed` exists and the runtime never calls it: built, correct, "
+     "and reached by nothing -- the shape this tree has now found six times"),
+]
+
+
+# --------------------------------------------------------------------------
+# CI-126 -- the redactor rewrote the owner's own file paths, twice, and both
+# times every stage after it behaved correctly on corrupted input.
+# --------------------------------------------------------------------------
+REDACT_PY = "core/redact.py"
+
+CASES += [
+    ("a-path-is-not-a-secret", REDACT_PY,
+     _sub("        if _is_benign(tok) or not _charset_mixed(_worst_segment(tok)):",
+          "        if _is_benign(tok) or not _charset_mixed(tok):", 1),
+     "the charset test goes back to reading the whole token while the entropy "
+     "test reads one segment: a path mixes classes by being JOINED, so it "
+     "passes a test meaning `this looks generated` -- the 2026-09-06 incident "
+     "exactly"),
+
+    ("a-path-is-not-a-secret", REDACT_PY,
+     _sub("    return shannon_bits(_worst_segment(tok))",
+          "    return shannon_bits(tok)", 1),
+     "the entropy test goes back to scoring the whole path, which is the "
+     "2026-09-04 incident: `python3 <path>/hey.py` became an unparseable "
+     "token, scored L5, and was refused for authorization VESPER could not ask "
+     "for"),
+
+    ("a-path-is-not-a-secret", REDACT_PY,
+     _sub("    return max(segments, key=shannon_bits)",
+          "    return segments[-1]", 1),
+     "the deciding segment becomes the filename rather than the worst one, so "
+     "a credential dropped into a DIRECTORY name is judged by an innocent file "
+     "beside it and walks through"),
+
+    ("a-path-is-not-a-secret", REDACT_PY,
+     _sub('    if not tok.startswith(("/", "./", "../", "~/")):\n        return None\n',
+          "    return None\n", 1),
+     "nothing is treated as a path any more, so every path is scored whole "
+     "again and the narrowing is gone in both tests at once"),
+
+    ("a-path-is-not-a-secret", REDACT_PY,
+     _sub("    segments = [s for s in tok.split(\"/\") if s]\n    return segments or None",
+          "    segments = [tok]\n    return segments or None", 1),
+     "a path is treated as one segment, which is the same as not splitting it "
+     "-- the guard is present, reads correct, and does nothing"),
+]
+
+
+# --------------------------------------------------------------------------
+# CI-127 -- auto mode asked for permission, in the one mode whose meaning is
+# that it does not; and the fix for that is an escalation, so most of these
+# cases are about the ceilings it must not cross.
+# --------------------------------------------------------------------------
+CASES += [
+    ("auto-mode-does-not-ask-and-does-not-overreach", ACTOR_PY,
+     _sub("        if mode != permission_mode.AUTO:\n            return d\n", "", 1),
+     "every mode gains auto's authority, so `ask` -- the mode a cautious owner "
+     "picks -- silently stops asking"),
+
+    ("auto-mode-does-not-ask-and-does-not-overreach", ACTOR_PY,
+     _sub("        top = _min_level(mode_ceiling, context_ceiling)",
+          '        top = "L5"', 1),
+     "the elevated grant ignores the context ceiling: a page VESPER read "
+     "becomes a reason to act above the level that ceiling had already "
+     "refused, which is INV-ACT-3 broken from inside the system where it looks "
+     "like a setting"),
+
+    ("auto-mode-does-not-ask-and-does-not-overreach", ACTOR_PY,
+     _sub("                issued_for_command_id=command_id))",
+          "                ))", 1),
+     "the grant is no longer bound to one command instance, so it authorises "
+     "the next action too -- which is the whole of what INV-AUTH-2 forbids"),
+
+    ("auto-mode-does-not-ask-and-does-not-overreach", ACTOR_PY,
+     _sub('    ELEVATABLE = ("below_required_level", "no_grant", "grant_consumed")',
+          '    ELEVATABLE = ("below_required_level", "no_grant", "grant_consumed",\n'
+          '                  "outside_workspace")', 1),
+     "auto mode starts answering a refusal that is not about level at all: "
+     "`outside_workspace` is a different objection and standing consent to act "
+     "is not consent to act anywhere"),
+
+    ("auto-mode-does-not-ask-and-does-not-overreach", ACTOR_PY,
+     _sub("        return self._pdp.authorize(\n"
+          "            subject=self._subject, capability_id=p.capability_id, args=p.args,",
+          "        return Decision(True, top, \"authorized\", p.capability_id,\n"
+          "                        self._subject) or self._pdp.authorize(\n"
+          "            subject=self._subject, capability_id=p.capability_id, args=p.args,", 1),
+     "elevation decides for itself instead of re-asking the ladder, so the "
+     "target scope, the capability's own rules and every ceiling stop being "
+     "consulted -- a second path to a level"),
+
+    ("auto-mode-does-not-ask-and-does-not-overreach", ACTOR_PY,
+     _sub('            payload={"capability_id": p.capability_id, "level": top,',
+          '            payload={"capability_id": None, "level": top,', 1),
+     "the elevation record stops naming the capability, so a mode that means "
+     "`do not ask` also means `do not say` and nothing afterwards can tell "
+     "which action ran above the standing level"),
+
+    ("auto-mode-does-not-ask-and-does-not-overreach", ACTOR_PY,
+     _sub("            d = self._elevate_in_auto(d, p, mode=mode, mode_ceiling=mode_ceiling,\n",
+          "            d = d or self._elevate_in_auto(d, p, mode=mode, mode_ceiling=mode_ceiling,\n", 1),
+     "the elevation is short-circuited away, so the code that stops auto mode "
+     "asking is present, correct and never reached"),
+]
+
+
+# --------------------------------------------------------------------------
+# CI-128 -- the changed-files board. Its worst failure is not being absent; it
+# is being confidently wrong, which is what eighteen rows of "+0 -0" were.
+# --------------------------------------------------------------------------
+CHANGES_PY = "core/changes.py"
+
+CASES += [
+    ("changes-are-shown-with-their-source", CHANGES_PY,
+     _sub("        root = repo_of(root or self._git_root or pathlib.Path.cwd()) or \"\"",
+          "        root = root or self._git_root or str(pathlib.Path.cwd())", 1),
+     "the repository root is trusted as handed rather than resolved: the "
+     "runtime runs from inside the app bundle, so every path is made relative "
+     "to the wrong root and every diff comes back empty while the card fills "
+     "with rows and looks right"),
+
+    ("changes-are-shown-with-their-source", CHANGES_PY,
+     _sub("    added = sum(1 for r in rows if r.startswith(\"+\") and not r.startswith(\"+++\"))",
+          "    added = 0", 1),
+     "the counts stop describing the diff, so a card reads +0 over a screenful "
+     "of additions"),
+
+    ("changes-are-shown-with-their-source", CHANGES_PY,
+     _sub("    if len(rows) > DIFF_MAX_LINES:\n        rows = rows[:DIFF_MAX_LINES]\n        cut = True\n",
+          "    if False:\n        rows = rows[:DIFF_MAX_LINES]\n        cut = True\n", 1),
+     "a diff of any size is carried whole into home.json and pushed through a "
+     "webview four times a second, on a laptop the owner has twice asked not "
+     "to heat up"),
+
+    ("changes-are-shown-with-their-source", CHANGES_PY,
+     _sub("            body = _redact(d.stdout)", "            body = d.stdout", 1),
+     "file contents reach the screen unredacted -- and a file the owner is "
+     "editing may hold the key VESPER is forbidden to send anywhere"),
+
+    ("changes-are-shown-with-their-source", CHANGES_PY,
+     _sub('        for topic, fn, name in (("tool.checkpointed", on_checkpoint, "changes-checkpoint"),\n'
+          '                                ("tool.completed", on_completed, "changes-completed")):',
+          '        for topic, fn, name in (("tool.nothing", on_checkpoint, "changes-checkpoint"),\n'
+          '                                ("tool.nothing2", on_completed, "changes-completed")):', 1),
+     "the board stops subscribing to the executor, so VESPER writes files and "
+     "the changes pane never hears about any of them"),
+
+    ("changes-are-shown-with-their-source", CHANGES_PY,
+     _sub("CHANGES_MAX = 60", "CHANGES_MAX = 5000", 1),
+     "the row list is unbounded in practice: a working tree mid-rebase carries "
+     "thousands of rows through home.json on every refresh"),
+
+    ("changes-are-shown-with-their-source", CHROME_TPL,
+     _sub("      chgrows.textContent = '';", "      chgrows.innerHTML = '';", 1),
+     "the changes renderer goes back to markup, on rows carrying file contents "
+     "straight off the disk"),
+
+    ("changes-are-shown-with-their-source", CHROME_TPL,
+     _sub("  .dhunks .a{color:rgba(150,208,158,.92);background:rgba(120,190,130,.10);\n"
+          "             display:block}", "", 1),
+     "additions lose their rule, so the diff is one colour and the only thing "
+     "separating an addition from a deletion is a character nobody styled"),
+]
+
+
+# --------------------------------------------------------------------------
+# CI-129 -- the owner's shell. Every case here is a path from something VESPER
+# rendered to something the machine executes, outside the seatbelt.
+# --------------------------------------------------------------------------
+TERM_SWIFT = "app/home-macos/TerminalBridge.swift"
+
+CASES += [
+    ("the-terminal-is-the-owners", TERM_SWIFT,
+     _sub('        case "resize":\n            resize(cols: (body["cols"] as? Int) ?? 80,\n'
+          '                   rows: (body["rows"] as? Int) ?? 24)',
+          '        case "resize":\n            write((body["text"] as? String) ?? "")\n'
+          '            resize(cols: (body["cols"] as? Int) ?? 80,\n'
+          '                   rows: (body["rows"] as? Int) ?? 24)', 1),
+     "a second message can write to the shell: a resize -- which the page "
+     "sends on its own, unattended, whenever the pane changes size -- becomes "
+     "a way to execute text"),
+
+    ("the-terminal-is-the-owners", TERM_SWIFT,
+     _sub('        case "input":', '        case "input", "paste":', 1),
+     "paste gains a Swift path, so `run` and `paste` become one code path "
+     "apart and the difference between showing the owner a command and running "
+     "it is a string comparison"),
+
+    ("the-terminal-is-the-owners", TERM_SWIFT,
+     _sub('        let sh = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"',
+          '        let sh = "/bin/zsh"', 1),
+     "the pane stops using the owner's own shell, so their aliases, functions "
+     "and PATH are absent from a window that looks exactly like their terminal"),
+
+    ("the-terminal-is-the-owners", TERM_SWIFT,
+     _sub("    func reapIfIdle() {", "    func reapIfIdleX() {", 1),
+     "the login shell is never reaped, so opening the pane once holds one open "
+     "for as long as the home is on the Desktop"),
+
+    ("the-terminal-is-the-owners", CHROME_TPL,
+     _sub("        setTimeout(function () {\n"
+          "          if (tin) { tin.value = pasteb.getAttribute('data-paste'); tin.focus(); }\n"
+          "        }, 220);",
+          "        setTimeout(function () {\n"
+          "          termInput(pasteb.getAttribute('data-paste') + '\\n');\n"
+          "        }, 220);", 1),
+     "the paste button runs the command instead of showing it -- the single "
+     "most dangerous line this pane could contain, and it looks like a "
+     "convenience"),
+
+    ("the-terminal-is-the-owners", CHROME_TPL,
+     _sub("    window.__vesperChanges = function (json) {\n"
+          "      var payload;",
+          "    window.__vesperChanges = function (json) {\n"
+          "      termInput('');\n"
+          "      var payload;", 1),
+     "a renderer that runs on a timer, over data that came out of home.json, "
+     "can reach the shell: a command VESPER only drew would be one it ran, "
+     "with nobody at the machine"),
+]
+
+
+# The non-consuming pre-check is now keyed on WHERE it appears rather than on
+# how many there are, so the case that guards it has to move a call rather than
+# add one.
+CASES += [
+    ("a-question-does-not-end-the-turn", ACTOR_PY,
+     _sub("    def _verify(self, proposal: Any, level: str, ex: Any) -> Outcome:",
+          "    def _verify(self, proposal: Any, level: str, ex: Any) -> Outcome:\n"
+          "        self._pdp.authorize(subject=self._subject,\n"
+          "                            capability_id=proposal.capability_id,\n"
+          "                            args=proposal.args, target=self._target,\n"
+          "                            consume=False)", 1),
+     "a non-consuming authorize appears in a function that ACTS rather than in "
+     "one that decides whether to ask -- a way to learn a verdict without "
+     "paying for it and then act on it"),
 ]
 
 

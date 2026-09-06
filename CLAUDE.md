@@ -64,14 +64,23 @@ renders it.
 had. Use `python3.13` (`~/.local/bin/python3.13`). Verified 2026-08-23.
 
 ```sh
-python3.13 tools/ci/checks.py all       # 131 checks
-python3.13 tools/ci/self_test.py        # red-then-green, 588 cases
+python3.13 tools/ci/checks.py all       # 138 checks
+python3.13 tools/ci/self_test.py        # red-then-green, 645 cases
 python3.13 tools/traceability_lint.py
 python3.13 tools/reference_lint.py
 python3.13 verification/run_f0_acceptance.py   # ... f1 .. f6
 python3.13 verification/stress_placement.py    # 160k property assertions
 python3.13 verification/stress_fabric.py        # 180k property assertions
 ```
+
+**EIGHTH DRIFT, 2026-09-06, AND THE FIRST ONE THE GATE CAUGHT RATHER THAN A
+READER.** They read 131 and 588 while the commands printed 138 and 645. That is
+the whole point of `CI-089` and it is worth saying plainly: for seven
+corrections in a row, a human noticed. This time nobody had to. The gap is the
+workbench chunk -- `CI-123` (commands card), `CI-124` (explanations),
+`CI-125` (the board survives a restart), `CI-126` (a path is not a secret),
+`CI-127` (auto mode does not ask and does not overreach), `CI-128` (changes),
+`CI-129` (the owner's terminal) -- with 51 self-test cases between them.
 
 **Corrected 2026-08-31, AND THEN GIVEN A GATE.** They read 57 and 223 while
 the commands printed 78 and 333. **Seventh drift, and the last one that can

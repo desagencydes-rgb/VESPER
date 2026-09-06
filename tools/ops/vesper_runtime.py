@@ -48,7 +48,7 @@ from core.bus import EventBus                                   # noqa: E402
 from core.cost import CostPolicy                                # noqa: E402
 from core.gateway import AllProvidersExhausted, ModelGateway    # noqa: E402
 from core.hlc import HybridLogicalClock                         # noqa: E402
-from core.home_state import HomeState                           # noqa: E402
+from core.home_state import HomeState, HOME_JSON  # noqa: E402
 from core.intake import Intake                                  # noqa: E402
 from core.knowledge_map import KnowledgeMap                     # noqa: E402
 from core.interlock import EnableToken, SafetyInterlock         # noqa: E402
@@ -101,6 +101,10 @@ from core.triage import CRITICAL_NOW, TriageQueue               # noqa: E402
 from core.verify import Verifier                                # noqa: E402
 from core.verifiers import register_all                         # noqa: E402
 from core.workbench import Workbench                            # noqa: E402
+from core.changes import Changes                                # noqa: E402
+from core.checkpoint import ShadowGit                           # noqa: E402
+from core.actor import SHADOW_ROOT                              # noqa: E402
+from core import longform                                       # noqa: E402
 from routing import supply                                      # noqa: E402
 from routing.supply import for_egress, load_rows, measured_profiles  # noqa: E402
 
@@ -144,6 +148,9 @@ ROTATE_CHECK_EVERY_S = 600.0
 # Module-level so the throttle survives across pump passes, which are separate
 # calls rather than one long-lived loop body.
 _LAST_ROTATE_CHECK = [0.0]
+
+# The last changes payload's shape, so an unchanged board is not republished.
+_changes_sig: list = [None]
 OUTBOX = STATE / "say.jsonl"
 # The wake listener records and queues; the runtime transcribes and
 # answers. The split is deliberate: the credential and the egress
@@ -157,6 +164,9 @@ OFFSET = STATE / "say.offset"
 # this small: it is half of the owner-visible floor on a reply, and the other
 # half is the chrome's own timer in HomeChrome.swift.
 POLL_SECONDS = 0.15
+
+# Consecutive failing passes before VESPER says so on the surface.
+PUMP_FAIL_LOUD = 3
 
 
 # Where `tools/ops/vesper_arm.py` leaves a fresh token. VESPER cannot write
@@ -250,6 +260,34 @@ def _present_enable_token(interlock) -> None:
         return
 
 
+
+def _record_command(bench, capability_id, args, result) -> None:
+    """Put one `shell.run` step on the commands card, or do nothing.
+
+    ONLY `shell.run`. `fs.write` and `ui.open` are not commands and a card
+    that showed them would be a second, worse copy of the actions column.
+
+    ARGV FROM THE RESULT, NOT FROM THE ARGS. `args["cmd"]` is the string the
+    proposer wrote; `result["argv"]` is the list `shell_run` split it into and
+    handed the kernel. They are the same thing until the day they are not, and
+    the card exists to say what RAN. The string is the fallback for a record
+    that predates the field, not the preference.
+    """
+    if capability_id != "shell.run" or bench is None:
+        return
+    res = result if isinstance(result, dict) else {}
+    a = args if isinstance(args, dict) else {}
+    argv = res.get("argv") or a.get("cmd") or ""
+    if not argv:
+        return
+    bench.command(argv,
+                  cwd=str(res.get("cwd") or ""),
+                  exit_code=res.get("exit_code"),
+                  stdout=str(res.get("stdout") or ""),
+                  stderr=str(res.get("stderr") or ""),
+                  elapsed_ms=res.get("elapsed_ms"))
+
+
 def build(node: str = "vesper-runtime"):
     """Wire what already exists. Nothing here decides anything."""
     STATE.mkdir(parents=True, exist_ok=True)
@@ -289,6 +327,31 @@ def build(node: str = "vesper-runtime"):
     # time somebody forgets.
     bench = Workbench()
     bench.attach(bus)
+    # THE BOARD SURVIVES A RESTART. Without this, every rebuild and every login
+    # blanked the commands and explanations panes -- which the owner saw and
+    # reported as a card disappearing. `home.json` is already the contract with
+    # the chrome and already persists; this reads back what it holds before the
+    # first pump overwrites it.
+    try:
+        _prior = json.loads(HOME_JSON.read_text(encoding="utf-8"))
+        _n = bench.seed(_prior.get("workbench") or {})
+        if _n:
+            bus.publish("workbench.restored", subject="workbench",
+                        payload={"rows": _n}, component="runtime")
+    except (OSError, json.JSONDecodeError, ValueError):
+        # A MISSING OR TORN FILE IS A COLD START, NOT AN ERROR. The board is
+        # empty, which is correct, and nothing about the turn ahead depends on
+        # what was on screen before it.
+        pass
+
+    # THE CHANGED-FILES BOARD. Reads the SAME shadow repository the executor
+    # already snapshots into -- `core/checkpoint.py` mirrors every file VESPER
+    # is about to touch, because a capability that changes files does not run
+    # when its pre-state cannot be recorded. So the "before" of every write
+    # already exists in a real git repository, and this reads it rather than
+    # keeping a second copy that would eventually disagree.
+    changes = Changes(shadow=ShadowGit(SHADOW_ROOT))
+    changes.attach(bus)
 
     # MEMORY DEGRADES; IT DOES NOT STOP THE PROCESS, and that is a different
     # decision from the one made about the persona ten lines up. A runtime with
@@ -849,7 +912,8 @@ def build(node: str = "vesper-runtime"):
     return (bus, gw, router, home, intake, triage, report, persona, bench,
             renderer, updater, misses, chooser, world, sensors, autonomy,
             devices, repairer, presence, context_cmds, verifier, speech,
-            transcriber, actor, floor, baseline, interlock, jobs, store)
+            transcriber, actor, floor, baseline, interlock, jobs, store,
+            changes)
 
 
 def answer(gw, router, persona, utterance, renderer=None,
@@ -1109,6 +1173,7 @@ def _recent_conversation(store, *, days: int = CONVERSATION_DAYS,
 
 
 def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
+         changes=None,
          once: bool = False, renderer=None, updater=None,
          misses=None, chooser=None, sensors=None, autonomy=None,
          triage=None, repairer=None, presence=None,
@@ -1612,6 +1677,21 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                                     state="done",
                                     output=str(res.get("stdout")
                                               or res.get("opened") or ""))
+                                _record_command(bench, st.get("capability_id"),
+                                                st.get("args"), res)
+                            # THE SINGLE-STEP TURN HAS NO `steps` AT ALL.
+                            # `Actor` only attaches the list when a turn took
+                            # MORE THAN ONE step, so recording commands from
+                            # `steps` alone would have shown nothing for the
+                            # ordinary case -- one request, one command -- which
+                            # is most of what the owner watches. The loop above
+                            # already covers the final outcome when the list
+                            # exists, so this fires only when it does not.
+                            if not steps:
+                                _record_command(
+                                    bench, did.capability_id, det.get("args"),
+                                    det.get("result")
+                                    if isinstance(det.get("result"), dict) else {})
                             bench.acted(
                                 did.capability_id, det.get("args") or {},
                                 state=("done" if did.kind == "acted" else "failed"),
@@ -1643,7 +1723,33 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                 # the record and would eventually be wrong in behaviour: a
                 # replay of the transcript would feed VESPER its own answers as
                 # instructions.
+                # THE SPLIT: WHAT IS SAID AND WHAT IS SHOWN.
+                #
+                # The owner's instruction was that explanations and long text
+                # "will not say them, they just show up there, what it says
+                # stays on the dialog that was made for it". So one reply
+                # becomes two things at exactly one point, HERE, before either
+                # destination can see it -- the stage and the synthesiser both
+                # read `reply` below, and a split made in only one of them
+                # would leave the other reading four hundred words aloud.
+                #
+                # `reply_full` KEEPS THE WHOLE ANSWER for the records beneath.
+                # `baseline.record` is a corpus of what VESPER actually
+                # answered, and writing the shortened line there would quietly
+                # make every comparative question about memory unanswerable.
+                reply_full = reply
+                _turn_id = str(getattr(intake.history[-1], "hlc", "") or "")
+                _split = longform.split(reply_full, question=text)
+                if _split.blocks and bench is not None:
+                    bench.explain(_turn_id, _split.title, _split.blocks)
+                # AND `reply` BECOMES THE SPOKEN LINE, deliberately taking the
+                # name the two consumers below already use. A third consumer
+                # added later gets the short form by default; anything that
+                # genuinely needs the whole answer has to reach for
+                # `reply_full` and say so.
+                reply = _split.spoken
                 said.append({"who": "vesper", "text": reply,
+                             "id": _turn_id, "explained": bool(_split.blocks),
                              "source": "vesper", "certain": True})
 
                 # THE RECORD OF WHAT VESPER ANSWERED. `core/baseline.py` was
@@ -1669,13 +1775,13 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                                    "refused": "declined",
                                    "failed": "could_not"}.get(did.kind,
                                                               "could_not")
-                    elif reply.startswith("no route:") or reply.startswith(
+                    elif reply_full.startswith("no route:") or reply_full.startswith(
                             "every provider is spent"):
                         outcome = "could_not"
                     else:
                         outcome = "answered"
                     baseline.record(BaselineTurn(
-                        question=text, answer=reply, outcome=outcome,
+                        question=text, answer=reply_full, outcome=outcome,
                         difficulty=None, language=None))
                 # AND SAY IT. Until 2026-08-31 the reply was rendered and never
                 # spoken -- every voice decision in the corpus governed a
@@ -1746,6 +1852,29 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
     # that opened during a call has to be seen to close, and closing is an event
     # that arrives while this loop is otherwise idle.
     home.set_workbench(bench.state())
+    if changes is not None:
+        # THROTTLED INSIDE, not here. The pump runs four times a second and
+        # `git status` plus a diff per file is not free on a laptop the owner
+        # has asked twice not to heat up; `GIT_REFRESH_S` owns that decision so
+        # it cannot be re-tuned by accident at a call site.
+        try:
+            changes.refresh_git(str(REPO))
+            _cs = changes.state()
+            # PUBLISHED ONLY WHEN IT CHANGED. `set_changes` rewrites the whole
+            # of `home.json`, and this payload is tens of kilobytes of diff
+            # text; doing that four times a second for a board that only moves
+            # every six is disk traffic for nothing, on a laptop the owner has
+            # asked twice not to heat up. The workbench above is small and
+            # genuinely changes every pass, which is why it is not gated the
+            # same way.
+            _sig = (len(_cs.get("changes") or []), _cs.get("repo"),
+                    sum(len(c.get("hunks") or "") for c in (_cs.get("changes") or [])))
+            if _sig != _changes_sig[0]:
+                _changes_sig[0] = _sig
+                home.set_changes(_cs)
+        except Exception as exc:                   # noqa: BLE001
+            bus.publish("changes.refresh_failed", subject="changes",
+                        payload={"error": repr(exc)}, component="runtime")
     home.write()
     return handled
 
@@ -1795,7 +1924,7 @@ def main() -> int:
      renderer, updater, misses, chooser, world, sensors,
      autonomy, devices, repairer, presence, context_cmds, verifier,
      speech, transcriber, actor, floor, baseline, interlock,
-     jobs, store) = build()
+     jobs, store, changes) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -1896,11 +2025,15 @@ def main() -> int:
         # thing that runs; a template problem here would look exactly like the
         # runtime failing to start at all.
         pass
+    # How many passes may fail in a row before the surface says so. One is a
+    # bad pass; three is a runtime that is not working.
+    _pump_fails = 0
     print("vesper runtime: watching the field. ctrl-c to stop.")
     home.write()
     while True:
         try:
             pump(bus, gw, router, persona, bench, home, intake, transcript,
+                 changes=changes,
                  floor=floor, baseline=baseline, interlock=interlock,
                  jobs=jobs, store=store,
                  renderer=renderer, updater=updater, misses=misses,
@@ -1915,6 +2048,14 @@ def main() -> int:
             # that has not changed; measured below 1 ms, so the cost of the
             # shorter interval is not on the same scale as what it buys.
             time.sleep(POLL_SECONDS)
+            # RESET ONLY WHERE THE PASS ACTUALLY COMPLETED. A `finally` would
+            # clear the counter on the failing passes too and the breaker would
+            # never trip -- which is the same defect as a refusal counter reset
+            # by the branch that observes the refusal.
+            if _pump_fails:
+                bus.publish("runtime.loop_recovered", subject="pump",
+                            payload={"after": _pump_fails}, component="runtime")
+                _pump_fails = 0
         except KeyboardInterrupt:
             raise
         except Exception as e:                      # noqa: BLE001
@@ -1929,6 +2070,38 @@ def main() -> int:
             # alive.
             print(f"pump error (continuing): {type(e).__name__}: {e}",
                   file=sys.stderr, flush=True)
+            # AND A LOOP THAT FAILS EVERY PASS SAYS SO ON THE SCREEN.
+            #
+            # MEASURED 2026-09-06, and it is why this exists. A NameError in
+            # the pump's ARGUMENT LIST raised before the body ran, on every
+            # pass, for eleven minutes. `home.json` kept its timestamp because
+            # the greeting had already written it, the face sat at rest, and
+            # the surface was indistinguishable from a VESPER with nothing to
+            # do. The stderr line above was correct and went to a file nobody
+            # was watching -- which is this tree's oldest failure shape wearing
+            # a print statement.
+            #
+            # ONE PASS IS A BAD PASS AND IS NOT WORTH A WORD. Three in a row is
+            # a runtime that is not working, and the owner is entitled to learn
+            # that from the surface rather than from a log.
+            _pump_fails += 1
+            if _pump_fails == PUMP_FAIL_LOUD:
+                line = (f"Something in my own loop is failing and I am not "
+                        f"getting past it: {type(e).__name__}: {e}"[:400])
+                transcript.append({"who": "vesper", "source": "vesper",
+                                   "certain": True, "text": line})
+                try:
+                    home.set_transcript(list(transcript))
+                    home._set("resting", "the loop is failing")
+                except Exception:                   # noqa: BLE001
+                    # THE REPORT MUST NOT BECOME THE SECOND FAILURE. If the
+                    # surface cannot be written either, the stderr line above
+                    # is what is left and it has already been printed.
+                    pass
+                bus.publish("runtime.loop_failing", subject="pump",
+                            payload={"error": f"{type(e).__name__}: {e}",
+                                     "consecutive": _pump_fails},
+                            component="runtime")
             time.sleep(1.0)
         except BaseException:
             # THE FACE MUST NOT BE LEFT MID-THOUGHT. A stopped runtime that
