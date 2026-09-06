@@ -296,6 +296,24 @@ final class HomeChrome {
         return String(data: out, encoding: .utf8) ?? "{}"
     }
 
+    /// The metrics card's rows, as the runtime last published them.
+    ///
+    /// PUSHED ON THE TICK, NOT ONLY SUBSTITUTED AT MOUNT. `{{METRIC_ROWS}}` is
+    /// filled once when the page is loaded, so the card was frozen at whatever
+    /// was true when the home came up -- and the row that matters most on a
+    /// laptop is the power source, which is precisely the one that changes
+    /// while nobody is reloading anything.
+    static func metricsJSON() -> String {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/VESPER/home.json")
+        guard let d = try? Data(contentsOf: url),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let rows = o["rows"],
+              let out = try? JSONSerialization.data(withJSONObject: rows)
+        else { return "[]" }
+        return String(data: out, encoding: .utf8) ?? "[]"
+    }
+
     static func faceBehaviour() -> String {
         let url = FileManager.default
             .homeDirectoryForCurrentUser
@@ -1009,7 +1027,7 @@ final class HomeChrome {
         </div>
         <div class="card">
           <div class="t">host</div>
-          {{METRIC_ROWS}}
+          <div id="metrics">{{METRIC_ROWS}}</div>
         </div>
 
         <!-- The work stack. Every pane is a bar until it is opened, and the rows are
@@ -1473,6 +1491,28 @@ final class HomeChrome {
                   }
                   actsEl.appendChild(m);
                 }
+              }
+            };
+
+            // ---- the host card's rows ---------------------------------------------
+            //
+            // RE-RENDERED ON THE TICK. `{{METRIC_ROWS}}` fills this once at mount, so
+            // without a push the card showed whatever was true when the home came up
+            // -- and on a laptop the row that changes is the one worth reading.
+            var metricsEl = document.getElementById('metrics');
+            var lastMetrics = '';
+            window.__vesperMetrics = function (json) {
+              if (!metricsEl || json === lastMetrics) return;
+              lastMetrics = json;
+              var rows;
+              try { rows = JSON.parse(json); } catch (e) { return; }
+              if (!rows.length) return;          // keep the mount-time line, not blank
+              metricsEl.textContent = '';
+              for (var i = 0; i < rows.length; i++) {
+                var row = el('div', 'row');
+                row.appendChild(el('span', 'k', rows[i].label || ''));
+                row.appendChild(el('span', 'v', rows[i].value || ''));
+                metricsEl.appendChild(row);
               }
             };
 
@@ -2392,6 +2432,10 @@ final class HomeChrome {
             // two come to disagree.
             self.onFaceBehaviour?(face)
             let (line, who) = Self.stageLine()
+            let metSafe = Self.metricsJSON()
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "`", with: "\\`")
+                .replacingOccurrences(of: "$", with: "\\$")
             let chgSafe = Self.changesJSON()
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "`", with: "\\`")
@@ -2415,6 +2459,7 @@ final class HomeChrome {
               if (window.__vesperHistory) window.__vesperHistory(`\(histSafe)`);
               if (window.__vesperWork) window.__vesperWork(`\(workSafe)`);
               if (window.__vesperChanges) window.__vesperChanges(`\(chgSafe)`);
+              if (window.__vesperMetrics) window.__vesperMetrics(`\(metSafe)`);
             })();
             """
             // REPORT WHAT THE PUSH DID. `completionHandler: nil` swallowed

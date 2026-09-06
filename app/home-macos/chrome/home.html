@@ -595,7 +595,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
 </div>
 <div class="card">
   <div class="t">host</div>
-  {{METRIC_ROWS}}
+  <div id="metrics">{{METRIC_ROWS}}</div>
 </div>
 
 <!-- The work stack. Every pane is a bar until it is opened, and the rows are
@@ -1059,6 +1059,28 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
           }
           actsEl.appendChild(m);
         }
+      }
+    };
+
+    // ---- the host card's rows ---------------------------------------------
+    //
+    // RE-RENDERED ON THE TICK. `{{METRIC_ROWS}}` fills this once at mount, so
+    // without a push the card showed whatever was true when the home came up
+    // -- and on a laptop the row that changes is the one worth reading.
+    var metricsEl = document.getElementById('metrics');
+    var lastMetrics = '';
+    window.__vesperMetrics = function (json) {
+      if (!metricsEl || json === lastMetrics) return;
+      lastMetrics = json;
+      var rows;
+      try { rows = JSON.parse(json); } catch (e) { return; }
+      if (!rows.length) return;          // keep the mount-time line, not blank
+      metricsEl.textContent = '';
+      for (var i = 0; i < rows.length; i++) {
+        var row = el('div', 'row');
+        row.appendChild(el('span', 'k', rows[i].label || ''));
+        row.appendChild(el('span', 'v', rows[i].value || ''));
+        metricsEl.appendChild(row);
       }
     };
 

@@ -600,6 +600,83 @@ Accessibility (already on the grant trip) plus a window-target vocabulary in
 
 ---
 
+## 9c. THE HOST CARD HAD A PRODUCER AND NOTHING CALLED IT
+
+Not part of the owner's request; found while building the stack, and fixed
+because the card sits in the middle of it reading "no producer".
+
+**THE SEVENTH "BUILT AND REACHED BY NOTHING" IN THIS TREE.**
+`tools/home_snapshot.py` has produced the rows since it was written and
+`core/home_state.set_rows` has accepted them for just as long. Nothing ever
+called either.
+
+**AND THE CARD'S OWN INSTRUCTION WOULD HAVE BROKEN THE HOME.** It read "run
+home_snapshot.py", and `main()` wrote `{"version": ..., "rows": ...}` over the
+whole of `home.json` — deleting the face, the transcript, the workbench and the
+changes board. It writes through `HomeState.set_rows` now, which merges;
+`--out` still writes a standalone file, because a projection dumped for
+inspection is not the surface's live state.
+
+**IT NEVER PROBES A MODEL.** `probe()` runs a real routed completion against a
+local llama.cpp, and `MEMORY.md`'s rule for this machine is explicit: local
+models heat it in a minute and cost tens of per cent of the battery in five, so
+they are not to be run *or measured* here. The runtime calls `build(None)`,
+which reads the last recorded completion if one is fresh and otherwise omits
+those rows — `core/projection.py` drops an unavailable reading rather than
+rendering one, "so the absent case cannot be styled into looking like the
+present case". What always resolves is the power source, which is the row that
+actually matters on a laptop.
+
+**AND IT IS PUSHED ON THE TICK.** `{{METRIC_ROWS}}` fills the card once at
+mount, so it was frozen at whatever was true when the home came up — and the
+power source is exactly the row that changes while nobody is reloading.
+
+---
+
+## 9b. NOTES — QUEUED, AND NOT STARTED
+
+**Owner's instruction, 2026-09-06: "put notes in the plan doc as next after
+finishing everything else and leave them for now."** So this is the next item
+after §10's remaining steps and the two deferrals above it, and nothing about
+it is built.
+
+**WHAT IS TRUE TODAY, SAID PLAINLY.** `core/agenda.py`'s own docstring quotes
+the owner's loop as running on "calendar, notes, plans". `SOURCES` is
+`("plan", "calendar", "reminders")`. **Notes appears in that sentence and
+nowhere else in the tree** — no reader, no bridge, no usage description. A
+docstring naming a source that does not exist is the exact defect this document
+opens by warning about, and it has been sitting in that file since it was
+written.
+
+**WHY IT IS NOT A FIFTH LINE IN `AgendaBridge`.** Calendar and Reminders have
+EventKit: a public read API, a TCC class of their own, and an authorization
+call that returns a real answer. Notes has none of that. Reading it means Apple
+Events — scripting the Notes app — which is a different permission class
+(`NSAppleEventsUsageDescription`, Automation, and per-target consent), a
+different failure mode (the app must be running or gets launched), and a
+different trust class for what comes back.
+
+**WHAT IT WILL NEED, so the next session does not re-derive it:**
+
+1. `NSAppleEventsUsageDescription` in `build.sh`'s Info.plist, and a
+   `--notes-consent` mode beside `--agenda-consent`. This is a SIXTH grant on
+   a trip that already has five; it must be added to the same trip, not
+   discovered later.
+2. A `NotesBridge.swift` that scripts Notes for title, modified date, folder
+   and body, and writes `agenda/notes.json` with the same shape and the same
+   `written_at_s` freshness field `eventkit.json` uses — `EVENTKIT_FRESH_S`
+   exists precisely so a stale source is UNAVAILABLE rather than quietly old.
+3. `SOURCES` gains `"notes"`, and `quiet()` stays False while it is
+   unavailable — the existing rule, which is what stops a missing source
+   reading as an empty one.
+4. **The trust class is the part to get right.** A calendar entry was written
+   by the owner. A note may contain anything they pasted into it — a web page,
+   an email, someone else's text. It is `retrieved_local` at best and must
+   reach the planner through `observe()`, never as an instruction. A note
+   saying "delete the old backups" is a note, not an order.
+
+---
+
 ## 10. BUILD ORDER
 
 Each step ends with the §0 gate. **No step begins before the previous one has
@@ -615,5 +692,6 @@ been driven against the running surface.**
 | 6 | **Terminal** (§6) | `CI-126`, live: the owner types and gets a shell |
 | 7 | **Command buttons** (§7) | live: Run runs, Paste does not |
 | 8 | `CI-127` cross-cutting | red-run on each of its five rules |
+| 9 | **HOST card producer** (§9c) | `CI-130`, live: the card shows a real reading |
 
 Steps 2, 3 and 4 are what the owner named as the starting point.

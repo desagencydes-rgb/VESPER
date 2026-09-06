@@ -288,6 +288,47 @@ def _record_command(bench, capability_id, args, result) -> None:
                   elapsed_ms=res.get("elapsed_ms"))
 
 
+
+# THE METRICS CARD'S ROWS, and the seventh "built and reached by nothing" in
+# this tree. `tools/home_snapshot.py` has produced them since it was written
+# and `core/home_state.set_rows` has accepted them for just as long; nothing
+# ever called either, so the HOST card read "no producer -- run
+# home_snapshot.py" for weeks while both halves sat there working.
+#
+# NEVER PROBES A MODEL. `home_snapshot.probe()` runs a real routed completion
+# against a local llama.cpp, and MEMORY.md's rule for this machine is explicit:
+# local models heat it in a minute and cost tens of per cent of the battery in
+# five, so they are not to be run OR measured here. `build(None)` reads the
+# last recorded completion if one is fresh and otherwise omits those rows --
+# `core/projection.py` drops an unavailable reading rather than rendering one,
+# "so the absent case cannot be styled into looking like the present case".
+#
+# What always resolves is `host.power_source`, which is the row that actually
+# matters on a laptop: MEMORY.md's own note is "this host runs on battery more
+# often than you would assume -- check it before starting anything long".
+METRICS_EVERY_S = 30.0
+_metrics_at = [0.0]
+_metrics_mod = [None]
+
+
+def _metric_rows():
+    """The rows the HOST card renders, or None if they cannot be produced."""
+    if _metrics_mod[0] is None:
+        import importlib.util as ilu
+        spec = ilu.spec_from_file_location(
+            "_home_snapshot", REPO / "tools" / "home_snapshot.py")
+        if spec is None or spec.loader is None:
+            return None
+        mod = ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _metrics_mod[0] = mod
+    mod = _metrics_mod[0]
+    proj = mod.build(None)
+    scene = proj.to_scene("home-metrics", columns=mod.HOME_METRIC_KEYS)
+    return [{"label": mod.LABELS.get(e.element_id, e.element_id),
+             "value": str(e.content["value"])} for e in scene.elements]
+
+
 def build(node: str = "vesper-runtime"):
     """Wire what already exists. Nothing here decides anything."""
     STATE.mkdir(parents=True, exist_ok=True)
@@ -1874,6 +1915,25 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                 home.set_changes(_cs)
         except Exception as exc:                   # noqa: BLE001
             bus.publish("changes.refresh_failed", subject="changes",
+                        payload={"error": repr(exc)}, component="runtime")
+
+    # THE HOST CARD, on its own slow clock. Power source is read from the
+    # system and the model rows come from the last recorded completion; neither
+    # changes at pump speed and `power_source()` shells out.
+    _now = time.time()
+    if _now - _metrics_at[0] >= METRICS_EVERY_S:
+        _metrics_at[0] = _now
+        try:
+            _rows = _metric_rows()
+            if _rows:
+                home.set_rows(_rows)
+        except Exception as exc:                   # noqa: BLE001
+            # ITS OWN TOPIC. This block was pasted next to the changes refresh
+            # and inherited its subject, so a metrics failure would have been
+            # reported as a changes failure -- an event naming the wrong
+            # subsystem is worse than none, because it sends the next reader to
+            # the wrong file.
+            bus.publish("metrics.refresh_failed", subject="metrics",
                         payload={"error": repr(exc)}, component="runtime")
     home.write()
     return handled

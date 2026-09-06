@@ -197,9 +197,25 @@ def main() -> int:
     scene = proj.to_scene("home-metrics", columns=HOME_METRIC_KEYS)
     rows = [{"label": LABELS.get(e.element_id, e.element_id),
              "value": str(e.content["value"])} for e in scene.elements]
+    # WRITTEN THROUGH `HomeState`, WHICH MERGES. This wrote the whole file --
+    # `{"version": ..., "rows": ...}` over the top of `home.json` -- so running
+    # the command the metrics card itself tells you to run DELETED the face,
+    # the transcript, the workbench and the changes board. Measured 2026-09-06.
+    #
+    # `core/home_state.py` already owns that merge and says why in its own
+    # header: "one file, one writer per key". It has had a `set_rows` for
+    # exactly this since it was written, and nothing had ever called it.
+    #
+    # The `--out` escape hatch still writes a standalone file, because a
+    # projection dumped somewhere for inspection is a different thing from the
+    # surface's live state and must not need the merge.
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(
-        {"version": proj.version.to_dict(), "rows": rows}, indent=1))
+    if out == DEFAULT_OUT:
+        from core.home_state import HomeState
+        HomeState(path=out).set_rows(rows)
+    else:
+        out.write_text(json.dumps(
+            {"version": proj.version.to_dict(), "rows": rows}, indent=1))
 
     print(f"{len(rows)} of {len(HOME_METRIC_KEYS)} card rows have a producer "
           f"-> {out}")

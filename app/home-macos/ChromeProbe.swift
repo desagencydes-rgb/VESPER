@@ -118,6 +118,11 @@ enum ChromeProbe {
                         .map(function (h) { return h.getAttribute('data-turn') || ''; }),
         litHistory: [].slice.call(document.querySelectorAll('.hrow.lit'))
                       .map(function (h) { return h.getAttribute('data-turn') || ''; }),
+        metricRows: [].slice.call(document.querySelectorAll('#metrics .row'))
+                      .map(function (r) {
+                        return ((r.querySelector('.k')||{}).textContent || '') + '='
+                             + ((r.querySelector('.v')||{}).textContent || '');
+                      }),
         terminal: (document.getElementById('tout') || {}).textContent || '',
         cmdButtons: [].slice.call(document.querySelectorAll('.cmdbar button'))
                       .map(function (b) { return b.textContent; }),
@@ -190,7 +195,12 @@ enum ChromeProbe {
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "`", with: "\\`")
                 .replacingOccurrences(of: "$", with: "\\$")
+            let metSafe = HomeChrome.metricsJSON()
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "`", with: "\\`")
+                .replacingOccurrences(of: "$", with: "\\$")
             var js = "if (window.__vesperWork) window.__vesperWork(`\(safe)`);"
+                   + "if (window.__vesperMetrics) window.__vesperMetrics(`\(metSafe)`);"
                    + "if (window.__vesperChanges) window.__vesperChanges(`\(chgSafe)`);"
                    + "if (window.__vesperHistory) window.__vesperHistory(`\(histSafe)`);"
             if let pane = expand {

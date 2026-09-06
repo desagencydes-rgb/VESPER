@@ -570,7 +570,8 @@ def _resolve_binary(binary: str) -> str:
 
 
 def _cli_call(row: SupplyRow, binary: str, argv: list, config_env: str | None,
-              config_dir: str | None, timeout: float = 300.0):
+              config_dir: str | None, timeout: float = 300.0,
+              oauth_token: str = ""):
     """A subscription rung. The official CLI, headless, as a subprocess.
 
     `binary` IS SEPARATE FROM `argv` BECAUSE IT WAS BEING TAKEN FROM IT. This
@@ -593,6 +594,25 @@ def _cli_call(row: SupplyRow, binary: str, argv: list, config_env: str | None,
         env = dict(os.environ)
         if config_env and config_dir:
             env[config_env] = os.path.expanduser(config_dir)
+        # THE CREDENTIAL DOES NOT LIVE IN THE CONFIG DIRECTORY. It lives in the
+        # login KEYCHAIN, and a launchd job cannot read it: the keychain item's
+        # ACL names the binaries allowed to read it without prompting, VESPER is
+        # not one of them, and a background job has no way to answer a prompt.
+        #
+        # MEASURED 2026-09-06 by running the advisor with the runtime's exact
+        # environment, read off the live process: it answers "Not logged in ·
+        # Please run /login". From an interactive shell the same command
+        # succeeds, which is why this looked healthy every time it was tested by
+        # hand -- the instrument and the production path disagreed and the
+        # instrument was the one that got believed. That is the same sentence
+        # `_cli_call`'s own docstring already had to write about this rung.
+        #
+        # `claude setup-token` exists for exactly this: a long-lived token for
+        # headless use, passed in the environment, no keychain involved. When
+        # `secrets.env` carries one it is used; when it does not, the rung fails
+        # the way it does today and says why.
+        if oauth_token:
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = oauth_token
         # A SUBSCRIPTION CLI HAS NO SYSTEM ARGUMENT WE CAN RELY ON. `claude`
         # takes `--append-system-prompt` and `codex exec` takes nothing of the
         # kind, and the argv template lives in the contract where a per-vendor
@@ -711,7 +731,8 @@ def register(gateway, cost, ledger: QuotaLedger, *,
         raw = by_id[row.provider_id]
         if row.wire == "cli_subprocess":
             call = _cli_call(row, raw["endpoint"], raw.get("argv", []),
-                             raw.get("config_dir_env"), raw.get("config_dir"))
+                             raw.get("config_dir_env"), raw.get("config_dir"),
+                             oauth_token=secrets.get("CLAUDE_CODE_OAUTH_TOKEN", ""))
         else:
             call = _http_call(row, raw["endpoint"],
                               secrets.get(raw.get("credential_env", ""), ""),
