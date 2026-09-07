@@ -329,6 +329,59 @@ def _metric_rows():
              "value": str(e.content["value"])} for e in scene.elements]
 
 
+
+def _surface_repair(bench, transcript: list, home, item, out) -> None:
+    """Put a provider failure where the owner can see it, and say one line.
+
+    TWO SURFACES, TWO DIFFERENT JOBS, as the owner set them out. The BOARD gets
+    what broke, what was tried and what would fix it -- long, typed, never
+    spoken. The TALK gets one sentence, because a question the owner has to
+    answer belongs where they are already looking and a paragraph read aloud is
+    the failure `core/longform.py` exists to prevent.
+
+    THE SENTENCE NAMES THE RUNG AND THE KIND. "That provider returned an error"
+    is what the owner saw for weeks and it is true of five different situations
+    that want five different responses from them -- wait, act, ignore, decide.
+    """
+    if bench is None:
+        return
+    kind = str(getattr(item, "classification", "") or "unknown")
+    rung = str(getattr(item, "provider_id", "") or "a rung")
+    blocks = []
+    if out.note:
+        blocks.append({"kind": "text", "text": out.note})
+    if out.actions:
+        blocks.append({"kind": "list", "items": list(out.actions)})
+    if out.guide:
+        blocks.append({"kind": "list", "items": list(out.guide)})
+    if not blocks:
+        return
+    # KEYED ON THE ITEM, not on a conversation turn. `explain` replaces an
+    # entry with the same id, so a rung that fails again in the same way
+    # updates its explanation instead of stacking a second copy.
+    bench.explain(item.item_id, f"{rung}: {kind.replace('_', ' ')}", blocks)
+
+    # THE ONE SENTENCE. Shaped by what the owner can actually do about it,
+    # which is the whole reason the classifier was taught to read the text.
+    said = {
+        "rate_limited": f"{rung} is out of allowance for now. It comes back on "
+                        f"its own; I have written down what I found.",
+        "quota_exhausted": f"{rung} has no allowance left. That one does not "
+                           f"come back on its own -- the board has the detail.",
+        "auth_failed": f"{rung} will not accept its credential, and that is "
+                       f"yours to fix rather than mine. The board has the steps.",
+        "model_gone": f"{rung} no longer serves that model. I have dropped the "
+                      f"rung and written down what would restore it.",
+        "bad_request": f"I was malforming the request to {rung}. The fix is "
+                       f"written out on the board for you to look at.",
+    }.get(kind, f"{rung} is failing in a way I do not have a rule for. I have "
+                f"written down what I saw.")
+    transcript.append({"who": "vesper", "source": "vesper", "certain": True,
+                       "text": said, "id": item.item_id})
+    del transcript[:-CONVERSATION_MAX]
+    home.set_transcript(list(transcript))
+
+
 def build(node: str = "vesper-runtime"):
     """Wire what already exists. Nothing here decides anything."""
     STATE.mkdir(parents=True, exist_ok=True)
@@ -1444,6 +1497,21 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                                      "reason": ("changed" if changed
                                                 else "keepalive")},
                             component="runtime")
+                # AND THE OWNER IS TOLD, ON THE TWO SURFACES THEY NAMED.
+                #
+                # Their rule, in their words: "explanation goes in the
+                # explanation card, asking for permission and raising the issue
+                # goes to vesper's talk, and the card where vesper's talking
+                # goes". Until now a repair produced a bus event and nothing
+                # else -- the owner learned about a dead rung by noticing that
+                # answers had gone strange.
+                #
+                # ONLY ON A CHANGE, never on the keepalive. The gate above
+                # re-runs a repair every half hour so a stale item does not go
+                # quiet; re-announcing the same finding on that clock would be
+                # VESPER telling the owner the same thing forever.
+                if changed:
+                    _surface_repair(bench, transcript, home, item, out)
         except Exception as exc:                   # noqa: BLE001
             bus.publish("repair.pass_failed", subject="repair",
                         payload={"error": repr(exc)}, component="runtime")

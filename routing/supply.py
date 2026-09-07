@@ -569,6 +569,88 @@ def _resolve_binary(binary: str) -> str:
     return binary
 
 
+# What a CLI rung's failure text means, most specific first.
+#
+# STEP ONE OF THE OWNER'S PROVIDER POLICY, and it had to be. Their five cases --
+# retry a usage limit, FIX a malformed request, drop a retired MODEL, ask about
+# anything else, explain what cannot be fixed -- are five different responses,
+# and nothing could tell them apart because nothing read the text.
+#
+# MEASURED 2026-09-07, and the measurement is why this is a list of patterns and
+# not a status code. `claude` writes its reason to STDOUT and leaves stderr
+# EMPTY, exiting 1. The old line built its message from `cp.stderr` alone, so
+# the message was `claude-advisor exited 1: ` -- the reason was not
+# misclassified, it was never captured. Two completely different faults arrived
+# identical:
+#
+#     "Not logged in · Please run /login"                 -> auth, owner action
+#     "You've hit your session limit · resets 3:50am"     -> a limit, wait
+#
+# Both were `server_error`, and `server_error` is TRANSIENT, so the ladder
+# retried an exhausted subscription ten times and filed a defect against a wire
+# format that was never wrong.
+#
+# ORDERED, AND THE ORDER IS LOAD-BEARING. "invalid api key" contains "invalid";
+# a model that is "no longer available" contains "available". First match wins,
+# so the specific phrasings sit above the generic ones.
+CLI_FAILURE_PATTERNS: tuple = (
+    # A limit that RESETS. The owner's case one -- the only case where plain
+    # retrying is the right answer, because the request was fine and the world
+    # changes on its own.
+    (("session limit", "usage limit", "rate limit", "too many requests",
+      "try again later", "slow down"), "rate_limited"),
+    # A balance that does NOT reset on its own. Different case, different
+    # answer: nobody should wait for this one.
+    (("credit balance", "insufficient credit", "insufficient funds",
+      "quota exceeded", "out of credits", "billing"), "quota_exhausted"),
+    # The owner has to do something. Never retried, never filed as a defect.
+    (("not logged in", "please run /login", "unauthorized", "invalid api key",
+      "authentication", "expired", "no credentials", "oauth"), "auth_failed"),
+    # The provider dropped THIS MODEL. The account and the wire are both fine,
+    # so the answer is another model on the SAME provider, not a failover down
+    # the whole ladder.
+    (("model not found", "unknown model", "no longer available",
+      "model is deprecated", "deprecated model", "unsupported model",
+      "does not exist"), "model_gone"),
+    # VESPER's own mistake. Re-sending it unchanged is the definition of a loop.
+    (("unknown option", "unrecognized", "invalid argument", "malformed",
+      "bad request", "invalid request", "usage:"), "bad_request"),
+    (("timed out", "timeout", "deadline exceeded"), "timeout"),
+)
+
+# A session limit resets in HOURS. The gateway's default backoff is a second,
+# and a second is not patience against a limit like that -- it is nine more
+# identical failures. This is a FLOOR, not a measurement: the provider told us
+# a reset time in prose and prose is not a contract, so the number here is
+# deliberately conservative rather than parsed out of a sentence.
+CLI_LIMIT_BACKOFF_MS = 15 * 60 * 1000
+
+
+def classify_cli_failure(returncode: int, stdout: str, stderr: str) -> tuple:
+    """What a CLI rung's non-zero exit actually was.
+
+    Returns `(classification, text, retry_after_ms)`. `text` is what the
+    provider SAID, from whichever stream it used -- the whole point is that the
+    reason reaches the record, so a human reading the log afterwards can see
+    what a classifier had to work with.
+    """
+    # BOTH STREAMS, stdout first. `claude` reports refusals on stdout with an
+    # empty stderr; other CLIs do the opposite. Reading one of them is how the
+    # reason went missing.
+    text = " ".join(x.strip() for x in (stdout or "", stderr or "") if x.strip())
+    low = text.lower()
+    for needles, classification in CLI_FAILURE_PATTERNS:
+        if any(n in low for n in needles):
+            after = (CLI_LIMIT_BACKOFF_MS
+                     if classification == "rate_limited" else None)
+            return classification, text, after
+    # NOT A DEFAULT WORTH HIDING. An unrecognised failure is genuinely unknown,
+    # and `server_error` is the honest label for it -- but the TEXT now travels
+    # with it, so the next unrecognised shape can be read and added here rather
+    # than being another silent `exited 1:`.
+    return "server_error", text, None
+
+
 def _cli_token(raw: dict, secrets: dict) -> str:
     """The headless token for THIS rung's account, not a shared one.
 
@@ -695,9 +777,12 @@ def _cli_call(row: SupplyRow, binary: str, argv: list, config_env: str | None,
         except subprocess.TimeoutExpired as e:
             raise EndpointError(f"{row.provider_id}: timed out", "timeout") from e
         if cp.returncode != 0:
+            kind, said, after = classify_cli_failure(
+                cp.returncode, cp.stdout or "", cp.stderr or "")
             raise EndpointError(
                 f"{row.provider_id} exited {cp.returncode}: "
-                f"{(cp.stderr or '')[:200]}", "server_error")
+                f"{said[:400] or '(it printed nothing on either stream)'}",
+                kind, retry_after_ms=after)
         return {"text": (cp.stdout or "").strip(), "stop_reason": "stop",
                 "usage": {}}
 

@@ -91,7 +91,18 @@ TRANSIENT = ("rate_limited", "timeout", "server_error", "connection_error")
 # measured 2026-08-26, a 413 classified `server_error` was retried against a
 # ceiling it could never get under, twice per turn.
 TERMINAL = ("auth_failed", "quota_exhausted", "revoked", "bad_request",
-            "budget_too_large")
+            "budget_too_large", "model_gone")
+
+# `model_gone` IS TERMINAL FOR THIS ROW AND SAYS NOTHING ABOUT THE PROVIDER.
+# The owner's rule: "if the provider dropped that model, vesper should mark that
+# model as unavailable and use another one in the same provider". A rung IS a
+# (provider, model) pair, so retiring the rung is exactly that -- the account,
+# the credential and the egress class are all still good, and the ladder's next
+# row may well be the same provider with a different model.
+#
+# IT MUST BE HERE RATHER THAN NOWHERE. A classification in neither tuple falls
+# through to a computed backoff and is RETRIED -- which for a model the provider
+# has removed is a request that cannot succeed, repeated on a timer.
 
 # Classifications that mean "the provider refused on quota", and therefore that
 # the refusal carries a QUOTA SHAPE worth booking. `rate_limited` is TRANSIENT

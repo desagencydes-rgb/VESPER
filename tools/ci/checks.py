@@ -14470,6 +14470,294 @@ def check_notes_are_titles_and_never_instructions() -> Result:
            "VESPER, and refreshed by an agent that actually runs")
     return r
 
+
+def check_a_provider_failure_says_which_kind_it_is() -> Result:
+    """A rung's refusal is read, not guessed at from an exit code.
+
+    THE OWNER'S POLICY HAS FIVE CASES and they call for five different
+    responses: retry a usage limit, FIX a malformed request and resend it, drop
+    a model the provider has retired and use another from the same provider,
+    investigate anything else and ask, and explain what cannot be fixed. Every
+    one of those decisions needs to know WHICH failure happened, and until
+    2026-09-07 nothing looked.
+
+    MEASURED, AND THE MEASUREMENT IS THE POINT. `claude` writes its reason to
+    STDOUT and leaves stderr EMPTY. The old code built its message from
+    `cp.stderr` alone and hardcoded `server_error`, so the record read
+    `claude-advisor exited 1: ` -- the reason was not misclassified, it was
+    never captured. Two unrelated faults arrived identical:
+
+        "Not logged in · Please run /login"              the owner must act
+        "You've hit your session limit · resets 3:50am"  a limit, it returns
+
+    `server_error` is TRANSIENT, so the ladder retried an exhausted
+    subscription ten times and `core/repair.py` filed a defect against a wire
+    format that was never wrong.
+
+    THIS IS STEP ONE OF THAT WORK, not a detail of it: none of the five routes
+    can be built on a classifier that cannot tell them apart.
+    """
+    r = Result("a-provider-failure-says-which-kind-it-is")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from routing.supply import (classify_cli_failure, CLI_LIMIT_BACKOFF_MS,
+                                    CLI_FAILURE_PATTERNS)
+        from core.gateway import TERMINAL, TRANSIENT
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the CLI classifier does not import: {exc!r}")
+        return r
+
+    # 1. THE TWO REAL FAULTS, IN THE OWNER'S OWN WORDS, ON THE STREAM THE CLI
+    #    ACTUALLY USES. Both are given as STDOUT with an EMPTY stderr, because
+    #    that is what was measured -- a fixture that puts them on stderr would
+    #    pass against code that reads only stderr, which is the bug.
+    limit = "You've hit your session limit \u00b7 resets 3:50am (Africa/Casablanca)"
+    kind, text, after = classify_cli_failure(1, limit, "")
+    if kind != "rate_limited":
+        r.err(f"a session limit classified {kind!r}. It is the owner's case ONE "
+              f"-- the only case where plain retrying is right -- and calling it "
+              f"anything else routes it to the wrong response.")
+    if "session limit" not in text:
+        r.err(f"the reason did not reach the record: {text!r}. The old code read "
+              f"stderr only and this CLI answers on stdout, so the message was "
+              f"an exit code and nothing else.")
+    if not after or after < 60_000:
+        r.err(f"a session limit carries retry_after={after!r}. The default "
+              f"backoff is about a second, and a second against a limit that "
+              f"resets in hours is nine more identical failures.")
+
+    auth = "Not logged in \u00b7 Please run /login"
+    kind, text, _ = classify_cli_failure(1, auth, "")
+    if kind != "auth_failed":
+        r.err(f"'Not logged in' classified {kind!r}. The owner has to act; "
+              f"retrying it is pointless and filing it as VESPER's own defect "
+              f"-- which is what happened -- sends the repairer at a wire "
+              f"format that was never wrong.")
+    if "login" not in text.lower():
+        r.err("the auth failure's text did not reach the record")
+
+    # 2. THE FOUR CLASSES ARE ACTUALLY DISTINGUISHED. Without this the check
+    #    passes for a classifier that answers `rate_limited` to everything.
+    for said, want in (
+            ("Error: model claude-opus-9 does not exist", "model_gone"),
+            ("error: unknown option --nope", "bad_request"),
+            ("Your credit balance is too low", "quota_exhausted"),
+            ("upstream connect error reading from server", "server_error")):
+        got, _, _ = classify_cli_failure(1, said, "")
+        if got != want:
+            r.err(f"{said!r} classified {got!r}, expected {want!r}")
+
+    # 3. STDERR IS STILL READ. The fix was to read BOTH streams, and a fix that
+    #    merely swapped which one is read would pass every assertion above.
+    got, text, _ = classify_cli_failure(1, "", "Not logged in \u00b7 Please run /login")
+    if got != "auth_failed" or "login" not in text.lower():
+        r.err("a reason on STDERR is now missed. Reading one stream instead of "
+              "the other is the same defect wearing the opposite mistake.")
+
+    # 4. A FAILURE THAT SAYS NOTHING IS STILL HONEST ABOUT SAYING NOTHING.
+    got, text, _ = classify_cli_failure(1, "", "")
+    if got != "server_error":
+        r.err(f"a silent failure classified {got!r}; unknown is `server_error`")
+    if text:
+        r.err(f"a silent failure invented text: {text!r}")
+
+    # 5. AND THE ROUTING CONSEQUENCES HOLD.
+    #    `model_gone` must be TERMINAL: a classification in neither tuple falls
+    #    through to a computed backoff and is RETRIED, which for a model the
+    #    provider has removed is a request that cannot succeed, on a timer.
+    if "model_gone" not in TERMINAL:
+        r.err("`model_gone` is not TERMINAL, so a retired model is retried on a "
+              "backoff forever instead of the rung being dropped and another "
+              "model on the same provider being used")
+    if "rate_limited" not in TRANSIENT:
+        r.err("`rate_limited` left TRANSIENT: a limit that resets would retire "
+              "the rung permanently instead of coming back")
+    if set(TERMINAL) & set(TRANSIENT):
+        r.err(f"a classification is both terminal and transient: "
+              f"{sorted(set(TERMINAL) & set(TRANSIENT))}")
+
+    # 6. THE PATTERN ORDER IS LOAD-BEARING AND IS ASSERTED, because the generic
+    #    needles would otherwise swallow the specific ones: "invalid api key"
+    #    contains "invalid", and a model "no longer available" contains
+    #    "available".
+    order = [c for _, c in CLI_FAILURE_PATTERNS]
+    if order.index("rate_limited") > order.index("bad_request"):
+        r.err("the generic request patterns are tested before the limit ones")
+    if order.index("auth_failed") > order.index("bad_request"):
+        r.err("`bad_request` is tested before `auth_failed`, so 'invalid api "
+              "key' is filed as VESPER's own malformed request")
+
+    r.note("a CLI rung's refusal is classified from what it SAID, on whichever "
+           "stream it used, and the text reaches the record; a session limit is "
+           "case one with a backoff measured in minutes rather than a second; "
+           "'Not logged in' is the owner's to act on rather than VESPER's "
+           "defect; a retired model is terminal for its row so another model on "
+           "the same provider is tried; and a failure that says nothing is "
+           "recorded as saying nothing rather than being given a reason")
+    return r
+
+
+def check_a_provider_failure_reaches_the_owner() -> Result:
+    """A dead rung is said out loud once and written out in full.
+
+    THE OWNER'S RULE, IN THEIR WORDS: "explanation goes in the explanation
+    card, asking for permission and raising the issue goes to vesper's talk,
+    and the card where vesper's talking goes."
+
+    UNTIL 2026-09-07 A REPAIR PRODUCED A BUS EVENT AND NOTHING ELSE. The owner
+    learned that a rung was dead by noticing that answers had gone strange, and
+    the only sentence they ever got was "that provider returned an error" --
+    true of five different situations that want five different things FROM
+    THEM: wait, act, decide, ignore, or nothing at all.
+
+    AND TWO OF THE FIVE HAD NO HANDLER, so they fell to `_escalate`, which
+    reports "no tier-1 action exists for this classification". For a usage
+    limit that is a GAP IN VESPER'S OWN REPAIR RULES filed against a provider
+    that was behaving exactly as designed -- measured on `claude-advisor`,
+    which produced a triage item, a repair attempt and a proposed patch for
+    running out of allowance.
+    """
+    r = Result("a-provider-failure-reaches-the-owner")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.repair import RepairAgent
+        from core.triage import TriageItem, CRITICAL_NOW
+        from core.workbench import Workbench
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the repair path does not import: {exc!r}")
+        return r
+
+    import ast as _ast
+    rt_src = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    tree = _ast.parse(rt_src)
+    node = next((n for n in tree.body if isinstance(n, _ast.FunctionDef)
+                 and n.name == "_surface_repair"), None)
+    if node is None:
+        r.err("`_surface_repair` is gone: a provider failure produces a bus "
+              "event and nothing the owner can see, which is the state they "
+              "described as 'that provider returned an error'")
+        return r
+    ns: dict = {"CONVERSATION_MAX": 40}
+    exec(compile(_ast.Module([node], []), "vesper_runtime.py", "exec"), ns)
+    surface = ns["_surface_repair"]
+
+    class Home:
+        def __init__(self): self.t = []
+        def set_transcript(self, t): self.t = list(t)
+
+    agent = RepairAgent()
+
+    def run(cls: str):
+        bench, home, tr = Workbench(), Home(), []
+        it = TriageItem(item_id=f"claude-advisor::opus::{cls}",
+                        provider_id="claude-advisor", model="opus",
+                        classification=cls, grade=CRITICAL_NOW, hlc="0")
+        out = agent.repair(it)
+        surface(bench, tr, home, it, out)
+        return out, bench.state().get("explanations") or [], tr
+
+    # 1. EVERY ONE OF THE OWNER'S CASES HAS ITS OWN HANDLER. `_escalate`'s note
+    #    is the tell: it names a gap in VESPER's rules, which is the wrong
+    #    story for a provider that refused correctly.
+    for cls in ("rate_limited", "quota_exhausted", "model_gone",
+                "auth_failed", "bad_request"):
+        out, _, _ = run(cls)
+        if "no tier-1 handler" in (out.note or ""):
+            r.err(f"{cls!r} has no handler and falls to the escalation path, "
+                  f"which files it as a gap in VESPER's repair rules rather "
+                  f"than as the thing that actually happened")
+
+    # 2. A LIMIT IS NOT VESPER'S DEFECT. Case one: the request was fine and
+    #    allowance came back. Nothing may be proposed, patched or retired.
+    out, exps, tr = run("rate_limited")
+    joined = " ".join(out.actions + out.guide + [out.note or ""]).lower()
+    for wrong in ("patch", "workspace/", "defect"):
+        if wrong in joined:
+            r.err(f"a usage limit's repair mentions {wrong!r}: it is being "
+                  f"treated as something VESPER did wrong, when the only "
+                  f"correct response is to wait")
+    if out.fixed:
+        r.err("a usage limit reported itself FIXED; nothing was changed")
+
+    # 3. A RETIRED MODEL SAYS THE PROVIDER IS FINE, which is the whole of the
+    #    owner's case three -- another model on the SAME provider.
+    out, _, _ = run("model_gone")
+    g = " ".join(out.actions + out.guide).lower()
+    if "provider_supply.toml" not in g:
+        r.err("the model_gone guide does not name the contract that would "
+              "restore the rung, so the owner is told a rung died and not what "
+              "to do about it")
+    if "credential" not in g and "account" not in g:
+        r.err("the model_gone guide does not say the account is still good, so "
+              "it reads as a provider outage rather than one retired model")
+
+    # 4. BOTH SURFACES ARE REACHED, and they carry DIFFERENT halves.
+    out, exps, tr = run("auth_failed")
+    if not exps:
+        r.err("nothing reached the explanations card")
+    if not tr:
+        r.err("nothing reached VESPER's talk, so a rung the OWNER has to fix "
+              "is recorded where only a log reader would find it")
+    if exps and tr:
+        spoken = tr[-1]["text"]
+        if len(spoken) > 240:
+            r.err(f"the spoken line is {len(spoken)} characters. It is SPOKEN; "
+                  f"the long half is what the board is for.")
+        body = " ".join(str(b) for b in exps[-1]["blocks"])
+        if spoken in body:
+            r.err("the spoken sentence is repeated verbatim on the board, so "
+                  "the two surfaces are one surface twice")
+
+    # 5. THE SENTENCE DIFFERS BY CASE. One generic line would pass every
+    #    assertion above and would be exactly what the owner complained about.
+    said = {}
+    for cls in ("rate_limited", "auth_failed", "model_gone", "bad_request"):
+        _, _, tr = run(cls)
+        said[cls] = tr[-1]["text"] if tr else ""
+    if len(set(said.values())) != len(said):
+        r.err(f"two cases produce the same sentence: {said}. 'That provider "
+              f"returned an error' was true of all five and told the owner "
+              f"nothing they could act on.")
+    if "yours to fix" not in said["auth_failed"].lower():
+        r.err("an auth failure does not tell the owner it is theirs to fix")
+
+    # 6. THE EXPLANATION IS KEYED ON THE ITEM, so a rung failing the same way
+    #    twice updates its entry rather than stacking copies of one finding.
+    bench, home, tr = Workbench(), Home(), []
+    it = TriageItem(item_id="claude-advisor::opus::rate_limited",
+                    provider_id="claude-advisor", model="opus",
+                    classification="rate_limited", grade=CRITICAL_NOW, hlc="0")
+    # A FRESH OUTCOME EACH TIME. Passing ONE object twice makes any key derived
+    # from that object identical by accident -- so the probe passed against an
+    # explanation keyed on `id(out)`, which is exactly the mistake it exists to
+    # catch. The runtime calls `repair()` again on every pass; so does this.
+    surface(bench, tr, home, it, agent.repair(it))
+    surface(bench, tr, home, it, agent.repair(it))
+    if len(bench.state()["explanations"]) != 1:
+        r.err(f"the same finding stacked "
+              f"{len(bench.state()['explanations'])} explanations")
+
+    # 7. AND IT IS ONLY SAID ON A CHANGE. The repair gate re-runs a stale item
+    #    every half hour so it does not go quiet; announcing on that clock
+    #    would be VESPER telling the owner the same thing forever.
+    call = rt_src[rt_src.find("out = repairer.repair(item)"):]
+    guard = call[:call.find("_surface_repair(")]
+    if "if changed:" not in guard:
+        r.err("the surface is written on every repair pass, including the "
+              "keepalive re-run -- so a rung that stays broken repeats itself "
+              "at VESPER's clock rather than at the world's")
+
+    r.note("each of the owner's five cases has its own handler rather than "
+           "falling to an escalation that blames VESPER's rules; a usage limit "
+           "proposes no patch and claims no fix; a retired model names the "
+           "contract that would restore it and says the account is fine; the "
+           "board gets the typed detail and the talk gets one short sentence "
+           "that differs by case; the explanation is keyed on the item; and "
+           "nothing is announced on the keepalive")
+    return r
+
 def check_loop_observes_and_is_bounded() -> Result:
     """VESPER can take a second step, and every way of not stopping is bounded.
 
@@ -20684,6 +20972,8 @@ CHECK_FNS = {
     "auto-mode-does-not-ask-and-does-not-overreach": check_auto_mode_does_not_ask_and_does_not_overreach,
     "changes-are-shown-with-their-source": check_changes_are_shown_with_their_source,
     "the-terminal-is-the-owners": check_the_terminal_is_the_owners,
+    "a-provider-failure-says-which-kind-it-is": check_a_provider_failure_says_which_kind_it_is,
+    "a-provider-failure-reaches-the-owner": check_a_provider_failure_reaches_the_owner,
     "notes-are-titles-and-never-instructions": check_notes_are_titles_and_never_instructions,
     "taint-ceiling-binds-the-act-path": check_taint_ceiling_binds_the_act_path,
     "gated-subsystems-are-reachable": check_gated_subsystems_are_reachable,

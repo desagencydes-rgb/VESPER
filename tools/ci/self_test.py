@@ -5847,6 +5847,105 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# CI-132 -- step one of the owner's provider policy. Five cases need five
+# responses; nothing could tell them apart because nothing read the text.
+# --------------------------------------------------------------------------
+SUPPLY_PY = "routing/supply.py"
+GATEWAY_PY = "core/gateway.py"
+
+CASES += [
+    ("a-provider-failure-says-which-kind-it-is", SUPPLY_PY,
+     _sub('    text = " ".join(x.strip() for x in (stdout or "", stderr or "") if x.strip())',
+          '    text = (stderr or "").strip()', 1),
+     "the classifier reads stderr only again -- and `claude` answers on STDOUT "
+     "with an empty stderr, so every refusal becomes a bare exit code and the "
+     "reason is not misclassified but DISCARDED"),
+
+    ("a-provider-failure-says-which-kind-it-is", SUPPLY_PY,
+     _sub('    (("session limit", "usage limit", "rate limit", "too many requests",\n'
+          '      "try again later", "slow down"), "rate_limited"),\n', "", 1),
+     "a session limit falls through to `server_error`: TRANSIENT, retried ten "
+     "times against a subscription that resets in hours, and filed as VESPER's "
+     "own defect"),
+
+    ("a-provider-failure-says-which-kind-it-is", SUPPLY_PY,
+     _sub("            after = (CLI_LIMIT_BACKOFF_MS\n"
+          '                     if classification == "rate_limited" else None)',
+          "            after = None", 1),
+     "a limit that resets in hours is retried on the default backoff of about a "
+     "second -- nine more identical failures, and the owner sees the rung "
+     "thrash instead of failing over"),
+
+    ("a-provider-failure-says-which-kind-it-is", GATEWAY_PY,
+     _sub('            "budget_too_large", "model_gone")',
+          '            "budget_too_large")', 1),
+     "`model_gone` falls into neither TERMINAL nor TRANSIENT, so a model the "
+     "provider has REMOVED is retried on a computed backoff -- a request that "
+     "cannot succeed, repeated on a timer"),
+
+    ("a-provider-failure-says-which-kind-it-is", SUPPLY_PY,
+     _sub('    (("not logged in", "please run /login", "unauthorized", "invalid api key",\n'
+          '      "authentication", "expired", "no credentials", "oauth"), "auth_failed"),\n',
+          "", 1),
+     "'Not logged in' is no longer recognised, so a credential the OWNER has to "
+     "fix is retried by VESPER and then filed against VESPER's own wire format"),
+]
+
+
+# --------------------------------------------------------------------------
+# CI-133 -- the other half of the owner's provider policy: WHERE each part of
+# a failure goes. A repair used to produce a bus event and nothing else.
+# --------------------------------------------------------------------------
+REPAIR_PY = "core/repair.py"
+
+CASES += [
+    ("a-provider-failure-reaches-the-owner", RUNTIME_PY,
+     _sub("                if changed:\n"
+          "                    _surface_repair(bench, transcript, home, item, out)\n",
+          "", 1),
+     "a provider failure goes back to producing a bus event and nothing the "
+     "owner can see -- the state they described as being told only `that "
+     "provider returned an error`"),
+
+    ("a-provider-failure-reaches-the-owner", RUNTIME_PY,
+     _sub("                if changed:\n"
+          "                    _surface_repair(bench, transcript, home, item, out)",
+          "                if True:\n"
+          "                    _surface_repair(bench, transcript, home, item, out)", 1),
+     "the finding is re-announced on the keepalive, so a rung that stays broken "
+     "repeats itself every half hour at VESPER's clock rather than when "
+     "anything about it actually changed"),
+
+    ("a-provider-failure-reaches-the-owner", RUNTIME_PY,
+     _sub('    bench.explain(item.item_id, f"{rung}: {kind.replace(\'_\', \' \')}", blocks)',
+          '    bench.explain("", f"{rung}: {kind}", blocks)', 1),
+     "the explanation stops being keyed on the item, so a rung failing the same "
+     "way twice stacks a second copy of one finding instead of updating it"),
+
+    ("a-provider-failure-reaches-the-owner", REPAIR_PY,
+     _sub('            "rate_limited": self._rate_limited,\n'
+          '            "quota_exhausted": self._rate_limited,\n', "", 1),
+     "a usage limit falls to the escalation path again, which files a GAP IN "
+     "VESPER'S REPAIR RULES against a provider that refused exactly as "
+     "designed -- a triage item, a repair attempt and a proposed patch for "
+     "running out of allowance"),
+
+    ("a-provider-failure-reaches-the-owner", REPAIR_PY,
+     _sub('            "model_gone": self._model_gone,\n', "", 1),
+     "a model the provider retired is escalated as an unknown fault instead of "
+     "retiring its row and naming the contract that would restore it"),
+
+    ("a-provider-failure-reaches-the-owner", RUNTIME_PY,
+     _sub('        "auth_failed": f"{rung} will not accept its credential, and that is "\n'
+          '                       f"yours to fix rather than mine. The board has the steps.",\n',
+          "", 1),
+     "an auth failure loses its own sentence and falls back to the generic one, "
+     "so a credential only the OWNER can fix reads exactly like every other "
+     "provider fault"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
 

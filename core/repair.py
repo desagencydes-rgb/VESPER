@@ -91,6 +91,9 @@ class RepairAgent:
             "auth_failed": self._auth_failed,
             "bad_request": self._bad_request,
             "no_provider_for_profile": self._no_provider,
+            "rate_limited": self._rate_limited,
+            "quota_exhausted": self._rate_limited,
+            "model_gone": self._model_gone,
         }.get(item.classification)
 
         if handler is None:
@@ -107,6 +110,74 @@ class RepairAgent:
         return out
 
     # -------------------------------------------------------- tier-1 actions
+
+    def _rate_limited(self, item: TriageItem) -> RepairOutcome:
+        """A limit. Nothing to repair -- the owner's case ONE.
+
+        THEIR RULE, IN THEIR WORDS: "normal retrying should be only when the
+        usage hits its limit". The request was well formed, the credential is
+        good, the model exists; what ran out was allowance, and allowance comes
+        back on its own. There is no edit that makes this call succeed sooner.
+
+        SO THE REPAIR IS TO DO NOTHING, AND TO SAY SO. Before this handler
+        existed a limit fell through to `_escalate`, which reported "no tier-1
+        action exists for this classification" -- filing a GAP IN VESPER'S
+        REPAIR RULES against a provider that was behaving exactly as designed.
+        Measured 2026-09-07 on `claude-advisor`: an exhausted session limit
+        produced a triage item, a repair attempt, and a proposed patch.
+
+        THE GUIDE STILL SAYS SOMETHING USEFUL, because "wait" is not the whole
+        answer when the owner is sharing the account.
+        """
+        return RepairOutcome(
+            item.item_id, TIER1, False,
+            actions=["recorded as a limit that returns on its own; no request "
+                     "was changed and no rung was retired"],
+            guide=[f"{item.provider_id} refused on allowance, not on anything "
+                   f"about the request. It returns when the window rolls.",
+                   "If this rung is shared with something else -- the owner's "
+                   "own use of the same account, another modality on the same "
+                   "key -- the two are competing for one limit, and the fix is "
+                   "a separate credential rather than a change here.",
+                   "Nothing to apply. This item closes itself when the next "
+                   "call succeeds."],
+            note="a limit that resets: retry is the correct and only response")
+
+    def _model_gone(self, item: TriageItem) -> RepairOutcome:
+        """The provider dropped this model. Use another of ITS models.
+
+        THE OWNER'S CASE THREE: "if the provider dropped that model, vesper
+        should mark that model as unavailable and use another one in the same
+        provider". A rung is a (provider, model) pair, so the model going away
+        retires the ROW and says nothing about the account, the credential or
+        the egress class -- all of which are still good.
+
+        `model_gone` IS TERMINAL IN `core/gateway.py`, which is what already
+        stops the row being retried. This handler's job is the other half: to
+        say plainly that the row is gone rather than leaving the ladder one
+        rung shorter for a reason nobody wrote down, and to name what would
+        restore it.
+
+        NOT DONE HERE: editing `provider_supply.toml`. That contract is the
+        owner's, `INV-SELF-1..7` keeps the runtime out of its own definition,
+        and a model substitution chosen unattended is a routing decision made
+        by the thing being routed.
+        """
+        return RepairOutcome(
+            item.item_id, TIER1, False,
+            actions=[f"marked {item.model or 'this model'} unavailable on "
+                     f"{item.provider_id}; the rung is terminal and the ladder "
+                     f"moves to the next row"],
+            guide=[f"{item.provider_id} no longer serves "
+                   f"{item.model or 'that model'}. The account and the "
+                   f"credential are fine -- only the model is gone.",
+                   f"If {item.provider_id} has another model at this tier, add "
+                   f"a row for it in contracts/policy/provider_supply.toml. "
+                   f"That file is the owner's; the runtime does not edit its "
+                   f"own routing.",
+                   "Until then the ladder is one rung shorter at this tier, "
+                   "which is a real reduction in cover rather than a nuisance."],
+            note="the model is gone; the provider is not")
 
     def _auth_failed(self, item: TriageItem) -> RepairOutcome:
         """Rotate to a sibling credential if one exists; otherwise escalate.

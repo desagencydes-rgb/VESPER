@@ -133,6 +133,23 @@ identically until changed. Nothing here invites the owner to act -- it says
 VESPER has recorded it."""
 
 [[line]]
+classification = "model_gone"
+text = "That provider no longer serves that model. Moving to {next_rung}."
+why = """THE PROVIDER IS FINE AND THE MODEL IS NOT, and the sentence has to
+carry that difference or the owner hears an outage. The account, the credential
+and the egress class are all still good; one row of the ladder is gone.
+
+Nothing here asks the owner to act, because nothing is broken yet -- the ladder
+still has cover. What it costs is written out on the board by
+`RepairAgent._model_gone`, which names the contract that would restore the row,
+and that is where a decision belongs rather than in a line read aloud.
+
+ADDED WITH THE CLASSIFICATION ITSELF, 2026-09-07, and the loader refused to
+start until it was -- the same refusal `revoked` records below. A new
+classification without a line is silence at the exact moment the owner is
+waiting to be told something."""
+
+[[line]]
 classification = "revoked"
 text = "That provider was withdrawn mid-task. Moving to {next_rung}."
 why = """A-004.3 revokes providers DURING a run, so this is a live state change

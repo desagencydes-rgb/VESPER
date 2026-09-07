@@ -989,6 +989,58 @@ that guards an OWED endurance run is not a thing to do in passing.
 
 ---
 
+## 9j. WHAT STEP 11 ACTUALLY CHANGED
+
+Recorded because the owner stated this policy twice before it was built, and a
+future session should be able to see what landed without re-deriving it.
+
+**THE CLASSIFIER READS THE TEXT** (`routing/supply.py`). Every non-zero exit
+from a CLI rung was `server_error` unconditionally, and the message was built
+from `cp.stderr` alone — while `claude` answers on STDOUT and leaves stderr
+empty. The record said `claude-advisor exited 1: ` and nothing else. Both
+streams are read now, the reason travels with the classification, and
+`CLI_FAILURE_PATTERNS` maps the text onto the owner's cases. The pattern ORDER
+is load-bearing and asserted: "invalid api key" contains "invalid", and a model
+"no longer available" contains "available".
+
+**A SESSION LIMIT CARRIES A REAL BACKOFF.** `CLI_LIMIT_BACKOFF_MS` is fifteen
+minutes — a floor, not a parse. The gateway's `LONG_WAIT_MS` then moves to the
+next rung immediately rather than sleeping, which is the correct reading of
+"retry": the world will change, but not while anyone waits for it.
+
+**`model_gone` IS A CLASSIFICATION AND IS TERMINAL** (`core/gateway.py`). A
+rung is a (provider, model) pair, so the model going away retires the ROW and
+says nothing about the account. A classification in neither TERMINAL nor
+TRANSIENT falls through to a computed backoff and is RETRIED, which for a
+removed model is a request that cannot succeed, on a timer.
+
+**TWO OF THE FIVE CASES HAD NO HANDLER** (`core/repair.py`). `rate_limited`
+and `model_gone` fell to `_escalate`, which reports "no tier-1 action exists" —
+filing a gap in VESPER's own repair rules against a provider behaving exactly
+as designed. Measured: an exhausted session limit produced a triage item, a
+repair attempt and a proposed patch.
+
+**AND IT REACHES BOTH SURFACES** (`_surface_repair` in the runtime). The board
+gets typed blocks; the talk gets ONE sentence that differs by case. Only on a
+CHANGE, never on the half-hourly keepalive, and the explanation is keyed on the
+item so a rung failing the same way twice updates rather than stacks.
+
+**THE GATE CAUGHT THE THING A NEW CLASSIFICATION BREAKS.**
+`narration-complete` refused to load: every classification the gateway can
+produce needs a spoken line, or the owner gets silence at the moment they are
+waiting to be told something. `model_gone`'s line was added with it.
+
+**WHAT IS NOT DONE.** Case two — "fix the request then send a good one" —
+still stops at PROPOSING a patch to `workspace/`. `INV-SELF-1..7` forbids the
+runtime applying a fix to itself, and that boundary is not being moved on the
+strength of a classifier improvement. The owner's words are "if granted he
+should do it", so the missing piece is the ASKING: a proposed patch needs to
+reach the talk as a question with an answer that authorises applying it. That
+is the next slice of §9d and it belongs to the authority ladder, not to
+routing.
+
+---
+
 ## 10. BUILD ORDER
 
 Each step ends with the §0 gate. **No step begins before the previous one has
@@ -1006,7 +1058,7 @@ been driven against the running surface.**
 | 8 | `CI-127` cross-cutting | red-run on each of its five rules |
 | 9 | **HOST card producer** (§9b) | `CI-130`, live: the card shows a real reading |
 | 10 | **Notes as an agenda source** (§9c) | ✅ DONE 2026-09-07 — `CI-131`, 5 red runs, live: 5 titles, `retrieved_local`, no bodies |
-| 11 | **Provider-failure routing** (§9d) | owner-queued, not started |
+| 11 | **Provider-failure routing** (§9d) | ⚠️ CODE DONE 2026-09-07 — `CI-132` (5 red runs), `CI-133` (6 red runs). NOT yet driven live: see §9h, the rebuild costs the grant trip |
 | 12 | **Island integration** (§9e) | owner-queued LAST, not started |
 | 13 | **Active-Space reading from a background process** (§9f) | open, no decided approach |
 | 14 | **Microphone sensitivity** (§9g) | owner-reported, queued last, MEASURE FIRST |
