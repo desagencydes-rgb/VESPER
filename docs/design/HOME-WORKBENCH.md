@@ -1157,6 +1157,30 @@ see each other's reasoning.
 
 ---
 
+## 9l. ONE GATE IS EXPECTED RED WHILE THE MENU HANDOFF IS OPEN
+
+`chrome-template-renders` compares `home.html` against the generated inline
+fallback byte for byte. The second agent edits `home.html` and is told NOT to
+regenerate the fallback — because `CI-065` would then be checking its copy
+against its own copy, and because a generated file in two agents' diffs is a
+conflict for no benefit.
+
+**So the expected state during the handoff is 140/141, failing only
+`chrome-template-renders`, with the message naming the fallback.** Anything
+else red is a real break.
+
+**Do NOT make the check tolerant of an open handoff.** A gate that knows about
+a temporary workflow is a gate that can be switched off by creating one. The
+sequence at handback is: regenerate, run the gates, expect 141/141.
+
+**Verified in place, 2026-09-07:** codex's first edit landed — 11 insertions,
+5 deletions, both marker pairs intact — and `codex_handoff.py --verify` read
+`IN SCOPE`. The boundary and the gate are reporting different things about the
+same edit, correctly: one asks "did it stay where it was told", the other asks
+"are the two copies of the page identical yet".
+
+---
+
 ## 10. BUILD ORDER
 
 Each step ends with the §0 gate. **No step begins before the previous one has
