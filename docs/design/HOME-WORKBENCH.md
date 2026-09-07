@@ -1116,6 +1116,30 @@ the markup; codex works inside them and nowhere else. That is cheaper than
 branching, because the checks read the whole file and a branch would have to be
 merged before anything could be verified.
 
+**THE BOUNDARY IS A TOOL, NOT A PARAGRAPH.** The owner asked "what if codex
+breaks something?", and a brief cannot answer that — a brief is a request, and
+an agent that misreads one or reasonably decides a file needs touching breaks
+it either way, invisibly, until an unrelated gate goes red.
+`tools/ops/codex_handoff.py` hashes every tracked file at handoff and NAMES
+anything changed outside the agreement afterwards. Proven both directions
+before use: a stray edit to `core/gateway.py` was reported by path, an edit to
+the allowed file was not.
+
+**THREE BACKUPS, EACH FOR A DIFFERENT FAILURE.** A git tag (undo the slice); a
+tarball in `~/VESPER-backups/` **outside the repo**, because the owner asked
+for a copy untouched by codex and anything under the working tree is reachable
+by a careless `git clean` or an agent tidying up; and the agent's own working
+copy, which it makes and must delete — `--verify` fails if it is left behind.
+
+**AND THE BAR IS END TO END, not a rendered label.** Owner: *"we are now fully
+building them end to end, not just icons or designs of just some
+functionnalities in them."* Every shipped item has a real producer and renders
+what it measured, or renders UNAVAILABLE and says why. `INV-HW-2`: a number
+with no producer is not a reading. §9b is the cautionary tale in this same
+document — the HOST card said "no producer" for weeks and the instruction
+printed on it would have deleted `home.json`. The brief tells codex to ship
+FEWER and FINISHED, ordered by what the owner can act on.
+
 **TWO RULES THE SECOND AGENT CANNOT BE EXPECTED TO KNOW, so the brief leads
 with them:**
 

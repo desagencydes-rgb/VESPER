@@ -6,6 +6,65 @@ twelve times in passing. The actual specification is a routed requirements
 corpus of **237 items**, and **88 of them land on the
 surfaces in this brief**. Do not design from the foundation document alone.
 
+## 0. THE PROTOCOL — run these, they are not optional
+
+The owner's words, 2026-09-07: *"what if codex breaks something? ... this
+project is sensitive at this state ... a local backup untouched by codex in
+case something happens, as well as codex should have it's backup but deletes it
+after finishing ... make sure codex does the job, results working end to end,
+and it does not break anything."*
+
+**A BRIEF CANNOT ENFORCE ANY OF THAT, SO IT IS A TOOL.**
+`tools/ops/codex_handoff.py` hashes every tracked file before you start and
+names anything you changed outside the agreement afterwards. It is already
+open. You do not run `--open`.
+
+### Before you touch anything
+
+```
+mkdir -p /tmp/codex-vesper-backup && cp -R app docs core routing tools /tmp/codex-vesper-backup/
+```
+
+**Yours, outside the repo, and DELETE IT when you are done.** A copy of the
+tree inside the tree is how a later session spends an hour editing the wrong
+file — `--verify` fails if it finds one.
+
+### Before you hand back — all three must pass
+
+```
+python3.13 tools/ops/codex_handoff.py --verify
+```
+Must print `IN SCOPE`. If it names a file, you changed something you were not
+given. Revert it; do not argue it was necessary — say so in the handback and
+let the owner decide.
+
+```
+python3.13 tools/ci/checks.py all
+```
+Must print `141/141`. **Not 140.** A gate you did not know about is still a
+gate you broke.
+
+```
+app/VESPER.app/Contents/MacOS/VESPER --chrome-probe
+```
+Must show your surfaces rendered with real content. See §"Done means".
+
+```
+rm -rf /tmp/codex-vesper-backup
+```
+
+### If you break something
+
+```
+git -C /Users/macbook/Projects/VESPER reset --hard handoff/menus/<stamp>
+```
+The tag is printed by `--verify`. There is also a full tarball in
+`~/VESPER-backups/`, outside the repo, for the case `.git` itself is lost.
+**Say what happened.** A reverted mistake that was reported costs an hour; one
+that was quietly fixed costs the next person a day.
+
+---
+
 ## Read these, in this order
 
 | Source | What it holds |
@@ -205,10 +264,52 @@ It is GENERATED from `home.html` by `tools/sync_chrome_fallback.py`, and
 - Motion `cubic-bezier(.32,.72,0,1)`, 220–280 ms
 - Slot hover is specified: `translateY(-6px) scale(1.06)`
 
-## Done means
+## Done means — END TO END, and this is the part that changed
 
-`--chrome-probe` shows the expandable menu and the rail rendered with real
-labels from the lists above, and clicking posts the intended `vesperAct`
-message. The main menu keeps its placeholders until the owner names the eight.
-Hand back the diff; the other session runs the gates, regenerates the fallback,
-and builds once at the end.
+The owner, 2026-09-07: *"we are now fully building them end to end, not just
+icons or designs of just some functionnalities in them, each built one should
+be working end to end."*
+
+**A rendered label is not a delivered item.** For every item you ship:
+
+| | |
+|---|---|
+| **It has a real producer** | the value on screen came from something that measured it, this run |
+| **It renders that value** | not a mock, not a placeholder number, not lorem |
+| **Or it says UNAVAILABLE** | and says WHY, in a sentence |
+| **Its action works** | if it does something, doing it has an observable effect |
+
+**NEVER INVENT A READING. This is `INV-HW-2` and it is enforced.** A number
+with no producer behind it is not a reading, and the absent case must not be
+styled to look like the present case. `core/projection.py` already drops an
+unavailable reading rather than rendering one — follow it.
+
+This exact mistake cost this project a card. The HOST card read *"no producer —
+run home_snapshot.py"* for weeks because the producer existed and nothing
+called it, and the instruction printed on the card would have **overwritten
+`home.json`** and deleted the face, the transcript and the workbench. See
+`HOME-WORKBENCH.md` §9b.
+
+**Producers that already exist — use them, do not write second ones:**
+
+- `core/host_probes.py` — `power_source()`, `battery_ratio()`,
+  `disk_free_ratio()`, `host_health()`, `audio_channels()`,
+  `key_storage_class()`, `tcp_reachable()`, `device_profile()`
+- `core/host.py` — the platform adapter. **Never read a raw platform number
+  in shared logic**: `memorystatus_level` is a BAND on macOS, not a size, and a
+  band meaning "healthy" on one host means "about to fail" on another. That is
+  what `core/host.py` exists to prevent and there is a gate on it.
+- `world.current_host` — carries the probed facts the runtime already holds
+- `home.json` — the contract the page reads. **One poll, one register.** Do not
+  add a second timer or a second state file.
+
+**SHIP FEWER, FINISHED.** Eight items that read real values beat fifty-one
+labels. Order them by what the owner can act on: power, thermal and memory
+first — they change while they are being looked at. If an item has no producer
+and writing one is out of scope, render it UNAVAILABLE with the reason and list
+it in the handback as owed. That is an honest delivery; a fake number is not.
+
+**Hand back:** the diff, the `--verify` output, the `checks.py all` line, the
+`--chrome-probe` output showing real values, and a list of what you shipped
+UNAVAILABLE and why. The other session regenerates the fallback and builds once
+at the end.

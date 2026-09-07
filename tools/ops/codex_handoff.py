@@ -183,9 +183,15 @@ def verify() -> int:
     # AND THE AGENT'S OWN BACKUP MUST BE GONE. The owner asked for it to be
     # deleted after finishing; a stale copy of the tree inside the tree is how
     # a later session edits the wrong file for an hour.
+    # NOT INSIDE `.git`. The first version globbed the whole tree and reported
+    # `.git/refs/heads/backup` -- a perfectly ordinary git BRANCH called
+    # `backup` -- as an agent's leftover directory. A boundary that cries wolf
+    # about the repository's own bookkeeping is one people learn to skim.
     strays = [p for p in REPO.rglob("*")
-              if p.is_dir() and p.name in ("codex-backup", ".codex-backup",
-                                           "backup", ".backup")]
+              if p.is_dir()
+              and ".git" not in p.parts
+              and p.name in ("codex-backup", ".codex-backup",
+                             "backup", ".backup")]
     for p in strays:
         print(f"  LEFTOVER  {p.relative_to(REPO)}  (the agent's own backup, "
               f"not deleted)")
