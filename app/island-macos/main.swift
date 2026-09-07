@@ -1816,6 +1816,14 @@ if args.contains("--home") {
         }
         print("home: waiting for an EMPTY Desktop — switch to VESPER's whenever you like.")
         print("      it refuses to create the ground on a Desktop with your windows on it.")
+        // §9f: before this, VESPER has no `.managed` window anywhere -- only
+        // the island's own `.canJoinAllSpaces` one -- and `fingerprint()`
+        // measured unreliable in exactly that state (Desktop 1's windows read
+        // back while the owner was on Desktop 2). The anchor gives the window
+        // server something to place on the active Space before the first
+        // query, the same placement rule `residency_probe` already measured
+        // for the real ground. Closed on whichever branch ends the poll.
+        let anchor = SpaceWatch.Anchor()
         var announced = false
         var t: Timer?
         t = Timer(timeInterval: 0.5, repeats: true) { timer in
@@ -1833,6 +1841,7 @@ if args.contains("--home") {
             // exactly emptiness, and nothing else: an empty Desktop is fair
             // game whether or not the machine has been used yet.
             timer.invalidate(); t = nil
+            anchor.close()
             print("home: empty Desktop — the ground is created HERE.")
             startHome()
         }
@@ -1844,6 +1853,7 @@ if args.contains("--home") {
             DispatchQueue.main.asyncAfter(deadline: .now() + limit) {
                 guard t != nil else { return }
                 t?.invalidate()
+                anchor.close()
                 let msg = "home: no empty Desktop within \(Int(limit)) s — refusing to take "
                         + "one that is not VESPER's. Nothing was changed.\n"
                 FileHandle.standardError.write(msg.data(using: .utf8)!)

@@ -1313,6 +1313,82 @@ space, and the remaining routed menu items. Its own words: *"Do not call
 
 ---
 
+## 9p. THE MENU HANDOFF BECAME A WORKTREE, AND STEP 13 GOT A DESIGN
+
+Two things done the same session, both continuing work already on record.
+
+**THE HANDOFF'S BOUNDARY TOOL DID NOT SURVIVE ITS OWN FIRST FAILURE.** §9o
+found `codex_handoff.py`'s hole: it compares uncommitted changes to HEAD, and
+once this session ran `git add -A` the second agent's work was committed and
+the guard could no longer see it. The owner's next instruction, 2026-09-07
+evening: *"tell it to work on a backup and leave implementation to the
+original version to you, that way nothing breaks."* Rather than patch the
+guard again, the isolation is now physical — `~/VESPER-codex-menus`, a real
+git worktree on its own branch (`codex/menus-v2`), sharing this repo's object
+store and nothing else. `codex_handoff.py` is retired for this handoff, not
+patched; a tool answering a question that no longer applies is worse than no
+tool, per the finding it was written to fix in the first place.
+
+**VERIFIED BEFORE WRITTEN DOWN, not assumed:** `checks.py all`, both lints,
+and `sync_chrome_fallback.py` all run clean from inside a worktree (`.git` is
+a file there, not a directory — the thing most likely to break a stdlib tool
+that assumes otherwise, and none of these do). `--chrome-probe` works from a
+worktree via the same `cwd`-relative `template()` lookup that makes the
+markup-editing loop fast in the first place. `--probe-shot` hangs
+indefinitely and writes nothing, identically in the primary tree and a
+worktree — not a worktree artifact, and not safe to build the icon-approval
+step on. The metrics bridge (`home.json`'s `rows`, `HomeChrome.metricRows()`,
+`window.__vesperMetrics`) is already a generic `{label, value, at_ms,
+ttl_ms}` list — wiring any of the 51 catalogue items needs no Swift change
+and no build. Full brief: `docs/planning/CODEX-BRIEF-MENUS-v2.md`. Handed to
+the owner to run, 2026-09-07.
+
+**STEP 13 GOT A DESIGN, NOT YET A VERIFIED FIX.** §9f's own two options were
+a helper window or accepting best-effort. Re-read against evidence already in
+this repo rather than tested fresh: `residency_probe` already proved
+`fingerprint()` reliable once a `.managed` window exists — 151 samples,
+foreign-window overlap 0.00 on real switches — and `HomeController.dock`'s
+reconciler (`Home.swift`) reads the same signal, after the ground exists, and
+is correct. The empty-Desktop poll (`--on-empty-desktop`, `main.swift`) is the
+one caller that runs BEFORE any `.managed` window exists — the island's own
+window is `.canJoinAllSpaces`, which gives the window server nothing to anchor
+"this process's active Space" to. That gap, not a general unreliability, is
+the more precise diagnosis §9f's own evidence already supports: Desktop 1 read
+back as "here" while the owner was on Desktop 2, and Desktop 1 is where the
+process would have started before any window of its own existed.
+
+**THE FIX: `SpaceWatch.Anchor`**, a 1×1, alpha-0, non-interactive, explicitly
+`.managed` (not `.canJoinAllSpaces`) window, created before the poll's first
+tick and closed on whichever branch ends it. It borrows a mechanism this repo
+already measured rather than inventing one. Wired into the
+`--on-empty-desktop` loop in `main.swift`.
+
+**COMPILED AND MECHANICALLY EXERCISED, NOT CROSS-DESKTOP PROVEN.** The full
+`island` target compiles clean (`swiftc`, zero errors, pre-existing warnings
+only, unrelated to this change). `app/home-macos/anchor_probe.swift` — new,
+same convention as `residency_probe`/`ground_probe`/`adopt_probe` — creates
+the anchor standalone and reads `fingerprint()` before and after. Run on this
+session's single active Desktop: 2 foreign windows (Safari), identically
+before and after the anchor. That is the expected result and it is not
+evidence either way — before and after can only differ on a Desktop the
+process did NOT start on, and this session has no public way to switch
+Spaces, same limitation `residency_probe`'s own header names.
+
+**THE OWNER-ASK, same shape as `residency_probe`'s:** with something open on
+Desktop 1, switch to a different, empty Desktop, then run
+
+```
+swiftc -swift-version 5 -target arm64-apple-macosx13.0 \
+  app/home-macos/anchor_probe.swift -o /tmp/anchor_probe && /tmp/anchor_probe
+```
+
+and report the two window counts. Zero foreign windows in both readings is
+the fix working; a nonzero "before" that drops to zero "after" is the fix
+being NEEDED and working; a nonzero "after" is the anchor not being enough
+and the theory being wrong. No build, no TCC, no app bundle touched.
+
+---
+
 ## 10. BUILD ORDER
 
 Each step ends with the §0 gate. **No step begins before the previous one has
@@ -1332,8 +1408,8 @@ been driven against the running surface.**
 | 10 | **Notes as an agenda source** (§9c) | ✅ DONE 2026-09-07 — `CI-131`, 5 red runs, live: 5 titles, `retrieved_local`, no bodies |
 | 11 | **Provider-failure routing** (§9d) | ✅ DONE 2026-09-07 — `CI-132` (5 red runs), `CI-133` (10 red runs). Live: real advisor limit read as `rate_limited` with the 15-min floor carried; board surfacing fired; fix-and-resend driven through the real gateway loop, 4096→2048→answered, one repair and never a loop |
 | 12 | **Island integration** (§9e) | ✅ DONE 2026-09-07 — `CI-134`, 5 red runs. Live: Mode `auto`, Ran 5, Changed 4 beside the machine's rows |
-| — | **Main menu + expandable menu** (§9k) | ✅ ACCEPTED 2026-09-07 — instrument tile, rail, searchable history. Host instrumentation still owed (§9o) |
-| 13 | **Active-Space reading from a background process** (§9f) | open, no decided approach |
+| — | **Main menu + expandable menu** (§9k) | ✅ ACCEPTED 2026-09-07 (tile, rail, history) — v2 HANDED TO CODEX 2026-09-07 evening as a worktree (§9p), all 68 catalogue items, `docs/planning/CODEX-BRIEF-MENUS-v2.md` |
+| 13 | **Active-Space reading from a background process** (§9f) | design done, fix compiled (§9p) — `SpaceWatch.Anchor` — awaiting the owner's one-command cross-Desktop read |
 | 14 | **Microphone sensitivity** (§9g) | owner-reported, queued last, MEASURE FIRST |
 | — | **TCC grants die on every build** (§9h) | found by the session, RAISED, awaiting a decision |
 | — | **`f5-acceptance` flakes under load** (§9i) | found by the session, RAISED, awaiting a decision |

@@ -116,6 +116,57 @@ enum SpaceWatch {
         onScreen().contains { $0.number == number }
     }
 
+    // MARK: - The anchor, for when there is no ground window yet
+
+    /// A window whose only job is to exist, so the window server has
+    /// something to answer "which Space is this process on" with.
+    ///
+    /// §9f, measured 2026-09-07: the empty-Desktop poll (`--on-empty-desktop`)
+    /// read Desktop 1's five windows while the owner was on Desktop 2 -- and at
+    /// the moment it asked, VESPER had no `.managed` window anywhere, only the
+    /// island's own `.canJoinAllSpaces` one. `residency_probe` already proved
+    /// `fingerprint()` reliable AFTER a `.managed` window exists: 151 samples,
+    /// foreign-window overlap 0.00 on real switches. `HomeController.dock`'s
+    /// reconciler (`Home.swift`) reads it the same way, after its ground
+    /// exists, and is correct. The gap is only the moment before any `.managed`
+    /// window has been created -- exactly the moment this poll runs in.
+    ///
+    /// So this exists to CLOSE that gap, not to read anything itself: a 1x1,
+    /// alpha-0, non-interactive `.managed` window, ordered onto whichever
+    /// Space is active the instant it is created -- the same placement rule
+    /// `residency_probe` measured for the real ground. Once it exists,
+    /// `fingerprint()` is answering the question this file already proved it
+    /// can answer.
+    ///
+    /// NOT YET CROSS-DESKTOP VERIFIED. Compiles, creates and closes cleanly on
+    /// a single Desktop. The claim this fixes needs the same kind of check
+    /// `residency_probe` needed -- the owner switching Desktops while it runs
+    /// -- because there is no public way to do that from here. See
+    /// `HOME-WORKBENCH.md` §9f for the ask.
+    final class Anchor {
+        private var window: NSWindow?
+
+        init() {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+            w.isReleasedWhenClosed = false
+            w.alphaValue = 0
+            w.ignoresMouseEvents = true
+            w.hasShadow = false
+            w.collectionBehavior = [.managed]   // NOT canJoinAllSpaces -- the whole point
+            w.orderFrontRegardless()
+            window = w
+        }
+
+        /// Idempotent: the poll loop closes this once, on whichever branch it
+        /// takes (found an empty Desktop, or gave up at the deadline).
+        func close() {
+            window?.orderOut(nil)
+            window?.close()
+            window = nil
+        }
+    }
+
     // MARK: - Switching, and why it is a keystroke
 
     /// macOS binds "switch to Desktop N" to a symbolic hotkey, and that is the
