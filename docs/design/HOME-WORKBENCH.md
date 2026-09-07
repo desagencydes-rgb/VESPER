@@ -35,6 +35,33 @@ Anything reported as done without all three is a false report.
 
 ---
 
+## 0b. HOW THIS DOCUMENT IS WORKED
+
+**Owner's instruction, 2026-09-07, and it governs every session from here.**
+This file is the TRACK. It is not a record of a finished chunk; it is the
+thing being executed, and §10's build order is the position marker.
+
+| What happens | What the session does |
+|---|---|
+| The owner adds something, or asks for something | **Append it to the plan**, then keep going from where the track was. |
+| The owner reports something wrong, or a bug | **Fix it**, then resume at exactly the point the track was left. |
+| The session finds a bug or issue the owner has NOT raised | **First** write it into this doc — what it is, why it happens, how to fix it. **Then** raise it with the owner. **Then keep going on the track** without waiting. |
+| The owner reviews that finding and approves it, or proposes a different approach | **Append the outcome** and mark the item **planned**. |
+| The owner says "do it now" | Do it now, mark it **done**, then return to the track where it was left. |
+
+**THE ORDER MATTERS AND IT IS THE POINT.** A finding raised in conversation and
+not written here is a finding that survives exactly as long as the context
+window does. This corpus has lost work that way before -- the whole reason §0
+opens with "it states steps, never intentions". So: **doc first, then the
+owner, then carry on.** Never the reverse, and never "I will write it up
+after".
+
+**AND NOTHING WAITS ON A REPLY.** The owner explicitly does not want the
+session stopping to report. A finding is written, raised, and left; the track
+continues. Approval changes the item's status, not the session's momentum.
+
+---
+
 ## 1. WHAT EXISTS TODAY, AND WHAT THE NEW WORK RIDES ON
 
 Grounding, so nothing below invents a mechanism that already exists.
@@ -722,13 +749,49 @@ also has to stop conflating cases — 2026-09-05's `FileNotFoundError` was filed
 as `bad_request`, so triage recorded VESPER'S OWN DEFECT and the repairer
 proposed a patch to a wire format that was never wrong.
 
-**AND ONE MEASURED TRAP TO CARRY IN.** A rung can fail for a reason that is
-invisible from inside the process: `claude-advisor` returns `server_error`
-because its credential is in the login keychain and a launchd job cannot read
-it. No amount of request-fixing helps, the model was never dropped, and it is
-not a usage limit. It is case four — investigate, explain, ask — and it is the
-example to test the routing against, because it is the one that looks like
-every other case from where the classifier stands.
+**TWO MEASURED TRAPS TO CARRY IN, AND THEY WERE THE SAME SYMPTOM.**
+
+`claude-advisor` returned `server_error` for weeks. It was two different faults
+wearing one classification, and the second only became visible once the first
+was gone.
+
+1. **The credential was unreachable** — fixed 2026-09-06. It lives in the login
+   keychain; a launchd job cannot read it, because the item's ACL names the
+   binaries allowed to read it without prompting and a background job cannot
+   answer a prompt. No amount of request-fixing helps, the model was never
+   dropped, and it was not a usage limit. That is case FOUR — investigate,
+   explain, ask. Fixed with a per-account headless token.
+
+2. **A REAL USAGE LIMIT, STILL CALLED `server_error`** — measured 2026-09-07
+   with the token in place and the runtime's exact environment:
+
+   ```
+   You've hit your session limit · resets 3:50am (Africa/Casablanca)
+   ```
+
+   That is case ONE, the only case where plain retrying is correct — and the
+   classifier calls it a server fault and retries it **ten times** against a
+   limit that resets in hours. The elapsed time is the tell and nothing reads
+   it: 31 ms when the binary could not authenticate, 2,295 ms when it
+   authenticated and was refused.
+
+**SO THE FIRST THING THIS WORK MUST DO IS READ THE CLI'S STDERR.** Both faults
+say plainly what they are — `Not logged in · Please run /login` and `You've hit
+your session limit` — and both arrived as `server_error` because nothing looks
+at the text. A classifier that cannot tell an exhausted subscription from a
+broken wire format cannot route any of the five cases, and every case above
+depends on it. That is step one of §9d, not a detail of it.
+
+**AND THE ADVISOR SHARES THE OWNER'S OWN ACCOUNT.**
+`~/.config/vesper/claude-advisor` is `<owner-email>`, which is also
+the account the owner's own Claude Code runs on — so VESPER's advice competes
+with the owner for one session limit, and the owner hits that limit without
+VESPER having done anything unusual. The separation the contract describes is
+real (`claude-vesper` is a genuinely different account, with its own keychain
+item) but it protects VESPER's ORDINARY WORK, not the owner. Owner's decision,
+recorded 2026-09-07: the advisor stays on their account deliberately. The
+routing should therefore treat an advisor usage limit as expected weather
+rather than as a fault — it is the owner and VESPER sharing a room.
 
 ---
 
@@ -787,6 +850,145 @@ login path is best-effort and the globe is the reliable one. Not decided.
 
 ---
 
+## 9g. THE MICROPHONE HEARS, BUT ONLY IF YOU SHOUT — QUEUED LAST
+
+**Owner, 2026-09-07: "vesper's microphone is working, but it still doesn't hear
+me, i need to be screaming just so it can hear me."** They could not test it
+properly — people were asleep next to them — so the cause is REPORTED, not
+established. Queued after §9e.
+
+**WHAT THE CAPTURE PATH ACTUALLY DOES TODAY** (`app/island-macos/Listener.swift`):
+
+```swift
+let format = input.outputFormat(forBus: 0)
+input.installTap(onBus: 0, bufferSize: 1024, format: format) { buf, _ in
+    req.append(buf)
+}
+```
+
+Whatever the hardware produces is handed straight to the recogniser. **There is
+no gain stage, no normalisation, no level measurement and no automatic gain
+control anywhere in the file.** If the built-in microphone's input level is
+low, the recogniser receives a quiet signal and behaves exactly as reported:
+it works, and only for a raised voice.
+
+**MEASURE BEFORE CHANGING ANYTHING — `INV-HW-2` applies here as much as it does
+to throughput.** Four readings, in this order, and none of them needs the owner
+to speak loudly:
+
+1. **The system input level for the built-in microphone.** If it is low, this
+   is over before it starts and no code changes.
+2. **The RMS of the tap buffers while the owner speaks normally.** `Listener`
+   already has a `diagnose` flag; it prints the transcript and confidence and
+   NOT the level. Add the level. A number here separates "the signal is quiet"
+   from "the signal is fine and the recogniser is strict".
+3. **The confidence values on those same utterances**, which `--diagnose`
+   already prints. Low confidence on a clean loud signal is a different fault
+   from no result at all.
+4. **Whether it is the WAKE WORD or the dictation.** The wake path matches
+   against a fixed vocabulary and the dictation path does not; "it does not
+   hear me" may be one of them and not the other, and they fail for different
+   reasons.
+
+**LIKELY FIXES, IN THE ORDER THEY SHOULD BE TRIED** — each cheap, each
+reversible, none to be applied before the measurement above says which:
+
+- Raise the device input level, if that is what reading 1 shows. No code.
+- Apply gain to the buffer before `req.append`, scaled from a measured RMS
+  target rather than a constant somebody liked.
+- Lower the confidence floor the wake matcher uses, IF reading 3 shows good
+  transcripts being discarded. This is the one to be most careful with: a lower
+  floor is also more false wakes, and `core/floor.py`'s whole design is about
+  not acting on things the owner did not say.
+
+**WHAT MUST NOT CHANGE.** `requiresOnDeviceRecognition = true`. The comment
+above it calls it "THE LINE": the API default is server-side, and turning it
+off would send every word the microphone hears to Apple — egress that bypasses
+`ModelGateway` and therefore the redactor. Nothing about a loudness problem
+justifies touching it.
+
+---
+
+## 9h. EVERY BUILD COSTS THE OWNER A FIVE-GRANT TRIP — FOUND, NOT RAISED BEFORE
+
+**Found by the session, 2026-09-07. Not reported by the owner.** Recorded here
+first, per §0b.
+
+**THE FACT.** `build.sh` re-signs the bundle ad-hoc on every build. macOS keys
+TCC grants to the code signature's cdhash, so **every build makes VESPER a new
+application to TCC and all five grants revert to `notDetermined`.** Already
+measured and written into `CLAUDE.md`: granted at cdhash `6bd67687…`,
+`notDetermined` at `59b04339…` five builds later.
+
+**WHY IT NOW MATTERS MORE THAN IT DID.** It used to cost one grant. It now
+costs five -- microphone, speech recognition, calendar, reminders,
+accessibility -- across two `open -n` commands and one manual System Settings
+step. Notes (§9c) makes it six. The owner has already done this trip three
+times in two days, and **every remaining item on the build order requires a
+rebuild**: §9c adds an Info.plist key and a Swift file, §9d changes the bundled
+runtime, §9e is Swift. So the cost is not occasional, it is per-item.
+
+**THE HONEST OPTIONS, none of them free:**
+
+1. **A Developer ID certificate** ($99/yr Apple Developer Program). A stable
+   signing identity means a stable TCC identity, and grants survive every
+   build. This is the actual fix and it is the owner's money and their Apple ID
+   to decide about.
+2. **BATCH THE BUILDS.** Change nothing structural; do all repo work for
+   several plan items, build ONCE at the end, and spend one grant trip for the
+   batch. Costs nothing but delays live verification -- and §0's rule 2 says a
+   step is not finished until it has been driven against the running surface,
+   so items would be "code complete, unverified" until the batch build. That is
+   a real weakening of the gate and must be stated when it is used.
+3. **Do nothing** and pay the trip per item.
+
+**WHAT IS NOT AN OPTION.** A self-signed certificate. It gives the stable TCC
+identity AND makes launchd refuse to spawn the login item with
+`OS_REASON_CODESIGNING` -- already tried, already in `CLAUDE.md`, and the
+keychain still holds the unused cert from that attempt.
+
+**RECOMMENDED:** option 2 as the working default -- batch the builds, state
+plainly which items are code-complete-but-unverified at any moment -- and
+option 1 raised to the owner as the thing that actually ends it.
+
+**STATUS: raised, awaiting the owner's decision.**
+
+---
+
+## 9i. `f5-acceptance` FLAKES UNDER THE FULL SUITE — FOUND, NOT RAISED BEFORE
+
+**Found by the session, 2026-09-07. Not reported by the owner.**
+
+`checks.py all` reported `f5-acceptance` FAILED with *"a heartbeat is emitted
+per tick, durably — 6 heartbeat events"*. Run on its own, seconds later, the
+same gate PASSES — twice, with the runtime up both times, and
+`run_f5_acceptance.py` directly reports `A-029-RT PASS`.
+
+**WHY IT IS A FLAKE AND NOT A REGRESSION.** A-029-RT counts heartbeats over a
+COMPRESSED simulated clock and asserts the count matches a declared cadence
+(~240 in the window). Under the full suite it saw 6. A count that low is not a
+broken heartbeat; it is a gate that did not get enough CPU to tick while a
+hundred and thirty-eight other checks were running beside it.
+
+**WHY THAT MATTERS MORE THAN THE FLAKE.** This gate's own text says the literal
+24-hour endurance run is OWED and that the compressed run stands in for it. A
+compressed run whose result depends on machine load is not standing in for
+anything — it will pass on a quiet machine and fail on a busy one, and both
+answers are about the load rather than about autonomy. **A gate that flakes is
+not evidence, and this tree's rule is that a check which cannot fail for its
+own reason is not a check.**
+
+**THE FIX IS NOT A RETRY.** Re-running until green is how a flaky gate becomes
+permanent. Either the cadence assertion is made independent of wall-clock
+scheduling — the simulated clock should be driven by the test, not raced
+against — or the gate declares itself unrunnable under load and says so
+instead of failing.
+
+Not fixed here: it is not on the owner's list, and changing an acceptance gate
+that guards an OWED endurance run is not a thing to do in passing.
+
+---
+
 ## 10. BUILD ORDER
 
 Each step ends with the §0 gate. **No step begins before the previous one has
@@ -803,9 +1005,12 @@ been driven against the running surface.**
 | 7 | **Command buttons** (§7) | live: Run runs, Paste does not |
 | 8 | `CI-127` cross-cutting | red-run on each of its five rules |
 | 9 | **HOST card producer** (§9b) | `CI-130`, live: the card shows a real reading |
-| 10 | **Notes as an agenda source** (§9c) | owner-queued, not started |
+| 10 | **Notes as an agenda source** (§9c) | ✅ DONE 2026-09-07 — `CI-131`, 5 red runs, live: 5 titles, `retrieved_local`, no bodies |
 | 11 | **Provider-failure routing** (§9d) | owner-queued, not started |
 | 12 | **Island integration** (§9e) | owner-queued LAST, not started |
 | 13 | **Active-Space reading from a background process** (§9f) | open, no decided approach |
+| 14 | **Microphone sensitivity** (§9g) | owner-reported, queued last, MEASURE FIRST |
+| — | **TCC grants die on every build** (§9h) | found by the session, RAISED, awaiting a decision |
+| — | **`f5-acceptance` flakes under load** (§9i) | found by the session, RAISED, awaiting a decision |
 
 Steps 2, 3 and 4 are what the owner named as the starting point.

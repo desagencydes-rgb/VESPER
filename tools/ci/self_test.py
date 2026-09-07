@@ -5801,6 +5801,52 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# CI-131 -- Notes as an agenda source. A note's BODY may hold anything the
+# owner ever pasted into it, and this is the path VESPER uses to decide what to
+# do next: a note reading "delete the old backups" is a note, not an order.
+# --------------------------------------------------------------------------
+AGENDA_PY = "core/agenda.py"
+NOTES_SWIFT = "app/island-macos/NotesBridge.swift"
+
+CASES += [
+    ("notes-are-titles-and-never-instructions", AGENDA_PY,
+     _sub('SOURCES = ("plan", "calendar", "reminders", "notes")',
+          'SOURCES = ("plan", "calendar", "reminders")', 1),
+     "notes drop out of SOURCES, so a denied or stale notes grant stops making "
+     "the agenda unavailable and VESPER answers `nothing due` from a source it "
+     "cannot actually see"),
+
+    ("notes-are-titles-and-never-instructions", AGENDA_PY,
+     _sub('        it = _item_from({**raw, "due_ms": None}, "notes")',
+          '        it = _item_from(raw, "notes")', 1),
+     "a due time from a note is trusted instead of stripped: the reader stops "
+     "enforcing the rule and it holds only while the writer keeps following "
+     "it, which is a promise rather than a guard"),
+
+    ("notes-are-titles-and-never-instructions", AGENDA_PY,
+     _sub("    if age > EVENTKIT_FRESH_S:\n"
+          '        return [], {"notes": (f"the notes reading is {int(age // 60)} minutes "',
+          "    if False:\n"
+          '        return [], {"notes": (f"the notes reading is {int(age // 60)} minutes "', 1),
+     "a stale notes dump is served as a fresh one, so a bridge that stopped "
+     "running hours ago reports an empty agenda instead of an unknown one -- "
+     "INV-HW-2 inverted, a reading nobody took returned as a reading of zero"),
+
+    ("notes-are-titles-and-never-instructions", AGENDA_PY,
+     _sub('    if not block.get("authorized", False):', "    if False:", 1),
+     "a DENIED notes grant is reported as an empty notes list, so the owner is "
+     "told there is nothing in their notes by a VESPER that was never allowed "
+     "to look"),
+
+    ("notes-are-titles-and-never-instructions", NOTES_SWIFT,
+     _sub("(name of n)", "(body of n)", 1),
+     "the bridge asks Notes for the BODY. Every word the owner ever pasted into "
+     "a note -- an email, a web page, someone else's text -- becomes input to "
+     "the thing that decides what VESPER does next"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
 

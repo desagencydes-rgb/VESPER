@@ -50,6 +50,10 @@ PLAN_PATH = AGENDA_DIR / "plan.json"
 # one is VESPER's and one is the owner's, and a bug in the bridge must not be
 # able to eat what VESPER wrote down.
 EVENTKIT_PATH = AGENDA_DIR / "eventkit.json"
+# Written by the app's Notes bridge, which reaches Notes over Apple Events --
+# a different permission class from EventKit and a different trust class for
+# what comes back, which is why it is a separate file and a separate reader.
+NOTES_PATH = AGENDA_DIR / "notes.json"
 
 # How old the EventKit dump may be before it stops counting as knowledge. The
 # bridge refreshes on a timer; past this the answer is "I do not know", never
@@ -71,7 +75,7 @@ LEAD_S = 15 * 60
 # ranking would let a distant deadline outrank a near one on importance alone.
 HORIZON_S = 24 * 60 * 60
 
-SOURCES = ("plan", "calendar", "reminders")
+SOURCES = ("plan", "calendar", "reminders", "notes")
 
 
 @dataclass
@@ -224,6 +228,61 @@ def add_to_plan(title: str, *, due_ms: int | None = None,
     return item
 
 
+def read_notes(path: pathlib.Path | None = None,
+               now_s: float | None = None) -> tuple:
+    """Note TITLES, as the app's bridge last saw them.
+
+    SEPARATE FROM `read_eventkit` BECAUSE THE SOURCE IS SEPARATE. Calendar and
+    reminders come from EventKit under one grant and fail together; Notes comes
+    over Apple Events under its own Automation grant and fails on its own. One
+    reader over both would report a denied Notes grant as a calendar outage.
+
+    TITLES ONLY -- see `NotesBridge.swift` for why. A note's BODY may hold
+    anything the owner ever pasted, and this is the path VESPER uses to decide
+    what to do next. Every row carries `trust` so nothing downstream can forget
+    that even the title is retrieved rather than authored here.
+
+    NO `due_ms` EVER, even if a future bridge sent one. A note has a
+    modification date, not a deadline, and `score()` ranks an undated item
+    below anything dated -- which is where "sometime" belongs. Inventing
+    urgency from a modification date would put whatever the owner touched this
+    morning at the top of their agenda every single day.
+    """
+    p = path or NOTES_PATH
+    now = now_s if now_s is not None else time.time()
+    if not p.exists():
+        return [], {"notes": ("the notes bridge has not run; VESPER has no "
+                              "reading of your notes")}
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as exc:                            # noqa: BLE001
+        return [], {"notes": f"the notes dump could not be read ({type(exc).__name__})"}
+    try:
+        age = now - float(d.get("written_at_s") or 0)
+    except (TypeError, ValueError):
+        age = float("inf")
+    if age > EVENTKIT_FRESH_S:
+        return [], {"notes": (f"the notes reading is {int(age // 60)} minutes "
+                              f"old, past the {EVENTKIT_FRESH_S // 60} minute "
+                              f"freshness window")}
+    block = d.get("notes")
+    if not isinstance(block, dict):
+        return [], {"notes": "the bridge reported nothing for this source"}
+    if not block.get("authorized", False):
+        return [], {"notes": str(block.get("why")
+                                 or "VESPER has not been granted access to notes")}
+    items = []
+    for raw in block.get("items", []):
+        if not isinstance(raw, dict):
+            continue
+        # THE DUE TIME IS STRIPPED HERE, not trusted to be absent. The reader
+        # enforces the rule; the writer merely happens to follow it today.
+        it = _item_from({**raw, "due_ms": None}, "notes")
+        if it is not None:
+            items.append(it)
+    return items, {}
+
+
 def read_eventkit(path: pathlib.Path | None = None,
                   now_s: float | None = None) -> tuple:
     """Calendar and reminders, as the app's bridge last saw them.
@@ -272,8 +331,15 @@ def read_eventkit(path: pathlib.Path | None = None,
 
 def build(*, plan_path: pathlib.Path | None = None,
           eventkit_path: pathlib.Path | None = None,
+          notes_path: pathlib.Path | None = None,
           now_s: float | None = None) -> Agenda:
-    """Every source, with its own reachability recorded."""
+    """Every source, with its own reachability recorded.
+
+    EACH SOURCE FAILS ON ITS OWN. Notes reaches VESPER over Apple Events under
+    a separate Automation grant; folding it into the EventKit reader would
+    report a denied Notes grant as a calendar outage, and `quiet()` would then
+    stay False for a reason it names wrongly.
+    """
     items, unavailable = [], {}
     plan_items, plan_bad = read_plan(plan_path)
     items.extend(plan_items)
@@ -282,6 +348,9 @@ def build(*, plan_path: pathlib.Path | None = None,
     ek_items, ek_bad = read_eventkit(eventkit_path, now_s=now_s)
     items.extend(ek_items)
     unavailable.update(ek_bad)
+    nt_items, nt_bad = read_notes(notes_path, now_s=now_s)
+    items.extend(nt_items)
+    unavailable.update(nt_bad)
     return Agenda(items=[i for i in items if not i.done], unavailable=unavailable)
 
 

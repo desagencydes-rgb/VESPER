@@ -27,7 +27,7 @@ HOME_SRC=../home-macos
 # CGWindowListCreateImage obsoleted=15.0. Every call above 13.0 in these
 # sources is already behind #available, so the floor costs nothing.
 swiftc -O -swift-version 5 -target arm64-apple-macosx13.0 \
-  main.swift FaceRenderer.swift Behaviour.swift SpeechConsent.swift AgendaBridge.swift Listener.swift WakeWord.swift FnTrigger.swift \
+  main.swift FaceRenderer.swift Behaviour.swift SpeechConsent.swift AgendaBridge.swift NotesBridge.swift Listener.swift WakeWord.swift FnTrigger.swift \
   "$HOME_SRC/Home.swift" "$HOME_SRC/HomeAmbience.swift" "$HOME_SRC/SpaceWatch.swift" \
   "$HOME_SRC/HomeVerify.swift" "$HOME_SRC/GlassGuard.swift" \
   "$HOME_SRC/HomeChrome.swift" "$HOME_SRC/HomeSurfaces.swift" "$HOME_SRC/RuntimeHost.swift" "$HOME_SRC/HomeCost.swift" \
@@ -134,6 +134,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>NSCalendarsFullAccessUsageDescription</key><string>VESPER reads your calendar so it knows what is coming up and when to bring it to you. It never writes to it.</string>
   <key>NSRemindersUsageDescription</key><string>VESPER reads your reminders so it can rank what is due against everything else you have asked of it.</string>
   <key>NSRemindersFullAccessUsageDescription</key><string>VESPER reads your reminders so it can rank what is due against everything else you have asked of it.</string>
+  <key>NSAppleEventsUsageDescription</key><string>VESPER reads the TITLES of your recent notes so it can rank them alongside your calendar and reminders. It never reads a note's contents.</string>
 </dict>
 </plist>
 PLIST
@@ -239,6 +240,11 @@ cat > "$APP/Contents/Library/LaunchAgents/$ID.agenda.plist" <<PLIST
   <key>ProgramArguments</key><array>
     <string>$APP/Contents/MacOS/VESPER</string>
     <string>--agenda-dump</string>
+    <!-- THE NOTES DUMP RIDES THE SAME AGENT, not a sixth one. Both write a
+         freshness-stamped file the runtime reads, both are cheap, and both go
+         stale on the same clock -- `EVENTKIT_FRESH_S`. A separate agent would
+         be a second thing to notice when one of them stops. -->
+    <string>--notes-dump</string>
   </array>
   <key>WorkingDirectory</key><string>$REPO</string>
   <key>RunAtLoad</key><true/>

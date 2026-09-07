@@ -1203,6 +1203,13 @@ if args.contains("--speech-consent") {
 // VESPER's face over the owner's Desktop, and because the runtime cannot ask
 // for these -- a child interpreter does not inherit this bundle's right to
 // prompt.
+// Notes: a SEPARATE grant from the calendar's, so a separate set of modes.
+// Apple Events / Automation, consented per target app -- see NotesBridge.swift
+// for why titles only, and why the event has to originate in this process.
+if args.contains("--notes-status") { NotesBridge.status(); exit(0) }
+if args.contains("--notes-consent") { NotesBridge.requestConsent(); exit(0) }
+if args.contains("--notes-dump") { NotesBridge.dump(); exit(0) }
+
 if args.contains("--agenda-status") {
     agendaStatus()
     exit(0)

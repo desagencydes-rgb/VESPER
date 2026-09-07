@@ -2537,6 +2537,23 @@ CHROME_SWIFT = "app/home-macos/HomeChrome.swift"
 
 
 
+
+def _swift_code(src: str) -> str:
+    """Swift with its comments removed.
+
+    A GREP CANNOT TELL AN INSTRUCTION FROM A SENTENCE ABOUT ONE, and this file
+    has now been bitten by that three times: a `// NEVER innerHTML` comment
+    turned three chrome checks red, and `NotesBridge`'s own header -- which
+    explains at length why it does NOT shell out to `osascript` -- failed the
+    check asserting it does not. The rule the comment documents was being
+    followed perfectly each time.
+
+    Line comments only. Swift has block comments but this tree does not use
+    them, and a naive block stripper would eat a `/*` inside a string literal.
+    """
+    return "\n".join(re.sub(r"//.*$", "", ln) for ln in src.split("\n"))
+
+
 def _js_body(src: str, opener: str) -> str:
     """One JavaScript function's body, brace-balanced, with comments removed.
 
@@ -14297,6 +14314,162 @@ def check_the_terminal_is_the_owners() -> Result:
            "unsandboxed, and reaped when idle")
     return r
 
+
+def check_notes_are_titles_and_never_instructions() -> Result:
+    """Notes reach the agenda as titles, undated, and marked as retrieved.
+
+    THE OWNER'S LOOP has always been described over "calendar, notes, plans" --
+    it is the first sentence of `core/agenda.py`. `SOURCES` was
+    `("plan", "calendar", "reminders")`, so notes appeared in that docstring
+    and NOWHERE ELSE in the tree: no reader, no bridge, no usage description.
+    A docstring naming a source that does not exist is the defect this corpus
+    opens every document by warning about.
+
+    THE BODY IS NEVER READ, AND THAT IS THE SAFETY ARGUMENT. A calendar entry
+    was written by the owner. A note's BODY may hold anything they ever pasted
+    -- a web page, an email, someone else's text -- arriving on the path VESPER
+    uses to decide what to do next. A note saying "delete the old backups" is a
+    note, not an order. Reading only the TITLE removes the question instead of
+    answering it carefully, and a careful answer would have to hold forever.
+
+    AND A NOTE IS NEVER DUE. It has a modification date, not a deadline.
+    Inventing urgency from one would put whatever the owner touched this
+    morning at the top of their agenda every single day.
+    """
+    r = Result("notes-are-titles-and-never-instructions")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core import agenda
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"core.agenda does not import: {exc!r}")
+        return r
+    import json as _j, tempfile as _t, time as _time, pathlib as _pl
+
+    if "notes" not in agenda.SOURCES:
+        r.err(f"`notes` is not in SOURCES {agenda.SOURCES}, so the source the "
+              f"module's own docstring promises still does not exist")
+
+    with _t.TemporaryDirectory() as d:
+        dd = _pl.Path(d)
+        nf, ef, pf = dd / "notes.json", dd / "ek.json", dd / "plan.json"
+
+        # 1. A DUE TIME IS STRIPPED BY THE READER, not merely absent from the
+        #    writer. The reader enforces the rule; the bridge happens to follow
+        #    it today and a future one might not.
+        nf.write_text(_j.dumps({"written_at_s": _time.time(), "notes": {
+            "authorized": True, "items": [
+                {"item_id": "notes:F/Buy milk", "title": "Buy milk",
+                 "importance": "high", "due_ms": 1, "trust": "retrieved_local"}]}}))
+        items, bad = agenda.read_notes(nf)
+        if bad:
+            r.err(f"an authorized dump was reported unavailable: {bad}")
+        elif not items:
+            r.err("an authorized dump with one note produced no items")
+        else:
+            it = items[0]
+            if it.due_ms is not None:
+                r.err(f"a note arrived with due_ms={it.due_ms}. A note has a "
+                      f"modification date, not a deadline -- dating one puts "
+                      f"whatever was touched this morning at the top of the "
+                      f"agenda every day.")
+            if it.source != "notes":
+                r.err(f"the item's source is {it.source!r}")
+
+        # 2. A DENIED SOURCE IS NAMED, AND IS NOT SILENCE. "I have nothing for
+        #    you" and "I could not see your notes" must not sound the same.
+        nf.write_text(_j.dumps({"written_at_s": _time.time(), "notes": {
+            "authorized": False, "why": "not allowed to control Notes"}}))
+        items, bad = agenda.read_notes(nf)
+        if items:
+            r.err("a denied source still produced items")
+        if "notes" not in bad:
+            r.err("a denied notes source is not reported as unavailable, so "
+                  "`quiet()` would call it silence")
+        a = agenda.build(plan_path=pf, eventkit_path=ef, notes_path=nf)
+        if a.quiet(int(_time.time() * 1000)):
+            r.err("the agenda reports itself QUIET while a source is "
+                  "unreachable -- 'nothing to do' and 'I could not look' "
+                  "collapsed into one silence")
+
+        # 3. NOTES FAIL ON THEIR OWN. Folding them into the EventKit reader
+        #    would report a denied Automation grant as a calendar outage, and
+        #    the owner would go looking in the wrong place.
+        if set(bad) != {"notes"}:
+            r.err(f"a notes failure reported other sources too: {sorted(bad)}")
+
+        # 4. STALE IS UNAVAILABLE, NOT EMPTY. INV-HW-2: a reading nobody took
+        #    is not a reading of zero.
+        nf.write_text(_j.dumps({
+            "written_at_s": _time.time() - agenda.EVENTKIT_FRESH_S - 60,
+            "notes": {"authorized": True, "items": [
+                {"item_id": "notes:F/old", "title": "old"}]}}))
+        items, bad = agenda.read_notes(nf)
+        if items or "notes" not in bad:
+            r.err("a stale notes dump was treated as a fresh empty one")
+
+        # 5. A MISSING FILE IS ALSO UNAVAILABLE, and says the bridge has not
+        #    run rather than that there are no notes.
+        items, bad = agenda.read_notes(dd / "absent.json")
+        if items or "notes" not in bad:
+            r.err("a missing dump was treated as an empty agenda")
+
+    # 6. THE BRIDGE NEVER ASKS FOR THE BODY. Structural, and it is the whole
+    #    containment: everything else here is about ranking, this is about what
+    #    crosses the boundary at all.
+    nb = REPO / "app" / "island-macos" / "NotesBridge.swift"
+    if not nb.is_file():
+        r.err("NotesBridge.swift is gone; notes have no source")
+        return r
+    src = nb.read_text(encoding="utf-8")
+    script_body = _swift_code(src)
+    script_body = script_body[script_body.find("set cutoff"):
+                              script_body.find("static func authorized")]
+    for forbidden in ("body of", "plaintext of", "get body"):
+        if forbidden in script_body:
+            r.err(f"the Notes script asks for {forbidden!r}. A note's body may "
+                  f"hold anything the owner ever pasted, and this is the path "
+                  f"VESPER uses to decide what to do next.")
+    if "name of n" not in script_body:
+        r.err("the script no longer reads the note's name, which is the only "
+              "thing it is supposed to read")
+
+    # 7. AND THE EVENT ORIGINATES IN VESPER. Spawning `osascript` would hand
+    #    the Automation grant to the helper's ancestry instead of to VESPER --
+    #    the same mistake `--speech-consent` documents for TCC.
+    code = _swift_code(src)
+    if "osascript" in code:
+        r.err("the bridge shells out to osascript. TCC attributes an Apple "
+              "Event to the responsible process, so the grant would belong to "
+              "the helper rather than to VESPER.")
+    if "NSAppleScript" not in code:
+        r.err("the bridge does not use NSAppleScript in process")
+
+    # 8. IT IS REACHED BY SOMETHING. Seventh instance of built-and-called-by-
+    #    nothing in this tree; the check exists because the shape recurs.
+    build_sh = (REPO / "app" / "island-macos" / "build.sh").read_text(encoding="utf-8")
+    if "--notes-dump" not in build_sh:
+        r.err("nothing runs `--notes-dump`: the bridge is built, correct, and "
+              "reached by nothing, so notes.json is never refreshed")
+    if "NSAppleEventsUsageDescription" not in build_sh:
+        r.err("the bundle declares no Apple Events usage description, so macOS "
+              "kills the process on the first Notes event")
+    if "NotesBridge.swift" not in build_sh:
+        r.err("NotesBridge.swift is not compiled into the app")
+
+    # 9. EVERY ROW CARRIES ITS TRUST CLASS, so a later consumer cannot forget
+    #    that even a title is retrieved rather than authored here.
+    if '"trust": "retrieved_local"' not in src:
+        r.err("rows do not carry a trust class")
+
+    r.note("notes reach the agenda as titles only -- the script never asks for "
+           "a body -- undated by the reader rather than by the writer's good "
+           "manners, marked retrieved_local, failing on their own rather than "
+           "with the calendar, unavailable when stale or missing rather than "
+           "empty, sent as an in-process Apple Event so the grant belongs to "
+           "VESPER, and refreshed by an agent that actually runs")
+    return r
+
 def check_loop_observes_and_is_bounded() -> Result:
     """VESPER can take a second step, and every way of not stopping is bounded.
 
@@ -20511,6 +20684,7 @@ CHECK_FNS = {
     "auto-mode-does-not-ask-and-does-not-overreach": check_auto_mode_does_not_ask_and_does_not_overreach,
     "changes-are-shown-with-their-source": check_changes_are_shown_with_their_source,
     "the-terminal-is-the-owners": check_the_terminal_is_the_owners,
+    "notes-are-titles-and-never-instructions": check_notes_are_titles_and_never_instructions,
     "taint-ceiling-binds-the-act-path": check_taint_ceiling_binds_the_act_path,
     "gated-subsystems-are-reachable": check_gated_subsystems_are_reachable,
     "f0-acceptance": check_f0_acceptance,
