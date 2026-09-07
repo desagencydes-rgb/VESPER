@@ -5946,6 +5946,34 @@ CASES += [
 ]
 
 
+# The owner's correction, 2026-09-07: a malformed request is VESPER's own and
+# is fixed and re-sent silently, not proposed as a patch and not spoken.
+CASES += [
+    ("a-provider-failure-reaches-the-owner", GATEWAY_PY,
+     _sub("                    if cls == \"bad_request\" and not repaired:", "                    if False:", 1),
+     "the gateway stops correcting its own malformed request: `bad_request` is "
+     "TERMINAL, so the rung is abandoned on a call VESPER built wrong and the "
+     "repairer files a PATCH for something one corrected field away from "
+     "working"),
+
+    ("a-provider-failure-reaches-the-owner", GATEWAY_PY,
+     _sub("                            repaired = True\n", "", 1),
+     "the one-shot bound is gone, so a provider that rejects the corrected "
+     "request is corrected and re-sent again -- an added attempt becomes a "
+     "loop against a rung that will never accept it"),
+
+    ("a-provider-failure-reaches-the-owner", RUNTIME_PY,
+     _sub('SILENT_ON_THE_TALK = ("bad_request",)', "SILENT_ON_THE_TALK = ()", 1),
+     "VESPER announces its own bookkeeping: a request it malformed and then "
+     "corrected is read aloud as though the owner had something to decide"),
+
+    ("a-provider-failure-reaches-the-owner", RUNTIME_PY,
+     _sub("    if kind in SILENT_ON_THE_TALK:\n        return\n", "", 1),
+     "the silence list is consulted by nothing -- present, correct, and "
+     "reached by no code path"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
 

@@ -330,6 +330,10 @@ def _metric_rows():
 
 
 
+# Failures VESPER caused and can answer itself. They reach the board and the
+# actions column; they never reach the voice.
+SILENT_ON_THE_TALK = ("bad_request",)
+
 def _surface_repair(bench, transcript: list, home, item, out) -> None:
     """Put a provider failure where the owner can see it, and say one line.
 
@@ -372,10 +376,19 @@ def _surface_repair(bench, transcript: list, home, item, out) -> None:
                        f"yours to fix rather than mine. The board has the steps.",
         "model_gone": f"{rung} no longer serves that model. I have dropped the "
                       f"rung and written down what would restore it.",
-        "bad_request": f"I was malforming the request to {rung}. The fix is "
-                       f"written out on the board for you to look at.",
     }.get(kind, f"{rung} is failing in a way I do not have a rule for. I have "
                 f"written down what I saw.")
+    # VESPER'S OWN MISTAKES DO NOT GO TO THE TALK.
+    #
+    # Owner, 2026-09-07: a malformed request "it's vesper's problem in the first
+    # place ... it only shows up in explanations, actions, and everywhere
+    # necessary". The board still gets the whole of it -- what was rejected,
+    # what was changed, whether it worked -- because a silent correction nobody
+    # can inspect is the thing this tree refuses everywhere else. What it does
+    # not get is a sentence read aloud, because there is nothing for the owner
+    # to decide.
+    if kind in SILENT_ON_THE_TALK:
+        return
     transcript.append({"who": "vesper", "source": "vesper", "certain": True,
                        "text": said, "id": item.item_id})
     del transcript[:-CONVERSATION_MAX]

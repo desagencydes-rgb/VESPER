@@ -353,6 +353,86 @@ class ModelGateway:
         out["n_predict"] = eff.max_tokens
         return eff, out
 
+    # What a provider's "that request was malformed" can be FIXED BY, here,
+    # now, without anyone being asked.
+    #
+    # THE OWNER'S CORRECTION, 2026-09-07: "vesper doesn't propose a fix, it's
+    # vesper's problem in the first place ... vesper should either fix it and
+    # resend the request without actually saying it, it only shows up in
+    # explanations, actions, and everywhere necessary."
+    #
+    # AND THEY WERE RIGHT ABOUT THE INVARIANT TOO. `INV-SELF-1..7` is about the
+    # runtime editing its own SOURCE, and it was being cited to refuse
+    # something else entirely: building the next request correctly. Constructing
+    # a well-formed call is not self-modification, it is the job. The proposal
+    # path still exists and is now what happens when the request CANNOT be
+    # repaired -- a genuine defect in an adapter -- rather than the first answer
+    # to every malformed call.
+    #
+    # EACH ENTRY IS (needles, what to change, how to say it). Keyed on what the
+    # provider SAID, which is only readable at all because the CLI classifier
+    # learned to capture it.
+    REQUEST_REPAIRS: tuple = (
+        (("context length", "too many tokens", "maximum context",
+          "reduce the length", "max_tokens is too large", "exceeds the limit"),
+         "shrink", "asked for fewer tokens than the provider will accept"),
+        (("temperature", "top_p", "top_k"),
+         "drop_sampling", "dropped the sampling knobs it would not take"),
+        (("unknown option", "unrecognized argument", "unexpected keyword",
+          "unsupported parameter", "invalid parameter", "not supported"),
+         "drop_extras", "dropped the options it does not understand"),
+        (("system", "system prompt", "system role"),
+         "fold_system", "folded the preamble into the prompt instead of "
+                        "sending it as a system turn"),
+    )
+
+    @staticmethod
+    def _repair_request(options: dict, said: str) -> tuple:
+        """One corrective edit to the request, or `(None, "")`.
+
+        RETURNS THE CHANGE IT MADE, because this happens without telling the
+        owner and a silent change nobody can inspect afterwards is the thing
+        this tree refuses everywhere else. The sentence goes to the board and
+        the actions column; it does not go to the talk, because VESPER
+        correcting its own call is not news the owner has to act on.
+        """
+        low = (said or "").lower()
+        for needles, how, told in ModelGateway.REQUEST_REPAIRS:
+            if not any(n in low for n in needles):
+                continue
+            out = dict(options or {})
+            if how == "shrink":
+                cur = int(out.get("max_tokens") or out.get("n_predict") or 0)
+                if cur <= 1:
+                    continue                     # nothing left to give back
+                new = max(1, cur // 2)
+                if "max_tokens" in out:
+                    out["max_tokens"] = new
+                if "n_predict" in out:
+                    out["n_predict"] = new
+                return out, f"{told} ({cur} -> {new})"
+            if how == "drop_sampling":
+                gone = [k for k in ("temperature", "top_p", "top_k") if k in out]
+                if not gone:
+                    continue
+                for k in gone:
+                    out.pop(k, None)
+                return out, f"{told}: {', '.join(gone)}"
+            if how == "drop_extras":
+                keep = {"max_tokens", "n_predict", "system", "history"}
+                gone = [k for k in out if k not in keep]
+                if not gone:
+                    continue
+                for k in gone:
+                    out.pop(k, None)
+                return out, f"{told}: {', '.join(sorted(gone))}"
+            if how == "fold_system":
+                if not out.get("system"):
+                    continue
+                out["_fold_system"] = True
+                return out, told
+        return None, ""
+
     @staticmethod
     def _grow_budget(options: dict, effort: Effort) -> dict:
         """Retry an empty answer with a LARGER budget, not the same one.
@@ -843,6 +923,10 @@ class ModelGateway:
             # Grown in place when an empty answer is retried, so the SECOND
             # attempt on this rung is not a byte-identical repeat of the first.
             attempt_options = dict(call_options)
+            # PER RUNG, NOT PER REQUEST. Each provider gets one chance to have
+            # its own complaint answered -- a body one vendor rejects is often
+            # exactly what the next one wants.
+            repaired = False
 
             for i in range(max_attempts_per_provider):
                 if budget <= 0:
@@ -892,6 +976,41 @@ class ModelGateway:
                     delay = None if permanent else self._retry_delay_ms(cls, i, hint)
                     if answered_empty:
                         attempt_options = self._grow_budget(attempt_options, effort)
+                    # A MALFORMED REQUEST IS OURS. FIX IT AND SEND A GOOD ONE.
+                    #
+                    # Owner, 2026-09-07: "vesper doesn't propose a fix, it's
+                    # vesper's problem in the first place ... vesper should
+                    # either fix it and resend the request without actually
+                    # saying it". `bad_request` is TERMINAL, so without this the
+                    # rung is abandoned on a call VESPER built wrong -- and the
+                    # repairer then filed a PATCH for something that was one
+                    # corrected field away from working.
+                    #
+                    # ONCE PER RUNG, and that bound is the whole safety of it.
+                    # `repaired` is set before the retry, so a provider that
+                    # rejects the corrected request too is terminal exactly as
+                    # it was: this can add one attempt, never a loop. A second
+                    # rejection is a real defect and reaches the proposal path
+                    # with an extra fact -- that the obvious correction did not
+                    # help.
+                    if cls == "bad_request" and not repaired:
+                        fixed, told = self._repair_request(
+                            attempt_options, str(getattr(err, "args", [""])[0]))
+                        if fixed is not None:
+                            repaired = True
+                            attempt_options = fixed
+                            delay = 0
+                            # RECORDED WHERE THE OWNER CAN LOOK, NOT SAID.
+                            # This is VESPER correcting its own call; it belongs
+                            # on the boards and not in a sentence read aloud.
+                            self._bus.publish(
+                                "gateway.request_repaired",
+                                subject=p.provider_id,
+                                payload={"provider_id": p.provider_id,
+                                         "said": str(getattr(err, "args", [""])[0])[:300],
+                                         "changed": told,
+                                         "task_id": task_id},
+                                component="gateway")
                     self._record(p, "error",
                                  "quota_unavailable_on_tier" if permanent else cls,
                                  delay, ms, cost_class=eff,

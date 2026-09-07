@@ -238,20 +238,39 @@ class RepairAgent:
                  "obtain one: creating credentials is the owner's, by rule."))
 
     def _bad_request(self, item: TriageItem) -> RepairOutcome:
-        """Ours to fix, and therefore a PROPOSAL rather than a repair.
+        """The request could not be corrected at send time. NOW it is a defect.
 
-        A malformed request is a defect in VESPER, so the fix is a code change
-        -- and INV-SELF-1..7 forbid the runtime writing a governed path in the
-        running artifact. Filing a patch into `workspace/` with its failing
-        test is the sanctioned path, and it is deliberately not self-applying.
+        THIS IS NO LONGER THE FIRST ANSWER TO A MALFORMED CALL, and it used to
+        be. `ModelGateway._repair_request` gets there first: it reads what the
+        provider said, corrects the request -- fewer tokens, drop the option
+        the vendor does not take, fold the system turn into the prompt -- and
+        sends a good one, once per rung, without telling anybody. The owner's
+        correction, 2026-09-07: "it's vesper's problem in the first place ...
+        vesper should either fix it and resend the request without actually
+        saying it".
+
+        AND THE INVARIANT WAS BEING MISCITED. `INV-SELF-1..7` is about the
+        runtime editing its own SOURCE. Building the next request correctly is
+        not self-modification, it is the job, and quoting the invariant at it
+        turned a one-field correction into a patch for the owner to review.
+
+        REACHING HERE NOW MEANS SOMETHING SHARPER: the obvious correction was
+        tried and the provider rejected the request anyway. That IS a defect in
+        the adapter's wire format, it will recur identically, and a code change
+        is the honest answer -- proposed, never self-applied.
         """
         return RepairOutcome(
             item.item_id, TIER2, False,
-            actions=["classified as a VESPER defect rather than a provider fault"],
+            actions=["the request was corrected and re-sent once at the "
+                     "gateway and was rejected again; only then is this a "
+                     "defect rather than a badly built call"],
             guide=[
                 f"{item.provider_id} rejected our request as malformed "
-                f"{item.count()}x. This will recur identically on every future "
-                "call until the request changes -- it is not transient.",
+                f"{item.count()}x, INCLUDING after the gateway corrected it and "
+                f"re-sent. The obvious repairs -- a smaller budget, dropping "
+                f"the options this vendor does not take, folding the system "
+                f"turn into the prompt -- did not help, which is what makes "
+                f"this a wire-format defect rather than a badly built call.",
                 "The evidence is on the triage item: each attempt's detail is "
                 "stored, not a summary of them.",
                 "The fix belongs in the adapter for this provider's wire "

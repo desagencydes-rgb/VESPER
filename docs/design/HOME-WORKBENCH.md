@@ -1030,14 +1030,37 @@ item so a rung failing the same way twice updates rather than stacks.
 produce needs a spoken line, or the owner gets silence at the moment they are
 waiting to be told something. `model_gone`'s line was added with it.
 
-**WHAT IS NOT DONE.** Case two — "fix the request then send a good one" —
-still stops at PROPOSING a patch to `workspace/`. `INV-SELF-1..7` forbids the
-runtime applying a fix to itself, and that boundary is not being moved on the
-strength of a classifier improvement. The owner's words are "if granted he
-should do it", so the missing piece is the ASKING: a proposed patch needs to
-reach the talk as a question with an answer that authorises applying it. That
-is the next slice of §9d and it belongs to the authority ladder, not to
-routing.
+**CASE TWO, CORRECTED BY THE OWNER THE SAME DAY.** This section first said
+case two "stops at PROPOSING a patch", citing `INV-SELF-1..7`. The owner's
+answer: *"no vesper doesn't propose a fix, it's vesper's problem in the first
+place ... vesper should either fix it and resend the request without actually
+saying it, it only shows up in explanations, actions, and everywhere
+necessary."*
+
+**THEY WERE RIGHT, AND THE INVARIANT WAS BEING MISCITED.** `INV-SELF-1..7` is
+about the runtime editing its own SOURCE. Building the next request correctly
+is not self-modification — it is the job. Quoting the invariant at it turned a
+one-field correction into a patch for the owner to review.
+
+**SO THE GATEWAY FIXES IT AND RE-SENDS.** `ModelGateway._repair_request` reads
+what the provider said and corrects the request: halve a budget the vendor will
+not take, drop the sampling knobs it does not accept, drop an unknown option,
+fold a system turn into the prompt. Then it retries — **once per rung**, and
+that bound is the whole safety of it. `repaired` is set before the retry, so a
+provider that rejects the corrected request is terminal exactly as it was: this
+can add one attempt, never a loop.
+
+**AND IT DOES NOT SAY SO.** `bad_request` is in `SILENT_ON_THE_TALK`. The
+board still gets all of it — what was rejected, what changed, whether it worked
+— because a silent correction nobody can inspect is what this tree refuses
+everywhere else. What it does not get is a sentence read aloud, because there
+is nothing for the owner to decide.
+
+**THE PROPOSAL PATH SURVIVES AND MEANS SOMETHING SHARPER NOW.** Reaching
+`RepairAgent._bad_request` means the obvious correction was tried and the
+provider rejected the request anyway. That IS a wire-format defect, it will
+recur identically, and a code change is the honest answer — proposed, never
+self-applied.
 
 ---
 
@@ -1058,7 +1081,7 @@ been driven against the running surface.**
 | 8 | `CI-127` cross-cutting | red-run on each of its five rules |
 | 9 | **HOST card producer** (§9b) | `CI-130`, live: the card shows a real reading |
 | 10 | **Notes as an agenda source** (§9c) | ✅ DONE 2026-09-07 — `CI-131`, 5 red runs, live: 5 titles, `retrieved_local`, no bodies |
-| 11 | **Provider-failure routing** (§9d) | ⚠️ CODE DONE 2026-09-07 — `CI-132` (5 red runs), `CI-133` (6 red runs). NOT yet driven live: see §9h, the rebuild costs the grant trip |
+| 11 | **Provider-failure routing** (§9d) | ⚠️ CODE DONE 2026-09-07 — `CI-132` (5 red runs), `CI-133` (10 red runs), all five cases incl. fix-and-resend. NOT yet driven live: §9h, the rebuild costs the grant trip |
 | 12 | **Island integration** (§9e) | owner-queued LAST, not started |
 | 13 | **Active-Space reading from a background process** (§9f) | open, no decided approach |
 | 14 | **Microphone sensitivity** (§9g) | owner-reported, queued last, MEASURE FIRST |

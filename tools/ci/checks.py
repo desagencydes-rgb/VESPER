@@ -14639,9 +14639,24 @@ def check_a_provider_failure_reaches_the_owner() -> Result:
               "event and nothing the owner can see, which is the state they "
               "described as 'that provider returned an error'")
         return r
+    # THE REAL CONSTANT, LIFTED FROM THE SOURCE, not a copy written here. A
+    # check that defines its own `SILENT_ON_THE_TALK` asserts that its own
+    # opinion is consistent and says nothing about the runtime's.
+    silent = next((n for n in _ast.walk(tree)
+                   if isinstance(n, _ast.Assign)
+                   and any(isinstance(t, _ast.Name) and t.id == "SILENT_ON_THE_TALK"
+                           for t in n.targets)), None)
+    if silent is None:
+        r.err("`SILENT_ON_THE_TALK` is gone, so every failure VESPER caused "
+              "itself is read aloud again")
+        return r
     ns: dict = {"CONVERSATION_MAX": 40}
-    exec(compile(_ast.Module([node], []), "vesper_runtime.py", "exec"), ns)
+    exec(compile(_ast.Module([silent, node], []), "vesper_runtime.py", "exec"), ns)
     surface = ns["_surface_repair"]
+    if "bad_request" not in ns["SILENT_ON_THE_TALK"]:
+        r.err("`bad_request` is no longer silent on the talk: VESPER correcting "
+              "its own call is announced to the owner as though there were "
+              "something for them to decide")
 
     class Home:
         def __init__(self): self.t = []
@@ -14722,6 +14737,74 @@ def check_a_provider_failure_reaches_the_owner() -> Result:
               f"nothing they could act on.")
     if "yours to fix" not in said["auth_failed"].lower():
         r.err("an auth failure does not tell the owner it is theirs to fix")
+
+    # 5b. AND VESPER'S OWN MISTAKE NEVER REACHES THE TALK.
+    #
+    #     Owner, 2026-09-07: a malformed request "it's vesper's problem in the
+    #     first place ... it only shows up in explanations, actions, and
+    #     everywhere necessary". There is nothing for them to decide, so a
+    #     sentence read aloud is noise about VESPER's own bookkeeping.
+    _, exps, tr = run("bad_request")
+    if tr:
+        r.err(f"a malformed request reached the talk: {tr[-1]['text']!r}. "
+              f"VESPER corrected its own call; that belongs on the board and "
+              f"in the actions column, not in the voice.")
+    if not exps:
+        r.err("a malformed request reached NEITHER surface. Silent is not the "
+              "same as unspoken -- a correction nobody can inspect afterwards "
+              "is exactly what this tree refuses everywhere else.")
+
+    # 5c. THE GATEWAY FIXES IT BEFORE ANY OF THIS. The repair path above is the
+    #     LAST resort, and it only means anything if the first one exists.
+    from core.gateway import ModelGateway as _G
+    fixed, told = _G._repair_request({"max_tokens": 4096},
+                                     "Error: context length exceeded")
+    if fixed is None or fixed.get("max_tokens") != 2048:
+        r.err(f"the gateway does not correct an over-long request: "
+              f"{fixed!r}. A malformed call is VESPER's to fix and resend, "
+              f"not the owner's to review as a patch.")
+    if not told:
+        r.err("a request repair does not say what it changed, so a silent "
+              "correction leaves nothing to inspect")
+    unrepairable, _ = _G._repair_request({"max_tokens": 512},
+                                         "upstream connect error")
+    if unrepairable is not None:
+        r.err("the gateway invents a repair for a failure that is not about "
+              "the request, which would retry a network fault as a malformed "
+              "call")
+
+    #     AND THE ATTEMPT LOOP ACTUALLY CALLS IT, ONCE. Testing
+    #     `_repair_request` alone says the corrective transform is right and
+    #     nothing about whether anything reaches it -- which is the shape this
+    #     tree has now found seven times. Read from the loop's own source
+    #     because driving it needs a live provider.
+    gw_src = (REPO / "core" / "gateway.py").read_text(encoding="utf-8")
+    loop = gw_src[gw_src.find("def complete("):]
+    if "self._repair_request(" not in loop:
+        r.err("`complete` never calls `_repair_request`: `bad_request` is "
+              "TERMINAL, so the rung is abandoned on a call VESPER built wrong "
+              "and the repairer proposes a patch for something one corrected "
+              "field away from working")
+    else:
+        i = loop.find("self._repair_request(")
+        guard = loop[max(0, i - 700):i]
+        if 'cls == "bad_request"' not in guard:
+            r.err("the request repair is not guarded on `bad_request`, so a "
+                  "network fault or a usage limit is retried as though the "
+                  "request had been malformed")
+        if "not repaired" not in guard:
+            r.err("the request repair is not bounded to once per rung. One "
+                  "added attempt becomes a loop against a provider that will "
+                  "never accept the request, and `bad_request` is terminal "
+                  "precisely so that cannot happen.")
+        after = loop[i:i + 700]
+        if "repaired = True" not in after:
+            r.err("the one-shot flag is never set, so the bound is written and "
+                  "does not hold")
+        if "gateway.request_repaired" not in after:
+            r.err("a silent correction is not recorded. It is deliberately not "
+                  "spoken; unrecorded is a different thing, and leaves nothing "
+                  "to inspect afterwards.")
 
     # 6. THE EXPLANATION IS KEYED ON THE ITEM, so a rung failing the same way
     #    twice updates its entry rather than stacking copies of one finding.
