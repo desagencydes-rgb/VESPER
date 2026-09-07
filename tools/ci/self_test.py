@@ -5983,6 +5983,52 @@ CASES += [
 ]
 
 
+# --------------------------------------------------------------------------
+# CI-134 -- the island. Two clocks share one file, and the permission mode had
+# no surface anywhere while being the difference between asking and acting.
+# --------------------------------------------------------------------------
+ISLAND_SNAP = "tools/island_snapshot.py"
+ISLAND_SWIFT = "app/island-macos/main.swift"
+
+CASES += [
+    ("the-island-shows-vespers-own-state", RUNTIME_PY,
+     _sub('        rows.append({"label": "Mode", "value": permission_mode.read()})\n', "", 1),
+     "the permission mode loses its only surface: the owner switches it and "
+     "then has to remember, while in `auto` it is the difference between "
+     "VESPER asking and VESPER acting"),
+
+    ("the-island-shows-vespers-own-state", RUNTIME_PY,
+     _sub('        rows.append({"label": "Ran",\n'
+          '                     "value": f"{len(cmds)}" + ("  !" if last.get("state") == "failed" else "")})',
+          '        rows.append({"label": "Ran", "value": f"{len(cmds)}"})', 1),
+     "a failed command stops being marked, so the count reads the same whether "
+     "the last one worked or not -- a count rather than a status"),
+
+    ("the-island-shows-vespers-own-state", ISLAND_SNAP,
+     _sub("    existing.update({\"version\": proj.version.to_dict(), \"columns\": cols,\n"
+          "                     \"gauges\": gs, \"panel\": panel})\n"
+          "    out.write_text(json.dumps(existing, indent=1))",
+          "    out.write_text(json.dumps({\"version\": proj.version.to_dict(), \"columns\": cols,\n"
+          "                               \"gauges\": gs, \"panel\": panel}, indent=1))", 1),
+     "the hourly snapshot overwrites the whole file again, so every key another "
+     "writer owns is deleted once an hour -- and nothing notices for an hour"),
+
+    ("the-island-shows-vespers-own-state", RUNTIME_PY,
+     _sub("    sig = json.dumps(rows, sort_keys=True)\n"
+          "    if sig == _island_sig[0]:\n"
+          "        return                       # unchanged: do not rewrite the file\n"
+          "    _island_sig[0] = sig\n", "", 1),
+     "the island file is rewritten whether or not anything changed, on a loop "
+     "that runs four times a second"),
+
+    ("the-island-shows-vespers-own-state", ISLAND_SWIFT,
+     _sub("        view.panel = loadVesperPanel(snapshotPath) + loadPanel(snapshotPath)",
+          "        view.panel = loadPanel(snapshotPath)", 1),
+     "one of the island's two refresh sites stops reading VESPER's rows, so "
+     "they appear on first paint and vanish on the next refresh"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
 

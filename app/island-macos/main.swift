@@ -199,6 +199,24 @@ struct Column {
 struct GaugeReading { let label: String; let value: CGFloat }
 struct PanelItem { let label: String; let value: String; let ratio: CGFloat? }
 
+/// VESPER's own rows, written by the runtime under its own key.
+///
+/// A SECOND KEY, NOT A SECOND FILE, and not merged into `panel` by the writer.
+/// `panel` is the MACHINE's readings on an hourly clock; this is VESPER's own
+/// state on a five-second one. Concatenating them here -- at the point of
+/// drawing, which is the only place both are wanted together -- keeps one
+/// writer per key and lets either be absent without the other noticing.
+func loadVesperPanel(_ path: String) -> [PanelItem] {
+    guard let data = FileManager.default.contents(atPath: path),
+          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let items = obj["vesper"] as? [[String: Any]] else { return [] }
+    return items.compactMap { d in
+        guard let l = d["label"] as? String, let v = d["value"] as? String
+        else { return nil }
+        return PanelItem(label: l, value: v, ratio: nil)
+    }
+}
+
 func loadPanel(_ path: String) -> [PanelItem] {
     guard let data = FileManager.default.contents(atPath: path),
           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -601,7 +619,7 @@ final class Controller: NSObject {
         }
         view.onClick = { [weak self] in self?.toggleExpanded() }
         view.gauges = loadGauges(snapshotPath)
-        view.panel = loadPanel(snapshotPath)
+        view.panel = loadVesperPanel(snapshotPath) + loadPanel(snapshotPath)
         applyFrame(width: m.width, height: m.height)
         panel.orderFrontRegardless()
         // A Space change can drop the panel behind, even with .canJoinAllSpaces.
@@ -752,7 +770,7 @@ final class Controller: NSObject {
     func reload() {
         view.columns = loadColumns(snapshotPath)
         view.gauges = loadGauges(snapshotPath)
-        view.panel = loadPanel(snapshotPath)
+        view.panel = loadVesperPanel(snapshotPath) + loadPanel(snapshotPath)
         view.needsDisplay = true
     }
 

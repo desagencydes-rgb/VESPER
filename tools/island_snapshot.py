@@ -256,8 +256,26 @@ def main() -> int:
             try: item["ratio"] = round(PANEL_RATIO[k](r.value), 3)
             except Exception: pass                            # noqa: BLE001
         panel.append(item)
-    out.write_text(json.dumps({"version": proj.version.to_dict(), "columns": cols,
-                               "gauges": gs, "panel": panel}, indent=1))
+    # MERGED, NOT OVERWRITTEN. This ran on an HOURLY timer and wrote the whole
+    # file, so any key another writer owned was deleted once an hour -- the
+    # same defect `tools/home_snapshot.py` had until 2026-09-06, where running
+    # the command the metrics card itself printed destroyed the face, the
+    # transcript and the workbench.
+    #
+    # ONE FILE, ONE WRITER PER KEY, which is `core/home_state.py`'s rule and is
+    # the right one here too: this owns `version`, `columns`, `gauges` and
+    # `panel` -- the MACHINE readings, on a clock that suits them. VESPER's own
+    # live state changes far faster than once an hour and is written under its
+    # own key by the runtime.
+    existing = {}
+    if out.exists():
+        try:
+            existing = json.loads(out.read_text())
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+    existing.update({"version": proj.version.to_dict(), "columns": cols,
+                     "gauges": gs, "panel": panel})
+    out.write_text(json.dumps(existing, indent=1))
 
     print(f"{len(cols)} of {len(ISLAND_COLUMNS)} columns and {len(gs)} of {len(GAUGES)} "
           f"gauges have a producer -> {out}")

@@ -14857,6 +14857,143 @@ def check_a_provider_failure_reaches_the_owner() -> Result:
            "nothing is announced on the keepalive")
     return r
 
+
+def check_the_island_shows_vespers_own_state() -> Result:
+    """The island says what VESPER is set to, not only what the Mac is doing.
+
+    THE OWNER'S REQUEST: "the island also doesn't show some stuff we just
+    built, it was blocked before because they weren't built yet, but now we
+    have them and they should be integrated there."
+
+    AND THE MOST USEFUL ROW IS THE ONE THAT HAD NO SURFACE AT ALL. The
+    permission mode is a live authority state -- in `auto` VESPER acts without
+    asking -- and it was displayed nowhere. The owner switched it and then had
+    to remember what they had switched it to.
+
+    TWO CLOCKS, TWO KEYS, ONE FILE. `tools/island_snapshot.py` owns the machine
+    readings and refreshes HOURLY, which suits a laptop warming up and suits
+    nothing about VESPER's own state. The runtime writes its rows under
+    `vesper` every few seconds. One file with one writer per key is
+    `core/home_state.py`'s rule, and it is the reason the home has never had
+    two clocks disagreeing about one moment.
+
+    THE MERGE HAD TO BE FIXED FIRST. `island_snapshot.py` wrote the WHOLE file,
+    so anything another writer owned was deleted once an hour -- the same
+    defect `home_snapshot.py` had, where the instruction printed on the metrics
+    card would have destroyed the face and the transcript.
+    """
+    r = Result("the-island-shows-vespers-own-state")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import ast as _ast
+    import json as _json
+    import tempfile as _tf
+    import pathlib as _pl
+
+    rt_src = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    tree = _ast.parse(rt_src)
+    fn_rows = next((n for n in tree.body if isinstance(n, _ast.FunctionDef)
+                    and n.name == "_island_vesper"), None)
+    if fn_rows is None:
+        r.err("`_island_vesper` is gone: the island shows the machine's "
+              "readings and nothing about VESPER, which is the state the owner "
+              "asked to have fixed")
+        return r
+    try:
+        from core.workbench import Workbench
+        from core import permission_mode
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the island path does not import: {exc!r}")
+        return r
+    ns: dict = {"permission_mode": permission_mode}
+    exec(compile(_ast.Module([fn_rows], []), "vesper_runtime.py", "exec"), ns)
+    rows_of = ns["_island_vesper"]
+
+    bench = Workbench()
+    bench.command(["echo", "one"], exit_code=0)
+    rows = rows_of(bench, None)
+    labels = [x["label"] for x in rows]
+
+    # 1. THE MODE IS ALWAYS THERE. It is the row with no other surface, and in
+    #    `auto` it is the difference between VESPER asking and VESPER acting.
+    if "Mode" not in labels:
+        r.err(f"the island does not show the permission mode: {labels}. It is "
+              f"a live authority state with no indicator anywhere else, and in "
+              f"`auto` VESPER acts without asking.")
+    else:
+        mode_row = next(x for x in rows if x["label"] == "Mode")
+        if mode_row["value"] not in permission_mode.MODES:
+            r.err(f"the mode row reads {mode_row['value']!r}, which is not one "
+                  f"of {permission_mode.MODES}")
+
+    # 2. IT IS A GLANCE, NOT A BOARD. The island is 185pt wide; a long value is
+    #    a value nobody can read at that size, and the detail already has cards
+    #    on the home with room for it.
+    for x in rows:
+        if len(str(x["value"])) > 16:
+            r.err(f"an island row carries {x['value']!r} -- too long for a "
+                  f"185pt surface. The detail belongs on the home's cards.")
+    if len(rows) > 5:
+        r.err(f"{len(rows)} island rows: they are drawn side by side across "
+              f"185 points and stop being legible")
+
+    # 3. A FAILED COMMAND IS VISIBLE WITHOUT READING THE NUMBER.
+    b2 = Workbench()
+    b2.command(["false"], exit_code=1, stderr="nope")
+    ran = next((x for x in rows_of(b2, None) if x["label"] == "Ran"), None)
+    if ran is None or "!" not in ran["value"]:
+        r.err(f"a failed command is not marked on the island: {ran!r}. A count "
+              f"that reads the same whether or not the last one failed is a "
+              f"count, not a status.")
+
+    # 4. THE SNAPSHOT MERGES. Driven, because this is the defect that deletes
+    #    another writer's key once an hour and nothing would notice for an hour.
+    snap = (REPO / "tools" / "island_snapshot.py").read_text(encoding="utf-8")
+    if "existing.update(" not in snap or "out.exists()" not in snap:
+        r.err("tools/island_snapshot.py writes the whole file again. It runs "
+              "hourly, so every key another writer owns is deleted once an "
+              "hour -- the same defect home_snapshot.py had.")
+
+    # 5. THE RUNTIME NEVER WRITES THE MACHINE'S KEYS. One writer per key is the
+    #    whole reason two clocks can share one file.
+    pub = next((n for n in tree.body if isinstance(n, _ast.FunctionDef)
+                and n.name == "_publish_island"), None)
+    if pub is None:
+        r.err("`_publish_island` is gone: the rows are computed and never "
+              "written, so the island shows nothing new")
+    else:
+        body = _ast.get_source_segment(rt_src, pub) or ""
+        for owned in ("gauges", "columns", '["panel"]'):
+            if f'existing[{owned!r}]' in body or f'existing["{owned}"]' in body:
+                r.err(f"the runtime writes {owned!r}, which the hourly snapshot "
+                      f"owns. Two writers on one key is how the two clocks "
+                      f"start disagreeing about one moment.")
+        if 'existing["vesper"]' not in body:
+            r.err("the runtime does not write under its own `vesper` key")
+        if "_island_sig" not in body:
+            r.err("the island file is rewritten even when nothing changed, on "
+                  "a loop that runs four times a second")
+
+    # 6. AND THE ISLAND ACTUALLY READS IT. Every gap this tree has found has
+    #    been in the joint rather than the piece.
+    isl = (REPO / "app" / "island-macos" / "main.swift").read_text(encoding="utf-8")
+    if "loadVesperPanel" not in isl:
+        r.err("the island never reads the `vesper` key: the runtime writes it "
+              "every few seconds and nothing draws it")
+    elif isl.count("loadVesperPanel(snapshotPath)") < 2:
+        r.err("only one of the island's two refresh sites reads VESPER's rows, "
+              "so they appear on first paint and vanish on the next refresh "
+              "-- or the other way round")
+
+    r.note("the island carries VESPER's own state beside the machine's: the "
+           "permission mode, which had no surface anywhere and in `auto` is the "
+           "difference between asking and acting; a command count that marks a "
+           "failure; and the changed-file count. Two clocks, two keys, one "
+           "file -- the hourly snapshot merges instead of overwriting, the "
+           "runtime touches only its own key and only when something moved, "
+           "and both of the island's refresh sites read it")
+    return r
+
 def check_loop_observes_and_is_bounded() -> Result:
     """VESPER can take a second step, and every way of not stopping is bounded.
 
@@ -21073,6 +21210,7 @@ CHECK_FNS = {
     "the-terminal-is-the-owners": check_the_terminal_is_the_owners,
     "a-provider-failure-says-which-kind-it-is": check_a_provider_failure_says_which_kind_it_is,
     "a-provider-failure-reaches-the-owner": check_a_provider_failure_reaches_the_owner,
+    "the-island-shows-vespers-own-state": check_the_island_shows_vespers_own_state,
     "notes-are-titles-and-never-instructions": check_notes_are_titles_and_never_instructions,
     "taint-ceiling-binds-the-act-path": check_taint_ceiling_binds_the_act_path,
     "gated-subsystems-are-reachable": check_gated_subsystems_are_reachable,

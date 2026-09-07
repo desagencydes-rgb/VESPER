@@ -807,11 +807,15 @@ not. Several of its slots were left empty because the thing they would show did
 not exist. It now does: commands, explanations, the changes board, the
 terminal's state, and the permission mode.
 
-**AND IT RENDERS NO TEXT AT ALL TODAY.** Measured 2026-09-06 while looking for
-somewhere to put a status line: there is no label, no `NSTextField`, no
-`CATextLayer` anywhere in `app/island-macos/`. Whatever is integrated has to
-bring its own text rendering, and that is the bulk of this work rather than the
-wiring.
+**AND THE "IT RENDERS NO TEXT" CLAIM WAS WRONG.** It came from grepping for
+`NSTextField` and `CATextLayer` and finding none. The island draws its text
+with Core Graphics instead: `IslandView.drawPanel` already lays out a row of
+`label` / `value` / optional `ratio` as attributed strings, and `drawGauges`
+and `drawRightCluster` beside it. A grep for one way of doing a thing is not a
+measurement of whether the thing is done — the same shape as a check satisfied
+by a comment, which this tree has now hit in both directions.
+
+So the work was not text rendering. It was FEEDING what was already there.
 
 ---
 
@@ -1218,6 +1222,36 @@ reports a defect that is its own.
 
 ---
 
+## 9n. WHAT STEP 12 ACTUALLY WAS
+
+**TWO CLOCKS, TWO KEYS, ONE FILE.** `tools/island_snapshot.py` owns the machine
+readings — thermal, memory, swap, power — and refreshes them HOURLY, which
+suits a laptop warming up and suits nothing about VESPER's own state. The
+runtime writes its rows under `vesper` every few seconds and only when they
+change. `IslandView` concatenates the two at draw time, which is the only place
+both are wanted together.
+
+**THE MERGE HAD TO BE FIXED FIRST**, and it was the same defect §9b records for
+the home: `island_snapshot.py` wrote the WHOLE file, so any key another writer
+owned was deleted **once an hour**. Nothing would have noticed for an hour.
+
+**THE MOST USEFUL ROW IS THE ONE THAT HAD NO SURFACE ANYWHERE.** The permission
+mode is a live authority state — in `auto` VESPER acts without asking — and it
+was displayed on nothing. The owner switched it and then had to remember what
+they had switched it to. It is the first row now.
+
+Live: `Mode auto · Ran 5 · Changed 4`, with `Thermal · Memory free · Swap ·
+Power` untouched beside them.
+
+**AND A NEAR-MISS WORTH RECORDING.** The first version of `_publish_island`
+used `os.getpid()` for its temp filename. `os` is not imported in
+`vesper_runtime.py` — so it would have raised `NameError` on the first publish,
+inside the `try/except` that turns it into a bus event nobody reads. The island
+would simply never have updated, with no error anywhere a person looks. Caught
+by checking the imports rather than by the parse, which was perfectly happy.
+
+---
+
 ## 10. BUILD ORDER
 
 Each step ends with the §0 gate. **No step begins before the previous one has
@@ -1236,7 +1270,7 @@ been driven against the running surface.**
 | 9 | **HOST card producer** (§9b) | `CI-130`, live: the card shows a real reading |
 | 10 | **Notes as an agenda source** (§9c) | ✅ DONE 2026-09-07 — `CI-131`, 5 red runs, live: 5 titles, `retrieved_local`, no bodies |
 | 11 | **Provider-failure routing** (§9d) | ✅ DONE 2026-09-07 — `CI-132` (5 red runs), `CI-133` (10 red runs). Live: real advisor limit read as `rate_limited` with the 15-min floor carried; board surfacing fired; fix-and-resend driven through the real gateway loop, 4096→2048→answered, one repair and never a loop |
-| 12 | **Island integration** (§9e) | owner-queued LAST, not started |
+| 12 | **Island integration** (§9e) | ✅ DONE 2026-09-07 — `CI-134`, 5 red runs. Live: Mode `auto`, Ran 5, Changed 4 beside the machine's rows |
 | — | **Main menu + expandable menu** (§9k) | HANDED TO CODEX 2026-09-07, brief written, markers carved |
 | 13 | **Active-Space reading from a background process** (§9f) | open, no decided approach |
 | 14 | **Microphone sensitivity** (§9g) | owner-reported, queued last, MEASURE FIRST |

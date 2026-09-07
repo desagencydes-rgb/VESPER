@@ -424,3 +424,52 @@ HTML, rerun `checks.py all` to obtain an actual 141/141, then perform the
 single owner-authorized final build/mount. Codex has left CI-065 visible,
 not bypassed it or changed its expectation. The producer/freshness work above
 is separately required before calling these live host instruments finished.
+
+Final scope and cleanup readback:
+
+```text
+PASS: byte-identical outside MENU markers
+PASS: agent backup removed
+handoff menus, opened 20260907T031948
+  IN SCOPE: no uncommitted change outside the agreement.
+Final app probe: {"fits": true, "metricRows": ["power=battery"]}
+```
+
+Review artifacts (temporary, local only):
+
+- `/tmp/vesper-menu-handoff.patch` — complete HTML diff from the handoff tag.
+- `/tmp/vesper-menu-tests.json` — named WebKit assertions and viewport results.
+- `/tmp/vesper-menu-final-ui.txt` — the four 25/25 summaries.
+- `/tmp/vesper-menu-final-chrome-probe.txt` — unabridged app probe output.
+- `/tmp/vesper-menu-final-scope.txt` — final guard output.
+- `/tmp/vesper-menu-final-checks.txt` — final full-suite output.
+
+The owner's archive and handoff manifest were not modified by Codex. The
+handoff remains open for Claude's integration. `/tmp/codex-vesper-backup` was
+removed and its absence re-read; cleanup is not inferred from the guard.
+
+Final complete-suite result (after the menu refinements):
+
+```text
+[FAIL] chrome-template-renders
+  ERROR: the inline fallback does not match app/home-macos/chrome/home.html.
+140/141 checks passed
+```
+
+The final targeted CI-065 rerun also fails for the same reason; no other full
+suite check failed. **141/141 has not been achieved and is not claimed.**
+Commit `e432d1f`, made concurrently by the other session, incorporated the final
+HTML refinements and the first portion of this report. Both current MENU
+regions were re-compared with the tested preview and match. Codex created no
+commits. The remaining changes in this brief are the final evidence above.
+
+**Final concurrent-work caveat:** after the clean scope readback above, new
+uncommitted edits appeared in `tools/island_snapshot.py` and
+`tools/ops/vesper_runtime.py`. The latest `--verify` therefore reports both as
+CHANGED and exits 1. Codex did not edit either file; they appeared after its
+full suite completed. They were left intact, not reverted to make the guard
+green. This exposes the remaining attribution limit of the HEAD-based guard:
+ongoing uncommitted work from the other session is still reported as though it
+belonged to this slice. The integration owner must reconcile/commit that work
+and rerun scope verification. The earlier clean scope output is historical,
+not a claim that the concurrently changing working tree is still clean.

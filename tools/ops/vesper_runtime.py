@@ -395,6 +395,79 @@ def _surface_repair(bench, transcript: list, home, item, out) -> None:
     home.set_transcript(list(transcript))
 
 
+
+# THE ISLAND'S VIEW OF VESPER ITSELF, on VESPER's clock rather than the
+# machine's.
+#
+# `tools/island_snapshot.py` owns the machine readings -- thermal, memory,
+# swap, power -- and refreshes them HOURLY, which suits a reading that moves at
+# the speed of a laptop warming up. It suits nothing about VESPER's own state:
+# the permission mode changes the moment the owner changes it, and a command
+# runs in a second.
+#
+# SO THIS IS A SECOND KEY, NOT A SECOND FILE. `island.json` already merges
+# (fixed 2026-09-07, it used to overwrite hourly), and one file with one writer
+# per key is the rule `core/home_state.py` sets out and the reason the home has
+# never had two clocks disagreeing about one moment.
+#
+# WHAT GOES HERE IS A GLANCE, NOT A BOARD. The island is 185pt wide. Counts and
+# states; the detail lives on the home's cards where there is room to read it.
+ISLAND_EVERY_S = 5.0
+_island_at = [0.0]
+_island_sig = [None]
+
+
+def _island_vesper(bench, changes) -> list:
+    """The three things about VESPER worth a glance, or fewer."""
+    rows = []
+    # THE PERMISSION MODE FIRST, because it is a live authority state with no
+    # indicator anywhere on any surface. The owner switches it and then has to
+    # remember what they switched it to -- and in `auto` VESPER acts without
+    # asking, which is precisely the state worth being able to see at a glance.
+    try:
+        rows.append({"label": "Mode", "value": permission_mode.read()})
+    except Exception:                               # noqa: BLE001
+        pass
+    st = bench.state() if bench is not None else {}
+    cmds = st.get("commands") or []
+    if cmds:
+        last = cmds[-1]
+        rows.append({"label": "Ran",
+                     "value": f"{len(cmds)}" + ("  !" if last.get("state") == "failed" else "")})
+    try:
+        n = len((changes.state().get("changes") or [])) if changes is not None else 0
+    except Exception:                               # noqa: BLE001
+        n = 0
+    if n:
+        rows.append({"label": "Changed", "value": str(n)})
+    return rows
+
+
+def _publish_island(bench, changes, bus) -> None:
+    """Merge VESPER's own rows into island.json. Never the machine's keys."""
+    now = time.time()
+    if now - _island_at[0] < ISLAND_EVERY_S:
+        return
+    _island_at[0] = now
+    rows = _island_vesper(bench, changes)
+    sig = json.dumps(rows, sort_keys=True)
+    if sig == _island_sig[0]:
+        return                       # unchanged: do not rewrite the file
+    _island_sig[0] = sig
+    path = STATE / "island.json"
+    try:
+        existing = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    except (json.JSONDecodeError, OSError):
+        existing = {}
+    existing["vesper"] = rows
+    # A UNIQUE TEMP PER WRITE, and `threading.get_ident()` rather than
+    # `os.getpid()` because `os` is not imported in this module -- the first
+    # version used it and would have raised NameError on the first publish,
+    # inside the try/except that turns it into a bus event nobody reads.
+    tmp = path.with_name(f"island.{threading.get_ident()}.tmp")
+    tmp.write_text(json.dumps(existing, indent=1), encoding="utf-8")
+    tmp.replace(path)
+
 def build(node: str = "vesper-runtime"):
     """Wire what already exists. Nothing here decides anything."""
     STATE.mkdir(parents=True, exist_ok=True)
@@ -2016,6 +2089,12 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             # the wrong file.
             bus.publish("metrics.refresh_failed", subject="metrics",
                         payload={"error": repr(exc)}, component="runtime")
+    # THE ISLAND, on its own slow clock and only when something moved.
+    try:
+        _publish_island(bench, changes, bus)
+    except Exception as exc:                       # noqa: BLE001
+        bus.publish("island.publish_failed", subject="island",
+                    payload={"error": repr(exc)}, component="runtime")
     home.write()
     return handled
 
