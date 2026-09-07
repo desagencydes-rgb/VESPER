@@ -123,6 +123,20 @@ enum ChromeProbe {
                         return ((r.querySelector('.k')||{}).textContent || '') + '='
                              + ((r.querySelector('.v')||{}).textContent || '');
                       }),
+        menu: (function () {
+          var pan = document.getElementById('menu-panel');
+          var rail = [].slice.call(document.querySelectorAll('[data-menu-view]'))
+                       .map(function (b) { return b.getAttribute('data-menu-view'); });
+          return {rail: rail,
+                  hasTile: !!document.getElementById('menu-toggle'),
+                  open: !!(pan && pan.open),
+                  title: (document.getElementById('menu-title') || {}).textContent || '',
+                  intro: (document.getElementById('menu-intro') || {}).textContent || '',
+                  bodyChars: ((document.getElementById('menu-content') || {}).textContent || '').length,
+                  body: ((document.getElementById('menu-content') || {}).textContent || '').slice(0, 400),
+                  slotsDisabled: [].slice.call(document.querySelectorAll('.bar .slot'))
+                                   .map(function (b) { return !!b.disabled; })};
+        })(),
         terminal: (document.getElementById('tout') || {}).textContent || '',
         cmdButtons: [].slice.call(document.querySelectorAll('.cmdbar button'))
                       .map(function (b) { return b.textContent; }),
@@ -142,9 +156,44 @@ enum ChromeProbe {
     })();
     """
 
+    /// Write what the page looks like to a PNG, offscreen.
+    ///
+    /// THE OWNER ASKED TO SEE IT AND THE HOME COULD NOT BE SHOWN. Mounting it
+    /// takes a Desktop and changes its picture; the globe key needs an
+    /// Accessibility grant that every rebuild revokes. A snapshot of the same
+    /// `HomeChrome.page(...)`, loaded in the same real WKWebView with the same
+    /// live `home.json`, answers "what does it look like" without touching
+    /// anything the owner is using.
+    ///
+    /// WHAT IT IS NOT: the Metal face composites BELOW this layer at runtime,
+    /// so the ground here is the harness's, not VESPER's. It is the chrome,
+    /// truthfully, over a stand-in.
+    static func shot(_ web: WKWebView, to path: String, then done: @escaping () -> Void) {
+        let cfg = WKSnapshotConfiguration()
+        cfg.afterScreenUpdates = true
+        web.takeSnapshot(with: cfg) { image, err in
+            guard let image,
+                  let tiff = image.tiffRepresentation,
+                  let rep = NSBitmapImageRep(data: tiff),
+                  let png = rep.representation(using: .png, properties: [:])
+            else {
+                FileHandle.standardError.write(
+                    "chrome-probe: no snapshot (\(String(describing: err)))\n"
+                        .data(using: .utf8)!)
+                done()
+                return
+            }
+            try? png.write(to: URL(fileURLWithPath: path))
+            print("wrote \(path)")
+            done()
+        }
+    }
+
     static func run(expand: String?, click: String?,
                     clickTurn: String? = nil,
-                    runLine: String? = nil) -> Never {
+                    runLine: String? = nil,
+                    shotPath: String? = nil,
+                    menuView: String? = nil) -> Never {
         let screen = NSScreen.main ?? NSScreen.screens[0]
         let g = Geometry(screen: screen)
         let page = HomeChrome.page(cardWidth: g.cw, cardHeight: g.ch,
@@ -211,6 +260,10 @@ enum ChromeProbe {
                 js += "var _t=document.querySelector('.hrow[data-turn=\"\(turn)\"]');"
                     + "if(_t)_t.click();"
             }
+            if let view = menuView {
+                js += "var _m=document.querySelector('[data-menu-view=\"\(view)\"]')"
+                    + "||document.getElementById('menu-toggle');if(_m)_m.click();"
+            }
             if let line = runLine {
                 // Straight through the terminal's own input path -- the same
                 // one a keypress uses, so this measures the shell and not a
@@ -229,6 +282,24 @@ enum ChromeProbe {
                 // before the click and calls it the result of the click.
                 DispatchQueue.main.asyncAfter(deadline: .now() + (runLine == nil ? 0.35 : 3.0)) {
                     web.evaluateJavaScript(readback) { val, err in
+                        if let shotPath {
+                            // A GROUND TO SEE THE GLASS AGAINST. The page is
+                            // transparent by design -- the Metal face paints
+                            // under it at runtime -- so a snapshot with no
+                            // ground behind it is a picture of nothing.
+                            web.evaluateJavaScript(
+                                "document.documentElement.style.background="
+                                + "'radial-gradient(120% 120% at 30% 20%,"
+                                + "#3a2b3f,#141018 60%,#0a0810)';") { _, _ in
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                                    shot(web, to: shotPath) {
+                                        if let s = val as? String { print(s) }
+                                        exit(0)
+                                    }
+                                }
+                            }
+                            return
+                        }
                         if let s = val as? String {
                             print(s)
                         } else {

@@ -876,7 +876,9 @@ func startSnapshotRefresh(repo: String) {
 
 // MARK: - main
 
-let args = CommandLine.arguments
+// `var`, because a bare double-click appends the home flags below: a
+// person launching the application is asking for the application.
+var args = CommandLine.arguments
 let seconds = args.firstIndex(of: "--seconds").flatMap { i -> Double? in
     i + 1 < args.count ? Double(args[i + 1]) : nil
 }
@@ -1145,11 +1147,52 @@ if args.contains("--listen") {
     exit(0)
 }
 
+// DOUBLE-CLICKING VESPER OPENS VESPER.
+//
+// It did not. A GUI launch passes no arguments, `--home` was required to start
+// the home, so the app came up as the island and nothing else -- while a home
+// was already running on another Desktop. The owner's report, twice: "i clicked
+// vesper app, and only the island showed up".
+//
+// A person double-clicking an application is asking for the application. The
+// flags exist for the login agent and for verification modes, not to make the
+// ordinary gesture a no-op.
+//
+// ONLY WHEN THERE ARE NO FLAGS AT ALL. A launch carrying any argument is a
+// deliberate one -- `--speech-consent`, `--chrome-probe`, `--spaces` -- and
+// must keep meaning exactly what it says.
+if args.count == 1 {
+    args.append("--home")
+    args.append("--mode")
+    args.append("Home")
+    args.append("--chrome")
+    print("launched with no arguments -- opening the home")
+}
+
 if args.contains("--home") && homeIsRunning() {
     // THE AUTHORITATIVE SINGLE-INSTANCE GUARD, held by home itself. The starter
     // checks too, but it can only check what it can see; this one cannot be
     // bypassed by any other way of launching home, including `open -n` by hand.
-    print("home is already running -- not starting a second one")
+    //
+    // AND IT NOW SAYS WHERE THE OTHER ONE IS. Exiting silently is what left the
+    // owner clicking the app and getting nothing: a home WAS running, on a
+    // Desktop they were not looking at, and the second launch declined to start
+    // without telling anyone why or where to look.
+    // AND IT COMES TO THE OWNER RATHER THAN TELLING THEM WHERE IT IS.
+    //
+    // Printing "it is on another Desktop" solves nothing: the message goes to a
+    // log file, and the owner is standing in front of an application that
+    // appeared to do nothing. They reported exactly that, twice.
+    //
+    // A DELIBERATE LAUNCH IS A SUMMONS. The running home watches for this
+    // marker and moves its window to whichever Desktop is active. That is a
+    // different act from `--on-empty-desktop`, which governs VESPER starting
+    // UNASKED at login and correctly refuses to take a Desktop in use. Being
+    // called is not taking.
+    let summon = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/VESPER/come-here")
+    try? Data().write(to: summon)
+    print("home is already running -- asked it to come to this Desktop")
     exit(0)
 }
 
@@ -1673,7 +1716,9 @@ if args.contains("--chrome-probe") {
     ChromeProbe.run(expand: after("--probe-expand"),
                     click: after("--probe-click"),
                     clickTurn: after("--probe-turn"),
-                    runLine: after("--probe-run"))
+                    runLine: after("--probe-run"),
+                    shotPath: after("--probe-shot"),
+                    menuView: after("--probe-menu"))
 }
 
 if args.contains("--home-verify") {
@@ -2226,7 +2271,30 @@ func startHome() {
                     h?.chrome.setDockUp(up)
                     print("  system dock \(up ? "up — main menu dims to 30%" : "down")")
                 }
-                h.watchSystemDock()
+                // THE SUMMONS. A second launch cannot start a home -- one home is the
+        // rule -- so it leaves a marker and this brings the existing one here.
+        // Polled on a slow timer because it is a human gesture: a person
+        // double-clicks and waits a moment, and half a second is not a wait.
+        let summonPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/VESPER/come-here")
+        let summonTimer = Timer(timeInterval: 0.5, repeats: true) { _ in
+            guard FileManager.default.fileExists(atPath: summonPath.path) else { return }
+            try? FileManager.default.removeItem(at: summonPath)
+            // `.moveToActiveSpace` IS THE PUBLIC ROUTE and the only one. The
+            // alternative is posting the Desktop-switch hotkey, which needs
+            // Accessibility -- the grant every rebuild revokes and the reason
+            // the globe key is not an answer here.
+            for w in NSApp.windows where w.isVisible {
+                var b = w.collectionBehavior
+                b.remove(.canJoinAllSpaces)
+                b.insert(.moveToActiveSpace)
+                w.collectionBehavior = b
+                w.orderFrontRegardless()
+            }
+            print("home: summoned to the active Desktop")
+        }
+        RunLoop.main.add(summonTimer, forMode: .common)
+        h.watchSystemDock()
                 h.startDockReconciler()
                 let c = h.chrome
                 print(c.cardAdapted
