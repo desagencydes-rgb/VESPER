@@ -1408,6 +1408,58 @@ end-to-end login confirmation deferred to the next batched rebuild.**
 
 ---
 
+## 9q. THE WORKTREE CAME BACK, MERGED, AND ONE REBUILD COVERED TWO FEATURES
+
+Codex's Phase 2 run hit its own usage limit the instant after reporting it was
+committing — checked rather than trusted: `~/VESPER-codex-menus` had a clean
+tree and three real commits (`f997ef4`, `bf1e15c`, `66b5c8d`), no stray backup
+directory, both marker pairs intact.
+
+**INDEPENDENTLY RE-RUN, not taken on the handback's word.** From inside the
+worktree: `verification/test_menu_projection.py` 13/13, both lints clean,
+`checks.py all` 141/142 (`chrome-template-renders`, exactly the one reserved
+for this session). A rule scan for `innerHTML`, `vesperTerm`, and private
+Space/window selectors inside the `MENU` markers came back clean. The 17-icon
+claim was checked in the markup itself, not just the prose: 17
+`class="slot"` nodes.
+
+**ONE CLAIM THIS SESSION CANNOT VERIFY, RECORDED RATHER THAN ACCEPTED.** The
+handback states *"the owner approved all 17 main-bar icons and a wider bar"*
+— a real amendment to the brief's 8-slot rule, made directly to codex in a
+channel this session has no visibility into. Merged anyway, because the
+owner had already said to proceed without waiting, but written into the
+merge commit by name so it is discoverable and not silently normalized.
+**Needs the owner's own confirmation that this is in fact what they told
+codex.**
+
+**MERGE WAS CLEAN.** `codex/menus-v2` and this branch diverged from the same
+commit (`36b9a2a`) with disjoint file sets — no conflicts. Fallback
+regenerated here per the brief's division of labor; full suite back to
+`142/142`.
+
+**THE REBUILD TURNED OUT TO BE NECESSARY, not optional.** `HomeChrome.template()`
+tries the repo path first, so markup needs no build. `RuntimeHost.script()`
+tries the **bundled** copy first, opposite order, for the opposite reason ("a
+shipped app has no repo beside it") — so the already-running Python runtime
+was serving the OLD bundle copy regardless of markup changes, and none of the
+51 readings' new logic would have reached the screen without one. Since a
+rebuild was genuinely required, it was made to cover this session's own
+`SpaceWatch.Anchor` fix (§9p) in the same pass — one TCC trip for two
+features rather than two.
+
+**POST-BUILD, NOTHING WAS RUNNING**, and the build's own supervision retry
+said so rather than claiming otherwise: `VESPER is supervised (pid )` — empty
+— and the four satellite agents at `exit=-9`/`78` after its own six-pass
+budget. Relaunched by hand, `open -n`, per the TCC-attribution rule in
+`CLAUDE.md`. Confirmed running afterward, both the main process and its
+runtime child, rather than trusting the launch command's own exit code.
+
+**THE GLOBE KEY AND WAKE WORD ARE DOWN AGAIN.** §9h, not a new finding: every
+build revokes every grant, and this one is no exception. The owner's grant
+trip is still owed, unrelated to anything in this section.
+
+---
+
 ## 10. BUILD ORDER
 
 Each step ends with the §0 gate. **No step begins before the previous one has
@@ -1427,7 +1479,7 @@ been driven against the running surface.**
 | 10 | **Notes as an agenda source** (§9c) | ✅ DONE 2026-09-07 — `CI-131`, 5 red runs, live: 5 titles, `retrieved_local`, no bodies |
 | 11 | **Provider-failure routing** (§9d) | ✅ DONE 2026-09-07 — `CI-132` (5 red runs), `CI-133` (10 red runs). Live: real advisor limit read as `rate_limited` with the 15-min floor carried; board surfacing fired; fix-and-resend driven through the real gateway loop, 4096→2048→answered, one repair and never a loop |
 | 12 | **Island integration** (§9e) | ✅ DONE 2026-09-07 — `CI-134`, 5 red runs. Live: Mode `auto`, Ran 5, Changed 4 beside the machine's rows |
-| — | **Main menu + expandable menu** (§9k) | ✅ ACCEPTED 2026-09-07 (tile, rail, history) — v2 HANDED TO CODEX 2026-09-07 evening as a worktree (§9p), all 68 catalogue items, `docs/planning/CODEX-BRIEF-MENUS-v2.md` |
+| — | **Main menu + expandable menu** (§9k) | ✅ v2 MERGED AND BUILT 2026-09-07 (§9q) — all 68 catalogue items, 17-icon bar (not the brief's 8 — owner confirmation owed), 19 available observations / 49 explicit absences. Rebuilt and running. |
 | 13 | **Active-Space reading from a background process** (§9f) | fix implemented and owner-verified (§9p) — `SpaceWatch.Anchor`, confirmed `0`/`0` with Desktop 1 populated and Desktop 2 genuinely empty. Full login-path confirmation needs a rebuild, deferred to the next batched one |
 | 14 | **Microphone sensitivity** (§9g) | owner-reported, queued last, MEASURE FIRST |
 | — | **TCC grants die on every build** (§9h) | found by the session, RAISED, awaiting a decision |
