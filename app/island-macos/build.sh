@@ -65,6 +65,17 @@ cp "$REPO/tools/ops/vesper_runtime.py" "$APP/Contents/Resources/runtime/tools/op
 # autonomy -- interlock is a dead-man's switch -- and a bundle that carries the
 # runtime but not the thing that arms it is a bundle that cannot act.
 cp "$REPO/tools/ops/vesper_arm.py" "$APP/Contents/Resources/runtime/tools/ops/"
+# THE MENU PROJECTION SHIPS TOO, same class of omission as the REMOTE-SUPPLY
+# table below: `vesper_runtime.py`'s `_metric_rows()` does
+# `from tools.menu_snapshot import cached_rows`, and a copy list that carries
+# the importer but not the module it imports fails at exactly this line --
+# caught, logged nowhere the owner looks, and the runtime silently falls back
+# to its original five keys while the menu above renders every one of the 51
+# catalogue rows as UNAVAILABLE. Measured 2026-09-07: exactly that.
+# `menu_catalogue.json` has to land beside `menu_snapshot.py`, not just
+# anywhere in the bundle -- the module reads it via `Path(__file__).with_name(...)`.
+cp "$REPO/tools/menu_snapshot.py" "$REPO/tools/menu_catalogue.json" \
+   "$APP/Contents/Resources/runtime/tools/"
 
 # THE MEASUREMENTS SHIP WITH THE RUNTIME, and forgetting them was not a small
 # omission. INV-HW-2 refuses an unmeasured provider, so a bundle carrying the
