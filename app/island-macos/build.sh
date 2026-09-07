@@ -75,7 +75,23 @@ cp "$REPO/tools/ops/vesper_arm.py" "$APP/Contents/Resources/runtime/tools/ops/"
 # `menu_catalogue.json` has to land beside `menu_snapshot.py`, not just
 # anywhere in the bundle -- the module reads it via `Path(__file__).with_name(...)`.
 cp "$REPO/tools/menu_snapshot.py" "$REPO/tools/menu_catalogue.json" \
+   "$REPO/tools/home_snapshot.py" \
    "$APP/Contents/Resources/runtime/tools/"
+# THE HOST CARD'S OWN LOADER WAS BROKEN THE SAME WAY, LONGER. `_metric_rows()`
+# in vesper_runtime.py dynamically loads home_snapshot.py from
+# `Path(__file__).resolve().parents[2] / "tools" / "home_snapshot.py"` --
+# relative to WHEREVER THAT COPY OF vesper_runtime.py LIVES, so from the
+# bundle this resolves inside Contents/Resources/runtime, and that file was
+# never copied there at all. Not a regression from tonight: this has been
+# true since home_snapshot.py started being loaded this way, silent because
+# the dev-path launches this whole project mostly tests with (cwd = repo
+# root) go through RuntimeHost's OWN "bundled first" check, find the bundled
+# copy present, and never notice the copy is incomplete underneath it.
+# spec_from_file_location does not fail at spec-creation on a missing file;
+# it raises FileNotFoundError inside exec_module, one call up, where the
+# calling code's `except Exception` swallows it into a bus event nobody was
+# watching. Found by running the exact load by hand in the bundle's own
+# environment, 2026-09-07, after two rebuilds still showed one stale row.
 
 # THE MEASUREMENTS SHIP WITH THE RUNTIME, and forgetting them was not a small
 # omission. INV-HW-2 refuses an unmeasured provider, so a bundle carrying the
