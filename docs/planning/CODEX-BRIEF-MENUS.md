@@ -313,3 +313,114 @@ it in the handback as owed. That is an honest delivery; a fake number is not.
 `--chrome-probe` output showing real values, and a list of what you shipped
 UNAVAILABLE and why. The other session regenerates the fallback and builds once
 at the end.
+
+---
+
+## Codex handback — 2026-09-07
+
+**The frontend slice is implemented. End-to-end live host instrumentation is
+NOT accepted yet.** The current state channel carries one host row, `power`,
+and that row failed an independent freshness check: the page and `home.json`
+said `battery`, while `pmset -g batt` said `Now drawing from 'AC Power'`.
+The row has no observation timestamp or expiry. Repeated delivery of the same
+file is not evidence of repeated measurement.
+
+### What is implemented
+
+- The separate instrument tile is a real button opening a native modal dialog.
+  Eight bounded rows disclose their source or missing measurement. The source
+  row explicitly says **“Power source · last report”** and the always-visible
+  introduction says **“Freshness UNAVAILABLE: the reported source may be stale.”**
+  It must not be counted as a verified current power reading.
+- The rail has four circular glass buttons with labels outside. History opens
+  a searchable view of the supplied conversation, capped at 60 entries and
+  6,000 characters per entry, with truncation disclosed. This is conversation
+  history, not the still-owed full action/decision audit space.
+- Projects, research and settings open explicit UNAVAILABLE destinations with
+  reasons. There are no pretend project-opening actions or settings saves.
+- Eight main-menu glyphs remain placeholders. Their buttons are disabled and
+  have accessible “meaning not chosen” labels. No owner meanings were selected.
+- Native dialog focus containment/cancellation, a close button, backdrop
+  dismissal and focus return; responsive sizing; reduced motion/transparency
+  rules; the existing body face and glass tiers.
+- The menu wraps the existing `__vesperMetrics` and `__vesperHistory` receivers
+  after DOMContentLoaded, forwards every push to the original receivers, and
+  renders only changed data. It adds no poll, fetch, state file or terminal
+  bridge. Model-derived text is written with `textContent`.
+
+### Unavailable / still owed
+
+| Surface | What is missing |
+|---|---|
+| Current power source | Observation time/expiry and a reliably refreshed producer. The last report is displayed with freshness explicitly unavailable. |
+| Power draw | No measured wattage reaches this renderer. |
+| Battery charge | `core/host_probes.py::battery_ratio` exists, but no charge row is delivered here. |
+| Battery health / lifetime | No health/lifetime measurement reaches this renderer. Charge percentage is not health. |
+| Thermal pressure | `core/host.py` has the platform adapter; its thermal result is not projected here. Thermal history is still owed separately. |
+| Memory headroom | The adapter's available-memory reading is not projected here. |
+| Memory pressure band | The adapter's band is not projected here; it must never be converted into a memory size. |
+| Compressor & swap | No compressor measurement or adapter swap reading reaches this renderer. |
+| Projects / research | No collection or opening action is connected to these rail destinations. |
+| Settings | No settings reader/save action is connected. |
+| Full history space | Only conversation history is delivered; action/decision/audit logs are not connected. |
+| Remaining routed menu items | Deliberately not built as a long list of inert labels. |
+
+Connecting the existing host adapter and probes to a timestamped, expiring
+projection in the SAME `home.json` register requires work outside this slice.
+The current native bridge only forwards the existing metric rows, so adding
+fields elsewhere in the file alone would not deliver them to this menu.
+Do not call `home_snapshot.py --probe` or manufacture rows to make the probe
+green. Do not describe a JSON-to-DOM test as proof of current physical state.
+
+### Verification and integration notes
+
+- WebKit layout instrument: **25/25 assertions at each of 1728×1117,
+  1280×800, 760×600 and 430×740 (100/100)**. Tests used a temporary template
+  populated from the real register, then explicit test fixtures for updates,
+  missing/malformed data and inert model text. The fixtures never touched
+  the live register. Checked dialog bounds, all four destinations, rail/dock
+  bounds, clearing absent power, preservation of expanded rows, history
+  search, bounded entries and text, and undecided slots.
+- Additional WebKit focus tests: **8/8**. Close returns focus and clears
+  expanded state; a history update preserves search focus; native dialog
+  cancellation closes and returns focus; a queued close event cannot reset a
+  reopened dialog; unchanged pushes preserve selectable text nodes; backdrop
+  dismissal restores focus. These exercise WebKit's native `requestClose`
+  path, not a physical keyboard press in the live home.
+- Offscreen WebKit screenshots inspected at desktop and narrow sizes. The
+  temporary screenshot harness was compiled in `/tmp`; no VESPER bundle was
+  built, signed or modified by Codex. This validates layout, not the Metal
+  composite or a live Desktop mount.
+- The required app `--chrome-probe` ran successfully and reported
+  `metricRows: ["power=battery"]`, `fits: true`. Its fixed readback does not
+  include the new menu selectors. The separate layout instrument supplies
+  those assertions. The battery/AC mismatch above means this output is NOT
+  evidence of a fresh host reading.
+- First complete `checks.py all`: **140/141**, solely
+  `chrome-template-renders` / CI-065 (generated fallback differs). All other
+  checks passed. A final run is recorded below when complete.
+- Own source edits are confined to the two MENU regions in `home.html` and
+  this handback. The rest of the HTML was compared byte-for-byte against the
+  pre-edit backup. No core, bridge, guard, test-registry or fallback edits
+  were made by Codex.
+
+**Concurrent integration matters:** while Codex was testing, commit `7558aa8`
+incorporated the first menu version and `cb891f2` updated the generated
+fallback. Codex made neither commit. Therefore a plain `git diff` only shows
+subsequent refinements. To inspect the whole menu slice, use:
+
+```sh
+git diff handoff/menus/20260907T031948 -- app/home-macos/chrome/home.html
+```
+
+The guard also changed concurrently. It now checks **uncommitted changes
+against HEAD**, rather than comparing protected files to the frozen hashes.
+Its `IN SCOPE` output does not prove that committed files are unchanged, or
+attribute a change to an agent. It still does not enforce the MENU markers or
+check `/tmp/codex-vesper-backup`; those were checked separately.
+
+**Claude integration required:** regenerate the fallback from the FINAL
+HTML, rerun `checks.py all` to obtain an actual 141/141, then perform the
+single owner-authorized final build/mount. Codex has left CI-065 visible,
+not bypassed it or changed its expectation. The producer/freshness work above
+is separately required before calling these live host instruments finished.

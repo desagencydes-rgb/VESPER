@@ -1181,6 +1181,43 @@ same edit, correctly: one asks "did it stay where it was told", the other asks
 
 ---
 
+## 9m. STEP 11 IS FINISHED, AND WHAT "FINISHED" MEANT HERE
+
+Recorded because the owner asked "if 11 is genuinely finished" and the honest
+answer needed three different kinds of evidence, not one.
+
+**LIVE, ON A REAL PROVIDER.** The advisor's real session limit was read out of
+the text and classified `rate_limited` — `server_error` before — with
+`server_retry_after_ms: 900000` carried and `retry_after_ms: null`, meaning the
+gateway declined to sit on a fifteen-minute wait while another rung existed.
+Elapsed 2,211 ms: authenticated, then refused. That is the whole classifier
+design working on a failure nobody staged.
+
+**LIVE, ON THE SURFACE.** A `claude-advisor` explanation reached the board with
+its blocks, from the real runtime, through `home.json`.
+
+**AND ONE PATH THAT COULD NOT WAIT FOR PRODUCTION.** Fix-and-resend had never
+fired, because no provider had returned a genuine malformed-request error since
+it was written. Rather than claim it worked or manufacture a fake failure into
+a contract, it was driven through the REAL `ModelGateway.complete` loop with
+only the socket stubbed:
+
+```
+    reject 4096  ->  repair  ->  resend 2048  ->  answered "ok"
+    provider that rejects the corrected request too
+                 ->  budgets [4096, 2048], then AllProvidersExhausted
+                 ->  exactly ONE repair. Never a loop.
+```
+
+**AND THE FIRST RUN OF THAT PROBE LOOKED LIKE A FAILURE AND WAS NOT.** The stub
+rejected anything over 1,000 tokens, so the corrected 2,048 was refused as well
+and the call ended exhausted — which is the one-shot bound behaving exactly as
+designed. The bug was in the fixture's threshold, not in the loop. Worth
+recording: a probe whose own limits are tighter than the thing it is probing
+reports a defect that is its own.
+
+---
+
 ## 10. BUILD ORDER
 
 Each step ends with the §0 gate. **No step begins before the previous one has
@@ -1198,7 +1235,7 @@ been driven against the running surface.**
 | 8 | `CI-127` cross-cutting | red-run on each of its five rules |
 | 9 | **HOST card producer** (§9b) | `CI-130`, live: the card shows a real reading |
 | 10 | **Notes as an agenda source** (§9c) | ✅ DONE 2026-09-07 — `CI-131`, 5 red runs, live: 5 titles, `retrieved_local`, no bodies |
-| 11 | **Provider-failure routing** (§9d) | ⚠️ CODE DONE 2026-09-07 — `CI-132` (5 red runs), `CI-133` (10 red runs), all five cases incl. fix-and-resend. NOT yet driven live: §9h, the rebuild costs the grant trip |
+| 11 | **Provider-failure routing** (§9d) | ✅ DONE 2026-09-07 — `CI-132` (5 red runs), `CI-133` (10 red runs). Live: real advisor limit read as `rate_limited` with the 15-min floor carried; board surfacing fired; fix-and-resend driven through the real gateway loop, 4096→2048→answered, one repair and never a loop |
 | 12 | **Island integration** (§9e) | owner-queued LAST, not started |
 | — | **Main menu + expandable menu** (§9k) | HANDED TO CODEX 2026-09-07, brief written, markers carved |
 | 13 | **Active-Space reading from a background process** (§9f) | open, no decided approach |
