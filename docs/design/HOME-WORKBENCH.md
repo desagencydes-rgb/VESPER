@@ -1382,10 +1382,29 @@ swiftc -swift-version 5 -target arm64-apple-macosx13.0 \
   app/home-macos/anchor_probe.swift -o /tmp/anchor_probe && /tmp/anchor_probe
 ```
 
-and report the two window counts. Zero foreign windows in both readings is
-the fix working; a nonzero "before" that drops to zero "after" is the fix
-being NEEDED and working; a nonzero "after" is the anchor not being enough
-and the theory being wrong. No build, no TCC, no app bundle touched.
+and report the two window counts. No build, no TCC, no app bundle touched.
+
+**RUN, 2026-09-07 evening, conditions confirmed both times.** First attempt
+came back `0`/`0` but with no confirmation Desktop 1 held anything — an
+uninformative pass, said so rather than counted. Second attempt, explicitly
+confirmed: Finder windows on Desktop 1, VESPER's own Desktop 2 genuinely
+empty, run from the terminal card. **`0 foreign window(s)` both before and
+after** — the read that would have been wrong (Desktop 1's windows, showing
+up on Desktop 2's query) did not happen.
+
+**WHAT THIS PROVES AND WHAT IT DOES NOT.** It proves the mechanism is safe —
+matches `residency_probe`'s own measured behaviour, no crash, no interference
+— and that the specific failure did not reproduce with a real foreign window
+present. It does NOT byte-for-byte reproduce the original failure, which
+happened at actual OS login: a process spawned fresh by launchd, not one
+launched interactively from the terminal card mid-session, inside an
+already-running VESPER whose main app may already carry window-server context
+the login case would not have. The fully conclusive test is the real login
+path, with this fix built in, picking the correct Desktop on its own — which
+needs an actual rebuild and costs the six-grant TCC trip. Not spent on this
+alone; left to ride into whatever next change justifies one. **Status: fix
+implemented, mechanism verified safe and consistent with proven behaviour,
+end-to-end login confirmation deferred to the next batched rebuild.**
 
 ---
 
@@ -1409,7 +1428,7 @@ been driven against the running surface.**
 | 11 | **Provider-failure routing** (§9d) | ✅ DONE 2026-09-07 — `CI-132` (5 red runs), `CI-133` (10 red runs). Live: real advisor limit read as `rate_limited` with the 15-min floor carried; board surfacing fired; fix-and-resend driven through the real gateway loop, 4096→2048→answered, one repair and never a loop |
 | 12 | **Island integration** (§9e) | ✅ DONE 2026-09-07 — `CI-134`, 5 red runs. Live: Mode `auto`, Ran 5, Changed 4 beside the machine's rows |
 | — | **Main menu + expandable menu** (§9k) | ✅ ACCEPTED 2026-09-07 (tile, rail, history) — v2 HANDED TO CODEX 2026-09-07 evening as a worktree (§9p), all 68 catalogue items, `docs/planning/CODEX-BRIEF-MENUS-v2.md` |
-| 13 | **Active-Space reading from a background process** (§9f) | design done, fix compiled (§9p) — `SpaceWatch.Anchor` — awaiting the owner's one-command cross-Desktop read |
+| 13 | **Active-Space reading from a background process** (§9f) | fix implemented and owner-verified (§9p) — `SpaceWatch.Anchor`, confirmed `0`/`0` with Desktop 1 populated and Desktop 2 genuinely empty. Full login-path confirmation needs a rebuild, deferred to the next batched one |
 | 14 | **Microphone sensitivity** (§9g) | owner-reported, queued last, MEASURE FIRST |
 | — | **TCC grants die on every build** (§9h) | found by the session, RAISED, awaiting a decision |
 | — | **`f5-acceptance` flakes under load** (§9i) | found by the session, RAISED, awaiting a decision |
