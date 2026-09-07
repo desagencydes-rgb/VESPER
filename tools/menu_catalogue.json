@@ -1,0 +1,546 @@
+[
+  {
+    "id": "action-outbox",
+    "name": "Action outbox",
+    "bucket": "A",
+    "area": "main",
+    "what": "Every external side effect, durably recorded before it happens, with reconciliation state.",
+    "reason": "The live reconciliation registry is not attached to this publisher."
+  },
+  {
+    "id": "autonomy-queue",
+    "name": "Autonomy queue",
+    "bucket": "A",
+    "area": "main",
+    "what": "What VESPER intends to do unprompted, before it does it.",
+    "reason": "The live autonomy loop is not attached to this publisher."
+  },
+  {
+    "id": "emergency-stop",
+    "name": "Emergency stop",
+    "bucket": "A",
+    "area": "main",
+    "what": "Halt everything. Independent of the thing it stops, by design.",
+    "reason": "The native bridge exposes no independent stop command. In the existing app, hold Globe/Fn + Control + Option + Command for 0.6 seconds to stop VESPER; Globe three times starts it again. This panel cannot invoke that native stop."
+  },
+  {
+    "id": "grants",
+    "name": "Grants",
+    "bucket": "A",
+    "area": "main",
+    "what": "Standing permissions, their scope, and their expiry.",
+    "reason": "The running policy decision point is not attached to this publisher."
+  },
+  {
+    "id": "verification-state",
+    "name": "Verification state",
+    "bucket": "A",
+    "area": "main",
+    "what": "What's been verified, what's asserted, and the refusal to let repetition count as success.",
+    "reason": "The live verifier is not attached to this publisher."
+  },
+  {
+    "id": "follow-me",
+    "name": "Follow-me",
+    "bucket": "B",
+    "area": "main",
+    "what": "The interface moving with VESPER as it relocates.",
+    "reason": "No relocation-to-interface transport is registered on this surface."
+  },
+  {
+    "id": "grant-templates",
+    "name": "Grant templates",
+    "bucket": "B",
+    "area": "main",
+    "what": "Reusable permission sets — 'study mode', 'travel mode', 'hands off'.",
+    "reason": "No owner-defined grant template collection or governed apply operation exists."
+  },
+  {
+    "id": "hardware-access",
+    "name": "Hardware access",
+    "bucket": "B",
+    "area": "main",
+    "what": "Camera, microphone, screen, files — what's granted, what's in use, and a capture indicator that can't lie.",
+    "reason": "The native bridge publishes neither active capture sessions nor complete permission state. Device presence is not access consent."
+  },
+  {
+    "id": "import-export",
+    "name": "Import / export",
+    "bucket": "B",
+    "area": "main",
+    "what": "Take your memory with you, or seed it from somewhere else.",
+    "reason": "No portable memory transfer operation is exposed by the native bridge. Copying live database files would lose WAL records."
+  },
+  {
+    "id": "live-activity-stream",
+    "name": "Live activity stream",
+    "bucket": "B",
+    "area": "main",
+    "what": "A running narration of what VESPER is doing, at a granularity you set.",
+    "reason": "No runtime event stream has been supplied to this publisher."
+  },
+  {
+    "id": "modes",
+    "name": "Modes",
+    "bucket": "B",
+    "area": "main",
+    "what": "Study / travel / low-power / hands-off — whole configurations you switch between.",
+    "reason": "The existing permission mode does not define study, travel, low-power, or hands-off configurations. Those presets need governed definitions before they can be applied."
+  },
+  {
+    "id": "panic-revoke",
+    "name": "Panic revoke",
+    "bucket": "B",
+    "area": "main",
+    "what": "Drop every standing grant at once, without stopping VESPER.",
+    "reason": "The policy decision point has no public revoke-all operation, and the native bridge has no revoke command."
+  },
+  {
+    "id": "per-app-rules",
+    "name": "Per-app rules",
+    "bucket": "B",
+    "area": "main",
+    "what": "What VESPER may touch in each application, separately.",
+    "reason": "No per-application policy collection or governed editor exists."
+  },
+  {
+    "id": "quiet-hours-restrictions",
+    "name": "Quiet-hours restrictions",
+    "bucket": "B",
+    "area": "main",
+    "what": "Narrower permissions at night than during the day.",
+    "reason": "No owner-defined quiet-hours authorization policy exists. Alarm overrides must remain intact."
+  },
+  {
+    "id": "remote-surfaces",
+    "name": "Remote surfaces",
+    "bucket": "B",
+    "area": "main",
+    "what": "Reaching VESPER from a phone or another machine.",
+    "reason": "No enrolled endpoint inventory is attached to this publisher."
+  },
+  {
+    "id": "work-rate",
+    "name": "Work rate",
+    "bucket": "B",
+    "area": "main",
+    "what": "Throughput over time — is VESPER actually getting things done.",
+    "reason": "No bounded runtime completion history has been supplied."
+  },
+  {
+    "id": "macos-permissions",
+    "name": "macOS permissions",
+    "bucket": "B",
+    "area": "main",
+    "what": "Accessibility, Screen Recording, Automation — what's granted, what's needed for which feature, and why.",
+    "reason": "Permission status is not exported by the native bridge. Querying permissions from a helper would report the helper’s identity, not the app’s."
+  },
+  {
+    "id": "attestation-state",
+    "name": "Attestation state",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "Whether a VESPER-controlled segment exists and is attested. Today: false, so no node is a full host.",
+    "reason": "The network fabric contract could not be read."
+  },
+  {
+    "id": "battery-health",
+    "name": "Battery health",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "Capacity, cycles, temperature history, daily charge range. The numbers that decide the ten-year question.",
+    "reason": "No usable battery capacity and cycle counters were returned."
+  },
+  {
+    "id": "capability-registry",
+    "name": "Capability registry",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "Every capability, its level, and the constants that are refused outright.",
+    "reason": "The running capability registry is not attached to this publisher."
+  },
+  {
+    "id": "charge-policy",
+    "name": "Charge policy",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "Charge limit state, and whether the machine is sitting at high charge — the mechanism that aged this pack to 84% in a shop.",
+    "reason": "The OS did not return battery charge range or charge-limit state."
+  },
+  {
+    "id": "compensation",
+    "name": "Compensation",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "What each in-flight action would undo if it fails partway.",
+    "reason": "The running executor’s compensator registry is not attached to this publisher."
+  },
+  {
+    "id": "compressor-swap",
+    "name": "Compressor & swap",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "How hard the compressor is working, and whether swap has turned on. Swap is the SSD-wear tripwire.",
+    "reason": "The OS did not return compressor and swap counters."
+  },
+  {
+    "id": "control-plane-lease",
+    "name": "Control-plane lease",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "Which node holds control, its fencing token, and its refusal to self-promote.",
+    "reason": "No readable leased-domain state was supplied."
+  },
+  {
+    "id": "degradation-ladder",
+    "name": "Degradation ladder",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "What VESPER gives up first when it must give something up.",
+    "reason": "The governed degradation contract could not be read."
+  },
+  {
+    "id": "endpoints",
+    "name": "Endpoints",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "Every surface VESPER can reach you through, as profiles rather than device names.",
+    "reason": "The live device registry is not attached to this publisher."
+  },
+  {
+    "id": "enrollment",
+    "name": "Enrollment",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "Admit a new machine, measure it, and watch it earn placement on merit.",
+    "reason": "No live enrollment registry is instantiated by this runtime. Discovery and admission cannot be performed by the display."
+  },
+  {
+    "id": "governed-surfaces",
+    "name": "Governed surfaces",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "Which files require review, and who reviews them.",
+    "reason": "The governed-surface artifact could not be read."
+  },
+  {
+    "id": "key-identity-state",
+    "name": "Key & identity state",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "Each node's keys, where they're stored, and which never leave the device.",
+    "reason": "No enrolled device key-storage profiles were supplied. Key material is never read by this panel."
+  },
+  {
+    "id": "memory-headroom",
+    "name": "Memory headroom",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "Real reclaimable memory, translated — not the alarming 'free' figure that reads 0.16 GB on a healthy machine.",
+    "reason": "The host adapter could not read reclaimable memory."
+  },
+  {
+    "id": "memory-pressure-band",
+    "name": "Memory pressure band",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "The kernel's own signal, shown as a band. Never converted to gigabytes — it doesn't track allocation.",
+    "reason": "The kernel did not expose a pressure band."
+  },
+  {
+    "id": "network-segments",
+    "name": "Network segments",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "Private / shared / outside, each with its trust ceiling. No addresses, no product names.",
+    "reason": "The declared network segments could not be read."
+  },
+  {
+    "id": "node-profiles",
+    "name": "Node profiles",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "What each machine measurably sustains. UNKNOWN means unavailable, and shows as such.",
+    "reason": "No live enrolled measured profiles were supplied."
+  },
+  {
+    "id": "owner-working-set",
+    "name": "Owner working set",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "What's resident right now, so a headroom number is interpretable rather than just a figure.",
+    "reason": "The OS process resident-memory inventory was unavailable."
+  },
+  {
+    "id": "placement-decisions",
+    "name": "Placement decisions",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "Where each capability currently runs and why it was placed there, including what lost.",
+    "reason": "No live placement assignment or decision history was supplied."
+  },
+  {
+    "id": "platform-adapters",
+    "name": "Platform adapters",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "Per-platform translation of host signals. The knowledge lives in the adapter, never in shared logic.",
+    "reason": "The host adapter could not be loaded."
+  },
+  {
+    "id": "survival-profile",
+    "name": "Survival profile",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "What VESPER carries onto the last device standing, and what it drops.",
+    "reason": "No enrolled placement profile with measured resource budgets was supplied."
+  },
+  {
+    "id": "trust-zones",
+    "name": "Trust zones",
+    "bucket": "A",
+    "area": "instruments",
+    "what": "Z0–Z3 per node, with the reason each landed where it did.",
+    "reason": "No enrolled effective trust assignments were supplied. A key-storage ceiling alone is not an effective trust zone."
+  },
+  {
+    "id": "before-after",
+    "name": "Before/after",
+    "bucket": "B",
+    "area": "instruments",
+    "what": "Measure a change you made and show whether it actually helped.",
+    "reason": "Capture a fresh baseline and a later reading in this panel to compare them."
+  },
+  {
+    "id": "command-palette",
+    "name": "Command palette",
+    "bucket": "B",
+    "area": "instruments",
+    "what": "Keyboard-first access to every surface in this document.",
+    "reason": "The palette is available locally through the instruments panel or Command-K."
+  },
+  {
+    "id": "costing-me-now",
+    "name": "Costing me now",
+    "bucket": "B",
+    "area": "instruments",
+    "what": "Live ranked list of what is draining the battery this minute.",
+    "reason": "Public process CPU and RSS counters do not measure battery energy. Per-process power attribution requires privileged powermetrics."
+  },
+  {
+    "id": "disk-i-o-rate",
+    "name": "Disk I/O rate",
+    "bucket": "B",
+    "area": "instruments",
+    "what": "Live read/write throughput, and cumulative writes against SSD endurance.",
+    "reason": "Two comparable storage-counter samples are needed before a rate can be measured."
+  },
+  {
+    "id": "display-power",
+    "name": "Display power",
+    "bucket": "B",
+    "area": "instruments",
+    "what": "Brightness and its real cost. The display dominates idle drain, so this is a bigger lever than CPU.",
+    "reason": "The public display inventory does not report measured display watts. Brightness alone cannot establish power cost."
+  },
+  {
+    "id": "link-quality",
+    "name": "Link quality",
+    "bucket": "B",
+    "area": "instruments",
+    "what": "Latency, throughput and reliability per path — measured at enrollment, never declared.",
+    "reason": "No enrollment-measured per-path latency, throughput, and reliability record is published. A TCP reachability check is not that measurement."
+  },
+  {
+    "id": "maintenance-actions",
+    "name": "Maintenance actions",
+    "bucket": "B",
+    "area": "instruments",
+    "what": "Things worth doing occasionally, surfaced when they're due rather than remembered.",
+    "reason": "No maintenance schedule or last-completed action ledger has been configured."
+  },
+  {
+    "id": "node-roles",
+    "name": "Node roles",
+    "bucket": "B",
+    "area": "instruments",
+    "what": "What each machine is FOR — always-on server, travelling laptop, phone endpoint.",
+    "reason": "The live enrollment registry has not published role assignments. Availability classes are not roles."
+  },
+  {
+    "id": "peripherals",
+    "name": "Peripherals",
+    "bucket": "B",
+    "area": "instruments",
+    "what": "What's plugged in, what it draws, and what it keeps awake.",
+    "reason": "No public peripheral inventory was returned."
+  },
+  {
+    "id": "radio-state",
+    "name": "Radio state",
+    "bucket": "B",
+    "area": "instruments",
+    "what": "Wi-Fi and Bluetooth power cost, and what's keeping them awake.",
+    "reason": "No public radio-state observation was returned."
+  },
+  {
+    "id": "relocation-history",
+    "name": "Relocation history",
+    "bucket": "B",
+    "area": "instruments",
+    "what": "When VESPER moved, what triggered it, and the damping that stopped it flapping.",
+    "reason": "No placement events are available in the supplied bounded log tail."
+  },
+  {
+    "id": "retry-policy",
+    "name": "Retry policy",
+    "bucket": "B",
+    "area": "instruments",
+    "what": "What VESPER does when something fails, per task class.",
+    "reason": "The running reconciler’s retry policy could not be read."
+  },
+  {
+    "id": "sleep-wake-log",
+    "name": "Sleep & wake log",
+    "bucket": "B",
+    "area": "instruments",
+    "what": "Every sleep, wake, and what woke it. Where mystery battery drain gets explained.",
+    "reason": "The public power-management log could not be read."
+  },
+  {
+    "id": "storage-ssd",
+    "name": "Storage & SSD",
+    "bucket": "B",
+    "area": "instruments",
+    "what": "Free space, TRIM, SMART, and cumulative write pressure.",
+    "reason": "The public disk inventory could not be read."
+  },
+  {
+    "id": "thermal-history",
+    "name": "Thermal history",
+    "bucket": "B",
+    "area": "instruments",
+    "what": "Temperature over time against ambient — the variable that matters most in site B heat.",
+    "reason": "No battery-temperature samples have been collected. Ambient temperature is unavailable."
+  },
+  {
+    "id": "throttle-events",
+    "name": "Throttle events",
+    "bucket": "B",
+    "area": "instruments",
+    "what": "When the machine actually throttled, and what was running.",
+    "reason": "The public power-management interface returned no recorded performance-warning status."
+  },
+  {
+    "id": "approval-history",
+    "name": "Approval history",
+    "bucket": "C",
+    "area": "instruments",
+    "what": "Everything you've ever approved, and the chance to withdraw any of it.",
+    "reason": "No approval records are available in the supplied bounded audit tail. Withdrawal is unavailable without a revoke operation."
+  },
+  {
+    "id": "blast-radius",
+    "name": "Blast radius",
+    "bucket": "C",
+    "area": "instruments",
+    "what": "What breaks if a given node dies — simulated before it happens.",
+    "reason": "No enrolled placement profiles and assignments were supplied for simulation."
+  },
+  {
+    "id": "clock-skew",
+    "name": "Clock skew",
+    "bucket": "C",
+    "area": "instruments",
+    "what": "How far apart the nodes' clocks are — and the reminder that HLC, not wall clock, decides order.",
+    "reason": "No bounded request/response clock observations from other nodes were supplied. Local timestamps alone cannot establish skew."
+  },
+  {
+    "id": "migration-dry-run",
+    "name": "Migration dry-run",
+    "bucket": "C",
+    "area": "instruments",
+    "what": "Move VESPER somewhere, in simulation, and see what degrades.",
+    "reason": "No enrolled placement profiles were supplied for simulation."
+  },
+  {
+    "id": "node-comparison",
+    "name": "Node comparison",
+    "bucket": "C",
+    "area": "instruments",
+    "what": "Two machines side by side on every measured axis.",
+    "reason": "At least two enrolled measured node profiles are needed for comparison."
+  },
+  {
+    "id": "onboarding-wizard",
+    "name": "Onboarding wizard",
+    "bucket": "C",
+    "area": "instruments",
+    "what": "Walk a new machine from nothing to enrolled and measured.",
+    "reason": "The native bridge has no discovery, measurement, or admission command. The wizard can prepare a request but cannot enroll a node."
+  },
+  {
+    "id": "ambient-estimate",
+    "name": "Ambient estimate",
+    "bucket": "D",
+    "area": "instruments",
+    "what": "Inferred room temperature — the ceiling the battery can never get below.",
+    "reason": "There is no ambient-temperature sensor. Battery temperature is not room temperature."
+  },
+  {
+    "id": "behaviour-on-off-this-mac",
+    "name": "Behaviour on / off this Mac",
+    "bucket": "D",
+    "area": "instruments",
+    "what": "Different rules when VESPER is here versus running on another node.",
+    "reason": "The owner has not defined the location-dependent policy. No policy is inferred."
+  },
+  {
+    "id": "charging-schedule",
+    "name": "Charging schedule",
+    "bucket": "D",
+    "area": "instruments",
+    "what": "When to charge, given your day, to minimise time at high state of charge.",
+    "reason": "The owner has not supplied a charging schedule, and no governed charging-control action is available."
+  },
+  {
+    "id": "consent-channel-policy",
+    "name": "Consent channel policy",
+    "bucket": "D",
+    "area": "instruments",
+    "what": "Which tiers may be approved by voice and which need a tap you make yourself.",
+    "reason": "The owner has not decided which approval tiers may use voice versus an explicit tap."
+  },
+  {
+    "id": "failover-drill",
+    "name": "Failover drill",
+    "bucket": "D",
+    "area": "instruments",
+    "what": "Deliberately kill a node and prove recovery works. A negative control for the fabric.",
+    "reason": "This action deliberately kills a node. Separate explicit owner authorization is required; icon approval does not authorize a drill."
+  },
+  {
+    "id": "fan-acoustics",
+    "name": "Fan & acoustics",
+    "bucket": "D",
+    "area": "instruments",
+    "what": "Fan speed and noise — heat you can hear before you can measure it.",
+    "reason": "No supported public fan-speed or acoustic-power sensor is exposed to this publisher."
+  },
+  {
+    "id": "power-draw",
+    "name": "Power draw",
+    "bucket": "D",
+    "area": "instruments",
+    "what": "Whole-machine watts split into compute vs everything else. Compute is 8% at idle — the split is the insight.",
+    "reason": "Whole-machine compute-versus-other power attribution requires privileged powermetrics. No root-access workaround is attempted."
+  },
+  {
+    "id": "process-energy",
+    "name": "Process energy",
+    "bucket": "D",
+    "area": "instruments",
+    "what": "Per-process power attribution — who is actually costing you battery, ranked.",
+    "reason": "Per-process power attribution requires privileged powermetrics tasks. CPU usage is not watts."
+  }
+]

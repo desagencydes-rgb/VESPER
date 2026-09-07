@@ -208,6 +208,14 @@ def main() -> int:
         rows.append({"label": LABELS.get(e.element_id, e.element_id),
                      "value": str(e.content["value"]),
                      "at_ms": at_ms, "ttl_ms": TTL_MS})
+    # No stand-in runtime is started by this command. In-process-only state
+    # remains UNAVAILABLE here; the running publisher supplies real objects.
+    from tools.menu_snapshot import Collector
+    state = (Path(sys.argv[sys.argv.index("--state-dir") + 1])
+             if "--state-dir" in sys.argv else STATE)
+    collector = Collector(state=state)
+    menu_rows = collector.collect()
+    rows.extend(menu_rows)
     # WRITTEN THROUGH `HomeState`, WHICH MERGES. This wrote the whole file --
     # `{"version": ..., "rows": ...}` over the top of `home.json` -- so running
     # the command the metrics card itself tells you to run DELETED the face,
@@ -228,7 +236,7 @@ def main() -> int:
         out.write_text(json.dumps(
             {"version": proj.version.to_dict(), "rows": rows}, indent=1))
 
-    print(f"{len(rows)} of {len(HOME_METRIC_KEYS)} card rows have a producer "
+    print(f"{len(rows)} projected rows (5 host keys + 68 menu items) "
           f"-> {out}")
     for r in rows:
         print(f"  {r['label']:<10} {r['value']}")
@@ -237,6 +245,8 @@ def main() -> int:
         if r is not None and not r.at(proj.version).known:
             print(f"  {LABELS.get(k, k):<10} (omitted) "
                   f"{r.unavailable_reason or 'expired'}")
+    available = sum(r["status"] == "available" for r in menu_rows)
+    print(f"menus: {available}/68 available; {68-available}/68 explicitly unavailable")
     return 0
 
 
