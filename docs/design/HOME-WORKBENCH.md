@@ -1064,6 +1064,43 @@ self-applied.
 
 ---
 
+## 9k. THE MENUS ARE HANDED TO A SECOND AGENT — PARALLEL, NOT SEQUENTIAL
+
+**Owner, 2026-09-07: "any way of having another agent (codex) working on all of
+them simultaneously while you do your work? it's just we don't have much time
+left (only one week)."**
+
+Yes, and the menus are the right slice: visual and interaction work, no
+invariant touched, currently placeholders. Brief:
+`docs/planning/CODEX-BRIEF-MENUS.md`.
+
+**IT ALSO SPENDS A DIFFERENT BUDGET.** The Claude rungs share two
+subscriptions and the owner hit a session limit on one of them today. Codex has
+its own account — so this is parallel in money as well as in time.
+
+**THE COLLISION IS ONE FILE, AND IT IS HANDLED BY MARKERS.** Everything renders
+through `home.html`. Explicit `==== MENU ====` markers are now in the CSS and
+the markup; codex works inside them and nowhere else. That is cheaper than
+branching, because the checks read the whole file and a branch would have to be
+merged before anything could be verified.
+
+**TWO RULES THE SECOND AGENT CANNOT BE EXPECTED TO KNOW, so the brief leads
+with them:**
+
+1. **Never run `build.sh`.** Every build re-signs ad-hoc and macOS keys TCC to
+   the signature, so a build silently revokes all six grants and costs the
+   owner a manual trip. `HomeChrome.template()` reads the repo copy first —
+   markup changes need no build at all, and `--chrome-probe` verifies them.
+2. **Never edit `fallbackTemplate()`.** It is generated; `CI-065` compares it
+   byte for byte. This session regenerates it.
+
+**WHAT STAYS HERE:** anything touching the authority ladder, the provider
+routing, the terminal, or a taint class. Those are where a plausible-looking
+mistake is expensive, and they are not parallelisable across agents that cannot
+see each other's reasoning.
+
+---
+
 ## 10. BUILD ORDER
 
 Each step ends with the §0 gate. **No step begins before the previous one has
@@ -1083,6 +1120,7 @@ been driven against the running surface.**
 | 10 | **Notes as an agenda source** (§9c) | ✅ DONE 2026-09-07 — `CI-131`, 5 red runs, live: 5 titles, `retrieved_local`, no bodies |
 | 11 | **Provider-failure routing** (§9d) | ⚠️ CODE DONE 2026-09-07 — `CI-132` (5 red runs), `CI-133` (10 red runs), all five cases incl. fix-and-resend. NOT yet driven live: §9h, the rebuild costs the grant trip |
 | 12 | **Island integration** (§9e) | owner-queued LAST, not started |
+| — | **Main menu + expandable menu** (§9k) | HANDED TO CODEX 2026-09-07, brief written, markers carved |
 | 13 | **Active-Space reading from a background process** (§9f) | open, no decided approach |
 | 14 | **Microphone sensitivity** (§9g) | owner-reported, queued last, MEASURE FIRST |
 | — | **TCC grants die on every build** (§9h) | found by the session, RAISED, awaiting a decision |

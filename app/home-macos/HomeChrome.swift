@@ -810,6 +810,9 @@ final class HomeChrome {
              The dotted underline is the tell. */
           .slot,.tile{position:relative}
 
+          /* ==== MENU: codex owns everything between these markers ==== */
+          /* ==== /MENU ==== */
+
           /* ---- the field, top right (SS14.2) --------------------------------
              Moved off the bottom because the bottom is now the STAGE. Two surfaces
              competing for the same edge is how a composition stops reading, and the
@@ -1118,6 +1121,7 @@ final class HomeChrome {
           <div class="stage"><div class="say" id="stage"></div></div>
         </div>
 
+        <!-- ==== MENU: codex owns everything between these markers ==== -->
         <div class="dockrow">
           <div class="bar">
             {{slots}}
@@ -1134,6 +1138,7 @@ final class HomeChrome {
             </svg>
           </div>
         </div>
+        <!-- ==== /MENU ==== -->
 
         <script>
           // The field's only job: hand the text to Swift and clear itself. It does not
