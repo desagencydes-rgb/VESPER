@@ -148,24 +148,42 @@ def verify() -> int:
     allowed = set(m["allowed"])
     before: dict = m["hashes"]
 
+    # AGAINST HEAD, NOT AGAINST THE FROZEN MANIFEST -- and that distinction is
+    # what makes this usable at all.
+    #
+    # The manifest is a snapshot of the moment the handoff opened. Comparing to
+    # it reports every file that has changed since, INCLUDING the first
+    # session's own committed work -- which is most of them, because the owner
+    # asked that session to keep going. Measured 2026-09-07: the first verify
+    # after the handoff named five files, all of them mine, and a boundary that
+    # reports the wrong agent's work is one nobody can act on.
+    #
+    # The second agent does not commit; this session does. So an UNCOMMITTED
+    # change outside the agreement is the second agent's, and that is exactly
+    # the question worth asking. The manifest and the tag stay for the archive
+    # and the undo -- they are the answer to "put it all back", not to "what
+    # did the other agent touch".
+    st = _git("status", "--porcelain", "--untracked-files=all").stdout
     changed, added, removed = [], [], []
-    now = set(_tracked())
-    for rel, h in before.items():
-        if rel in allowed:
+    for ln in st.splitlines():
+        if len(ln) < 4:
             continue
-        cur = _digest(rel)
-        if cur is None:
-            removed.append(rel)
-        elif cur != h:
-            changed.append(rel)
-    for rel in sorted(now - set(before)):
-        if rel not in allowed:
+        code, rel = ln[:2], ln[3:].strip().strip('"')
+        if " -> " in rel:
+            rel = rel.split(" -> ", 1)[1]
+        if rel in allowed or any(sk in rel for sk in SKIP):
+            continue
+        if code.strip() == "??":
             added.append(rel)
+        elif "D" in code:
+            removed.append(rel)
+        else:
+            changed.append(rel)
 
     print(f"handoff {m['label']}, opened {m['opened_at']}")
     ok = not (changed or removed or added)
     if ok:
-        print("  IN SCOPE: nothing outside the agreement was touched.")
+        print("  IN SCOPE: no uncommitted change outside the agreement.")
     else:
         # NAMED, NOT COUNTED. "3 files changed" sends the owner looking; a list
         # of paths sends them to the diff.
@@ -176,9 +194,9 @@ def verify() -> int:
         for rel in added:
             print(f"  ADDED     {rel}")
         print()
-        print("  These are outside what the second agent was given. Review each")
-        print(f"  against the tag before keeping any of it:")
-        print(f"    git -C {REPO} diff {m['tag']} -- <path>")
+        print("  UNCOMMITTED and outside the agreement. This session commits its")
+        print("  own work, so what is left here is the second agent's. Review:")
+        print(f"    git -C {REPO} diff -- <path>")
 
     # AND THE AGENT'S OWN BACKUP MUST BE GONE. The owner asked for it to be
     # deleted after finishing; a stale copy of the tree inside the tree is how

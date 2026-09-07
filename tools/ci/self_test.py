@@ -5974,6 +5974,15 @@ CASES += [
 ]
 
 
+CASES += [
+    ("triage-excludes-quota", "core/triage.py",
+     _sub('    "quota_ledger_exhausted",\n', "", 1),
+     "the ledger's own refusal is investigated again: a quota already absorbed "
+     "is filed as a defect on every subsequent call, graded, repaired, and "
+     "answered `no tier-1 handler for this classification`"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
 

@@ -48,6 +48,21 @@ NOT_INVESTIGATED = frozenset({
     "quota_unavailable_on_tier",    # permanent, but already fully absorbed
     "cost_policy",                  # a rule was applied; nothing went wrong
     "provider_unavailable",         # deliberately revoked, e.g. by A-004.3
+    # THE LEDGER'S OWN REFUSAL, AND IT WAS THE ONE GETTING THROUGH.
+    #
+    # `rate_limited` is excluded above, correctly -- but the gateway BOOKS that
+    # refusal, and every call afterwards is declined by the ledger with a
+    # DIFFERENT classification. Measured 2026-09-07: the advisor hit a real
+    # session limit, was correctly read as `rate_limited` and correctly
+    # declined by triage, and then produced six `quota_ledger_exhausted` items
+    # that WERE admitted -- each one graded, repaired, and answered "no tier-1
+    # handler exists for this classification".
+    #
+    # That is the same defect as the one this exclusion was written for,
+    # arriving one step downstream under a name the exclusion had not been
+    # taught. A quota that has already been absorbed is not a defect the second
+    # time it is reported either.
+    "quota_ledger_exhausted",
 })
 
 # The four grades. Only the first is ever acted on without the owner.

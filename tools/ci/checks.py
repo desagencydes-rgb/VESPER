@@ -3610,6 +3610,22 @@ def check_triage_excludes_quota() -> Result:
         r.err("the guide omitted what was already tried, so the owner repeats "
               "work and cannot see what has been ruled out.")
 
+    # THE LEDGER'S OWN REFUSAL IS A QUOTA FACT TOO, AND IT WAS THE ONE
+    # GETTING THROUGH. `rate_limited` is declined here and always was -- but
+    # the gateway BOOKS that refusal, and every call afterwards is declined by
+    # the LEDGER under a different name. Measured 2026-09-07: a real advisor
+    # session limit was read correctly, declined correctly, and then produced
+    # six `quota_ledger_exhausted` items that were admitted, graded, repaired
+    # and answered "no tier-1 handler exists for this classification" -- the
+    # same defect one step downstream, wearing a name the exclusion had not
+    # been taught.
+    if TriageQueue.investigable("quota_ledger_exhausted"):
+        r.err("`quota_ledger_exhausted` is investigated. It is the ledger "
+              "declining a rung whose quota refusal has ALREADY been absorbed; "
+              "admitting it files a defect against a provider that is behaving "
+              "correctly, and the repair path answers it with 'no tier-1 "
+              "handler for this classification'.")
+
     if r.ok:
         r.note(f"quota classes declined; unknown admitted; repeat threshold "
                f"{REPEAT_THRESHOLD} asserted in both directions; escalation "

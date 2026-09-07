@@ -379,6 +379,85 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   .slot,.tile{position:relative}
 
   /* ==== MENU: codex owns everything between these markers ==== */
+  /* These overrides live here because the surrounding chrome has another owner. */
+  .dockrow{z-index:20}
+  .dockrow .tile{cursor:pointer;color:var(--ink)}
+  .dockrow .tile:hover{background-color:rgba(255,255,255,.14)}
+  .dockrow button:focus-visible,.menu-rail button:focus-visible,
+  .menu-panel button:focus-visible,.menu-panel input:focus-visible,
+  .menu-panel summary:focus-visible{outline:2px solid var(--ink);outline-offset:4px}
+  .menu-rail{position:fixed;right:18px;top:50%;transform:translateY(-50%);
+    display:flex;flex-direction:column;gap:18px;z-index:21}
+  .menu-rail button{display:flex;justify-content:flex-end;align-items:center;gap:12px;
+    padding:0;border:0;background:none;color:rgba(244,230,220,.62);
+    font:12px var(--face-body);cursor:pointer}
+  .menu-rail .menu-orb{display:grid;place-items:center;width:42px;height:42px;
+    border:1px solid rgba(255,255,255,.16);border-radius:50%;
+    background:rgba(28,27,28,.70);-webkit-backdrop-filter:blur(24px) saturate(180%);
+    backdrop-filter:blur(24px) saturate(180%);
+    box-shadow:0 5px 20px rgba(0,0,0,.20),inset 0 1px 0 rgba(255,255,255,.20);
+    transition:transform .24s cubic-bezier(.32,.72,0,1),background .24s ease}
+  .menu-rail button:hover{color:var(--ink)}
+  .menu-rail button:hover .menu-orb{transform:scale(1.06);background:rgba(60,55,53,.85)}
+  .menu-orb svg{width:18px;height:18px;fill:none;stroke:currentColor;
+    stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+  .menu-panel{position:fixed;inset:auto 92px 100px auto;margin:0;
+    width:min(420px,calc(100vw - 48px));max-height:calc(100vh - 136px);
+    padding:0;box-sizing:border-box;border-radius:22px;
+    border:1px solid rgba(255,255,255,.18);color:var(--ink);
+    background:rgba(26,25,27,.94);font:13px/1.55 var(--face-body);
+    -webkit-backdrop-filter:blur(24px) saturate(180%);
+    backdrop-filter:blur(24px) saturate(180%);
+    box-shadow:0 20px 70px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.20);
+    overflow:auto;-webkit-user-select:text;user-select:text}
+  .menu-panel[data-view="instruments"]{right:max(24px,calc(50% - 320px))}
+  .menu-panel::backdrop{background:rgba(0,0,0,.16)}
+  .menu-panel[open]{animation:menu-arrive .24s cubic-bezier(.32,.72,0,1)}
+  @keyframes menu-arrive{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .menu-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;
+    padding:20px 22px 10px}
+  .menu-heading h2{margin:0;font:500 20px/1.3 var(--face-body);letter-spacing:-.03em}
+  .menu-close{border:1px solid rgba(255,255,255,.13);border-radius:50%;width:30px;height:30px;
+    background:rgba(255,255,255,.055);color:var(--ink);font:20px var(--face-body);cursor:pointer;flex:none}
+  .menu-intro{margin:0;padding:0 22px 18px;color:rgba(244,230,220,.62);font-size:12px}
+  .menu-content{padding:0 22px 22px}
+  .menu-reading{padding:13px 0;border-top:1px solid rgba(255,255,255,.09)}
+  .menu-reading summary{display:flex;align-items:baseline;justify-content:space-between;
+    gap:12px;cursor:pointer;list-style:none}
+  .menu-reading summary::-webkit-details-marker{display:none}
+  .menu-reading summary::after{content:'+';color:rgba(244,230,220,.34)}
+  .menu-reading[open] summary::after{content:'−'}
+  .menu-reading-name{flex:1}
+  .menu-reading-value{font-size:11px;color:rgba(244,230,220,.62)}
+  .menu-reading[data-available="true"] .menu-reading-value{color:var(--ink);font-size:15px}
+  .menu-reading p,.menu-note{color:rgba(244,230,220,.62);font-size:12px;margin:8px 0 0}
+  .menu-reading[data-available="false"] .menu-reading-value{font-size:9px;letter-spacing:.09em}
+  .menu-search{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.18);
+    border-radius:10px;background:rgba(255,255,255,.045);color:var(--ink);
+    padding:10px 12px;font:12px var(--face-body);margin:0 0 12px}
+  .menu-history-list{margin:0;padding:0;list-style:none}
+  .menu-history-list li{border-top:1px solid rgba(255,255,255,.09);padding:14px 0}
+  .menu-history-list strong{font-size:10px;font-weight:400;letter-spacing:.12em;text-transform:uppercase;
+    color:rgba(244,230,220,.62)}
+  .menu-history-list p{margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+  .menu-status{display:block;font-size:10px;letter-spacing:.10em;color:rgba(244,230,220,.62)}
+  .menu-empty-title{font-size:18px;margin:10px 0}
+  @media(max-width:760px){
+    .dockrow{gap:8px;bottom:10px}.dockrow .bar{gap:4px;padding:7px}
+    .dockrow .slot{width:34px;height:40px}.dockrow .slot svg{width:21px;height:21px}
+    .dockrow .avatar{width:36px;height:36px}.dockrow .sep{margin:0 2px}
+    .dockrow .tile{width:48px;height:56px}.menu-rail{right:12px;gap:12px}
+    .menu-rail button{gap:7px;font-size:10px}.menu-rail .menu-orb{width:36px;height:36px}
+    .menu-panel,.menu-panel[data-view="instruments"]{right:24px;bottom:84px;max-height:calc(100vh - 108px)}
+  }
+  @media(prefers-reduced-motion:reduce){
+    .menu-panel[open]{animation:none}.menu-rail .menu-orb,.dockrow,.dockrow .slot{transition:none}
+    .menu-rail button:hover .menu-orb,.dockrow .slot:hover{transform:none}
+  }
+  @media(prefers-reduced-transparency:reduce){
+    .menu-panel,.menu-rail .menu-orb,.dockrow .bar,.dockrow .tile{background:#242225;
+      -webkit-backdrop-filter:none;backdrop-filter:none}
+  }
   /* ==== /MENU ==== */
 
   /* ---- the field, top right (SS14.2) --------------------------------
@@ -691,21 +770,216 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
 
 <!-- ==== MENU: codex owns everything between these markers ==== -->
 <div class="dockrow">
-  <div class="bar">
+  <div class="bar" role="group" aria-label="Main menu — eight meanings awaiting your choice">
     {{slots}}
     <div class="sep"></div>
     <div class="avatar" title="the owner's avatar — placeholder">A</div>
   </div>
-  <!-- §14.2: "a SEPARATE expandable menu tile at its right end". Separate
-       is the point: it is not a ninth slot in the bar. -->
-  <div class="tile" title="expandable menu — placeholder">
+  <!-- The instrument tile is separate from the eight undecided action slots. -->
+  <button class="tile" id="menu-toggle" type="button" aria-label="Host instruments"
+          aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false" title="Host instruments">
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4 8h16M4 12h16M4 16h10" stroke-linecap="round"/>
-      <path d="M17.5 15.5l2.5 2.5-2.5 2.5" stroke-linecap="round"
-            stroke-linejoin="round"/>
+      <path d="M17.5 15.5l2.5 2.5-2.5 2.5" stroke-linecap="round" stroke-linejoin="round"/>
     </svg>
-  </div>
+  </button>
 </div>
+<nav class="menu-rail" aria-label="Home destinations">
+  <button type="button" data-menu-view="projects" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false">
+    <span>projects</span><span class="menu-orb"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h7l2 2h9v10H3zM3 7V5h7l2 2"/></svg></span>
+  </button>
+  <button type="button" data-menu-view="research" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false">
+    <span>research</span><span class="menu-orb"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5M7 10h6M10 7v6"/></svg></span>
+  </button>
+  <button type="button" data-menu-view="history" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false">
+    <span>history</span><span class="menu-orb"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8a9 9 0 1 1-1 7M4 3v5h5M12 7v5l3 2"/></svg></span>
+  </button>
+  <button type="button" data-menu-view="settings" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false">
+    <span>settings</span><span class="menu-orb"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="8" cy="18" r="2"/></svg></span>
+  </button>
+</nav>
+<dialog class="menu-panel" id="menu-panel" aria-labelledby="menu-title" aria-describedby="menu-intro">
+  <header class="menu-heading"><h2 id="menu-title"></h2>
+    <button type="button" class="menu-close" aria-label="Close panel" autofocus>×</button>
+  </header>
+  <p class="menu-intro" id="menu-intro"></p>
+  <div class="menu-content" id="menu-content"></div>
+</dialog>
+<script>
+(function () {
+  'use strict';
+  // Attach after the shared script defines its receivers. Forward every push
+  // unchanged: the menu observes the existing register, never starts a poll.
+  document.addEventListener('DOMContentLoaded', function () {
+    var MAX_MENU_READINGS = 8, MAX_MENU_METRIC_ROWS = 32;
+    var MAX_MENU_HISTORY = 60, MAX_MENU_TEXT = 6000;
+    var panel = document.getElementById('menu-panel');
+    var title = document.getElementById('menu-title');
+    var intro = document.getElementById('menu-intro');
+    var content = document.getElementById('menu-content');
+    var tile = document.getElementById('menu-toggle');
+    var triggers = Array.from(document.querySelectorAll('[data-menu-view]'));
+    var active = '', opener = null, power = null, history = null;
+    var historyQuery = '', historyTruncated = false;
+    var historyNodes = null;
+    var definitions = [
+      ['Power source', 'The power source is not present in the current update.'],
+      ['Power draw', 'No measured wattage is supplied to this surface.'],
+      ['Battery charge', 'Battery charge has a host probe, but its reading is not supplied to this surface.'],
+      ['Battery health', 'No battery health or lifetime measurement is supplied to this surface.'],
+      ['Thermal pressure', 'The host adapter reads thermal pressure, but its reading is not supplied to this surface.'],
+      ['Memory headroom', 'The host adapter reads available memory, but its reading is not supplied to this surface.'],
+      ['Memory pressure band', 'The host adapter reads a pressure band, but its reading is not supplied to this surface.'],
+      ['Compressor & swap', 'No compressor measurement or swap reading is supplied to this surface.']
+    ];
+    function node(tag, className, text) {
+      var n = document.createElement(tag);
+      if (className) n.className = className;
+      if (text !== undefined) n.textContent = text;
+      return n;
+    }
+    function bounded(value) { return typeof value === 'string' ? value.slice(0, MAX_MENU_TEXT) : ''; }
+    function focusHost() {
+      try { window.webkit.messageHandlers.vesperFocus.postMessage('1'); } catch (e) {}
+    }
+    function renderInstruments() {
+      // Keep the disclosure nodes stable when a reading changes, including focus.
+      if (!content.querySelector('.menu-reading')) {
+        content.textContent = '';
+        definitions.slice(0, MAX_MENU_READINGS).forEach(function (d) {
+          var row = node('details', 'menu-reading');
+          var summary = node('summary');
+          summary.appendChild(node('span', 'menu-reading-name', d[0]));
+          summary.appendChild(node('span', 'menu-reading-value'));
+          row.appendChild(summary);
+          row.appendChild(node('p'));
+          content.appendChild(row);
+        });
+      }
+      Array.from(content.querySelectorAll('.menu-reading')).forEach(function (row, i) {
+        var available = i === 0 && power !== null;
+        row.dataset.available = String(available);
+        row.querySelector('.menu-reading-value').textContent = available ? power : 'UNAVAILABLE';
+        row.querySelector('p').textContent = available
+          ? 'Last reported power source. Measurement time is not supplied, so freshness is unavailable.'
+          : definitions[i][1];
+      });
+      intro.textContent = (power ? '1 reported source · 7 unavailable measurements.' : '8 unavailable readings.')
+        + ' Open a row for its source or missing measurement.';
+    }
+    function renderHistory() {
+      if (!historyNodes) return;
+      var list = historyNodes.list, note = historyNodes.note;
+      list.textContent = '';
+      if (history === null) {
+        note.textContent = 'UNAVAILABLE — conversation history has not arrived in a valid update.';
+        return;
+      }
+      var shown = history.filter(function (r) {
+        return (r.who + ' ' + r.text).toLowerCase().includes(historyQuery.toLowerCase());
+      });
+      note.textContent = history.length === 0 ? 'No conversation entries were supplied.'
+        : shown.length + ' of ' + history.length + ' supplied entries'
+          + (historyTruncated ? ' · limited to 60 entries; long entries are shortened.' : '.');
+      if (history.length && !shown.length) note.textContent = 'No entries match this search.';
+      shown.forEach(function (r) {
+        var item = node('li');
+        item.appendChild(node('strong', '', r.who));
+        item.appendChild(node('p', '', r.text));
+        list.appendChild(item);
+      });
+    }
+    function show(view, trigger) {
+      focusHost();
+      active = view; opener = trigger;
+      panel.dataset.view = view;
+      content.textContent = ''; historyNodes = null;
+      title.textContent = {instruments:'This host', projects:'Projects', research:'Research',
+                           history:'Conversation history', settings:'Settings'}[view];
+      if (view === 'instruments') renderInstruments();
+      else if (view === 'history') {
+        intro.textContent = 'The conversation supplied by VESPER, in its recorded order. Full action and decision logs are not connected here.';
+        var search = node('input', 'menu-search'); search.type = 'search';
+        search.placeholder = 'Find in conversation'; search.setAttribute('aria-label', 'Find in conversation');
+        search.maxLength = 200; search.value = historyQuery;
+        var note = node('p', 'menu-note'), list = node('ol', 'menu-history-list');
+        content.appendChild(search); content.appendChild(note); content.appendChild(list);
+        historyNodes = {note:note, list:list};
+        search.addEventListener('input', function () { historyQuery = search.value; renderHistory(); });
+        renderHistory();
+      } else {
+        intro.textContent = 'This destination is reserved in your home.';
+        content.appendChild(node('span', 'menu-status', 'UNAVAILABLE'));
+        var reasons = {
+          projects:'No project collection or project-opening action is connected to this surface.',
+          research:'No research collection or research-opening action is connected to this surface.',
+          settings:'No settings reader or save action is connected to this surface.'
+        };
+        content.appendChild(node('p', 'menu-empty-title', reasons[view]));
+        if (view === 'settings') content.appendChild(node('p', 'menu-note',
+          'Your main menu still has eight placeholder slots. Their meanings await your choice.'));
+      }
+      tile.setAttribute('aria-expanded', String(view === 'instruments'));
+      triggers.forEach(function (b) { b.setAttribute('aria-expanded', String(b.dataset.menuView === view)); });
+      if (!panel.open) panel.showModal();
+    }
+    tile.addEventListener('click', function () { show('instruments', tile); });
+    triggers.forEach(function (b) { b.addEventListener('click', function () { show(b.dataset.menuView, b); }); });
+    panel.querySelector('.menu-close').addEventListener('click', function () { panel.close(); });
+    panel.addEventListener('click', function (e) {
+      var r = panel.getBoundingClientRect();
+      if (e.target === panel && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) panel.close();
+    });
+    panel.addEventListener('close', function () {
+      active = ''; tile.setAttribute('aria-expanded', 'false');
+      triggers.forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
+      if (opener) opener.focus();
+    });
+    // The supplied slot names are explicitly provisional. Preserve their glyphs
+    // while making their undecided status accessible, rather than clickable no-ops.
+    Array.from(document.querySelectorAll('.dockrow .slot')).forEach(function (b, i) {
+      b.disabled = true;
+      b.setAttribute('aria-label', 'Main menu slot ' + (i + 1) + ' — meaning not chosen');
+      b.title = 'Slot ' + (i + 1) + ' — awaiting your choice';
+    });
+    var previousMetrics = window.__vesperMetrics;
+    window.__vesperMetrics = function (json) {
+      power = null;
+      try {
+        var rows = JSON.parse(json);
+        if (Array.isArray(rows)) rows.slice(0, MAX_MENU_METRIC_ROWS).forEach(function (r) {
+          // Only the existing producer's vocabulary is accepted. A random label
+          // named power must not acquire the authority of a measured wattage.
+          if (r && r.label === 'power' && (r.value === 'battery' || r.value === 'AC')) power = r.value;
+        });
+      } catch (e) {}
+      if (active === 'instruments') renderInstruments();
+      if (typeof previousMetrics === 'function') previousMetrics(json);
+    };
+    var previousHistory = window.__vesperHistory, lastHistory = null;
+    window.__vesperHistory = function (json) {
+      if (json !== lastHistory) {
+        lastHistory = json; history = null; historyTruncated = false;
+        try {
+          var rows = JSON.parse(json);
+          if (Array.isArray(rows)) {
+            historyTruncated = rows.length > MAX_MENU_HISTORY;
+            history = rows.slice(0, MAX_MENU_HISTORY).filter(function (r) {
+              return r && typeof r.text === 'string';
+            }).map(function (r) {
+              if (r.text.length > MAX_MENU_TEXT) historyTruncated = true;
+              return {who:r.who === 'vesper' ? 'vesper' : r.who === 'owner' ? 'you' : bounded(r.who) || 'unknown',
+                      text:bounded(r.text) + (r.text.length > MAX_MENU_TEXT ? '…' : '')};
+            });
+          }
+        } catch (e) {}
+        if (active === 'history') renderHistory();
+      }
+      if (typeof previousHistory === 'function') previousHistory(json);
+    };
+  }, {once:true});
+})();
+</script>
 <!-- ==== /MENU ==== -->
 
 <script>
