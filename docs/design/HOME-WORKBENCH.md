@@ -1074,6 +1074,38 @@ Yes, and the menus are the right slice: visual and interaction work, no
 invariant touched, currently placeholders. Brief:
 `docs/planning/CODEX-BRIEF-MENUS.md`.
 
+**THE FIRST BRIEF WAS WRONG AND THE OWNER CAUGHT IT.** It pointed at
+`DESIGN-FOUNDATION.md`, which mentions menus twelve times in passing, and said
+"the design is already decided". The owner's answer: *"is it really containing
+everything needed on the main menu and expandable menu or not? ... i remember
+putting there a lot, tens if not hundreds were specified."*
+
+**THERE ARE 237.** `docs/design/routing/spec_raw.txt` is a routed requirements
+corpus — `sec|name|INCLUDE|surface|note` — and 88 of its items land on the menu
+surfaces: **17 routed `main`**, **51 routed `menu`**, 18 `float`, 2 `island`.
+Nothing in `DESIGN-FOUNDATION` says any of that. A brief that sent a second
+agent to invent from tokens would have produced a menu nobody specified, and
+the corpus that specified it would have sat unread three directories away.
+
+**AND THE SHAPE OF THE 51 IS THE DESIGN BRIEF.** They are overwhelmingly
+readings about the machine and the fabric — memory pressure, thermal history,
+power draw, node profiles, trust zones, placement decisions, blast radius. The
+expandable menu is a panel of INSTRUMENT READINGS, not a launcher. That is not
+inferable from the geometry.
+
+**THE EIGHT MAIN-MENU MEANINGS ARE STILL THE OWNER'S TO CHOOSE.** §14.1b quotes
+them on 2026-08-24 — *"only change is icons (we'll have to define them, then
+get them or build them)"* — and answers it in the document's own words:
+"Inventing eight icons and shipping them as though they were decided is how a
+placeholder becomes a design nobody chose. **What is owed: eight icon meanings,
+then eight icons.**" There are 17 candidates for 8 slots, which is exactly why
+it is a decision and not a derivation. The brief forbids codex from making it.
+
+**A SIXTH SURFACE WAS ALSO MISSING FROM THE FIRST BRIEF:** §14.2's **rail** —
+four circular glass buttons at the right edge, labelled outside them,
+`projects · research · history · settings`. Not a widget, not a card, not the
+main menu.
+
 **IT ALSO SPENDS A DIFFERENT BUDGET.** The Claude rungs share two
 subscriptions and the owner hit a session limit on one of them today. Codex has
 its own account — so this is parallel in money as well as in time.
