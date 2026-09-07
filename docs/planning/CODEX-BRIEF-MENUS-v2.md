@@ -1,5 +1,7 @@
 # Codex brief v2 — build the main bar and the expandable panel, all 68, end to end
 
+> **Owner amendment, 2026-09-07:** All 17 main-bar icons and the wider bar are approved, with name + exact description on hover. This supersedes every eight-slot selection instruction below. Phase 2 is authorized for 17 main items + 51 instruments. Bucket D decisions and destructive-drill authorization remain separate.
+
 Supersedes `docs/planning/CODEX-BRIEF-MENUS.md`. That brief's read of the spec
 (237 items, 17 `main`, 51 `menu`) still stands and is not repeated here except
 as the table below. Three things changed since it was written, all owner
