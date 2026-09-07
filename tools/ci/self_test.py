@@ -6029,6 +6029,25 @@ CASES += [
 ]
 
 
+# The second agent's finding, 2026-09-07: the page said `battery` while pmset
+# said AC Power. The producer measured correctly; the flattening lost the stamp.
+CASES += [
+    ("commands-card-shows-what-ran", RUNTIME_PY,
+     _sub('                     "at_ms": at_ms,\n                     "ttl_ms": mod.TTL_MS})',
+          "                     })", 1),
+     "a metrics row loses its observation time, so nothing downstream can tell "
+     "a reading taken a second ago from one taken this morning -- and a "
+     "publisher that stops leaves its last value on screen looking current"),
+
+    ("commands-card-shows-what-ran", CHROME_TPL,
+     _sub("        if (!r.at_ms || !r.ttl_ms) return true;   // no stamp: not ours to judge\n"
+          "        return (now - r.at_ms) <= r.ttl_ms;", "        return true;", 1),
+     "the page shows a reading whatever its age: if the runtime stops, "
+     "home.json keeps its last contents and the HOST card reads as current "
+     "forever"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
 

@@ -825,25 +825,30 @@ final class HomeChrome {
             font:12px var(--face-body);cursor:pointer}
           .menu-rail .menu-orb{display:grid;place-items:center;width:42px;height:42px;
             border:1px solid rgba(255,255,255,.16);border-radius:50%;
-            background:rgba(28,27,28,.70);-webkit-backdrop-filter:blur(24px) saturate(180%);
+            background-color:rgba(255,255,255,.055);
+            background-image:linear-gradient(rgba(0,0,0,{{fill}}),rgba(0,0,0,{{fill}}));
+            -webkit-backdrop-filter:blur(24px) saturate(180%);
             backdrop-filter:blur(24px) saturate(180%);
             box-shadow:0 5px 20px rgba(0,0,0,.20),inset 0 1px 0 rgba(255,255,255,.20);
             transition:transform .24s cubic-bezier(.32,.72,0,1),background .24s ease}
           .menu-rail button:hover{color:var(--ink)}
-          .menu-rail button:hover .menu-orb{transform:scale(1.06);background:rgba(60,55,53,.85)}
+          .menu-rail button:hover .menu-orb{transform:scale(1.06);background-color:rgba(255,255,255,.11)}
           .menu-orb svg{width:18px;height:18px;fill:none;stroke:currentColor;
             stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
           .menu-panel{position:fixed;inset:auto 92px 100px auto;margin:0;
             width:min(420px,calc(100vw - 48px));max-height:calc(100vh - 136px);
             padding:0;box-sizing:border-box;border-radius:22px;
             border:1px solid rgba(255,255,255,.18);color:var(--ink);
-            background:rgba(26,25,27,.94);font:13px/1.55 var(--face-body);
+            background-color:rgba(255,255,255,.055);
+            background-image:linear-gradient(rgba(0,0,0,{{fill}}),rgba(0,0,0,{{fill}}));
+            font:13px/1.55 var(--face-body);
             -webkit-backdrop-filter:blur(24px) saturate(180%);
             backdrop-filter:blur(24px) saturate(180%);
             box-shadow:0 20px 70px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.20);
             overflow:auto;-webkit-user-select:text;user-select:text}
           .menu-panel[data-view="instruments"]{right:max(24px,calc(50% - 320px))}
-          .menu-panel::backdrop{background:rgba(0,0,0,.16)}
+          .menu-panel::backdrop{background:rgba(0,0,0,.50);
+            -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
           .menu-panel[open]{animation:menu-arrive .24s cubic-bezier(.32,.72,0,1)}
           @keyframes menu-arrive{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
           .menu-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;
@@ -887,6 +892,7 @@ final class HomeChrome {
             .menu-rail button:hover .menu-orb,.dockrow .slot:hover{transform:none}
           }
           @media(prefers-reduced-transparency:reduce){
+            .menu-panel::backdrop{-webkit-backdrop-filter:none;backdrop-filter:none}
             .menu-panel,.menu-rail .menu-orb,.dockrow .bar,.dockrow .tile{background:#242225;
               -webkit-backdrop-filter:none;backdrop-filter:none}
           }
@@ -1255,7 +1261,7 @@ final class HomeChrome {
             var historyQuery = '', historyTruncated = false;
             var historyNodes = null;
             var definitions = [
-              ['Power source', 'The power source is not present in the current update.'],
+              ['Power source · last report', 'The power source is not present in the current update.'],
               ['Power draw', 'No measured wattage is supplied to this surface.'],
               ['Battery charge', 'Battery charge has a host probe, but its reading is not supplied to this surface.'],
               ['Battery health', 'No battery health or lifetime measurement is supplied to this surface.'],
@@ -1297,7 +1303,7 @@ final class HomeChrome {
                   : definitions[i][1];
               });
               intro.textContent = (power ? '1 reported source · 7 unavailable measurements.' : '8 unavailable readings.')
-                + ' Open a row for its source or missing measurement.';
+                + (power ? ' Freshness UNAVAILABLE: the reported source may be stale.' : ' Open a row to see why.');
             }
             function renderHistory() {
               if (!historyNodes) return;
@@ -1363,6 +1369,8 @@ final class HomeChrome {
               if (e.target === panel && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) panel.close();
             });
             panel.addEventListener('close', function () {
+              // A queued close event must not reset a panel that has already reopened.
+              if (panel.open) return;
               active = ''; tile.setAttribute('aria-expanded', 'false');
               triggers.forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
               if (opener) opener.focus();
@@ -1376,6 +1384,7 @@ final class HomeChrome {
             });
             var previousMetrics = window.__vesperMetrics;
             window.__vesperMetrics = function (json) {
+              var previousPower = power;
               power = null;
               try {
                 var rows = JSON.parse(json);
@@ -1385,7 +1394,8 @@ final class HomeChrome {
                   if (r && r.label === 'power' && (r.value === 'battery' || r.value === 'AC')) power = r.value;
                 });
               } catch (e) {}
-              if (active === 'instruments') renderInstruments();
+              // Unchanged pushes must not replace text the owner is selecting.
+              if (active === 'instruments' && power !== previousPower) renderInstruments();
               if (typeof previousMetrics === 'function') previousMetrics(json);
             };
             var previousHistory = window.__vesperHistory, lastHistory = null;
@@ -1786,11 +1796,30 @@ final class HomeChrome {
               var rows;
               try { rows = JSON.parse(json); } catch (e) { return; }
               if (!rows.length) return;          // keep the mount-time line, not blank
+              // A STALE READING IS DROPPED HERE TOO, and that is not belt-and-braces.
+              //
+              // The runtime already omits a row past its TTL -- but if the runtime
+              // STOPS, `home.json` keeps its last contents and this page would render
+              // them as current forever. The producer's freshness and the renderer's
+              // are different claims: one says "I measured this recently", the other
+              // says "what I am showing you was measured recently". Only the second is
+              // what the owner reads off the card.
+              //
+              // `INV-HW-2`: unknown means unavailable, fail-closed. Dropped rather than
+              // dimmed, because `core/projection.py` already refuses to render an
+              // unavailable reading "so the absent case cannot be styled into looking
+              // like the present case".
+              var now = Date.now();
+              var fresh = rows.filter(function (r) {
+                if (!r.at_ms || !r.ttl_ms) return true;   // no stamp: not ours to judge
+                return (now - r.at_ms) <= r.ttl_ms;
+              });
+              if (!fresh.length) return;         // everything stale: say nothing new
               metricsEl.textContent = '';
-              for (var i = 0; i < rows.length; i++) {
+              for (var i = 0; i < fresh.length; i++) {
                 var row = el('div', 'row');
-                row.appendChild(el('span', 'k', rows[i].label || ''));
-                row.appendChild(el('span', 'v', rows[i].value || ''));
+                row.appendChild(el('span', 'k', fresh[i].label || ''));
+                row.appendChild(el('span', 'v', fresh[i].value || ''));
                 metricsEl.appendChild(row);
               }
             };

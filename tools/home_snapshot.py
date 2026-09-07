@@ -195,8 +195,19 @@ def main() -> int:
 
     proj = build(ev)
     scene = proj.to_scene("home-metrics", columns=HOME_METRIC_KEYS)
-    rows = [{"label": LABELS.get(e.element_id, e.element_id),
-             "value": str(e.content["value"])} for e in scene.elements]
+    # THE STAMP TRAVELS. See the same note in `tools/ops/vesper_runtime.py`:
+    # dropping `observed_at` here left the surface unable to tell a reading
+    # taken a second ago from one taken this morning.
+    now_ms = int(time.time() * 1000)
+    rows = []
+    for e in scene.elements:
+        at = e.content.get("observed_at") or {}
+        at_ms = int(at.get("physical_ms") or 0) if isinstance(at, dict) else 0
+        if at_ms and (now_ms - at_ms) > TTL_MS:
+            continue
+        rows.append({"label": LABELS.get(e.element_id, e.element_id),
+                     "value": str(e.content["value"]),
+                     "at_ms": at_ms, "ttl_ms": TTL_MS})
     # WRITTEN THROUGH `HomeState`, WHICH MERGES. This wrote the whole file --
     # `{"version": ..., "rows": ...}` over the top of `home.json` -- so running
     # the command the metrics card itself tells you to run DELETED the face,

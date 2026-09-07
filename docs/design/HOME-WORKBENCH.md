@@ -1252,6 +1252,67 @@ by checking the imports rather than by the parse, which was perfectly happy.
 
 ---
 
+## 9o. THE MENU HANDOFF CAME BACK — AND MY OWN BOUNDARY HAD A HOLE
+
+**ACCEPTED.** The second agent's slice is in: a real instrument tile opening a
+native modal, the four-button rail, and a searchable conversation history.
+Verified independently rather than taken on report — no poll, no fetch, no
+second state file, no terminal bridge, no `innerHTML` on model-derived text,
+both marker pairs intact, its own backup deleted.
+
+**AND ITS HANDBACK WAS BETTER THAN ITS CODE, WHICH IS THE RARE PART.** It
+declared twelve things UNAVAILABLE with reasons rather than shipping inert
+labels, refused to make the probe green, and wrote down "do not describe a
+JSON-to-DOM test as proof of current physical state". That is the standard this
+document asks for, met by an agent that had read it once.
+
+### The bug it found, which was mine
+
+It reported the page showing `battery` while `pmset -g batt` said **"Now
+drawing from 'AC Power'"**, and named the cause precisely: the row had no
+observation timestamp or expiry.
+
+**THE PRODUCER WAS CORRECT EVERY TIME.** `Reading` carries `observed_at`,
+`core/projection.py` puts it on the scene element, and `pmset` is re-run on
+every publish. **The FLATTENING to `{label, value}` discarded it** — my code,
+in `_metric_rows`, written the day before. With no stamp the surface cannot
+tell a reading taken a second ago from one taken this morning, and a runtime
+that STOPS leaves its last values on screen looking current forever.
+
+Fixed at both ends, because they are different claims: the runtime omits a row
+past its TTL ("I measured this recently"), and the page refuses to render one
+("what I am showing you was measured recently"). Dropped rather than dimmed —
+`INV-HW-2`, and `core/projection.py`'s own rule that the absent case must not
+be styled to look like the present one.
+
+### THE HOLE IN MY OWN HANDOFF DESIGN
+
+`--verify` compares the working tree against HEAD, on the reasoning that this
+session commits and the second agent does not. **Then this session ran
+`git add -A`** — twice — and swept the second agent's in-progress work into its
+own commits, under its own messages. From that moment the boundary saw it as
+committed, said `IN SCOPE`, and could no longer report it at all.
+
+Nothing was lost: `git diff handoff/menus/<stamp>` recovers the whole
+contribution, 451 insertions across two files, which is what the tag is for.
+But the boundary stopped answering the question it was built for, and it did so
+silently.
+
+**THE RULE THAT FOLLOWS: while a handoff is open, this session stages named
+paths, never `-A`.** A tool whose correctness depends on the other party's
+habits is a tool with a hole in it, and this one had mine in it.
+
+### What the second agent left owed, verbatim and unargued
+
+Current power source (observation time and a refreshed producer — **now
+fixed**), power draw, battery charge, battery health and lifetime, thermal
+pressure, memory headroom, memory pressure band, compressor and swap, the
+projects and research destinations, settings, the full action/decision history
+space, and the remaining routed menu items. Its own words: *"Do not call
+`home_snapshot.py --probe` or manufacture rows to make the probe green."*
+
+---
+
 ## 10. BUILD ORDER
 
 Each step ends with the §0 gate. **No step begins before the previous one has
@@ -1271,7 +1332,7 @@ been driven against the running surface.**
 | 10 | **Notes as an agenda source** (§9c) | ✅ DONE 2026-09-07 — `CI-131`, 5 red runs, live: 5 titles, `retrieved_local`, no bodies |
 | 11 | **Provider-failure routing** (§9d) | ✅ DONE 2026-09-07 — `CI-132` (5 red runs), `CI-133` (10 red runs). Live: real advisor limit read as `rate_limited` with the 15-min floor carried; board surfacing fired; fix-and-resend driven through the real gateway loop, 4096→2048→answered, one repair and never a loop |
 | 12 | **Island integration** (§9e) | ✅ DONE 2026-09-07 — `CI-134`, 5 red runs. Live: Mode `auto`, Ran 5, Changed 4 beside the machine's rows |
-| — | **Main menu + expandable menu** (§9k) | HANDED TO CODEX 2026-09-07, brief written, markers carved |
+| — | **Main menu + expandable menu** (§9k) | ✅ ACCEPTED 2026-09-07 — instrument tile, rail, searchable history. Host instrumentation still owed (§9o) |
 | 13 | **Active-Space reading from a background process** (§9f) | open, no decided approach |
 | 14 | **Microphone sensitivity** (§9g) | owner-reported, queued last, MEASURE FIRST |
 | — | **TCC grants die on every build** (§9h) | found by the session, RAISED, awaiting a decision |

@@ -13328,6 +13328,53 @@ def check_commands_card_shows_what_ran() -> Result:
         r.err("the commands renderer assigns innerHTML. These rows carry a "
               "command line and a process's own stderr straight off the wire.")
 
+    # A READING CARRIES WHEN IT WAS TAKEN, AND A STALE ONE IS NOT SHOWN.
+    #
+    # Found by the second agent on the menu handoff, 2026-09-07: the page said
+    # `battery` while `pmset -g batt` said `Now drawing from 'AC Power'`. The
+    # producer was measuring correctly every single time -- `Reading` carries
+    # `observed_at` and `core/projection.py` puts it on the scene element --
+    # and the FLATTENING to `{label, value}` discarded it. With no stamp the
+    # surface cannot tell a reading taken a second ago from one taken this
+    # morning, and a runtime that stops leaves its last values on screen
+    # looking current forever.
+    import ast as _a2
+    _rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    _mr = next((n for n in _a2.parse(_rt).body
+                if isinstance(n, _a2.FunctionDef) and n.name == "_metric_rows"), None)
+    if _mr is None:
+        r.err("`_metric_rows` is gone; the HOST card has no producer again")
+    else:
+        seg = _a2.get_source_segment(_rt, _mr) or ""
+        if '"at_ms"' not in seg:
+            r.err("a metrics row carries no observation time. The reading is "
+                  "stamped by the producer and the stamp is thrown away here, "
+                  "so nothing downstream can tell fresh from stale -- and a "
+                  "publisher that stops leaves its last value on screen "
+                  "looking current.")
+        if "TTL" not in seg.upper():
+            r.err("nothing drops a reading past its TTL. INV-HW-2: unknown "
+                  "means unavailable, fail-closed -- a stale number shown as "
+                  "current is worse than no number, because it is acted on.")
+    _tpl = (REPO / CHROME_TEMPLATE).read_text(encoding="utf-8")
+    # ANCHORED ON THE RENDERER, NOT ON THE RECEIVER'S NAME. There is more than
+    # one `window.__vesperMetrics` in this page: a second agent WRAPPED the
+    # original on 2026-09-07 to feed its own instrument panel and forwards
+    # every push through. Taking the first match read the wrapper -- which
+    # legitimately has no freshness logic, because it delegates -- and reported
+    # the card unguarded while it was guarded. The function that paints the
+    # HOST card is the one that writes `metricsEl`.
+    _i = _tpl.find("metricsEl.textContent")
+    _start = _tpl.rfind("function", 0, _i) if _i > 0 else -1
+    _seg = _js_body(_tpl[_start:], "function") if _start > 0 else ""
+    if not _seg:
+        r.err("the HOST card's metrics renderer cannot be found")
+    elif "at_ms" not in _seg or "ttl_ms" not in _seg:
+        r.err("the page renders metrics without checking their freshness. The "
+              "runtime dropping stale rows is a different claim from the page "
+              "refusing to show them: if the runtime STOPS, home.json keeps "
+              "its last contents and the card reads as current forever.")
+
     r.note("a real command run through the real executor reaches the card with "
            "the argv the kernel received, its output and its exit code; a "
            "failure keeps the stderr that explains it; output past the cap is "

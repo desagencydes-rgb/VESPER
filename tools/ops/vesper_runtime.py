@@ -325,8 +325,36 @@ def _metric_rows():
     mod = _metrics_mod[0]
     proj = mod.build(None)
     scene = proj.to_scene("home-metrics", columns=mod.HOME_METRIC_KEYS)
-    return [{"label": mod.LABELS.get(e.element_id, e.element_id),
-             "value": str(e.content["value"])} for e in scene.elements]
+    # THE OBSERVATION TIME TRAVELS WITH THE VALUE, AND A STALE ROW IS DROPPED.
+    #
+    # `Reading` carries `observed_at` and `core/projection.py` puts it on the
+    # scene element -- and this function used to copy `label` and `value` and
+    # throw the stamp away. The surface then had no way to tell a reading taken
+    # a second ago from one taken this morning, and if the publisher ever
+    # stopped, the last value would sit there looking current forever.
+    #
+    # FOUND BY THE SECOND AGENT, 2026-09-07, and it was a real catch: the page
+    # said `battery` while `pmset -g batt` said `Now drawing from 'AC Power'`.
+    # The producer was measuring correctly every time; the flattening was
+    # discarding the evidence that it had.
+    #
+    # PAST THE TTL THE ROW IS OMITTED, not dimmed. `INV-HW-2`: UNKNOWN means
+    # UNAVAILABLE, fail-closed -- and `core/projection.py` already drops an
+    # unavailable reading rather than rendering one, "so the absent case cannot
+    # be styled into looking like the present case". A stale number shown as
+    # current is worse than no number, because the owner acts on it.
+    now_ms = int(time.time() * 1000)
+    rows = []
+    for e in scene.elements:
+        at = e.content.get("observed_at") or {}
+        at_ms = int(at.get("physical_ms") or 0) if isinstance(at, dict) else 0
+        if at_ms and (now_ms - at_ms) > mod.TTL_MS:
+            continue
+        rows.append({"label": mod.LABELS.get(e.element_id, e.element_id),
+                     "value": str(e.content["value"]),
+                     "at_ms": at_ms,
+                     "ttl_ms": mod.TTL_MS})
+    return rows
 
 
 
