@@ -2696,9 +2696,26 @@ final class HomeChrome {
                  + ' opacity=' + s.opacity + ' display=' + s.display
                  + ' vis=' + s.visibility;
           }
+          // THE PANES, FROM THE SURFACE THAT IS ACTUALLY MOUNTED. §9r: the
+          // offscreen probe answered this question about a page the app never
+          // builds, and was believed over the owner. `idle` is read from the
+          // class the renderer sets AND the height the layout gave it, because
+          // a pane can carry the right class and still be given no room.
+          function p(id){
+            var e = document.getElementById(id);
+            if (!e) return id + ':ABSENT';
+            var h = Math.round(e.getBoundingClientRect().height);
+            return id + ':' + (e.classList.contains('idle') ? 'idle' : 'SHOWN') + '/' + h;
+          }
+          var panes = ['pcmds','pexps','pchgs','pterm','work']
+                        .map(p).join(' ');
+          var errs = (window.__vesperErrs || []);
           return [d('#stage'), d('.field'), d('#say'),
                   'viewport=' + window.innerWidth + 'x' + window.innerHeight,
-                  'face=' + document.body.getAttribute('data-face')].join(' | ');
+                  'face=' + document.body.getAttribute('data-face'),
+                  'panes=[' + panes + ']',
+                  'jsErrors=' + (errs.length ? JSON.stringify(errs.slice(0,3)) : 'none')
+                 ].join(' | ');
         })();
         """
         w.evaluateJavaScript(js) { val, err in
@@ -2826,6 +2843,29 @@ final class HomeChrome {
             // configuration BEFORE the view exists, because a handler added
             // afterwards is not visible to a page that has already loaded.
             let cfg = WKWebViewConfiguration()
+            // THE ERROR TRAP, INSTALLED BEFORE THE PAGE'S OWN SCRIPTS RUN.
+            //
+            // §9r: an entire night was spent concluding, wrongly and out loud,
+            // that a merge had not broken the stack cards -- because every
+            // instrument used mounted its OWN webview and fired ONE push, which
+            // is a different question from "is the surface the owner is looking
+            // at rendering". The receivers here swallow their own failures by
+            // design (`try { JSON.parse } catch (e) { return; }`) and the push
+            // block is one evaluated string, so a throw in an early receiver
+            // silently kills every later one and still reports "push OK".
+            //
+            // AT documentStart, NOT AFTER LOAD. A handler added once the page
+            // has parsed cannot see a syntax or execution error raised while it
+            // was parsing, which is exactly the failure worth catching.
+            let trap = WKUserScript(source: """
+                window.__vesperErrs = [];
+                window.addEventListener('error', function (e) {
+                  if (window.__vesperErrs.length > 20) return;
+                  window.__vesperErrs.push((e.message || '?')
+                    + ' @' + (e.lineno || '?') + ':' + (e.colno || '?'));
+                }, true);
+                """, injectionTime: .atDocumentStart, forMainFrameOnly: true)
+            cfg.userContentController.addUserScript(trap)
             cfg.userContentController.add(self.bridge, name: SayBridge.name)
             cfg.userContentController.add(self.bridge, name: SayBridge.focusName)
             cfg.userContentController.add(self.bridge, name: SayBridge.speakingName)
