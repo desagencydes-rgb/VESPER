@@ -303,3 +303,120 @@ does the one owner-authorized build if a build ever turns out to be needed
 (current answer: no template/CSS change needs one). You are not rewritten —
 you are merged.
 
+
+---
+
+## 7. RULES ADDED 2026-09-08, AFTER THE v2 MERGE BROKE THE OWNER'S HOME
+
+**These are not style preferences. Every one of them is a defect that shipped
+green, cost the owner a working home for a night, and was found by them looking
+at the screen rather than by any check on either side.**
+
+The v2 handback reported **25/25 assertions passing at four viewports**. It was
+honest and it was worthless: the harness mounted a page the app never builds.
+The merge then removed the commands, explanations, thoughts, changes and history
+cards from the running surface, and the session told the owner twice that the
+merge was not the cause — on the strength of a tool. Read §9r and §9s of
+`docs/design/HOME-WORKBENCH.md` before starting.
+
+### 7.1 Verify against the LIVE MOUNTED surface, never a harness you built
+
+**The single most important rule in this document.**
+
+A harness that mounts its own `WKWebView`, substitutes its own tokens, or
+hardcodes `{{stackHeight}}`, `{{METRIC_ROWS}}` or the geometry the app computes
+is answering *"can this page render one push into a fresh DOM"*. That is a
+different question from *"is the running surface rendering"*, and it answers the
+first in a way that looks like the second.
+
+`--chrome-probe` has this defect. It reported identical results for the
+pre-merge and post-merge pages — two states the owner could tell apart by
+looking.
+
+**What counts as evidence:** the running app reporting its own state out of the
+webview it actually mounted, on the tick it actually pushes —
+`recv=[...]` (every receiver's `typeof`), `panes=[...]`, and `jsErrors=`.
+Anything else is a claim, not a measurement.
+
+**A number reported by the thing under test is not a measurement of it.** A push
+that prints `push OK` proved only that the push ran.
+
+### 7.2 Never name a `{{TOKEN}}` in substitutable form anywhere in `home.html`
+
+`HomeChrome.page()` replaces a token **wherever it appears** and cannot tell a
+comment from markup. A token spelled literally inside a `//` comment is a
+landmine: it is harmless while the injected content is one line and destroys the
+whole script block the moment it is two.
+
+This is not hypothetical. It is exactly what happened, and it stayed harmless
+for weeks before firing.
+
+Write the token broken up, or describe it. Never spell it whole.
+
+### 7.3 Injected content is joined WITHOUT a newline
+
+A newline inside injected content ends any `//` comment it lands in and turns
+everything after it into raw JavaScript. `metricRows()` joins with `""` for this
+reason and the reason is written beside it. Do not "tidy" it.
+
+### 7.4 A missing receiver is SKIPPED, not reported
+
+`if (window.__vesperWork) window.__vesperWork(json)` does nothing when the
+receiver was never defined. The five receivers are pushed in **one evaluated
+block** — stage, history, work, changes, metrics — so anything that throws in an
+earlier receiver silently kills every later one **and the push still reports
+success**.
+
+Any new receiver you add must be individually guarded so a failure names itself.
+
+### 7.5 Select rows by TAG, never by position
+
+The page took `parsed.slice(0,5)` for the HOST card. Only one host row ever
+resolved, so the slice reached four rows into the menu catalogue and rendered
+`Action outbox` and `Grants` as host telemetry. Live until 2026-09-08.
+
+`home.json` is one array carrying several cards' rows. **Position is not
+identity.** Filter on what the producer tags; a count is a bound, not a filter.
+
+### 7.6 Assert at the layer that RENDERS
+
+A fix was made, a check asserted it on `proj.readings`, the check went green,
+and the row still vanished on the live surface — because `to_scene` drops
+unavailable readings and nothing downstream ever saw it.
+
+**Before writing an assertion, ask which layer the owner actually looks at, and
+assert there.** A green from a layer nobody renders is the same failure as a
+harness that mounts its own page.
+
+### 7.7 An absence must say why, and must not carry a stamp
+
+`UNAVAILABLE` with a reason is a correct, shippable result — `INV-HW-2`,
+fail-closed. A row that simply disappears is not: the owner cannot tell
+"nothing to report" from "the producer is broken".
+
+But an unobserved reading gets `at_ms: 0`. **Never stamp `now` on something
+nothing measured** — `Reading.__post_init__` refuses exactly that one layer up,
+and a value with an excuse attached is how a placeholder gets rendered as a
+measurement.
+
+### 7.8 Changing `home.html` means regenerating the fallback
+
+`python3.13 tools/sync_chrome_fallback.py`, then confirm
+`chrome-template-renders` still passes. `CI-065` asserts byte-equality between
+the template and `fallbackTemplate()`; a handback that edits one and not the
+other cannot merge.
+
+### 7.9 The count gates will go red, and that is correct
+
+Adding a check changes the figures `CI-089` reads out of `CLAUDE.md` and
+`VESPER_ENGINEERING_STATUS.md`. Update both. Do not silence the gate — it has
+now caught the drift twice in two days, which is the entire argument for it.
+
+### 7.10 Do not run a local model on this host
+
+`home_snapshot.py --probe` calls `127.0.0.1:8080`. Local models heat this
+machine in a minute and cost tens of per cent of the battery in five. If you
+need completion evidence, use the recorded responses in
+`tests/fixtures/provider-responses/`, or drive one real turn through the running
+loop by appending to `say.jsonl` — and say so in the handback, because it puts a
+question and an answer in the owner's visible conversation history.

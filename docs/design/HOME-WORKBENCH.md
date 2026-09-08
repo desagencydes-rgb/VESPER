@@ -1479,8 +1479,9 @@ been driven against the running surface.**
 | 10 | **Notes as an agenda source** (§9c) | ✅ DONE 2026-09-07 — `CI-131`, 5 red runs, live: 5 titles, `retrieved_local`, no bodies |
 | 11 | **Provider-failure routing** (§9d) | ✅ DONE 2026-09-07 — `CI-132` (5 red runs), `CI-133` (10 red runs). Live: real advisor limit read as `rate_limited` with the 15-min floor carried; board surfacing fired; fix-and-resend driven through the real gateway loop, 4096→2048→answered, one repair and never a loop |
 | 12 | **Island integration** (§9e) | ✅ DONE 2026-09-07 — `CI-134`, 5 red runs. Live: Mode `auto`, Ran 5, Changed 4 beside the machine's rows |
-| — | **Main menu + expandable menu** (§9k) | ✅ v2 MERGED AND BUILT 2026-09-07 (§9q) — all 68 catalogue items, 17-icon bar (not the brief's 8 — owner confirmation owed), 19 available observations / 49 explicit absences. Rebuilt and running. |
-| 13 | **Active-Space reading from a background process** (§9f) | fix implemented and owner-verified (§9p) — `SpaceWatch.Anchor`, confirmed `0`/`0` with Desktop 1 populated and Desktop 2 genuinely empty. Full login-path confirmation needs a rebuild, deferred to the next batched one |
+| — | **Main menu + expandable menu** (§9k) | ✅ MERGED, REVERTED, CAUSE FOUND, RE-MERGED 2026-09-08 (§9r, §9s). The first merge killed all five stack cards; the cause was a token named inside a JS comment, latent for weeks and fired by the row count going 1 → 69. Now live alongside every card. 17-icon bar — **owner approved the 17 on 2026-09-08**, the brief's 8 is retired. 68 catalogue items, 32 carrying live readings |
+| 13 | **Active-Space reading from a background process** (§9f) | fix implemented and owner-verified (§9p) — `SpaceWatch.Anchor`, confirmed `0`/`0` with Desktop 1 populated and Desktop 2 genuinely empty. The batched rebuild it was waiting on happened 2026-09-08 with §9t; **login-path confirmation is now runnable and is the smallest thing left in this table** |
+| — | **The home's four model rows** (§9t) | ✅ DONE 2026-09-08 — `the-model-rows-read-a-real-completion`, 8 red runs. They had NEVER worked: no producer, and a comment claiming one. Live: `thinking = yes, 15 tok`, `context = 349`, `tokens = 466.4`. Found and fixed a pre-existing leak of menu rows into the HOST card in the same pass |
 | 14 | **Microphone sensitivity** (§9g) | owner-reported, queued last, MEASURE FIRST |
 | — | **TCC grants die on every build** (§9h) | found by the session, RAISED, awaiting a decision |
 | — | **`f5-acceptance` flakes under load** (§9i) | found by the session, RAISED, awaiting a decision |
@@ -1528,6 +1529,125 @@ the tick it actually pushes. Until that exists, the only honest verification
 is the owner looking at the screen, and that is not a budget to spend on
 iteration.
 
+> **DONE, AND IT FOUND THE CAUSE IN ABOUT FIFTEEN MINUTES.** The instrument
+> landed as `135970f`, the cause as `dc612ca`, the verified re-merge as
+> `a2367e1`. See §9s, which supersedes the "not yet known" paragraph above.
+
 **PRESERVED, NOT LOST:** branch `codex/menus-v2` (`66b5c8d`), tag
 `pre-revert-2026-09-08`, the revert commit `70484ce` (revertible), and the
 worktree at `~/VESPER-codex-menus`.
+
+---
+
+## 9s. THE CAUSE, FOUND: A TOKEN NAMED INSIDE A JS COMMENT
+
+**Supersedes §9r's "WHAT IS NOT YET KNOWN".** The suspects named there — the
+wrappers the second agent put on `__vesperMetrics` and `__vesperHistory` — were
+innocent. Reasoning is what failed all night, and it failed once more there.
+
+`app/home-macos/chrome/home.html` carried a `//` comment that spelled
+`{{METRIC_ROWS}}` **literally**. `HomeChrome.page()` substitutes a token
+wherever it appears and cannot tell a comment from markup, and `metricRows()`
+joined its rows with `"\n          "`.
+
+- **One row:** no separator, no newline, the comment stays a comment. Fine.
+- **Sixty-nine rows:** the first newline **ends the comment**, and the remaining
+  68 rows become raw JavaScript in the middle of a script block.
+
+The block then failed to parse, so `__vesperStage`, `__vesperWork` and
+`__vesperChanges` were **never defined** — and every push silently did nothing,
+because `if (window.__vesperX)` **skips** rather than throws. The push kept
+printing `push OK`.
+
+**PROVEN, NOT ARGUED.** The live readback returned
+`recv=[Stage:MISSING,History:fn,Work:MISSING,Changes:MISSING,Metrics:fn]` — the
+two survivors are exactly the two receivers defined *before* the landmine in
+source order.
+
+**THE LATENCY IS THE LESSON.** The comment was planted weeks earlier and was
+harmless for as long as `power` was the only row that resolved. The v2 menu did
+not introduce the defect; it took `rows` from 1 to 69 and **fired** it. The
+owner's home would have broken on its own the next time VESPER produced a
+second metric row, menu or no menu.
+
+Fixed at both ends, because either alone leaves the mechanism live: the comment
+no longer names the token in substitutable form, and the separator is `""`.
+
+**AND THE OWNER WAS RIGHT TWICE WHILE A TOOL SAID OTHERWISE.** *"no the cards
+used to appear all of them, they dissapeared only after you added the main menu
+and the others."* That was the correct evidence. It was overruled on the
+strength of `--chrome-probe`, which mounts its own page. **A direct observation
+of the running surface outranks any instrument that reconstructs it.**
+
+---
+
+## 9t. THE FOUR MODEL ROWS HAD NO PRODUCER — FIXED 2026-09-08
+
+**Owner, twice:** *"they also don't appear when vesper is working: model.thinking,
+context_tokens, cache, tokens_per_sec."* They were right, and it was not a
+regression — those rows had **never** worked.
+
+**WHY.** They are built from a completion record, and the only writer of that
+record was `home_snapshot.probe()`, which calls a local llama-server on
+`127.0.0.1:8080`. Local models are not run on this host (`MEMORY.md`), so the
+probe has never run here. `tools/ops/vesper_runtime.py` passed `build(None)`
+under a comment claiming `build` "reads the last recorded completion if one is
+fresh" — **it does not and never did**; that is `main()`'s behaviour. So the
+rows were structurally unreachable. Nothing failed, no gate went red.
+
+**THE FIX IS THE ONE `INV-HW-2` ALWAYS IMPLIES:** stop looking for a special
+measurement and read the one already being taken. Every model call goes through
+`ModelGateway.complete`; each success now publishes `model.completed` with the
+counts **the provider itself reported**. The runtime holds the newest — in
+process only, never persisted, because a number read off disk at startup is a
+previous run's figure wearing this run's freshness.
+
+**MAPPED FROM RECORDED RESPONSES, NEVER FROM AN API'S DOCUMENTATION.**
+`tests/fixtures/provider-responses/groq-effort-high.json` reports
+`prompt_tokens: 76`, `completion_tokens: 119`, `completion_time: 0.2507` and
+`completion_tokens_details.reasoning_tokens: 109`. The rate is therefore the
+**server's** arithmetic; a rate timed on this side would report the network as
+though it were the model. `queue_time` is excluded — waiting is not generating.
+Google's `cachedContentTokenCount` and `thoughtsTokenCount` are read but are
+**NOT verified** against a recorded success response; they fail closed.
+
+**TWO THINGS THAT LOOKED RIGHT AND WERE NOT.**
+
+`reasoning_present` was read as a bool. `routing/supply.py::_normalise` drops
+`message.reasoning` from the openai wire, so `thinking` would have printed a
+confident **`no`** on every live call — a declared value wearing a measurement's
+clothes, on the row the owner named first. Three states now.
+
+`_metric_rows` **omits** a reading past its TTL — right for `power_source`,
+re-measured every tick. Wrong for these four: nothing is asked while the owner
+is quiet, so ten idle minutes is normal, and the rows would have vanished
+shortly after every answer. They now stay and state their age.
+
+**AND THE FIRST FIX WAS ASSERTED AT THE WRONG LAYER.** Rendering staleness as
+an explicit absence in `build()` went green on `proj.readings` **while the live
+surface still dropped the row** — `to_scene` omits unavailable readings, so
+nothing downstream ever saw it. Second time in two days that a green came from
+a probe pointed at the wrong surface. The check now asserts on what
+`_metric_rows()` returns.
+
+**A SEPARATE, PRE-EXISTING DEFECT FOUND THE SAME WAY.** The page selected the
+HOST card's rows with `parsed.slice(0,5)` — **by position**. Only `power_source`
+resolved, so the slice reached four rows into the 68-item menu catalogue and
+rendered `Action outbox`, `Autonomy queue` and `Grants` **inside the HOST card**
+as host telemetry. Shipped with the menu merge; live until now. The producer
+tags what it owns and both readers select on the tag.
+
+**LIVE, after a real turn driven through the running loop:** `thinking = yes,
+15 tok`, `context = 349`, `tokens = 466.4`, `power = battery`, `cache =
+UNAVAILABLE` because groq reports no cache accounting — an honest absence, not
+a shortfall. Five host rows, no leakage.
+`recv=[Stage:fn,History:fn,Work:fn,Changes:fn,Metrics:fn]`, all panes SHOWN,
+`jsErrors=none`.
+
+`the-model-rows-read-a-real-completion`, **8 self-test cases red then green**.
+143/143 checks, both lints. `CI-089` caught the count drift both times rather
+than a reader — that is now twice in two days, and it is the argument for
+giving a number a consumer rather than a more careful correction.
+
+**Held out of `CHECKS.toml`** pending owner ratification, with `CI-094`..`CI-103`
+and the workbench chunk. It runs in `checks.py all`.
