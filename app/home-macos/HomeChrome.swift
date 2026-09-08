@@ -905,6 +905,32 @@ final class HomeChrome {
             .menu-panel,.menu-rail .menu-orb,.dockrow .bar,.dockrow .tile{background:#242225;
               -webkit-backdrop-filter:none;backdrop-filter:none}
           }
+
+          /* All 17 were approved 2026-09-07. Keep legible targets; overflow is
+             navigation on narrow surfaces, never an invisible seventeenth action. */
+          .dockrow{padding:0 12px;box-sizing:border-box}
+          .dockrow .bar{min-width:0;max-width:calc(100vw - 102px);overflow-x:auto;
+            scrollbar-width:thin;padding:15px 12px 9px;gap:10px}
+          .dockrow .slot{flex:0 0 52px;width:52px;height:52px;cursor:pointer}
+          .dockrow .slot svg{width:26px;height:26px;stroke:var(--ink)}
+          .dockrow .avatar{flex:0 0 52px;width:52px;height:52px;box-sizing:border-box}
+          .dockrow .sep{flex:0 0 1px}
+          .dockrow .tile{flex:0 0 64px;width:64px;height:64px}
+          .menu-tooltip{position:fixed;z-index:30;width:280px;max-width:calc(100vw - 24px);
+            padding:14px 16px;box-sizing:border-box;border:1px solid rgba(244,230,220,.25);
+            border-radius:16px;background:#292529;color:var(--ink);font:13px/1.5 var(--face-body);
+            box-shadow:0 8px 35px #0007;pointer-events:none}
+          .menu-tooltip[hidden]{display:none}.menu-tooltip strong{display:block;margin-bottom:5px}
+          .menu-panel,.menu-panel[data-view="instruments"]{right:24px;bottom:110px;
+            width:min(640px,calc(100vw - 48px));max-height:calc(100vh - 145px)}
+          .menu-reading-value{max-width:48%;text-align:right;overflow-wrap:anywhere}
+          .menu-data{white-space:pre-wrap;overflow-wrap:anywhere;max-height:260px;overflow:auto;
+            font:11px/1.6 var(--face-mono);background:rgba(0,0,0,.12);padding:12px;border-radius:12px}
+          .menu-action{padding:9px 12px;margin:8px 8px 8px 0;border:1px solid rgba(244,230,220,.25);
+            border-radius:12px;background:rgba(255,255,255,.085);color:var(--ink);font:inherit;cursor:pointer}
+          .menu-action:disabled{opacity:.4;cursor:default}.menu-palette{display:flex;flex-direction:column}
+          .menu-palette .menu-action{text-align:left}.menu-tools{margin-bottom:14px}
+          .menu-caption{display:block;margin:10px 0;color:rgba(244,230,220,.65);font-size:12px}
           /* ==== /MENU ==== */
 
           /* ---- the field, top right (SS14.2) --------------------------------
@@ -1217,12 +1243,29 @@ final class HomeChrome {
 
         <!-- ==== MENU: codex owns everything between these markers ==== -->
         <div class="dockrow">
-          <div class="bar" role="group" aria-label="Main menu — eight meanings awaiting your choice">
-            {{slots}}
+          <div class="bar" role="group" aria-label="Main menu — seventeen approved destinations">
+            <template id="legacy-menu-slots">{{slots}}</template>
+            <button class="slot" type="button" data-menu-view="action-outbox" aria-label="Action outbox" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14v6h16v-6M4 14h5l2 3h2l2-3h5M12 13V3m-4 4 4-4 4 4"/></svg></button>
+            <button class="slot" type="button" data-menu-view="autonomy-queue" aria-label="Autonomy queue" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h10M4 11h7M4 17h7m5-7 5 4-5 4z"/><circle cx="19" cy="5" r="1"/></svg></button>
+            <button class="slot" type="button" data-menu-view="emergency-stop" aria-label="Emergency stop" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 3-5 5v8l5 5h8l5-5V8l-5-5z"/><rect x="9" y="9" width="6" height="6" rx=".5"/></svg></button>
+            <button class="slot" type="button" data-menu-view="grants" aria-label="Grants" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6zM8 12l3 3 5-6"/></svg></button>
+            <button class="slot" type="button" data-menu-view="verification-state" aria-label="Verification state" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m7 12 3 3 7-7M8 3l1 2M3 8l2 1M16 21l-1-2"/></svg></button>
+            <button class="slot" type="button" data-menu-view="follow-me" aria-label="Follow-me" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="7" height="10" rx="2"/><rect x="15" y="10" width="6" height="10" rx="2"/><path d="M13 5h6l-2-2m2 2-2 2M11 19H5l2-2m-2 2 2 2"/></svg></button>
+            <button class="slot" type="button" data-menu-view="grant-templates" aria-label="Grant templates" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h11l3 3v13H7zM7 7H3v14h14v-2M17 3v5h4M11 12h6M11 15h4"/></svg></button>
+            <button class="slot" type="button" data-menu-view="hardware-access" aria-label="Hardware access" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h4l2-3h6l2 3h4v12H3z"/><circle cx="12" cy="13" r="3"/><circle cx="19" cy="5" r="1"/></svg></button>
+            <button class="slot" type="button" data-menu-view="import-export" aria-label="Import / export" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v13m-4-4 4 4 4-4M16 21V8m-4 4 4-4 4 4M3 21h7M14 3h7"/></svg></button>
+            <button class="slot" type="button" data-menu-view="live-activity-stream" aria-label="Live activity stream" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12h4l3-7 5 14 3-7h5"/></svg></button>
+            <button class="slot" type="button" data-menu-view="modes" aria-label="Modes" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="7"/><circle cx="9" cy="12" r="3"/><path d="M17 10v4"/></svg></button>
+            <button class="slot" type="button" data-menu-view="panic-revoke" aria-label="Panic revoke" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4a5 5 0 1 0 0 10l4 4h3v3h4v-5l-6-6M3 21 21 3"/></svg></button>
+            <button class="slot" type="button" data-menu-view="per-app-rules" aria-label="Per-app rules" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 16h7M14 20h7M17 14v4M19 18v4"/></svg></button>
+            <button class="slot" type="button" data-menu-view="quiet-hours-restrictions" aria-label="Quiet-hours restrictions" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3a9 9 0 1 0 7 13A9 9 0 0 1 14 3Z M17 5v5M20 5v5"/></svg></button>
+            <button class="slot" type="button" data-menu-view="remote-surfaces" aria-label="Remote surfaces" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="13" height="10" rx="2"/><path d="M5 19h7M8 14v5"/><rect x="17" y="10" width="5" height="11" rx="1"/><path d="M19 18h1"/></svg></button>
+            <button class="slot" type="button" data-menu-view="work-rate" aria-label="Work rate" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20V4M3 20h18M7 16v-4M12 16V8M17 16V5"/><path d="m6 8 5-4 4 1 5-3"/></svg></button>
+            <button class="slot" type="button" data-menu-view="macos-permissions" aria-label="macOS permissions" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/><rect x="9" y="10" width="6" height="5" rx="1"/><path d="M10 10V8a2 2 0 0 1 4 0v2"/></svg></button>
             <div class="sep"></div>
             <div class="avatar" title="the owner's avatar — placeholder">A</div>
           </div>
-          <!-- The instrument tile is separate from the eight undecided action slots. -->
+          <!-- The instrument tile is separate from the seventeen approved destinations. -->
           <button class="tile" id="menu-toggle" type="button" aria-label="Host instruments"
                   aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false" title="Host instruments">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1231,6 +1274,7 @@ final class HomeChrome {
             </svg>
           </button>
         </div>
+        <div class="menu-tooltip" id="menu-tooltip" role="tooltip" hidden><strong></strong><span></span></div>
         <nav class="menu-rail" aria-label="Home destinations">
           <button type="button" data-menu-view="projects" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false">
             <span>projects</span><span class="menu-orb"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h7l2 2h9v10H3zM3 7V5h7l2 2"/></svg></span>
@@ -1254,181 +1298,208 @@ final class HomeChrome {
         </dialog>
         <script>
         (function () {
-          'use strict';
-          // Attach after the shared script defines its receivers. Forward every push
-          // unchanged: the menu observes the existing register, never starts a poll.
-          document.addEventListener('DOMContentLoaded', function () {
-            var MAX_MENU_READINGS = 8, MAX_MENU_METRIC_ROWS = 32;
-            var MAX_MENU_HISTORY = 60, MAX_MENU_TEXT = 6000;
-            var panel = document.getElementById('menu-panel');
-            var title = document.getElementById('menu-title');
-            var intro = document.getElementById('menu-intro');
-            var content = document.getElementById('menu-content');
-            var tile = document.getElementById('menu-toggle');
-            var triggers = Array.from(document.querySelectorAll('[data-menu-view]'));
-            var active = '', opener = null, power = null, history = null;
-            var historyQuery = '', historyTruncated = false;
-            var historyNodes = null;
-            var definitions = [
-              ['Power source · last report', 'The power source is not present in the current update.'],
-              ['Power draw', 'No measured wattage is supplied to this surface.'],
-              ['Battery charge', 'Battery charge has a host probe, but its reading is not supplied to this surface.'],
-              ['Battery health', 'No battery health or lifetime measurement is supplied to this surface.'],
-              ['Thermal pressure', 'The host adapter reads thermal pressure, but its reading is not supplied to this surface.'],
-              ['Memory headroom', 'The host adapter reads available memory, but its reading is not supplied to this surface.'],
-              ['Memory pressure band', 'The host adapter reads a pressure band, but its reading is not supplied to this surface.'],
-              ['Compressor & swap', 'No compressor measurement or swap reading is supplied to this surface.']
-            ];
-            function node(tag, className, text) {
-              var n = document.createElement(tag);
-              if (className) n.className = className;
-              if (text !== undefined) n.textContent = text;
-              return n;
-            }
-            function bounded(value) { return typeof value === 'string' ? value.slice(0, MAX_MENU_TEXT) : ''; }
-            function focusHost() {
-              try { window.webkit.messageHandlers.vesperFocus.postMessage('1'); } catch (e) {}
-            }
-            function renderInstruments() {
-              // Keep the disclosure nodes stable when a reading changes, including focus.
-              if (!content.querySelector('.menu-reading')) {
-                content.textContent = '';
-                definitions.slice(0, MAX_MENU_READINGS).forEach(function (d) {
-                  var row = node('details', 'menu-reading');
-                  var summary = node('summary');
-                  summary.appendChild(node('span', 'menu-reading-name', d[0]));
-                  summary.appendChild(node('span', 'menu-reading-value'));
-                  row.appendChild(summary);
-                  row.appendChild(node('p'));
-                  content.appendChild(row);
-                });
-              }
-              Array.from(content.querySelectorAll('.menu-reading')).forEach(function (row, i) {
-                var available = i === 0 && power !== null;
-                row.dataset.available = String(available);
-                row.querySelector('.menu-reading-value').textContent = available ? power : 'UNAVAILABLE';
-                row.querySelector('p').textContent = available
-                  ? 'Last reported power source. Measurement time is not supplied, so freshness is unavailable.'
-                  : definitions[i][1];
-              });
-              intro.textContent = (power ? '1 reported source · 7 unavailable measurements.' : '8 unavailable readings.')
-                + (power ? ' Freshness UNAVAILABLE: the reported source may be stale.' : ' Open a row to see why.');
-            }
-            function renderHistory() {
-              if (!historyNodes) return;
-              var list = historyNodes.list, note = historyNodes.note;
-              list.textContent = '';
-              if (history === null) {
-                note.textContent = 'UNAVAILABLE — conversation history has not arrived in a valid update.';
-                return;
-              }
-              var shown = history.filter(function (r) {
-                return (r.who + ' ' + r.text).toLowerCase().includes(historyQuery.toLowerCase());
-              });
-              note.textContent = history.length === 0 ? 'No conversation entries were supplied.'
-                : shown.length + ' of ' + history.length + ' supplied entries'
-                  + (historyTruncated ? ' · limited to 60 entries; long entries are shortened.' : '.');
-              if (history.length && !shown.length) note.textContent = 'No entries match this search.';
-              shown.forEach(function (r) {
-                var item = node('li');
-                item.appendChild(node('strong', '', r.who));
-                item.appendChild(node('p', '', r.text));
-                list.appendChild(item);
-              });
-            }
-            function show(view, trigger) {
-              focusHost();
-              active = view; opener = trigger;
-              panel.dataset.view = view;
-              content.textContent = ''; historyNodes = null;
-              title.textContent = {instruments:'This host', projects:'Projects', research:'Research',
-                                   history:'Conversation history', settings:'Settings'}[view];
-              if (view === 'instruments') renderInstruments();
-              else if (view === 'history') {
-                intro.textContent = 'The conversation supplied by VESPER, in its recorded order. Full action and decision logs are not connected here.';
-                var search = node('input', 'menu-search'); search.type = 'search';
-                search.placeholder = 'Find in conversation'; search.setAttribute('aria-label', 'Find in conversation');
-                search.maxLength = 200; search.value = historyQuery;
-                var note = node('p', 'menu-note'), list = node('ol', 'menu-history-list');
-                content.appendChild(search); content.appendChild(note); content.appendChild(list);
-                historyNodes = {note:note, list:list};
-                search.addEventListener('input', function () { historyQuery = search.value; renderHistory(); });
-                renderHistory();
-              } else {
-                intro.textContent = 'This destination is reserved in your home.';
-                content.appendChild(node('span', 'menu-status', 'UNAVAILABLE'));
-                var reasons = {
-                  projects:'No project collection or project-opening action is connected to this surface.',
-                  research:'No research collection or research-opening action is connected to this surface.',
-                  settings:'No settings reader or save action is connected to this surface.'
-                };
-                content.appendChild(node('p', 'menu-empty-title', reasons[view]));
-                if (view === 'settings') content.appendChild(node('p', 'menu-note',
-                  'Your main menu still has eight placeholder slots. Their meanings await your choice.'));
-              }
-              tile.setAttribute('aria-expanded', String(view === 'instruments'));
-              triggers.forEach(function (b) { b.setAttribute('aria-expanded', String(b.dataset.menuView === view)); });
-              if (!panel.open) panel.showModal();
-            }
-            tile.addEventListener('click', function () { show('instruments', tile); });
-            triggers.forEach(function (b) { b.addEventListener('click', function () { show(b.dataset.menuView, b); }); });
-            panel.querySelector('.menu-close').addEventListener('click', function () { panel.close(); });
-            panel.addEventListener('click', function (e) {
-              var r = panel.getBoundingClientRect();
-              if (e.target === panel && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom)) panel.close();
+         'use strict';
+         document.addEventListener('DOMContentLoaded',function(){
+          var CATALOGUE = [{"id": "action-outbox", "name": "Action outbox", "bucket": "A", "area": "main", "what": "Every external side effect, durably recorded before it happens, with reconciliation state.", "reason": "The live reconciliation registry is not attached to this publisher."}, {"id": "autonomy-queue", "name": "Autonomy queue", "bucket": "A", "area": "main", "what": "What VESPER intends to do unprompted, before it does it.", "reason": "The live autonomy loop is not attached to this publisher."}, {"id": "emergency-stop", "name": "Emergency stop", "bucket": "A", "area": "main", "what": "Halt everything. Independent of the thing it stops, by design.", "reason": "The native bridge exposes no independent stop command. In the existing app, hold Globe/Fn + Control + Option + Command for 0.6 seconds to stop VESPER; Globe three times starts it again. This panel cannot invoke that native stop."}, {"id": "grants", "name": "Grants", "bucket": "A", "area": "main", "what": "Standing permissions, their scope, and their expiry.", "reason": "The running policy decision point is not attached to this publisher."}, {"id": "verification-state", "name": "Verification state", "bucket": "A", "area": "main", "what": "What's been verified, what's asserted, and the refusal to let repetition count as success.", "reason": "The live verifier is not attached to this publisher."}, {"id": "follow-me", "name": "Follow-me", "bucket": "B", "area": "main", "what": "The interface moving with VESPER as it relocates.", "reason": "No relocation-to-interface transport is registered on this surface."}, {"id": "grant-templates", "name": "Grant templates", "bucket": "B", "area": "main", "what": "Reusable permission sets — 'study mode', 'travel mode', 'hands off'.", "reason": "No owner-defined grant template collection or governed apply operation exists."}, {"id": "hardware-access", "name": "Hardware access", "bucket": "B", "area": "main", "what": "Camera, microphone, screen, files — what's granted, what's in use, and a capture indicator that can't lie.", "reason": "The native bridge publishes neither active capture sessions nor complete permission state. Device presence is not access consent."}, {"id": "import-export", "name": "Import / export", "bucket": "B", "area": "main", "what": "Take your memory with you, or seed it from somewhere else.", "reason": "No portable memory transfer operation is exposed by the native bridge. Copying live database files would lose WAL records."}, {"id": "live-activity-stream", "name": "Live activity stream", "bucket": "B", "area": "main", "what": "A running narration of what VESPER is doing, at a granularity you set.", "reason": "No runtime event stream has been supplied to this publisher."}, {"id": "modes", "name": "Modes", "bucket": "B", "area": "main", "what": "Study / travel / low-power / hands-off — whole configurations you switch between.", "reason": "The existing permission mode does not define study, travel, low-power, or hands-off configurations. Those presets need governed definitions before they can be applied."}, {"id": "panic-revoke", "name": "Panic revoke", "bucket": "B", "area": "main", "what": "Drop every standing grant at once, without stopping VESPER.", "reason": "The policy decision point has no public revoke-all operation, and the native bridge has no revoke command."}, {"id": "per-app-rules", "name": "Per-app rules", "bucket": "B", "area": "main", "what": "What VESPER may touch in each application, separately.", "reason": "No per-application policy collection or governed editor exists."}, {"id": "quiet-hours-restrictions", "name": "Quiet-hours restrictions", "bucket": "B", "area": "main", "what": "Narrower permissions at night than during the day.", "reason": "No owner-defined quiet-hours authorization policy exists. Alarm overrides must remain intact."}, {"id": "remote-surfaces", "name": "Remote surfaces", "bucket": "B", "area": "main", "what": "Reaching VESPER from a phone or another machine.", "reason": "No enrolled endpoint inventory is attached to this publisher."}, {"id": "work-rate", "name": "Work rate", "bucket": "B", "area": "main", "what": "Throughput over time — is VESPER actually getting things done.", "reason": "No bounded runtime completion history has been supplied."}, {"id": "macos-permissions", "name": "macOS permissions", "bucket": "B", "area": "main", "what": "Accessibility, Screen Recording, Automation — what's granted, what's needed for which feature, and why.", "reason": "Permission status is not exported by the native bridge. Querying permissions from a helper would report the helper’s identity, not the app’s."}, {"id": "attestation-state", "name": "Attestation state", "bucket": "A", "area": "instruments", "what": "Whether a VESPER-controlled segment exists and is attested. Today: false, so no node is a full host.", "reason": "The network fabric contract could not be read."}, {"id": "battery-health", "name": "Battery health", "bucket": "A", "area": "instruments", "what": "Capacity, cycles, temperature history, daily charge range. The numbers that decide the ten-year question.", "reason": "No usable battery capacity and cycle counters were returned."}, {"id": "capability-registry", "name": "Capability registry", "bucket": "A", "area": "instruments", "what": "Every capability, its level, and the constants that are refused outright.", "reason": "The running capability registry is not attached to this publisher."}, {"id": "charge-policy", "name": "Charge policy", "bucket": "A", "area": "instruments", "what": "Charge limit state, and whether the machine is sitting at high charge — the mechanism that aged this pack to 84% in a shop.", "reason": "The OS did not return battery charge range or charge-limit state."}, {"id": "compensation", "name": "Compensation", "bucket": "A", "area": "instruments", "what": "What each in-flight action would undo if it fails partway.", "reason": "The running executor’s compensator registry is not attached to this publisher."}, {"id": "compressor-swap", "name": "Compressor & swap", "bucket": "A", "area": "instruments", "what": "How hard the compressor is working, and whether swap has turned on. Swap is the SSD-wear tripwire.", "reason": "The OS did not return compressor and swap counters."}, {"id": "control-plane-lease", "name": "Control-plane lease", "bucket": "A", "area": "instruments", "what": "Which node holds control, its fencing token, and its refusal to self-promote.", "reason": "No readable leased-domain state was supplied."}, {"id": "degradation-ladder", "name": "Degradation ladder", "bucket": "A", "area": "instruments", "what": "What VESPER gives up first when it must give something up.", "reason": "The governed degradation contract could not be read."}, {"id": "endpoints", "name": "Endpoints", "bucket": "A", "area": "instruments", "what": "Every surface VESPER can reach you through, as profiles rather than device names.", "reason": "The live device registry is not attached to this publisher."}, {"id": "enrollment", "name": "Enrollment", "bucket": "A", "area": "instruments", "what": "Admit a new machine, measure it, and watch it earn placement on merit.", "reason": "No live enrollment registry is instantiated by this runtime. Discovery and admission cannot be performed by the display."}, {"id": "governed-surfaces", "name": "Governed surfaces", "bucket": "A", "area": "instruments", "what": "Which files require review, and who reviews them.", "reason": "The governed-surface artifact could not be read."}, {"id": "key-identity-state", "name": "Key & identity state", "bucket": "A", "area": "instruments", "what": "Each node's keys, where they're stored, and which never leave the device.", "reason": "No enrolled device key-storage profiles were supplied. Key material is never read by this panel."}, {"id": "memory-headroom", "name": "Memory headroom", "bucket": "A", "area": "instruments", "what": "Real reclaimable memory, translated — not the alarming 'free' figure that reads 0.16 GB on a healthy machine.", "reason": "The host adapter could not read reclaimable memory."}, {"id": "memory-pressure-band", "name": "Memory pressure band", "bucket": "A", "area": "instruments", "what": "The kernel's own signal, shown as a band. Never converted to gigabytes — it doesn't track allocation.", "reason": "The kernel did not expose a pressure band."}, {"id": "network-segments", "name": "Network segments", "bucket": "A", "area": "instruments", "what": "Private / shared / outside, each with its trust ceiling. No addresses, no product names.", "reason": "The declared network segments could not be read."}, {"id": "node-profiles", "name": "Node profiles", "bucket": "A", "area": "instruments", "what": "What each machine measurably sustains. UNKNOWN means unavailable, and shows as such.", "reason": "No live enrolled measured profiles were supplied."}, {"id": "owner-working-set", "name": "Owner working set", "bucket": "A", "area": "instruments", "what": "What's resident right now, so a headroom number is interpretable rather than just a figure.", "reason": "The OS process resident-memory inventory was unavailable."}, {"id": "placement-decisions", "name": "Placement decisions", "bucket": "A", "area": "instruments", "what": "Where each capability currently runs and why it was placed there, including what lost.", "reason": "No live placement assignment or decision history was supplied."}, {"id": "platform-adapters", "name": "Platform adapters", "bucket": "A", "area": "instruments", "what": "Per-platform translation of host signals. The knowledge lives in the adapter, never in shared logic.", "reason": "The host adapter could not be loaded."}, {"id": "survival-profile", "name": "Survival profile", "bucket": "A", "area": "instruments", "what": "What VESPER carries onto the last device standing, and what it drops.", "reason": "No enrolled placement profile with measured resource budgets was supplied."}, {"id": "trust-zones", "name": "Trust zones", "bucket": "A", "area": "instruments", "what": "Z0–Z3 per node, with the reason each landed where it did.", "reason": "No enrolled effective trust assignments were supplied. A key-storage ceiling alone is not an effective trust zone."}, {"id": "before-after", "name": "Before/after", "bucket": "B", "area": "instruments", "what": "Measure a change you made and show whether it actually helped.", "reason": "Capture a fresh baseline and a later reading in this panel to compare them."}, {"id": "command-palette", "name": "Command palette", "bucket": "B", "area": "instruments", "what": "Keyboard-first access to every surface in this document.", "reason": "The palette is available locally through the instruments panel or Command-K."}, {"id": "costing-me-now", "name": "Costing me now", "bucket": "B", "area": "instruments", "what": "Live ranked list of what is draining the battery this minute.", "reason": "Public process CPU and RSS counters do not measure battery energy. Per-process power attribution requires privileged powermetrics."}, {"id": "disk-i-o-rate", "name": "Disk I/O rate", "bucket": "B", "area": "instruments", "what": "Live read/write throughput, and cumulative writes against SSD endurance.", "reason": "Two comparable storage-counter samples are needed before a rate can be measured."}, {"id": "display-power", "name": "Display power", "bucket": "B", "area": "instruments", "what": "Brightness and its real cost. The display dominates idle drain, so this is a bigger lever than CPU.", "reason": "The public display inventory does not report measured display watts. Brightness alone cannot establish power cost."}, {"id": "link-quality", "name": "Link quality", "bucket": "B", "area": "instruments", "what": "Latency, throughput and reliability per path — measured at enrollment, never declared.", "reason": "No enrollment-measured per-path latency, throughput, and reliability record is published. A TCP reachability check is not that measurement."}, {"id": "maintenance-actions", "name": "Maintenance actions", "bucket": "B", "area": "instruments", "what": "Things worth doing occasionally, surfaced when they're due rather than remembered.", "reason": "No maintenance schedule or last-completed action ledger has been configured."}, {"id": "node-roles", "name": "Node roles", "bucket": "B", "area": "instruments", "what": "What each machine is FOR — always-on server, travelling laptop, phone endpoint.", "reason": "The live enrollment registry has not published role assignments. Availability classes are not roles."}, {"id": "peripherals", "name": "Peripherals", "bucket": "B", "area": "instruments", "what": "What's plugged in, what it draws, and what it keeps awake.", "reason": "No public peripheral inventory was returned."}, {"id": "radio-state", "name": "Radio state", "bucket": "B", "area": "instruments", "what": "Wi-Fi and Bluetooth power cost, and what's keeping them awake.", "reason": "No public radio-state observation was returned."}, {"id": "relocation-history", "name": "Relocation history", "bucket": "B", "area": "instruments", "what": "When VESPER moved, what triggered it, and the damping that stopped it flapping.", "reason": "No placement events are available in the supplied bounded log tail."}, {"id": "retry-policy", "name": "Retry policy", "bucket": "B", "area": "instruments", "what": "What VESPER does when something fails, per task class.", "reason": "The running reconciler’s retry policy could not be read."}, {"id": "sleep-wake-log", "name": "Sleep & wake log", "bucket": "B", "area": "instruments", "what": "Every sleep, wake, and what woke it. Where mystery battery drain gets explained.", "reason": "The public power-management log could not be read."}, {"id": "storage-ssd", "name": "Storage & SSD", "bucket": "B", "area": "instruments", "what": "Free space, TRIM, SMART, and cumulative write pressure.", "reason": "The public disk inventory could not be read."}, {"id": "thermal-history", "name": "Thermal history", "bucket": "B", "area": "instruments", "what": "Temperature over time against ambient — the variable that matters most in site B heat.", "reason": "No battery-temperature samples have been collected. Ambient temperature is unavailable."}, {"id": "throttle-events", "name": "Throttle events", "bucket": "B", "area": "instruments", "what": "When the machine actually throttled, and what was running.", "reason": "The public power-management interface returned no recorded performance-warning status."}, {"id": "approval-history", "name": "Approval history", "bucket": "C", "area": "instruments", "what": "Everything you've ever approved, and the chance to withdraw any of it.", "reason": "No approval records are available in the supplied bounded audit tail. Withdrawal is unavailable without a revoke operation."}, {"id": "blast-radius", "name": "Blast radius", "bucket": "C", "area": "instruments", "what": "What breaks if a given node dies — simulated before it happens.", "reason": "No enrolled placement profiles and assignments were supplied for simulation."}, {"id": "clock-skew", "name": "Clock skew", "bucket": "C", "area": "instruments", "what": "How far apart the nodes' clocks are — and the reminder that HLC, not wall clock, decides order.", "reason": "No bounded request/response clock observations from other nodes were supplied. Local timestamps alone cannot establish skew."}, {"id": "migration-dry-run", "name": "Migration dry-run", "bucket": "C", "area": "instruments", "what": "Move VESPER somewhere, in simulation, and see what degrades.", "reason": "No enrolled placement profiles were supplied for simulation."}, {"id": "node-comparison", "name": "Node comparison", "bucket": "C", "area": "instruments", "what": "Two machines side by side on every measured axis.", "reason": "At least two enrolled measured node profiles are needed for comparison."}, {"id": "onboarding-wizard", "name": "Onboarding wizard", "bucket": "C", "area": "instruments", "what": "Walk a new machine from nothing to enrolled and measured.", "reason": "The native bridge has no discovery, measurement, or admission command. The wizard can prepare a request but cannot enroll a node."}, {"id": "ambient-estimate", "name": "Ambient estimate", "bucket": "D", "area": "instruments", "what": "Inferred room temperature — the ceiling the battery can never get below.", "reason": "There is no ambient-temperature sensor. Battery temperature is not room temperature."}, {"id": "behaviour-on-off-this-mac", "name": "Behaviour on / off this Mac", "bucket": "D", "area": "instruments", "what": "Different rules when VESPER is here versus running on another node.", "reason": "The owner has not defined the location-dependent policy. No policy is inferred."}, {"id": "charging-schedule", "name": "Charging schedule", "bucket": "D", "area": "instruments", "what": "When to charge, given your day, to minimise time at high state of charge.", "reason": "The owner has not supplied a charging schedule, and no governed charging-control action is available."}, {"id": "consent-channel-policy", "name": "Consent channel policy", "bucket": "D", "area": "instruments", "what": "Which tiers may be approved by voice and which need a tap you make yourself.", "reason": "The owner has not decided which approval tiers may use voice versus an explicit tap."}, {"id": "failover-drill", "name": "Failover drill", "bucket": "D", "area": "instruments", "what": "Deliberately kill a node and prove recovery works. A negative control for the fabric.", "reason": "This action deliberately kills a node. Separate explicit owner authorization is required; icon approval does not authorize a drill."}, {"id": "fan-acoustics", "name": "Fan & acoustics", "bucket": "D", "area": "instruments", "what": "Fan speed and noise — heat you can hear before you can measure it.", "reason": "No supported public fan-speed or acoustic-power sensor is exposed to this publisher."}, {"id": "power-draw", "name": "Power draw", "bucket": "D", "area": "instruments", "what": "Whole-machine watts split into compute vs everything else. Compute is 8% at idle — the split is the insight.", "reason": "Whole-machine compute-versus-other power attribution requires privileged powermetrics. No root-access workaround is attempted."}, {"id": "process-energy", "name": "Process energy", "bucket": "D", "area": "instruments", "what": "Per-process power attribution — who is actually costing you battery, ranked.", "reason": "Per-process power attribution requires privileged powermetrics tasks. CPU usage is not watts."}];
+          var MAX_MENU_READINGS=51, MAX_MAIN_ITEMS=17, MAX_MENU_METRIC_ROWS=100;
+          var MAX_MENU_HISTORY=60, MAX_MENU_TEXT=6000, MAX_DATA_CHARS=16000;
+          var MAX_SEARCH=200, MAX_NUMERIC_FIELDS=100, MAX_DEPTH=5;
+          var panel=document.getElementById('menu-panel'),title=document.getElementById('menu-title');
+          var intro=document.getElementById('menu-intro'),content=document.getElementById('menu-content');
+          var tile=document.getElementById('menu-toggle'),tooltip=document.getElementById('menu-tooltip');
+          var triggers=Array.from(document.querySelectorAll('[data-menu-view]'));
+          var active='',opener=null,rows=new Map(),catalogue=new Map(CATALOGUE.map(function(i){return [i.id,i];}));
+          var byName=new Map(CATALOGUE.map(function(i){return [i.name,i];}));
+          var history=null,historyQuery='',historyTruncated=false,historyNodes=null;
+          var lastMetrics=null,expiryTimer=null,baseline=null,receiveVersion=0;
+          function node(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
+          function bounded(v){return typeof v==='string'?v.slice(0,MAX_MENU_TEXT):'';}
+          function action(label,fn){var b=node('button','menu-action',label);b.type='button';b.addEventListener('click',fn);return b;}
+          function focusHost(){try{window.webkit.messageHandlers.vesperFocus.postMessage('1');}catch(e){}}
+          function hideTooltip(){tooltip.hidden=true;}
+          function showTooltip(b,item){
+           if(panel.open)return;
+           tooltip.querySelector('strong').textContent=item.name;tooltip.querySelector('span').textContent=item.what;
+           tooltip.hidden=false;var r=b.getBoundingClientRect();
+           tooltip.style.left=Math.max(12,Math.min(r.left+r.width/2-tooltip.offsetWidth/2,window.innerWidth-tooltip.offsetWidth-12))+'px';
+           tooltip.style.top=Math.max(12,r.top-tooltip.offsetHeight-12)+'px';
+          }
+          triggers.forEach(function(b){var item=catalogue.get(b.dataset.menuView);if(!item)return;
+           b.setAttribute('aria-description',item.what);
+           b.addEventListener('pointerenter',function(){showTooltip(b,item);});
+           b.addEventListener('focus',function(){showTooltip(b,item);});
+           b.addEventListener('pointerleave',hideTooltip);b.addEventListener('blur',hideTooltip);
+          });
+          document.querySelector('.bar').addEventListener('scroll',hideTooltip);
+          window.addEventListener('resize',hideTooltip);
+          function fresh(r){var now=Date.now();return !!r && r.status==='available' && typeof r.value==='string' && typeof r.source==='string' && r.source.length>0
+           && Number.isFinite(r.at_ms) && r.at_ms>0 && Number.isFinite(r.ttl_ms) && r.ttl_ms>0
+           && r.at_ms<=now && now-r.at_ms<=r.ttl_ms;}
+          function reason(item,r){
+           if(!r)return item.reason;
+           if(r.status==='unavailable')return bounded(r.reason)||item.reason;
+           if(!fresh(r))return 'The observation is expired, unstamped, or clock-invalid. Waiting for a fresh measurement.';
+           return '';
+          }
+          function putText(el,text){if(el.textContent!==text)el.textContent=text;}
+          function dataText(data){try{var text=JSON.stringify(data,null,2)||'';return text.length>MAX_DATA_CHARS?text.slice(0,MAX_DATA_CHARS)+'\\n… display limited to '+MAX_DATA_CHARS+' characters':text;}catch(e){return 'Details could not be decoded.';}}
+          function updateReading(el,item){
+           var r=rows.get(item.id),known=fresh(r);
+           el.dataset.available=String(known);
+           putText(el.querySelector('.menu-reading-value'),known?bounded(r.value):'UNAVAILABLE');
+           var message=known?bounded(r.details):reason(item,r);
+           if(known)message+=' Source: '+bounded(r.source)+'. Observed '+new Date(r.at_ms).toLocaleTimeString()+'.';
+           putText(el.querySelector('.menu-reason'),message);
+           var pre=el.querySelector('.menu-data'),text=known&&r.data!==null&&r.data!==undefined?dataText(r.data):'';
+           pre.hidden=!text;putText(pre,text);
+          }
+          function reading(item,open){
+           var el=node('details','menu-reading');el.dataset.item=item.id;el.open=!!open;
+           var summary=node('summary');summary.append(node('span','menu-reading-name',item.name),node('span','menu-reading-value'));
+           el.append(summary,node('p','',item.what),node('p','menu-reason'),node('pre','menu-data'));
+           if(['before-after','command-palette','enrollment','onboarding-wizard'].includes(item.id)){
+            el.append(action('Open '+item.name,function(){show(item.id,opener);}));
+           }
+           updateReading(el,item);return el;
+          }
+          function renderInstruments(){
+           if(!content.querySelector('.menu-reading')){
+            content.textContent='';
+            var tools=node('div','menu-tools');
+            tools.append(action('Search all surfaces · ⌘K',function(){show('command-palette',tile);}),action('Before / after',function(){show('before-after',tile);}));
+            content.append(tools);
+            CATALOGUE.filter(function(i){return i.area==='instruments';}).slice(0,MAX_MENU_READINGS).forEach(function(i){content.append(reading(i,false));});
+           }
+           content.querySelectorAll('.menu-reading').forEach(function(el){updateReading(el,catalogue.get(el.dataset.item));});
+           var n=CATALOGUE.filter(function(i){return i.area==='instruments'&&fresh(rows.get(i.id));}).length;
+           intro.textContent=n+' current readings · '+(MAX_MENU_READINGS-n)+' unavailable. Open a row for evidence, limits, or the reason.';
+          }
+          function renderHistory(){
+           if(!historyNodes)return;var list=historyNodes.list;list.textContent='';
+           if(history===null){historyNodes.note.textContent='UNAVAILABLE — conversation history has not arrived.';return;}
+           var shown=history.filter(function(r){return (r.who+' '+r.text).toLowerCase().includes(historyQuery.toLowerCase());});
+           historyNodes.note.textContent=shown.length+' of '+history.length+' supplied entries'+(historyTruncated?' · bounded tail.':'.');
+           shown.forEach(function(r){var el=node('li');el.append(node('strong','',r.who),node('p','',r.text));list.append(el);});
+          }
+          function palette(){
+           intro.textContent='Search all 68 surfaces by name or description. Opening a surface does not execute its action.';
+           var search=node('input','menu-search');search.type='search';search.maxLength=MAX_SEARCH;search.placeholder='Find a surface';search.setAttribute('aria-label','Find a surface');
+           var list=node('div','menu-palette');content.append(search,list);
+           function filter(){list.textContent='';var query=search.value.toLowerCase();
+            var matches=CATALOGUE.filter(function(i){return (i.name+' '+i.what).toLowerCase().includes(query);});
+            if(!matches.length)list.append(node('p','menu-note','No matching surface.'));
+            matches.slice(0,MAX_MENU_READINGS+MAX_MAIN_ITEMS).forEach(function(i){list.append(action(i.name,function(){show(i.id,opener);}));});
+           }search.addEventListener('input',filter);filter();return search;
+          }
+          function numeric(data,prefix,out,depth){
+           if(depth>MAX_DEPTH||!data||typeof data!=='object')return;
+           Object.keys(data).slice(0,MAX_NUMERIC_FIELDS).forEach(function(k){if(Object.keys(out).length>=MAX_NUMERIC_FIELDS)return;
+            var v=data[k],path=prefix?prefix+'.'+k:k;
+            if(typeof v==='number'&&Number.isFinite(v)&&!/(^|[._])(at_ms|pid|expiry_ms|epoch|cycles)$/.test(path))out[path]=v;
+            else if(v&&typeof v==='object'&&!Array.isArray(v))numeric(v,path,out,depth+1);
+           });
+          }
+          function capture(){
+           var out={};['memory-headroom','memory-pressure-band','compressor-swap','storage-ssd','disk-i-o-rate','battery-health'].forEach(function(id){
+            var r=rows.get(id);if(fresh(r)){var fields={};numeric(r.data,'',fields,0);if(Object.keys(fields).length)out[id]={name:r.label,source:r.source,at_ms:r.at_ms,fields:fields};}
+           });return out;
+          }
+          function beforeAfter(){
+           intro.textContent='Compare two fresh observations from the same producers. A change is a measured difference, not proof that your action caused it.';
+           var note=node('p','menu-note'),output=node('pre','menu-data');
+           function describe(){note.textContent=baseline?'Baseline captured with '+Object.keys(baseline.values).length+' readings. Wait for the next producer update, then compare.':'No baseline captured in this session.';}
+           content.append(action('Capture baseline',function(){var values=capture();if(!Object.keys(values).length){note.textContent='UNAVAILABLE — no fresh numeric readings are available.';return;}
+            baseline={values:values,version:receiveVersion};output.textContent=dataText(values);describe();}),
+            action('Compare latest',function(){
+             if(!baseline){note.textContent='Capture a baseline first.';return;}
+             if(receiveVersion===baseline.version){note.textContent='Waiting for a new producer update.';return;}
+             var latest=capture(),compared=[];
+             Object.keys(baseline.values).forEach(function(id){var a=baseline.values[id],b=latest[id];
+              if(!b||a.source!==b.source||a.at_ms===b.at_ms)return;
+              Object.keys(a.fields).forEach(function(k){if(Object.prototype.hasOwnProperty.call(b.fields,k))compared.push({reading:a.name,field:k,before:a.fields[k],after:b.fields[k],delta:b.fields[k]-a.fields[k],before_at_ms:a.at_ms,after_at_ms:b.at_ms});});
+             });
+             note.textContent=compared.length?'Compared '+compared.length+' fields. Raw numbers and both observation times are retained.':'UNAVAILABLE — no later comparable fresh observations.';
+             output.textContent=dataText(compared);
+            }),note,output);describe();
+          }
+          function onboarding(){
+           var item=catalogue.get('onboarding-wizard');intro.textContent=item.what;
+           content.append(node('p','menu-note',item.reason));
+           var label=node('label','menu-caption','New node identifier'),input=node('input','menu-search');input.id='menu-node-id';input.maxLength=64;label.htmlFor=input.id;
+           input.placeholder='A stable profile identifier';var output=node('pre','menu-data');
+           content.append(label,input,action('Prepare enrollment request',function(){
+            var id=input.value.trim();if(!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(id)){output.textContent='Use 1–64 letters, digits, dots, underscores or hyphens; begin with a letter or digit.';return;}
+            output.textContent=dataText({kind:'enrollment-request',node_id:id,status:'NOT_ENROLLED',steps:[
+             'Discover through an authorized transport.','Read key-storage and availability profiles.',
+             'Measure resource capacity and sustained throughput at enrollment.',
+             'Validate security baseline, capability floor and attested segment.',
+             'Submit admission through the live enrollment registry; compare placement on merit.'
+            ],missing:'Native enrollment transport and live registry are unavailable. This request changes no registry or policy.'});
+           }),output);
+          }
+          function show(view,trigger){
+           focusHost();hideTooltip();active=view;opener=trigger||opener;panel.dataset.view=view;content.textContent='';historyNodes=null;
+           var item=catalogue.get(view),focus=null;
+           title.textContent=item?item.name:({instruments:'Host & fabric instruments',projects:'Projects',research:'Research',history:'Conversation history',settings:'Settings'}[view]||'UNAVAILABLE');
+           intro.textContent=item?item.what:'';
+           if(view==='instruments')renderInstruments();
+           else if(view==='command-palette')focus=palette();
+           else if(view==='before-after')beforeAfter();
+           else if(view==='onboarding-wizard'||view==='enrollment')onboarding();
+           else if(item){content.append(reading(item,true));}
+           else if(view==='history'){
+            intro.textContent='Conversation entries in their supplied order. This is not the full action log.';
+            var search=node('input','menu-search');search.type='search';search.maxLength=MAX_SEARCH;search.placeholder='Find in conversation';search.setAttribute('aria-label','Find in conversation');search.value=historyQuery;
+            var note=node('p','menu-note'),list=node('ol','menu-history-list');content.append(search,note,list);historyNodes={note:note,list:list};
+            search.addEventListener('input',function(){historyQuery=search.value;renderHistory();});renderHistory();
+           }else{content.append(node('span','menu-status','UNAVAILABLE'),node('p','menu-note','This destination has no collection or save operation connected to this surface.'));}
+           tile.setAttribute('aria-expanded',String(view==='instruments'));
+           triggers.forEach(function(b){b.setAttribute('aria-expanded',String(b.dataset.menuView===view));});
+           if(!panel.open)panel.showModal();if(focus)focus.focus();
+          }
+          tile.addEventListener('click',function(){show('instruments',tile);});
+          triggers.forEach(function(b){b.addEventListener('click',function(){show(b.dataset.menuView,b);});});
+          panel.querySelector('.menu-close').addEventListener('click',function(){panel.close();});
+          panel.addEventListener('click',function(e){var r=panel.getBoundingClientRect();if(e.target===panel&&(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom))panel.close();});
+          panel.addEventListener('close',function(){if(panel.open)return;active='';tile.setAttribute('aria-expanded','false');triggers.forEach(function(b){b.setAttribute('aria-expanded','false');});if(opener)opener.focus();});
+          document.addEventListener('keydown',function(e){
+           if(e.key==='Escape')hideTooltip();
+           if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();show('command-palette',document.activeElement);}
+          });
+          function refresh(){
+           if(active==='instruments')renderInstruments();
+           else if(catalogue.has(active))content.querySelectorAll('.menu-reading').forEach(function(el){updateReading(el,catalogue.get(el.dataset.item));});
+           // Mount-time Swift rows lack rich metadata. Remove menu entries from the
+           // small HOST card; the named panel is their home. Original metrics stay.
+           document.querySelectorAll('#metrics .row').forEach(function(el){var label=(el.querySelector('.k')||{}).textContent;if(byName.has(label))el.remove();});
+           if(expiryTimer!==null)clearTimeout(expiryTimer);expiryTimer=null;
+           if(document.hidden)return;
+           var now=Date.now(),next=Infinity;
+           rows.forEach(function(r){if(fresh(r))next=Math.min(next,r.at_ms+r.ttl_ms-now+1);});
+           if(Number.isFinite(next))expiryTimer=setTimeout(refresh,Math.min(next,2147483647));
+          }
+          var previousMetrics=window.__vesperMetrics;
+          window.__vesperMetrics=function(json){
+           var incoming=[];
+           try{var parsed=JSON.parse(json);if(Array.isArray(parsed))incoming=parsed.slice(0,MAX_MENU_METRIC_ROWS);}catch(e){}
+           if(json!==lastMetrics){lastMetrics=json;receiveVersion++;rows.clear();
+            incoming.forEach(function(r){if(!r||typeof r!=='object')return;var item=byName.get(r.label);
+             if(item&&r.id===item.id)rows.set(item.id,r);
             });
-            panel.addEventListener('close', function () {
-              // A queued close event must not reset a panel that has already reopened.
-              if (panel.open) return;
-              active = ''; tile.setAttribute('aria-expanded', 'false');
-              triggers.forEach(function (b) { b.setAttribute('aria-expanded', 'false'); });
-              if (opener) opener.focus();
-            });
-            // The supplied slot names are explicitly provisional. Preserve their glyphs
-            // while making their undecided status accessible, rather than clickable no-ops.
-            Array.from(document.querySelectorAll('.dockrow .slot')).forEach(function (b, i) {
-              b.disabled = true;
-              b.setAttribute('aria-label', 'Main menu slot ' + (i + 1) + ' — meaning not chosen');
-              b.title = 'Slot ' + (i + 1) + ' — awaiting your choice';
-            });
-            var previousMetrics = window.__vesperMetrics;
-            window.__vesperMetrics = function (json) {
-              var previousPower = power;
-              power = null;
-              try {
-                var rows = JSON.parse(json);
-                if (Array.isArray(rows)) rows.slice(0, MAX_MENU_METRIC_ROWS).forEach(function (r) {
-                  // Only the existing producer's vocabulary is accepted. A random label
-                  // named power must not acquire the authority of a measured wattage.
-                  if (r && r.label === 'power' && (r.value === 'battery' || r.value === 'AC')) power = r.value;
-                });
-              } catch (e) {}
-              // Unchanged pushes must not replace text the owner is selecting.
-              if (active === 'instruments' && power !== previousPower) renderInstruments();
-              if (typeof previousMetrics === 'function') previousMetrics(json);
-            };
-            var previousHistory = window.__vesperHistory, lastHistory = null;
-            window.__vesperHistory = function (json) {
-              if (json !== lastHistory) {
-                lastHistory = json; history = null; historyTruncated = false;
-                try {
-                  var rows = JSON.parse(json);
-                  if (Array.isArray(rows)) {
-                    historyTruncated = rows.length > MAX_MENU_HISTORY;
-                    history = rows.slice(0, MAX_MENU_HISTORY).filter(function (r) {
-                      return r && typeof r.text === 'string';
-                    }).map(function (r) {
-                      if (r.text.length > MAX_MENU_TEXT) historyTruncated = true;
-                      return {who:r.who === 'vesper' ? 'vesper' : r.who === 'owner' ? 'you' : bounded(r.who) || 'unknown',
-                              text:bounded(r.text) + (r.text.length > MAX_MENU_TEXT ? '…' : '')};
-                    });
-                  }
-                } catch (e) {}
-                if (active === 'history') renderHistory();
-              }
-              if (typeof previousHistory === 'function') previousHistory(json);
-            };
-          }, {once:true});
+           }
+           refresh();
+           if(typeof previousMetrics==='function')previousMetrics(JSON.stringify(incoming.filter(function(r){return r&&!byName.has(r.label);})));
+          };
+          var previousHistory=window.__vesperHistory,lastHistory=null;
+          window.__vesperHistory=function(json){
+           if(json!==lastHistory){lastHistory=json;history=null;historyTruncated=false;
+            try{var parsed=JSON.parse(json);if(Array.isArray(parsed)){historyTruncated=parsed.length>MAX_MENU_HISTORY;
+             history=parsed.slice(0,MAX_MENU_HISTORY).filter(function(r){return r&&typeof r.text==='string';}).map(function(r){return {who:r.who==='owner'?'you':bounded(r.who)||'unknown',text:bounded(r.text)};});
+            }}catch(e){}if(active==='history')renderHistory();
+           }if(typeof previousHistory==='function')previousHistory(json);
+          };
+          document.addEventListener('visibilitychange',refresh);refresh();
+         },{once:true});
         })();
         </script>
         <!-- ==== /MENU ==== -->
@@ -1816,40 +1887,27 @@ final class HomeChrome {
             // without a push the card showed whatever was true when the home came up
             // -- and on a laptop the row that changes is the one worth reading.
             var metricsEl = document.getElementById('metrics');
-            var lastMetrics = '';
-            window.__vesperMetrics = function (json) {
-              if (!metricsEl || json === lastMetrics) return;
-              lastMetrics = json;
-              var rows;
-              try { rows = JSON.parse(json); } catch (e) { return; }
-              if (!rows.length) return;          // keep the mount-time line, not blank
-              // A STALE READING IS DROPPED HERE TOO, and that is not belt-and-braces.
-              //
-              // The runtime already omits a row past its TTL -- but if the runtime
-              // STOPS, `home.json` keeps its last contents and this page would render
-              // them as current forever. The producer's freshness and the renderer's
-              // are different claims: one says "I measured this recently", the other
-              // says "what I am showing you was measured recently". Only the second is
-              // what the owner reads off the card.
-              //
-              // `INV-HW-2`: unknown means unavailable, fail-closed. Dropped rather than
-              // dimmed, because `core/projection.py` already refuses to render an
-              // unavailable reading "so the absent case cannot be styled into looking
-              // like the present case".
-              var now = Date.now();
-              var fresh = rows.filter(function (r) {
-                if (!r.at_ms || !r.ttl_ms) return true;   // no stamp: not ours to judge
-                return (now - r.at_ms) <= r.ttl_ms;
-              });
-              if (!fresh.length) return;         // everything stale: say nothing new
-              metricsEl.textContent = '';
-              for (var i = 0; i < fresh.length; i++) {
-                var row = el('div', 'row');
-                row.appendChild(el('span', 'k', fresh[i].label || ''));
-                row.appendChild(el('span', 'v', fresh[i].value || ''));
-                metricsEl.appendChild(row);
+            var lastMetrics = '', hostRows = [], hostExpiry = null;
+            function renderHostMetrics() {
+              if (!metricsEl) return;
+              var now=Date.now();
+              var fresh=hostRows.filter(r => r && typeof r.label==='string' && typeof r.value==='string'
+                && Number.isFinite(r.at_ms) && Number.isFinite(r.ttl_ms) && r.at_ms>0 && r.ttl_ms>0
+                && r.at_ms<=now && now-r.at_ms<=r.ttl_ms);
+              // Only replace when the rendered answer changes, preserving selections.
+              var signature=JSON.stringify(fresh.map(r => [r.label,r.value]));
+              if(signature!==lastMetrics){lastMetrics=signature;metricsEl.textContent='';
+                fresh.forEach(function(r){var row=el('div','row');row.appendChild(el('span','k',r.label));row.appendChild(el('span','v',r.value));metricsEl.appendChild(row);});
+                if(!fresh.length){var row=el('div','row');row.appendChild(el('span','k','no fresh producer'));metricsEl.appendChild(row);}
               }
+              if(hostExpiry!==null)clearTimeout(hostExpiry);hostExpiry=null;
+              if(!document.hidden && fresh.length)hostExpiry=setTimeout(renderHostMetrics,Math.min.apply(null,fresh.map(function(r){return r.at_ms+r.ttl_ms-now+1;})));
+            }
+            window.__vesperMetrics = function (json) {
+              try{var parsed=JSON.parse(json);hostRows=Array.isArray(parsed)?parsed.slice(0,5):[];}catch(e){hostRows=[];}
+              renderHostMetrics();
             };
+            document.addEventListener('visibilitychange',renderHostMetrics);
 
             // ---- the commands pane ------------------------------------------------
             //

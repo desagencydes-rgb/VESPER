@@ -309,6 +309,7 @@ def _record_command(bench, capability_id, args, result) -> None:
 METRICS_EVERY_S = 30.0
 _metrics_at = [0.0]
 _metrics_mod = [None]
+_menu_context = {}  # Read-only references to live registries; never replacement instances.
 
 
 def _metric_rows():
@@ -354,6 +355,12 @@ def _metric_rows():
                      "value": str(e.content["value"]),
                      "at_ms": at_ms,
                      "ttl_ms": mod.TTL_MS})
+    # The bridge is generic, but the original projection selected only five
+    # keys. Append the catalogue here so the live pump reaches all menu rows.
+    # OS acquisition runs in one background worker; old observations retain
+    # their original at_ms and ttl_ms while it works.
+    from tools.menu_snapshot import cached_rows
+    rows.extend(cached_rows(_menu_context))
     return rows
 
 
@@ -1117,6 +1124,9 @@ def build(node: str = "vesper-runtime"):
 
     autonomy.register(agenda.agenda_trigger(handler=_agenda_due_handler))
 
+    _menu_context.clear()
+    _menu_context.update(devices=devices, actor=actor, autonomy=autonomy,
+                         verifier=verifier, interlock=interlock, bench=bench)
     return (bus, gw, router, home, intake, triage, report, persona, bench,
             renderer, updater, misses, chooser, world, sensors, autonomy,
             devices, repairer, presence, context_cmds, verifier, speech,

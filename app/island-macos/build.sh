@@ -65,13 +65,17 @@ cp "$REPO/tools/ops/vesper_runtime.py" "$APP/Contents/Resources/runtime/tools/op
 # autonomy -- interlock is a dead-man's switch -- and a bundle that carries the
 # runtime but not the thing that arms it is a bundle that cannot act.
 cp "$REPO/tools/ops/vesper_arm.py" "$APP/Contents/Resources/runtime/tools/ops/"
-# The menu projection's own files (tools/menu_snapshot.py,
-# tools/menu_catalogue.json) were copied here too while the v2 menu was
-# merged. That merge is reverted (see the revert of 08336e7), the files no
-# longer exist, and `set -e` above means naming a missing source here aborts
-# the whole build. They come back WITH the menu when it is re-implemented,
-# not before it.
-cp "$REPO/tools/home_snapshot.py" \
+# THE MENU PROJECTION SHIPS TOO, same class of omission as the REMOTE-SUPPLY
+# table below: `vesper_runtime.py`'s `_metric_rows()` does
+# `from tools.menu_snapshot import cached_rows`, and a copy list that carries
+# the importer but not the module it imports fails at exactly that line --
+# caught, logged nowhere the owner looks, and the runtime silently falls back
+# to its original five keys while every catalogue row renders UNAVAILABLE.
+# Measured 2026-09-07: exactly that. `menu_catalogue.json` has to land BESIDE
+# `menu_snapshot.py`, not merely somewhere in the bundle -- the module reads
+# it via `Path(__file__).with_name(...)`.
+cp "$REPO/tools/menu_snapshot.py" "$REPO/tools/menu_catalogue.json" \
+   "$REPO/tools/home_snapshot.py" \
    "$APP/Contents/Resources/runtime/tools/"
 # THE HOST CARD'S OWN LOADER WAS BROKEN THE SAME WAY, LONGER. `_metric_rows()`
 # in vesper_runtime.py dynamically loads home_snapshot.py from
