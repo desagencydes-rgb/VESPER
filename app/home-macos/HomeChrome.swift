@@ -2818,6 +2818,19 @@ final class HomeChrome {
           }
           var panes = ['pcmds','pexps','pchgs','pterm','work']
                         .map(p).join(' ');
+          // THE HOST CARD'S PAINTED ROW COUNT, not its receiver's existence.
+          // `Metrics:fn` above says only that the function is defined, and
+          // `jsErrors=none` says only that nothing threw -- neither can tell
+          // an empty card from a full one, and on 2026-09-08 this card was
+          // both rendering four MENU readings as host telemetry and dropping
+          // its own absences. An adjacent signal standing in for the one you
+          // need is the same defect as asserting on a layer nobody renders.
+          var mEl = document.getElementById('metrics');
+          var metrics = mEl ? mEl.children.length + ':'
+              + Array.prototype.map.call(mEl.children, function (c) {
+                  var k = c.querySelector('.k');
+                  return k ? k.textContent : '?'; }).join(',')
+            : 'ABSENT';
           var errs = (window.__vesperErrs || []);
           // DO THE RECEIVERS EXIST AT ALL? `if (window.__vesperWork)` skips
           // silently when they do not, which looks identical to a push that
@@ -2831,6 +2844,7 @@ final class HomeChrome {
                   'viewport=' + window.innerWidth + 'x' + window.innerHeight,
                   'face=' + document.body.getAttribute('data-face'),
                   'panes=[' + panes + ']',
+                  'metrics=[' + metrics + ']',
                   'jsErrors=' + (errs.length ? JSON.stringify(errs.slice(0,3)) : 'none')
                  ].join(' | ');
         })();
