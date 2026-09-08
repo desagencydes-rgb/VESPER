@@ -764,7 +764,8 @@ def window_list(args: dict) -> dict:
             "count": len(wins),
             "may_arrange": len(parts["free"]),
             "needs_a_request": len(parts["on_request"]),
-            "windows": [{"window_id": w.window_id, "app_label": w.app_label,
+            "windows": [{"window_id": w.window_id, "pid": w.pid,
+                         "app_label": w.app_label,
                          "provenance": w.provenance,
                          "line": W.describe(w, vespers_desktop=desktop),
                          **w.meta} for w in wins]}
@@ -835,6 +836,150 @@ def window_close_level(args: dict) -> str:
     from core import windows as W
 
     return "L4" if args.get("provenance") == W.VESPER_OPENED else "L5"
+
+
+def window_relocate(args: dict) -> dict:
+    """Move a window to another Desktop, degrading rather than failing.
+
+    THE OWNER'S LADDER, 2026-09-08, verbatim: *"if it breaks, we'll have a
+    backup, vesper flags it, if it's redoable, it should retry, if not it should
+    do it manually, screenshot, identify window/app/place, then close that
+    window and opens another one in it's desktop, same app, same place."*
+
+    So four rungs, and the point of writing them here rather than in the Swift
+    is that retry-then-degrade is a POLICY decision. The bridge is mechanism: it
+    moves, it reads back, it reports. What to do about a failure is this side's
+    business, and keeping it here means the ladder is testable without a Mac.
+
+      1. **Move.** The private call reports nothing, so the bridge reads the
+         window's Space back and compares. That readback IS the rung.
+      2. **Retry once, and only for a failure that could differ.** A missing
+         symbol will still be missing a second later; retrying it burns the
+         owner's time to produce the same sentence. A move that simply did not
+         land can differ, so that one is retried.
+      3. **Reconstruct.** Identify the application and the geometry, close the
+         window, open a fresh one in the same place. The owner's own fallback,
+         and it is PUBLIC API only -- which is the whole reason it survives the
+         private symbol disappearing.
+      4. **Flag, on every path including success-after-retry.** A degradation
+         nobody is told about is a system quietly getting worse.
+
+    TWO THINGS THE FALLBACK REFUSES, AND BOTH MATTER.
+
+    It will not close a window with unsaved work, and it treats "the
+    application would not say" as unsaved. `host_actions.toml` keeps
+    `close_window` outside the owner's authorisation precisely because nothing
+    recovers what was in it.
+
+    And it cannot place a window on a Desktop that is not showing: a new window
+    opens on the CURRENT Space, and switching Space is the same private
+    capability that just failed. So the fallback is honest about being
+    available only when VESPER's Desktop is the active one, rather than
+    reporting a window it put somewhere else.
+    """
+    from core import windows as W
+
+    wid = str(args.get("window_id") or "").strip()
+    space = str(args.get("space") or "").strip()
+    notes: list = []
+    wins, vespers = _inventory()
+    target = next((w for w in wins if w.window_id == wid), None)
+    if target is None:
+        raise ValueError(f"window {wid} is not on the active desktop")
+
+    # THE OWNERSHIP RULE FIRST, and relocation has its own effect for a reason
+    # `core/windows.py` sets out at length: moving a window off VESPER's Desktop
+    # spends authority it only holds while the window is there.
+    effect = (W.RELOCATE_OFF
+              if vespers and target.desktop_id == vespers else W.MOVE)
+    allowed, why = W.may_act(target, effect, vespers_desktop=vespers,
+                             owner_requested=bool(args.get("owner_requested")))
+    if not allowed:
+        return {"ok": False, "refused_by": "ownership", "reason": why}
+
+    # --------------------------------------------------------------- rung 1
+    out = _window_bridge("--window-act", "relocate", "--window-id", wid,
+                         "--window-pid", str(target.pid), "--space", space)
+    if out.get("ok"):
+        return {**out, "rung": "moved", "notes": notes}
+
+    # --------------------------------------------------------------- rung 2
+    # RETRIED ONLY WHERE A SECOND ATTEMPT COULD DIFFER. A resolved-symbol
+    # failure is a property of this macOS and will hold for the next call too.
+    #
+    # AND MEASURED 2026-09-08, THE BOUNDARY IS OWNERSHIP OF THE CONNECTION, NOT
+    # THE SYMBOL. VESPER's own probe window relocates correctly -- "was unknown,
+    # asked for 3, is 3" -- while a foreign application's window does not move
+    # for `CGSMoveWindowsToManagedSpace` OR for the older add/remove pair. So
+    # the private route serves VESPER's own surfaces and the owner's rebuild
+    # ladder is not a degraded path for foreign windows, it is the ONLY path.
+    reason = str(out.get("reason") or "")
+    retryable = "MISSING" not in reason and "UNAVAILABLE" not in reason
+    notes.append(f"the move did not land: {reason[:160]}")
+    if retryable:
+        again = _window_bridge("--window-act", "relocate", "--window-id", wid,
+                               "--window-pid", str(target.pid), "--space", space)
+        if again.get("ok"):
+            notes.append("it landed on the second attempt")
+            return {**again, "rung": "moved_after_retry", "notes": notes}
+        notes.append("the retry did not land either")
+    else:
+        notes.append("not retried: the private call is unavailable on this "
+                     "macOS, so a second attempt produces the same answer")
+
+    # --------------------------------------------------------------- rung 3
+    if not vespers:
+        notes.append("the fallback needs VESPER's Desktop to be the one showing "
+                     "-- a new window opens on the current Space, and switching "
+                     "Space is the same capability that just failed")
+        return {"ok": False, "rung": "cannot_degrade", "notes": notes,
+                "reason": "cross-Desktop relocation is unavailable and the "
+                          "rebuild fallback cannot reach VESPER's Desktop from here"}
+
+    ident = _window_bridge("--window-act", "identity", "--window-id", wid,
+                           "--window-pid", str(target.pid))
+    if ident.get("edited") != "no":
+        notes.append(f"the rebuild was refused: unsaved work is "
+                     f"{ident.get('edited')!r}")
+        return {"ok": False, "rung": "refused_unsaved", "notes": notes,
+                "reason": "this window has unsaved work, or the application "
+                          "would not say -- rebuilding it means closing it, and "
+                          "nothing recovers what was inside"}
+
+    closed = _window_bridge("--window-act", "close", "--window-id", wid,
+                            "--window-pid", str(target.pid))
+    if not closed.get("ok"):
+        notes.append(f"the window would not close: {str(closed.get('reason'))[:120]}")
+        return {"ok": False, "rung": "rebuild_failed", "notes": notes,
+                "reason": "the rebuild could not close the original window"}
+
+    fresh = _window_bridge("--window-act", "reopen", "--window-id", wid,
+                           "--window-pid", str(target.pid),
+                           "--bundle", str(ident.get("bundle_id") or ""))
+    if not fresh.get("ok"):
+        notes.append(f"the application did not reopen: {str(fresh.get('reason'))[:140]}")
+        return {"ok": False, "rung": "rebuild_failed", "notes": notes,
+                "reason": "the original window was closed and the application "
+                          "opened no replacement -- say so plainly rather than "
+                          "leaving the owner to notice"}
+
+    new_id = str(fresh.get("window_id"))
+    _VESPER_OPENED_WINDOWS.add(new_id)
+    _window_bridge("--window-act", "move", "--window-id", new_id,
+                   "--window-pid", str(fresh.get("pid")),
+                   "--x", str(ident.get("x", 0)), "--y", str(ident.get("y", 0)))
+    placed = _window_bridge("--window-act", "resize", "--window-id", new_id,
+                            "--window-pid", str(fresh.get("pid")),
+                            "--w", str(ident.get("width", 0)),
+                            "--h", str(ident.get("height", 0)))
+    notes.append("rebuilt: same application, same place, on vesper's desktop")
+    return {"ok": True, "rung": "rebuilt", "window_id": new_id,
+            "app_label": ident.get("app_label"), "geometry": placed.get("after"),
+            "notes": notes,
+            # THE DEGRADATION IS PART OF THE RESULT, not a log line. The owner
+            # asked to be flagged, and a caller that only reads `ok` would
+            # otherwise report a rebuild as an ordinary move.
+            "degraded": True}
 
 
 def window_level(args: dict) -> str:
@@ -1691,6 +1836,17 @@ def build_registry() -> CapabilityRegistry:
                   {"window_id": "1", "effect": "close", "provenance": "unknown"}),
     ], reversibility="irreversible")
 
+    # RELOCATION IS ITS OWN CAPABILITY, matching `core/windows.py`'s own split:
+    # crossing the Desktop boundary changes which clause of the ownership rule
+    # applies, so a position change must never be able to carry an authority
+    # change with it.
+    reg.register("window.relocate", window_level, [
+        LevelRule("vesper's own", "L2",
+                  {"window_id": "1", "space": "3", "provenance": "vesper_opened"}),
+        LevelRule("the owner's", "L3",
+                  {"window_id": "1", "space": "3", "provenance": "unknown"}),
+    ], reversibility="reversible")
+
     reg.register("fs.read", fs_read_level, [
         LevelRule("ordinary", "L1", {"path": "README.md"},
                   refutes=(
@@ -1753,6 +1909,7 @@ def bind_all(executor, *, jobs=None, agent=None, runner=None) -> None:
     executor.bind("window.move", window_move)
     executor.bind("window.resize", window_resize)
     executor.bind("window.close", window_close)
+    executor.bind("window.relocate", window_relocate)
 
     # THE SUB-AGENT IS BOUND, NOT PASSED IN ARGS, for the reason the job
     # registry is: what a proposal may ASK for and what carries the request are

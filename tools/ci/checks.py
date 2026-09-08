@@ -15449,6 +15449,130 @@ def check_a_window_belongs_to_someone() -> Result:
     return r
 
 
+
+# --------------------------------------------------------------------------
+# The SECOND named private-API exception, on the same terms as the first.
+# CI-058's reasoning applies verbatim and is not repeated: the exception is
+# granted against the SILENCE, so the hatch lives in one reviewed file and only
+# while that file carries the alarm that makes its failure loud.
+#
+# WHAT IS DIFFERENT HERE, AND IT IS THE WHOLE POINT. The glass hatch fails by a
+# selector DISAPPEARING. This one fails by the symbol being present and the
+# call doing NOTHING -- measured on this host the day it was written. A
+# symbol-presence alarm would have reported green over a dead feature, so the
+# alarm is required to probe the EFFECT, with a window of VESPER's own.
+# --------------------------------------------------------------------------
+SPACES_HATCH_MARK = "spaces-hatch-ok"
+SPACES_HATCH_SYMBOLS = ("CGSMoveWindowsToManagedSpace", "CGSCopySpacesForWindows",
+                        "CGSAddWindowsToSpaces", "CGSCopyManagedDisplaySpaces")
+SPACES_HATCH_HOME = "app/home-macos/SpacesHatch.swift"
+
+
+def check_spaces_hatch() -> Result:
+    r = Result("spaces-hatch-contained")
+    app_dir = REPO / "app"
+    if not app_dir.is_dir():
+        r.note("not yet applicable: no app/ directory on this tree")
+        return r
+
+    carriers = []
+    for f in sorted(app_dir.rglob("*.swift")):
+        text = f.read_text(encoding="utf-8", errors="replace")
+        if not any(s in text for s in SPACES_HATCH_SYMBOLS):
+            continue
+        rel = f.relative_to(REPO).as_posix()
+        carriers.append(rel)
+        if SPACES_HATCH_MARK not in text:
+            r.err(f"{rel} reaches for a private Spaces symbol without the "
+                  f"{SPACES_HATCH_MARK!r} marker. The owner authorised this route "
+                  f"on 2026-09-08 on the condition it lives in one reviewed place "
+                  f"with its alarm. A second copy is a second silent failure.")
+
+    shipped = REPO / SPACES_HATCH_HOME
+    if not shipped.is_file():
+        r.err(f"{SPACES_HATCH_HOME} is missing: the hatch's one reviewed home is "
+              "gone, so nothing constrains where these symbols may appear")
+        return r
+    text = shipped.read_text(encoding="utf-8")
+
+    # 1. RESOLVED, NEVER LINKED. Linking a private symbol turns a macOS point
+    #    release into a launch failure for the whole app rather than one
+    #    unavailable feature.
+    if "dlsym" not in text or "dlopen" not in text:
+        r.err("the hatch no longer resolves its symbols at runtime. Linking them "
+              "makes a missing symbol stop VESPER instead of disabling one "
+              "feature, and INV-HW-2's posture is that an unavailable capability "
+              "is a reading, not a crash.")
+
+    # 2. THE ALARM PROBES THE EFFECT, NOT THE SYMBOL. This is the assertion that
+    #    would have caught the live state: all four symbols resolve on this host
+    #    and foreign windows do not move.
+    if "func effective()" not in text:
+        r.err("the hatch has no effect probe. Symbol presence is not the failure "
+              "mode -- measured 2026-09-08, every symbol resolved while the call "
+              "did nothing, and a presence-only alarm reports that as green.")
+    if "case ineffective" not in text:
+        r.err("the alarm cannot express 'resolves but does nothing', so the one "
+              "state actually observed on this machine has nowhere to be "
+              "reported and would round to success.")
+
+    # 3. THE PROBE USES VESPER'S OWN WINDOW. An alarm that disturbed the owner's
+    #    session to find out whether it could disturb the owner's session is its
+    #    own argument against running.
+    if "SpaceWatch.Anchor()" not in text:
+        r.err("the effect probe no longer uses VESPER's own anchor window. A "
+              "probe that moves the owner's windows to test whether it can move "
+              "the owner's windows is not an instrument.")
+
+    # 4. EVERY EARLY RETURN IS A GREEN NOBODY EARNED, so the probe must say
+    #    whether it actually ran. Four of its paths return "present" meaning
+    #    "could not test", which is the negative-control-that-passes shape.
+    # COUNTED, NOT MERELY PRESENT. The first version asked whether the phrase
+    # appeared at all, and its self-test case duly passed under its own
+    # violation: removing ONE of the three early returns left two behind and the
+    # check saw no difference. A check that cannot notice two thirds of the
+    # fault it names is alive and useless.
+    #
+    # There is one guarded early return per way the probe can fail to run, so
+    # the count is the assertion: every path that returns "present" without
+    # having moved anything must say it did not test.
+    untested = text.count("UNTESTED, not proven")
+    early = text.count("return .present\n")
+    if "probeReport" not in text:
+        r.err("the probe records nothing about what it observed, so a verdict "
+              "cannot be believed or disbelieved.")
+    if untested < early:
+        r.err(f"{early} of the probe's paths return 'present' but only {untested} "
+              "say they could not test. Each unlabelled one reports 'I did not "
+              "run' as 'this works' -- the same defect as a negative control "
+              "that passes, and its own self-test case caught exactly this.")
+
+    # 5. THE RELOCATION READS BACK. The private call returns void: it cannot say
+    #    whether it worked, which is exactly the silence being guarded.
+    if "let landed = (after == space)" not in text:
+        r.err("the relocation no longer compares the window's Space afterwards. "
+              "`CGSMoveWindowsToManagedSpace` returns void, so without the "
+              "readback a move that did nothing is indistinguishable from one "
+              "that worked -- and on this host that is the normal case for a "
+              "foreign window.")
+
+    # 6. THE CLAIM STAYS NARROW. VESPER's own windows relocate; foreign ones do
+    #    not, and a green that says otherwise is the overclaim in the one place
+    #    everyone reads.
+    if "Foreign windows are the" not in text:
+        r.err("the success line no longer limits itself to VESPER's own windows. "
+              "Measured 2026-09-08: a foreign application's window does not move "
+              "for either mechanism, so a general claim here is false.")
+
+    r.note(f"the spaces hatch is contained to {', '.join(carriers) or 'nothing'}; "
+           "symbols are resolved rather than linked; the alarm probes the EFFECT "
+           "with VESPER's own anchor and can report 'resolves but does nothing'; "
+           "an untested probe is distinguishable from a passing one; the "
+           "relocation reads the Space back because the private call returns "
+           "void; and the success line claims only VESPER's own windows")
+    return r
+
+
 def check_loop_observes_and_is_bounded() -> Result:
     """VESPER can take a second step, and every way of not stopping is bounded.
 
@@ -21668,6 +21792,7 @@ CHECK_FNS = {
     "the-island-shows-vespers-own-state": check_the_island_shows_vespers_own_state,
     "the-model-rows-read-a-real-completion": check_the_model_rows_read_a_real_completion,
     "a-window-belongs-to-someone": check_a_window_belongs_to_someone,
+    "spaces-hatch-contained": check_spaces_hatch,
     "notes-are-titles-and-never-instructions": check_notes_are_titles_and_never_instructions,
     "taint-ceiling-binds-the-act-path": check_taint_ceiling_binds_the_act_path,
     "gated-subsystems-are-reachable": check_gated_subsystems_are_reachable,

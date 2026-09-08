@@ -6217,6 +6217,56 @@ CASES += [
 ]
 
 
+# The second private-API hatch. Its exception was granted against the SILENCE,
+# so every case here removes a different way of making the silence loud.
+SPACES_HATCH = "app/home-macos/SpacesHatch.swift"
+
+CASES += [
+    ("spaces-hatch-contained", "app/home-macos/WindowBridge.swift",
+     _sub("    /// an off-screen window is on. The private route exists and lives in one",
+          "    /// an off-screen window is on -- CGSCopySpacesForWindows answers it.\n"
+          "    /// an off-screen window is on. The private route exists and lives in one", 1),
+     "a second file names a private Spaces symbol without the marker, so the "
+     "hatch stops being contained to one reviewed place and a copy can drift "
+     "in unreviewed"),
+
+    ("spaces-hatch-contained", SPACES_HATCH,
+     _sub("    static func effective() -> Verdict {", "    static func effective_() -> Verdict {", 1),
+     "the effect probe is gone, leaving a symbol-presence alarm -- which on "
+     "this very host reports GREEN over a call that does nothing"),
+
+    ("spaces-hatch-contained", SPACES_HATCH,
+     _sub("        case ineffective          // symbols resolve; the call does nothing\n", "", 1),
+     "the alarm loses the one verdict actually observed on this machine, so "
+     "'resolves but does nothing' has nowhere to be reported and rounds to "
+     "success"),
+
+    ("spaces-hatch-contained", SPACES_HATCH,
+     _sub("        let anchor = SpaceWatch.Anchor()", "        let anchor = Anchor2()", 1),
+     "the probe stops using VESPER's own window, so the instrument would have "
+     "to disturb the owner's session to find out whether it can disturb the "
+     "owner's session"),
+
+    ("spaces-hatch-contained", SPACES_HATCH,
+     _sub(' UNTESTED, not proven"', ' tested"', 1),
+     "the probe stops distinguishing 'this works' from 'I could not test it', "
+     "so an untested hatch reports as a working one"),
+
+    ("spaces-hatch-contained", SPACES_HATCH,
+     _sub("        let landed = (after == space)", "        let landed = true", 1),
+     "the relocation stops reading the Space back, and since the private call "
+     "returns void a move that did nothing becomes indistinguishable from one "
+     "that worked -- the normal case here for a foreign window"),
+
+    ("spaces-hatch-contained", SPACES_HATCH,
+     _sub("                     + \"VESPER's own windows relocate. Foreign windows are the \"\n"
+          "                     + \"rebuild fallback's job.\"",
+          "                     + \"windows relocate.\"", 1),
+     "the success line claims windows in general when only VESPER's own move, "
+     "putting the overclaim in the one line everyone reads"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
 

@@ -36,7 +36,9 @@ enum WindowBridge {
     /// ONLY THE ACTIVE DESKTOP, AND THAT IS A PLATFORM LIMIT RATHER THAN A
     /// CHOICE. `CGWindowListCopyWindowInfo(.optionOnScreenOnly)` answers for
     /// the Space that is showing. There is no public call that says which Space
-    /// an off-screen window is on -- the private one is `CGSCopySpacesForWindows`
+    /// an off-screen window is on. The private route exists and lives in one
+    /// reviewed place, `SpacesHatch.swift`, which is the only file permitted to
+    /// name those symbols -- naming one here would make this a second carrier
     /// -- so a full cross-Desktop inventory is not available without a decision
     /// the owner has to make. Reporting the active Desktop honestly is better
     /// than reporting a partial list as though it were everything, so the
@@ -309,6 +311,97 @@ enum WindowBridge {
                 "reason": gone ? "" : "the close was pressed and the window is still "
                                     + "open -- the application is likely asking the "
                                     + "owner whether to save"]
+    }
+
+
+    // MARK: - Relocation, and the rung below it
+
+    /// Everything needed to REBUILD this window somewhere else if moving fails.
+    ///
+    /// THE OWNER'S FALLBACK, 2026-09-08: "if it's redoable, it should retry, if
+    /// not it should do it manually ... identify window/app/place, then close
+    /// that window and opens another one in it's desktop, same app, same
+    /// place." This is the "identify" half; the orchestration is in
+    /// `core/capabilities.py` because retry-then-degrade is a policy decision
+    /// and this file is mechanism.
+    static func identity(pid: Int, windowId: String) -> [String: Any] {
+        let app = NSRunningApplication(processIdentifier: pid_t(pid))
+        let w = SpaceWatch.onScreen().first { String($0.number) == windowId }
+        var out: [String: Any] = [
+            "bundle_id": app?.bundleIdentifier ?? "",
+            "app_label": app?.localizedName ?? (w?.owner ?? "?"),
+            "x": Int(w?.bounds.origin.x ?? 0), "y": Int(w?.bounds.origin.y ?? 0),
+            "width": Int(w?.bounds.width ?? 0), "height": Int(w?.bounds.height ?? 0),
+        ]
+        // UNSAVED WORK MAKES THE FALLBACK REFUSE, AND UNKNOWN COUNTS AS UNSAVED.
+        //
+        // The fallback CLOSES the owner's window and opens a fresh one. That is
+        // safe for a window with nothing pending and destructive for one with
+        // edits in it -- and `host_actions.toml` keeps `close_window`
+        // deliberately outside the owner's authorisation for exactly this
+        // reason. `AXDocument`-bearing windows expose an edited flag; where the
+        // application does not answer, the honest reading is that we do not
+        // know, and INV-HW-2's posture applies: UNKNOWN means the restrictive
+        // answer, so the fallback declines rather than gambling with the
+        // owner's work.
+        var edited = "unknown"
+        if let el = element(forPID: pid, windowId: windowId) {
+            var v: CFTypeRef?
+            if AXUIElementCopyAttributeValue(el, "AXModified" as CFString, &v) == .success,
+               let b = v as? Bool {
+                edited = b ? "yes" : "no"
+            }
+            var doc: CFTypeRef?
+            if edited == "unknown",
+               AXUIElementCopyAttributeValue(el, kAXDocumentAttribute as CFString, &doc) == .success,
+               doc == nil {
+                // No document at all -- a palette, an inspector, a browser
+                // window. Nothing to lose by rebuilding it.
+                edited = "no"
+            }
+        }
+        out["edited"] = edited
+        return out
+    }
+
+    /// Open a fresh window of the same application. The "same app" half.
+    static func reopen(bundleId: String) -> [String: Any] {
+        guard !bundleId.isEmpty,
+              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId)
+        else { return ["ok": false, "reason": "no application to reopen for that window"] }
+        let before = Set(SpaceWatch.onScreen().map(\.number))
+        let cfg = NSWorkspace.OpenConfiguration()
+        cfg.createsNewApplicationInstance = false
+        cfg.activates = true
+        let done = DispatchSemaphore(value: 0)
+        var failed: String?
+        NSWorkspace.shared.openApplication(at: url, configuration: cfg) { _, err in
+            failed = err?.localizedDescription
+            done.signal()
+        }
+        _ = done.wait(timeout: .now() + 10)
+        if let failed { return ["ok": false, "reason": failed] }
+        // RE-READ FOR A WINDOW THAT WAS NOT THERE BEFORE. Activating an app
+        // that is already running often opens nothing at all, and reporting
+        // that as success is the same defect as reporting an unmoved window as
+        // moved.
+        for _ in 0..<20 {
+            usleep(150_000)
+            let now = SpaceWatch.onScreen().filter { !before.contains($0.number) }
+            if let fresh = now.first(where: { $0.layer == 0 }) {
+                return ["ok": true, "window_id": String(fresh.number), "pid": fresh.pid]
+            }
+        }
+        return ["ok": false, "reason": "the application was activated but opened no "
+              + "new window -- it may have restored the one that was closed, or "
+              + "may need an explicit new-document action"]
+    }
+
+    static func relocate(windowId: String, to space: String) -> [String: Any] {
+        guard let n = Int(windowId), let s = UInt64(space) else {
+            return ["ok": false, "reason": "window id and space must be numeric"]
+        }
+        return SpacesHatch.relocate(windowId: n, to: s)
     }
 
     private static func rect(_ r: CGRect?) -> [String: Int] {

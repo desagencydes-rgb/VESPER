@@ -1668,6 +1668,33 @@ if args.contains("--windows-list") {
     exit(0)
 }
 
+// THE SPACES HATCH'S ALARM, and its negative control. `--no-hatch` withholds
+// the move symbol and REQUIRES the verifier to go red: a negative control that
+// passes is a defect, not a relief, and an alarm that cannot fire has never
+// proven the thing it is watching is present.
+if args.contains("--spaces-verify") {
+    let negative = args.contains("--no-hatch")
+    // THE ALARM ASKS WHETHER THE CALL WORKS, NOT WHETHER THE SYMBOL IS THERE.
+    // A symbol-presence check would report GREEN on this host while the feature
+    // is dead -- measured 2026-09-08.
+    let v = negative ? SpacesHatch.verify(withhold: true) : SpacesHatch.effective()
+    print(v.line)
+    if !negative { print("probe: " + SpacesHatch.probeReport) }
+    if negative {
+        if v.usable {
+            FileHandle.standardError.write(("negative control: FAILED -- the move "
+                + "symbol was withheld and the alarm still reported every symbol "
+                + "present. It is not reading the symbols, so every green it has "
+                + "given was free.\n").data(using: .utf8)!)
+            exit(3)
+        }
+        print("negative control: PASS -- the alarm detects a missing symbol")
+        exit(0)
+    }
+    print("desktops: " + SpacesHatch.desktops().map(String.init).joined(separator: " "))
+    exit(v.usable ? 0 : 1)
+}
+
 if args.contains("--window-act") {
     func arg(_ n: String) -> String? {
         guard let i = args.firstIndex(of: n), i + 1 < args.count else { return nil }
@@ -1689,6 +1716,13 @@ if args.contains("--window-act") {
                                     w: arg("--w").flatMap(Int.init), h: arg("--h").flatMap(Int.init))
     case "close":
         out = WindowBridge.close(pid: pid, windowId: wid)
+    case "relocate":
+        out = WindowBridge.relocate(windowId: wid, to: arg("--space") ?? "")
+    case "identity":
+        out = WindowBridge.identity(pid: pid, windowId: wid)
+        out["ok"] = true
+    case "reopen":
+        out = WindowBridge.reopen(bundleId: arg("--bundle") ?? "")
     default:
         // FAIL CLOSED ON AN UNKNOWN EFFECT, matching the action vocabulary's
         // own posture: anything not named is refused rather than approximated

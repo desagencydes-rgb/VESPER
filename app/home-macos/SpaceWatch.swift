@@ -160,6 +160,11 @@ enum SpaceWatch {
 
         /// Idempotent: the poll loop closes this once, on whichever branch it
         /// takes (found an empty Desktop, or gave up at the deadline).
+        /// The probe in `SpacesHatch.effective()` needs something to ask
+        /// "which Desktop is this on" about, and this window is the only one
+        /// VESPER can move without touching the owner's session.
+        var windowNumber: Int? { window.map { Int($0.windowNumber) } }
+
         func close() {
             window?.orderOut(nil)
             window?.close()

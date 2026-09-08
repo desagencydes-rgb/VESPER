@@ -2069,7 +2069,46 @@ drag a window between Desktops is the public route, and it is exactly the
 "clicking" §11.5 exists to avoid — slow, visible, and it steals the pointer from
 the owner mid-task.
 
-**NOT DECIDED HERE.** Ask.
+**DECIDED BY THE OWNER, 2026-09-08: yes, with the alarm and the check.** They
+also specified the ladder when it breaks, verbatim: *"if it breaks, we'll have a
+backup, vesper flags it, if it's redoable, it should retry, if not it should do
+it manually, screenshot, identify window/app/place, then close that window and
+opens another one in it's desktop, same app, same place."*
+
+### AND THE PLATFORM ANSWERED IMMEDIATELY: THE BOUNDARY IS THE CONNECTION
+
+**Measured on this host, 2026-09-08, the day the hatch was written.** All four
+private symbols resolve. Then:
+
+| Window | `CGSMoveWindowsToManagedSpace` | older add/remove pair |
+|---|---|---|
+| **VESPER's own** (probe anchor) | **works** — "was unknown, asked for 3, is 3" | — |
+| **a foreign application's** | no effect, `before 1 / after 1` | no effect |
+
+So VESPER can place **its own** windows on any Desktop, and cannot move anybody
+else's. That is not the symbol being gone; it is Apple restricting the call to
+the owning connection.
+
+**THE ALARM WOULD HAVE REPORTED THIS AS GREEN, WHICH IS THE WHOLE LESSON.** The
+first version checked symbol RESOLUTION, and all four resolve. A presence-only
+alarm would have said "hatch healthy" over a feature that was dead for every
+window the owner cares about — the exact silent failure `INV-HOME-5` exists to
+refuse, arriving on day one instead of after some future update. The alarm now
+**probes the effect**: it creates a 1x1 `.managed` window of VESPER's own, asks
+for it to change Desktop, and reads back. Nothing the owner can see moves.
+
+**EVERY EARLY RETURN IN A PROBE IS A GREEN NOBODY EARNED,** and the first draft
+had four of them — no second Desktop, no anchor, no window number, no other
+Space — each returning "present", i.e. reporting *"I could not test this"* as
+*"this works"*. They now say `UNTESTED, not proven`, and
+`spaces-hatch-contained` counts them, because the self-test case for that rule
+passed under its own violation until it did.
+
+**SO THE OWNER'S REBUILD LADDER IS NOT A DEGRADED PATH FOR FOREIGN WINDOWS — IT
+IS THE ONLY PATH,** and it carries one honest limit: a new window opens on the
+Space that is showing, so the rebuild can place a window on VESPER's Desktop
+only while VESPER's Desktop is the active one. It also refuses to close a window
+with unsaved work, and treats an application that will not answer as unsaved.
 
 ---
 
