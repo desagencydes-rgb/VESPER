@@ -1483,7 +1483,7 @@ been driven against the running surface.**
 | 13 | **Active-Space reading from a background process** (§9f) | fix implemented and owner-verified (§9p) — `SpaceWatch.Anchor`, confirmed `0`/`0` with Desktop 1 populated and Desktop 2 genuinely empty. The batched rebuild it was waiting on happened 2026-09-08 with §9t, and `--spaces` from a freshly launched background process correctly enumerated the active Desktop and refused it (`2 foreign window(s)`, ChatGPT) — so the anchor works off the login path too. **The LOGIN-ITEM path itself is still unconfirmed:** `ai.vesper.island` is not bootstrapped in the `gui/501` domain (only `.wake`, `.fnwatch`, `.agenda`, `.arm` are), so `launchctl kickstart` cannot reach it and a real login is needed. Not a prediction — a named, outstanding step |
 | — | **The home's four model rows** (§9t) | ✅ DONE 2026-09-08 — `the-model-rows-read-a-real-completion`, 8 red runs. They had NEVER worked: no producer, and a comment claiming one. Live: `thinking = yes, 15 tok`, `context = 349`, `tokens = 466.4`. Found and fixed a pre-existing leak of menu rows into the HOST card in the same pass |
 | 14 | **`f5-acceptance` flakes under load** (§9i, §11.0) | ✅ DONE 2026-09-08 — the gate compared a live in-memory counter against the durable store and reported its own sampling as a defect. Both negative controls driven RED. §9i's recorded cause was wrong twice over; §11.0 supersedes it |
-| 15 | **Window management** (§11.1) | VESPER opens, closes, moves and resizes windows; the owner's windows are the owner's |
+| 15 | **Window management** (§11.1) | 🟡 MOSTLY DONE 2026-09-08 — vocabulary, ownership rule, native bridge and capability ladder all landed and DRIVEN LIVE (a real window moved, resized, and correctly refused 10x10). `a-window-belongs-to-someone`, 7 red runs. **Two pieces owed:** `open_window`'s implementation, and cross-Desktop relocation, which needs a private API and therefore an owner decision (§11.1a) |
 | 16 | **Modes, end to end** (§11.2) | the eleven ambience modes and the stages, manual from the menu and automatic, with the wallpaper switch bounded to VESPER's Desktop |
 | 17 | **Apps management** (§11.3) | drive macOS applications without clicking, where a real interface exists |
 | 18 | **Notes, in full** (§11.4) | read, edit, create, share, lock — replacing the titles-only integration `CI-131` gates |
@@ -2038,3 +2038,72 @@ are **Work-room cards**. The rail is organised by *frequency*, not by taxonomy.
 in full"*. `projects` does not, and `spec_raw.txt` routes **17 items** to
 `history` and none to a `projects` surface. So of the two, **`projects` is the
 one with an actual gap**, and that is what the discussion is for.
+
+
+---
+
+## 11.1a CROSS-DESKTOP RELOCATION NEEDS A PRIVATE API — OWNER DECISION OWED
+
+Everything else in §11.1 is built and was driven on the machine. This one is
+blocked on a decision, not on work.
+
+**WHAT IS PUBLICLY AVAILABLE.** `CGWindowListCopyWindowInfo(.optionOnScreenOnly)`
+answers for the Space that is SHOWING. There is no public call that says which
+Space an off-screen window is on, and none that moves a window to another Space.
+The private ones are `CGSCopySpacesForWindows` and `CGSMoveWindowsToManagedSpace`.
+
+**SO TWO OF THE OWNER'S SENTENCES ARE NOT REACHABLE WITHOUT ONE.**
+*"move windows between desktops (including vesper's desktop)"* and *"windows
+should be openable in vesper's desktop at least by vesper"*. The inventory is
+also active-Desktop-only for the same reason, which is reported honestly rather
+than presented as everything.
+
+**THE PRECEDENT IS `INV-HOME-5` / `CI-058`,** and it is not "never" — it is that
+a private API is an **explicit owner decision, plus a runtime alarm, plus a CI
+check**, never a quiet import. What it costs: a private symbol can disappear in
+a point release, and the failure mode is silent rather than a crash, so the
+alarm has to detect the symbol going missing rather than wait for a report.
+
+**THE ALTERNATIVE IS WORSE THAN IT SOUNDS.** Driving the Mission Control UI to
+drag a window between Desktops is the public route, and it is exactly the
+"clicking" §11.5 exists to avoid — slow, visible, and it steals the pointer from
+the owner mid-task.
+
+**NOT DECIDED HERE.** Ask.
+
+---
+
+## 11.1b WHAT STEP 15 SHIPPED, AND THE THREE DEFECTS DRIVING IT FOUND
+
+**Shipped:** six vocabulary rows with a working authorisation, the two-clause
+ownership rule in `core/windows.py`, `WindowBridge.swift` as a MODE of the app
+binary, and `window.list` / `window.move` / `window.resize` / `window.close` on
+the capability ladder. Live proof: a real window moved +60,+40, resized, refused
+10x10 and reported the refusal, and was restored.
+
+**THE THREE DEFECTS ARE THE VALUABLE PART, because all three were found by
+driving it and none by reading it.**
+
+1. **A move reported success on a move that never happened.** `ok` was
+   `after != nil` — whether the window still EXISTED. `before` and `after` came
+   back identical and it said `ok: true`. The launcher-returning-zero failure in
+   its purest form, in code written the same day as a commit about that failure.
+2. **The ACTIVE Desktop was passed as VESPER's Desktop**, so clause 1 applied to
+   every window on screen and all six of the owner's windows were free to
+   rearrange.
+3. **Then the adapter said "VESPER is here" on every Desktop anyway** — twice.
+   First the probing process's own panel counted, so asking the question created
+   the window that answered it. Then the ISLAND counted, and the island is
+   `.canJoinAllSpaces` BY DESIGN, so it is on every Desktop there is.
+
+**ONLY THE GROUND MAKES A DESKTOP VESPER'S,** and the ground is the one piece of
+VESPER that sits BELOW the owner's windows. The sign of the layer is the
+discriminator. All three are asserted in `a-window-belongs-to-someone` rather
+than left as comments, because all three were invisible to reading.
+
+**AND `INV-AUTH-5` IMPROVED A ROW BY REFUSING IT.** `window.list` was registered
+with a constant level and the registry refused: "a capability whose level does
+not depend on its arguments cannot distinguish `ls` from `rm -rf ~`". The second
+distinction was already in the design — inventory is L1, and asking for window
+TITLES is content — so titles now level L5 and the boundary lives in the ladder
+instead of in a comment.
