@@ -563,6 +563,25 @@ final class HomeController: NSObject {
     var hostView: NSView { host }
     let chrome = HomeChrome()
     var groundWindow: NSWindow { ground }
+
+    /// Take the ground back off the screen, leaving the Desktop as it was.
+    ///
+    /// EXISTS BECAUSE THE GROUND CAN LAND ON THE WRONG DESKTOP, and until
+    /// 2026-09-08 nothing could undo that. `--on-empty-desktop` checks a
+    /// Desktop and then creates a `.managed` window some moments later, on
+    /// whatever Desktop is active THEN -- so the decision and the placement can
+    /// disagree, and the owner found the ground sitting with all seven of their
+    /// windows. Refusing to take the owner's Desktop is only a real rule if
+    /// there is a way to give it back.
+    func retract() {
+        // The chrome's 0.25 s push keeps running against a webview that is
+        // about to go away, so it is stopped first. A timer firing into a torn
+        // -down surface is the quiet kind of leak that shows up later as a
+        // process using CPU for nothing.
+        chrome.stopRefresh()
+        ground.orderOut(nil)
+        ground.close()
+    }
     var faceTint: (Float, Float, Float) {
         (face.uniforms.tintR, face.uniforms.tintG, face.uniforms.tintB)
     }

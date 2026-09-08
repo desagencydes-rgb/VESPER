@@ -98,6 +98,29 @@ The only capabilities that exist are:
               lines to make it unique. Copy `old` from what you have read;
               do not retype it from memory.
 
+  window.list args: {}
+              What windows are open, whose they are, and which Desktop. "what
+              have I got open", "chnou 7ell", "what's on my screen" -- but NOT
+              their titles, which VESPER does not read.
+
+  window.move args: {"window_id": "<id from window.list>", "x": <n>, "y": <n>}
+  window.resize args: {"window_id": "<id>", "width": <n>, "height": <n>}
+              Arrange a window that is already open. Coordinates are the
+              screen's, top-left origin. ALWAYS call window.list first -- ids
+              are not guessable and a stale one acts on nothing.
+
+  window.relocate args: {"window_id": "<id>", "space": "<desktop id>"}
+              Move a window to another Desktop.
+
+  window.open args: {"app": "<application name>"} or {"path": "<path or url>"}
+              Open something AS A WINDOW VESPER OWNS, so VESPER may then
+              arrange it freely. Different from ui.open, which hands a file to
+              the system for the OWNER to look at and leaves the window
+              theirs.
+
+  window.close args: {"window_id": "<id>"}
+              Close a window. Never for tidying -- only when the owner asks.
+
 Rules:
 - If unsure, return {"action": "none"}. A wrong action costs more than a
   missed one.
@@ -113,7 +136,16 @@ Rules:
 # anyway, but a proposal that cannot possibly be executed should not reach the
 # authorization path and appear in its records as a refusal.
 KNOWN = ("shell.run", "ui.open", "fs.read", "fs.write", "fs.edit",
-         "agent.ask", "agent.run")
+         "agent.ask", "agent.run",
+         # WINDOWS. Registered, bound, gated -- and until this line was added,
+         # unreachable: nothing the owner said could produce a proposal naming
+         # one, so the whole of step 15 was built and reached by nothing. The
+         # `gated-subsystems-are-reachable` check could not see it, because it
+         # asks whether a core module has a production importer and
+         # `core/windows.py` does. The gap was one layer up, between what the
+         # owner can ask for and what the system can propose.
+         "window.list", "window.open", "window.move", "window.resize",
+         "window.relocate", "window.close")
 
 
 @dataclass(slots=True)

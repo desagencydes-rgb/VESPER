@@ -372,10 +372,22 @@ enum WindowBridge {
         let before = Set(SpaceWatch.onScreen().map(\.number))
         let cfg = NSWorkspace.OpenConfiguration()
         cfg.createsNewApplicationInstance = false
-        cfg.activates = true
+        // NOT ACTIVATED, AND THIS IS A SAFETY RULE RATHER THAN A PREFERENCE.
+        //
+        // Activating an application asks the window server to bring its windows
+        // forward, which on macOS can SWITCH THE ACTIVE SPACE. That makes a
+        // window-opening call able to move the owner between Desktops as a side
+        // effect -- and on 2026-09-08 this ran repeatedly on the owner's live
+        // machine while VESPER was deciding which Desktop to take. Whether or
+        // not it caused what they saw, a call that can relocate the owner's
+        // attention as a side effect of opening a window is not one VESPER
+        // should be making unasked.
+        cfg.activates = false
         let done = DispatchSemaphore(value: 0)
         var failed: String?
-        NSWorkspace.shared.openApplication(at: url, configuration: cfg) { _, err in
+        var launched: NSRunningApplication?
+        NSWorkspace.shared.openApplication(at: url, configuration: cfg) { running, err in
+            launched = running
             failed = err?.localizedDescription
             done.signal()
         }
@@ -392,9 +404,84 @@ enum WindowBridge {
                 return ["ok": true, "window_id": String(fresh.number), "pid": fresh.pid]
             }
         }
-        return ["ok": false, "reason": "the application was activated but opened no "
-              + "new window -- it may have restored the one that was closed, or "
-              + "may need an explicit new-document action"]
+        // ACTIVATING AN APP THAT IS ALREADY RUNNING OPENS NOTHING, which is
+        // correct behaviour and useless on its own. So the second rung is the
+        // route a PERSON would take: the File menu's New item, pressed through
+        // the accessibility interface. Public API, and it is the same action
+        // the owner would perform, which is the standard §11.5 sets for
+        // anything VESPER does on their behalf.
+        if let pid = launched?.processIdentifier,
+           let fresh = pressNew(pid: Int(pid), since: before) {
+            return fresh
+        }
+        return ["ok": false, "reason": "the application was activated and would not "
+              + "open a new window -- neither launching it nor its File > New "
+              + "menu item produced one"]
+    }
+
+    /// Press the application's own New menu item, and re-read for a window.
+    ///
+    /// MATCHED ON THE KEYBOARD SHORTCUT, NOT ON A TITLE OR A MENU POSITION.
+    /// Two earlier attempts were wrong in the same way -- assuming structure
+    /// that is really convention. The first took menu index 1 as File; the menu
+    /// bar's children are Apple, then the APPLICATION menu, then File, so it
+    /// was pressing something in the wrong menu entirely. The second matched
+    /// titles beginning "new", which is English and French and nothing else.
+    ///
+    /// Command-N is New in every Mac application, in every language, and the
+    /// accessibility interface reports the shortcut as data: `AXMenuItemCmdChar`
+    /// is the character and `AXMenuItemCmdModifiers` is 0 for command alone.
+    /// That is structure rather than wording, which is the same distinction
+    /// INV-HW-1 draws between a profile and a product name.
+    private static func pressNew(pid: Int, since before: Set<Int>) -> [String: Any]? {
+        guard accessible() else { return nil }
+        let app = AXUIElementCreateApplication(pid_t(pid))
+        var barRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXMenuBarAttribute as CFString,
+                                            &barRef) == .success,
+              let bar = barRef else { return nil }
+        var menusRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(bar as! AXUIElement,
+                                            kAXChildrenAttribute as CFString,
+                                            &menusRef) == .success,
+              let menus = menusRef as? [AXUIElement] else { return nil }
+
+        for menu in menus {
+            var groupRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(menu, kAXChildrenAttribute as CFString,
+                                                &groupRef) == .success,
+                  let groups = groupRef as? [AXUIElement], let group = groups.first
+            else { continue }
+            var itemsRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(group, kAXChildrenAttribute as CFString,
+                                                &itemsRef) == .success,
+                  let items = itemsRef as? [AXUIElement] else { continue }
+            for item in items {
+                var charRef: CFTypeRef?
+                var modRef: CFTypeRef?
+                guard AXUIElementCopyAttributeValue(item, "AXMenuItemCmdChar" as CFString,
+                                                    &charRef) == .success,
+                      let ch = charRef as? String, ch.uppercased() == "N",
+                      AXUIElementCopyAttributeValue(item, "AXMenuItemCmdModifiers" as CFString,
+                                                    &modRef) == .success,
+                      let mods = modRef as? Int, mods == 0
+                else { continue }
+                var titleRef: CFTypeRef?
+                _ = AXUIElementCopyAttributeValue(item, kAXTitleAttribute as CFString, &titleRef)
+                let title = (titleRef as? String) ?? "?"
+                AXUIElementPerformAction(item, kAXPressAction as CFString)
+                for _ in 0..<20 {
+                    usleep(150_000)
+                    if let f = SpaceWatch.onScreen()
+                        .first(where: { !before.contains($0.number) && $0.layer == 0 }) {
+                        return ["ok": true, "window_id": String(f.number), "pid": f.pid,
+                                "via": "menu:\(title)"]
+                    }
+                }
+                return nil
+            }
+        }
+        return nil
     }
 
     static func relocate(windowId: String, to space: String) -> [String: Any] {

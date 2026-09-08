@@ -816,6 +816,22 @@ def window_close(args: dict) -> dict:
     return out
 
 
+def window_open_level(args: dict) -> str:
+    """Opening an application is L2; opening a FILE is levelled on the file.
+
+    A window VESPER opens becomes a window VESPER may then rearrange and close
+    without asking, so what goes into it matters. Launching an application
+    shows nothing private. Putting one of the owner's files on screen is a
+    disclosure whether or not VESPER reads it -- `ui_open_level` makes the same
+    argument -- so the file's own sensitivity decides, and a credential is
+    refused at L5 exactly as it would be there.
+    """
+    raw = str(args.get("path") or args.get("target") or "")
+    if not raw:
+        return "L2"
+    return ui_open_level({"path": raw})
+
+
 def window_list_level(args: dict) -> str:
     """Inventory is L1; asking for window TITLES is content, and refused there.
 
@@ -836,6 +852,103 @@ def window_close_level(args: dict) -> str:
     from core import windows as W
 
     return "L4" if args.get("provenance") == W.VESPER_OPENED else "L5"
+
+
+def window_open(args: dict) -> dict:
+    """Open something as a window VESPER OWNS.
+
+    THIS IS WHAT MAKES PROVENANCE REAL, and without it the owner's second
+    sentence -- "windows opened by vesper can be totally managed by vesper" --
+    was dead code. `_VESPER_OPENED_WINDOWS` had exactly one writer, on the
+    rebuild path, which had never run. So every window in the inventory read
+    `unknown`, every `unknown` resolves to the owner's, and clause 2 of the
+    ownership rule was unreachable in production while passing every test.
+
+    DIFFERENT FROM `ui.open`, AND THE DIFFERENCE IS THE POINT. `ui.open` hands
+    a path to the system's default handler so the OWNER can look at it, and the
+    window that appears is theirs. This one records that VESPER caused the
+    window, which is what later authorises VESPER to move, resize or close it
+    without asking. Same mechanism underneath, different consequence -- so they
+    are separate capabilities rather than a flag, because a flag on a
+    capability the owner has already approved is a way to acquire authority
+    quietly.
+
+    THE STAMP IS TAKEN FROM WHAT ACTUALLY APPEARED, never from what was asked
+    for. `core/windows.classify_opened` insists on this: the only thing that
+    knows VESPER opened a window is the code that did the opening, and it knows
+    it by watching a window that was not there before appear.
+    """
+    from core import windows as W
+
+    app = str(args.get("app") or "").strip()
+    path = str(args.get("path") or args.get("target") or "").strip()
+    if not app and not path:
+        raise ValueError("nothing to open")
+
+    # VESPER DOES NOT CREATE WINDOWS ON A DESKTOP IT DOES NOT OWN.
+    #
+    # A new window appears on whichever Desktop is showing. If that is the
+    # owner's, VESPER has just put something into their workspace uninvited --
+    # and then, because the ownership rule's clause 1 does not apply there, it
+    # cannot tidy it away again either. The owner's whole framing is that their
+    # Desktop is theirs; adding to it unasked is the same trespass as
+    # rearranging it unasked, and it is easier to do by accident.
+    #
+    # An explicit request lifts this, because then it is not uninvited.
+    wins, vespers = _inventory()
+    if not vespers and not args.get("owner_requested"):
+        return {"ok": False, "refused_by": "ownership",
+                "reason": "vesper's desktop is not the one showing, so a new "
+                          "window would land in your workspace. Ask for it and "
+                          "it will open here."}
+
+    before = {w.window_id for w in wins}
+    if app:
+        bundle = _bundle_for(app)
+        if not bundle:
+            raise ValueError(f"no application matching {app!r} on this machine")
+        out = _window_bridge("--window-act", "reopen", "--window-id", "0",
+                             "--window-pid", "0", "--bundle", bundle)
+        if not out.get("ok"):
+            return {"ok": False, "reason": out.get("reason") or "it did not open"}
+        new_id = str(out.get("window_id"))
+    else:
+        ui_open({"path": path})
+        # RE-READ, because `open` exiting 0 is not a window. The handler may
+        # hand the file to an application that was already showing it, in which
+        # case nothing new appeared and nothing may be claimed.
+        new_id = ""
+        for _ in range(20):
+            time.sleep(0.15)
+            fresh = [w for w in _inventory()[0] if w.window_id not in before]
+            if fresh:
+                new_id = fresh[0].window_id
+                break
+        if not new_id:
+            return {"ok": False, "reason": "the system opened no new window -- it "
+                    "was likely already showing, and a window VESPER did not "
+                    "create is not VESPER's to claim"}
+
+    _VESPER_OPENED_WINDOWS.add(new_id)
+    wins, vespers = _inventory()
+    made = next((w for w in wins if w.window_id == new_id), None)
+    return {"ok": True, "window_id": new_id,
+            "provenance": W.classify_opened(by_vesper=True),
+            "line": W.describe(made, vespers_desktop=vespers) if made else "",
+            **(made.meta if made else {})}
+
+
+def _bundle_for(name: str) -> str:
+    """An application's bundle id from the name the owner used.
+
+    A LABEL IN, AN IDENTIFIER OUT, and the label never travels further.
+    INV-HW-1 forbids a product name in a routing, resource or policy path;
+    resolving one the owner typed into an identifier at the boundary is exactly
+    how that rule is kept while still letting them say "open the notes app".
+    """
+    out = subprocess.run(["/usr/bin/osascript", "-e", f'id of application "{name}"'],
+                         capture_output=True, text=True, timeout=15, check=False)
+    return (out.stdout or "").strip()
 
 
 def window_relocate(args: dict) -> dict:
@@ -1840,6 +1953,18 @@ def build_registry() -> CapabilityRegistry:
     # crossing the Desktop boundary changes which clause of the ownership rule
     # applies, so a position change must never be able to carry an authority
     # change with it.
+    # SEPARATE FROM `ui.open` DELIBERATELY. Both put something on screen; only
+    # this one records that VESPER caused it, and that record is what later
+    # authorises VESPER to move or close it unasked. A flag on `ui.open` would
+    # have let a capability the owner already approved acquire new authority
+    # without a new approval.
+    reg.register("window.open", window_open_level, [
+        LevelRule("an application", "L2", {"app": "TextEdit"},
+                  refutes=({"path": "~/.config/vesper/secrets.env"},)),
+        LevelRule("owner file", "L3", {"path": "~/Downloads/a.png"}),
+        LevelRule("credential", "L5", {"path": "~/.config/vesper/secrets.env"}),
+    ], reversibility="reversible")
+
     reg.register("window.relocate", window_level, [
         LevelRule("vesper's own", "L2",
                   {"window_id": "1", "space": "3", "provenance": "vesper_opened"}),
@@ -1910,6 +2035,7 @@ def bind_all(executor, *, jobs=None, agent=None, runner=None) -> None:
     executor.bind("window.resize", window_resize)
     executor.bind("window.close", window_close)
     executor.bind("window.relocate", window_relocate)
+    executor.bind("window.open", window_open)
 
     # THE SUB-AGENT IS BOUND, NOT PASSED IN ARGS, for the reason the job
     # registry is: what a proposal may ASK for and what carries the request are

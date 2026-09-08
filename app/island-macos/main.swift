@@ -1935,7 +1935,80 @@ if args.contains("--home") {
             timer.invalidate(); t = nil
             anchor.close()
             print("home: empty Desktop — the ground is created HERE.")
+            // WRITTEN DOWN, BECAUSE `open -n` THROWS STDOUT AWAY.
+            //
+            // 2026-09-08: the owner found VESPER's ground sharing a Desktop
+            // with all seven of their windows and asked why. The answer was
+            // unavailable -- this decision is printed, and the instance that
+            // made it had been launched with `open -n`, whose output goes
+            // nowhere. A launcher that discards the only record of the one
+            // decision that can take the owner's workspace leaves every future
+            // occurrence equally unattributable.
+            //
+            // So it lands in a file, with what was ACTUALLY SEEN at the moment
+            // of deciding rather than the conclusion alone: an empty count is
+            // the whole justification, and a later reader has to be able to
+            // check it rather than take it.
+            let record = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support/VESPER/ground-log.txt")
+            let seen = SpaceWatch.onScreen()
+                .filter { $0.layer == 0 }
+                .map { "\($0.owner)#\($0.number)" }
+                .joined(separator: " ")
+            let line = "\(ISO8601DateFormatter().string(from: Date())) "
+                     + "planted pid=\(ProcessInfo.processInfo.processIdentifier) "
+                     + "foreign=0 layer0_on_this_desktop=[\(seen)]\n"
+            if let h = try? FileHandle(forWritingTo: record) {
+                h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close()
+            } else {
+                try? line.write(to: record, atomically: true, encoding: .utf8)
+            }
             startHome()
+            // AND NOW READ THE WORLD BACK, BECAUSE THE CHECK AND THE CREATION
+            // ARE TWO DIFFERENT MOMENTS ON TWO POSSIBLY DIFFERENT DESKTOPS.
+            //
+            // OWNER, 2026-09-08: "vesper showed up on desktop 1, the only
+            // desktop full of open windows, desktop 2 was always empty and it
+            // did not show up there." They were right, and the poll above is
+            // not what was wrong -- it correctly refused six foreign windows,
+            // repeatedly, and logged doing so.
+            //
+            // THE GROUND IS `.managed`, so §2.3a's rule applies: it is created
+            // on whichever Desktop is ACTIVE AT CREATION TIME. The poll decides
+            // on the Desktop it measured; `startHome()` builds the window some
+            // moments later on whatever Desktop is showing THEN. Anything that
+            // switches Space in between -- an application activating, an
+            // `open -n`, the owner moving -- and the decision was made about
+            // one room while the furniture went into another. Nothing checked.
+            //
+            // So the ground is now judged after it exists, which is the only
+            // moment the question can actually be answered. If the Desktop it
+            // landed on is not empty, it is RETRACTED and the wait resumes.
+            // Taking the owner's Desktop is worse than not starting, and that
+            // is this block's own stated rule -- it just had no way to notice
+            // it had happened.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                let after = SpaceWatch.fingerprint()
+                guard !after.isEmpty else { return }
+                let names = SpaceWatch.onScreen().filter { $0.layer == 0 }
+                    .map(\.owner).joined(separator: ", ")
+                home?.retract()
+                home = nil
+                let msg = "home: the ground landed on a Desktop with \(after.count) "
+                        + "of your window(s) on it (\(names)) -- the Desktop changed "
+                        + "between the check and the creation. RETRACTED; waiting "
+                        + "again.\n"
+                FileHandle.standardError.write(msg.data(using: .utf8)!)
+                announced = false
+                let again = Timer(timeInterval: 0.5, repeats: true) { timer in
+                    let fp = SpaceWatch.fingerprint()
+                    if !fp.isEmpty { return }
+                    timer.invalidate()
+                    startHome()
+                }
+                t = again
+                RunLoop.main.add(again, forMode: .common)
+            }
         }
         RunLoop.main.add(t!, forMode: .common)
         if let limit {
