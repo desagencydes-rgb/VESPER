@@ -298,10 +298,23 @@ def _record_command(bench, capability_id, args, result) -> None:
 # NEVER PROBES A MODEL. `home_snapshot.probe()` runs a real routed completion
 # against a local llama.cpp, and MEMORY.md's rule for this machine is explicit:
 # local models heat it in a minute and cost tens of per cent of the battery in
-# five, so they are not to be run OR measured here. `build(None)` reads the
-# last recorded completion if one is fresh and otherwise omits those rows --
-# `core/projection.py` drops an unavailable reading rather than rendering one,
-# "so the absent case cannot be styled into looking like the present case".
+# five, so they are not to be run OR measured here.
+#
+# AND UNTIL 2026-09-08 THAT LEFT THE FOUR MODEL ROWS WITH NO PRODUCER AT ALL.
+# This block used to pass `build(None)` and claim in a comment that `build`
+# "reads the last recorded completion if one is fresh" -- it does not and never
+# did. Reading the evidence file is something `home_snapshot.main()` does;
+# `build(None)` returns four unavailable readings immediately, and the only
+# writer of that file was the probe this machine must not run. So `thinking`,
+# `context`, `cache` and `tokens` were structurally unreachable, which is what
+# the owner reported: they "don't appear when vesper is working".
+#
+# THE FIX IS THE ONE INV-HW-2 ALWAYS IMPLIES -- stop looking for a special
+# measurement and read the one already being taken. Every model call in VESPER
+# goes through `ModelGateway.complete`, and each success now publishes
+# `model.completed` with the counts the provider itself reported. `_on_completed`
+# below holds the newest, and it is a REAL completion the owner caused rather
+# than a synthetic probe fired to populate a card.
 #
 # What always resolves is `host.power_source`, which is the row that actually
 # matters on a laptop: MEMORY.md's own note is "this host runs on battery more
@@ -310,6 +323,12 @@ METRICS_EVERY_S = 30.0
 _metrics_at = [0.0]
 _metrics_mod = [None]
 _menu_context = {}  # Read-only references to live registries; never replacement instances.
+# THE LAST COMPLETION, IN THIS PROCESS ONLY. Deliberately not persisted: read
+# off disk at startup it would be a number from a previous run wearing this
+# run's freshness, which is the defect `core/latency.py` refuses for the same
+# reason. If nothing has been asked since VESPER started, the honest answer is
+# that there is no measurement, and `home_snapshot.build(None)` gives it.
+_last_completion = [None]
 
 
 def _metric_rows():
@@ -324,7 +343,7 @@ def _metric_rows():
         spec.loader.exec_module(mod)
         _metrics_mod[0] = mod
     mod = _metrics_mod[0]
-    proj = mod.build(None)
+    proj = mod.build(_last_completion[0])
     scene = proj.to_scene("home-metrics", columns=mod.HOME_METRIC_KEYS)
     # THE OBSERVATION TIME TRAVELS WITH THE VALUE, AND A STALE ROW IS DROPPED.
     #
@@ -512,6 +531,30 @@ def build(node: str = "vesper-runtime"):
     cost = CostPolicy(bus, clock)
     ledger = QuotaLedger(path=STATE / "quota.json", bus=bus)
     gw = ModelGateway(bus, cost, quota=ledger)
+
+    # THE HOME'S FOUR MODEL ROWS GET THEIR PRODUCER HERE. See the block above
+    # `_metric_rows` for why they had none. The gateway publishes counts the
+    # provider reported; this keeps the newest and `_metric_rows` renders it.
+    _last_hlc = [None]
+
+    def _on_completed(e) -> None:
+        # ORDERED BY HLC, NEVER BY THE `at_ms` IN THE PAYLOAD. INV-COORD-4:
+        # wall clock does not order or supersede, and "which completion is
+        # newer" is exactly a supersession question. `at_ms` is carried for
+        # DISPLAY -- it is how the row states its own age to the owner -- and
+        # comparing two of them here would be the violation `CI-005` refuses.
+        if _last_hlc[0] is not None and e.observed_at_hlc < _last_hlc[0]:
+            return
+        _last_hlc[0] = e.observed_at_hlc
+        _last_completion[0] = dict(e.payload)
+
+    # `event_id` IS GENUINELY THE RIGHT KEY, which INV-COORD-5 asks to be said
+    # explicitly rather than passed silently. Each completion is its own
+    # measurement -- two calls to the same rung a second apart are two facts,
+    # not one repeated -- so nothing coarser would be correct, and a redelivery
+    # of one event re-applies an assignment that is already its own value.
+    bus.subscribe("model.completed", _on_completed, name="home-model-metrics",
+                  idempotency_key=lambda e: e.event_id)
 
     report = supply.register(gw, cost, ledger, egress_class="E1_PRIVATE")
     rows = for_egress(load_rows()[0], "E1_PRIVATE")

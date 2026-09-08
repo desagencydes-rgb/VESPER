@@ -134,8 +134,9 @@ def build(ev: dict | None) -> Projection:
     rs: list = [power_source()]
 
     if ev is None:
-        why = ("no completion recorded on this host yet -- run with --probe, "
-               "or the number would be one nothing produced")
+        why = ("no completion recorded on this host yet -- these four are read "
+               "off a call VESPER actually made, so they arrive with the first "
+               "answer and are never produced by anything else")
         rs += [Reading.unavailable(k, "completion", why)
                for k in ("model.thinking", "model.context_tokens",
                          "model.cache", "model.tokens_per_sec")]
@@ -143,8 +144,35 @@ def build(ev: dict | None) -> Projection:
 
     ident = ev.get("endpoint") or {}
     src = ("last completion via "
-           + str(ident.get("build_info") or ident.get("model") or "unknown"))
+           + str(ident.get("provider_id") or ident.get("build_info")
+                 or ident.get("model") or ev.get("provider_id") or "unknown"))
     obs = HLC(physical_ms=ev["at_ms"], logical=0, node_id="macbook")
+
+    # AN OLD COMPLETION BECOMES AN EXPLICIT ABSENCE, NOT A DISAPPEARING ROW.
+    #
+    # `to_rows` below and the identical loop in `tools/ops/vesper_runtime.py`
+    # OMIT any reading whose stamp is past `TTL_MS`, because "a stale number
+    # shown as current is worse than no number". That rule was written for
+    # `power_source`, which is re-measured on every tick and therefore can only
+    # go stale if the producer has died -- in which case vanishing is right.
+    #
+    # THESE FOUR ARE NOT LIKE THAT. They are the last completion, and there is
+    # no completion to make while the owner is not asking anything, so ten
+    # quiet minutes is normal rather than a fault. Left on the old rule the
+    # rows silently disappear from the home shortly after every answer, which
+    # is EXACTLY the complaint that started this work -- the owner said these
+    # four "don't appear when vesper is working". So the staleness is caught
+    # here instead, and rendered as a reason with the age in it: an absence
+    # that explains itself cannot be mistaken for a current reading, which is
+    # the whole thing the omit rule was protecting.
+    age_ms = int(time.time() * 1000) - int(ev["at_ms"])
+    if age_ms > TTL_MS:
+        why = (f"the last completion was {age_ms // 60000} min ago; nothing "
+               "has been asked since, so there is no newer measurement")
+        rs += [Reading.unavailable(k, src, why)
+               for k in ("model.thinking", "model.context_tokens",
+                         "model.cache", "model.tokens_per_sec")]
+        return Projection(version=v, readings={r.key: r for r in rs})
 
     rate = ev.get("predicted_per_second")
     rs.append(Reading.unavailable(
@@ -171,11 +199,29 @@ def build(ev: dict | None) -> Projection:
         Reading(key="model.cache", source=src, value=int(cached),
                 unit="tok cached", observed_at=obs, ttl_ms=TTL_MS))
 
-    # ZERO IS A VALUE and so is False. `reasoning_present` is a real
-    # observation either way, so it is never unavailable once a call has run.
-    rs.append(Reading(key="model.thinking", source=src,
-                      value="yes" if ev.get("reasoning_present") else "no",
-                      observed_at=obs, ttl_ms=TTL_MS))
+    # ZERO IS A VALUE and so is False -- but "the wire never said" is NEITHER,
+    # and reading this as a bool is how that third state got erased.
+    #
+    # This line used to be `"yes" if ev.get("reasoning_present") else "no"`,
+    # which is correct only where a reasoning channel is reported at all. It is
+    # not: `routing/supply.py::_normalise` reduces the openai wire to
+    # `{text, stop_reason, usage}` and drops `message.reasoning` on the floor,
+    # so a missing key and a model that did not think produced the same
+    # confident `no`. `core/gateway.py::_reasoning` now returns None for the
+    # third case and the count where one is reported, so a `no` here means the
+    # provider said so.
+    thought = ev.get("reasoning_present")
+    if thought is None:
+        rs.append(Reading.unavailable(
+            "model.thinking", src,
+            "this endpoint reports no reasoning channel and no reasoning token "
+            "count, so whether the model thought is not observable from here"))
+    else:
+        n = ev.get("reasoning_tokens")
+        rs.append(Reading(key="model.thinking", source=src,
+                          value=(f"yes, {int(n)} tok" if thought and n
+                                 else ("yes" if thought else "no")),
+                          observed_at=obs, ttl_ms=TTL_MS))
     return Projection(version=v, readings={r.key: r for r in rs})
 
 

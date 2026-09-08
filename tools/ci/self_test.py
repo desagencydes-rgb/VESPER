@@ -6048,6 +6048,65 @@ CASES += [
 ]
 
 
+# The four model rows had no producer at all until 2026-09-08, and no gate
+# noticed for weeks. Each case below removes one of the things that makes the
+# new producer honest rather than merely present.
+HOME_SNAP = "tools/home_snapshot.py"
+
+CASES += [
+    ("the-model-rows-read-a-real-completion", GATEWAY_PY,
+     _sub("                self._publish_completion(p, result, ms)\n", "", 1),
+     "a successful completion announces nothing, so the home's four model rows "
+     "go back to having no producer -- exactly the state they shipped in, and "
+     "one that reads as an honest UNAVAILABLE rather than as a fault"),
+
+    ("the-model-rows-read-a-real-completion", GATEWAY_PY,
+     _sub('    for key in ("prompt_tokens",            # openai-shaped\n'
+          '                "input_tokens",             # cf responses\n'
+          '                "promptTokenCount"):        # google generateContent',
+          '    for key in ("prompt_tokens",):', 1),
+     "only the one wire that happened to be debugged is read, so every other "
+     "provider's exact prompt count lands as silence -- the defect `_book_spend` "
+     "already made once, where nothing failed and the numbers were worthless"),
+
+    ("the-model-rows-read-a-real-completion", GATEWAY_PY,
+     _sub("    if isinstance(det, dict) and det.get(\"cached_tokens\") is not None:\n"
+          "        return int(det[\"cached_tokens\"])",
+          "    if isinstance(det, dict) and det.get(\"cached_tokens\"):\n"
+          "        return int(det[\"cached_tokens\"])", 1),
+     "a reported cache MISS falls through as though the endpoint had said "
+     "nothing, so the row can no longer tell 'served none from cache' from "
+     "'does not account for caching'"),
+
+    ("the-model-rows-read-a-real-completion", GATEWAY_PY,
+     _sub("    r = result.get(\"reasoning\")\n"
+          "    if r is not None:\n"
+          "        return (bool(r), None)\n"
+          "    return (None, None)",
+          "    return (bool(result.get(\"reasoning\")), None)", 1),
+     "a wire that reports no reasoning channel is read as a model that did not "
+     "think, so `thinking` prints a confident `no` on every live call -- a "
+     "declared value wearing a measurement's clothes"),
+
+    ("the-model-rows-read-a-real-completion", GATEWAY_PY,
+     _sub("    usage = result.get(\"usage\") or {}\n"
+          "    n, secs = usage.get(\"completion_tokens\"), usage.get(\"completion_time\")",
+          "    usage = result.get(\"usage\") or {}\n"
+          "    n, secs = (usage.get(\"completion_tokens\"),\n"
+          "               usage.get(\"completion_time\") or usage.get(\"queue_time\"))", 1),
+     "queue time is folded into the rate, so a busy endpoint is reported as a "
+     "slow model and the number moves for reasons that have nothing to do with "
+     "the model it names"),
+
+    ("the-model-rows-read-a-real-completion", HOME_SNAP,
+     _sub("    age_ms = int(time.time() * 1000) - int(ev[\"at_ms\"])\n"
+          "    if age_ms > TTL_MS:", "    age_ms = 0\n    if False:", 1),
+     "an aged-out completion keeps its stamp, so `_metric_rows` silently omits "
+     "all four rows a few minutes after every answer -- which is the owner's "
+     "original complaint, restored"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
 

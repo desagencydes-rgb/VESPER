@@ -225,6 +225,129 @@ def _completion_tokens(result: dict) -> int | None:
     return int(v) if v else None
 
 
+# THE FOUR READERS BELOW EXIST BECAUSE THE HOME'S MODEL ROWS HAD NO PRODUCER.
+# `tools/home_snapshot.py` can only build `model.thinking`, `model.context_tokens`,
+# `model.cache` and `model.tokens_per_sec` from a completion record, and the only
+# thing that ever wrote one was its own `--probe`, which calls a local
+# llama-server on 127.0.0.1:8080. Local models are not run on this host, so that
+# probe has never run here and the four rows have read UNAVAILABLE since the day
+# they were written -- not because nothing was measured, but because every real
+# call already knew these numbers and nothing published them.
+#
+# EACH ONE FAILS CLOSED. A wire that does not report a field yields None, and
+# `home_snapshot` turns None into an explicit absence with the reason. That is
+# INV-HW-2 applied to a field rather than a device: UNKNOWN means UNAVAILABLE,
+# and it is why none of these ever substitutes one provider's number for
+# another's silence.
+
+def _prompt_tokens(result: dict) -> int | None:
+    """What the provider says it READ, across every shape we speak.
+
+    Same discipline and same ordering rule as `_completion_tokens`, for the
+    same reason its docstring gives at length: three wires spell one number
+    three ways, and reading a single spelling is how `_book_spend` spent its
+    first day recording exact figures as unmeasured guesses.
+    """
+    usage = result.get("usage") or {}
+    for key in ("prompt_tokens",            # openai-shaped
+                "input_tokens",             # cf responses
+                "promptTokenCount"):        # google generateContent
+        v = usage.get(key)
+        if v:
+            return int(v)
+    v = result.get("tokens_evaluated")      # local runner
+    return int(v) if v else None
+
+
+def _cached_tokens(result: dict) -> int | None:
+    """Prompt tokens the provider served from cache, or None if it never said.
+
+    ZERO IS A VALUE HERE, and that is the opposite of the rule the two readers
+    above follow. A provider reporting `cached_tokens: 0` is stating that this
+    prompt MISSED the cache -- a real observation, and precisely the one the
+    row exists to show. `None` is reserved for the different fact that the
+    endpoint does no cache accounting at all, which is why a falsy value must
+    not fall through here the way it does for a token count.
+
+    `prompt_tokens_details.cached_tokens` is the spelling `tools/spike/
+    cache_discount_probe.py` measured against the live endpoint. The google
+    spelling is NOT verified against a recorded success response -- there is
+    none in `tests/fixtures/provider-responses/` -- and it is safe to read
+    anyway only because an absent key returns None, which renders as "this
+    endpoint does not account for caching" rather than as a fabricated zero.
+    """
+    usage = result.get("usage") or {}
+    det = usage.get("prompt_tokens_details")
+    if isinstance(det, dict) and det.get("cached_tokens") is not None:
+        return int(det["cached_tokens"])
+    v = usage.get("cachedContentTokenCount")    # google, UNVERIFIED -- see above
+    if v is not None:
+        return int(v)
+    v = result.get("tokens_cached")             # local runner
+    return int(v) if v is not None else None
+
+
+def _reasoning(result: dict) -> tuple[bool | None, int | None]:
+    """Did the model think, and for how many tokens -- or did the wire not say.
+
+    THREE STATES, NOT TWO, and the missing third is what made this worth a
+    function. `home_snapshot` used to read `bool(ev.get("reasoning_present"))`,
+    which collapses "the model did not think" and "this wire has no reasoning
+    channel to report" into the same rendered `no`. `routing/supply.py`
+    normalises the openai wire to `{text, stop_reason, usage}` and drops the
+    `message.reasoning` field entirely, so that bool would have printed a
+    confident `no` on every live call -- a declared value wearing a
+    measurement's clothes, on the row the owner named first.
+
+    `usage.completion_tokens_details.reasoning_tokens` survives that
+    normalisation because it rides inside `usage`, and it is a COUNT rather
+    than a flag. Verified against all three recorded groq responses in
+    `tests/fixtures/provider-responses/` (109, 14 and 16 tokens).
+    """
+    usage = result.get("usage") or {}
+    det = usage.get("completion_tokens_details")
+    if isinstance(det, dict) and det.get("reasoning_tokens") is not None:
+        n = int(det["reasoning_tokens"])
+        return (n > 0, n)
+    v = usage.get("thoughtsTokenCount")         # google, UNVERIFIED -- as above
+    if v is not None:
+        return (int(v) > 0, int(v))
+    # The text channel, where a wire carries one. `http_completion` returns
+    # `reasoning`; `supply._normalise` does not, so this reaches only the
+    # direct-endpoint path. An EMPTY STRING IS AN ANSWER -- the channel was
+    # reported and carried nothing -- so `is not None` rather than truthiness.
+    r = result.get("reasoning")
+    if r is not None:
+        return (bool(r), None)
+    return (None, None)
+
+
+def _server_rate(result: dict) -> float | None:
+    """Generation rate the SERVER measured, or None. Never timed from here.
+
+    A rate timed on this side includes the network, the queue and this
+    process, and would quietly become a different number the moment any of
+    them changed -- `routing/http_completion.py` makes the same point where it
+    reads llama.cpp's `timings` instead of a stopwatch. So the only two
+    sources are the server's own arithmetic.
+
+    `usage.completion_time` is groq's server-side generation time, verified in
+    all three recorded responses: `groq-effort-high.json` reports 119 tokens in
+    0.2507 s. `queue_time` is deliberately excluded -- waiting to start is not
+    generating, and folding it in would report a slower model rather than a
+    busier endpoint.
+    """
+    usage = result.get("usage") or {}
+    n, secs = usage.get("completion_tokens"), usage.get("completion_time")
+    try:
+        if n and secs and float(secs) > 0.0:
+            return float(n) / float(secs)
+    except (TypeError, ValueError):
+        pass
+    v = result.get("predicted_per_second")      # llama.cpp `timings`
+    return float(v) if v else None
+
+
 class ModelGateway:
     """Every model call in VESPER goes through `complete`."""
 
@@ -1032,6 +1155,7 @@ class ModelGateway:
                 ms = (time.perf_counter() - t0) * 1000.0
                 self._book_spend(p, result)
                 self._record(p, "ok", None, None, ms, cost_class=eff)
+                self._publish_completion(p, result, ms)
                 return {"provider_id": p.provider_id, "profile_id": p.profile_id,
                         "system_chars": system_chars,
                         "history_turns": history_turns,
@@ -1064,6 +1188,46 @@ class ModelGateway:
     def observed(self, provider_id: str) -> Observation | None:
         """Live wall-clock seconds for one rung, or None if never called here."""
         return self._observed.get(provider_id)
+
+    def _publish_completion(self, p: Provider, result: dict,
+                            elapsed_ms: float) -> None:
+        """Announce what a call that WORKED measured about itself.
+
+        `gateway.attempt` already carries the outcome of every attempt, and
+        this is deliberately not folded into it: an attempt event describes the
+        ROUTING (which rung, what it cost, whether to retry), fires on failures
+        too, and is consumed by triage, narration and the face. These are
+        MEASUREMENTS OF THE ANSWER, they exist only where there is one, and
+        their consumer is the home's model rows. Two subjects, two topics --
+        the same reason `metrics.refresh_failed` was split out of the changes
+        refresh in `tools/ops/vesper_runtime.py`.
+
+        `elapsed_ms` IS CARRIED AND IS DELIBERATELY NOT A RATE. It is the
+        client-side wall clock, so it includes the network, the queue and this
+        process; publishing it as tokens/s would report the connection as
+        though it were the model. `_server_rate` is the only thing allowed to
+        answer that question, and it returns None rather than guess.
+
+        NO TEXT LEAVES HERE. Every field is a count, a rate or an identifier.
+        The prompt and the answer are not in the payload, so this event carries
+        nothing that would have to be redacted before it reaches a surface, a
+        checkpoint or the log.
+        """
+        thought, thought_tokens = _reasoning(result)
+        self._bus.publish(
+            "model.completed", subject=p.provider_id,
+            payload={"at_ms": int(time.time() * 1000),
+                     "provider_id": p.provider_id,
+                     "profile_id": p.profile_id,
+                     "tokens_predicted": _completion_tokens(result),
+                     "tokens_evaluated": _prompt_tokens(result),
+                     "tokens_cached": _cached_tokens(result),
+                     "predicted_per_second": _server_rate(result),
+                     "reasoning_present": thought,
+                     "reasoning_tokens": thought_tokens,
+                     "stop_reason": result.get("stop_reason"),
+                     "client_elapsed_ms": round(elapsed_ms, 2)},
+            component="gateway")
 
     def _record(self, p: Provider, outcome: str, classification: str | None,
                 retry_after_ms: int | None, elapsed_ms: float,

@@ -15041,6 +15041,190 @@ def check_the_island_shows_vespers_own_state() -> Result:
            "and both of the island's refresh sites read it")
     return r
 
+
+def check_the_model_rows_read_a_real_completion() -> Result:
+    """The home's four model rows come off a call VESPER made, or say nothing.
+
+    WHAT WENT WRONG AND WHY A CHECK IS THE ANSWER. `thinking`, `context`,
+    `cache` and `tokens` read UNAVAILABLE from the day they were written to
+    2026-09-08. Not because the numbers were unmeasurable -- every completion
+    reports most of them -- but because the ONLY writer of the record they read
+    was `home_snapshot.probe()`, which calls a local llama-server, and local
+    models are not run on this host. The runtime passed `build(None)` under a
+    comment claiming `build` would read the last completion if it were fresh.
+    It does not and never did. Nothing failed, nothing went red, and the rows
+    sat empty for weeks while the owner asked about them twice.
+
+    So the gate is not "are the numbers right" -- it is "does a real completion
+    reach these rows, and does every field that cannot be measured say so".
+    """
+    r = Result("the-model-rows-read-a-real-completion")
+    import importlib.util as _ilu
+    import time
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    from core.gateway import (Provider, _cached_tokens, _prompt_tokens,
+                              _reasoning, _server_rate)
+
+    # ------------------------------------------- 1. every wire's own spelling
+    # ASSERTED ACROSS ALL FOUR SHAPES for the reason `_book_spend` learned the
+    # hard way and its own check records: a reader fixed against the one wire
+    # that happened to be debugged books every other provider as silence while
+    # it is reporting exact numbers. Nothing fails; the rows are simply blank.
+    for shape, payload, want in [
+        ("openai", {"usage": {"prompt_tokens": 76}}, 76),
+        ("cf responses", {"usage": {"input_tokens": 41}}, 41),
+        ("google", {"usage": {"promptTokenCount": 12}}, 12),
+        ("local runner", {"tokens_evaluated": 9}, 9),
+    ]:
+        got = _prompt_tokens(payload)
+        if got != want:
+            r.err(f"a {shape}-shaped response reporting {want} prompt tokens read "
+                  f"as {got!r}. The context row would be blank for that wire while "
+                  "the provider was reporting the number, which is exactly how "
+                  "these four rows spent their first weeks.")
+
+    # ---------------------------------- 2. a reported zero is a MEASURED zero
+    # THE OPPOSITE RULE TO `_completion_tokens`, and the distinction is the
+    # whole value of the row. "Served 0 tokens from cache" is a cache MISS --
+    # something the owner acts on. "This endpoint does no cache accounting" is
+    # a different fact entirely. Collapse them and a miss renders as an absence
+    # or, worse, an absence renders as a confident miss.
+    if _cached_tokens({"usage": {"prompt_tokens_details": {"cached_tokens": 0}}}) != 0:
+        r.err("a provider reporting `cached_tokens: 0` -- a measured cache MISS -- "
+              "did not read as 0. Falling through to None here erases the "
+              "difference between a miss and an endpoint that never accounts for "
+              "caching, and the row can then no longer answer either question.")
+    if _cached_tokens({"usage": {"prompt_tokens": 76}}) is not None:
+        r.err("an endpoint that reported no cache accounting at all produced a "
+              "cache figure. INV-HW-2: UNKNOWN means UNAVAILABLE -- a number "
+              "invented here is indistinguishable on the surface from one the "
+              "provider measured.")
+
+    # --------------------------------- 3. "the wire never said" is not "no"
+    # THE ACTUAL DEFECT THIS GATE EXISTS FOR. `home_snapshot` read
+    # `bool(ev.get("reasoning_present"))`, and `routing/supply.py::_normalise`
+    # drops `message.reasoning` from the openai wire -- so the thinking row
+    # would print a confident `no` on every live call. A declared value wearing
+    # a measurement's clothes, on the row the owner named first.
+    if _reasoning({"usage": {"prompt_tokens": 76}}) != (None, None):
+        r.err("a response whose wire reports no reasoning channel and no "
+              "reasoning token count did not read as UNKNOWN. Anything else "
+              "renders `thinking = no`, which states as an observation the one "
+              "thing this response cannot tell us.")
+    if _reasoning({"usage": {"completion_tokens_details":
+                             {"reasoning_tokens": 109}}}) != (True, 109):
+        r.err("a response reporting 109 reasoning tokens did not read as thinking. "
+              "That field is the only one that survives `supply._normalise`, so "
+              "losing it leaves the row with no live source at all.")
+    if _reasoning({"usage": {"completion_tokens_details":
+                             {"reasoning_tokens": 0}}}) != (False, 0):
+        r.err("a response reporting ZERO reasoning tokens did not read as a "
+              "measured `no`. Zero is the provider stating the model did not "
+              "think; treating it as absence throws away a real observation.")
+
+    # ------------------------------- 4. the rate is the server's or it is none
+    # A rate timed on this side measures the network and this process. The row
+    # would then move when the wifi did and read as though the model had.
+    if _server_rate({"usage": {"completion_tokens": 119,
+                               "completion_time": 0.2506}}) is None:
+        r.err("a response carrying the server's own generation time and token "
+              "count produced no rate. That is the only honest source of one, so "
+              "the tokens row goes permanently blank for every rung that reports "
+              "it.")
+    if _server_rate({"usage": {"completion_tokens": 119,
+                               "queue_time": 4.0}}) is not None:
+        r.err("a rate was produced for an endpoint that reported no GENERATION "
+              "time. Queue time is waiting, not generating -- folding it in "
+              "reports a busy endpoint as a slow model, and timing it here "
+              "instead would report the network as one.")
+
+    # ----------------------------------- 5. a successful call announces itself
+    bus, cost, gw = _gateway()
+    cost.register_credential("rung", "free")
+    gw.register(Provider("rung", "prof", lambda p, o: {
+        "text": "the answer, which must not travel",
+        "usage": {"prompt_tokens": 76, "completion_tokens": 119,
+                  "completion_time": 0.2506,
+                  "completion_tokens_details": {"reasoning_tokens": 109}},
+        "stop_reason": "stop"}, model="m"))
+    gw.complete("a question, which must not travel either",
+                task_id="model-rows", profile_id="prof")
+    done = [p for t, p in bus.events if t == "model.completed"]
+    if len(done) != 1:
+        r.err(f"a successful completion published {len(done)} `model.completed` "
+              "events. Without exactly one the home has no producer, which is the "
+              "state these rows were already in for weeks without a gate noticing.")
+        return r
+    ev = done[0]
+    for field, want in (("tokens_evaluated", 76), ("reasoning_tokens", 109),
+                        ("reasoning_present", True)):
+        if ev.get(field) != want:
+            r.err(f"the published completion carried {field}={ev.get(field)!r}, "
+                  f"not {want!r}. The event is the only path from a real call to "
+                  "the surface; a field missing here is a row blank there.")
+    if not ev.get("predicted_per_second"):
+        r.err("the published completion carried no rate although the provider "
+              "reported its own generation time.")
+    # NO TEXT LEAVES THE GATEWAY IN THIS EVENT. It reaches a surface, a log and
+    # a checkpoint; a payload carrying the prompt or the answer would have to be
+    # redacted at every one of them, and the first to forget would publish the
+    # owner's words. Counts only -- so there is nothing to forget.
+    blob = json.dumps(ev)
+    if "must not travel" in blob:
+        r.err("the completion event carried the prompt or the answer text. This "
+              "payload reaches the home, the event log and any checkpoint taken "
+              "after it; keeping it to counts is what makes it safe there by "
+              "construction rather than by every consumer remembering.")
+
+    # --------------------- 6. an old completion is an ABSENCE, not a vanishing
+    # `_metric_rows` OMITS any reading past its TTL, which is right for
+    # `power_source` -- re-measured every tick, so staleness means the producer
+    # died. It is wrong for these four: nothing is asked while the owner is
+    # quiet, so ten idle minutes is normal. Left on the omit rule the rows
+    # disappear shortly after every answer, which IS the reported complaint.
+    spec = _ilu.spec_from_file_location("_hs_check", REPO / "tools" / "home_snapshot.py")
+    hs = _ilu.module_from_spec(spec)
+    spec.loader.exec_module(hs)
+    old = {"at_ms": int(time.time() * 1000) - (hs.TTL_MS + 60_000),
+           "provider_id": "rung", "tokens_evaluated": 76,
+           "predicted_per_second": 474.7, "reasoning_present": True,
+           "reasoning_tokens": 109}
+    proj = hs.build(old)
+    for key in ("model.thinking", "model.context_tokens",
+                "model.cache", "model.tokens_per_sec"):
+        reading = proj.readings.get(key)
+        if reading is None:
+            r.err(f"{key} was dropped from the projection when its completion "
+                  "aged out. A row that vanishes is the complaint that started "
+                  "this work; it must remain and say why it is empty.")
+        elif reading.value is not None:
+            r.err(f"{key} rendered a value from a completion older than its TTL. "
+                  "A stale number shown as current is worse than no number -- "
+                  "the owner acts on it.")
+        elif "ago" not in (reading.unavailable_reason or ""):
+            r.err(f"{key} is unavailable but does not say the last completion's "
+                  "age. 'Nothing has been asked recently' and 'the producer is "
+                  "broken' need different responses from the owner, and only the "
+                  "age tells them apart.")
+
+    fresh = dict(old, at_ms=int(time.time() * 1000))
+    if hs.build(fresh).readings["model.tokens_per_sec"].value is None:
+        r.err("a completion taken seconds ago rendered no rate. The staleness "
+              "guard must catch OLD evidence only; catching everything would be "
+              "a check that cannot tell it is broken.")
+
+    r.note("the home's four model rows now read a completion VESPER actually "
+           "made: the gateway publishes counts the provider itself reported, "
+           "each of the four wire spellings is read, a measured zero survives "
+           "where it means something, an unreported reasoning channel says "
+           "UNKNOWN instead of 'no', the rate is the server's arithmetic or "
+           "none, no prompt or answer text rides along, and an idle stretch "
+           "leaves the rows present and explaining their age rather than "
+           "silently gone")
+    return r
+
+
 def check_loop_observes_and_is_bounded() -> Result:
     """VESPER can take a second step, and every way of not stopping is bounded.
 
@@ -21258,6 +21442,7 @@ CHECK_FNS = {
     "a-provider-failure-says-which-kind-it-is": check_a_provider_failure_says_which_kind_it_is,
     "a-provider-failure-reaches-the-owner": check_a_provider_failure_reaches_the_owner,
     "the-island-shows-vespers-own-state": check_the_island_shows_vespers_own_state,
+    "the-model-rows-read-a-real-completion": check_the_model_rows_read_a_real_completion,
     "notes-are-titles-and-never-instructions": check_notes_are_titles_and_never_instructions,
     "taint-ceiling-binds-the-act-path": check_taint_ceiling_binds_the_act_path,
     "gated-subsystems-are-reachable": check_gated_subsystems_are_reachable,
