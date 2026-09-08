@@ -1482,9 +1482,17 @@ been driven against the running surface.**
 | — | **Main menu + expandable menu** (§9k) | ✅ MERGED, REVERTED, CAUSE FOUND, RE-MERGED 2026-09-08 (§9r, §9s). The first merge killed all five stack cards; the cause was a token named inside a JS comment, latent for weeks and fired by the row count going 1 → 69. Now live alongside every card. 17-icon bar — **owner approved the 17 on 2026-09-08**, the brief's 8 is retired. 68 catalogue items, 32 carrying live readings |
 | 13 | **Active-Space reading from a background process** (§9f) | fix implemented and owner-verified (§9p) — `SpaceWatch.Anchor`, confirmed `0`/`0` with Desktop 1 populated and Desktop 2 genuinely empty. The batched rebuild it was waiting on happened 2026-09-08 with §9t, and `--spaces` from a freshly launched background process correctly enumerated the active Desktop and refused it (`2 foreign window(s)`, ChatGPT) — so the anchor works off the login path too. **The LOGIN-ITEM path itself is still unconfirmed:** `ai.vesper.island` is not bootstrapped in the `gui/501` domain (only `.wake`, `.fnwatch`, `.agenda`, `.arm` are), so `launchctl kickstart` cannot reach it and a real login is needed. Not a prediction — a named, outstanding step |
 | — | **The home's four model rows** (§9t) | ✅ DONE 2026-09-08 — `the-model-rows-read-a-real-completion`, 8 red runs. They had NEVER worked: no producer, and a comment claiming one. Live: `thinking = yes, 15 tok`, `context = 349`, `tokens = 466.4`. Found and fixed a pre-existing leak of menu rows into the HOST card in the same pass |
-| 14 | **Microphone sensitivity** (§9g) | owner-reported, queued last, MEASURE FIRST |
+| 14 | **`f5-acceptance` flakes under load** (§9i, §11.0) | **OWNER SAID FIX IT, 2026-09-08** — *"we should ensure vesper's unprompted act is working"*. §9i's recorded cause is WRONG and §11.0 corrects it |
+| 15 | **Window management** (§11.1) | VESPER opens, closes, moves and resizes windows; the owner's windows are the owner's |
+| 16 | **Modes, end to end** (§11.2) | the eleven ambience modes and the stages, manual from the menu and automatic, with the wallpaper switch bounded to VESPER's Desktop |
+| 17 | **Apps management** (§11.3) | drive macOS applications without clicking, where a real interface exists |
+| 18 | **Notes, in full** (§11.4) | read, edit, create, share, lock — replacing the titles-only integration `CI-131` gates |
+| 19 | **UI view + clicking** (§11.5) | see any window and drive it: click, scroll, hold, type, inject. **The owner's stopping point** |
+| — | ⏸ **DISCUSS BEFORE BUILDING** | the owner stops the run here, 2026-09-08 |
+| 20 | **Settings interface** (§11.6) | the rail's `settings` button; **35 items already routed** in `spec_raw.txt` |
+| 21 | **`projects` and `research` rail buttons** (§11.7) | the other two rail destinations |
+| 22 | **Microphone sensitivity** (§9g) | owner-reported, queued last, MEASURE FIRST |
 | — | **TCC grants die on every build** (§9h) | found by the session, RAISED, awaiting a decision |
-| — | **`f5-acceptance` flakes under load** (§9i) | found by the session, RAISED, awaiting a decision |
 
 Steps 2, 3 and 4 are what the owner named as the starting point.
 
@@ -1651,3 +1659,319 @@ giving a number a consumer rather than a more careful correction.
 
 **Held out of `CHECKS.toml`** pending owner ratification, with `CI-094`..`CI-103`
 and the workbench chunk. It runs in `checks.py all`.
+
+---
+
+# 11. THE 2026-09-08 CHUNK — THE OWNER'S SEVEN, PLUS THE GATE THEY ATTACHED TO IT
+
+Given verbatim on 2026-09-08. **The run stops after §11.5**; §11.6 and §11.7 are
+to be discussed first — the owner said so explicitly and it is a boundary, not a
+suggestion.
+
+**THREE THINGS APPLY TO EVERY ITEM BELOW AND ARE NOT RESTATED IN EACH.**
+
+**`INV-HW-1`.** The owner's brief names devices — *"if I'm in another node (for
+example the iPhone)"*, *"drive the MacBook's UI"*. That is fine in prose and
+**forbidden in a routing, resource or policy path**, where `CI-007` will refuse
+it. A phone is `availability_class = foreground_only`; this machine is the node
+that currently holds the surface, not "the Mac". The feature is *drive the UI of
+a node that has one*, and it must be written that way from the first line or it
+will be rewritten later.
+
+**Every new verb needs a home in `contracts/policy/host_actions.toml`.** §9
+already records that it *exists and has no window verbs at all* — `ui.open` is
+the single window action today. Nothing below can be authorised until its verbs
+are declared there, with an execution class and a confirmation tier.
+
+**An instrument's self-report is not evidence.** A window manager returning
+`true` is not a moved window; a click helper exiting 0 is not a click. Re-read
+the world after acting. This chunk is almost entirely side effects on things the
+owner can see, so every step ends by observing the result rather than the call.
+
+---
+
+## 11.0 `f5-acceptance` — AND §9i NAMES THE WRONG CAUSE
+
+**§9i is wrong and this supersedes it.** It says the gate *"counts heartbeats
+over a COMPRESSED simulated clock and asserts the count matches a declared
+cadence (~240 in the window)"*, and attributes the failure to CPU starvation.
+
+**That describes a different case in the same file.** `run_f5_acceptance.py`
+holds both:
+
+- `TICKS = 240`, the **compressed** A-029 endurance window on a simulated clock;
+- **`A-029-RT`**, which is the one that failed, and which runs in **real time**:
+  `tick_interval_s=0.5`, `now_ms=lambda: int(time.time() * 1000)`,
+  `time.sleep(interval * 6)` — a nominal **six** ticks in three seconds.
+
+So the reported *"6 heartbeat events"* is the **nominal figure, not a
+shortfall**, and the starvation story is backwards: less CPU means fewer ticks,
+and the assertion is `heartbeats >= ticks`, so starving it makes the gate
+*easier* to pass.
+
+**THE TWO SIDES OF THAT COMPARISON COME FROM DIFFERENT PLACES, AND THAT IS THE
+DEFECT.**
+
+```
+unaided = loop.ticks                                  # an IN-MEMORY counter
+len(_events(sup, "autonomy.heartbeat")) >= unaided    # the DURABLE store
+```
+
+Under load the loop keeps incrementing its counter while the durable writes lag,
+so the store is read before it has caught up and `durable < in-memory`. The
+gate is comparing a live counter against a persisted one and calling the
+difference a defect.
+
+**THE FIX IS NOT A RETRY AND NOT A WIDER FLOOR.** The floor was already widened
+once, on 2026-08-18, for a real and different reason (a shared runner starving a
+Python thread), and that fix is sound. Widening it again would only hide this.
+Two candidates, and the choice must be made against a reproduction rather than
+from the source:
+
+1. **Read both figures from the same place** — count durable heartbeats and
+   compare against durable ticks, so the assertion stops straddling two clocks
+   of a different kind.
+2. **Let the store settle before reading** — quiesce, then compare. This is
+   weaker: it makes the gate a statement about flush latency as well as about
+   the loop.
+
+**REPRODUCE IT FIRST.** The above is read off the source and has NOT been
+observed failing. §9i was also written from reasoning, and it was wrong. **A
+negative control is mandatory here:** the gate must be shown to still go RED
+when the loop genuinely stops ticking, or the repair will have removed the only
+thing it was testing.
+
+**WHY THE OWNER ESCALATED IT:** *"we should ensure vesper's unprompted act is
+working."* That is exactly what this gate is for, and it is the reason a flake
+here is worse than a flake anywhere else — this is the gate that says VESPER can
+act without being asked.
+
+---
+
+## 11.1 WINDOW MANAGEMENT — AND WHOSE WINDOW IT IS
+
+> *"windows opened by me are mine, and can be managed only from a request from
+> me; windows opened by vesper can be totally managed by vesper."*
+
+**THE OWNERSHIP RULE IS THE FEATURE.** Everything else here is mechanism. A
+window carries a provenance — `owner_opened` or `vesper_opened` — and that
+provenance decides what may happen to it without asking. It is set when the
+window appears and is never inferred later from what the window looks like.
+
+**Capabilities:** open, close, move between Desktops (**including VESPER's**),
+resize.
+
+**The reason it matters, in the owner's words:** *"this is important when vesper
+is on some work or research and I'm there, so I need to see what vesper is
+trying to show me and what it is doing."* So the primary case is **VESPER
+presenting**, not VESPER tidying. A window VESPER opens to show something must
+land where the owner is looking.
+
+**AND WINDOWS MUST BE OPENABLE ON VESPER'S DESKTOP — BY BOTH OF THEM.** The
+owner asks for this explicitly and it is currently impossible: §2.3a records
+that there is nothing to tell macOS to pin a Desktop, and the home only takes a
+Desktop that is *already* empty. Placing a window onto a specific Desktop is a
+harder problem than moving one on the current Desktop, and it is the part most
+likely to need a private API — which is an **owner decision plus a runtime alarm
+plus a CI check** (the `INV-HOME-5` / `CI-058` precedent), never a quiet import.
+
+**Permissions:** Accessibility, already on the outstanding grant trip (§9h).
+
+**Open question, not to be resolved by guessing:** a window the owner opened
+*on VESPER's Desktop* — is it owner-owned (so VESPER may not touch it) or is the
+Desktop's ownership the stronger signal? Ask.
+
+---
+
+## 11.2 MODES, END TO END
+
+> *"we specified the modes vesper will have such as research, work, idle and
+> more, it's time to build them."*
+
+**THEY ARE SPECIFIED, AND THEY ARE TWO DIFFERENT LISTS.** This has to be settled
+before anything is built, because the owner's sentence mixes them:
+
+| | Where | What it is | Examples |
+|---|---|---|---|
+| **Axis A — ambience** | `DESIGN-FOUNDATION.md` §7 — *eleven modes, eleven images* | what **VESPER** is doing | Home, Idle, Watch, Listening, Thinking, Flow, Speaking, Alert, Rest, Working, Milestone |
+| **Axis B — stages** | `HOME-ARCHITECTURE.md` §6, §7 | what the **owner** is doing | research (§7.1 is written in full), work, … |
+
+`HOME-ARCHITECTURE.md` §6 is emphatic that conflating them *"produces an
+interface that rearranges itself while you are reading, which is the single most
+common way an ambient interface becomes unusable"*. **`idle` is axis A.
+`research` and `work` are axis B.** The owner named all three as "modes".
+
+**SO THE `modes` BUTTON NEEDS A DECISION:** does it drive the ambience, the
+stage, or a named pairing of both? Do not choose. Ask. (A pairing is the likely
+answer — "research mode" plausibly means *stage: research, ambience: Working* —
+but that is a guess and it belongs to the owner.)
+
+**THE WALLPAPER SWITCH IS ALREADY HALF-BUILT AND ALREADY BOUNDED.**
+`NSWorkspace.setDesktopImageURL(_:for:options:)` per mode is specified at
+`HOME-ARCHITECTURE.md` §204, the app already takes `--mode NAME` and sets the
+active Space's picture, and the eleven feel images **are** the eleven mode
+wallpapers.
+
+**The owner's bound is a hard requirement and needs its own check:** the switch
+applies **only to VESPER's Desktop, and only while VESPER is up**. Other
+Desktops and the lock screen are untouched. `setDesktopImageURL` takes a
+`NSScreen`, not a Space — so *"only VESPER's Desktop"* is not something the API
+gives for free, and restoring on exit is part of the feature rather than a
+courtesy. **Negative control:** switch modes with VESPER on a Desktop that is
+not its own and assert nothing changed.
+
+**"Automatically and manually."** Manual is the menu button. Automatic means a
+producer decides the mode — and under `INV-HW-2` that decision must be read from
+something measured, not declared.
+
+---
+
+## 11.3 APPS MANAGEMENT
+
+> *"vesper should now be able to fully manage all MacOS apps, and all apps that
+> are better managed without UI clicking."*
+
+**THE SECOND CLAUSE IS THE SCOPE, AND THE OWNER DREW THE LINE THEMSELVES.** This
+item is for applications that expose a real interface — AppleScript/Apple
+Events, a URL scheme, a CLI, a file format. §11.5 is the fallback for everything
+else, and the owner says so: *"the apps management feature will just be direct
+to the app"*.
+
+**Permissions:** Apple Events (`NSAppleEventsUsageDescription`), which is a
+**per-target-application** TCC grant — one prompt per app, not one for the
+feature. That multiplies the grant trip and the owner should know the shape
+before it starts.
+
+**Every app is a verb in `host_actions.toml` with an execution class.** "Manage
+all apps" is not a capability; it is a set of them, and a set that grows.
+
+---
+
+## 11.4 NOTES, IN FULL
+
+> *"the notes app should be fully integrated rather than the old way."*
+
+**WHAT THE OLD WAY IS, PRECISELY.** Step 10 (§9c) shipped notes as an *agenda
+source*: **titles only**, classified `retrieved_local`, **bodies deliberately
+never read**, gated by `CI-131` whose name is
+`notes-are-titles-and-never-instructions`.
+
+**THAT NAME IS THE PROBLEM, AND IT IS A REAL ONE.** The old way is not an
+incomplete implementation to be extended — it is a **boundary that was built on
+purpose**. A note body is text the owner wrote, and text VESPER reads becomes
+text that can instruct it. Reading bodies means every note body is
+`retrieved_local` content that must reach the planner through `observe()` and
+must never be executed as instruction.
+
+**So this item cannot be built without changing `CI-131`,** and changing a check
+whose whole subject is "never read the bodies" is a deliberate act that needs
+the owner's explicit agreement. **Raise it before building.**
+
+**Requested:** read, edit on demand, create and write, **share across Apple
+devices and accounts**, lock and unlock.
+
+**Two of those are harder than they look.** *Sharing across accounts* is CloudKit
+sharing, not a file operation. *Locking and unlocking* means handling the note
+password — a credential, which `MEMORY.md` records must be **rotated rather than
+erased** if it ever reaches L2, and which must not be in a bus payload, a
+checkpoint or a log receipt.
+
+---
+
+## 11.5 UI VIEW + CLICKING — THE STOPPING POINT
+
+> *"it should be able to view the UI and manage it by clicking, scrolling,
+> holding, typing, injecting scripts … our vesper's UI feature should be
+> stronger than clicky, claude's and chatgpt's."*
+
+**THIS IS THE LARGEST ITEM IN THE CHUNK AND THE ONE WITH THE MOST EXISTING
+DESIGN ALREADY RECORDED AGAINST IT.**
+
+§9 (*Deferred*) already holds the constraint, written down in advance precisely
+so it would not be discovered late:
+
+> *a captured screen is `retrieved_external` of the strongest kind — it can
+> contain any text on the machine, including another app's — so it must reach
+> the planner through `observe()` and never raw, and
+> `permission_mode.observations_taint` must NOT waive it even in auto mode.*
+
+**AND THAT CONTRADICTS THE OWNER'S PERMISSION RULE FOR THIS CHUNK.** The owner
+says, three times: *"on auto mode, all permissions granted by default"*. The
+recorded design says auto mode specifically may **not** waive screen-capture
+taint.
+
+**THESE ARE NOT THE SAME KIND OF THING AND THAT IS PROBABLY THE RESOLUTION —
+BUT IT IS THE OWNER'S CALL, NOT A DERIVATION.** *Permission* is may-VESPER-act.
+*Taint* is what-happens-to-what-it-read. Auto mode granting every permission is
+consistent with never treating a screenshot's contents as trustworthy
+instruction, because a screen can show text written by anyone. **Put it to the
+owner in exactly those terms and get an answer before building.** It is the
+difference between "VESPER may look at my screen without asking" and "text on my
+screen can tell VESPER what to do", and only the first is what they asked for.
+
+**Capabilities:** view any window's UI; click, scroll, hold, type; inject
+scripts. Drive the owner's own screen while they watch — *"so I sit down and
+watch it instead of working simultaneously"*.
+
+**Permissions:** Accessibility **and** Screen Recording (`NSScreenCaptureAccess`)
+— the fifth grant §9 warned about adding mid-flight.
+
+**REMOTE DRIVING IS SPECIFIED HERE AND BUILT LATER.** *"if I'm in another node …
+and I ask it to drive the [node's] UI, it should be able to do it, while I see
+it"* — recordings, screenshots, live sharing. The owner states plainly that the
+phone app **is not part of this chunk**. So what this chunk owes is the
+**producer** — the surface that can be observed and driven, and a transport that
+does not assume the viewer is local — not the viewer.
+
+**"Stronger than clicky, claude's and chatgpt's" is a real requirement and it
+has to be made measurable, or it is a slogan.** The distinguishing claim
+available here is not speed: it is that every action is **authorized, taint-
+tracked and reversible** — an outbox record written before the effect, a
+compensator, and a screen-derived observation that can never become an
+instruction. That is the axis to be strong on, and it is one those tools do not
+have at all.
+
+---
+
+## 11.6 SETTINGS INTERFACE — ⏸ DISCUSS FIRST
+
+**Do not start. The owner stops the run before this.**
+
+Recorded now so it is not re-derived: **the settings are already specified, in
+the owner's own routing export.** `docs/design/routing/spec_raw.txt` routes
+**35 items** to `settings`:
+
+> Enable / disable actions · Rule authoring · Authorization · Capability
+> profiles · Host actions · Network fabric · Cost policy · Latency budgets ·
+> Interruption budget · Trigger registry · Persona policy · Execution classes ·
+> Operating periods · Model routing · Backup & restore · Config diff · Explain
+> this setting · Scheduled changes · Reset to measured · Validate config ·
+> Scene element types · Endpoint selection · Privacy routing · Quiet hours ·
+> Do not disturb · Voice & speed · Wake word · Language · Notification rules ·
+> Gate status · Self-test evidence · Traceability · Spikes · Decisions (ADRs) ·
+> Limitation records
+
+**The owner asked for these laid out in an artifact when the step is reached.**
+Note that *"Explain this setting"* is marked *"in each dialog, on hover"* — it
+is a property of every other item, not a thirty-fifth peer.
+
+**The geometry the owner gave:** the card stops reading UNAVAILABLE and becomes
+the same card at full screen, with a margin between it and the display edges.
+
+---
+
+## 11.7 `projects` AND `research` — ⏸ DISCUSS FIRST
+
+**Do not start.**
+
+`HOME-ARCHITECTURE.md` §14.2 already answers *"what is proposed to sit there?"*
+in part. The rail is **four** buttons — `projects · research · history ·
+settings` — and it is *"a sixth surface class"*: not a widget, not a card, not
+the main menu. §14.2 notes the asymmetry, which is the thing to discuss:
+`history` and `settings` are **whole spaces**, while `projects` and `research`
+are **Work-room cards**. The rail is organised by *frequency*, not by taxonomy.
+
+**`research` has a written specification already** — §7.1, *"The research stage,
+in full"*. `projects` does not, and `spec_raw.txt` routes **17 items** to
+`history` and none to a `projects` surface. So of the two, **`projects` is the
+one with an actual gap**, and that is what the discussion is for.
