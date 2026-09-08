@@ -371,9 +371,46 @@ def a029_realtime_watchdog(tmp: Path) -> None:
                     unaided >= floor,
                     f"{unaided} ticks in {elapsed:.2f}s "
                     f"(interval {interval}s, nominal {nominal}, floor {floor})")
-            c.check("a heartbeat is emitted per tick, durably",
-                    len(_events(sup, "autonomy.heartbeat")) >= unaided,
-                    f"{len(_events(sup, 'autonomy.heartbeat'))} heartbeat events")
+            # A HEARTBEAT PER TICK, DURABLY -- AND THE OLD FORM OF THIS
+            # ASSERTION STRADDLED TWO DIFFERENT KINDS OF CLOCK.
+            #
+            # It was `len(_events(...)) >= unaided`, where `unaided` is
+            # `loop.ticks`: a LIVE IN-MEMORY COUNTER on an object another
+            # thread is mutating, compared against a count read out of the
+            # DURABLE STORE. `AutonomyLoop.tick` increments `self.ticks` inside
+            # its lock and publishes the heartbeat AFTER releasing it, so there
+            # is a real window in which the counter has moved and the store has
+            # not. Sample there and the gate reports a defect that is entirely
+            # its own sampling.
+            #
+            # THE WINDOW IS EXACTLY ONE TICK, and that is derived rather than
+            # tolerated: `tick()` publishes before it returns and the runner
+            # calls it sequentially, so a second increment cannot happen while
+            # the first is unpublished. `- 1` here is that proof, not a fudge
+            # factor, and it is the only slack this assertion is allowed.
+            #
+            # THE GAP CHECK IS WHAT ACTUALLY CARRIES THE CLAIM. Counting alone
+            # cannot tell "every tick left a heartbeat" from "the first six did
+            # and then it stopped": both give six. The payload carries its own
+            # tick number, so the durable record can be asked whether it is a
+            # COMPLETE RUN -- 1..N, no gap, no repeat -- which is the property
+            # the assertion is named for, and which needs nothing from memory.
+            #
+            # §9i recorded this as a compressed-clock cadence flaking under CPU
+            # starvation. That was reasoning, and it was wrong twice over: this
+            # case runs in real time, and starvation makes the old assertion
+            # EASIER to pass because fewer ticks is a lower bar. See §11.0 of
+            # `docs/design/HOME-WORKBENCH.md`.
+            hbs = _events(sup, "autonomy.heartbeat")
+            seen = [e["payload"]["tick"] for e in hbs]
+            c.check("every tick left a heartbeat, in an unbroken durable run",
+                    seen == list(range(1, len(hbs) + 1)),
+                    f"{len(hbs)} heartbeats numbered {seen[:3]}..{seen[-3:]}"
+                    if hbs else "no heartbeats at all")
+            c.check("the durable heartbeats keep up with the live tick counter",
+                    len(hbs) >= unaided - 1,
+                    f"{len(hbs)} durable heartbeats against {unaided} ticks "
+                    "counted in memory (at most one tick may be mid-publish)")
             # THIS ASSERTION CANNOT DISCRIMINATE ON A STARVED MACHINE, and
             # saying so is better than pretending otherwise.
             #

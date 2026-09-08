@@ -1482,7 +1482,7 @@ been driven against the running surface.**
 | — | **Main menu + expandable menu** (§9k) | ✅ MERGED, REVERTED, CAUSE FOUND, RE-MERGED 2026-09-08 (§9r, §9s). The first merge killed all five stack cards; the cause was a token named inside a JS comment, latent for weeks and fired by the row count going 1 → 69. Now live alongside every card. 17-icon bar — **owner approved the 17 on 2026-09-08**, the brief's 8 is retired. 68 catalogue items, 32 carrying live readings |
 | 13 | **Active-Space reading from a background process** (§9f) | fix implemented and owner-verified (§9p) — `SpaceWatch.Anchor`, confirmed `0`/`0` with Desktop 1 populated and Desktop 2 genuinely empty. The batched rebuild it was waiting on happened 2026-09-08 with §9t, and `--spaces` from a freshly launched background process correctly enumerated the active Desktop and refused it (`2 foreign window(s)`, ChatGPT) — so the anchor works off the login path too. **The LOGIN-ITEM path itself is still unconfirmed:** `ai.vesper.island` is not bootstrapped in the `gui/501` domain (only `.wake`, `.fnwatch`, `.agenda`, `.arm` are), so `launchctl kickstart` cannot reach it and a real login is needed. Not a prediction — a named, outstanding step |
 | — | **The home's four model rows** (§9t) | ✅ DONE 2026-09-08 — `the-model-rows-read-a-real-completion`, 8 red runs. They had NEVER worked: no producer, and a comment claiming one. Live: `thinking = yes, 15 tok`, `context = 349`, `tokens = 466.4`. Found and fixed a pre-existing leak of menu rows into the HOST card in the same pass |
-| 14 | **`f5-acceptance` flakes under load** (§9i, §11.0) | **OWNER SAID FIX IT, 2026-09-08** — *"we should ensure vesper's unprompted act is working"*. §9i's recorded cause is WRONG and §11.0 corrects it |
+| 14 | **`f5-acceptance` flakes under load** (§9i, §11.0) | ✅ DONE 2026-09-08 — the gate compared a live in-memory counter against the durable store and reported its own sampling as a defect. Both negative controls driven RED. §9i's recorded cause was wrong twice over; §11.0 supersedes it |
 | 15 | **Window management** (§11.1) | VESPER opens, closes, moves and resizes windows; the owner's windows are the owner's |
 | 16 | **Modes, end to end** (§11.2) | the eleven ambience modes and the stages, manual from the menu and automatic, with the wallpaper switch bounded to VESPER's Desktop |
 | 17 | **Apps management** (§11.3) | drive macOS applications without clicking, where a real interface exists |
@@ -1735,11 +1735,43 @@ from the source:
    weaker: it makes the gate a statement about flush latency as well as about
    the loop.
 
-**REPRODUCE IT FIRST.** The above is read off the source and has NOT been
-observed failing. §9i was also written from reasoning, and it was wrong. **A
-negative control is mandatory here:** the gate must be shown to still go RED
-when the loop genuinely stops ticking, or the repair will have removed the only
-thing it was testing.
+**FIXED 2026-09-08, AND THE MECHANISM WAS NARROWER THAN EITHER GUESS.**
+
+`AutonomyLoop.tick` increments `self.ticks` **inside** its lock and publishes
+the heartbeat **after releasing it**. The gate sampled `loop.ticks` from another
+thread, so there is a real window in which the counter has moved and the store
+has not — and a contended machine widens it. The gate was reporting its own
+sampling as a defect in VESPER.
+
+**THE WINDOW IS EXACTLY ONE TICK, AND THAT IS DERIVED RATHER THAN TOLERATED.**
+`tick()` publishes before it returns and the runner calls it sequentially, so a
+second increment cannot happen while the first is unpublished. The `- 1` in the
+repaired assertion is that proof, not a fudge factor, and it is the only slack
+allowed.
+
+**THE CLAIM MOVED TO A PROPERTY THAT NEEDS NOTHING FROM MEMORY.** Counting alone
+cannot tell *"every tick left a heartbeat"* from *"the first six did and then it
+stopped"* — both give six. The heartbeat payload carries its own tick number, so
+the durable record is now asked whether it is a **complete run, 1..N, no gap and
+no repeat**. That is the property the assertion is named for.
+
+**BOTH NEGATIVE CONTROLS DRIVEN, 2026-09-08, and they discriminate:**
+
+| Deliberate fault in `core/autonomy.py` | Result |
+|---|---|
+| every other heartbeat dropped | **RED** — run reads `[1, 3, 5]`; *both* assertions fire |
+| ticking continues, emitting stops after the third | **RED** — 3 durable against 7 in memory; **only** the keep-up assertion fires, because `1,2,3` is genuinely unbroken |
+
+The second control is the one that matters: it proves the keep-up assertion is
+load-bearing rather than redundant with the gap check. **A negative control that
+passes is a defect, not a relief** — these fail, for their own reasons.
+
+Verified: the gate alone 3x, under `nproc` CPU burners 3x, and `checks.py all`
+twice — 143/143 both times.
+
+**AND THE FLOOR WAS NOT WIDENED.** The 2026-08-18 widening was sound and for a
+different reason; widening it again would have hidden this instead of fixing
+it.
 
 **WHY THE OWNER ESCALATED IT:** *"we should ensure vesper's unprompted act is
 working."* That is exactly what this gate is for, and it is the reason a flake
