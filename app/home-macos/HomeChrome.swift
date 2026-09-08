@@ -241,7 +241,16 @@ final class HomeChrome {
         return rows.map { k, v in
             "<div class=\"row\"><span class=\"k\">\(esc(k))</span>"
           + "<span class=\"v\">\(esc(v))</span></div>"
-        }.joined(separator: "\n          ")
+        // JOINED WITHOUT A NEWLINE, deliberately. This string is substituted
+        // into the page by `page()`, which replaces the token wherever it
+        // appears -- and a newline inside injected content ends any `//`
+        // comment it lands in, turning the rest into raw JavaScript. That is
+        // exactly what happened on 2026-09-08 (§9r): the token was mentioned
+        // in a comment, this separator carried 68 newlines into it, the script
+        // block failed to parse, and three receivers were never defined. The
+        // comment is fixed too; this removes the mechanism rather than only
+        // the instance.
+        }.joined(separator: "")
     }
 
     /// What VESPER is doing, read from the state the runtime writes.
@@ -1785,7 +1794,25 @@ final class HomeChrome {
 
             // ---- the host card's rows ---------------------------------------------
             //
-            // RE-RENDERED ON THE TICK. `{{METRIC_ROWS}}` fills this once at mount, so
+            // RE-RENDERED ON THE TICK. The METRIC-ROWS token fills this once at mount,
+            // so
+            //
+            // THE TOKEN'S NAME IS NOT WRITTEN HERE IN ITS SUBSTITUTABLE FORM, and that
+            // is not fussiness. `page()` replaces every occurrence in the file, and it
+            // does not know a comment from markup: written literally, this line
+            // received 69 rows of HTML whose separator is "\\n          ", the first
+            // newline ENDED THIS `//` COMMENT, and the remaining rows became raw
+            // JavaScript. The whole script block then failed to parse, so
+            // `__vesperStage`, `__vesperWork` and `__vesperChanges` were never
+            // defined -- and every push silently did nothing, because
+            // `if (window.__vesperWork)` skips rather than throws.
+            //
+            // IT ONLY BIT WHEN THE ROW COUNT ROSE. One row has no separator and no
+            // newline, so this survived for as long as `power` was the only row that
+            // resolved. The v2 menu took `rows` from 1 to 69 and the home lost its
+            // commands, explanations, thoughts, changes and history cards -- measured
+            // 2026-09-08, §9r. The latency between planting this and it firing is the
+            // reason the token is spelled out rather than left as a live one.
             // without a push the card showed whatever was true when the home came up
             // -- and on a laptop the row that changes is the one worth reading.
             var metricsEl = document.getElementById('metrics');
@@ -2710,7 +2737,15 @@ final class HomeChrome {
           var panes = ['pcmds','pexps','pchgs','pterm','work']
                         .map(p).join(' ');
           var errs = (window.__vesperErrs || []);
-          return [d('#stage'), d('.field'), d('#say'),
+          // DO THE RECEIVERS EXIST AT ALL? `if (window.__vesperWork)` skips
+          // silently when they do not, which looks identical to a push that
+          // worked and rendered nothing -- §9r's whole failure in one line.
+          var recv = ['__vesperStage','__vesperHistory','__vesperWork',
+                      '__vesperChanges','__vesperMetrics']
+                     .map(function(n){ return n.replace('__vesper','')
+                        + ':' + (typeof window[n] === 'function' ? 'fn' : 'MISSING'); })
+                     .join(',');
+          return [d('#stage'), d('.field'), d('#say'), 'recv=[' + recv + ']',
                   'viewport=' + window.innerWidth + 'x' + window.innerHeight,
                   'face=' + document.body.getAttribute('data-face'),
                   'panes=[' + panes + ']',
@@ -2779,12 +2814,30 @@ final class HomeChrome {
                 .replacingOccurrences(of: "$", with: "\\$")
             let js = """
             (function(){
+              // EACH RECEIVER GUARDED SEPARATELY, and the failure NAMED.
+              //
+              // §9r: these five were one unguarded sequence, so a throw in an
+              // early one silently killed every later one -- and the block
+              // still reported "push OK" because the throw was caught nowhere
+              // a reader looks. That is the shape that cost a night: the
+              // owner's cards stopped rendering and every instrument said the
+              // push had succeeded. A receiver that fails now says WHICH one.
+              function step(name, fn) {
+                try { fn(); }
+                catch (e) {
+                  window.__vesperErrs = window.__vesperErrs || [];
+                  if (window.__vesperErrs.length <= 20) {
+                    window.__vesperErrs.push('receiver ' + name + ': '
+                      + ((e && e.message) ? e.message : String(e)));
+                  }
+                }
+              }
               document.body.setAttribute('data-face', '\(face)');
-              if (window.__vesperStage) window.__vesperStage(`\(safe)`, '\(who)');
-              if (window.__vesperHistory) window.__vesperHistory(`\(histSafe)`);
-              if (window.__vesperWork) window.__vesperWork(`\(workSafe)`);
-              if (window.__vesperChanges) window.__vesperChanges(`\(chgSafe)`);
-              if (window.__vesperMetrics) window.__vesperMetrics(`\(metSafe)`);
+              step('stage',   function(){ if (window.__vesperStage) window.__vesperStage(`\(safe)`, '\(who)'); });
+              step('history', function(){ if (window.__vesperHistory) window.__vesperHistory(`\(histSafe)`); });
+              step('work',    function(){ if (window.__vesperWork) window.__vesperWork(`\(workSafe)`); });
+              step('changes', function(){ if (window.__vesperChanges) window.__vesperChanges(`\(chgSafe)`); });
+              step('metrics', function(){ if (window.__vesperMetrics) window.__vesperMetrics(`\(metSafe)`); });
             })();
             """
             // REPORT WHAT THE PUSH DID. `completionHandler: nil` swallowed
@@ -2816,6 +2869,15 @@ final class HomeChrome {
                     // actually rendered -- text, box and opacity -- which is
                     // the closest thing to looking at it available without a
                     // screen-recording grant.
+                        // WHAT WAS ACTUALLY PUSHED, not what the file holds.
+                        // §9r: the panes reported idle while home.json plainly
+                        // carried the data, so the only remaining question is
+                        // whether the string this tick SENT carried it too.
+                        print("chrome: pushed workbench \(workSafe.count) B"
+                            + " commands=\(workSafe.contains("\"commands\""))"
+                            + " thoughts=\(workSafe.contains("\"thoughts\""))"
+                            + " | rows \(metSafe.count) B"
+                            + " | transcript \(histSafe.count) B")
                         Self.reportStage(w)
                     }
                 }

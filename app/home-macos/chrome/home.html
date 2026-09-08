@@ -1353,7 +1353,25 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
 
     // ---- the host card's rows ---------------------------------------------
     //
-    // RE-RENDERED ON THE TICK. `{{METRIC_ROWS}}` fills this once at mount, so
+    // RE-RENDERED ON THE TICK. The METRIC-ROWS token fills this once at mount,
+    // so
+    //
+    // THE TOKEN'S NAME IS NOT WRITTEN HERE IN ITS SUBSTITUTABLE FORM, and that
+    // is not fussiness. `page()` replaces every occurrence in the file, and it
+    // does not know a comment from markup: written literally, this line
+    // received 69 rows of HTML whose separator is "\n          ", the first
+    // newline ENDED THIS `//` COMMENT, and the remaining rows became raw
+    // JavaScript. The whole script block then failed to parse, so
+    // `__vesperStage`, `__vesperWork` and `__vesperChanges` were never
+    // defined -- and every push silently did nothing, because
+    // `if (window.__vesperWork)` skips rather than throws.
+    //
+    // IT ONLY BIT WHEN THE ROW COUNT ROSE. One row has no separator and no
+    // newline, so this survived for as long as `power` was the only row that
+    // resolved. The v2 menu took `rows` from 1 to 69 and the home lost its
+    // commands, explanations, thoughts, changes and history cards -- measured
+    // 2026-09-08, §9r. The latency between planting this and it firing is the
+    // reason the token is spelled out rather than left as a live one.
     // without a push the card showed whatever was true when the home came up
     // -- and on a laptop the row that changes is the one worth reading.
     var metricsEl = document.getElementById('metrics');
