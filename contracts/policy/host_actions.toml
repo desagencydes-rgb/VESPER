@@ -278,3 +278,177 @@ window_seconds = 3600
 source = """The only irreversible row in the vocabulary. It exists to be
 governed and refused, not to be used: unsaved work in the target is destroyed
 and no inverse can recover it."""
+
+##############################################################################
+# OWNER AUTHORISATIONS
+#
+# WHY THIS BLOCK EXISTS, AND WHY IT WAS MISSING UNTIL 2026-09-08.
+#
+# `CI-056` refuses any row above the read line that ships `enabled = true`, and
+# its message says such a row stays disabled "until an owner authorisation is
+# recorded against them -- enabling one is a governed act, not a configuration
+# tweak". That was the intent. But there was NO WAY TO RECORD ONE, so the rule
+# had no exception path and the practical effect was absolute: in the whole
+# history of this file, NOT ONE mutating row has ever been enabled. Every
+# adjust_reversible and destructive action VESPER has was dead on arrival.
+#
+# That is fail-closed working correctly right up until the owner actually wants
+# something done, and then it is a wall with no door. The answer is not to
+# weaken the gate -- flipping a boolean must remain insufficient -- but to give
+# the authorisation somewhere to live where the gate can SEE it.
+#
+# A row above the read line may now be enabled if and only if it names an
+# `authorized_by` that resolves here, and the entry carries the owner's own
+# words. Inventing an id does not work; the id must resolve. Quoting nothing
+# does not work; the check requires the quote. So the cost of enabling a
+# mutating action is recording what the owner said and when -- which is the
+# same standard `source` already holds every row to, applied to permission
+# rather than to purpose.
+##############################################################################
+
+[authorization.OWNER-2026-09-08-WINDOWS]
+date = "2026-09-08"
+scope = "window management: enumerate, open, move, resize, relocate, close"
+quote = """giving vesper the ability to manage all windows (windows opened by me
+are mine, and can be managed only from a request from me), (and windows opened
+by vesper can be totally managed by vesper) ... vesper should be able to
+open/close windows, move windows between desktops (including vesper's desktop),
+change window's size"""
+note = """The owner also settled the ambiguous case in the same session: a
+window on VESPER's Desktop is VESPER's to arrange whoever opened it -- "VESPER's
+Desktop, VESPER's rules". `core/windows.py` holds that rule; this file holds
+only the vocabulary, and the two gates are independent. A row being enabled
+here does not make an individual window touchable."""
+
+##############################################################################
+# WINDOWS
+#
+# THE VOCABULARY ONLY. Which windows may actually be touched is `core/
+# windows.py`, and it is a separate question with a separate answer: these rows
+# say VESPER may move A window, that module says whether it may move THIS one.
+# Both must say yes. Collapsing them would put the owner's ownership rule into
+# a policy file that cannot see a window, or put the action vocabulary into a
+# module the checks do not read.
+#
+# NO PLATFORM VERBS, per this file's own header. `move_window` is an abstract
+# effect; whether the adapter reaches it through an accessibility interface, a
+# window server call or something a future node offers is the adapter's
+# business. A row naming one platform's mechanism is a row no other node can
+# honour.
+#
+# TITLES ARE NOT IN `list_windows` AND THAT IS DELIBERATE. The observe tier's
+# header already says it: "process names disclose what the owner is working on,
+# and screen or document reading discloses content ... Anything that reads
+# CONTENT is a new row and a new decision." A window title is a document name,
+# a subject line, a message. Enumerating windows is inventory; reading their
+# titles is content, and it belongs to the UI-view decision, not to this one.
+##############################################################################
+
+[action.list_windows]
+tier = "observe"
+enabled = true
+description = "Open windows as inventory: identity, owning process, geometry and which Desktop. No titles."
+reversible = true
+inverse = ""
+requires_owner_consent = "never"
+provenance_required = "verified_local"
+source = """Owner 2026-09-08. Nothing below can be authorised without it: an
+ownership rule needs something to be the subject of, and a window that cannot
+be enumerated cannot be judged."""
+
+[action.open_window]
+tier = "adjust_reversible"
+enabled = true
+authorized_by = "OWNER-2026-09-08-WINDOWS"
+description = "Bring a window into existence for the owner to look at"
+reversible = true
+inverse = "close_own_window"
+requires_owner_consent = "per_rule"
+provenance_required = "verified_local"
+max_targets_per_window = 12
+window_seconds = 3600
+source = """Owner 2026-09-08: "this is important when vesper is on some work or
+research and I'm there, so I need to see what vesper is trying to show me". The
+primary case is VESPER PRESENTING, which is why the cap is generous: a research
+session that can surface eight things and then goes silent is worse than one
+that surfaces none, because the owner cannot tell the cap from the finding."""
+
+[action.move_window]
+tier = "adjust_reversible"
+enabled = true
+authorized_by = "OWNER-2026-09-08-WINDOWS"
+description = "Change a window's position on the Desktop it is already on"
+reversible = true
+inverse = "move_window"
+requires_owner_consent = "per_rule"
+provenance_required = "verified_local"
+max_targets_per_window = 40
+window_seconds = 3600
+source = """Owner 2026-09-08. Its own inverse: the previous origin is recorded
+before the move, so undoing is the same effect with the old coordinates. That
+is why the record has to be taken BEFORE acting rather than reconstructed."""
+
+[action.resize_window]
+tier = "adjust_reversible"
+enabled = true
+authorized_by = "OWNER-2026-09-08-WINDOWS"
+description = "Change a window's size"
+reversible = true
+inverse = "resize_window"
+requires_owner_consent = "per_rule"
+provenance_required = "verified_local"
+max_targets_per_window = 40
+window_seconds = 3600
+source = "Owner 2026-09-08: \"change window's size\". Its own inverse, on the recorded prior size."
+
+[action.relocate_window_to_desktop]
+tier = "adjust_reversible"
+enabled = true
+authorized_by = "OWNER-2026-09-08-WINDOWS"
+description = "Move a window from one Desktop to another, including VESPER's"
+reversible = true
+inverse = "relocate_window_to_desktop"
+requires_owner_consent = "per_rule"
+provenance_required = "verified_local"
+max_targets_per_window = 12
+window_seconds = 3600
+source = """Owner 2026-09-08: "move windows between desktops (including vesper's
+desktop)" and "windows should be openable in vesper's desktop at least by
+vesper". SEPARATE FROM `move_window` because it crosses the boundary the
+ownership rule is written in terms of -- `core/windows.py` treats relocation off
+VESPER's Desktop as its own effect for exactly this reason, and a row that
+merged the two would let a position change carry an authority change."""
+
+[action.close_own_window]
+tier = "destructive"
+enabled = true
+authorized_by = "OWNER-2026-09-08-WINDOWS"
+description = "Close a window VESPER itself opened"
+reversible = false
+inverse = ""
+requires_owner_consent = "per_instance"
+provenance_required = "verified_local"
+max_targets_per_window = 12
+window_seconds = 3600
+source = """Owner 2026-09-08: "open/close windows". SPLIT FROM `close_window`
+because the blast radius genuinely differs -- closing what VESPER opened
+destroys nothing the owner made -- but it is still `destructive` and still
+`per_instance`, because CLOSING CANNOT BE UNDONE and this file's own rule is
+that nothing irreversible may be pre-authorised. The split narrows WHAT may be
+closed, not how carefully."""
+
+[action.close_window]
+tier = "destructive"
+enabled = false
+description = "Close any window, including one the owner opened"
+reversible = false
+inverse = ""
+requires_owner_consent = "per_instance"
+provenance_required = "verified_local"
+max_targets_per_window = 1
+window_seconds = 3600
+source = """DELIBERATELY NOT ENABLED, and the owner's 2026-09-08 authorisation
+does not cover it. They said windows they opened "can be managed only from a
+request from me" -- so closing one is reachable through a request and is not a
+standing permission. Unsaved work in the target is destroyed and no inverse
+recovers it, which is the same reasoning `terminate_process` carries."""

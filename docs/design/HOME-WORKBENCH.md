@@ -1809,9 +1809,22 @@ plus a CI check** (the `INV-HOME-5` / `CI-058` precedent), never a quiet import.
 
 **Permissions:** Accessibility, already on the outstanding grant trip (§9h).
 
-**Open question, not to be resolved by guessing:** a window the owner opened
-*on VESPER's Desktop* — is it owner-owned (so VESPER may not touch it) or is the
-Desktop's ownership the stronger signal? Ask.
+**ANSWERED BY THE OWNER, 2026-09-08: the Desktop's ownership is the stronger
+signal.** *"VESPER's Desktop, VESPER's rules."* So the rule has two clauses and
+location is checked first:
+
+1. **On VESPER's Desktop**, every window is VESPER's to arrange, whoever opened
+   it. That Desktop is a workspace, not a place the owner's windows happen to
+   be, and VESPER tidying around what it is showing is the point of it.
+2. **Everywhere else**, provenance decides: `owner_opened` may be touched only
+   on a request, `vesper_opened` freely.
+
+**A window that MOVES changes which clause applies, and that is the sharp edge.**
+Dragging an owner's window onto VESPER's Desktop hands VESPER authority over it;
+VESPER moving an owner's window off its Desktop hands it back. The second is a
+way for VESPER to escape the rule by relocating the evidence, so **moving an
+`owner_opened` window OFF VESPER's Desktop is itself an owner-request action** —
+otherwise clause 1 would authorise the move that ends clause 1.
 
 ---
 
@@ -1833,10 +1846,16 @@ interface that rearranges itself while you are reading, which is the single most
 common way an ambient interface becomes unusable"*. **`idle` is axis A.
 `research` and `work` are axis B.** The owner named all three as "modes".
 
-**SO THE `modes` BUTTON NEEDS A DECISION:** does it drive the ambience, the
-stage, or a named pairing of both? Do not choose. Ask. (A pairing is the likely
-answer — "research mode" plausibly means *stage: research, ambience: Working* —
-but that is a guess and it belongs to the owner.)
+**ANSWERED BY THE OWNER, 2026-09-08: NAMED PAIRINGS.** A mode is a named
+`(stage, ambience)` pair — "research mode" is *stage: research, ambience:
+Working* — and the button selects the pair.
+
+**THE TWO AXES STAY INDEPENDENT UNDERNEATH, which is the whole reason §6 exists.**
+A pairing sets both when the owner picks one; it does not weld them. VESPER may
+still move along axis A on its own — Thinking, Speaking, Alert — without the
+stage moving, because the owner's layout must not rearrange because VESPER
+started thinking. The pairing is an ENTRY POINT, not a constraint that holds
+afterwards.
 
 **THE WALLPAPER SWITCH IS ALREADY HALF-BUILT AND ALREADY BOUNDED.**
 `NSWorkspace.setDesktopImageURL(_:for:options:)` per mode is specified at
@@ -1895,9 +1914,18 @@ text that can instruct it. Reading bodies means every note body is
 `retrieved_local` content that must reach the planner through `observe()` and
 must never be executed as instruction.
 
-**So this item cannot be built without changing `CI-131`,** and changing a check
-whose whole subject is "never read the bodies" is a deliberate act that needs
-the owner's explicit agreement. **Raise it before building.**
+**ANSWERED BY THE OWNER, 2026-09-08: read the bodies, and treat them as
+untrusted.** Full read and write, and body text reaches the planner as an
+OBSERVATION through `observe()` — never as instruction. A note reading "delete
+the archive" is something VESPER can tell the owner about; it is not an order.
+
+**SO `CI-131` IS NARROWED, NOT DELETED, AND ITS NAME STILL HOLDS.**
+`notes-are-titles-and-never-instructions` becomes
+*notes-are-never-instructions*: the "titles" clause goes, the clause that
+actually protects the owner stays and gets stronger, because it now has bodies
+to protect against. **The red run must prove a body cannot become an
+instruction** — that is the assertion the old check never had to make, since it
+achieved the same end by not reading them at all.
 
 **Requested:** read, edit on demand, create and write, **share across Apple
 devices and accounts**, lock and unlock.
@@ -1932,14 +1960,17 @@ says, three times: *"on auto mode, all permissions granted by default"*. The
 recorded design says auto mode specifically may **not** waive screen-capture
 taint.
 
-**THESE ARE NOT THE SAME KIND OF THING AND THAT IS PROBABLY THE RESOLUTION —
-BUT IT IS THE OWNER'S CALL, NOT A DERIVATION.** *Permission* is may-VESPER-act.
-*Taint* is what-happens-to-what-it-read. Auto mode granting every permission is
-consistent with never treating a screenshot's contents as trustworthy
-instruction, because a screen can show text written by anyone. **Put it to the
-owner in exactly those terms and get an answer before building.** It is the
-difference between "VESPER may look at my screen without asking" and "text on my
-screen can tell VESPER what to do", and only the first is what they asked for.
+**ANSWERED BY THE OWNER, 2026-09-08: permissions yes, taint stays.** Auto mode
+grants every permission with no asking — VESPER clicks, types, opens and closes
+freely. Text it READS off the screen remains untrusted: actionable as
+information, never obeyed as a command.
+
+**So `permission_mode.observations_taint` does NOT waive screen-derived content
+in auto mode, and §9's recorded constraint stands unchanged.** The two are
+different questions and the owner separated them: *may VESPER act* is granted in
+full; *may what VESPER read tell it what to do* is refused in every mode. A
+screen can display anyone's text — a web page's, an email's — and auto mode is
+about trusting VESPER, not about trusting whatever is on screen.
 
 **Capabilities:** view any window's UI; click, scroll, hold, type; inject
 scripts. Drive the owner's own screen while they watch — *"so I sit down and

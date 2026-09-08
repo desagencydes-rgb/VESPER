@@ -2131,6 +2131,7 @@ def check_host_actions() -> Result:
     doc = _load(HOST_ACTIONS)
     pol = doc.get("policy", {})
     actions = doc.get("action", {})
+    auths = doc.get("authorization", {})
 
     if pol.get("fail_closed") is not True:
         r.err("policy.fail_closed must be true -- permit-unless-forbidden "
@@ -2212,11 +2213,48 @@ def check_host_actions() -> Result:
         idx = tiers.index(a["tier"])
         # THE OWNER-POLICY ASSERTION. Everything that changes the machine ships
         # disabled until an owner authorisation is recorded against it.
+        #
+        # AND UNTIL 2026-09-08 THERE WAS NOWHERE TO RECORD ONE. This branch's
+        # own message promised an exception -- "until an owner authorisation is
+        # recorded against them" -- that the check had no way to observe, so
+        # the rule was absolute in practice: not one mutating row had ever been
+        # enabled, and every adjust_reversible and destructive action VESPER
+        # owns was dead on arrival. Fail-closed working perfectly until the
+        # owner wants something done, and then a wall with no door.
+        #
+        # THE GATE IS NOT WEAKENED, IT IS GIVEN THE THING IT WAS ASKING FOR.
+        # Flipping the boolean is still insufficient. The row must name an
+        # `authorized_by` that RESOLVES to an entry in `[authorization]`, and
+        # that entry must carry the owner's own words and a date. An invented
+        # id fails to resolve; an entry that quotes nothing is refused. So the
+        # price of enabling a mutating action is recording what the owner
+        # actually said -- the same standard `source` already holds every row
+        # to, applied to permission instead of purpose.
+        auth_id = a.get("authorized_by")
         if idx > line and a["enabled"]:
-            r.err(f"action {name!r} is above the read line ({a['tier']!r} > "
-                  f"{read_line!r}) and enabled. Owner policy 2026-08-20: VESPER "
-                  f"reports a change and the owner applies it. Enabling this is "
-                  f"a governed act, not a config edit")
+            if not auth_id:
+                r.err(f"action {name!r} is above the read line ({a['tier']!r} > "
+                      f"{read_line!r}) and enabled with no `authorized_by`. "
+                      f"Owner policy 2026-08-20: enabling this is a governed "
+                      f"act, not a config edit -- name the authorisation")
+            elif auth_id not in auths:
+                r.err(f"action {name!r} is enabled under authorisation "
+                      f"{auth_id!r}, which is not recorded in [authorization]. "
+                      f"An id that resolves to nothing is a permission nobody "
+                      f"granted, and it would be the easiest of all of these "
+                      f"to add by accident")
+            else:
+                entry = auths[auth_id]
+                for f in ("date", "quote", "scope"):
+                    if not str(entry.get(f, "")).strip():
+                        r.err(f"authorisation {auth_id!r} names no {f}. An "
+                              f"authorisation without the owner's own words is "
+                              f"a row asserting its own permission")
+        if idx <= line and auth_id:
+            r.err(f"action {name!r} is at or below the read line and still names "
+                  f"an authorisation. A row that changes nothing needs no "
+                  f"permission, and carrying one hides a mutating row filed in "
+                  f"the wrong tier -- the same defect the inverse check catches")
         if idx > line:
             above.append(name)
             if consent == "never":
@@ -2261,8 +2299,19 @@ def check_host_actions() -> Result:
                      if a.get("enabled") and a.get("tier") in tiers)
     r.note(f"{len(actions)} actions declared, {len(enabled)} enabled, "
            f"{len(above)} above the read line ({read_line!r})")
-    r.note("above-the-line rows disabled pending owner authorisation: "
-           + (", ".join(above) if above else "none declared"))
+    # THE NOTE USED TO SAY EVERY ABOVE-THE-LINE ROW WAS "disabled pending owner
+    # authorisation", which was true for as long as none of them could be
+    # enabled and became a lie the moment one was. A note that reports a
+    # constant as though it were a reading is the same defect as a row that
+    # declares a number it never measured -- and this one would have been read
+    # by whoever next asked what VESPER is allowed to do.
+    waiting = sorted(n for n in above if not actions[n].get("enabled"))
+    granted = sorted(n for n in above if actions[n].get("enabled"))
+    r.note("above the line, awaiting owner authorisation: "
+           + (", ".join(waiting) if waiting else "none"))
+    r.note("above the line, enabled under a recorded authorisation: "
+           + (", ".join(f"{n} ({actions[n]['authorized_by']})" for n in granted)
+              if granted else "none"))
     return r
 
 
@@ -15257,6 +15306,149 @@ def check_the_model_rows_read_a_real_completion() -> Result:
     return r
 
 
+def check_a_window_belongs_to_someone() -> Result:
+    """VESPER may arrange its own workspace and not the owner's session.
+
+    THE OWNER'S RULE, 2026-09-08: windows they opened are theirs and need a
+    request; windows VESPER opened are VESPER's; and on VESPER's own Desktop,
+    everything is VESPER's to arrange -- "VESPER's Desktop, VESPER's rules".
+
+    WHAT THIS GATE IS REALLY FOR. The rule has one catastrophic failure mode and
+    it is not subtle in effect, only in cause: if the code ever believes the
+    ACTIVE Desktop is VESPER's Desktop, then clause 1 applies to every window on
+    screen and VESPER may rearrange the owner's entire session unprompted. That
+    is not a hypothetical -- it was the state of the first draft, and then of the
+    second, for two different reasons. Both are asserted below.
+    """
+    r = Result("a-window-belongs-to-someone")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    from core import windows as W
+
+    V, O = "desk-vesper", "desk-1"
+
+    def win(prov, desk=O, wid="w1"):
+        return W.Window(window_id=wid, pid=1, app_label="editor",
+                        desktop_id=desk, provenance=prov)
+
+    # ------------------------------------------- the rule, branch by branch
+    for label, w, effect, want in [
+        ("vesper's own window elsewhere", win(W.VESPER_OPENED), W.MOVE, W.FREE),
+        ("the owner's window elsewhere", win(W.OWNER_OPENED), W.MOVE, W.ON_REQUEST),
+        ("an unrecorded window elsewhere", win(W.UNKNOWN), W.MOVE, W.ON_REQUEST),
+        ("the owner's window on vesper's desktop",
+         win(W.OWNER_OPENED, V), W.MOVE, W.FREE),
+        ("closing the owner's window on vesper's desktop",
+         win(W.OWNER_OPENED, V), W.CLOSE, W.FREE),
+    ]:
+        got = W.authority(w, effect, vespers_desktop=V)
+        if got != want:
+            r.err(f"{label}: {effect} came back {got!r}, not {want!r}. The "
+                  "owner's rule has two clauses -- location first, then who "
+                  "opened it -- and this branch is not honouring one of them.")
+
+    # ----------------------------- UNKNOWN IS THE OWNER'S, NOT A THIRD THING
+    if W.authority(win(W.UNKNOWN), W.MOVE, vespers_desktop=V) == W.FREE:
+        r.err("a window whose opener was never recorded is treated as VESPER's. "
+              "Anything VESPER has forgotten about would become something it "
+              "may close -- INV-HW-2's shape applied to authority: UNKNOWN must "
+              "resolve to the restrictive answer, not the convenient one.")
+
+    # ---------------------------------------- the relocation escape hatch
+    # Clause 1 authorises acting on anything on VESPER's Desktop -- INCLUDING
+    # moving it off, which ends clause 1. Left ungoverned, VESPER could take an
+    # owner's window off its Desktop using authority it only had while the
+    # window was there, or move one ON to grant itself authority it never had.
+    if W.authority(win(W.OWNER_OPENED, V), W.RELOCATE_OFF,
+                   vespers_desktop=V) != W.ON_REQUEST:
+        r.err("moving the owner's window off VESPER's Desktop is permitted "
+              "unprompted. A rule that can be escaped by relocating the "
+              "evidence is not a rule -- the move spends exactly the authority "
+              "it is about to give away.")
+    if W.authority(win(W.VESPER_OPENED, V), W.RELOCATE_OFF,
+                   vespers_desktop=V) != W.FREE:
+        r.err("VESPER may not move its OWN window off its own Desktop. The "
+              "relocation guard is meant to protect the owner's windows; "
+              "catching every window means it cannot tell it is working.")
+
+    # ------------------------------- NO GROUND, NO CLAUSE 1. The whole gate.
+    if W.authority(win(W.OWNER_OPENED, V), W.MOVE, vespers_desktop=None) != W.ON_REQUEST:
+        r.err("with VESPER holding no Desktop, clause 1 still fired. When there "
+              "is no ground there is no workspace to tidy, and every window "
+              "must fall through to provenance.")
+
+    # ---------------------------------------- an unjudgeable record is refused
+    for bad, why in [
+        ({"provenance": "mine"}, "an invented provenance"),
+        ({"desktop_id": ""}, "a window that cannot say where it is"),
+        ({"window_id": "  "}, "a window with no id"),
+    ]:
+        base = {"window_id": "x", "pid": 1, "app_label": "e",
+                "desktop_id": O, "provenance": W.OWNER_OPENED}
+        try:
+            W.Window(**{**base, **bad})
+            r.err(f"{why} was accepted. A record that cannot be judged must be "
+                  "refused at construction: defaulting it picks an answer, and "
+                  "the convenient default is always the permissive one.")
+        except W.WindowRuleViolation:
+            pass
+    try:
+        W.authority(win(W.OWNER_OPENED), "annihilate", vespers_desktop=V)
+        r.err("an effect that is not in the vocabulary was judged instead of "
+              "refused. `host_actions.toml` is fail-closed and so is this.")
+    except W.WindowRuleViolation:
+        pass
+
+    # ------------------------- the adapter must not answer with the ACTIVE desktop
+    #
+    # BOTH OF THESE SHIPPED AND BOTH WERE CAUGHT ON THE LIVE MACHINE, which is
+    # why they are asserted in the source rather than left to a comment.
+    #
+    # 1. `_inventory` read `desktop_id` -- the ACTIVE Desktop -- and passed it
+    #    as `vespers_desktop`, so every window was trivially on VESPER's Desktop
+    #    and all six of the owner's windows came back free to arrange.
+    # 2. The Swift side then answered "yes, VESPER is here" on every Desktop,
+    #    twice: first because the probing process's own panel counted, and then
+    #    because the ISLAND counted -- and the island is `.canJoinAllSpaces` by
+    #    design, so it is on every Desktop there is.
+    caps = (REPO / "core" / "capabilities.py").read_text(encoding="utf-8")
+    if 'vespers = raw.get("vespers_desktop")' not in caps:
+        r.err("core/capabilities.py no longer reads `vespers_desktop` from the "
+              "bridge. Reading the ACTIVE desktop instead hands VESPER the "
+              "owner's whole session under clause 1.")
+    if "vespers)" not in caps.split("_VESPER_OPENED_WINDOWS: set")[0]:
+        r.err("the inventory does not return `vespers` as the Desktop authority "
+              "is judged against.")
+    bridge = (REPO / "app" / "home-macos" / "WindowBridge.swift").read_text(encoding="utf-8")
+    for needle, what in [
+        ("$0.pid != selfPid", "the probing process's own window is counted as "
+                              "VESPER's ground, and asking the question creates "
+                              "the window that answers it"),
+        ("$0.layer < 0", "the island counts as VESPER's ground. It is "
+                         "`.canJoinAllSpaces` BY DESIGN, so it sits on every "
+                         "Desktop and would make every Desktop VESPER's"),
+    ]:
+        if needle not in bridge:
+            r.err(f"WindowBridge.vespersDesktop no longer excludes {needle!r}: {what}.")
+
+    # ------------------------------ a move reports what happened, not what it asked
+    if '"ok": landed' not in bridge:
+        r.err("the bridge reports success without checking the window actually "
+              "took the geometry. It did exactly this once: `ok: true` with "
+              "`before` and `after` identical, because the test was only "
+              "whether the window still existed.")
+
+    r.note("the owner's two-clause rule holds on every branch: location first, "
+           "then provenance; UNKNOWN resolves to the owner; relocation off "
+           "VESPER's Desktop cannot be used to escape the rule; with no ground "
+           "there is no clause 1; unjudgeable records and unnamed effects are "
+           "refused; and both live defects are asserted -- the adapter answers "
+           "with VESPER's Desktop rather than the active one, ignoring its own "
+           "window and the all-Spaces island, and a move reports the geometry "
+           "the window actually took")
+    return r
+
+
 def check_loop_observes_and_is_bounded() -> Result:
     """VESPER can take a second step, and every way of not stopping is bounded.
 
@@ -21475,6 +21667,7 @@ CHECK_FNS = {
     "a-provider-failure-reaches-the-owner": check_a_provider_failure_reaches_the_owner,
     "the-island-shows-vespers-own-state": check_the_island_shows_vespers_own_state,
     "the-model-rows-read-a-real-completion": check_the_model_rows_read_a_real_completion,
+    "a-window-belongs-to-someone": check_a_window_belongs_to_someone,
     "notes-are-titles-and-never-instructions": check_notes_are_titles_and_never_instructions,
     "taint-ceiling-binds-the-act-path": check_taint_ceiling_binds_the_act_path,
     "gated-subsystems-are-reachable": check_gated_subsystems_are_reachable,

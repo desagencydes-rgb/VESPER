@@ -39,6 +39,7 @@ costs something to honour.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import pathlib
 import shlex
@@ -672,6 +673,186 @@ def ui_open(args: dict) -> dict:
                           text=True, timeout=20, check=False)
     return {"opened": target, "exit_code": proc.returncode,
             "stderr": (proc.stderr or "").strip()[:300]}
+
+
+# ---------------------------------------------------------------- windows
+#
+# THREE GATES, AND ALL THREE MUST SAY YES. `contracts/policy/host_actions.toml`
+# says whether VESPER may move A window at all; `core/windows.py` says whether
+# it may move THIS one; the capability level below says how much approval that
+# costs. They are deliberately separate: the first is a vocabulary the checks
+# read, the second is the owner's ownership rule, the third is the authorisation
+# ladder every other capability already climbs. Merging any two of them would
+# put policy somewhere no check looks.
+
+VESPER_BIN = REPO / "app" / "VESPER.app" / "Contents" / "MacOS" / "VESPER"
+
+
+def _window_bridge(*argv: str) -> dict:
+    """Ask the app binary. A helper is a MODE of VESPER, never a loose script.
+
+    WHY NOT A PYTHON LIBRARY. The accessibility interface answers for the
+    process that asks, and TCC attributes a grant to the RESPONSIBLE process --
+    which for anything the runtime spawns itself would be the runtime, or worse
+    the shell that started it. `MEMORY.md` records this costing a whole grant
+    trip once already: a microphone request from a terminal came back "granted"
+    because it inherited the terminal's answer. Going through the bundle means
+    the thing asking is the thing the owner granted.
+    """
+    if not VESPER_BIN.exists():
+        raise FileNotFoundError(
+            f"{VESPER_BIN} is not built -- window actions run as VESPER from "
+            "the bundle, so there is nothing to ask")
+    out = subprocess.run([str(VESPER_BIN), *argv], capture_output=True,
+                         text=True, timeout=30, check=False)
+    lines = [ln for ln in (out.stdout or "").splitlines() if ln.strip()]
+    for ln in reversed(lines):
+        try:
+            return json.loads(ln)
+        except json.JSONDecodeError:
+            continue
+    raise ValueError(f"the window bridge returned nothing readable: "
+                     f"{(out.stderr or out.stdout or '')[:200]}")
+
+
+def _inventory() -> tuple[list, str | None]:
+    """Live windows as `core.windows.Window` records, and VESPER's Desktop.
+
+    PROVENANCE IS READ FROM VESPER'S OWN RECORD, NEVER INFERRED FROM THE WINDOW.
+    `core/windows.classify_opened` says why at length: every property a guess
+    could use is one the owner can produce by accident, and a wrong guess in the
+    permissive direction hands VESPER a window it may not touch. A window this
+    process did not open is `unknown`, and `unknown` is treated as the owner's.
+    """
+    from core import windows as W
+
+    raw = _window_bridge("--windows-list")
+    desktop = raw.get("desktop_id")
+    # VESPER'S DESKTOP, WHICH IS NOT THE ACTIVE ONE. The bridge answers `null`
+    # unless VESPER's own ground is on the Space that is showing. Reading
+    # `desktop_id` here instead -- as the first draft did -- makes every window
+    # on screen "on vesper's desktop" and hands VESPER the owner's whole
+    # session under clause 1 of the ownership rule.
+    vespers = raw.get("vespers_desktop")
+    mine = _VESPER_OPENED_WINDOWS
+    return ([W.Window(window_id=str(w["window_id"]), pid=int(w["pid"]),
+                      app_label=str(w.get("app_label") or "?"),
+                      desktop_id=str(w.get("desktop_id") or desktop or "?"),
+                      provenance=(W.VESPER_OPENED if str(w["window_id"]) in mine
+                                  else W.UNKNOWN),
+                      meta={"x": w.get("x"), "y": w.get("y"),
+                            "width": w.get("width"), "height": w.get("height")})
+             for w in raw.get("windows", [])],
+            vespers)
+
+
+# Windows VESPER opened, in this process. NOT PERSISTED, for the reason
+# `core/latency.py` refuses a persisted estimate: a provenance read off disk at
+# startup is a claim about a previous run's windows, and window ids are reused.
+# Forgetting means falling back to `unknown`, which is the owner's -- the safe
+# direction, and the only one worth defaulting to.
+_VESPER_OPENED_WINDOWS: set = set()
+
+
+def window_list(args: dict) -> dict:
+    """Inventory. Reads no titles -- that is content and a separate decision."""
+    from core import windows as W
+
+    wins, desktop = _inventory()
+    parts = W.partition(wins, vespers_desktop=desktop)
+    return {"desktop_id": desktop,
+            "count": len(wins),
+            "may_arrange": len(parts["free"]),
+            "needs_a_request": len(parts["on_request"]),
+            "windows": [{"window_id": w.window_id, "app_label": w.app_label,
+                         "provenance": w.provenance,
+                         "line": W.describe(w, vespers_desktop=desktop),
+                         **w.meta} for w in wins]}
+
+
+def _act(effect: str, args: dict, *argv: str) -> dict:
+    """One place where the ownership rule is consulted, so it cannot be skipped.
+
+    `owner_requested` IS PASSED IN BY THE CALLER AND IS NOT INFERRED HERE. The
+    executor knows whether this step came from something the owner said; this
+    function does not, and a function that decided for itself whether it had
+    been asked would always be able to decide yes.
+    """
+    from core import windows as W
+
+    wid = str(args.get("window_id") or "").strip()
+    if not wid:
+        raise ValueError("no window_id")
+    wins, desktop = _inventory()
+    target = next((w for w in wins if w.window_id == wid), None)
+    if target is None:
+        raise ValueError(f"window {wid} is not on the active desktop, so it "
+                         "cannot be judged or acted on")
+    allowed, why = W.may_act(target, effect, vespers_desktop=desktop,
+                             owner_requested=bool(args.get("owner_requested")))
+    if not allowed:
+        return {"ok": False, "refused_by": "ownership", "reason": why,
+                "window": W.describe(target, vespers_desktop=desktop)}
+    out = _window_bridge(*argv, "--window-id", wid, "--window-pid", str(target.pid))
+    out.setdefault("window", W.describe(target, vespers_desktop=desktop))
+    return out
+
+
+def window_move(args: dict) -> dict:
+    return _act("move", args, "--window-act", "move",
+                "--x", str(int(args["x"])), "--y", str(int(args["y"])))
+
+
+def window_resize(args: dict) -> dict:
+    return _act("resize", args, "--window-act", "resize",
+                "--w", str(int(args["width"])), "--h", str(int(args["height"])))
+
+
+def window_close(args: dict) -> dict:
+    out = _act("close", args, "--window-act", "close")
+    if out.get("ok"):
+        _VESPER_OPENED_WINDOWS.discard(str(args.get("window_id")))
+    return out
+
+
+def window_list_level(args: dict) -> str:
+    """Inventory is L1; asking for window TITLES is content, and refused there.
+
+    A window title is a document name, a subject line, a message. The bridge
+    does not read them and `host_actions.toml`'s observe tier is explicit that
+    content is a new row and a new decision -- so the request levels at L5
+    rather than being silently downgraded to the inventory it is not.
+    """
+    return "L5" if args.get("titles") else "L1"
+
+
+def window_close_level(args: dict) -> str:
+    """Closing VESPER's own window is L4; closing the owner's is L5.
+
+    Nothing can undo either, which is why neither is below L4. What separates
+    them is whose unsaved work is at stake.
+    """
+    from core import windows as W
+
+    return "L4" if args.get("provenance") == W.VESPER_OPENED else "L5"
+
+
+def window_level(args: dict) -> str:
+    """How much approval moving this window costs.
+
+    LEVELLED ON WHOSE WINDOW IT IS, which is the only thing that changes the
+    stakes. Rearranging what VESPER put on its own Desktop is housekeeping;
+    reaching into the owner's working window is not, even when the ownership
+    rule permits it. CLOSING IS L4 IN EVERY CASE because it cannot be undone --
+    the same reasoning `host_actions.toml` applies when it refuses to let
+    anything irreversible be pre-authorised.
+    """
+    from core import windows as W
+
+    effect = str(args.get("effect") or "move")
+    if effect == W.CLOSE:
+        return "L4"
+    return "L2" if args.get("provenance") == W.VESPER_OPENED else "L3"
 
 
 def shell_session(session_id: str) -> dict:
@@ -1455,6 +1636,61 @@ def build_registry() -> CapabilityRegistry:
         LevelRule("credential", "L5", {"path": "~/.config/vesper/secrets.env"}),
     ], reversibility="reversible")
 
+    # WINDOWS. The ownership rule lives in `core/windows.py` and is consulted by
+    # the implementation; these rules are the approval ladder, which is a
+    # different question -- "may VESPER touch this window" versus "how much
+    # confirmation does touching it cost".
+    # INV-AUTH-5 REFUSED THE FIRST VERSION OF THIS AND IMPROVED IT. A constant
+    # level was rejected -- "a capability whose level does not depend on its
+    # arguments cannot distinguish `ls` from `rm -rf ~`" -- and the honest
+    # second distinction was already sitting in the design: inventory is L1,
+    # and asking for TITLES is content. `host_actions.toml`'s observe tier says
+    # plainly that "anything that reads CONTENT is a new row and a new
+    # decision", and the bridge refuses titles outright. Levelling the request
+    # at L5 puts that boundary in the ladder rather than only in a comment, so a
+    # future caller that asks for titles is refused by the authorisation path
+    # instead of quietly getting inventory.
+    reg.register("window.list", window_list_level, [
+        LevelRule("inventory", "L1", {},
+                  refutes=({"titles": True},)),
+        LevelRule("titles", "L5", {"titles": True}),
+    ], reversibility="reversible")
+
+    reg.register("window.move", window_level, [
+        LevelRule("vesper's own", "L2",
+                  {"window_id": "1", "x": 0, "y": 0, "provenance": "vesper_opened"}),
+        LevelRule("the owner's", "L3",
+                  {"window_id": "1", "x": 0, "y": 0, "provenance": "unknown"}),
+    ], reversibility="reversible")
+
+    reg.register("window.resize", window_level, [
+        LevelRule("vesper's own", "L2",
+                  {"window_id": "1", "width": 10, "height": 10,
+                   "provenance": "vesper_opened"}),
+        LevelRule("the owner's", "L3",
+                  {"window_id": "1", "width": 10, "height": 10,
+                   "provenance": "unknown"}),
+    ], reversibility="reversible")
+
+    # NOT `compensatable`, and the distinction is the honest one: a compensator
+    # would have to reopen the window, and nothing can reopen a document with
+    # the owner's unsaved edits in it. `host_actions.toml` says the same thing
+    # about `terminate_process` -- the only irreversible row in the vocabulary
+    # exists to be governed, not to be undone.
+    reg.register("window.close", window_close_level, [
+        LevelRule("vesper's own", "L4",
+                  {"window_id": "1", "effect": "close",
+                   "provenance": "vesper_opened"},
+                  refutes=({"window_id": "1", "effect": "close",
+                            "provenance": "unknown"},)),
+        # THE OWNER'S WINDOW IS A LEVEL HIGHER, and `host_actions.toml` agrees
+        # from the other side: `close_window` is the one row the owner's
+        # 2026-09-08 authorisation deliberately does NOT cover. Unsaved work in
+        # the target is destroyed and no inverse recovers it.
+        LevelRule("the owner's", "L5",
+                  {"window_id": "1", "effect": "close", "provenance": "unknown"}),
+    ], reversibility="irreversible")
+
     reg.register("fs.read", fs_read_level, [
         LevelRule("ordinary", "L1", {"path": "README.md"},
                   refutes=(
@@ -1512,6 +1748,11 @@ def bind_all(executor, *, jobs=None, agent=None, runner=None) -> None:
         executor.bind("shell.run", shell_run)
 
     executor.bind("ui.open", ui_open)
+
+    executor.bind("window.list", window_list)
+    executor.bind("window.move", window_move)
+    executor.bind("window.resize", window_resize)
+    executor.bind("window.close", window_close)
 
     # THE SUB-AGENT IS BOUND, NOT PASSED IN ARGS, for the reason the job
     # registry is: what a proposal may ASK for and what carries the request are

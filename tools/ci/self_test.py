@@ -6123,6 +6123,100 @@ CASES += [
 ]
 
 
+# The authorisation path added 2026-09-08. It is the ONLY door through a gate
+# that was previously absolute, so every way of walking through it without the
+# owner having said anything has to be shut, and shown to be shut.
+CASES += [
+    ("host-action-vocabulary", HOST_ACTIONS,
+     _sub('enabled = true\nauthorized_by = "OWNER-2026-09-08-WINDOWS"\n'
+          'description = "Change a window\'s size"',
+          'enabled = true\ndescription = "Change a window\'s size"', 1),
+     "a mutating row is enabled with no authorisation named at all -- the "
+     "boolean alone becomes sufficient again, which is the whole thing owner "
+     "policy 2026-08-20 refuses"),
+
+    ("host-action-vocabulary", HOST_ACTIONS,
+     _sub('authorized_by = "OWNER-2026-09-08-WINDOWS"\n'
+          'description = "Change a window\'s position on the Desktop it is already on"',
+          'authorized_by = "OWNER-2026-09-08-WINDOWS-EXTENDED"\n'
+          'description = "Change a window\'s position on the Desktop it is already on"', 1),
+     "a row is enabled under an authorisation id that resolves to nothing -- a "
+     "permission nobody granted, and the easiest of these to introduce by "
+     "accident while copying a row"),
+
+    ("host-action-vocabulary", HOST_ACTIONS,
+     _sub('quote = """giving vesper the ability to manage all windows',
+          'quote = ""\nunused = """giving vesper the ability to manage all windows', 1),
+     "the authorisation stops carrying the owner's own words, so a row is "
+     "enabled by an entry that asserts its own permission and cites nothing"),
+
+    ("host-action-vocabulary", HOST_ACTIONS,
+     _sub('[action.list_windows]\ntier = "observe"\nenabled = true',
+          '[action.list_windows]\ntier = "observe"\nenabled = true\n'
+          'authorized_by = "OWNER-2026-09-08-WINDOWS"', 1),
+     "a read-only row carries an authorisation, which is how a mutating row "
+     "filed in the wrong tier would hide -- it looks governed while sitting "
+     "below the line where nothing checks its blast radius"),
+]
+
+
+# Step 15's rule, and the two live defects that made it inert. Both of those
+# were caught on the machine rather than by anything written down, so they are
+# the cases most worth keeping.
+WINDOWS_PY = "core/windows.py"
+CAPS_PY = "core/capabilities.py"
+WINDOW_BRIDGE = "app/home-macos/WindowBridge.swift"
+
+CASES += [
+    ("a-window-belongs-to-someone", WINDOWS_PY,
+     _sub("    if effect == RELOCATE_OFF:\n"
+          "        if window.provenance == VESPER_OPENED:\n"
+          "            return FREE\n"
+          "        return ON_REQUEST\n", "", 1),
+     "relocation stops being its own effect, so VESPER may carry the owner's "
+     "window off its Desktop using authority it holds only while the window is "
+     "there -- and move one on to grant itself authority it never had"),
+
+    ("a-window-belongs-to-someone", WINDOWS_PY,
+     _sub("    if window.provenance == VESPER_OPENED:\n"
+          "        return FREE                                   # clause 2, VESPER's own\n"
+          "    return ON_REQUEST                                 # clause 2, owner's/unknown",
+          "    return FREE", 1),
+     "clause 2 collapses and every window anywhere becomes VESPER's to "
+     "arrange -- the owner's whole session, on every Desktop"),
+
+    ("a-window-belongs-to-someone", WINDOWS_PY,
+     _sub('        if not str(self.desktop_id).strip():',
+          '        if False:', 1),
+     "a window that cannot say where it is is accepted and judged anyway, so "
+     "the first clause of the rule runs against a blank"),
+
+    ("a-window-belongs-to-someone", CAPS_PY,
+     _sub('    vespers = raw.get("vespers_desktop")',
+          '    vespers = raw.get("desktop_id")', 1),
+     "the ACTIVE Desktop is passed as VESPER's, which is the defect that "
+     "shipped first: every window on screen satisfies clause 1 and all of the "
+     "owner's windows come back free to arrange"),
+
+    ("a-window-belongs-to-someone", WINDOW_BRIDGE,
+     _sub("$0.owner == name && $0.pid != selfPid && $0.layer < 0",
+          "$0.owner == name && $0.pid != selfPid", 1),
+     "the island counts as VESPER's ground -- and it is `.canJoinAllSpaces` by "
+     "design, so it is on every Desktop and every Desktop becomes VESPER's"),
+
+    ("a-window-belongs-to-someone", WINDOW_BRIDGE,
+     _sub("$0.owner == name && $0.pid != selfPid && $0.layer < 0",
+          "$0.owner == name && $0.layer < 0", 1),
+     "the probing process's own window counts, so asking whether VESPER is on "
+     "this Desktop creates the window that answers yes"),
+
+    ("a-window-belongs-to-someone", WINDOW_BRIDGE,
+     _sub('        return ["ok": landed,', '        return ["ok": after != nil,', 1),
+     "a move reports success whenever the window still exists -- which it did "
+     "once, with `before` and `after` identical on a move that never happened"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
 

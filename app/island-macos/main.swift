@@ -1641,6 +1641,64 @@ if args.contains("--occlusion-check") {
 // looking at the screen -- which is not a check, and is unavailable on a
 // headless node or over ssh. Prints exactly the markup the card will carry, so
 // a producer change can be verified without a display and without a person.
+// WINDOWS -- the native half of step 15. Placed with the other read-only
+// verify modes and before anything that opens a window, because listing must
+// never disturb the thing it lists.
+//
+// THE RUNTIME SHELLS OUT TO THESE. `contracts/policy/host_actions.toml` says
+// what may be done and `core/windows.py` says to which window; neither is
+// consulted here. A refusal from this file is always the platform refusing --
+// no grant, no handle, no such window -- never policy, which is decided before
+// the process is ever launched.
+if args.contains("--windows-list") {
+    // `vespers_desktop` IS REPORTED SEPARATELY FROM `desktop_id` and is null
+    // when VESPER holds no ground here. Collapsing the two made every window
+    // on the active Desktop look like it was on VESPER's.
+    var payload: [String: Any] = ["desktop_id": WindowBridge.desktopId(),
+                                  "accessible": WindowBridge.accessible(),
+                                  "windows": WindowBridge.list()]
+    payload["vespers_desktop"] = WindowBridge.vespersDesktop() ?? NSNull()
+    payload["self_pid"] = Int(ProcessInfo.processInfo.processIdentifier)
+    payload["self_name"] = ProcessInfo.processInfo.processName
+    payload["own_windows"] = SpaceWatch.onScreen()
+        .filter { $0.owner == ProcessInfo.processInfo.processName }
+        .map { ["pid": $0.pid, "layer": $0.layer, "number": $0.number,
+                "w": Int($0.bounds.width), "h": Int($0.bounds.height)] }
+    WindowBridge.emit(payload)
+    exit(0)
+}
+
+if args.contains("--window-act") {
+    func arg(_ n: String) -> String? {
+        guard let i = args.firstIndex(of: n), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+    let effect = arg("--window-act") ?? ""
+    guard let wid = arg("--window-id"), let pid = arg("--window-pid").flatMap(Int.init) else {
+        WindowBridge.emit(["ok": false, "reason": "--window-id and --window-pid are required"])
+        exit(2)
+    }
+    var out: [String: Any]
+    switch effect {
+    case "move":
+        out = WindowBridge.geometry(pid: pid, windowId: wid,
+                                    x: arg("--x").flatMap(Int.init), y: arg("--y").flatMap(Int.init),
+                                    w: nil, h: nil)
+    case "resize":
+        out = WindowBridge.geometry(pid: pid, windowId: wid, x: nil, y: nil,
+                                    w: arg("--w").flatMap(Int.init), h: arg("--h").flatMap(Int.init))
+    case "close":
+        out = WindowBridge.close(pid: pid, windowId: wid)
+    default:
+        // FAIL CLOSED ON AN UNKNOWN EFFECT, matching the action vocabulary's
+        // own posture: anything not named is refused rather than approximated
+        // to the nearest thing that is.
+        out = ["ok": false, "reason": "unknown window effect \(effect)"]
+    }
+    WindowBridge.emit(out)
+    exit((out["ok"] as? Bool) == true ? 0 : 1)
+}
+
 if args.contains("--card-rows") {
     print(HomeChrome.metricRows())
     exit(0)
