@@ -1,0 +1,554 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Expandable menu — design proposal</title><style>
+  /* SS5's stack, in the order the specification sets it.
+     Aeonik and Canela are named FIRST even though neither is licensed yet: the
+     day they are bought and installed they take over with no code change, and
+     until then the cascade falls through. `Outfit` is the substitute
+     DESIGN-FOUNDATION itself names; Futura is what this machine actually has
+     that shares Aeonik's geometric construction. -apple-system last, so there
+     is always a face.
+
+     THE EMOJI FACE IS DECLARED EXPLICITLY. Without it the cascade hands a
+     colour emoji to whichever text face matched first, and a geometric
+     grotesque has no glyph for one -- which is half of why they rendered as
+     boxes. The other half was the dissolve splitting them; see the script. */
+  :root{--ink:#f4e6dc;
+        --face-body:"Aeonik","Outfit","Futura",-apple-system,system-ui,
+                    "Helvetica Neue",sans-serif;
+        --face-emoji:"Apple Color Emoji";
+        /* A COMMAND IS NOT PROSE AND MUST NOT BE SET LIKE IT. Proportional
+           digits and a variable space turn `mv  a   b` into something the owner
+           cannot compare against what they typed, and an ellipsised
+           proportional path hides exactly the characters that distinguish two
+           similar ones. This is the single departure from SS5's stack, and it
+           is confined to the things that came off a terminal. */
+        --face-mono:"Berkeley Mono","SF Mono","Menlo",ui-monospace,monospace;
+        --face-hand:"Learning Curve","Bradley Hand","Noteworthy",
+                    "Snell Roundhand"}
+  /* TEXT IS SELECTABLE. Nothing set `user-select` at all, and a WKWebView
+   chrome defaults to refusing it -- so the owner could not copy a single line
+   VESPER had written, including the ones they most wanted to keep: a command,
+   a path, an error. Reported 2026-09-04. The face and the ambient layers stay
+   unselectable so a drag across the field does not paint a selection over it. */
+.say,.think,.acts,.history,.hrow,.htext,.cmd,.cdisp,.cout,.cerr,.ccwd,
+.btext,.bcode,.blist,.etitle,.dpath,.dhunks
+  {-webkit-user-select:text;user-select:text;
+  cursor:text}
+html,body{margin:0;height:100%;background:transparent;overflow:hidden;
+            font-family:var(--face-body),var(--face-emoji);
+            -webkit-font-smoothing:antialiased;
+            color:var(--ink)}
+
+  /* ---- the main menu (§10, §14.2) -------------------------------- */
+  /* Dock tier: blur 42, saturate 200%, fill .085, radius 34. The bar
+     sits at the Dock's own position, bottom-centre, because §10 says
+     VESPER's main menu TAKES that position rather than sharing it. */
+  .dockrow{position:absolute;left:0;right:0;bottom:10px;
+           display:flex;justify-content:center;align-items:flex-end;
+           gap:14px;
+           transition:opacity .28s cubic-bezier(.32,.72,0,1)}
+  /* §10: "It dims to 30% while occluded so it is visibly still there
+     rather than apparently gone." Driven from Swift, which reads the
+     Dock's own window rather than guessing from the cursor. */
+  body.dock-up .dockrow{opacity:.30}
+  .bar,.tile{box-sizing:border-box;
+             background-color:rgba(255,255,255,.085);
+             background-image:linear-gradient(rgba(0,0,0,.34),
+                                              rgba(0,0,0,.34));
+             -webkit-backdrop-filter:blur(42px) saturate(200%);
+             backdrop-filter:blur(42px) saturate(200%);
+             border:1px solid rgba(255,255,255,.13);
+             border-radius:34px;
+             box-shadow:0 10px 34px rgba(0,0,0,.30),
+                        inset 0 1px 0 rgba(255,255,255,.20)}
+  .bar{display:flex;align-items:center;gap:10px;padding:9px 12px}
+  .tile{display:flex;align-items:center;justify-content:center;
+        width:64px;height:64px;padding:0}
+  .slot{width:52px;height:52px;padding:0;border:0;border-radius:15px;
+        background:rgba(255,255,255,.05);
+        display:flex;align-items:center;justify-content:center;
+        cursor:default;
+        transition:transform .22s cubic-bezier(.32,.72,0,1),
+                   background .22s ease}
+  .slot:hover{transform:translateY(-6px) scale(1.06);
+              background:rgba(255,255,255,.11)}
+  .slot svg{width:26px;height:26px;fill:none;
+            stroke:rgba(244,230,220,.62);stroke-width:1.4}
+  /* The owner's avatar (§14.2), separated from the actions the way the
+     system Dock separates its trash. */
+  .sep{width:1px;height:34px;background:rgba(255,255,255,.13);margin:0 4px}
+  .avatar{width:52px;height:52px;border-radius:50%;
+          background:linear-gradient(160deg,rgba(255,255,255,.20),
+                                            rgba(255,255,255,.05));
+          border:1px solid rgba(255,255,255,.18);
+          display:flex;align-items:center;justify-content:center;
+          font-size:15px;letter-spacing:.06em;
+          color:rgba(244,230,220,.78)}
+  .tile svg{width:24px;height:24px;fill:none;
+            stroke:rgba(244,230,220,.62);stroke-width:1.5}
+  /* Every glyph in this bar is a placeholder and says so on hover.
+     The dotted underline is the tell. */
+  .slot,.tile{position:relative}
+
+  /* ==== MENU: codex owns everything between these markers ==== */
+  /* These overrides live here because the surrounding chrome has another owner. */
+  .dockrow{z-index:20}
+  .dockrow .tile{cursor:pointer;color:var(--ink)}
+  .dockrow .tile:hover{background-color:rgba(255,255,255,.14)}
+  .dockrow button:focus-visible,.menu-rail button:focus-visible,
+  .menu-panel button:focus-visible,.menu-panel input:focus-visible,
+  .menu-panel summary:focus-visible{outline:2px solid var(--ink);outline-offset:4px}
+  .menu-rail{position:fixed;right:18px;top:50%;transform:translateY(-50%);
+    display:flex;flex-direction:column;gap:18px;z-index:21}
+  .menu-rail button{display:flex;justify-content:flex-end;align-items:center;gap:12px;
+    padding:0;border:0;background:none;color:rgba(244,230,220,.62);
+    font:12px var(--face-body);cursor:pointer}
+  .menu-rail .menu-orb{display:grid;place-items:center;width:42px;height:42px;
+    border:1px solid rgba(255,255,255,.16);border-radius:50%;
+    background-color:rgba(255,255,255,.055);
+    background-image:linear-gradient(rgba(0,0,0,.34),rgba(0,0,0,.34));
+    -webkit-backdrop-filter:blur(24px) saturate(180%);
+    backdrop-filter:blur(24px) saturate(180%);
+    box-shadow:0 5px 20px rgba(0,0,0,.20),inset 0 1px 0 rgba(255,255,255,.20);
+    transition:transform .24s cubic-bezier(.32,.72,0,1),background .24s ease}
+  .menu-rail button:hover{color:var(--ink)}
+  .menu-rail button:hover .menu-orb{transform:scale(1.06);background-color:rgba(255,255,255,.11)}
+  .menu-orb svg{width:18px;height:18px;fill:none;stroke:currentColor;
+    stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+  .menu-panel{position:fixed;inset:auto 92px 100px auto;margin:0;
+    width:min(420px,calc(100vw - 48px));max-height:calc(100vh - 136px);
+    padding:0;box-sizing:border-box;border-radius:22px;
+    border:1px solid rgba(255,255,255,.18);color:var(--ink);
+    background-color:rgba(255,255,255,.055);
+    background-image:linear-gradient(rgba(0,0,0,.34),rgba(0,0,0,.34));
+    font:13px/1.55 var(--face-body);
+    -webkit-backdrop-filter:blur(24px) saturate(180%);
+    backdrop-filter:blur(24px) saturate(180%);
+    box-shadow:0 20px 70px rgba(0,0,0,.42),inset 0 1px 0 rgba(255,255,255,.20);
+    overflow:auto;-webkit-user-select:text;user-select:text}
+  .menu-panel[data-view="instruments"]{right:max(24px,calc(50% - 320px))}
+  .menu-panel::backdrop{background:rgba(0,0,0,.50);
+    -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+  .menu-panel[open]{animation:menu-arrive .24s cubic-bezier(.32,.72,0,1)}
+  @keyframes menu-arrive{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+  .menu-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;
+    padding:20px 22px 10px}
+  .menu-heading h2{margin:0;font:500 20px/1.3 var(--face-body);letter-spacing:-.03em}
+  .menu-close{border:1px solid rgba(255,255,255,.13);border-radius:50%;width:30px;height:30px;
+    background:rgba(255,255,255,.055);color:var(--ink);font:20px var(--face-body);cursor:pointer;flex:none}
+  .menu-intro{margin:0;padding:0 22px 18px;color:rgba(244,230,220,.62);font-size:12px}
+  .menu-content{padding:0 22px 22px}
+  .menu-reading{padding:13px 0;border-top:1px solid rgba(255,255,255,.09)}
+  .menu-reading summary{display:flex;align-items:baseline;justify-content:space-between;
+    gap:12px;cursor:pointer;list-style:none}
+  .menu-reading summary::-webkit-details-marker{display:none}
+  .menu-reading summary::after{content:'+';color:rgba(244,230,220,.34)}
+  .menu-reading[open] summary::after{content:'−'}
+  .menu-reading-name{flex:1}
+  .menu-reading-value{font-size:11px;color:rgba(244,230,220,.62)}
+  .menu-reading[data-available="true"] .menu-reading-value{color:var(--ink);font-size:15px}
+  .menu-reading p,.menu-note{color:rgba(244,230,220,.62);font-size:12px;margin:8px 0 0}
+  .menu-reading[data-available="false"] .menu-reading-value{font-size:9px;letter-spacing:.09em}
+  .menu-search{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.18);
+    border-radius:10px;background:rgba(255,255,255,.045);color:var(--ink);
+    padding:10px 12px;font:12px var(--face-body);margin:0 0 12px}
+  .menu-history-list{margin:0;padding:0;list-style:none}
+  .menu-history-list li{border-top:1px solid rgba(255,255,255,.09);padding:14px 0}
+  .menu-history-list strong{font-size:10px;font-weight:400;letter-spacing:.12em;text-transform:uppercase;
+    color:rgba(244,230,220,.62)}
+  .menu-history-list p{margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+  .menu-status{display:block;font-size:10px;letter-spacing:.10em;color:rgba(244,230,220,.62)}
+  .menu-empty-title{font-size:18px;margin:10px 0}
+  @media(max-width:760px){
+    .dockrow{gap:8px;bottom:10px}.dockrow .bar{gap:4px;padding:7px}
+    .dockrow .slot{width:34px;height:40px}.dockrow .slot svg{width:21px;height:21px}
+    .dockrow .avatar{width:36px;height:36px}.dockrow .sep{margin:0 2px}
+    .dockrow .tile{width:48px;height:56px}.menu-rail{right:12px;gap:12px}
+    .menu-rail button{gap:7px;font-size:10px}.menu-rail .menu-orb{width:36px;height:36px}
+    .menu-panel,.menu-panel[data-view="instruments"]{right:24px;bottom:84px;max-height:calc(100vh - 108px)}
+  }
+  @media(prefers-reduced-motion:reduce){
+    .menu-panel[open]{animation:none}.menu-rail .menu-orb,.dockrow,.dockrow .slot{transition:none}
+    .menu-rail button:hover .menu-orb,.dockrow .slot:hover{transform:none}
+  }
+  @media(prefers-reduced-transparency:reduce){
+    .menu-panel::backdrop{-webkit-backdrop-filter:none;backdrop-filter:none}
+    .menu-panel,.menu-rail .menu-orb,.dockrow .bar,.dockrow .tile{background:#242225;
+      -webkit-backdrop-filter:none;backdrop-filter:none}
+  }
+
+  /* All 17 were approved 2026-09-07. Keep legible targets; overflow is
+     navigation on narrow surfaces, never an invisible seventeenth action. */
+  .dockrow{padding:0 12px;box-sizing:border-box}
+  .dockrow .bar{min-width:0;max-width:calc(100vw - 102px);overflow-x:auto;
+    scrollbar-width:thin;padding:15px 12px 9px;gap:10px}
+  .dockrow .slot{flex:0 0 52px;width:52px;height:52px;cursor:pointer}
+  .dockrow .slot svg{width:26px;height:26px;stroke:var(--ink)}
+  .dockrow .avatar{flex:0 0 52px;width:52px;height:52px;box-sizing:border-box}
+  .dockrow .sep{flex:0 0 1px}
+  .dockrow .tile{flex:0 0 64px;width:64px;height:64px}
+  .menu-tooltip{position:fixed;z-index:30;width:280px;max-width:calc(100vw - 24px);
+    padding:14px 16px;box-sizing:border-box;border:1px solid rgba(244,230,220,.25);
+    border-radius:16px;background:#292529;color:var(--ink);font:13px/1.5 var(--face-body);
+    box-shadow:0 8px 35px #0007;pointer-events:none}
+  .menu-tooltip[hidden]{display:none}.menu-tooltip strong{display:block;margin-bottom:5px}
+  .menu-panel,.menu-panel[data-view="instruments"]{right:24px;bottom:110px;
+    width:min(640px,calc(100vw - 48px));max-height:calc(100vh - 145px)}
+  .menu-reading-value{max-width:48%;text-align:right;overflow-wrap:anywhere}
+  .menu-data{white-space:pre-wrap;overflow-wrap:anywhere;max-height:260px;overflow:auto;
+    font:11px/1.6 var(--face-mono);background:rgba(0,0,0,.12);padding:12px;border-radius:12px}
+  .menu-action{padding:9px 12px;margin:8px 8px 8px 0;border:1px solid rgba(244,230,220,.25);
+    border-radius:12px;background:rgba(255,255,255,.085);color:var(--ink);font:inherit;cursor:pointer}
+  .menu-action:disabled{opacity:.4;cursor:default}.menu-palette{display:flex;flex-direction:column}
+  .menu-palette .menu-action{text-align:left}.menu-tools{margin-bottom:14px}
+  .menu-caption{display:block;margin:10px 0;color:rgba(244,230,220,.65);font-size:12px}
+  .menu-heading h2{flex:1}
+  .menu-back{flex:none;border:1px solid rgba(244,230,220,.18);border-radius:50%;
+    width:32px;height:32px;background:rgba(255,255,255,.055);color:var(--ink);cursor:pointer;font:18px var(--face-body)}
+  .menu-back[hidden],.menu-reading[hidden],.menu-group[hidden]{display:none}
+  .menu-filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+  .menu-filter-label{flex:1;min-width:160px;font-size:11px;color:rgba(244,230,220,.70)}
+  .menu-filter-label select{display:block;width:100%;box-sizing:border-box;margin-top:5px;padding:9px 10px;
+    border:1px solid rgba(244,230,220,.18);border-radius:10px;background:#292529;color:var(--ink);font:12px var(--face-body)}
+  .menu-panel select:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+  .menu-group{margin-top:20px}.menu-group h3{margin:0 0 7px;font:500 13px var(--face-body);color:var(--ink)}
+  .menu-group-count{font-weight:400;font-size:11px;color:rgba(244,230,220,.62);margin-left:8px}
+  .menu-results{font-size:12px;color:rgba(244,230,220,.70);margin:12px 0}
+  .menu-evidence summary{font-size:11px;color:rgba(244,230,220,.70);cursor:pointer;margin:10px 0}
+  .menu-reading .menu-evidence summary{display:list-item;list-style:disclosure-closed}
+  .menu-reading .menu-evidence[open] summary{list-style:disclosure-open}
+  .menu-reading .menu-evidence summary::after{content:none}
+  .menu-evidence[hidden]{display:none}
+  @media(max-width:480px){.menu-heading{padding:16px 16px 10px}.menu-content{padding:0 16px 16px}
+    .menu-intro{padding:0 16px 14px}.menu-reading summary{flex-wrap:wrap}.menu-reading-value{max-width:100%}}
+
+body{background:radial-gradient(ellipse at 20% 65%,#57483f 0,transparent 65%),#242225}
+.proposal-note{position:fixed;left:40px;top:35px;max-width:390px;z-index:100;font:14px/1.6 var(--face-body);pointer-events:none}
+.proposal-note strong{display:block;font-size:26px;font-weight:500;line-height:1.2;margin:8px 0 16px}
+.proposal-note p{color:rgba(244,230,220,.76);margin:8px 0}.proposal-note small{font-size:11px;letter-spacing:.12em;text-transform:uppercase}
+.menu-panel::backdrop{background:rgba(0,0,0,.18);backdrop-filter:none;-webkit-backdrop-filter:none}
+@media(max-width:1050px){.proposal-note{top:16px;left:24px;max-width:none}.proposal-note strong{font-size:20px;margin:4px 0}.proposal-note p{display:none}.menu-panel,.menu-panel[data-view="instruments"]{max-height:calc(100vh - 230px)}}
+</style></head><body><aside class="proposal-note"><small>Design proposal · approval pending</small><strong>Expandable menu</strong><p>This is the proposed layout from the isolated branch. Search, filter, expand a row, and try the back button.</p><p>No live readings are connected in this preview. It does not change your app or establish live acceptance.</p></aside>
+<div class="dockrow">
+  <div class="bar" role="group" aria-label="Main menu — seventeen approved destinations">
+    
+    <button class="slot" type="button" data-menu-view="action-outbox" aria-label="Action outbox" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14v6h16v-6M4 14h5l2 3h2l2-3h5M12 13V3m-4 4 4-4 4 4"/></svg></button>
+    <button class="slot" type="button" data-menu-view="autonomy-queue" aria-label="Autonomy queue" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h10M4 11h7M4 17h7m5-7 5 4-5 4z"/><circle cx="19" cy="5" r="1"/></svg></button>
+    <button class="slot" type="button" data-menu-view="emergency-stop" aria-label="Emergency stop" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 3-5 5v8l5 5h8l5-5V8l-5-5z"/><rect x="9" y="9" width="6" height="6" rx=".5"/></svg></button>
+    <button class="slot" type="button" data-menu-view="grants" aria-label="Grants" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6zM8 12l3 3 5-6"/></svg></button>
+    <button class="slot" type="button" data-menu-view="verification-state" aria-label="Verification state" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m7 12 3 3 7-7M8 3l1 2M3 8l2 1M16 21l-1-2"/></svg></button>
+    <button class="slot" type="button" data-menu-view="follow-me" aria-label="Follow-me" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="7" height="10" rx="2"/><rect x="15" y="10" width="6" height="10" rx="2"/><path d="M13 5h6l-2-2m2 2-2 2M11 19H5l2-2m-2 2 2 2"/></svg></button>
+    <button class="slot" type="button" data-menu-view="grant-templates" aria-label="Grant templates" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h11l3 3v13H7zM7 7H3v14h14v-2M17 3v5h4M11 12h6M11 15h4"/></svg></button>
+    <button class="slot" type="button" data-menu-view="hardware-access" aria-label="Hardware access" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8h4l2-3h6l2 3h4v12H3z"/><circle cx="12" cy="13" r="3"/><circle cx="19" cy="5" r="1"/></svg></button>
+    <button class="slot" type="button" data-menu-view="import-export" aria-label="Import / export" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3v13m-4-4 4 4 4-4M16 21V8m-4 4 4-4 4 4M3 21h7M14 3h7"/></svg></button>
+    <button class="slot" type="button" data-menu-view="live-activity-stream" aria-label="Live activity stream" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12h4l3-7 5 14 3-7h5"/></svg></button>
+    <button class="slot" type="button" data-menu-view="modes" aria-label="Modes" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="7"/><circle cx="9" cy="12" r="3"/><path d="M17 10v4"/></svg></button>
+    <button class="slot" type="button" data-menu-view="panic-revoke" aria-label="Panic revoke" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4a5 5 0 1 0 0 10l4 4h3v3h4v-5l-6-6M3 21 21 3"/></svg></button>
+    <button class="slot" type="button" data-menu-view="per-app-rules" aria-label="Per-app rules" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><path d="M14 16h7M14 20h7M17 14v4M19 18v4"/></svg></button>
+    <button class="slot" type="button" data-menu-view="quiet-hours-restrictions" aria-label="Quiet-hours restrictions" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3a9 9 0 1 0 7 13A9 9 0 0 1 14 3Z M17 5v5M20 5v5"/></svg></button>
+    <button class="slot" type="button" data-menu-view="remote-surfaces" aria-label="Remote surfaces" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="4" width="13" height="10" rx="2"/><path d="M5 19h7M8 14v5"/><rect x="17" y="10" width="5" height="11" rx="1"/><path d="M19 18h1"/></svg></button>
+    <button class="slot" type="button" data-menu-view="work-rate" aria-label="Work rate" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 20V4M3 20h18M7 16v-4M12 16V8M17 16V5"/><path d="m6 8 5-4 4 1 5-3"/></svg></button>
+    <button class="slot" type="button" data-menu-view="macos-permissions" aria-label="macOS permissions" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/><rect x="9" y="10" width="6" height="5" rx="1"/><path d="M10 10V8a2 2 0 0 1 4 0v2"/></svg></button>
+    <div class="sep"></div>
+    <div class="avatar" title="the owner's avatar — placeholder">A</div>
+  </div>
+  <!-- The instrument tile is separate from the seventeen approved destinations. -->
+  <button class="tile" id="menu-toggle" type="button" aria-label="Host instruments"
+          aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false" title="Host instruments">
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 8h16M4 12h16M4 16h10" stroke-linecap="round"/>
+      <path d="M17.5 15.5l2.5 2.5-2.5 2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </button>
+</div>
+<div class="menu-tooltip" id="menu-tooltip" role="tooltip" hidden><strong></strong><span></span></div>
+<nav class="menu-rail" aria-label="Home destinations">
+  <button type="button" data-menu-view="projects" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false">
+    <span>projects</span><span class="menu-orb"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h7l2 2h9v10H3zM3 7V5h7l2 2"/></svg></span>
+  </button>
+  <button type="button" data-menu-view="research" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false">
+    <span>research</span><span class="menu-orb"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 5 5M7 10h6M10 7v6"/></svg></span>
+  </button>
+  <button type="button" data-menu-view="history" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false">
+    <span>history</span><span class="menu-orb"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8a9 9 0 1 1-1 7M4 3v5h5M12 7v5l3 2"/></svg></span>
+  </button>
+  <button type="button" data-menu-view="settings" aria-haspopup="dialog" aria-controls="menu-panel" aria-expanded="false">
+    <span>settings</span><span class="menu-orb"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/><circle cx="9" cy="6" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="8" cy="18" r="2"/></svg></span>
+  </button>
+</nav>
+<dialog class="menu-panel" id="menu-panel" aria-labelledby="menu-title" aria-describedby="menu-intro">
+  <header class="menu-heading"><button type="button" class="menu-back" aria-label="Back to previous menu" hidden>←</button><h2 id="menu-title"></h2>
+    <button type="button" class="menu-close" aria-label="Close panel" autofocus>×</button>
+  </header>
+  <p class="menu-intro" id="menu-intro"></p>
+  <div class="menu-content" id="menu-content"></div>
+</dialog>
+<script>
+(function () {
+ 'use strict';
+ document.addEventListener('DOMContentLoaded',function(){
+  var CATALOGUE = [{"id": "action-outbox", "name": "Action outbox", "bucket": "A", "area": "main", "what": "Every external side effect, durably recorded before it happens, with reconciliation state.", "reason": "The live reconciliation registry is not attached to this publisher."}, {"id": "autonomy-queue", "name": "Autonomy queue", "bucket": "A", "area": "main", "what": "What VESPER intends to do unprompted, before it does it.", "reason": "The live autonomy loop is not attached to this publisher."}, {"id": "emergency-stop", "name": "Emergency stop", "bucket": "A", "area": "main", "what": "Halt everything. Independent of the thing it stops, by design.", "reason": "The native bridge exposes no independent stop command. In the existing app, hold Globe/Fn + Control + Option + Command for 0.6 seconds to stop VESPER; Globe three times starts it again. This panel cannot invoke that native stop."}, {"id": "grants", "name": "Grants", "bucket": "A", "area": "main", "what": "Standing permissions, their scope, and their expiry.", "reason": "The running policy decision point is not attached to this publisher."}, {"id": "verification-state", "name": "Verification state", "bucket": "A", "area": "main", "what": "What's been verified, what's asserted, and the refusal to let repetition count as success.", "reason": "The live verifier is not attached to this publisher."}, {"id": "follow-me", "name": "Follow-me", "bucket": "B", "area": "main", "what": "The interface moving with VESPER as it relocates.", "reason": "No relocation-to-interface transport is registered on this surface."}, {"id": "grant-templates", "name": "Grant templates", "bucket": "B", "area": "main", "what": "Reusable permission sets — 'study mode', 'travel mode', 'hands off'.", "reason": "No owner-defined grant template collection or governed apply operation exists."}, {"id": "hardware-access", "name": "Hardware access", "bucket": "B", "area": "main", "what": "Camera, microphone, screen, files — what's granted, what's in use, and a capture indicator that can't lie.", "reason": "The native bridge publishes neither active capture sessions nor complete permission state. Device presence is not access consent."}, {"id": "import-export", "name": "Import / export", "bucket": "B", "area": "main", "what": "Take your memory with you, or seed it from somewhere else.", "reason": "No portable memory transfer operation is exposed by the native bridge. Copying live database files would lose WAL records."}, {"id": "live-activity-stream", "name": "Live activity stream", "bucket": "B", "area": "main", "what": "A running narration of what VESPER is doing, at a granularity you set.", "reason": "No runtime event stream has been supplied to this publisher."}, {"id": "modes", "name": "Modes", "bucket": "B", "area": "main", "what": "Study / travel / low-power / hands-off — whole configurations you switch between.", "reason": "The existing permission mode does not define study, travel, low-power, or hands-off configurations. Those presets need governed definitions before they can be applied."}, {"id": "panic-revoke", "name": "Panic revoke", "bucket": "B", "area": "main", "what": "Drop every standing grant at once, without stopping VESPER.", "reason": "The policy decision point has no public revoke-all operation, and the native bridge has no revoke command."}, {"id": "per-app-rules", "name": "Per-app rules", "bucket": "B", "area": "main", "what": "What VESPER may touch in each application, separately.", "reason": "No per-application policy collection or governed editor exists."}, {"id": "quiet-hours-restrictions", "name": "Quiet-hours restrictions", "bucket": "B", "area": "main", "what": "Narrower permissions at night than during the day.", "reason": "No owner-defined quiet-hours authorization policy exists. Alarm overrides must remain intact."}, {"id": "remote-surfaces", "name": "Remote surfaces", "bucket": "B", "area": "main", "what": "Reaching VESPER from a phone or another machine.", "reason": "No enrolled endpoint inventory is attached to this publisher."}, {"id": "work-rate", "name": "Work rate", "bucket": "B", "area": "main", "what": "Throughput over time — is VESPER actually getting things done.", "reason": "No bounded runtime completion history has been supplied."}, {"id": "macos-permissions", "name": "macOS permissions", "bucket": "B", "area": "main", "what": "Accessibility, Screen Recording, Automation — what's granted, what's needed for which feature, and why.", "reason": "Permission status is not exported by the native bridge. Querying permissions from a helper would report the helper’s identity, not the app’s."}, {"id": "attestation-state", "name": "Attestation state", "bucket": "A", "area": "instruments", "what": "Whether a VESPER-controlled segment exists and is attested. Today: false, so no node is a full host.", "reason": "The network fabric contract could not be read."}, {"id": "battery-health", "name": "Battery health", "bucket": "A", "area": "instruments", "what": "Capacity, cycles, temperature history, daily charge range. The numbers that decide the ten-year question.", "reason": "No usable battery capacity and cycle counters were returned."}, {"id": "capability-registry", "name": "Capability registry", "bucket": "A", "area": "instruments", "what": "Every capability, its level, and the constants that are refused outright.", "reason": "The running capability registry is not attached to this publisher."}, {"id": "charge-policy", "name": "Charge policy", "bucket": "A", "area": "instruments", "what": "Charge limit state, and whether the machine is sitting at high charge — the mechanism that aged this pack to 84% in a shop.", "reason": "The OS did not return battery charge range or charge-limit state."}, {"id": "compensation", "name": "Compensation", "bucket": "A", "area": "instruments", "what": "What each in-flight action would undo if it fails partway.", "reason": "The running executor’s compensator registry is not attached to this publisher."}, {"id": "compressor-swap", "name": "Compressor & swap", "bucket": "A", "area": "instruments", "what": "How hard the compressor is working, and whether swap has turned on. Swap is the SSD-wear tripwire.", "reason": "The OS did not return compressor and swap counters."}, {"id": "control-plane-lease", "name": "Control-plane lease", "bucket": "A", "area": "instruments", "what": "Which node holds control, its fencing token, and its refusal to self-promote.", "reason": "No readable leased-domain state was supplied."}, {"id": "degradation-ladder", "name": "Degradation ladder", "bucket": "A", "area": "instruments", "what": "What VESPER gives up first when it must give something up.", "reason": "The governed degradation contract could not be read."}, {"id": "endpoints", "name": "Endpoints", "bucket": "A", "area": "instruments", "what": "Every surface VESPER can reach you through, as profiles rather than device names.", "reason": "The live device registry is not attached to this publisher."}, {"id": "enrollment", "name": "Enrollment", "bucket": "A", "area": "instruments", "what": "Admit a new machine, measure it, and watch it earn placement on merit.", "reason": "No live enrollment registry is instantiated by this runtime. Discovery and admission cannot be performed by the display."}, {"id": "governed-surfaces", "name": "Governed surfaces", "bucket": "A", "area": "instruments", "what": "Which files require review, and who reviews them.", "reason": "The governed-surface artifact could not be read."}, {"id": "key-identity-state", "name": "Key & identity state", "bucket": "A", "area": "instruments", "what": "Each node's keys, where they're stored, and which never leave the device.", "reason": "No enrolled device key-storage profiles were supplied. Key material is never read by this panel."}, {"id": "memory-headroom", "name": "Memory headroom", "bucket": "A", "area": "instruments", "what": "Real reclaimable memory, translated — not the alarming 'free' figure that reads 0.16 GB on a healthy machine.", "reason": "The host adapter could not read reclaimable memory."}, {"id": "memory-pressure-band", "name": "Memory pressure band", "bucket": "A", "area": "instruments", "what": "The kernel's own signal, shown as a band. Never converted to gigabytes — it doesn't track allocation.", "reason": "The kernel did not expose a pressure band."}, {"id": "network-segments", "name": "Network segments", "bucket": "A", "area": "instruments", "what": "Private / shared / outside, each with its trust ceiling. No addresses, no product names.", "reason": "The declared network segments could not be read."}, {"id": "node-profiles", "name": "Node profiles", "bucket": "A", "area": "instruments", "what": "What each machine measurably sustains. UNKNOWN means unavailable, and shows as such.", "reason": "No live enrolled measured profiles were supplied."}, {"id": "owner-working-set", "name": "Owner working set", "bucket": "A", "area": "instruments", "what": "What's resident right now, so a headroom number is interpretable rather than just a figure.", "reason": "The OS process resident-memory inventory was unavailable."}, {"id": "placement-decisions", "name": "Placement decisions", "bucket": "A", "area": "instruments", "what": "Where each capability currently runs and why it was placed there, including what lost.", "reason": "No live placement assignment or decision history was supplied."}, {"id": "platform-adapters", "name": "Platform adapters", "bucket": "A", "area": "instruments", "what": "Per-platform translation of host signals. The knowledge lives in the adapter, never in shared logic.", "reason": "The host adapter could not be loaded."}, {"id": "survival-profile", "name": "Survival profile", "bucket": "A", "area": "instruments", "what": "What VESPER carries onto the last device standing, and what it drops.", "reason": "No enrolled placement profile with measured resource budgets was supplied."}, {"id": "trust-zones", "name": "Trust zones", "bucket": "A", "area": "instruments", "what": "Z0–Z3 per node, with the reason each landed where it did.", "reason": "No enrolled effective trust assignments were supplied. A key-storage ceiling alone is not an effective trust zone."}, {"id": "before-after", "name": "Before/after", "bucket": "B", "area": "instruments", "what": "Measure a change you made and show whether it actually helped.", "reason": "Capture a fresh baseline and a later reading in this panel to compare them."}, {"id": "command-palette", "name": "Command palette", "bucket": "B", "area": "instruments", "what": "Keyboard-first access to every surface in this document.", "reason": "The palette is available locally through the instruments panel or Command-K."}, {"id": "costing-me-now", "name": "Costing me now", "bucket": "B", "area": "instruments", "what": "Live ranked list of what is draining the battery this minute.", "reason": "Public process CPU and RSS counters do not measure battery energy. Per-process power attribution requires privileged powermetrics."}, {"id": "disk-i-o-rate", "name": "Disk I/O rate", "bucket": "B", "area": "instruments", "what": "Live read/write throughput, and cumulative writes against SSD endurance.", "reason": "Two comparable storage-counter samples are needed before a rate can be measured."}, {"id": "display-power", "name": "Display power", "bucket": "B", "area": "instruments", "what": "Brightness and its real cost. The display dominates idle drain, so this is a bigger lever than CPU.", "reason": "The public display inventory does not report measured display watts. Brightness alone cannot establish power cost."}, {"id": "link-quality", "name": "Link quality", "bucket": "B", "area": "instruments", "what": "Latency, throughput and reliability per path — measured at enrollment, never declared.", "reason": "No enrollment-measured per-path latency, throughput, and reliability record is published. A TCP reachability check is not that measurement."}, {"id": "maintenance-actions", "name": "Maintenance actions", "bucket": "B", "area": "instruments", "what": "Things worth doing occasionally, surfaced when they're due rather than remembered.", "reason": "No maintenance schedule or last-completed action ledger has been configured."}, {"id": "node-roles", "name": "Node roles", "bucket": "B", "area": "instruments", "what": "What each machine is FOR — always-on server, travelling laptop, phone endpoint.", "reason": "The live enrollment registry has not published role assignments. Availability classes are not roles."}, {"id": "peripherals", "name": "Peripherals", "bucket": "B", "area": "instruments", "what": "What's plugged in, what it draws, and what it keeps awake.", "reason": "No public peripheral inventory was returned."}, {"id": "radio-state", "name": "Radio state", "bucket": "B", "area": "instruments", "what": "Wi-Fi and Bluetooth power cost, and what's keeping them awake.", "reason": "No public radio-state observation was returned."}, {"id": "relocation-history", "name": "Relocation history", "bucket": "B", "area": "instruments", "what": "When VESPER moved, what triggered it, and the damping that stopped it flapping.", "reason": "No placement events are available in the supplied bounded log tail."}, {"id": "retry-policy", "name": "Retry policy", "bucket": "B", "area": "instruments", "what": "What VESPER does when something fails, per task class.", "reason": "The running reconciler’s retry policy could not be read."}, {"id": "sleep-wake-log", "name": "Sleep & wake log", "bucket": "B", "area": "instruments", "what": "Every sleep, wake, and what woke it. Where mystery battery drain gets explained.", "reason": "The public power-management log could not be read."}, {"id": "storage-ssd", "name": "Storage & SSD", "bucket": "B", "area": "instruments", "what": "Free space, TRIM, SMART, and cumulative write pressure.", "reason": "The public disk inventory could not be read."}, {"id": "thermal-history", "name": "Thermal history", "bucket": "B", "area": "instruments", "what": "Temperature over time against ambient — the variable that matters most in site B heat.", "reason": "No battery-temperature samples have been collected. Ambient temperature is unavailable."}, {"id": "throttle-events", "name": "Throttle events", "bucket": "B", "area": "instruments", "what": "When the machine actually throttled, and what was running.", "reason": "The public power-management interface returned no recorded performance-warning status."}, {"id": "approval-history", "name": "Approval history", "bucket": "C", "area": "instruments", "what": "Everything you've ever approved, and the chance to withdraw any of it.", "reason": "No approval records are available in the supplied bounded audit tail. Withdrawal is unavailable without a revoke operation."}, {"id": "blast-radius", "name": "Blast radius", "bucket": "C", "area": "instruments", "what": "What breaks if a given node dies — simulated before it happens.", "reason": "No enrolled placement profiles and assignments were supplied for simulation."}, {"id": "clock-skew", "name": "Clock skew", "bucket": "C", "area": "instruments", "what": "How far apart the nodes' clocks are — and the reminder that HLC, not wall clock, decides order.", "reason": "No bounded request/response clock observations from other nodes were supplied. Local timestamps alone cannot establish skew."}, {"id": "migration-dry-run", "name": "Migration dry-run", "bucket": "C", "area": "instruments", "what": "Move VESPER somewhere, in simulation, and see what degrades.", "reason": "No enrolled placement profiles were supplied for simulation."}, {"id": "node-comparison", "name": "Node comparison", "bucket": "C", "area": "instruments", "what": "Two machines side by side on every measured axis.", "reason": "At least two enrolled measured node profiles are needed for comparison."}, {"id": "onboarding-wizard", "name": "Onboarding wizard", "bucket": "C", "area": "instruments", "what": "Walk a new machine from nothing to enrolled and measured.", "reason": "The native bridge has no discovery, measurement, or admission command. The wizard can prepare a request but cannot enroll a node."}, {"id": "ambient-estimate", "name": "Ambient estimate", "bucket": "D", "area": "instruments", "what": "Inferred room temperature — the ceiling the battery can never get below.", "reason": "There is no ambient-temperature sensor. Battery temperature is not room temperature."}, {"id": "behaviour-on-off-this-mac", "name": "Behaviour on / off this Mac", "bucket": "D", "area": "instruments", "what": "Different rules when VESPER is here versus running on another node.", "reason": "The owner has not defined the location-dependent policy. No policy is inferred."}, {"id": "charging-schedule", "name": "Charging schedule", "bucket": "D", "area": "instruments", "what": "When to charge, given your day, to minimise time at high state of charge.", "reason": "The owner has not supplied a charging schedule, and no governed charging-control action is available."}, {"id": "consent-channel-policy", "name": "Consent channel policy", "bucket": "D", "area": "instruments", "what": "Which tiers may be approved by voice and which need a tap you make yourself.", "reason": "The owner has not decided which approval tiers may use voice versus an explicit tap."}, {"id": "failover-drill", "name": "Failover drill", "bucket": "D", "area": "instruments", "what": "Deliberately kill a node and prove recovery works. A negative control for the fabric.", "reason": "This action deliberately kills a node. Separate explicit owner authorization is required; icon approval does not authorize a drill."}, {"id": "fan-acoustics", "name": "Fan & acoustics", "bucket": "D", "area": "instruments", "what": "Fan speed and noise — heat you can hear before you can measure it.", "reason": "No supported public fan-speed or acoustic-power sensor is exposed to this publisher."}, {"id": "power-draw", "name": "Power draw", "bucket": "D", "area": "instruments", "what": "Whole-machine watts split into compute vs everything else. Compute is 8% at idle — the split is the insight.", "reason": "Whole-machine compute-versus-other power attribution requires privileged powermetrics. No root-access workaround is attempted."}, {"id": "process-energy", "name": "Process energy", "bucket": "D", "area": "instruments", "what": "Per-process power attribution — who is actually costing you battery, ranked.", "reason": "Per-process power attribution requires privileged powermetrics tasks. CPU usage is not watts."}];
+  var MAX_MENU_READINGS=51, MAX_MAIN_ITEMS=17, MAX_MENU_METRIC_ROWS=100;
+  var MAX_MENU_HISTORY=60, MAX_MENU_TEXT=6000, MAX_DATA_CHARS=16000;
+  var MAX_SEARCH=200, MAX_NUMERIC_FIELDS=100, MAX_DEPTH=5;
+  var panel=document.getElementById('menu-panel'),title=document.getElementById('menu-title');
+  var intro=document.getElementById('menu-intro'),content=document.getElementById('menu-content');
+  var tile=document.getElementById('menu-toggle'),tooltip=document.getElementById('menu-tooltip');
+  var triggers=Array.from(document.querySelectorAll('[data-menu-view]'));
+  var active='',opener=null,rows=new Map(),catalogue=new Map(CATALOGUE.map(function(i){return [i.id,i];}));
+  var history=null,historyQuery='',historyTruncated=false,historyNodes=null;
+  var lastMetrics=null,expiryTimer=null,baseline=null,receiveVersion=0;
+  var MAX_MENU_NAV=12,trail=[],back=panel.querySelector('.menu-back');
+  var instrumentQuery='',instrumentTopic='all',instrumentStatus='all',expanded=new Set();
+  var instrumentControls=null;
+  // These topics are navigation only. Engineering buckets must not imply that
+  // an unavailable observation is less useful or disappear from the catalogue.
+  var TOPICS=[
+   {id:'power',name:'Battery & energy',items:['battery-health','charge-policy','charging-schedule','costing-me-now','display-power','power-draw','process-energy']},
+   {id:'health',name:'Memory, storage & thermals',items:['memory-headroom','memory-pressure-band','compressor-swap','owner-working-set','disk-i-o-rate','storage-ssd','thermal-history','throttle-events','ambient-estimate','fan-acoustics']},
+   {id:'fabric',name:'Nodes & connections',items:['attestation-state','endpoints','enrollment','key-identity-state','network-segments','node-profiles','platform-adapters','trust-zones','link-quality','node-roles','peripherals','radio-state','clock-skew','node-comparison','onboarding-wizard']},
+   {id:'continuity',name:'Placement & continuity',items:['control-plane-lease','degradation-ladder','placement-decisions','survival-profile','relocation-history','blast-radius','migration-dry-run','failover-drill']},
+   {id:'governance',name:'Permissions & activity',items:['capability-registry','compensation','governed-surfaces','maintenance-actions','retry-policy','sleep-wake-log','approval-history','behaviour-on-off-this-mac','consent-channel-policy']},
+   {id:'tools',name:'Comparison & search',items:['before-after','command-palette']}
+  ];
+  var instrumentItems=CATALOGUE.filter(function(i){return i.area==='instruments';}).slice(0,MAX_MENU_READINGS);
+  var topicFor=new Map();TOPICS.forEach(function(t){t.items.forEach(function(id){topicFor.set(id,t.id);});});
+  function node(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
+  function bounded(v){return typeof v==='string'?v.slice(0,MAX_MENU_TEXT):'';}
+  function action(label,fn){var b=node('button','menu-action',label);b.type='button';b.addEventListener('click',fn);return b;}
+  function focusHost(){try{window.webkit.messageHandlers.vesperFocus.postMessage('1');}catch(e){}}
+  function hideTooltip(){tooltip.hidden=true;}
+  function showTooltip(b,item){
+   if(panel.open)return;
+   tooltip.querySelector('strong').textContent=item.name;tooltip.querySelector('span').textContent=item.what;
+   tooltip.hidden=false;var r=b.getBoundingClientRect();
+   tooltip.style.left=Math.max(12,Math.min(r.left+r.width/2-tooltip.offsetWidth/2,window.innerWidth-tooltip.offsetWidth-12))+'px';
+   tooltip.style.top=Math.max(12,r.top-tooltip.offsetHeight-12)+'px';
+  }
+  triggers.forEach(function(b){var item=catalogue.get(b.dataset.menuView);if(!item)return;
+   b.setAttribute('aria-description',item.what);
+   b.addEventListener('pointerenter',function(){showTooltip(b,item);});
+   b.addEventListener('focus',function(){showTooltip(b,item);});
+   b.addEventListener('pointerleave',hideTooltip);b.addEventListener('blur',hideTooltip);
+  });
+  document.querySelector('.bar').addEventListener('scroll',hideTooltip);
+  window.addEventListener('resize',hideTooltip);
+  function fresh(r){var now=Date.now();return !!r && r.status==='available' && typeof r.value==='string' && typeof r.source==='string' && r.source.length>0
+   && Number.isFinite(r.at_ms) && r.at_ms>0 && Number.isFinite(r.ttl_ms) && r.ttl_ms>0
+   && r.at_ms<=now && now-r.at_ms<=r.ttl_ms;}
+  function reason(item,r){
+   if(!r)return item.reason;
+   if(r.status==='unavailable')return bounded(r.reason)||item.reason;
+   if(!fresh(r))return 'The observation is expired, unstamped, or clock-invalid. Waiting for a fresh measurement.';
+   return '';
+  }
+  function putText(el,text){if(el.textContent!==text)el.textContent=text;}
+  function dataText(data){try{var text=JSON.stringify(data,null,2)||'';return text.length>MAX_DATA_CHARS?text.slice(0,MAX_DATA_CHARS)+'\n… display limited to '+MAX_DATA_CHARS+' characters':text;}catch(e){return 'Details could not be decoded.';}}
+  function updateReading(el,item){
+   var r=rows.get(item.id),known=fresh(r);
+   el.dataset.available=String(known);
+   putText(el.querySelector('.menu-reading-value'),known?bounded(r.value):'UNAVAILABLE');
+   var message=known?bounded(r.details):reason(item,r);
+   if(known)message+=' Source: '+bounded(r.source)+'. Observed '+new Date(r.at_ms).toLocaleTimeString()+'.';
+   putText(el.querySelector('.menu-reason'),message);
+   var pre=el.querySelector('.menu-data'),text=known&&r.data!==null&&r.data!==undefined?dataText(r.data):'';
+   pre.hidden=!text;putText(pre,text);el.querySelector('.menu-evidence').hidden=!text;
+  }
+  function reading(item,open){
+   var el=node('details','menu-reading');el.dataset.item=item.id;el.open=!!open;
+   var summary=node('summary');summary.append(node('span','menu-reading-name',item.name),node('span','menu-reading-value'));
+   var evidence=node('details','menu-evidence');
+   evidence.append(node('summary','','Observation details'),node('pre','menu-data'));
+   el.append(summary,node('p','',item.what),node('p','menu-reason'),evidence);
+   el.addEventListener('toggle',function(e){if(e.target!==el)return;if(el.open)expanded.add(item.id);else expanded.delete(item.id);});
+   if(['before-after','command-palette','enrollment','onboarding-wizard'].includes(item.id)){
+    el.append(action('Open '+item.name,function(){show(item.id,opener);}));
+   }
+   updateReading(el,item);return el;
+  }
+  function renderInstruments(){
+   if(!instrumentControls){
+    content.textContent='';
+    var tools=node('div','menu-tools');
+    tools.append(action('Search all surfaces · ⌘K',function(){show('command-palette');}),action('Before / after',function(){show('before-after');}));
+    var search=node('input','menu-search');search.type='search';search.maxLength=MAX_SEARCH;
+    search.placeholder='Find an instrument';search.setAttribute('aria-label','Find an instrument');search.value=instrumentQuery;
+    var filters=node('div','menu-filters');
+    function select(label,choices,value){var wrap=node('label','menu-filter-label',label),el=node('select');
+     choices.forEach(function(c){var option=node('option','',c[1]);option.value=c[0];el.append(option);});
+     el.value=value;wrap.append(el);filters.append(wrap);return el;
+    }
+    var topic=select('Topic',[['all','All topics']].concat(TOPICS.map(function(t){return [t.id,t.name];})),instrumentTopic);
+    var status=select('Availability',[['all','All observations'],['available','Current readings'],['unavailable','Unavailable']],instrumentStatus);
+    var count=node('p','menu-results');count.setAttribute('role','status');count.setAttribute('aria-live','polite');
+    var empty=node('p','menu-note','No instruments match these filters.');empty.hidden=true;
+    var reset=action('Clear filters',function(){instrumentQuery='';instrumentTopic='all';instrumentStatus='all';
+     search.value='';topic.value='all';status.value='all';renderInstruments();search.focus();});
+    content.append(search,filters,reset,tools,count,empty);
+    TOPICS.forEach(function(t){var section=node('section','menu-group');section.dataset.topic=t.id;
+     var heading=node('h3','',t.name);heading.id='menu-topic-'+t.id;
+     heading.append(node('span','menu-group-count'));section.setAttribute('aria-labelledby',heading.id);section.append(heading);
+     instrumentItems.filter(function(i){return topicFor.get(i.id)===t.id;}).forEach(function(i){section.append(reading(i,expanded.has(i.id)));});content.append(section);
+    });
+    instrumentControls={count:count,empty:empty,reset:reset};
+    search.addEventListener('input',function(){instrumentQuery=search.value;renderInstruments();});
+    topic.addEventListener('change',function(){instrumentTopic=topic.value;renderInstruments();});
+    status.addEventListener('change',function(){instrumentStatus=status.value;renderInstruments();});
+   }
+   var query=instrumentQuery.trim().toLowerCase(),shown=0,current=0;
+   // Update existing nodes: a producer tick must not collapse an open row,
+   // move keyboard focus, reset a search, or replace unchanged evidence text.
+   content.querySelectorAll('.menu-reading').forEach(function(el){var item=catalogue.get(el.dataset.item);
+    updateReading(el,item);var known=el.dataset.available==='true';if(known)current++;
+    el.hidden=!(instrumentTopic==='all'||topicFor.get(item.id)===instrumentTopic)
+     ||!(instrumentStatus==='all'||(instrumentStatus==='available')===known)
+     ||!(item.name+' '+item.what).toLowerCase().includes(query);
+    if(!el.hidden)shown++;
+   });
+   content.querySelectorAll('.menu-group').forEach(function(group){var n=group.querySelectorAll('.menu-reading:not([hidden])').length;
+    group.hidden=n===0;putText(group.querySelector('.menu-group-count'),String(n));});
+   putText(instrumentControls.count,'Showing '+shown+' of '+instrumentItems.length+' instruments');
+   instrumentControls.empty.hidden=shown>0;
+   instrumentControls.reset.hidden=!query&&instrumentTopic==='all'&&instrumentStatus==='all';
+   putText(intro,current+' current readings · '+(instrumentItems.length-current)+' unavailable. Every instrument includes its description and evidence or a reason.');
+  }
+  function renderHistory(){
+   if(!historyNodes)return;var list=historyNodes.list;list.textContent='';
+   if(history===null){historyNodes.note.textContent='UNAVAILABLE — conversation history has not arrived.';return;}
+   var shown=history.filter(function(r){return (r.who+' '+r.text).toLowerCase().includes(historyQuery.toLowerCase());});
+   historyNodes.note.textContent=shown.length+' of '+history.length+' supplied entries'+(historyTruncated?' · bounded tail.':'.');
+   shown.forEach(function(r){var el=node('li');el.append(node('strong','',r.who),node('p','',r.text));list.append(el);});
+  }
+  function palette(){
+   intro.textContent='Search all 68 surfaces by name or description. Opening a surface does not execute its action.';
+   var search=node('input','menu-search');search.type='search';search.maxLength=MAX_SEARCH;search.placeholder='Find a surface';search.setAttribute('aria-label','Find a surface');
+   var list=node('div','menu-palette');content.append(search,list);
+   function filter(){list.textContent='';var query=search.value.toLowerCase();
+    var matches=CATALOGUE.filter(function(i){return (i.name+' '+i.what).toLowerCase().includes(query);});
+    if(!matches.length)list.append(node('p','menu-note','No matching surface.'));
+    matches.slice(0,MAX_MENU_READINGS+MAX_MAIN_ITEMS).forEach(function(i){list.append(action(i.name,function(){show(i.id,opener);}));});
+   }search.addEventListener('input',filter);filter();return search;
+  }
+  function numeric(data,prefix,out,depth){
+   if(depth>MAX_DEPTH||!data||typeof data!=='object')return;
+   Object.keys(data).slice(0,MAX_NUMERIC_FIELDS).forEach(function(k){if(Object.keys(out).length>=MAX_NUMERIC_FIELDS)return;
+    var v=data[k],path=prefix?prefix+'.'+k:k;
+    if(typeof v==='number'&&Number.isFinite(v)&&!/(^|[._])(at_ms|pid|expiry_ms|epoch|cycles)$/.test(path))out[path]=v;
+    else if(v&&typeof v==='object'&&!Array.isArray(v))numeric(v,path,out,depth+1);
+   });
+  }
+  function capture(){
+   var out={};['memory-headroom','memory-pressure-band','compressor-swap','storage-ssd','disk-i-o-rate','battery-health'].forEach(function(id){
+    var r=rows.get(id);if(fresh(r)){var fields={};numeric(r.data,'',fields,0);if(Object.keys(fields).length)out[id]={name:r.label,source:r.source,at_ms:r.at_ms,fields:fields};}
+   });return out;
+  }
+  function beforeAfter(){
+   intro.textContent='Compare two fresh observations from the same producers. A change is a measured difference, not proof that your action caused it.';
+   var note=node('p','menu-note'),output=node('pre','menu-data');
+   function describe(){note.textContent=baseline?'Baseline captured with '+Object.keys(baseline.values).length+' readings. Wait for the next producer update, then compare.':'No baseline captured in this session.';}
+   content.append(action('Capture baseline',function(){var values=capture();if(!Object.keys(values).length){note.textContent='UNAVAILABLE — no fresh numeric readings are available.';return;}
+    baseline={values:values,version:receiveVersion};output.textContent=dataText(values);describe();}),
+    action('Compare latest',function(){
+     if(!baseline){note.textContent='Capture a baseline first.';return;}
+     if(receiveVersion===baseline.version){note.textContent='Waiting for a new producer update.';return;}
+     var latest=capture(),compared=[];
+     Object.keys(baseline.values).forEach(function(id){var a=baseline.values[id],b=latest[id];
+      if(!b||a.source!==b.source||a.at_ms===b.at_ms)return;
+      Object.keys(a.fields).forEach(function(k){if(Object.prototype.hasOwnProperty.call(b.fields,k))compared.push({reading:a.name,field:k,before:a.fields[k],after:b.fields[k],delta:b.fields[k]-a.fields[k],before_at_ms:a.at_ms,after_at_ms:b.at_ms});});
+     });
+     note.textContent=compared.length?'Compared '+compared.length+' fields. Raw numbers and both observation times are retained.':'UNAVAILABLE — no later comparable fresh observations.';
+     output.textContent=dataText(compared);
+    }),note,output);describe();
+  }
+  function onboarding(){
+   var item=catalogue.get('onboarding-wizard');intro.textContent=item.what;
+   content.append(node('p','menu-note',item.reason));
+   var label=node('label','menu-caption','New node identifier'),input=node('input','menu-search');input.id='menu-node-id';input.maxLength=64;label.htmlFor=input.id;
+   input.placeholder='A stable profile identifier';var output=node('pre','menu-data');
+   content.append(label,input,action('Prepare enrollment request',function(){
+    var id=input.value.trim();if(!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(id)){output.textContent='Use 1–64 letters, digits, dots, underscores or hyphens; begin with a letter or digit.';return;}
+    output.textContent=dataText({kind:'enrollment-request',node_id:id,status:'NOT_ENROLLED',steps:[
+     'Discover through an authorized transport.','Read key-storage and availability profiles.',
+     'Measure resource capacity and sustained throughput at enrollment.',
+     'Validate security baseline, capability floor and attested segment.',
+     'Submit admission through the live enrollment registry; compare placement on merit.'
+    ],missing:'Native enrollment transport and live registry are unavailable. This request changes no registry or policy.'});
+   }),output);
+  }
+  function show(view,trigger,restoring){
+   if(panel.open&&active!==view&&!restoring){trail.push({view:active,scroll:panel.scrollTop});if(trail.length>MAX_MENU_NAV)trail.shift();}
+   if(!panel.open){trail=[];opener=trigger&&trigger.isConnected?trigger:tile;}
+   focusHost();hideTooltip();active=view;panel.dataset.view=view;content.textContent='';historyNodes=null;instrumentControls=null;
+   back.hidden=trail.length===0;
+   var item=catalogue.get(view),focus=null;
+   title.textContent=item?item.name:({instruments:'Host & fabric instruments',projects:'Projects',research:'Research',history:'Conversation history',settings:'Settings'}[view]||'UNAVAILABLE');
+   intro.textContent=item?item.what:'';
+   if(view==='instruments')renderInstruments();
+   else if(view==='command-palette')focus=palette();
+   else if(view==='before-after')beforeAfter();
+   else if(view==='onboarding-wizard'||view==='enrollment')onboarding();
+   else if(item){content.append(reading(item,true));}
+   else if(view==='history'){
+    intro.textContent='Conversation entries in their supplied order. This is not the full action log.';
+    var search=node('input','menu-search');search.type='search';search.maxLength=MAX_SEARCH;search.placeholder='Find in conversation';search.setAttribute('aria-label','Find in conversation');search.value=historyQuery;
+    var note=node('p','menu-note'),list=node('ol','menu-history-list');content.append(search,note,list);historyNodes={note:note,list:list};
+    search.addEventListener('input',function(){historyQuery=search.value;renderHistory();});renderHistory();
+   }else{content.append(node('span','menu-status','UNAVAILABLE'),node('p','menu-note','This destination has no collection or save operation connected to this surface.'));}
+   tile.setAttribute('aria-expanded',String(view==='instruments'));
+   triggers.forEach(function(b){b.setAttribute('aria-expanded',String(b.dataset.menuView===view));});
+   if(!panel.open)panel.showModal();panel.scrollTop=0;
+   if(focus)focus.focus();else panel.querySelector('.menu-close').focus();
+  }
+  back.addEventListener('click',function(){var previous=trail.pop();if(!previous)return;
+   show(previous.view,null,true);panel.scrollTop=previous.scroll;
+  });
+  tile.addEventListener('click',function(){show('instruments',tile);});
+  triggers.forEach(function(b){b.addEventListener('click',function(){show(b.dataset.menuView,b);});});
+  panel.querySelector('.menu-close').addEventListener('click',function(){panel.close();});
+  panel.addEventListener('click',function(e){var r=panel.getBoundingClientRect();if(e.target===panel&&(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom))panel.close();});
+  panel.addEventListener('close',function(){if(panel.open)return;active='';tile.setAttribute('aria-expanded','false');triggers.forEach(function(b){b.setAttribute('aria-expanded','false');});if(opener&&opener.isConnected)opener.focus();trail=[];});
+  document.addEventListener('keydown',function(e){
+   if(e.key==='Escape')hideTooltip();
+   if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();show('command-palette',document.activeElement);}
+  });
+  function refresh(){
+   if(active==='instruments')renderInstruments();
+   else if(catalogue.has(active))content.querySelectorAll('.menu-reading').forEach(function(el){updateReading(el,catalogue.get(el.dataset.item));});
+   if(expiryTimer!==null)clearTimeout(expiryTimer);expiryTimer=null;
+   if(document.hidden)return;
+   var now=Date.now(),next=Infinity;
+   rows.forEach(function(r){if(fresh(r))next=Math.min(next,r.at_ms+r.ttl_ms-now+1);});
+   if(Number.isFinite(next))expiryTimer=setTimeout(refresh,Math.min(next,2147483647));
+  }
+  var previousMetrics=window.__vesperMetrics;
+  window.__vesperMetrics=function(json){
+   // The HOST receiver owns its tags. Forward the original payload even if
+   // menu rendering fails; filtering its input by menu names loses unrelated
+   // readings, and an early throw must not silence the other card.
+   try{
+    var incoming=[];
+    try{var parsed=JSON.parse(json);if(Array.isArray(parsed))incoming=parsed.filter(function(r){
+     if(!r||typeof r!=='object')return false;var item=catalogue.get(r.id);
+     return item&&r.area===item.area&&r.label===item.name;
+    }).slice(0,MAX_MENU_METRIC_ROWS);}catch(e){}
+    if(json!==lastMetrics){lastMetrics=json;receiveVersion++;rows.clear();
+     incoming.forEach(function(r){rows.set(r.id,r);});
+    }
+    refresh();
+   }finally{
+    if(typeof previousMetrics!=='function')throw new Error('HOST metrics receiver is missing');
+    previousMetrics(json);
+   }
+  };
+  var previousHistory=window.__vesperHistory,lastHistory=null;
+  window.__vesperHistory=function(json){
+   if(json!==lastHistory){lastHistory=json;history=null;historyTruncated=false;
+    try{var parsed=JSON.parse(json);if(Array.isArray(parsed)){historyTruncated=parsed.length>MAX_MENU_HISTORY;
+     history=parsed.slice(0,MAX_MENU_HISTORY).filter(function(r){return r&&typeof r.text==='string';}).map(function(r){return {who:r.who==='owner'?'you':bounded(r.who)||'unknown',text:bounded(r.text)};});
+    }}catch(e){}if(active==='history')renderHistory();
+   }if(typeof previousHistory==='function')previousHistory(json);
+  };
+  document.addEventListener('visibilitychange',refresh);refresh();
+ },{once:true});
+})();
+</script>
+<script>document.addEventListener('DOMContentLoaded',function(){document.getElementById('menu-toggle').click();},{once:true});</script></body></html>

@@ -1,5 +1,10 @@
 # Expandable menu — isolated worktree handback
 
+**DESIGN APPROVAL PENDING.** The owner has not yet reviewed or approved this
+expandable-menu layout. Do not integrate it as an approved design.
+Visual proposal: `docs/planning/expandable-menu-review.html`. This standalone
+proposal has no live readings and is not acceptance evidence.
+
 ## Scope and integration boundary
 
 Worktree: `/Users/macbook/VESPER-codex-menus`, branch `codex/menus-v2`.
