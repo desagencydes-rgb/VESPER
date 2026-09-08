@@ -1486,3 +1486,48 @@ been driven against the running surface.**
 | — | **`f5-acceptance` flakes under load** (§9i) | found by the session, RAISED, awaiting a decision |
 
 Steps 2, 3 and 4 are what the owner named as the starting point.
+
+---
+
+## 9r. THE MENU MERGE KILLED THE STACK CARDS, AND THE PROBE THAT SAID OTHERWISE WAS BLIND
+
+**Owner, 2026-09-08, after the revert: *"finally it's back, with their history, so
+your change was the problem."*** The commands, explanations, thoughts/activity,
+changes and conversation-history cards all returned the moment the v2 menu merge
+(`08336e7`) was reverted. Reverting is the measurement: nothing else changed.
+
+**THE INSTRUMENT WAS THE PROBLEM, AND IT COST THE WHOLE NIGHT.**
+`--chrome-probe` reported `commands: 0, explanations: 0, panes: idle` for the
+**pre-merge page and the post-merge page alike** -- two states that differ
+plainly on the owner's screen. A session that trusted it concluded, twice and
+out loud to the owner, that the merge was not the cause. The owner's own
+observation was the correct evidence and was overruled by a tool.
+
+**WHY IT IS BLIND, and this is the part worth keeping.** `--chrome-probe`
+mounts its own offscreen WKWebView and fires one push. The live surface mounts
+through `HomeChrome.mount`, is pushed every 0.25 s, and carries the state the
+runtime has been accumulating. The probe answers "can this page render one
+push into a fresh DOM", which is a different question from "is the running
+surface rendering", and it answers the first one in a way that looks like the
+second. Every harness written that night inherited the same defect: they
+hardcoded `{{stackHeight}}`, `{{METRIC_ROWS}}` and the geometry the live app
+computes, so they tested a page the app never builds.
+
+**WHAT IS NOT YET KNOWN:** which part of the merge does it. The wrappers codex
+put on `__vesperMetrics` and `__vesperHistory` are the obvious suspects --
+the live push order is stage, history, work, changes, metrics in ONE
+evaluated block, so anything that throws in an earlier receiver silently
+kills every later one -- but that was never demonstrated, only reasoned
+about, and reasoning is what failed all night.
+
+**BEFORE THE MENU IS RE-IMPLEMENTED, BUILD THE INSTRUMENT FIRST.** The
+re-implementation cannot be verified by any tool used that night. What is
+needed is a readback of the LIVE surface: the running app reporting its own
+pane state and any JS exception out of the webview it actually mounted, on
+the tick it actually pushes. Until that exists, the only honest verification
+is the owner looking at the screen, and that is not a budget to spend on
+iteration.
+
+**PRESERVED, NOT LOST:** branch `codex/menus-v2` (`66b5c8d`), tag
+`pre-revert-2026-09-08`, the revert commit `70484ce` (revertible), and the
+worktree at `~/VESPER-codex-menus`.
