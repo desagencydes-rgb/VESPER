@@ -1147,6 +1147,25 @@ final class HomeChrome {
           .menu-action:disabled{opacity:.4;cursor:default}.menu-palette{display:flex;flex-direction:column}
           .menu-palette .menu-action{text-align:left}.menu-tools{margin-bottom:14px}
           .menu-caption{display:block;margin:10px 0;color:rgba(244,230,220,.65);font-size:12px}
+          .menu-heading h2{flex:1}
+          .menu-back{flex:none;border:1px solid rgba(244,230,220,.18);border-radius:50%;
+            width:32px;height:32px;background:rgba(255,255,255,.055);color:var(--ink);cursor:pointer;font:18px var(--face-body)}
+          .menu-back[hidden],.menu-reading[hidden],.menu-group[hidden]{display:none}
+          .menu-filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+          .menu-filter-label{flex:1;min-width:160px;font-size:11px;color:rgba(244,230,220,.70)}
+          .menu-filter-label select{display:block;width:100%;box-sizing:border-box;margin-top:5px;padding:9px 10px;
+            border:1px solid rgba(244,230,220,.18);border-radius:10px;background:#292529;color:var(--ink);font:12px var(--face-body)}
+          .menu-panel select:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+          .menu-group{margin-top:20px}.menu-group h3{margin:0 0 7px;font:500 13px var(--face-body);color:var(--ink)}
+          .menu-group-count{font-weight:400;font-size:11px;color:rgba(244,230,220,.62);margin-left:8px}
+          .menu-results{font-size:12px;color:rgba(244,230,220,.70);margin:12px 0}
+          .menu-evidence summary{font-size:11px;color:rgba(244,230,220,.70);cursor:pointer;margin:10px 0}
+          .menu-reading .menu-evidence summary{display:list-item;list-style:disclosure-closed}
+          .menu-reading .menu-evidence[open] summary{list-style:disclosure-open}
+          .menu-reading .menu-evidence summary::after{content:none}
+          .menu-evidence[hidden]{display:none}
+          @media(max-width:480px){.menu-heading{padding:16px 16px 10px}.menu-content{padding:0 16px 16px}
+            .menu-intro{padding:0 16px 14px}.menu-reading summary{flex-wrap:wrap}.menu-reading-value{max-width:100%}}
           /* ==== /MENU ==== */
 
           /* ---- the field, top right (SS14.2) --------------------------------
@@ -1515,7 +1534,7 @@ final class HomeChrome {
           </button>
         </nav>
         <dialog class="menu-panel" id="menu-panel" aria-labelledby="menu-title" aria-describedby="menu-intro">
-          <header class="menu-heading"><h2 id="menu-title"></h2>
+          <header class="menu-heading"><button type="button" class="menu-back" aria-label="Back to previous menu" hidden>←</button><h2 id="menu-title"></h2>
             <button type="button" class="menu-close" aria-label="Close panel" autofocus>×</button>
           </header>
           <p class="menu-intro" id="menu-intro"></p>
@@ -1534,9 +1553,23 @@ final class HomeChrome {
           var tile=document.getElementById('menu-toggle'),tooltip=document.getElementById('menu-tooltip');
           var triggers=Array.from(document.querySelectorAll('[data-menu-view]'));
           var active='',opener=null,rows=new Map(),catalogue=new Map(CATALOGUE.map(function(i){return [i.id,i];}));
-          var byName=new Map(CATALOGUE.map(function(i){return [i.name,i];}));
           var history=null,historyQuery='',historyTruncated=false,historyNodes=null;
           var lastMetrics=null,expiryTimer=null,baseline=null,receiveVersion=0;
+          var MAX_MENU_NAV=12,trail=[],back=panel.querySelector('.menu-back');
+          var instrumentQuery='',instrumentTopic='all',instrumentStatus='all',expanded=new Set();
+          var instrumentControls=null;
+          // These topics are navigation only. Engineering buckets must not imply that
+          // an unavailable observation is less useful or disappear from the catalogue.
+          var TOPICS=[
+           {id:'power',name:'Battery & energy',items:['battery-health','charge-policy','charging-schedule','costing-me-now','display-power','power-draw','process-energy']},
+           {id:'health',name:'Memory, storage & thermals',items:['memory-headroom','memory-pressure-band','compressor-swap','owner-working-set','disk-i-o-rate','storage-ssd','thermal-history','throttle-events','ambient-estimate','fan-acoustics']},
+           {id:'fabric',name:'Nodes & connections',items:['attestation-state','endpoints','enrollment','key-identity-state','network-segments','node-profiles','platform-adapters','trust-zones','link-quality','node-roles','peripherals','radio-state','clock-skew','node-comparison','onboarding-wizard']},
+           {id:'continuity',name:'Placement & continuity',items:['control-plane-lease','degradation-ladder','placement-decisions','survival-profile','relocation-history','blast-radius','migration-dry-run','failover-drill']},
+           {id:'governance',name:'Permissions & activity',items:['capability-registry','compensation','governed-surfaces','maintenance-actions','retry-policy','sleep-wake-log','approval-history','behaviour-on-off-this-mac','consent-channel-policy']},
+           {id:'tools',name:'Comparison & search',items:['before-after','command-palette']}
+          ];
+          var instrumentItems=CATALOGUE.filter(function(i){return i.area==='instruments';}).slice(0,MAX_MENU_READINGS);
+          var topicFor=new Map();TOPICS.forEach(function(t){t.items.forEach(function(id){topicFor.set(id,t.id);});});
           function node(tag,cls,text){var n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;}
           function bounded(v){return typeof v==='string'?v.slice(0,MAX_MENU_TEXT):'';}
           function action(label,fn){var b=node('button','menu-action',label);b.type='button';b.addEventListener('click',fn);return b;}
@@ -1586,28 +1619,65 @@ final class HomeChrome {
            if(known)message+=' Source: '+bounded(r.source)+'. Observed '+new Date(r.at_ms).toLocaleTimeString()+'.';
            putText(el.querySelector('.menu-reason'),message);
            var pre=el.querySelector('.menu-data'),text=known&&r.data!==null&&r.data!==undefined?dataText(r.data):'';
-           pre.hidden=!text;putText(pre,text);
+           pre.hidden=!text;putText(pre,text);el.querySelector('.menu-evidence').hidden=!text;
           }
           function reading(item,open){
            var el=node('details','menu-reading');el.dataset.item=item.id;el.open=!!open;
            var summary=node('summary');summary.append(node('span','menu-reading-name',item.name),node('span','menu-reading-value'));
-           el.append(summary,node('p','',item.what),node('p','menu-reason'),node('pre','menu-data'));
+           var evidence=node('details','menu-evidence');
+           evidence.append(node('summary','','Observation details'),node('pre','menu-data'));
+           el.append(summary,node('p','',item.what),node('p','menu-reason'),evidence);
+           el.addEventListener('toggle',function(e){if(e.target!==el)return;if(el.open)expanded.add(item.id);else expanded.delete(item.id);});
            if(['before-after','command-palette','enrollment','onboarding-wizard'].includes(item.id)){
             el.append(action('Open '+item.name,function(){show(item.id,opener);}));
            }
            updateReading(el,item);return el;
           }
           function renderInstruments(){
-           if(!content.querySelector('.menu-reading')){
+           if(!instrumentControls){
             content.textContent='';
             var tools=node('div','menu-tools');
-            tools.append(action('Search all surfaces · ⌘K',function(){show('command-palette',tile);}),action('Before / after',function(){show('before-after',tile);}));
-            content.append(tools);
-            CATALOGUE.filter(function(i){return i.area==='instruments';}).slice(0,MAX_MENU_READINGS).forEach(function(i){content.append(reading(i,false));});
+            tools.append(action('Search all surfaces · ⌘K',function(){show('command-palette');}),action('Before / after',function(){show('before-after');}));
+            var search=node('input','menu-search');search.type='search';search.maxLength=MAX_SEARCH;
+            search.placeholder='Find an instrument';search.setAttribute('aria-label','Find an instrument');search.value=instrumentQuery;
+            var filters=node('div','menu-filters');
+            function select(label,choices,value){var wrap=node('label','menu-filter-label',label),el=node('select');
+             choices.forEach(function(c){var option=node('option','',c[1]);option.value=c[0];el.append(option);});
+             el.value=value;wrap.append(el);filters.append(wrap);return el;
+            }
+            var topic=select('Topic',[['all','All topics']].concat(TOPICS.map(function(t){return [t.id,t.name];})),instrumentTopic);
+            var status=select('Availability',[['all','All observations'],['available','Current readings'],['unavailable','Unavailable']],instrumentStatus);
+            var count=node('p','menu-results');count.setAttribute('role','status');count.setAttribute('aria-live','polite');
+            var empty=node('p','menu-note','No instruments match these filters.');empty.hidden=true;
+            var reset=action('Clear filters',function(){instrumentQuery='';instrumentTopic='all';instrumentStatus='all';
+             search.value='';topic.value='all';status.value='all';renderInstruments();search.focus();});
+            content.append(search,filters,reset,tools,count,empty);
+            TOPICS.forEach(function(t){var section=node('section','menu-group');section.dataset.topic=t.id;
+             var heading=node('h3','',t.name);heading.id='menu-topic-'+t.id;
+             heading.append(node('span','menu-group-count'));section.setAttribute('aria-labelledby',heading.id);section.append(heading);
+             instrumentItems.filter(function(i){return topicFor.get(i.id)===t.id;}).forEach(function(i){section.append(reading(i,expanded.has(i.id)));});content.append(section);
+            });
+            instrumentControls={count:count,empty:empty,reset:reset};
+            search.addEventListener('input',function(){instrumentQuery=search.value;renderInstruments();});
+            topic.addEventListener('change',function(){instrumentTopic=topic.value;renderInstruments();});
+            status.addEventListener('change',function(){instrumentStatus=status.value;renderInstruments();});
            }
-           content.querySelectorAll('.menu-reading').forEach(function(el){updateReading(el,catalogue.get(el.dataset.item));});
-           var n=CATALOGUE.filter(function(i){return i.area==='instruments'&&fresh(rows.get(i.id));}).length;
-           intro.textContent=n+' current readings · '+(MAX_MENU_READINGS-n)+' unavailable. Open a row for evidence, limits, or the reason.';
+           var query=instrumentQuery.trim().toLowerCase(),shown=0,current=0;
+           // Update existing nodes: a producer tick must not collapse an open row,
+           // move keyboard focus, reset a search, or replace unchanged evidence text.
+           content.querySelectorAll('.menu-reading').forEach(function(el){var item=catalogue.get(el.dataset.item);
+            updateReading(el,item);var known=el.dataset.available==='true';if(known)current++;
+            el.hidden=!(instrumentTopic==='all'||topicFor.get(item.id)===instrumentTopic)
+             ||!(instrumentStatus==='all'||(instrumentStatus==='available')===known)
+             ||!(item.name+' '+item.what).toLowerCase().includes(query);
+            if(!el.hidden)shown++;
+           });
+           content.querySelectorAll('.menu-group').forEach(function(group){var n=group.querySelectorAll('.menu-reading:not([hidden])').length;
+            group.hidden=n===0;putText(group.querySelector('.menu-group-count'),String(n));});
+           putText(instrumentControls.count,'Showing '+shown+' of '+instrumentItems.length+' instruments');
+           instrumentControls.empty.hidden=shown>0;
+           instrumentControls.reset.hidden=!query&&instrumentTopic==='all'&&instrumentStatus==='all';
+           putText(intro,current+' current readings · '+(instrumentItems.length-current)+' unavailable. Every instrument includes its description and evidence or a reason.');
           }
           // ---- the rail's own destinations (§11.6, §11.7) -------------------------
           //
@@ -1857,8 +1927,11 @@ final class HomeChrome {
             ],missing:'Native enrollment transport and live registry are unavailable. This request changes no registry or policy.'});
            }),output);
           }
-          function show(view,trigger){
-           focusHost();hideTooltip();active=view;opener=trigger||opener;panel.dataset.view=view;content.textContent='';historyNodes=null;
+          function show(view,trigger,restoring){
+           if(panel.open&&active!==view&&!restoring){trail.push({view:active,scroll:panel.scrollTop});if(trail.length>MAX_MENU_NAV)trail.shift();}
+           if(!panel.open){trail=[];opener=trigger&&trigger.isConnected?trigger:tile;}
+           focusHost();hideTooltip();active=view;panel.dataset.view=view;content.textContent='';historyNodes=null;instrumentControls=null;
+           back.hidden=trail.length===0;
            var item=catalogue.get(view),focus=null;
            title.textContent=item?item.name:({instruments:'Host & fabric instruments',projects:'Projects',research:'Research',history:'Conversation history',settings:'Settings'}[view]||'UNAVAILABLE');
            intro.textContent=item?item.what:'';
@@ -1878,13 +1951,17 @@ final class HomeChrome {
            }else{content.append(node('span','menu-status','UNAVAILABLE'),node('p','menu-note','This destination has no collection or save operation connected to this surface.'));}
            tile.setAttribute('aria-expanded',String(view==='instruments'));
            triggers.forEach(function(b){b.setAttribute('aria-expanded',String(b.dataset.menuView===view));});
-           if(!panel.open)panel.showModal();if(focus)focus.focus();
+           if(!panel.open)panel.showModal();panel.scrollTop=0;
+           if(focus)focus.focus();else panel.querySelector('.menu-close').focus();
           }
+          back.addEventListener('click',function(){var previous=trail.pop();if(!previous)return;
+           show(previous.view,null,true);panel.scrollTop=previous.scroll;
+          });
           tile.addEventListener('click',function(){show('instruments',tile);});
           triggers.forEach(function(b){b.addEventListener('click',function(){show(b.dataset.menuView,b);});});
           panel.querySelector('.menu-close').addEventListener('click',function(){panel.close();});
           panel.addEventListener('click',function(e){var r=panel.getBoundingClientRect();if(e.target===panel&&(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom))panel.close();});
-          panel.addEventListener('close',function(){if(panel.open)return;active='';tile.setAttribute('aria-expanded','false');triggers.forEach(function(b){b.setAttribute('aria-expanded','false');});if(opener)opener.focus();});
+          panel.addEventListener('close',function(){if(panel.open)return;active='';tile.setAttribute('aria-expanded','false');triggers.forEach(function(b){b.setAttribute('aria-expanded','false');});if(opener&&opener.isConnected)opener.focus();trail=[];});
           document.addEventListener('keydown',function(e){
            if(e.key==='Escape')hideTooltip();
            if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();show('command-palette',document.activeElement);}
@@ -1892,9 +1969,6 @@ final class HomeChrome {
           function refresh(){
            if(active==='instruments')renderInstruments();
            else if(catalogue.has(active))content.querySelectorAll('.menu-reading').forEach(function(el){updateReading(el,catalogue.get(el.dataset.item));});
-           // Mount-time Swift rows lack rich metadata. Remove menu entries from the
-           // small HOST card; the named panel is their home. Original metrics stay.
-           document.querySelectorAll('#metrics .row').forEach(function(el){var label=(el.querySelector('.k')||{}).textContent;if(byName.has(label))el.remove();});
            if(expiryTimer!==null)clearTimeout(expiryTimer);expiryTimer=null;
            if(document.hidden)return;
            var now=Date.now(),next=Infinity;
@@ -1903,15 +1977,23 @@ final class HomeChrome {
           }
           var previousMetrics=window.__vesperMetrics;
           window.__vesperMetrics=function(json){
-           var incoming=[];
-           try{var parsed=JSON.parse(json);if(Array.isArray(parsed))incoming=parsed.slice(0,MAX_MENU_METRIC_ROWS);}catch(e){}
-           if(json!==lastMetrics){lastMetrics=json;receiveVersion++;rows.clear();
-            incoming.forEach(function(r){if(!r||typeof r!=='object')return;var item=byName.get(r.label);
-             if(item&&r.id===item.id)rows.set(item.id,r);
-            });
+           // The HOST receiver owns its tags. Forward the original payload even if
+           // menu rendering fails; filtering its input by menu names loses unrelated
+           // readings, and an early throw must not silence the other card.
+           try{
+            var incoming=[];
+            try{var parsed=JSON.parse(json);if(Array.isArray(parsed))incoming=parsed.filter(function(r){
+             if(!r||typeof r!=='object')return false;var item=catalogue.get(r.id);
+             return item&&r.area===item.area&&r.label===item.name;
+            }).slice(0,MAX_MENU_METRIC_ROWS);}catch(e){}
+            if(json!==lastMetrics){lastMetrics=json;receiveVersion++;rows.clear();
+             incoming.forEach(function(r){rows.set(r.id,r);});
+            }
+            refresh();
+           }finally{
+            if(typeof previousMetrics!=='function')throw new Error('HOST metrics receiver is missing');
+            previousMetrics(json);
            }
-           refresh();
-           if(typeof previousMetrics==='function')previousMetrics(JSON.stringify(incoming.filter(function(r){return r&&!byName.has(r.label);})));
           };
           var previousHistory=window.__vesperHistory,lastHistory=null;
           window.__vesperHistory=function(json){
@@ -3494,6 +3576,49 @@ final class HomeChrome {
                   var k = c.querySelector('.k');
                   return k ? k.textContent : '?'; }).join(',')
             : 'ABSENT';
+          // AND THE MENU, FROM THE SAME MOUNTED WEBVIEW (codex/menus-v2, merged
+          // 2026-09-13). Two readbacks, both kept: `metrics=` is the HOST card's
+          // painted rows, `menu=` is the instrument list's state.
+          // Read the menu from THIS mounted webview on the real push tick.
+          // Counts in a reconstructed DOM missed the previous regression.
+          // Bound the report to catalogue capacity and read actual visibility,
+          // focus, expanded rows and text; no renderer-supplied success flag.
+          var menu = document.getElementById('menu-panel');
+          var menuRows = menu ? Array.from(menu.querySelectorAll('.menu-reading')).slice(0,51) : [];
+          function painted(e) {
+            var r = e.getBoundingClientRect(), s = getComputedStyle(e);
+            return r.width > 0 && r.height > 0 && s.display !== 'none'
+                && s.visibility !== 'hidden' && Number(s.opacity) > 0;
+          }
+          var menuState = menu ? {
+            open: menu.open, view: menu.dataset.view, painted: painted(menu),
+            title: (menu.querySelector('h2') || {}).textContent,
+            rows: menuRows.length,
+            matched: menuRows.filter(function(e){ return !e.hidden; }).map(function(e){ return e.dataset.item; }),
+            visible: menuRows.filter(function(e){
+              var r = e.getBoundingClientRect(), box = menu.getBoundingClientRect();
+              return painted(e) && r.bottom > box.top && r.top < box.bottom
+                && r.right > box.left && r.left < box.right;
+            }).map(function(e){ return e.dataset.item; }),
+            expanded: menuRows.filter(function(e){ return e.open; }).map(function(e){ return e.dataset.item; }),
+            detailLimit: 8,
+            details: menuRows.filter(function(e){ return e.open; }).slice(0,8).map(function(e){
+              return {id: e.dataset.item,
+                value: (e.querySelector('.menu-reading-value').textContent || '').slice(0,160),
+                reason: (e.querySelector('.menu-reason').textContent || '').slice(0,500)};
+            }),
+            current: menuRows.filter(function(e){ return e.dataset.available === 'true'; }).length,
+            missingReasons: menuRows.filter(function(e){ return e.dataset.available === 'false'
+              && !(e.querySelector('.menu-reason').textContent || '').trim(); }).map(function(e){ return e.dataset.item; }),
+            result: (menu.querySelector('.menu-results') || {}).textContent,
+            search: (menu.querySelector('.menu-search') || {}).value,
+            filters: Array.from(menu.querySelectorAll('.menu-filters select')).map(function(e){ return e.value; }),
+            back: !!menu.querySelector('.menu-back:not([hidden])'),
+            focus: document.activeElement ? document.activeElement.tagName : '',
+            scroll: menu.scrollTop,
+            fits: menu.getBoundingClientRect().left >= 0 && menu.getBoundingClientRect().right <= window.innerWidth
+              && menu.getBoundingClientRect().top >= 0 && menu.getBoundingClientRect().bottom <= window.innerHeight
+          } : {missing: true};
           var errs = (window.__vesperErrs || []);
           // DO THE RECEIVERS EXIST AT ALL? `if (window.__vesperWork)` skips
           // silently when they do not, which looks identical to a push that
@@ -3509,6 +3634,7 @@ final class HomeChrome {
                   'face=' + document.body.getAttribute('data-face'),
                   'panes=[' + panes + ']',
                   'metrics=[' + metrics + ']',
+                  'menu=' + JSON.stringify(menuState),
                   'jsErrors=' + (errs.length ? JSON.stringify(errs.slice(0,3)) : 'none')
                  ].join(' | ');
         })();
