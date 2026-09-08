@@ -15178,41 +15178,73 @@ def check_the_model_rows_read_a_real_completion() -> Result:
               "construction rather than by every consumer remembering.")
 
     # --------------------- 6. an old completion is an ABSENCE, not a vanishing
-    # `_metric_rows` OMITS any reading past its TTL, which is right for
-    # `power_source` -- re-measured every tick, so staleness means the producer
-    # died. It is wrong for these four: nothing is asked while the owner is
-    # quiet, so ten idle minutes is normal. Left on the omit rule the rows
-    # disappear shortly after every answer, which IS the reported complaint.
+    #
+    # ASSERTED ON `_metric_rows()`, WHICH IS THE LAYER THAT RENDERS. The first
+    # version of this case asserted on `proj.readings` and went green while the
+    # live surface still dropped the rows -- `to_scene` omits an unavailable
+    # reading, so nothing downstream of it ever saw the absence the projection
+    # was carrying. A green from a layer the owner never looks at is the exact
+    # shape that let the menu merge ship broken: the probe answered a different
+    # question from the one being asked, in a way that looked like an answer.
     spec = _ilu.spec_from_file_location("_hs_check", REPO / "tools" / "home_snapshot.py")
     hs = _ilu.module_from_spec(spec)
     spec.loader.exec_module(hs)
+    import tools.ops.vesper_runtime as vr
+
+    def _host_rows(ev):
+        """What the HOST card would actually be handed for this evidence."""
+        vr._metrics_mod[0] = hs
+        vr._last_completion[0] = ev
+        return {row["label"]: row for row in (vr._metric_rows() or [])
+                if row.get("card") == "host"}
+
     old = {"at_ms": int(time.time() * 1000) - (hs.TTL_MS + 60_000),
            "provider_id": "rung", "tokens_evaluated": 76,
            "predicted_per_second": 474.7, "reasoning_present": True,
            "reasoning_tokens": 109}
-    proj = hs.build(old)
-    for key in ("model.thinking", "model.context_tokens",
-                "model.cache", "model.tokens_per_sec"):
-        reading = proj.readings.get(key)
-        if reading is None:
-            r.err(f"{key} was dropped from the projection when its completion "
-                  "aged out. A row that vanishes is the complaint that started "
-                  "this work; it must remain and say why it is empty.")
-        elif reading.value is not None:
-            r.err(f"{key} rendered a value from a completion older than its TTL. "
-                  "A stale number shown as current is worse than no number -- "
-                  "the owner acts on it.")
-        elif "ago" not in (reading.unavailable_reason or ""):
-            r.err(f"{key} is unavailable but does not say the last completion's "
-                  "age. 'Nothing has been asked recently' and 'the producer is "
-                  "broken' need different responses from the owner, and only the "
-                  "age tells them apart.")
+    stale = _host_rows(old)
+    for label in ("thinking", "context", "cache", "tokens"):
+        row = stale.get(label)
+        if row is None:
+            r.err(f"the {label!r} row was not handed to the HOST card at all "
+                  "once its completion aged out. A row that vanishes is the "
+                  "complaint that started this work -- it must stay and say why "
+                  "it is empty.")
+        elif row.get("status") != "unavailable":
+            r.err(f"the {label!r} row rendered a value from a completion older "
+                  "than its TTL. A stale number shown as current is worse than "
+                  "no number, because the owner acts on it.")
+        elif "ago" not in (row.get("reason") or ""):
+            r.err(f"the {label!r} row is unavailable but does not say the last "
+                  "completion's age. 'Nothing has been asked recently' and 'the "
+                  "producer is broken' need different responses from the owner, "
+                  "and only the age tells them apart.")
 
-    fresh = dict(old, at_ms=int(time.time() * 1000))
-    if hs.build(fresh).readings["model.tokens_per_sec"].value is None:
-        r.err("a completion taken seconds ago rendered no rate. The staleness "
-              "guard must catch OLD evidence only; catching everything would be "
-              "a check that cannot tell it is broken.")
+    live = _host_rows(dict(old, at_ms=int(time.time() * 1000)))
+    if (live.get("tokens") or {}).get("status") == "unavailable":
+        r.err("a completion taken seconds ago reached the card as unavailable. "
+              "The staleness guard must catch OLD evidence only; one that "
+              "catches everything is a check that cannot tell it is broken.")
+
+    # ----------------------- 7. the HOST card gets ITS rows and nobody else's
+    # `home.json` carries this card's handful and the menu catalogue's 68 in
+    # one array, and the page used to take the first five BY POSITION. Only
+    # `power_source` ever resolved, so the slice reached into the catalogue and
+    # rendered `Action outbox` as host telemetry -- measured on the live
+    # surface. Position is not identity.
+    every = vr._metric_rows() or []
+    untagged = [row.get("label") for row in every if row.get("card") != "host"]
+    if not untagged:
+        r.err("every row published to the surface claims to be a HOST row. The "
+              "tag is what keeps 68 menu readings out of a five-row card; if "
+              "nothing is untagged it has stopped discriminating and this "
+              "assertion cannot fail for its own reason.")
+    for label in ("thinking", "context", "cache", "tokens", "power"):
+        if label not in {row.get("label") for row in every
+                         if row.get("card") == "host"}:
+            r.err(f"the HOST card's own {label!r} row is not tagged as one, so "
+                  "the card cannot select it and it disappears from the surface "
+                  "entirely.")
 
     r.note("the home's four model rows now read a completion VESPER actually "
            "made: the gateway publishes counts the provider itself reported, "

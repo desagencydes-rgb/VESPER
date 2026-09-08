@@ -6104,6 +6104,22 @@ CASES += [
      "an aged-out completion keeps its stamp, so `_metric_rows` silently omits "
      "all four rows a few minutes after every answer -- which is the owner's "
      "original complaint, restored"),
+
+    ("the-model-rows-read-a-real-completion", RUNTIME_PY,
+     _sub('    shown = {r["label"] for r in rows}\n'
+          "    for key in mod.HOME_METRIC_KEYS:", "    shown = set()\n    for key in ():", 1),
+     "a reading with nothing to report stops being published at all, so the "
+     "row leaves the card instead of saying why it is empty -- the projection "
+     "drops unavailable readings, so this block is the only thing carrying "
+     "them to a surface"),
+
+    ("the-model-rows-read-a-real-completion", RUNTIME_PY,
+     _sub('                     # WHOSE CARD THIS ROW BELONGS TO. See the block below --\n'
+          '                     # without it the HOST card was rendering menu readings.\n'
+          '                     "card": "host",\n', "", 1),
+     "the HOST card's own measured rows lose the tag that identifies them, so "
+     "a card selecting by tag shows nothing and one selecting by position goes "
+     "back to rendering menu readings as host telemetry"),
 ]
 
 

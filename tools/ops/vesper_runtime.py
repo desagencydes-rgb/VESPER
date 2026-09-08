@@ -372,12 +372,60 @@ def _metric_rows():
             continue
         rows.append({"label": mod.LABELS.get(e.element_id, e.element_id),
                      "value": str(e.content["value"]),
+                     # WHOSE CARD THIS ROW BELONGS TO. See the block below --
+                     # without it the HOST card was rendering menu readings.
+                     "card": "host",
                      "at_ms": at_ms,
                      "ttl_ms": mod.TTL_MS})
+
+    # THE ABSENT ONES TRAVEL TOO, AND THE PROJECTION IS WHY THEY HAVE TO.
+    #
+    # `to_scene` DROPS an unavailable reading rather than rendering one, "so
+    # the absent case cannot be styled into looking like the present case".
+    # That is right for the scene, and it means `scene.elements` above can
+    # never carry the reason a row is empty -- so a row with nothing to say
+    # simply disappears from the card, and the owner cannot tell "nothing has
+    # been asked recently" from "the producer is broken".
+    #
+    # THIS WAS MEASURED, NOT REASONED. `home_snapshot.build` was changed on
+    # 2026-09-08 to render a stale completion as an explicit absence, its check
+    # asserted that on `proj.readings`, the check went green -- and the row
+    # still vanished on the live surface, because nothing downstream of
+    # `to_scene` ever saw it. A layer nobody renders is not a layer worth
+    # asserting on.
+    #
+    # So the absences are read from the projection directly and shipped with
+    # `status` and `reason`, the same shape `tools/menu_snapshot.py` already
+    # uses for its 68 rows and the same shape the page already renders.
+    # `at_ms` STAYS ZERO: nothing was observed, so there is no time to record,
+    # and stamping `now` on an unobserved reading is the "value with an excuse
+    # attached" that `Reading.__post_init__` refuses one layer up.
+    shown = {r["label"] for r in rows}
+    for key in mod.HOME_METRIC_KEYS:
+        label = mod.LABELS.get(key, key)
+        if label in shown:
+            continue
+        reading = proj.readings.get(key)
+        rows.append({"label": label,
+                     "value": "UNAVAILABLE",
+                     "status": "unavailable",
+                     "reason": (getattr(reading, "unavailable_reason", None)
+                                or "this reading has no producer"),
+                     "card": "host",
+                     "at_ms": 0, "ttl_ms": 0})
+
     # The bridge is generic, but the original projection selected only five
     # keys. Append the catalogue here so the live pump reaches all menu rows.
     # OS acquisition runs in one background worker; old observations retain
     # their original at_ms and ttl_ms while it works.
+    #
+    # THESE ARE NOT HOST ROWS AND CARRY NO `card`, which is what keeps them out
+    # of the HOST card. Until 2026-09-08 the page took the first five rows by
+    # POSITION -- and `power_source` was the only host row that ever resolved,
+    # so four menu readings were rendered inside the HOST card as though they
+    # were host telemetry. Measured on the live surface: `Action outbox`, an
+    # available menu row carrying a real stamp, sat in that slice and passed
+    # the freshness filter. Position is not identity; the tag is.
     from tools.menu_snapshot import cached_rows
     rows.extend(cached_rows(_menu_context))
     return rows

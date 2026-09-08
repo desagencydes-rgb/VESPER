@@ -229,6 +229,13 @@ final class HomeChrome {
            let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
            let raw = obj["rows"] as? [[String: Any]] {
             for r in raw {
+                // ONLY THIS CARD'S OWN ROWS. `home.json` carries the HOST
+                // card's handful and the menu catalogue's 68 in one array,
+                // and this loop used to take every one of them -- so the
+                // first paint put all 72 readings inside the HOST card until
+                // the first push replaced them. The producer tags what it
+                // owns; a row without the tag belongs to another surface.
+                guard (r["card"] as? String) == "host" else { continue }
                 if let k = r["label"] as? String, let v = r["value"] as? String {
                     rows.append((k, v))
                 }
@@ -1891,9 +1898,15 @@ final class HomeChrome {
             function renderHostMetrics() {
               if (!metricsEl) return;
               var now=Date.now();
+              // AN EXPLICIT ABSENCE IS NOT A STALE READING and must not be aged out.
+              // The freshness test exists so a dead producer's last number stops
+              // looking current; a row that says UNAVAILABLE carries no number to go
+              // stale, and dropping it is how the four model rows silently vanished
+              // from this card instead of explaining themselves.
               var fresh=hostRows.filter(r => r && typeof r.label==='string' && typeof r.value==='string'
-                && Number.isFinite(r.at_ms) && Number.isFinite(r.ttl_ms) && r.at_ms>0 && r.ttl_ms>0
-                && r.at_ms<=now && now-r.at_ms<=r.ttl_ms);
+                && (r.status==='unavailable'
+                    || (Number.isFinite(r.at_ms) && Number.isFinite(r.ttl_ms) && r.at_ms>0 && r.ttl_ms>0
+                        && r.at_ms<=now && now-r.at_ms<=r.ttl_ms)));
               // Only replace when the rendered answer changes, preserving selections.
               var signature=JSON.stringify(fresh.map(r => [r.label,r.value]));
               if(signature!==lastMetrics){lastMetrics=signature;metricsEl.textContent='';
@@ -1904,7 +1917,18 @@ final class HomeChrome {
               if(!document.hidden && fresh.length)hostExpiry=setTimeout(renderHostMetrics,Math.min.apply(null,fresh.map(function(r){return r.at_ms+r.ttl_ms-now+1;})));
             }
             window.__vesperMetrics = function (json) {
-              try{var parsed=JSON.parse(json);hostRows=Array.isArray(parsed)?parsed.slice(0,5):[];}catch(e){hostRows=[];}
+              // SELECTED BY TAG, NEVER BY POSITION. This read `parsed.slice(0,5)`,
+              // which was only ever correct while the HOST card's five keys happened
+              // to sit at the front of the array. They did not: `power_source` was
+              // the sole host reading that resolved, so the slice reached four rows
+              // into the menu catalogue and rendered `Action outbox` and its
+              // neighbours as host telemetry -- measured on the live surface,
+              // 2026-09-08. The producer says which card owns each row; a count is
+              // not an identity, and the cap below is a bound rather than a filter.
+              try{var parsed=JSON.parse(json);
+                hostRows=Array.isArray(parsed)
+                  ?parsed.filter(function(r){return r&&r.card==='host';}).slice(0,8):[];
+              }catch(e){hostRows=[];}
               renderHostMetrics();
             };
             document.addEventListener('visibilitychange',renderHostMetrics);
