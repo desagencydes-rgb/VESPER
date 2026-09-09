@@ -1781,12 +1781,24 @@ if args.contains("--mode-residency-check") {
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         if groundIsVisible() { break }
     }
-    // TAKE THE GROUND AWAY, so vesper is running with no Desktop of its own --
-    // which is exactly the owner's situation whenever they are looking at their
-    // own Desktop.
-    home?.retract()
+    // TAKE THE GROUND AWAY THROUGH THE SHIPPED JUDGE, not with a private copy
+    // of the retraction. `verifyGroundLanding()` retracts exactly when the
+    // Desktop it landed on has the owner's windows on it -- which is the
+    // situation this control needs and the one the owner is in whenever they
+    // are looking at their own Desktop. Calling `retract()` here directly would
+    // put a second copy of the retraction in a control, which is what
+    // `the-ground-gives-a-taken-desktop-back` refuses and rightly so.
+    let retracted = verifyGroundLanding()
     RunLoop.main.run(until: Date().addingTimeInterval(0.4))
     let stillHere = groundIsVisible()
+    if !retracted {
+        FileHandle.standardError.write(("mode-residency-check: UNTESTED -- this "
+            + "Desktop is empty, so the ground was correctly kept and vesper "
+            + "still owns it. Run this on the Desktop with your windows on it.\n")
+            .data(using: .utf8)!)
+        home = nil
+        exit(4)
+    }
     let applied = home?.setMode("Idle", quiet: false) ?? false
     RunLoop.main.run(until: Date().addingTimeInterval(0.6))
     let after = Ambience.currentPicture(screen)?.path ?? ""

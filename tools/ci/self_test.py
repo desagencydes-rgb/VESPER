@@ -6595,9 +6595,14 @@ CASES += [
      "again, so restoring puts a vesper image back and calls it the owner's"),
 
     ("the-wallpaper-changes-only-on-vespers-desktop", GROUND_SWIFT,
-     _sub("    home?.retract()\n    RunLoop.main.run(until: Date().addingTimeInterval(0.4))\n"
+     # ANCHORED ON THE LINES THAT FOLLOW, because `let retracted =
+     # verifyGroundLanding()` appears in the ground control too and the first
+     # occurrence is that one -- so the mutation was landing on a different
+     # control entirely and this case tested nothing.
+     _sub("    let retracted = verifyGroundLanding()\n"
+          "    RunLoop.main.run(until: Date().addingTimeInterval(0.4))\n"
           "    let stillHere = groundIsVisible()",
-          "    let stillHere = false", 1),
+          "    let retracted = true\n    let stillHere = false", 1),
      "the negative control stops removing the ground, so vesper still owns the "
      "desktop and the refusal it exists to exercise never happens"),
 ]

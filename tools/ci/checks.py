@@ -21798,10 +21798,15 @@ def check_the_wallpaper_changes_only_on_vespers_desktop() -> Result:
     else:
         if "exit(5)" not in ctl:
             r.err("--mode-residency-check cannot report a failure")
-        if "retract" not in ctl:
-            r.err("--mode-residency-check never removes the ground, so vesper "
-                  "still owns the desktop and the refusal is never exercised -- "
-                  "the control would pass without testing anything")
+        # THE CALL, NOT A NAME THAT CONTAINS IT. Testing for "retract" was
+        # satisfied by the local variable `retracted`, so gutting the call left
+        # the check green -- the fourth time today a substring test mistook an
+        # identifier for the behaviour it names.
+        if "verifyGroundLanding()" not in ctl:
+            r.err("--mode-residency-check never removes the ground through the "
+                  "shipped judge, so vesper still owns the desktop and the "
+                  "refusal is never exercised -- the control would pass without "
+                  "testing anything")
 
     r.note("setMode asks whether the ground is on the desktop showing before "
            "touching the picture; apply() refuses to record a vesper wallpaper "
