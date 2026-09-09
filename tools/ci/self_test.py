@@ -6391,5 +6391,97 @@ CASES += [
 ]
 
 
+# CI-137 -- the flag bar. Flags existed and were rendered by nothing; the
+# relocation ladder returned `degraded: true` with notes no surface read.
+# --------------------------------------------------------------------------
+EXECUTOR_PY = "core/executor.py"
+HOMESTATE_PY = "core/home_state.py"
+HOMECHROME_SWIFT = "app/home-macos/HomeChrome.swift"
+
+CASES += [
+    ("every-flag-reaches-one-bar", EXECUTOR_PY,
+     _sub('        if isinstance(result, dict) and (result.get("flag") or result.get("degraded")):', '        if False:', 1),
+     "a degraded result publishes no flag, so every flag vesper raises is "
+     "produced at the one choke point that sees results and read by nothing"),
+
+    ("every-flag-reaches-one-bar", EXECUTOR_PY,
+     _sub('            flag_id = str(result.get("flag_id") or "").strip() or ":".join(', '            flag_id = f"{capability_id}:{key}" or ":".join(', 1),
+     "the flag id goes back to carrying a per-execution uuid, so the same "
+     "failure asked twice fills the bar it exists to be seen in"),
+
+    ("every-flag-reaches-one-bar", HOMESTATE_PY,
+     _sub('            self._flags = [f for f in self._flags if f.get("id") != flag_id]\n            self._flags.append(', '            self._flags.append(', 1),
+     "raise_flag stops replacing a flag with the same id, so one condition "
+     "reported repeatedly becomes many rows"),
+
+    ("every-flag-reaches-one-bar", HOMESTATE_PY,
+     _sub('            existing["flags"] = self._flags\n', "", 1),
+     "flags stop being written to home.json, so they are raised, deduped and "
+     "never reach the file the chrome reads"),
+
+    ("every-flag-reaches-one-bar", HOMESTATE_PY,
+     _sub('        if not text:\n            return                    # a flag with no words reveals nothing\n', '', 1),
+     "a flag with no words is stored, so the bar can show a button that "
+     "reveals nothing on hover"),
+
+    ("every-flag-reaches-one-bar", CHROME_TPL,
+     _sub("        b.setAttribute('aria-label', f.text);", '        b.innerHTML = f.text;', 1),
+     "the flags renderer assigns innerHTML, and a flag carries a window title "
+     "and an application's own error text -- none of it written by vesper"),
+
+    ("every-flag-reaches-one-bar", CHROME_TPL,
+     _sub('      if (!rows.length) { bar.hidden = true; tip.hidden = true; return; }\n      bar.hidden = false;', '      if (!rows.length) { return; }', 1),
+     "the bar stops hiding when there is nothing to say, so an empty strip "
+     "sits above the menu permanently"),
+
+    ("every-flag-reaches-one-bar", HOMECHROME_SWIFT,
+     _sub("              step('flags',   function(){ if (window.__vesperFlags) window.__vesperFlags(`\\(flagSafe)`); });\n", "", 1),
+     "the chrome never pushes flags, so the receiver exists and is called by "
+     "nothing -- the built-and-unreached shape this tree keeps finding"),
+]
+
+
+# CI-138 -- provenance across a VESPER restart. Ids reset on a MACHINE boot,
+# not on a restart, and vesper forgot every window a dozen times on 2026-09-08.
+# --------------------------------------------------------------------------
+CAPS_PY = "core/capabilities.py"
+
+CASES += [
+    ("a-restored-stamp-is-corroborated", CAPS_PY,
+     _sub('    m = _re.search(r"\\{\\s*sec\\s*=\\s*(\\d+)", out)', '    m = _re.search(r"sec\\s*=\\s*(\\d+)", out[out.index("usec"):]) if "usec" in out else None', 1),
+     "the boot key becomes the `usec` field: it varies per boot so it still "
+     "appears to work, while being the wrong number"),
+
+    ("a-restored-stamp-is-corroborated", CAPS_PY,
+     _sub('    if str(doc.get("boot_id") or "") != _boot_id() or not _boot_id():\n        return []\n', '', 1),
+     "claims from a different boot are honoured, so a stale entry for a low "
+     "window number matches whatever the owner opens early in a new session"),
+
+    ("a-restored-stamp-is-corroborated", CAPS_PY,
+     _sub('        if str(w.get("pid")) != str(r.get("pid")):\n            continue                       # same number, different process\n', "", 1),
+     "corroboration stops checking the process, so the same window number "
+     "under a different application's pid is claimed as vesper's"),
+
+    ("a-restored-stamp-is-corroborated", CAPS_PY,
+     _sub('        if str(w.get("app_label")) != str(r.get("app_label")):\n            continue                       # same number, different application\n', "", 1),
+     "corroboration stops checking the application, so a recycled number in a "
+     "different application is claimed"),
+
+    ("a-restored-stamp-is-corroborated", CAPS_PY,
+     _sub('        if w is None:\n            continue                       # gone; a stamp for it claims nothing\n', '        if w is None:\n            out.add(wid)\n            continue\n', 1),
+     "a window that no longer exists is still claimed, so the file asserts "
+     "authority over windows that are gone"),
+
+    ("a-restored-stamp-is-corroborated", CAPS_PY,
+     _sub('    mine = set(_VESPER_OPENED_WINDOWS) | _corroborate(_load_opened(),\n                                                      raw.get("windows", []))', '    mine = set(_VESPER_OPENED_WINDOWS)', 1),
+     "the inventory stops consulting the recorded claims, so provenance is "
+     "written to disk and read by nothing -- built and unreached again"),
+
+    ("a-restored-stamp-is-corroborated", CAPS_PY,
+     _sub('        _forget_opened(str(args.get("window_id")))\n', "", 1),
+     "a closed window stays claimed, so the record outlives the window"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

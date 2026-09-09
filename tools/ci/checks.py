@@ -21706,6 +21706,299 @@ def _swift_body(src: str, opener: str) -> str:
     return ""
 
 
+def check_a_restored_stamp_is_corroborated() -> Result:
+    """A provenance stamp read off disk must be confirmed against the world.
+
+    WHAT CHANGED AND WHY IT IS SAFE. `_VESPER_OPENED_WINDOWS` was deliberately
+    not persisted, on the grounds that window ids are reused. Half right: they
+    reset on a MACHINE boot, not on a VESPER restart -- and VESPER restarted a
+    dozen times on 2026-09-08 with every window still open, forgetting them all
+    each time. MEASURED 2026-09-09 and re-measurable through the app's
+    `--window-id-reuse-check`: numbers are monotonic and not reused within a
+    boot, so a stale stamp can only ever match the window it was made for.
+
+    THE FILE IS A HINT, NEVER A SOURCE OF TRUTH, and this check is that
+    sentence made executable. Four conditions or the stamp resolves to
+    `unknown`, which is the owner's: the boot matches, the window is live, the
+    pid matches, the application matches. A wrong answer in the permissive
+    direction hands VESPER a window it may not touch, which is exactly what
+    `classify_opened` refuses to guess at.
+    """
+    r = Result("a-restored-stamp-is-corroborated")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf, json as _js
+    try:
+        from core import capabilities as C
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"core.capabilities does not import: {exc!r}")
+        return r
+
+    for name in ("_boot_id", "_load_opened", "_save_opened", "_corroborate",
+                 "_remember_opened", "_forget_opened"):
+        if not hasattr(C, name):
+            r.err(f"core.capabilities has no {name}; provenance across a "
+                  "restart has changed shape and this check is not reading it")
+            return r
+
+    # 1. THE BOOT KEY IS THE `sec` FIELD, NOT `usec`.
+    boot = C._boot_id()
+    if not boot:
+        r.err("no boot id could be read, so the file cannot be invalidated "
+              "across a reboot -- the one case where window numbers repeat")
+    else:
+        import subprocess as _sp, re as _re
+        raw = _sp.run(["/usr/sbin/sysctl", "-n", "kern.boottime"],
+                      capture_output=True, text=True, check=False).stdout
+        usec = _re.search(r"usec\s*=\s*(\d+)", raw)
+        if usec and boot == usec.group(1):
+            r.err("the boot id is the `usec` field, not `sec`. A greedy match "
+                  "for `sec = ` finds `usec` -- it varies per boot so it still "
+                  "appears to work, while being the wrong number")
+
+    orig = C._OPENED_PATH
+    with _tf.TemporaryDirectory() as _td:
+        C._OPENED_PATH = Path(_td) / "windows_opened.json"
+        try:
+            # 2. FAIL-CLOSED ON EVERY UNREADABLE STATE.
+            if C._load_opened() != []:
+                r.err("a missing claims file does not resolve to nothing")
+            C._OPENED_PATH.write_text("{not json", encoding="utf-8")
+            if C._load_opened() != []:
+                r.err("a corrupt claims file does not resolve to nothing. Any "
+                      "unreadable state must resolve to `unknown`, the owner's")
+            C._OPENED_PATH.write_text(_js.dumps(
+                {"boot_id": "0", "windows": [{"window_id": "1", "pid": "2",
+                                              "app_label": "X"}]}),
+                encoding="utf-8")
+            if C._load_opened() != []:
+                r.err("claims from a DIFFERENT BOOT are honoured. Numbers "
+                      "restart low at boot, so a stale entry for window 100 can "
+                      "match a window the owner opened seconds into the new "
+                      "session -- the one case the monotonic guarantee misses")
+
+            # 3. CORROBORATION IS EXACT.
+            live = [{"window_id": "500", "pid": "42", "app_label": "TextEdit"}]
+            cases = [
+                ({"window_id": "500", "pid": "42", "app_label": "TextEdit"}, True,
+                 "an exact match"),
+                ({"window_id": "501", "pid": "42", "app_label": "TextEdit"}, False,
+                 "a window that is gone"),
+                ({"window_id": "500", "pid": "99", "app_label": "TextEdit"}, False,
+                 "the same number under a different process"),
+                ({"window_id": "500", "pid": "42", "app_label": "Safari"}, False,
+                 "the same number in a different application"),
+            ]
+            for row, want, why in cases:
+                # THE ROW'S OWN ID. This asked whether "500" survived while the
+                # row under test was 501, so the "a window that is gone" case
+                # could not observe its own violation -- the assertion passed
+                # under it.
+                got = str(row["window_id"]) in C._corroborate([row], live)
+                if got != want:
+                    r.err(f"corroboration {'refused' if want else 'accepted'} "
+                          f"{why}. The file may only restore a stamp for a "
+                          "window that demonstrably still exists; it must never "
+                          "invent authority")
+
+            # 4. REMEMBERING AND FORGETTING BOTH REACH THE FILE.
+            C._save_opened([])
+            C._remember_opened("700", "5", "Notes")
+            if not any(str(x.get("window_id")) == "700" for x in C._load_opened()):
+                r.err("a window VESPER opened is not recorded, so the stamp dies "
+                      "with the process again")
+            C._forget_opened("700")
+            if any(str(x.get("window_id")) == "700" for x in C._load_opened()):
+                r.err("a closed window stays claimed, so the record outlives the "
+                      "window and reads as history that never happened")
+        finally:
+            C._OPENED_PATH = orig
+
+    # 5. THE INVENTORY MUST ACTUALLY CONSULT IT, or all of the above is inert.
+    src = (REPO / "core" / "capabilities.py").read_text(encoding="utf-8")
+    import ast as _a4
+    inv = next((n for n in _a4.walk(_a4.parse(src))
+                if isinstance(n, _a4.FunctionDef) and n.name == "_inventory"), None)
+    if inv is None:
+        r.err("core/capabilities.py has no _inventory")
+    else:
+        seg = _a4.get_source_segment(src, inv) or ""
+        if "_corroborate" not in seg or "_load_opened" not in seg:
+            r.err("_inventory does not corroborate the recorded claims, so the "
+                  "file is written and read by nothing -- built and unreached")
+    closer = next((n for n in _a4.walk(_a4.parse(src))
+                   if isinstance(n, _a4.FunctionDef) and n.name == "window_close"), None)
+    if closer is None:
+        r.err("core/capabilities.py has no window_close")
+    elif "_forget_opened" not in (_a4.get_source_segment(src, closer) or ""):
+        r.err("window_close never forgets the window it closed. Exercising "
+              "`_forget_opened` is a different claim from it being CALLED, and "
+              "the first version of this check only made the first")
+    opener = next((n for n in _a4.walk(_a4.parse(src))
+                   if isinstance(n, _a4.FunctionDef) and n.name == "window_open"), None)
+    if opener is None:
+        r.err("core/capabilities.py has no window_open")
+    elif "_remember_opened" not in (_a4.get_source_segment(src, opener) or ""):
+        r.err("window_open never records the window it opened, so nothing "
+              "survives the process that opened it")
+
+    r.note("the boot key is the sec field; a missing, corrupt or foreign-boot "
+           "file resolves to nothing; corroboration accepts only an exact "
+           "window/pid/application match; open records and close forgets; and "
+           "the inventory consults it")
+    return r
+
+
+def check_every_flag_reaches_one_bar() -> Result:
+    """A flag vesper raises reaches the bar, and repeating it does not stack.
+
+    THE OWNER'S DESIGN, 2026-09-09: one small bar above the main menu holding
+    every flag, buttons revealing the flag on hover. One destination, because a
+    flag nobody has a habit of looking at is a flag that does not exist -- and
+    because flags already existed with nowhere to go. `window.relocate` has been
+    returning `degraded: true` with a `notes` list that no surface rendered.
+
+    DRIVEN, NOT READ. The chain is capability -> executor -> bus -> HomeState ->
+    home.json -> chrome, and every link in it has been the missing one somewhere
+    in this tree. So a real capability result goes in one end and the file is
+    read at the other.
+
+    THE ID NAMES THE CONDITION, NOT THE EXECUTION, and this is the assertion
+    that earns its keep. The first version keyed the flag on the idempotency
+    key, which carries a per-execution uuid, so the same failure asked twice
+    produced two identical flags -- exactly the case the dedupe exists to
+    prevent, in the surface whose whole job is to stay readable.
+    """
+    r = Result("every-flag-reaches-one-bar")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf, json as _js, uuid as _uu
+    try:
+        from core.bus import EventBus
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+        from core.home_state import HomeState
+        from core.capability import CapabilityRegistry
+        from core.authorize import PolicyDecisionPoint, Grant
+        from core.executor import Executor
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"the flag chain does not import: {exc!r}")
+        return r
+
+    with _tf.TemporaryDirectory() as _td:
+        base = Path(_td)
+        clock = HybridLogicalClock("flagcheck")
+        bus = EventBus(clock, StoreSet(base, node_id="flagcheck"), component="flagcheck")
+        home = HomeState(path=base / "home.json", bus=bus, clock=clock)
+
+        seen: list = []
+        bus.subscribe("flag.raised", lambda e: seen.append(dict(e.payload)),
+                      name="flagcheck-tap", idempotency_key=lambda e: e.event_id)
+        bus.subscribe("flag.raised",
+                      lambda e: home.raise_flag(str((e.payload or {}).get("id") or "f"),
+                                                str((e.payload or {}).get("text") or "")),
+                      name="flagcheck-home", idempotency_key=lambda e: e.event_id)
+
+        reg = CapabilityRegistry()
+        from core.capability import LevelRule
+        reg.register("test.flagger", lambda a: "L2" if a.get("x") else "L1",
+                     [LevelRule("plain", "L1", {}),
+                      LevelRule("with x", "L2", {"x": 1})],
+                     reversibility="reversible")
+        pdp = PolicyDecisionPoint(bus, reg)
+        ex = Executor(bus, reg, pdp)
+        ex.bind("test.flagger",
+                lambda a: {"ok": False, "degraded": True, "rung": "stuck",
+                           "flag": "a real degradation with words"})
+
+        def _run():
+            pdp.issue(Grant(grant_id=str(_uu.uuid4()), subject="owner",
+                            capability_id="test.flagger", target_scope=("w1",),
+                            max_level="L5", expiry_ms=2**62, lease_epoch=0))
+            return ex.execute(subject="owner", capability_id="test.flagger",
+                              args={}, target="w1", authorization="owner_explicit")
+
+        _run()
+        if not seen:
+            r.err("a degraded result published no `flag.raised`. The executor is "
+                  "the only point every capability's result passes through, and "
+                  "`Execution.to_dict()` omits the result -- so if the flag is "
+                  "not published here nothing downstream can ever see it")
+            return r
+        if not str(seen[-1].get("text") or "").strip():
+            r.err("the published flag carries no words. A button that reveals "
+                  "nothing on hover is indistinguishable from a broken one")
+
+        doc = _js.loads((base / "home.json").read_text(encoding="utf-8"))
+        flags = doc.get("flags")
+        if not isinstance(flags, list) or not flags:
+            r.err("the flag never reached home.json, which is the file the "
+                  "chrome reads. Raised and rendered are different claims")
+            return r
+
+        # THE DEDUPE, WHICH IS THE POINT.
+        _run()
+        doc2 = _js.loads((base / "home.json").read_text(encoding="utf-8"))
+        if len(doc2.get("flags") or []) != len(flags):
+            r.err("the same condition raised twice produced two flags. The id "
+                  "must name the CONDITION, not the execution -- keyed on the "
+                  "idempotency key it carries a per-execution uuid, and a "
+                  "repeating failure then fills the bar it exists to be seen in")
+
+        # AND IT MUST BE CLEARABLE, or the bar reports a problem that is over.
+        fid = (doc2.get("flags") or [{}])[-1].get("id")
+        home.clear_flag(str(fid))
+        doc3 = _js.loads((base / "home.json").read_text(encoding="utf-8"))
+        if any(f.get("id") == fid for f in (doc3.get("flags") or [])):
+            r.err("a cleared flag stays in the file, so the bar keeps calling "
+                  "for action on something already resolved")
+
+        home.raise_flag("empty-one", "   ")
+        doc4 = _js.loads((base / "home.json").read_text(encoding="utf-8"))
+        if any(f.get("id") == "empty-one" for f in (doc4.get("flags") or [])):
+            r.err("a flag with no text is stored, so the bar can show a button "
+                  "that reveals nothing")
+
+    # THE SURFACE END. Structure only -- the page cannot be run here.
+    tpl = (REPO / CHROME_TEMPLATE).read_text(encoding="utf-8")
+    body = _js_body(tpl, "window.__vesperFlags = function (json)")
+    if not body:
+        body = _js_body(tpl, "window.__vesperFlags = function(json)")
+    if not body:
+        r.err("the page has no __vesperFlags receiver, so flags reach home.json "
+              "and stop there")
+    else:
+        if "innerHTML" in body:
+            r.err("the flags renderer assigns innerHTML. A flag carries a window "
+                  "title and an application's own error text, none of it written "
+                  "by vesper")
+        if "textContent" not in body:
+            r.err("the flags renderer does not write text as text")
+        # THE ASSIGNMENT, NOT THE WORD. `hidden` also appears on the tooltip,
+        # so testing for the identifier left this green with the bar's own
+        # hide deleted -- the third time tonight a check tested whether a name
+        # occurs rather than what the code does.
+        if "bar.hidden=true" not in "".join(body.split()):
+            r.err("the bar is never hidden, so an empty strip sits above the "
+                  "menu permanently and trains the eye to skip the place a flag "
+                  "will appear")
+    if 'id="flagbar"' not in tpl or 'id="flags"' not in tpl:
+        r.err("the flag bar's markup is missing from the page")
+    chrome = (REPO / "app" / "home-macos" / "HomeChrome.swift").read_text(encoding="utf-8")
+    # THE PUSH STEP, not a mention of the name. `__vesperFlags` also appears in
+    # this file's own comments explaining the receiver, and `_swift_code` strips
+    # comments but the guard still has to name the CALL rather than the symbol.
+    if "step('flags'" not in _swift_code(chrome):
+        r.err("HomeChrome never pushes flags, so the receiver exists and is "
+              "called by nothing -- built and unreached")
+
+    r.note("a degraded capability result publishes a flag, it reaches home.json, "
+           "the same condition twice stays one row, a cleared flag leaves, an "
+           "empty one is refused, and the page renders flags as text into a bar "
+           "that hides when there is nothing to say")
+    return r
+
+
 def check_a_window_is_claimed_only_by_the_app_that_opened_it() -> Result:
     """VESPER may stamp a window as its own only if it can prove it opened it.
 
@@ -22238,6 +22531,8 @@ CHECK_FNS = {
     "permission-mode-ceiling-only-lowers": check_permission_mode_ceiling_only_lowers,
     "the-ground-gives-a-taken-desktop-back": check_the_ground_gives_a_taken_desktop_back,
     "a-window-is-claimed-only-by-the-app-that-opened-it": check_a_window_is_claimed_only_by_the_app_that_opened_it,
+    "every-flag-reaches-one-bar": check_every_flag_reaches_one_bar,
+    "a-restored-stamp-is-corroborated": check_a_restored_stamp_is_corroborated,
 }
 
 

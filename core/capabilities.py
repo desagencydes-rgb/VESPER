@@ -734,7 +734,11 @@ def _inventory() -> tuple[list, str | None]:
     # on screen "on vesper's desktop" and hands VESPER the owner's whole
     # session under clause 1 of the ownership rule.
     vespers = raw.get("vespers_desktop")
-    mine = _VESPER_OPENED_WINDOWS
+    # CORROBORATED HERE, because this is the one place the live window list and
+    # the recorded claims are both in hand. A claim is only ever turned into a
+    # stamp against a window the bridge just reported.
+    mine = set(_VESPER_OPENED_WINDOWS) | _corroborate(_load_opened(),
+                                                      raw.get("windows", []))
     return ([W.Window(window_id=str(w["window_id"]), pid=int(w["pid"]),
                       app_label=str(w.get("app_label") or "?"),
                       desktop_id=str(w.get("desktop_id") or desktop or "?"),
@@ -752,6 +756,116 @@ def _inventory() -> tuple[list, str | None]:
 # Forgetting means falling back to `unknown`, which is the owner's -- the safe
 # direction, and the only one worth defaulting to.
 _VESPER_OPENED_WINDOWS: set = set()
+
+
+# THE SAME SET, SURVIVING A RESTART OF VESPER -- AND ONLY THAT.
+#
+# The comment above says a provenance read off disk is a claim about a previous
+# run's windows and that window ids are reused. Half of that is right, and the
+# half that is wrong is the half that matters: ids reset on a MACHINE boot, not
+# on a VESPER restart. VESPER restarted a dozen times on 2026-09-08 with every
+# window still open and every id still valid, and forgot them all each time.
+#
+# MEASURED on this host 2026-09-09, and re-measurable through the app's
+# `--window-id-reuse-check`: window numbers are allocated monotonically and are
+# NOT reused within a boot. 41 windows created and destroyed gave 41 distinct
+# strictly increasing numbers, including 25 sequential open-close cycles. So if
+# VESPER opened window 500, exited, the owner closed it and opened their own,
+# theirs gets 501 or higher. A stale stamp can only ever match the window it was
+# made for.
+#
+# WHICH IS WHY THE FILE IS A HINT AND NEVER A SOURCE OF TRUTH. Four conditions,
+# all required, or the stamp resolves to `unknown` -- the owner's, the safe
+# direction: the boot matches, the window is still live, the pid matches, and
+# the application matches. Anything else -- a parse error, a missing field, a
+# changed field -- resolves the same way. This restores authority over a window
+# that demonstrably still exists; it can never invent any.
+_OPENED_PATH = (pathlib.Path.home() / "Library" / "Application Support"
+                / "VESPER" / "windows_opened.json")
+
+
+def _boot_id() -> str:
+    """This boot, as the key that invalidates everything across a reboot.
+
+    ANCHORED ON THE FIELD, because `kern.boottime` reads
+    `{ sec = 1788295195, usec = 476017 }` and a greedy match for `sec = ` finds
+    `usec` -- which would still vary per boot and so would still *work*, while
+    being the wrong number. It was written that way first.
+    """
+    try:
+        out = subprocess.run(["/usr/sbin/sysctl", "-n", "kern.boottime"],
+                             capture_output=True, text=True, timeout=5,
+                             check=False).stdout
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    import re as _re
+    m = _re.search(r"\{\s*sec\s*=\s*(\d+)", out)
+    return m.group(1) if m else ""
+
+
+def _load_opened() -> list:
+    """The recorded claims, or nothing. Never raises, never guesses."""
+    try:
+        doc = json.loads(_OPENED_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return []
+    if not isinstance(doc, dict):
+        return []
+    # A DIFFERENT BOOT DISCARDS THE WHOLE FILE, not entry by entry. Numbers
+    # restart low at boot, so a stale entry for window 100 could match a window
+    # the owner opened seconds into the new session -- the one case where the
+    # monotonic guarantee does not hold, and the reason this key exists.
+    if str(doc.get("boot_id") or "") != _boot_id() or not _boot_id():
+        return []
+    rows = doc.get("windows")
+    return [r for r in rows if isinstance(r, dict)] if isinstance(rows, list) else []
+
+
+def _save_opened(rows: list) -> None:
+    """Write the claims atomically. A failure here loses memory, never safety."""
+    try:
+        _OPENED_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _OPENED_PATH.with_name(f"windows_opened.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps({"boot_id": _boot_id(), "windows": rows},
+                                  indent=1), encoding="utf-8")
+        tmp.replace(_OPENED_PATH)
+    except OSError:
+        pass
+
+
+def _corroborate(rows: list, live: list) -> set:
+    """Which recorded claims does the world still support?
+
+    `live` is what the bridge just reported. A claim survives only if the window
+    is still there, under the same process, in the same application. Anything
+    else is dropped rather than resolved generously.
+    """
+    by_id = {str(w.get("window_id")): w for w in live}
+    out = set()
+    for r in rows:
+        wid = str(r.get("window_id") or "")
+        w = by_id.get(wid)
+        if w is None:
+            continue                       # gone; a stamp for it claims nothing
+        if str(w.get("pid")) != str(r.get("pid")):
+            continue                       # same number, different process
+        if str(w.get("app_label")) != str(r.get("app_label")):
+            continue                       # same number, different application
+        out.add(wid)
+    return out
+
+
+def _remember_opened(window_id: str, pid: Any, app_label: str) -> None:
+    rows = [r for r in _load_opened()
+            if str(r.get("window_id")) != str(window_id)]
+    rows.append({"window_id": str(window_id), "pid": str(pid),
+                 "app_label": str(app_label), "at_ms": int(time.time() * 1000)})
+    _save_opened(rows[-64:])
+
+
+def _forget_opened(window_id: str) -> None:
+    _save_opened([r for r in _load_opened()
+                  if str(r.get("window_id")) != str(window_id)])
 
 
 def window_list(args: dict) -> dict:
@@ -813,6 +927,10 @@ def window_close(args: dict) -> dict:
     out = _act("close", args, "--window-act", "close")
     if out.get("ok"):
         _VESPER_OPENED_WINDOWS.discard(str(args.get("window_id")))
+        # AND FROM THE FILE, or a closed window's number stays claimed until the
+        # next reboot -- harmless while the number is unused, and wrong the
+        # moment anything reads the record as history.
+        _forget_opened(str(args.get("window_id")))
     return out
 
 
@@ -940,6 +1058,12 @@ def window_open(args: dict) -> dict:
     _VESPER_OPENED_WINDOWS.add(new_id)
     wins, vespers = _inventory()
     made = next((w for w in wins if w.window_id == new_id), None)
+    # RECORDED WITH WHAT THE WORLD SAYS, not with what was asked for. The pid
+    # and application come from the window that actually appeared, because those
+    # are the two fields a later run corroborates against -- recording the
+    # requested application would make the check compare a claim to itself.
+    if made is not None:
+        _remember_opened(new_id, made.pid, made.app_label)
     if made is None:
         # THE WINDOW OPENED AND IT IS NOT HERE, AND THAT IS NOT A SUCCESS.
         #
