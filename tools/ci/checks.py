@@ -22573,12 +22573,25 @@ def check_a_window_is_claimed_only_by_the_app_that_opened_it() -> Result:
               "a Desktop change during the launch makes every window over there "
               "look newly created -- which is how one of the owner's Safari "
               "windows came back from window.open(\"TextEdit\")")
-    if "$0.pid==Int(launchedPid)" not in flat:
-        r.err("reopen claims a window without checking it belongs to the "
-              "application it launched. Knowing VESPER opened SOMETHING is not "
+    # COUNTED, NOT MERELY PRESENT. `reopen` polls for a new window in TWO
+    # places since the scripting rung landed -- after the launch, and after
+    # asking the application to make a document -- and a presence test was
+    # satisfied by whichever one still had the guard. So both cases here went
+    # green with a real forgery restored in the other. Every place that claims
+    # a window must check both conditions, so both are counted against the
+    # number of claim sites.
+    claims = flat.count("$0.layer==0")
+    if claims == 0:
+        r.err("reopen has no window-claiming poll at all; it has changed shape "
+              "and this check is not reading what it thinks it is")
+    if flat.count("$0.pid==Int(launchedPid)") < claims:
+        r.err(f"{claims} place(s) in reopen claim a window and only "
+              f"{flat.count('$0.pid==Int(launchedPid)')} check it belongs to the "
+              "application launched. Knowing VESPER opened SOMETHING is not "
               "knowing WHICH, and the difference is the owner's session")
-    if "$0.number>frontier" not in flat:
-        r.err("reopen claims a window without checking it postdates the "
+    if flat.count("$0.number>frontier") < claims:
+        r.err(f"{claims} place(s) in reopen claim a window and only "
+              f"{flat.count('$0.number>frontier')} check it postdates the "
               "frontier, so a window the application already had open counts "
               "as one VESPER just created")
     if "guard let launchedPid" not in reopen:
@@ -22722,9 +22735,16 @@ def check_the_ground_gives_a_taken_desktop_back() -> Result:
     # two assertions about the SHIPPED path vacuous: the harness deleted the
     # real call sites and the check stayed green off the diagnostic's copies.
     # Caught 2026-09-09 by the red runs, which is what they are for.
+    # EVERY CONTROL COMES OUT, not just the two that existed when this was
+    # written. `--mode-residency-check` was added on 2026-09-09 and legitimately
+    # removes the ground through the shipped judge -- so its call kept the name
+    # alive after the SHIPPED call site was deleted, and two cases here stopped
+    # detecting their own violation. A list of exclusions that has to be
+    # remembered is a list that goes stale, so it is derived from the flags.
     shipped = code
-    for block in (ctl, _swift_nostrings(
-            _swift_body(src, 'if args.contains("--ground-resume-check") {'))):
+    for flag in ("--ground-retract-check", "--ground-resume-check",
+                 "--mode-residency-check"):
+        block = _swift_nostrings(_swift_body(src, f'if args.contains("{flag}") {{'))
         if block:
             shipped = shipped.replace(block, "")
     # A DECLARATION IS NOT A CALL. `func groundIsVisible() -> Bool` contains
