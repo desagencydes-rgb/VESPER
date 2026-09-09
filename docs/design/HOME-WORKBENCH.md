@@ -1485,7 +1485,7 @@ been driven against the running surface.**
 | 14 | **`f5-acceptance` flakes under load** (§9i, §11.0) | ✅ DONE 2026-09-08 — the gate compared a live in-memory counter against the durable store and reported its own sampling as a defect. Both negative controls driven RED. §9i's recorded cause was wrong twice over; §11.0 supersedes it |
 | 15 | **Window management** (§11.1) | 🟡 IN PROGRESS 2026-09-09 — vocabulary, ownership rule, native bridge and capability ladder landed and DRIVEN LIVE. `a-window-belongs-to-someone`, 7 red runs. `window.open` drove live and its provenance stamp is real. **Driving it found a forgery path** (§11.1c): `reopen` claimed any newly-seen window, and returned one of the owner's Safari windows from `window.open("TextEdit")` — fixed by requiring the launched pid and a cross-Desktop frontier. **Owed:** placement verification (§11.1c), a check for the forgery fix, and rung 3, which has never executed |
 | 15a | **Placement is verified, not predicted** (§11.1c) | 🟡 PART DONE 2026-09-09 — `window_open` now READS BACK where the window landed and reports `degraded` with a flag instead of `ok: true`; the two false comments are corrected. Also fixed: vesper claimed TextEdit's **Open dialog** as a window it opened, so the launch rung now requires a close button. **Owed:** the close-and-reopen rebuild, which needs a bridge that can reach a window on another Desktop — every act matches through `SpaceWatch.onScreen()`, one Desktop only |
-| 15b | **Window memory across a restart** (§11.8) | 🟡 PART DONE 2026-09-09 — the AUTHORITY half is built, checked and driven across processes: `CI-138`, 7 red runs, one interpreter opened window 33429 and a second read it back as vesper's. Boot-keyed, corroborated against the live window, fail-closed on every unreadable state. **Owed:** the interaction LOG itself (L3, titles with the two reason codes, weekly compression reusing `StoreSet.rotate`) |
+| 15b | **Window memory across a restart** (§11.8) | ✅ DONE 2026-09-09 — **authority:** boot-keyed, corroborated against the live window, fail-closed on every unreadable state; `CI-138`, 7 red runs; driven across processes (one interpreter opened window 33429, a second read it back as vesper's). **history:** `core/window_log.py` — appends what vesper touched, an absent title carries a code (`no_file`, `no_file_model`, `unreadable`), old weeks compress in place and read back through the same call, the current week stays near, and **nothing in it can open a window**; `CI-139`, 5 red runs. `gated-subsystems-are-reachable` caught the module unwired the moment it landed |
 | 15c | **The flag bar** (§11.9) | ✅ DONE 2026-09-09 — small bar above the main menu, hidden when empty, buttons revealing the flag on hover. Published from the EXECUTOR (the one point every result passes through), deduped by CONDITION not execution, written to `home.json`, rendered as text. `CI-137`, 8 red runs, driven end to end with a real degraded relocation |
 | 16 | **Modes, end to end** (§11.2) | the eleven ambience modes and the stages, manual from the menu and automatic, with the wallpaper switch bounded to VESPER's Desktop |
 | 17 | **Apps management** (§11.3) | drive macOS applications without clicking, where a real interface exists |
@@ -2397,3 +2397,43 @@ something needs them, it goes here and waits.
    this and the other thing" (§11.1c and §11.8), and separately said to continue
    the plan where it was left off (step 16, modes). 15a/15b/15c are placed
    before 16 on that reading; say if 16 should come first.
+
+
+## 13 WHAT LANDED OVERNIGHT, 2026-09-09
+
+Written for the owner to read first thing, because the useful part of a night's
+work is the list of things that turned out not to be true.
+
+**Done, driven live, checked with executed red runs:**
+
+| | |
+|---|---|
+| The ground gives a taken Desktop back | judged after it EXISTS, not on a guessed 0.6 s delay (measured: 0.06 s). `CI-135`, 8 red runs |
+| A window is claimed only by the app that opened it | `window.open("TextEdit")` was returning one of the owner's **Safari** windows, stamped `vesper_opened`. `CI-136`, 8 red runs |
+| The flag bar | `CI-137`, 8 red runs, plus a DOM stub driving the shipped receiver |
+| Provenance survives a VESPER restart | `CI-138`, 7 red runs, driven across two processes |
+| The window log | `CI-139`, 5 red runs |
+
+**Five things that were believed and were false:**
+
+1. *"A new window appears on whichever Desktop is showing."* Written in two
+   places, false in both. What decides placement is still unknown, and the fix
+   does not depend on knowing: read back where it landed.
+2. *Window ids are reused, so provenance cannot be persisted.* Half right --
+   they reset on a MACHINE boot, not on a VESPER restart, which is why vesper
+   forgot every window a dozen times in one evening.
+3. *The bridge's `accessible` field says whether vesper can act.* It answers YES
+   while unable to enumerate a single window, because `AXIsProcessTrusted()`
+   reports the responsible process -- the terminal.
+4. *Five negative controls were protecting things.* Three had silently stopped
+   applying their mutations; two passed under their own violation. All five
+   tested whether an IDENTIFIER APPEARS rather than what the code does, and
+   `checks.py all` was green throughout -- what regressed was the ability to
+   detect anything.
+5. *A window vesper opened is a window vesper can manage.* It opened TextEdit's
+   **Open dialog**: correctly attributed, genuinely new, no close button, no
+   action but `AXRaise`.
+
+**The failure that cost the most:** the machine was left to sleep for three
+hours because no `caffeinate` assertion was held. That is the reason this list
+is shorter than it should be.
