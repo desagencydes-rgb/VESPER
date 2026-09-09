@@ -1257,6 +1257,27 @@ def _describe(proposal: Any, result: dict) -> str:
         return f"that did not go through: {why}" if why else (
             "that did not go through, and it gave no reason")
 
+    if cid == "mode.set":
+        # "done" IS WHAT THIS SAID, AND IT WAS THE WRONG WORD TWICE OVER.
+        #
+        # `mode.set` has no branch here, so it fell to the generic success at
+        # the bottom. Driven 2026-09-10: the owner asked for research mode, the
+        # capability wrote `mode: research, ambience: Working` to home.json, the
+        # wallpaper did not change, and vesper said "done". That is the
+        # reported-success-for-work-not-done failure this function's own header
+        # refuses, arriving in a capability the header predates.
+        #
+        # WHAT IS TRUE IS THE STATE, NOT THE ROOM. This capability sets the
+        # pairing; the home watches the file and paints when its ground is on
+        # the Desktop that is showing, which may be a moment later or not at
+        # all. So the sentence names the mode -- which certainly happened --
+        # and claims nothing about the picture, which this side cannot see.
+        line = str(result.get("line") or "").strip()
+        if line:
+            return line
+        mode = str(result.get("mode") or "").strip()
+        return f"{mode} mode" if mode else "done"
+
     if cid.startswith("window."):
         # SAY WHAT CHANGED, and say when it changed less than was asked.
         if result.get("degraded"):

@@ -6627,10 +6627,55 @@ def check_arabizi_preserves_and_marks_itself() -> Result:
               "English sentence carrying a time would be transliterated into "
               "nonsense.")
 
+    # 6. MACHINE OUTPUT IS NOT A LANGUAGE, AND THE OWNER HEARD IT BEING TREATED
+    #    AS ONE. 2026-09-10: vesper read a `df -h` table aloud and switched
+    #    into Arabic partway through. `460Gi` -> `4ط0كي`, `disk3s3s1` ->
+    #    `ديسكعسعس1`; 9 of the table's 37 tokens were judged Arabizi, because
+    #    Arabizi encodes letters AS DIGITS and a filesystem table is saturated
+    #    with digit-letter mixes. Any command output carrying sizes or device
+    #    names would do the same.
+    #
+    #    DRIVEN ON THE EXACT OUTPUT THE OWNER HEARD, not on a shortened
+    #    stand-in: the fault was the accumulation of ordinary machine tokens,
+    #    so a one-line sample would not have reproduced it.
+    df = ("Filesystem Size Used Avail Capacity iused ifree %iused Mounted on\n"
+          "/dev/disk3s3s1 460Gi 16Gi 346Gi 5% 459k 3.6G 0% /\n"
+          "devfs 199Ki 199Ki 0Bi 100% 690 0 100% /dev\n"
+          "/dev/disk3s6 460Gi 2.0Gi 346Gi 1% 2 3.6G 0% /System/Volumes/VM")
+    for label, text in (
+            ("a df -h table", df),
+            ("an ls -l line", "-rw-r--r-- 1 macbook staff 144160 Sep 9 23:41 home.json"),
+            ("a commit sha", "commit 737cb8a9f2e1b4c6d8a0 landed"),
+            ("a version triple", "llama.cpp build b10405 version 1.2.3"),
+            ("IEC sizes in prose", "the disk is 460Gi with 346Gi available, 5% used")):
+        if arabizi.looks_arabizi(text):
+            r.err(f"{label} was judged Arabizi. Machine output is neither "
+                  f"English nor Darija, and transliterating it hands Arabic "
+                  f"script to a voice reading a filesystem -- which the owner "
+                  f"heard on 2026-09-10.")
+
+    #    AND THE FIX MUST NOT HAVE TAKEN THE FEATURE WITH IT. The first attempt
+    #    stripped `[a-z]+\d+[a-z0-9]*`, which is ALSO the shape of `n9ra`,
+    #    `n3ref` and `ch7al` -- it silenced every false positive and lost real
+    #    Darija. A guard that removes what it was protecting is worse than the
+    #    fault; this is the half of the assertion that catches that.
+    for text in ("kifach ghadi n9ra had chi",
+                 "bghit n3ref ch7al baqi",
+                 "wach 3ndek chi 7aja",
+                 "m3a slama, ghadi n mchi l 7ammam",
+                 "l9it chi 7all mzyan",
+                 "ma9dertch n3awd 7it l7al"):
+        if not arabizi.looks_arabizi(text):
+            r.err(f"real Darija stopped being detected: {text!r}. The "
+                  f"machine-output guard is over-reaching and has taken the "
+                  f"feature with it.")
+
     r.note("six digit-letters convert and none survives as a digit; digraphs "
            "match before single letters; Arabic passes through unchanged; "
            "nothing is dropped; MEASURED is False; a digit-bearing token is "
-           "Arabizi unless its letters are a known English unit")
+           "Arabizi unless its letters are a known English unit; and machine "
+           "output -- a df table, an ls line, a sha, a version -- is not a "
+           "language, while six real Darija lines still are")
     return r
 
 

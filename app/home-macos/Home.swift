@@ -58,6 +58,9 @@ final class GroundWindow: NSWindow {
 final class HomeController: NSObject {
     private var modeWatch: Timer?
     private var lastAppliedAmbience: String = ""
+    /// The ambience whose application FAILED, so the reason is printed once
+    /// rather than twice a second while the condition persists.
+    private var lastFailedAmbience: String = ""
 
     let screen: NSScreen
     let ground: NSWindow
@@ -802,8 +805,34 @@ final class HomeController: NSObject {
             else { return }
             guard let want = o["ambience"] as? String, !want.isEmpty,
                   want != self.lastAppliedAmbience else { return }
-            self.lastAppliedAmbience = want
-            _ = self.setMode(want, quiet: true)
+            // THE DEDUPE RECORDED THE ATTEMPT, NOT THE SUCCESS.
+            //
+            // This set `lastAppliedAmbience` BEFORE calling `setMode` and threw
+            // the result away, so a mode that failed to apply was never tried
+            // again -- and `quiet: true` meant the owner never learned why.
+            //
+            // Driven 2026-09-10: `mode.set` wrote `ambience: Working` to
+            // home.json, the wallpaper stayed on `home.png`, and vesper said
+            // "done". The residency guard below is the usual reason to fail --
+            // vesper's ground is not on the Desktop that is showing -- and that
+            // is a TRANSIENT condition. The owner switches Desktop a second
+            // later and the mode they asked for should land, not stay lost
+            // because a flag was set during the moment it could not.
+            //
+            // SO: ADVANCE ONLY ON SUCCESS, and keep retrying. The retry is the
+            // whole point; `setMode` is cheap when it refuses and re-reads the
+            // window server when it does not.
+            let ok = self.setMode(want, quiet: self.lastFailedAmbience == want)
+            if ok {
+                self.lastAppliedAmbience = want
+                self.lastFailedAmbience = ""
+            } else {
+                // PRINTED ONCE PER CONDITION. Without this the refusal would be
+                // logged twice a second for as long as the owner stayed on
+                // their own Desktop, which is a log nobody can read and a
+                // reason nobody would find in it.
+                self.lastFailedAmbience = want
+            }
         }
         RunLoop.main.add(t, forMode: .common)
         modeWatch = t

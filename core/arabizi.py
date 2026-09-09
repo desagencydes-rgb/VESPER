@@ -101,7 +101,53 @@ _EN_UNITS = frozenset((
     "am", "pm", "h", "hr", "hrs", "min", "mins", "s", "sec", "secs",
     "st", "nd", "rd", "th", "k", "m", "b", "kg", "g", "mb", "gb", "tb",
     "px", "pt", "x", "d", "w", "y", "yr", "yrs", "c", "f", "kb",
+    # THE IEC BINARY UNITS, MISSING UNTIL 2026-09-10 AND AUDIBLE WHEN THEY WERE.
+    # `df -h` prints `460Gi`, `199Ki`, `2.0Gi`; the decimal forms were here and
+    # the binary ones were not, so every size a filesystem reported carried a
+    # digit beside letters that were not a known unit -- and this returned True.
+    # The owner heard it: vesper read a `df -h` table aloud and switched into
+    # Arabic partway through, because `460Gi` had been transliterated to
+    # `4ط0كي`. Reported by ear, 2026-09-10, and reproduced from that exact
+    # output: 9 of its 37 tokens were judged Arabizi.
+    "gi", "ki", "mi", "ti", "pi", "ei", "gib", "kib", "mib", "tib",
+    "bi", "bit", "bits",
 ))
+
+
+# WHAT IS NEITHER ENGLISH NOR DARIJA. A filesystem path, a device node, a hex
+# digest, a version triple: these are MACHINE OUTPUT, and the question this
+# module asks -- "will a speech engine mispronounce a digit here" -- has the
+# answer "yes, and converting it to Arabic makes it worse, not better".
+#
+# STRIPPED BEFORE THE TEST, NOT EXCUSED INSIDE IT. Adding each shape to
+# `_EN_UNITS` would be claiming these are English units, which they are not,
+# and the set is consulted per TOKEN while a path is only recognisable from the
+# text around it. `disk3s3s1` is indistinguishable from Arabizi once the slash
+# is gone -- so the slash has to still be there when the judgement is made.
+_MACHINE = (
+    r"/[^\s]+",                          # absolute paths and device nodes
+    r"\b0x[0-9a-f]+\b",                  # hex literals
+    r"\b[0-9a-f]{8,}\b",                 # digests, uuids, cdhashes
+    r"\b\d+(?:\.\d+){2,}\b",             # version triples
+    # TWO OR MORE DIGIT GROUPS IN ONE TOKEN. `disk3s3s1`, `disk3s6`. This is
+    # the shape that separates an identifier from Arabizi, and it had to be
+    # found the hard way: the first version matched `[a-z]+\d+[a-z0-9]*`, which
+    # is ALSO the shape of `n9ra`, `n3ref` and `ch7al` -- so it silenced the
+    # false positives and took real Darija with it. A rule that removes the
+    # thing it was protecting is worse than the fault it fixes; measured
+    # against both corpora below before it was kept.
+    r"\b[a-z0-9]*\d+[a-z]+\d+[a-z0-9]*\b",
+)
+
+
+def _strip_machine(text: str) -> str:
+    """Remove the spans that are machine output, leaving what a person wrote."""
+    import re
+
+    out = text
+    for pattern in _MACHINE:
+        out = re.sub(pattern, " ", out, flags=re.IGNORECASE)
+    return out
 
 
 def looks_arabizi(text: str) -> bool:
@@ -125,7 +171,9 @@ def looks_arabizi(text: str) -> bool:
     different problem and this is not it.
     """
     import re
-    for tok in re.findall(r"[a-z0-9]+", text.lower()):
+    # MACHINE OUTPUT IS NOT A LANGUAGE. See `_strip_machine`: a `df -h` table
+    # trips every rule below, and the owner heard the result.
+    for tok in re.findall(r"[a-z0-9]+", _strip_machine(text).lower()):
         if not re.search(r"[235679]", tok):
             continue
         letters = re.sub(r"[0-9]", "", tok)
