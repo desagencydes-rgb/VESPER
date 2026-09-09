@@ -148,6 +148,26 @@ KNOWN = ("shell.run", "ui.open", "fs.read", "fs.write", "fs.edit",
          "window.relocate", "window.close")
 
 
+# CAPABILITIES WHOSE CORRECT ARGUMENTS ARE EMPTY.
+#
+# `window.list` takes `{}` -- the prompt says so literally -- and the parser
+# refused every argument-free proposal, so it was STRUCTURALLY UNPROPOSABLE.
+# Measured 2026-09-09 against the live proposer: "what windows do i have open"
+# produced `{"action":"window.list","args":{},"why":"owner wants to know open
+# windows"}` and was discarded; so was "move the notes window to your desktop",
+# whose reply read `"why": "need window IDs before relocating"` -- the model
+# doing exactly the multi-step reasoning the prompt asks for, thrown away one
+# layer down. The owner saw VESPER answer window questions with Linux advice.
+#
+# The refusal's stated reason was that an argument-free action "cannot be
+# levelled". That is false here: `window_list_level({})` returns L1, and L5 when
+# asked for titles. The rule it was protecting -- INV-AUTH-5, a level must
+# depend on the arguments -- is satisfied by a capability whose level function
+# reads an EMPTY dict and answers. So the exemption is named per capability
+# rather than removed, and anything not named here still needs arguments.
+TAKES_NO_ARGS = ("window.list",)
+
+
 @dataclass(slots=True)
 class Proposal:
     capability_id: str
@@ -201,10 +221,13 @@ def parse(raw: str) -> Proposal | None:
     if action not in KNOWN:
         return None
     args = obj.get("args")
-    if not isinstance(args, dict) or not args:
-        # An action with no arguments cannot be levelled: `declared_level(args)`
-        # is the whole basis of the decision, so an argument-free proposal has
-        # no level and must not be given the benefit of a default one.
+    if not isinstance(args, dict):
+        # MISSING OR MALFORMED ARGS ARE STILL REFUSED. `declared_level(args)` is
+        # the whole basis of the decision and it cannot be asked of a non-object.
+        return None
+    if not args and action not in TAKES_NO_ARGS:
+        # An action that SHOULD carry arguments and carries none has nothing to
+        # be levelled on, and must not be given the benefit of a default level.
         return None
     return Proposal(capability_id=action,
                     args={str(k): v for k, v in args.items()},

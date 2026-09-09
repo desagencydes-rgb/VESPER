@@ -6516,5 +6516,29 @@ CASES += [
 ]
 
 
+# CI-140 -- what the owner types must reach the capabilities, from the copy
+# that actually ships. Both faults found by the owner, 2026-09-09.
+# --------------------------------------------------------------------------
+INTENT_PY2 = "core/intent.py"
+
+CASES += [
+    ("the-shipped-runtime-can-reach-what-it-needs", CAPS_PY,
+     _sub('    here = pathlib.Path(__file__).resolve()', '    here = pathlib.Path(REPO)', 1),
+     "the binary path is computed from the repo layout again, so from inside "
+     "the bundle it points at a VESPER.app nested within itself and every "
+     "window action raises FileNotFoundError"),
+
+    ("the-shipped-runtime-can-reach-what-it-needs", INTENT_PY2,
+     _sub('TAKES_NO_ARGS = ("window.list",)', 'TAKES_NO_ARGS = ()', 1),
+     "window.list stops being declared as taking no arguments, so its correct "
+     "empty args are refused and the owner cannot ask what is on their screen"),
+
+    ("the-shipped-runtime-can-reach-what-it-needs", INTENT_PY2,
+     _sub('    if not args and action not in TAKES_NO_ARGS:', '    if False:', 1),
+     "an argument-free shell.run is accepted: an action that should carry "
+     "arguments has nothing to be levelled on and must not get a default"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

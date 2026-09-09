@@ -21706,6 +21706,111 @@ def _swift_body(src: str, opener: str) -> str:
     return ""
 
 
+def check_the_shipped_runtime_can_reach_what_it_needs() -> Result:
+    """What the owner says must reach the capabilities, from the SHIPPED copy.
+
+    TWO FAULTS FOUND BY THE OWNER, 2026-09-09, both invisible to every test
+    because every test imported `core` from the working tree.
+
+    THE BINARY. `VESPER_BIN` was `REPO / "app" / "VESPER.app" / ...`. The
+    runtime that actually runs is the COPY inside the bundle, so `REPO`
+    resolved to the runtime folder and the path became a VESPER.app nested
+    inside itself. Every window action raised FileNotFoundError, which the
+    owner read as "I could not find that file" -- for opening Safari, for
+    opening WhatsApp, for anything.
+
+    THE EMPTY ARGUMENT LIST. `parse` refused every proposal whose args were
+    `{}`, on the stated grounds that an argument-free action "cannot be
+    levelled". `window.list`'s correct args ARE `{}` -- the prompt says so --
+    so it was STRUCTURALLY UNPROPOSABLE. Measured against the live proposer:
+    "what windows do i have open" produced
+    `{"action":"window.list","args":{},...}` and was discarded, and so was
+    "move the notes window to your desktop", whose reply read `"why": "need
+    window IDs before relocating"`. The model was right every time and the
+    parser threw it away, so the owner got Linux `wmctrl` advice from an
+    assistant that could have just looked.
+
+    THE SHAPE THEY SHARE is worth more than either: a capability can be built,
+    bound, gated, checked and driven, and still be unreachable from the thing
+    the owner actually types. "Driven live" from the repo is not the same claim
+    as "the owner can use it".
+    """
+    r = Result("the-shipped-runtime-can-reach-what-it-needs")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf, shutil as _sh
+    try:
+        from core import capabilities as C
+        import core.intent as I
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"the runtime does not import: {exc!r}")
+        return r
+
+    # 1. THE BINARY, FOUND FROM A SIMULATED BUNDLE rather than from this repo.
+    if not hasattr(C, "_find_vesper_bin"):
+        r.err("core/capabilities.py has no _find_vesper_bin, so the binary path "
+              "is computed from the repo layout again and the shipped runtime "
+              "cannot reach it")
+    else:
+        with _tf.TemporaryDirectory() as _td:
+            base = Path(_td) / "VESPER.app" / "Contents"
+            (base / "MacOS").mkdir(parents=True)
+            (base / "MacOS" / "VESPER").write_text("#!/bin/sh\n", encoding="utf-8")
+            mod = base / "Resources" / "runtime" / "core"
+            mod.mkdir(parents=True)
+            shim = mod / "capabilities.py"
+            _sh.copy2(REPO / "core" / "capabilities.py", shim)
+            import importlib.util as _iu
+            spec = _iu.spec_from_file_location("bundled_caps", shim)
+            try:
+                m = _iu.module_from_spec(spec)
+                spec.loader.exec_module(m)              # type: ignore[union-attr]
+                got = getattr(m, "VESPER_BIN", None)
+                if got is None or not Path(got).exists():
+                    r.err(f"from inside a bundle the binary resolves to {got!r}, "
+                          "which does not exist. That is the shipped path, and "
+                          "every window action raises FileNotFoundError on it")
+            except Exception as exc:                      # noqa: BLE001
+                r.err(f"the bundled copy could not be loaded at all: {exc!r}")
+
+    # 2. AN EMPTY ARGUMENT LIST IS NOT A MISSING ONE.
+    if "window.list" not in getattr(I, "TAKES_NO_ARGS", ()):
+        r.err("window.list is not declared as taking no arguments, so `parse` "
+              "refuses it and the owner cannot ask what is on their screen")
+    got = I.parse('{"action":"window.list","args":{},"why":"x"}')
+    if got is None:
+        r.err("a window.list proposal with its correct empty args is discarded. "
+              "The model proposes it correctly and the parser throws it away, "
+              "so the capability is structurally unproposable")
+    # AND THE GUARD IT REPLACED MUST STILL HOLD.
+    if I.parse('{"action":"shell.run","args":{},"why":"x"}') is not None:
+        r.err("an argument-free shell.run is accepted. An action that SHOULD "
+              "carry arguments and carries none has nothing to be levelled on, "
+              "and must not be given the benefit of a default level")
+    if I.parse('{"action":"window.list","args":[],"why":"x"}') is not None:
+        r.err("a non-object args is accepted; declared_level cannot be asked of "
+              "one")
+
+    # 3. THE SHIPPED COPY MUST NOT BE STALE, or a fix lands in the repo and the
+    #    owner keeps running the bug. That is precisely what happened here.
+    bundled = REPO / "app" / "VESPER.app" / "Contents" / "Resources" / "runtime" / "core"
+    if bundled.exists():
+        for name in ("capabilities.py", "intent.py", "windows.py"):
+            a, b = REPO / "core" / name, bundled / name
+            if not b.exists():
+                r.err(f"the bundle is missing core/{name}; the shipped runtime "
+                      "is not the runtime that was tested")
+            elif a.read_bytes() != b.read_bytes():
+                r.err(f"core/{name} differs between the repo and the bundle. "
+                      "The owner runs the bundle, so a fix that lands only in "
+                      "the repo is a fix they never get -- rebuild")
+
+    r.note("the binary resolves from inside a simulated bundle; window.list's "
+           "empty args parse while an argument-free shell.run is still refused; "
+           "and the shipped copy of core matches the repo")
+    return r
+
+
 def check_the_window_log_records_and_never_reopens() -> Result:
     """What VESPER did with windows is written down, and reopens nothing.
 
@@ -22663,6 +22768,7 @@ CHECK_FNS = {
     "every-flag-reaches-one-bar": check_every_flag_reaches_one_bar,
     "a-restored-stamp-is-corroborated": check_a_restored_stamp_is_corroborated,
     "the-window-log-records-and-never-reopens": check_the_window_log_records_and_never_reopens,
+    "the-shipped-runtime-can-reach-what-it-needs": check_the_shipped_runtime_can_reach_what_it_needs,
 }
 
 

@@ -685,7 +685,36 @@ def ui_open(args: dict) -> dict:
 # ladder every other capability already climbs. Merging any two of them would
 # put policy somewhere no check looks.
 
-VESPER_BIN = REPO / "app" / "VESPER.app" / "Contents" / "MacOS" / "VESPER"
+def _find_vesper_bin() -> pathlib.Path:
+    """The app binary, found from wherever this module is actually running.
+
+    THIS WAS `REPO / "app" / "VESPER.app" / ...`, AND IT ONLY WORKED FROM THE
+    REPO. The runtime that actually runs is the COPY inside the bundle, at
+    `VESPER.app/Contents/Resources/runtime/core/`, so `REPO` resolved to the
+    runtime folder and the path became a VESPER.app nested inside itself. It
+    does not exist, so `_window_bridge` raised FileNotFoundError and the owner
+    was told "I could not find that file" for every single window action.
+
+    IT PASSED EVERY TEST BECAUSE EVERY TEST RAN FROM THE REPO. The drives, the
+    checks and the self-tests all import `core` from the working tree, where
+    the old path resolves correctly. Only the shipped process took the other
+    branch -- which is the difference between "the capability works" and "the
+    owner can use it", and it is the whole reason `--windows-list` had to be
+    driven from the bundle to find this.
+
+    So the binary is located from THIS FILE's own position: inside a bundle it
+    is a sibling of `Resources`, and outside one the repo layout is the answer.
+    """
+    here = pathlib.Path(__file__).resolve()
+    for parent in here.parents:
+        if parent.name == "Contents":
+            cand = parent / "MacOS" / "VESPER"
+            if cand.exists():
+                return cand
+    return REPO / "app" / "VESPER.app" / "Contents" / "MacOS" / "VESPER"
+
+
+VESPER_BIN = _find_vesper_bin()
 
 
 def _window_bridge(*argv: str) -> dict:
