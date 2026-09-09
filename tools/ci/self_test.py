@@ -6483,5 +6483,38 @@ CASES += [
 ]
 
 
+# CI-139 -- the window log. A record, never a trigger: nothing here reopens.
+# --------------------------------------------------------------------------
+WINDOWLOG_PY = "core/window_log.py"
+
+CASES += [
+    ("the-window-log-records-and-never-reopens", WINDOWLOG_PY,
+     _sub('    if title is None and title_absent not in REASONS:\n        title_absent = UNREADABLE\n', '', 1),
+     "a row with no title stops carrying a reason, so vesper cannot tell "
+     "'no title' from 'not looked at yet'"),
+
+    ("the-window-log-records-and-never-reopens", WINDOWLOG_PY,
+     _sub('            if seg.suffix == ".gz" or seg.name.startswith(keep):', '            if seg.suffix == ".gz":', 1),
+     "the current week is compressed along with the old ones, so the week "
+     "vesper is working in stops being the one kept near"),
+
+    ("the-window-log-records-and-never-reopens", WINDOWLOG_PY,
+     _sub('    opener = gzip.open if path.suffix == ".gz" else open', '    opener = open', 1),
+     "a compressed week can no longer be read, so history silently ends at the "
+     "start of the current week"),
+
+    ("the-window-log-records-and-never-reopens", WINDOWLOG_PY,
+     _sub('from typing import Any, Iterator', 'from typing import Any, Iterator\nimport subprocess', 1),
+     "the log gains a route to opening a window: a restore is an autonomous "
+     "act with no trigger, which INV-TRIG-1 refuses, and it replays a previous "
+     "answer where the compactor insists on re-deriving from the log"),
+
+    ("the-window-log-records-and-never-reopens", CAPS_PY,
+     _sub('    _log_touch(effect, target, out, args)\n', "", 1),
+     "_act stops recording, so the window log is written by nothing -- the "
+     "built-and-unreached shape this tree keeps finding"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

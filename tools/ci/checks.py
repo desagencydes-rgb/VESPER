@@ -21706,6 +21706,120 @@ def _swift_body(src: str, opener: str) -> str:
     return ""
 
 
+def check_the_window_log_records_and_never_reopens() -> Result:
+    """What VESPER did with windows is written down, and reopens nothing.
+
+    THE OWNER'S DESIGN, 2026-09-09: *"no windows open after reboot, vesper can
+    look at the logs and define the windows it was working on, and then opens
+    what it needs at that time, it's a fresh start for it anyways."*
+
+    THE CHECK'S SHARPEST ASSERTION IS AN ABSENCE. Nothing in this module may
+    open a window. A restore-at-startup would be an autonomous action with no
+    trigger, which `INV-TRIG-1` refuses, and it would be `compact(L1(n))` where
+    the compactor insists on `project(L3)`. So the module is searched for any
+    route to opening something, and finding one is the failure.
+
+    AN ABSENT TITLE CARRIES A CODE, NOT PROSE. The owner asked that VESPER be
+    able to look these up and understand them without getting confused; a closed
+    set can be queried, a sentence can only be re-read and guessed at.
+
+    AND COMPRESSION MUST NOT COST A STEP. The owner's requirement is that vesper
+    can come back to any of it whenever, without decompressing anything -- so a
+    compressed week must read through the same call as the current one.
+    """
+    r = Result("the-window-log-records-and-never-reopens")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf, time as _t
+    try:
+        from core import window_log as WL
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"core.window_log does not import: {exc!r}")
+        return r
+
+    # 1. IT MUST NOT BE ABLE TO OPEN ANYTHING.
+    src = (REPO / "core" / "window_log.py").read_text(encoding="utf-8")
+    code = "\n".join(ln.split("#")[0] for ln in src.split("\n"))
+    for forbidden in ("window_open", "subprocess", "NSWorkspace", "osascript",
+                      "_window_bridge", "startHome"):
+        if forbidden in code:
+            r.err(f"core/window_log.py reaches {forbidden!r}. The log is a "
+                  "RECORD and never a trigger: a restore at startup is an "
+                  "autonomous action with no trigger, which INV-TRIG-1 refuses, "
+                  "and it replays a previous answer where the compactor insists "
+                  "on re-deriving from the log")
+
+    orig = WL.LOG_DIR
+    with _tf.TemporaryDirectory() as _td:
+        WL.LOG_DIR = Path(_td) / "window-log"
+        try:
+            now = int(_t.time() * 1000)
+            old = now - 9 * 24 * 3600 * 1000
+
+            # 2. EVERY ROW CARRIES A TITLE OR A REASON, NEVER NEITHER.
+            WL.record(window_id="1", action="opened", app_label="TextEdit",
+                      title="notes.rtf", at_ms=now)
+            WL.record(window_id="2", action="opened", app_label="TextEdit",
+                      title_absent=WL.NO_FILE, at_ms=now)
+            bare = WL.record(window_id="3", action="moved", app_label="Preview",
+                             at_ms=old)
+            if "title" in bare or bare.get("title_absent") not in WL.REASONS:
+                r.err("a row with no title carries no reason. An absence must "
+                      "say why and carry no stamp -- otherwise vesper cannot "
+                      "tell 'no title' from 'not looked at yet'")
+            rows = WL.read()
+            if not rows:
+                r.err("nothing was recorded")
+            for row in rows:
+                if ("title" in row) == ("title_absent" in row):
+                    r.err("a row claims both a title and a reason for having "
+                          "none, or neither. They are exclusive and one is "
+                          f"required: {sorted(row)}")
+                if "title_absent" in row and row["title_absent"] not in WL.REASONS:
+                    r.err(f"{row['title_absent']!r} is not one of the declared "
+                          f"reasons {WL.REASONS}. A code can be queried; free "
+                          "text leaves vesper interpreting prose it wrote")
+
+            # 3. WEEKLY, AND THE CURRENT WEEK STAYS NEAR.
+            before = len(WL.read())
+            done = WL.compress_old_weeks(now_ms=now)
+            if not done:
+                r.err("no old segment was compressed, so the log grows without "
+                      "bound and the owner's weekly rotation does not happen")
+            names = [s.name for s in WL.segments()]
+            if not any(n.endswith(".jsonl") and not n.endswith(".gz") for n in names):
+                r.err("the CURRENT week was compressed too. It stays "
+                      "uncompressed and near, per the owner")
+            # 4. AND READING COSTS NO EXTRA STEP.
+            after = WL.read()
+            if len(after) != before:
+                r.err(f"compression lost rows: {before} -> {len(after)}. A "
+                      "compressed week must read through the same call as the "
+                      "current one, with no decompression step")
+            if not any(x.get("window_id") == "3" for x in after):
+                r.err("the compressed week's rows are not readable, so history "
+                      "silently ends at the start of this week")
+        finally:
+            WL.LOG_DIR = orig
+
+    # 5. AND IT MUST BE REACHED, or it is one more built-and-unreached module.
+    caps = (REPO / "core" / "capabilities.py").read_text(encoding="utf-8")
+    import ast as _a5
+    act = next((n for n in _a5.walk(_a5.parse(caps))
+                if isinstance(n, _a5.FunctionDef) and n.name == "_act"), None)
+    if act is None:
+        r.err("core/capabilities.py has no _act")
+    elif "_log_touch" not in (_a5.get_source_segment(caps, act) or ""):
+        r.err("_act does not record the interaction, so the window log is "
+              "written by nothing -- the shape this tree has now found many "
+              "times, and the reason `_VESPER_OPENED_WINDOWS` had one writer")
+
+    r.note("every row carries a title or a coded reason; old weeks compress and "
+           "still read through one call; the current week stays uncompressed; "
+           "the module cannot open anything; and _act records")
+    return r
+
+
 def check_a_restored_stamp_is_corroborated() -> Result:
     """A provenance stamp read off disk must be confirmed against the world.
 
@@ -22533,6 +22647,7 @@ CHECK_FNS = {
     "a-window-is-claimed-only-by-the-app-that-opened-it": check_a_window_is_claimed_only_by_the_app_that_opened_it,
     "every-flag-reaches-one-bar": check_every_flag_reaches_one_bar,
     "a-restored-stamp-is-corroborated": check_a_restored_stamp_is_corroborated,
+    "the-window-log-records-and-never-reopens": check_the_window_log_records_and_never_reopens,
 }
 
 

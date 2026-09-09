@@ -734,6 +734,9 @@ def _inventory() -> tuple[list, str | None]:
     # on screen "on vesper's desktop" and hands VESPER the owner's whole
     # session under clause 1 of the ownership rule.
     vespers = raw.get("vespers_desktop")
+    # The bridge's `accessible` field is deliberately NOT consulted: it answers
+    # yes while unable to enumerate a window. See `_act`, which diagnoses the
+    # same condition from a failure instead.
     # CORROBORATED HERE, because this is the one place the live window list and
     # the recorded claims are both in hand. A claim is only ever turned into a
     # stamp against a window the bridge just reported.
@@ -885,6 +888,32 @@ def window_list(args: dict) -> dict:
                          **w.meta} for w in wins]}
 
 
+def _log_touch(effect: str, w, out: dict, args: dict) -> None:
+    """Record one interaction, scoped to windows VESPER actually touched.
+
+    NOT THE OWNER'S WHOLE SESSION. The owner's scoping, and it is what keeps
+    this from becoming a record of someone's week that VESPER had no business
+    keeping -- as well as what bounds its size.
+
+    A TITLE IS NOT READ HERE. `window_list` levels titles at L5 because a title
+    is a document name or a subject line, and this runs under whatever level
+    the ACT was authorised at. So the row carries the reason a title is absent
+    rather than quietly reading one at the wrong level; a caller that has
+    legitimately read a title can pass it.
+    """
+    from core import window_log as WL
+
+    WL.record(window_id=str(getattr(w, "window_id", args.get("window_id", ""))),
+              action=effect,
+              app_label=str(getattr(w, "app_label", "")),
+              pid=str(getattr(w, "pid", "")),
+              desktop_id=str(getattr(w, "desktop_id", "")),
+              provenance=str(getattr(w, "provenance", "")),
+              geometry=dict(getattr(w, "meta", {}) or {}),
+              title_absent=WL.UNREADABLE,
+              task=str(args.get("task") or ""))
+
+
 def _act(effect: str, args: dict, *argv: str) -> dict:
     """One place where the ownership rule is consulted, so it cannot be skipped.
 
@@ -910,6 +939,33 @@ def _act(effect: str, args: dict, *argv: str) -> dict:
                 "window": W.describe(target, vespers_desktop=desktop)}
     out = _window_bridge(*argv, "--window-id", wid, "--window-pid", str(target.pid))
     out.setdefault("window", W.describe(target, vespers_desktop=desktop))
+    # RECORDED AFTER THE ACT, WITH WHAT WAS TRUE BEFORE IT.
+    #
+    # After, because an act that was refused by the ownership rule returns
+    # above and is not an interaction with a window -- it is an interaction
+    # with a rule. With the geometry from BEFORE, because that is the state the
+    # owner would recognise if they later asked what vesper did to this window;
+    # the state after is readable from the world at any time.
+    _log_touch(effect, target, out, args)
+    # ACCESSIBILITY IS DIAGNOSED FROM A FAILURE, NOT FROM ITS OWN REPORT.
+    #
+    # The first version of this flag asked the bridge whether accessibility was
+    # granted. It answers YES while being unable to enumerate a single window:
+    # `AXIsProcessTrusted()` reports the RESPONSIBLE process, which for a
+    # helper launched from a terminal is the terminal, and `CLAUDE.md` records
+    # that exact trap for the microphone. So the instrument's self-report is
+    # worthless here and the discriminator is what actually happened -- an act
+    # that failed with an empty accessibility tree for a window the window
+    # server can see. That is a permission problem stated as a measurement.
+    if not out.get("ok") and "ax=[]" in str(out.get("reason") or ""):
+        out.setdefault("degraded", True)
+        out.setdefault("flag_id", "host.accessibility")
+        out.setdefault("flag",
+                       "vesper cannot act on windows: the accessibility tree "
+                       "came back empty for a window that is on screen, which "
+                       "means macos accessibility is not granted to this build. "
+                       "grant it in system settings > privacy & security > "
+                       "accessibility. every rebuild of vesper revokes it.")
     return out
 
 
