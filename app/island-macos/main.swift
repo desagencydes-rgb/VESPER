@@ -1753,6 +1753,63 @@ if args.contains("--ground-retract-check") {
     exit(5)
 }
 
+if args.contains("--mode-residency-check") {
+    // THE NEGATIVE CONTROL HOME-WORKBENCH §11.2 ASKS FOR, IN ITS OWN WORDS:
+    // "switch modes with VESPER on a Desktop that is not its own and assert
+    // nothing changed."
+    //
+    // `setDesktopImageURL` has no Space argument -- it changes whichever Space
+    // is showing -- and `Ambience.apply` said in its own header that the caller
+    // must confirm residency first, while no caller did. So a mode set while
+    // the owner was looking at their own Desktop replaced THEIR picture. This
+    // is the control that makes the guard evidence instead of an intention.
+    guard let screen = NSScreen.main else {
+        FileHandle.standardError.write("mode-residency-check: no screen\n"
+            .data(using: .utf8)!)
+        exit(6)
+    }
+    let before = Ambience.currentPicture(screen)?.path ?? ""
+    if before.isEmpty {
+        FileHandle.standardError.write(("mode-residency-check: UNTESTED -- the "
+            + "current desktop picture could not be read, so a change could not "
+            + "be detected either.\n").data(using: .utf8)!)
+        exit(4)
+    }
+    print("mode-residency-check: picture before is \((before as NSString).lastPathComponent)")
+    startHome()
+    for _ in 0..<40 {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        if groundIsVisible() { break }
+    }
+    // TAKE THE GROUND AWAY, so vesper is running with no Desktop of its own --
+    // which is exactly the owner's situation whenever they are looking at their
+    // own Desktop.
+    home?.retract()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.4))
+    let stillHere = groundIsVisible()
+    let applied = home?.setMode("Idle", quiet: false) ?? false
+    RunLoop.main.run(until: Date().addingTimeInterval(0.6))
+    let after = Ambience.currentPicture(screen)?.path ?? ""
+    home = nil
+    if stillHere {
+        FileHandle.standardError.write(("mode-residency-check: UNTESTED -- the "
+            + "ground did not go away, so vesper still owned this desktop and "
+            + "the refusal was never exercised.\n").data(using: .utf8)!)
+        exit(4)
+    }
+    if !applied && after == before {
+        print("mode-residency-check: PASS -- with no ground on this desktop the "
+              + "mode was refused and the picture is untouched.")
+        exit(0)
+    }
+    FileHandle.standardError.write(("mode-residency-check: FAILED -- applied="
+        + "\(applied), picture before=\((before as NSString).lastPathComponent) "
+        + "after=\((after as NSString).lastPathComponent). Vesper changed the "
+        + "owner's wallpaper on a desktop that is not its own.\n")
+        .data(using: .utf8)!)
+    exit(5)
+}
+
 if args.contains("--ax-order-check") {
     // THE ASSUMPTION THAT LETS VESPER TELL TWO IDENTICAL WINDOWS APART.
     //

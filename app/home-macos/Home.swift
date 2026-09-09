@@ -790,6 +790,31 @@ final class HomeController: NSObject {
             face.uniforms.tintG = baseTint.1
             face.uniforms.tintB = baseTint.2
         }
+        // THE WALLPAPER IS CHANGED ONLY ON VESPER'S OWN DESKTOP.
+        //
+        // `setDesktopImageURL` has no Space argument: it applies to whichever
+        // Space is showing. `Ambience.apply`'s own header says the caller must
+        // have confirmed residency first -- and no caller did. So setting a
+        // mode while the owner was looking at their own Desktop replaced THEIR
+        // picture, which is the one thing HOME-WORKBENCH §11.2 states as a hard
+        // bound: "the switch applies only to VESPER's Desktop, and only while
+        // VESPER is up. Other Desktops and the lock screen are untouched."
+        //
+        // ASKED OF THE WINDOW SERVER, not of a flag vesper keeps. The ground is
+        // the one piece of vesper that sits BELOW the owner's windows, so its
+        // presence in the on-screen list IS the statement "this Desktop is
+        // mine" -- the same discriminator `vespersDesktop()` uses.
+        let mine = SpaceWatch.onScreen().contains {
+            $0.number == Int(ground.windowNumber)
+        }
+        guard mine else {
+            if !quiet {
+                print("  mode '\(m.name)' NOT applied: vesper's ground is not on "
+                      + "the desktop that is showing, and changing the picture "
+                      + "here would change yours")
+            }
+            return false
+        }
         let ok = Ambience.apply(m, on: screen, quiet: quiet)
 
         // Paint it here too, so the icons and widgets underneath are covered.

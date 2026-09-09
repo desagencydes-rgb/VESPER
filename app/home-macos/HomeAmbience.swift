@@ -221,9 +221,30 @@ enum Ambience {
             return false
         }
         let fm = FileManager.default
+        // NEVER RECORD ONE OF VESPER'S OWN PICTURES AS THE OWNER'S.
+        //
+        // Found 2026-09-09: the saved "original" was `rest.png` -- a VESPER
+        // wallpaper. Whatever wrote it did so at a moment when VESPER had
+        // already replaced the picture, so the record pointed at VESPER's image
+        // and the owner's real wallpaper was gone from the only place that held
+        // it. Restoring would then put back a different VESPER image and report
+        // success, which is worse than admitting the record is empty.
+        //
+        // The test is the DIRECTORY the file lives in, not its name: every mode
+        // image sits in the wallpapers folder and nothing of the owner's does.
         if !fm.fileExists(atPath: savedOriginalPath), let c = currentPicture(screen) {
-            try? c.path.write(toFile: savedOriginalPath, atomically: true, encoding: .utf8)
-            if !quiet { print("  saved your original: \(c.path)") }
+            let ours = wallpaperDir().map { c.path.hasPrefix($0) } ?? false
+            if ours {
+                if !quiet {
+                    print("  NOT saving \(c.lastPathComponent) as your original: "
+                          + "it is one of vesper's own pictures, so the record "
+                          + "would point at vesper's image instead of yours")
+                }
+            } else {
+                try? c.path.write(toFile: savedOriginalPath, atomically: true,
+                                  encoding: .utf8)
+                if !quiet { print("  saved your original: \(c.path)") }
+            }
         }
         // The owner's fill rule -- "fill the screen automatically, not leaving
         // empty spaces, nor reshape to fill" -- is aspect-fill with a centre

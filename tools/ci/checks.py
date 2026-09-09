@@ -21729,6 +21729,87 @@ def _swift_body(src: str, opener: str) -> str:
     return ""
 
 
+def check_the_wallpaper_changes_only_on_vespers_desktop() -> Result:
+    """VESPER may repaint its own Desktop and no one else's.
+
+    HOME-WORKBENCH §11.2 states it as a hard bound: "the switch applies only to
+    VESPER's Desktop, and only while VESPER is up. Other Desktops and the lock
+    screen are untouched." `setDesktopImageURL` takes an `NSScreen` and has no
+    Space argument -- it repaints whichever Space is SHOWING -- so the bound is
+    not something the API gives, it is something the caller must enforce.
+
+    `Ambience.apply`'s own header said the caller must confirm residency first,
+    and NO CALLER DID. `setMode` applied unconditionally, so a mode set while
+    the owner was looking at their own Desktop replaced their picture. Found
+    2026-09-09 by reading the code the spec pointed at.
+
+    AND THE RECORD OF WHAT TO PUT BACK WAS ALREADY POISONED. The saved
+    "original" held `rest.png` -- one of VESPER's own images -- so restoring
+    would have put a VESPER picture back and reported success. Whatever wrote it
+    did so when VESPER had already replaced the wallpaper, and the owner's real
+    picture was gone from the only place holding it. A record that cannot be
+    distinguished from the thing it is supposed to protect against is not a
+    backup.
+    """
+    r = Result("the-wallpaper-changes-only-on-vespers-desktop")
+    home = REPO / "app" / "home-macos" / "Home.swift"
+    amb = REPO / "app" / "home-macos" / "HomeAmbience.swift"
+    main = REPO / "app" / "island-macos" / "main.swift"
+    for f in (home, amb, main):
+        if not f.exists():
+            r.err(f"{f.name} is missing")
+            return r
+
+    # 1. RESIDENCY IS CHECKED BEFORE THE PICTURE IS TOUCHED, and in that order.
+    body = _swift_nostrings(_swift_body(home.read_text(encoding="utf-8"),
+                                        "func setMode(_ name: String, quiet: Bool = false) -> Bool {"))
+    if not body:
+        r.err("Home.swift has no setMode; the mode path has changed shape")
+    else:
+        flat = "".join(body.split())
+        i_guard = flat.find("ground.windowNumber")
+        i_apply = flat.find("Ambience.apply")
+        if i_guard < 0:
+            r.err("setMode does not ask whether vesper's ground is on the "
+                  "desktop that is showing. `setDesktopImageURL` repaints "
+                  "whichever Space is showing, so without that question a mode "
+                  "set on the owner's desktop replaces the owner's picture")
+        elif i_apply >= 0 and i_guard > i_apply:
+            r.err("setMode applies the picture BEFORE checking residency, so "
+                  "the check cannot prevent anything")
+
+    # 2. VESPER'S OWN PICTURE IS NEVER RECORDED AS THE OWNER'S.
+    ab = _swift_nostrings(_swift_body(amb.read_text(encoding="utf-8"),
+                                      "static func apply(_ mode: Mode, on screen: NSScreen, quiet: Bool = false) -> Bool {"))
+    if not ab:
+        r.err("HomeAmbience has no apply(); the wallpaper path has changed shape")
+    elif "wallpaperDir" not in ab or "hasPrefix" not in ab:
+        r.err("apply() can record one of vesper's own wallpapers as the owner's "
+              "original. Restoring would then put a VESPER image back and report "
+              "success -- which is what the poisoned record on this machine did")
+
+    # 3. THE CONTROL EXISTS AND CAN FAIL.
+    ctl = _swift_nostrings(_swift_body(main.read_text(encoding="utf-8"),
+                                       'if args.contains("--mode-residency-check") {'))
+    if not ctl:
+        r.err("--mode-residency-check is gone. §11.2 asks for exactly this "
+              "negative control: switch modes with vesper on a desktop that is "
+              "not its own and assert nothing changed")
+    else:
+        if "exit(5)" not in ctl:
+            r.err("--mode-residency-check cannot report a failure")
+        if "retract" not in ctl:
+            r.err("--mode-residency-check never removes the ground, so vesper "
+                  "still owns the desktop and the refusal is never exercised -- "
+                  "the control would pass without testing anything")
+
+    r.note("setMode asks whether the ground is on the desktop showing before "
+           "touching the picture; apply() refuses to record a vesper wallpaper "
+           "as the owner's; and the negative control removes the ground so the "
+           "refusal is actually exercised")
+    return r
+
+
 def check_a_refusal_is_never_reported_as_done() -> Result:
     """What VESPER says happened must match what happened.
 
@@ -22890,6 +22971,7 @@ CHECK_FNS = {
     "the-window-log-records-and-never-reopens": check_the_window_log_records_and_never_reopens,
     "the-shipped-runtime-can-reach-what-it-needs": check_the_shipped_runtime_can_reach_what_it_needs,
     "a-refusal-is-never-reported-as-done": check_a_refusal_is_never_reported_as_done,
+    "the-wallpaper-changes-only-on-vespers-desktop": check_the_wallpaper_changes_only_on_vespers_desktop,
 }
 
 

@@ -1488,6 +1488,7 @@ been driven against the running surface.**
 | 15b | **Window memory across a restart** (§11.8) | ✅ DONE 2026-09-09 — **authority:** boot-keyed, corroborated against the live window, fail-closed on every unreadable state; `CI-138`, 7 red runs; driven across processes (one interpreter opened window 33429, a second read it back as vesper's). **history:** `core/window_log.py` — appends what vesper touched, an absent title carries a code (`no_file`, `no_file_model`, `unreadable`), old weeks compress in place and read back through the same call, the current week stays near, and **nothing in it can open a window**; `CI-139`, 5 red runs. `gated-subsystems-are-reachable` caught the module unwired the moment it landed |
 | 15c | **The flag bar** (§11.9) | ✅ DONE 2026-09-09 — small bar above the main menu, hidden when empty, buttons revealing the flag on hover. Published from the EXECUTOR (the one point every result passes through), deduped by CONDITION not execution, written to `home.json`, rendered as text. `CI-137`, 8 red runs, driven end to end with a real degraded relocation |
 | 16 | **Modes, end to end** (§11.2) | the eleven ambience modes and the stages, manual from the menu and automatic, with the wallpaper switch bounded to VESPER's Desktop |
+| 16a | **Stages of work** (§11.2a) | `research`, `work`, `explain`, `show` — each naming the windows its work may open, and closing them after. Owner's addition, 2026-09-09 |
 | 17 | **Apps management** (§11.3) | drive macOS applications without clicking, where a real interface exists |
 | 18 | **Notes, in full** (§11.4) | read, edit, create, share, lock — replacing the titles-only integration `CI-131` gates |
 | 19 | **UI view + clicking** (§11.5) | see any window and drive it: click, scroll, hold, type, inject. **The owner's stopping point** |
@@ -1879,6 +1880,51 @@ producer decides the mode — and under `INV-HW-2` that decision must be read fr
 something measured, not declared.
 
 ---
+
+## 11.2a STAGES OF WORK — RESEARCH, WORK, AND THE WINDOWS THEY NEED
+
+**THE OWNER'S ADDITION, 2026-09-09, recorded beside the modes because it rides
+on the same machinery:** *"steps like research, work.... vesper should be able
+to open necessary windows to continue its work, explain something, show me
+something, work while showing me its work and more, not just that"*.
+
+**WHAT SEPARATES THIS FROM §11.2.** A mode is an ambience and a stage -- how the
+room looks and how present VESPER is. A STAGE OF WORK is what VESPER is *doing*
+and, crucially, **what it is allowed to put on screen while doing it**. The two
+compose: `research` in the evening ambience is the same work in a different
+room.
+
+**THE WINDOWS ARE THE POINT, NOT A SIDE EFFECT.** Each stage names the windows
+its work legitimately needs, so opening one is an ordinary step of a task rather
+than a new liberty:
+
+| Stage | What it is for | The windows it may open |
+|---|---|---|
+| `research` | finding something out and showing the sources | a browser window per source, arranged side by side on VESPER's Desktop |
+| `work` | doing a task while the owner watches | an editor, a terminal, whatever the task names |
+| `explain` | answering with something on screen | one window holding the thing being explained, closed when the answer ends |
+| `show` | putting one artefact in front of the owner | exactly one window, and it is the owner's to keep |
+
+**EVERY WINDOW IT OPENS IS STILL `window.open`,** with the ownership rule, the
+level ladder and the flag bar unchanged. A stage does not grant authority; it
+supplies the REASON a step has, which `INV-TRIG-1` already requires and which
+the window log already records as the task a window belongs to (§11.8). That is
+what makes "open what it needs" safe: the need is traceable to a task, and the
+task to a trigger.
+
+**AND IT CLOSES WHAT IT OPENED.** A stage that ends leaves the Desktop as it
+found it, except for what the owner asked to keep. Windows VESPER opened are
+already `vesper_opened` and already its to close (§11.1), so this is bookkeeping
+rather than new capability -- but it is the difference between a workspace and
+a pile.
+
+**BLOCKED ON THE SAME LIMIT AS EVERYTHING ELSE HERE**, and worth stating before
+it is built: macOS answers accessibility only for the Desktop that is SHOWING,
+so a stage can only arrange windows on VESPER's own Desktop while the owner is
+looking at it. Arranging a research layout the owner is not watching is not
+available, and pretending otherwise would reproduce exactly the "done" that was
+not done.
+
 
 ## 11.3 APPS MANAGEMENT
 

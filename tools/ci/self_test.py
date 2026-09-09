@@ -6574,5 +6574,34 @@ CASES += [
 ]
 
 
+# CI-142 -- the wallpaper bound. `setDesktopImageURL` repaints whichever Space
+# is showing, and no caller was checking which Space that was.
+# --------------------------------------------------------------------------
+HOME_SWIFT = "app/home-macos/Home.swift"
+AMBIENCE_SWIFT = "app/home-macos/HomeAmbience.swift"
+
+CASES += [
+    ("the-wallpaper-changes-only-on-vespers-desktop", HOME_SWIFT,
+     _sub("        let mine = SpaceWatch.onScreen().contains {\n"
+          "            $0.number == Int(ground.windowNumber)\n        }",
+          "        let mine = true", 1),
+     "setMode stops asking whether vesper's ground is on the desktop showing, "
+     "so a mode set while the owner is on their own desktop repaints theirs"),
+
+    ("the-wallpaper-changes-only-on-vespers-desktop", AMBIENCE_SWIFT,
+     _sub("            let ours = wallpaperDir().map { c.path.hasPrefix($0) } ?? false",
+          "            let ours = false", 1),
+     "one of vesper's own pictures can be recorded as the owner's original "
+     "again, so restoring puts a vesper image back and calls it the owner's"),
+
+    ("the-wallpaper-changes-only-on-vespers-desktop", GROUND_SWIFT,
+     _sub("    home?.retract()\n    RunLoop.main.run(until: Date().addingTimeInterval(0.4))\n"
+          "    let stillHere = groundIsVisible()",
+          "    let stillHere = false", 1),
+     "the negative control stops removing the ground, so vesper still owns the "
+     "desktop and the refusal it exists to exercise never happens"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
