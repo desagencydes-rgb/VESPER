@@ -52,6 +52,27 @@ enum SpaceWatch {
         }
     }
 
+    /// The highest window number in existence right now, on EVERY Desktop.
+    ///
+    /// A FRONTIER, NOT A COUNT. `onScreen()` sees only the active Desktop, so a
+    /// before/after comparison built on it calls every window on a DIFFERENT
+    /// Desktop "new" the moment the active Desktop changes -- which is how
+    /// `reopen` came to hand back one of the owner's Safari windows as a window
+    /// VESPER had just opened (measured 2026-09-09, live).
+    ///
+    /// This is sound because window numbers are allocated monotonically and are
+    /// not reused within a boot. MEASURED on this host, 2026-09-09: 41 windows
+    /// created and destroyed, including 25 sequential open-close cycles, gave 41
+    /// distinct strictly increasing numbers and no reuse. So a window whose
+    /// number exceeds the frontier taken before an action was created after it,
+    /// wherever it happens to live. A reboot resets the counter, which is why
+    /// nothing here is persisted across one.
+    static func highWaterNumber() -> Int {
+        guard let raw = CGWindowListCopyWindowInfo([], kCGNullWindowID)
+                as? [[String: Any]] else { return 0 }
+        return raw.compactMap { $0[kCGWindowNumber as String] as? Int }.max() ?? 0
+    }
+
     /// Is the system Dock occupying screen space right now?
     ///
     /// HOME-ARCHITECTURE §10 wants VESPER's main menu to dim to 30% "while

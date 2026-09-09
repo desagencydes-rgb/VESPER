@@ -1650,6 +1650,158 @@ if args.contains("--occlusion-check") {
 // consulted here. A refusal from this file is always the platform refusing --
 // no grant, no handle, no such window -- never policy, which is decided before
 // the process is ever launched.
+// THE NEGATIVE CONTROL FOR THE GROUND'S PLACEMENT, run deliberately and never
+// on its own initiative.
+//
+// The retraction guards a RACE -- the Desktop changing between the check and
+// the creation -- which cannot be waited for and must therefore be
+// manufactured. This forces exactly it: plant the ground with no emptiness
+// check at all, on whatever Desktop is showing, then run the SHIPPED judge and
+// report what it did.
+//
+// AND IT REFUSES TO REPORT A PASS IT DID NOT EARN. On an empty Desktop there is
+// nothing for the guard to catch, so "it did not retract" would be correct and
+// worthless -- the untested case reported as the working one. That is the same
+// defect as a negative control that passes, and today's spaces probe had four
+// of them before it was fixed. If the Desktop is empty this says UNTESTED and
+// exits non-zero.
+if args.contains("--ground-retract-check") {
+    let before = SpaceWatch.fingerprint()
+    let names = SpaceWatch.onScreen().filter { $0.layer == 0 }
+        .map(\.owner).joined(separator: ", ")
+    print("ground-retract-check: this Desktop has \(before.count) foreign window(s)"
+          + (names.isEmpty ? "" : " (\(names))"))
+    if before.isEmpty {
+        FileHandle.standardError.write(("ground-retract-check: UNTESTED -- this "
+            + "Desktop is empty, so there is nothing for the guard to catch and a "
+            + "clean run would prove nothing. Run it on the Desktop with your "
+            + "windows on it.\n").data(using: .utf8)!)
+        exit(4)
+    }
+    print("ground-retract-check: planting the ground HERE, deliberately, with no "
+          + "emptiness check -- this is the fault being manufactured")
+    let t0 = Date()
+    startHome()
+    // HOW LONG DOES THE GROUND TAKE TO EXIST? The shipped judge waits a fixed
+    // 0.6 s, a number chosen without measuring anything. If creation is slower
+    // than that on a loaded machine, the judge runs before there is anything to
+    // judge, finds nothing, and the real path silently keeps a wrongly-placed
+    // ground -- the exact bug, behind a guard that looks present. So the
+    // control measures the delay it is built on.
+    var appearedAfter: Double = -1
+    for _ in 0..<60 {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        if groundIsVisible() {
+            appearedAfter = Date().timeIntervalSince(t0)
+            break
+        }
+    }
+    print(String(format: "ground-retract-check: the ground became visible %.2fs "
+                 + "after startHome(), and the guard now waits for it rather than for a fixed delay",
+                 appearedAfter))
+    if appearedAfter < 0 {
+        FileHandle.standardError.write(("ground-retract-check: the ground never "
+            + "became visible at all within 3s -- nothing was planted, so nothing "
+            + "was tested.\n").data(using: .utf8)!)
+        exit(6)
+    }
+    let retracted = verifyGroundLanding()
+    // IS IT GONE, OR WAS THE READ TOO EARLY? `orderOut` and `close` post to the
+    // window server; nothing guarantees CGWindowList reflects them on the very
+    // next line, and there is no run-loop turn between the two. So poll, and
+    // report the TIME -- a ground that leaves in 30 ms was a stale read and a
+    // ground that never leaves is a broken retraction. Reading once and calling
+    // it either would be guessing.
+    let tR = Date()
+    var goneAfter: Double = -1
+    for _ in 0..<60 {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        if !groundIsVisible() {
+            goneAfter = Date().timeIntervalSince(tR)
+            break
+        }
+    }
+    if goneAfter >= 0 {
+        print(String(format: "ground-retract-check: the ground left the window "
+                     + "list %.2fs after retract()", goneAfter))
+    } else {
+        let survivors = SpaceWatch.onScreen().filter {
+            $0.owner == ProcessInfo.processInfo.processName }
+        for w in survivors {
+            print("ground-retract-check: SURVIVING VESPER window #\(w.number) "
+                  + "layer \(w.layer) \(Int(w.bounds.width))x\(Int(w.bounds.height))")
+        }
+    }
+    // THE CLAIM IS "YOUR DESKTOP IS AS IT WAS", SO ASSERT EXACTLY THAT.
+    // Checking only that no VESPER window is on screen would read clean if
+    // `retract()` half-worked -- ordered out but not closed, or deallocated
+    // with stale Space membership. Comparing the fingerprint to the one taken
+    // before planting is the actual claim rather than a proxy for it.
+    let restored = SpaceWatch.fingerprint()
+    let still = groundIsVisible()
+    if retracted && !still && restored == before && home == nil {
+        print("ground-retract-check: PASS -- the ground landed on your Desktop, was "
+              + "taken back, and the Desktop reads identical to before "
+              + "(\(restored.count) window(s), unchanged).")
+        exit(0)
+    }
+    FileHandle.standardError.write(("ground-retract-check: FAILED -- retracted="
+        + "\(retracted), ground still on screen=\(still), home cleared="
+        + "\(home == nil), desktop unchanged=\(restored == before). The guard did "
+        + "not give the Desktop back, which is the whole thing it exists to do.\n")
+        .data(using: .utf8)!)
+    exit(5)
+}
+
+if args.contains("--ground-resume-check") {
+    // THE RETRACTION WAS PROVEN; THE RESUME WAS NOT. After giving a Desktop
+    // back, VESPER arms a watch that replants when a Desktop is empty. If that
+    // watch's emptiness test is wrong, one wrong placement becomes a loop of
+    // them on the owner's live machine -- worse than the bug it followed.
+    //
+    // Only ONE HALF of the watch can be proven from here: that it does NOT
+    // replant while the owner's windows are on screen. The other half needs an
+    // empty Desktop to become active, which this process cannot arrange without
+    // moving the owner around. So this control proves the safety half and says
+    // plainly that the liveness half is unproven, rather than reporting a pass
+    // that covers both.
+    let before = SpaceWatch.fingerprint()
+    print("ground-resume-check: this Desktop has \(before.count) foreign window(s)")
+    if before.isEmpty {
+        FileHandle.standardError.write(("ground-resume-check: UNTESTED -- this "
+            + "Desktop is empty, so a watch that replanted would be RIGHT to. "
+            + "Run it on the Desktop with your windows on it.\n")
+            .data(using: .utf8)!)
+        exit(4)
+    }
+    let watch = armResumeWatch()
+    RunLoop.main.add(watch, forMode: .common)
+    // Six ticks of a half-second timer. A watch that is going to fire wrongly
+    // fires on its first tick, so this is not a race being tolerated -- it is
+    // several chances to catch one.
+    let deadline = Date().addingTimeInterval(3.0)
+    while Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.1)) }
+    let planted = groundIsVisible()
+    let armed = watch.isValid
+    if !planted && armed {
+        print("ground-resume-check: PASS (safety half) -- 3s and 6 ticks with "
+              + "\(before.count) of your windows on screen: the watch planted "
+              + "nothing and is still armed.")
+        watch.invalidate()
+        FileHandle.standardError.write(("ground-resume-check: the other half -- "
+            + "that it DOES replant once a Desktop is empty -- is UNTESTED here "
+            + "and needs an empty Desktop to become active.\n")
+            .data(using: .utf8)!)
+        exit(0)
+    }
+    watch.invalidate()
+    FileHandle.standardError.write(("ground-resume-check: FAILED -- planted="
+        + "\(planted), still armed=\(armed). A resume watch that plants onto "
+        + "occupied Desktops is the retraction bug in a loop.\n")
+        .data(using: .utf8)!)
+    exit(5)
+}
+
 if args.contains("--windows-list") {
     // `vespers_desktop` IS REPORTED SEPARATELY FROM `desktop_id` and is null
     // when VESPER holds no ground here. Collapsing the two made every window
@@ -1987,28 +2139,29 @@ if args.contains("--home") {
             // Taking the owner's Desktop is worse than not starting, and that
             // is this block's own stated rule -- it just had no way to notice
             // it had happened.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                let after = SpaceWatch.fingerprint()
-                guard !after.isEmpty else { return }
-                let names = SpaceWatch.onScreen().filter { $0.layer == 0 }
-                    .map(\.owner).joined(separator: ", ")
-                home?.retract()
-                home = nil
-                let msg = "home: the ground landed on a Desktop with \(after.count) "
-                        + "of your window(s) on it (\(names)) -- the Desktop changed "
-                        + "between the check and the creation. RETRACTED; waiting "
-                        + "again.\n"
-                FileHandle.standardError.write(msg.data(using: .utf8)!)
-                announced = false
-                let again = Timer(timeInterval: 0.5, repeats: true) { timer in
-                    let fp = SpaceWatch.fingerprint()
-                    if !fp.isEmpty { return }
-                    timer.invalidate()
-                    startHome()
+            // WAIT FOR THE GROUND TO EXIST, DO NOT GUESS HOW LONG THAT TAKES.
+            // This was `asyncAfter(0.6)`, a number chosen without measuring
+            // anything. MEASURED 2026-09-09 on this host: the ground becomes
+            // visible 0.06 s after `startHome()`. The margin was ten-fold and
+            // the SHAPE was still wrong -- on a loaded machine a fixed delay
+            // fires before there is anything to judge, the guard finds nothing,
+            // and a ground on the owner's Desktop stands with a guard that
+            // looks present. Polling asks the question the delay stood in for,
+            // and gives up after 3 s rather than spinning forever.
+            let appeared = Date()
+            let watch = Timer(timeInterval: 0.05, repeats: true) { w in
+                guard groundIsVisible() else {
+                    if Date().timeIntervalSince(appeared) > 3.0 { w.invalidate() }
+                    return
                 }
+                w.invalidate()
+                guard verifyGroundLanding() else { return }
+                announced = false
+                let again = armResumeWatch()
                 t = again
                 RunLoop.main.add(again, forMode: .common)
             }
+            RunLoop.main.add(watch, forMode: .common)
         }
         RunLoop.main.add(t!, forMode: .common)
         if let limit {
@@ -2028,6 +2181,58 @@ if args.contains("--home") {
     } else {
         startHome()
     }
+}
+
+/// Judge the ground AFTER it exists, and take it back if it landed wrong.
+///
+/// Returns `true` if the ground was retracted.
+///
+/// ONE IMPLEMENTATION, TWO CALLERS, AND THAT IS THE POINT. The real path calls
+/// this after `startHome()`; `--ground-retract-check` calls it after forcing
+/// the exact condition it guards against. A test that exercised a COPY of this
+/// logic would prove something about the copy -- which is the same defect as a
+/// harness that mounts its own page instead of reading the running surface, and
+/// that one already cost this project a night.
+/// After a retraction, wait for a Desktop that is actually empty.
+///
+/// Extracted 2026-09-09 so the control exercises THIS timer rather than a
+/// copy of it. The retraction was proven; what happens next was not, and it
+/// is the half that matters -- a resume that replants onto the owner's
+/// windows turns one wrong placement into a loop of them. The timer's whole
+/// safety property is that a non-empty fingerprint makes it do nothing.
+func armResumeWatch() -> Timer {
+    Timer(timeInterval: 0.5, repeats: true) { timer in
+        let fp = SpaceWatch.fingerprint()
+        if !fp.isEmpty { return }
+        timer.invalidate()
+        startHome()
+    }
+}
+
+/// Is VESPER's ground actually on screen yet?
+///
+/// The ground is the only VESPER window BELOW the desktop icons; the island
+/// sits above everything and lives on all Spaces, so a level test separates
+/// them without naming either.
+func groundIsVisible() -> Bool {
+    let me = ProcessInfo.processInfo.processName
+    return SpaceWatch.onScreen().contains { $0.owner == me && $0.layer < 0 }
+}
+
+@discardableResult
+func verifyGroundLanding() -> Bool {
+    let after = SpaceWatch.fingerprint()
+    guard !after.isEmpty else { return false }
+    let names = SpaceWatch.onScreen().filter { $0.layer == 0 }
+        .map(\.owner).joined(separator: ", ")
+    home?.retract()
+    home = nil
+    let msg = "home: the ground landed on a Desktop with \(after.count) "
+            + "of your window(s) on it (\(names)) -- the Desktop changed "
+            + "between the check and the creation. RETRACTED; waiting "
+            + "again.\n"
+    FileHandle.standardError.write(msg.data(using: .utf8)!)
+    return true
 }
 
 /// Everything the home needs, in one place, so it can be started immediately or

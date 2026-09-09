@@ -369,7 +369,18 @@ enum WindowBridge {
         guard !bundleId.isEmpty,
               let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId)
         else { return ["ok": false, "reason": "no application to reopen for that window"] }
-        let before = Set(SpaceWatch.onScreen().map(\.number))
+        // A NEW WINDOW IS ONE WITH A HIGHER NUMBER THAN ANY THAT EXISTED, AND
+        // ONE BELONGING TO THE APPLICATION WE LAUNCHED. Both halves were
+        // missing, and the live drive on 2026-09-09 caught what that costs:
+        // `window.open("TextEdit")` returned window 101 of pid 640 -- one of
+        // the owner's SAFARI windows -- stamped `vesper_opened`, which is a
+        // forged claim of ownership over the owner's work. Two faults, one
+        // shape. `onScreen()` sees only the ACTIVE Desktop, so when the Desktop
+        // changed during the launch every window over there looked new; and
+        // nothing checked WHOSE the new window was. It is the same defect as
+        // the ground taking an occupied Desktop: a before/after comparison
+        // across a moment when the world is free to move.
+        let frontier = SpaceWatch.highWaterNumber()
         let cfg = NSWorkspace.OpenConfiguration()
         cfg.createsNewApplicationInstance = false
         // NOT ACTIVATED, AND THIS IS A SAFETY RULE RATHER THAN A PREFERENCE.
@@ -397,10 +408,17 @@ enum WindowBridge {
         // that is already running often opens nothing at all, and reporting
         // that as success is the same defect as reporting an unmoved window as
         // moved.
+        // WITHOUT A PID THERE IS NOTHING TO VERIFY AGAINST, so the call
+        // refuses rather than claiming whatever appeared.
+        guard let launchedPid = launched?.processIdentifier else {
+            return ["ok": false, "reason": "the application did not report a "
+                  + "process, so no window could be attributed to it"]
+        }
         for _ in 0..<20 {
             usleep(150_000)
-            let now = SpaceWatch.onScreen().filter { !before.contains($0.number) }
-            if let fresh = now.first(where: { $0.layer == 0 }) {
+            if let fresh = SpaceWatch.onScreen().first(where: {
+                $0.pid == Int(launchedPid) && $0.number > frontier && $0.layer == 0
+            }) {
                 return ["ok": true, "window_id": String(fresh.number), "pid": fresh.pid]
             }
         }
@@ -410,8 +428,7 @@ enum WindowBridge {
         // the accessibility interface. Public API, and it is the same action
         // the owner would perform, which is the standard §11.5 sets for
         // anything VESPER does on their behalf.
-        if let pid = launched?.processIdentifier,
-           let fresh = pressNew(pid: Int(pid), since: before) {
+        if let fresh = pressNew(pid: Int(launchedPid), since: frontier) {
             return fresh
         }
         return ["ok": false, "reason": "the application was activated and would not "
@@ -433,7 +450,7 @@ enum WindowBridge {
     /// is the character and `AXMenuItemCmdModifiers` is 0 for command alone.
     /// That is structure rather than wording, which is the same distinction
     /// INV-HW-1 draws between a profile and a product name.
-    private static func pressNew(pid: Int, since before: Set<Int>) -> [String: Any]? {
+    private static func pressNew(pid: Int, since frontier: Int) -> [String: Any]? {
         guard accessible() else { return nil }
         let app = AXUIElementCreateApplication(pid_t(pid))
         var barRef: CFTypeRef?
@@ -472,8 +489,12 @@ enum WindowBridge {
                 AXUIElementPerformAction(item, kAXPressAction as CFString)
                 for _ in 0..<20 {
                     usleep(150_000)
-                    if let f = SpaceWatch.onScreen()
-                        .first(where: { !before.contains($0.number) && $0.layer == 0 }) {
+                    // THE SAME TWO CONDITIONS. This rung already held the pid
+                    // and did not consult it, so pressing New in one application
+                    // could return a window that belonged to another.
+                    if let f = SpaceWatch.onScreen().first(where: {
+                        $0.pid == pid && $0.number > frontier && $0.layer == 0
+                    }) {
                         return ["ok": true, "window_id": String(f.number), "pid": f.pid,
                                 "via": "menu:\(title)"]
                     }

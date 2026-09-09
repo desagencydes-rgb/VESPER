@@ -21609,6 +21609,206 @@ def check_every_turn_is_recorded_with_its_outcome() -> Result:
     return r
 
 
+def _swift_nostrings(code: str) -> str:
+    """Swift with its STRING LITERALS removed as well as its comments.
+
+    Added 2026-09-09 when this check's first run reported a defect that was a
+    sentence. `--ground-retract-check` prints "the ground left the window list
+    %.2fs after retract()", and counting call sites found that message and
+    called it a second copy of the retraction. The corpus already records this
+    hazard for comments twice over; a message ABOUT an action is the same trap
+    with different quotes, and a control that narrates what it did is exactly
+    the code most likely to name the call it is judged on.
+    """
+    out, i, n = [], 0, len(code)
+    while i < n:
+        c = code[i]
+        if c == '"':
+            i += 1
+            while i < n and code[i] != '"':
+                i += 2 if code[i] == "\\" else 1
+            i += 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out)
+
+
+def _swift_body(src: str, opener: str) -> str:
+    """One Swift block's body, brace-balanced, comments removed.
+
+    `opener` is matched literally and must end at the block's `{`. A brace
+    inside a string literal would miscount; nothing this check reads has one,
+    and that limit is stated here rather than left to be discovered.
+    """
+    code = _swift_code(src)
+    i = code.find(opener)
+    if i < 0:
+        return ""
+    j = code.find("{", i + len(opener) - 1)
+    if j < 0:
+        return ""
+    depth, k = 0, j
+    while k < len(code):
+        if code[k] == "{":
+            depth += 1
+        elif code[k] == "}":
+            depth -= 1
+            if depth == 0:
+                return code[j + 1:k]
+        k += 1
+    return ""
+
+
+def check_the_ground_gives_a_taken_desktop_back() -> Result:
+    """VESPER's ground must never keep a Desktop that has the owner's work on it.
+
+    THE BUG THIS GUARDS, in the owner's words on 2026-09-08: "vesper showed up
+    on desktop 1, the only desktop full of open windows, desktop 2 was always
+    empty and it did not show up there". The emptiness test and the ground's
+    creation are two different moments; a `.managed` window lands on whichever
+    Desktop is active when it is created, not the one that was examined. The
+    decision was made about one room and the furniture went into another, and
+    nothing looked afterwards.
+
+    SIX STRUCTURAL CLAIMS, each of which can be broken on its own.
+
+    ONE JUDGE. `retract()` is called from exactly one place -- inside
+    `verifyGroundLanding`. A control that carried its own copy of the
+    retraction would pass while the shipped path did nothing.
+
+    THE SHIPPED PATH REACHES IT. The judge must be called from the waiting
+    block, not only from the diagnostic control. A guard that exists solely
+    inside its own test is not a guard.
+
+    IT WAITS FOR THE GROUND, NOT FOR A CLOCK. The judge was first scheduled
+    with `asyncAfter(0.6)`, a delay chosen without measuring anything.
+    Measured 2026-09-09: the ground becomes visible 0.06 s after `startHome()`.
+    The margin was fine and the shape was wrong -- on a loaded machine a fixed
+    delay fires before there is anything to judge, finds nothing, and leaves a
+    wrongly-placed ground standing behind a guard that looks present. The
+    shipped call site must consult `groundIsVisible()`.
+
+    THE RESUME DOES NOT REPLANT ONTO OCCUPIED DESKTOPS. `armResumeWatch` must
+    consult the fingerprint and return BEFORE `startHome()`. Losing that test
+    turns one wrong placement into a loop of them.
+
+    THE CONTROLS REFUSE A PASS THEY DID NOT EARN. Both `--ground-retract-check`
+    and `--ground-resume-check` must exit non-zero as UNTESTED on an empty
+    Desktop. On an empty Desktop the guard has nothing to catch and a resume
+    would be right to fire, so a green run there proves nothing -- and a
+    control that reports PASS anyway is the defect, not the relief.
+
+    THE CLAIM IS CHECKED AGAINST THE WORLD. "The Desktop is as it was" is a
+    statement about the Desktop, so the retract control must compare a
+    fingerprint taken before planting with one taken after, and re-read the
+    window list for the ground. `home == nil` is the instrument's self-report:
+    it was true in the run where the ground was still on screen.
+    """
+    r = Result("the-ground-gives-a-taken-desktop-back")
+    main_p = REPO / "app" / "island-macos" / "main.swift"
+    home_p = REPO / "app" / "home-macos" / "Home.swift"
+    if not main_p.exists() or not home_p.exists():
+        r.err("app/island-macos/main.swift or app/home-macos/Home.swift is missing")
+        return r
+    src = main_p.read_text(encoding="utf-8")
+    code = _swift_nostrings(_swift_code(src))
+
+    # 1. One judge, and the retraction lives inside it.
+    judge = _swift_nostrings(_swift_body(src, "func verifyGroundLanding() -> Bool {"))
+    if not judge:
+        r.err("main.swift has no verifyGroundLanding() -- the ground is created "
+              "and never judged, which is the 2026-09-08 bug exactly")
+        return r
+    if "retract()" not in judge:
+        r.err("verifyGroundLanding() does not call retract(): it can notice the "
+              "ground took an occupied Desktop and then leave it there")
+    outside = code.count("retract()") - judge.count("retract()")
+    if outside:
+        r.err(f"retract() is called from {outside} place(s) outside "
+              "verifyGroundLanding(); a second copy of the retraction lets a "
+              "control pass while the shipped path does nothing")
+
+    # 2 and 3. The shipped waiting path reaches the judge, and waits for the
+    # ground to EXIST rather than for a guessed number of seconds.
+    ctl_raw = _swift_body(src, 'if args.contains("--ground-retract-check") {')
+    ctl = _swift_nostrings(ctl_raw)
+    # BOTH controls come out, not just one. The resume control calls
+    # `groundIsVisible()` and `armResumeWatch()` too, so leaving it in made the
+    # two assertions about the SHIPPED path vacuous: the harness deleted the
+    # real call sites and the check stayed green off the diagnostic's copies.
+    # Caught 2026-09-09 by the red runs, which is what they are for.
+    shipped = code
+    for block in (ctl, _swift_nostrings(
+            _swift_body(src, 'if args.contains("--ground-resume-check") {'))):
+        if block:
+            shipped = shipped.replace(block, "")
+    # A DECLARATION IS NOT A CALL. `func groundIsVisible() -> Bool` contains
+    # the text `groundIsVisible()`, so testing the file for that string would
+    # stay green with every call site deleted -- the assertion would pass under
+    # its own violation, which is the failure this corpus has already made
+    # three times. Strip the declarations, then look for callers.
+    calls = shipped
+    for decl in ("func verifyGroundLanding() -> Bool",
+                 "func groundIsVisible() -> Bool",
+                 "func armResumeWatch() -> Timer"):
+        calls = calls.replace(decl, "")
+    if "verifyGroundLanding()" not in calls:
+        r.err("verifyGroundLanding() is only ever called from the diagnostic "
+              "control: the shipped startup path creates a ground and never "
+              "judges where it landed")
+    if "groundIsVisible()" not in calls:
+        r.err("the shipped path does not consult groundIsVisible(): the judge "
+              "runs on a fixed delay, so on a loaded machine it fires before "
+              "there is anything to judge and a misplaced ground stands")
+    if "armResumeWatch()" not in calls:
+        r.err("armResumeWatch() is never called: after retracting, VESPER gives "
+              "the Desktop back and then never comes home at all")
+
+    # 4. The resume watch consults emptiness before it plants.
+    resume = _swift_nostrings(_swift_body(src, "func armResumeWatch() -> Timer {"))
+    if not resume:
+        r.err("main.swift has no armResumeWatch()")
+    else:
+        guard = max(resume.find("isEmpty"), resume.find("fingerprint()"))
+        plant = resume.find("startHome()")
+        if guard < 0 or plant < 0 or guard > plant:
+            r.err("armResumeWatch() plants without first testing that the "
+                  "Desktop is empty: after giving one Desktop back it takes the "
+                  "next, turning one wrong placement into a loop of them")
+
+    # 5. Neither control may report a pass it did not earn.
+    for flag in ("--ground-retract-check", "--ground-resume-check"):
+        body_raw = _swift_body(src, f'if args.contains("{flag}") {{')
+        body = _swift_nostrings(body_raw)
+        if not body_raw:
+            r.err(f"{flag} is missing: the guard has no executable control")
+            continue
+        head = body[:body.find("exit(4)") + 1] if "exit(4)" in body else ""
+        # "UNTESTED" is the message the control PRINTS, so that one claim is
+        # made against the text; everything else is a claim about code.
+        if "UNTESTED" not in body_raw or "exit(4)" not in body or "isEmpty" not in head:
+            r.err(f"{flag} does not refuse an empty Desktop as UNTESTED: on an "
+                  "empty Desktop there is nothing to catch, so a green run "
+                  "there is a pass the control did not earn")
+
+    # 6. The retract control asserts against the world, not the instrument.
+    if ctl:
+        if "SpaceWatch.fingerprint()" not in ctl or "== before" not in ctl:
+            r.err("--ground-retract-check does not compare the Desktop's "
+                  "fingerprint before and after: 'your Desktop is as it was' is "
+                  "a claim about the Desktop and must be read off it")
+        if "groundIsVisible()" not in ctl:
+            r.err("--ground-retract-check never re-reads the window list for the "
+                  "ground; home == nil is the instrument's own word, and it read "
+                  "true in the run where the ground was still on screen")
+
+    r.note("one judge, reached by the shipped path, waiting on the ground rather "
+           "than a clock; the resume tests emptiness before planting; both "
+           "controls refuse an unearned pass")
+    return r
+
+
 def check_permission_mode_ceiling_only_lowers() -> Result:
     """A mode is the owner's switch: it may only lower authority, never raise it.
 
@@ -21884,6 +22084,7 @@ CHECK_FNS = {
     "chrome-template-renders": check_chrome_template_renders,
     "effort-floor-and-null-answer": check_effort_floor,
     "permission-mode-ceiling-only-lowers": check_permission_mode_ceiling_only_lowers,
+    "the-ground-gives-a-taken-desktop-back": check_the_ground_gives_a_taken_desktop_back,
 }
 
 

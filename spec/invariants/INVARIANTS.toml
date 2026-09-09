@@ -344,6 +344,16 @@ why_it_needs_an_offline_guard = "Every other layer in the tree is covered by che
 why_the_fallback_is_checked_too = "The binary carries an inline copy so a missing file never blanks the Desktop, and a fallback is by definition the copy nobody looks at. It and the file can diverge for months, and the divergence surfaces on the day the file is gone -- which is to say in front of the owner, during the exact failure the fallback was written for."
 why_an_unsubstituted_token_is_dangerous = "It renders literally into a CSS declaration, and an invalid declaration is DROPPED SILENTLY by the parser. The surface still appears; it is merely wrong -- a card with no solved fill over a bright wallpaper, with ink that no longer meets its contrast requirement. Present-but-wrong is harder to notice than absent."
 
+[invariants.INV-HOME-8]
+statement = "VESPER's ground never keeps a Desktop that holds the owner's windows. Emptiness is judged AFTER the ground exists, never only before it is created; a ground that landed on an occupied Desktop is retracted; and the resume that follows waits for a Desktop that is actually empty."
+owner_rem = "OWNER-2026-09-08-DESKTOP"
+enforced_by = ["CI-135"]
+kind = "runtime"
+why_it_was_missing = """The rule was WRITTEN and unenforceable. The startup path already refused to plant on an occupied Desktop and said so in its own comment -- and the owner still found VESPER's ground on Desktop 1, the only Desktop with windows on it, while Desktop 2 sat empty: \"vesper showed up on desktop 1, the only desktop full of open windows, desktop 2 was always empty and it did not show up there\" (2026-09-08). The check and the creation are two different moments. A `.managed` window lands on whichever Desktop is ACTIVE when it is created, and between the emptiness test and the creation the active Desktop can change -- a relaunch, an `open -n`, the owner moving. The decision was made about one room and the furniture went into another, and nothing looked afterwards."""
+why_it_is_judged_after = "Before creation, the question cannot be answered: the ground does not exist and its Desktop is not yet determined. Only after it exists is there a fact to read. Judging early is why a guard whose reasoning was correct produced the outcome it forbade."
+why_the_resume_is_part_of_the_rule = "Retracting one Desktop and immediately taking the next turns a single wrong placement into a loop of them, on the owner's live machine, with a guard that reports success each time round."
+why_an_empty_desktop_proves_nothing = "On an empty Desktop the guard has nothing to catch and a resume would be right to fire, so a green control run there is a pass that was not earned. Both controls exit UNTESTED rather than reporting one."
+
 [invariants.INV-PRIV-7]
 statement = "No credential-shaped material crosses any boundary off this machine, whatever the provider's egress class. Detection is deterministic, runs at the choke point before any model sees the text, and is never itself performed by a model."
 owner_rem = "OWNER-DECISION-2026-08-31"

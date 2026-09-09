@@ -2706,3 +2706,12 @@ blocking = "pr"
 self_test = """Register the agenda trigger with no handler; stop dispatch skipping a trigger that carries neither handler nor intent; report a calendar the bridge never wrote as read-and-empty; let quiet() ignore an unreadable source; discard dispatch's return value in the pump."""
 self_test_evidence = "tools/ci/self_test.py a-due-item-is-spoken-not-merely-noticed -- 5 cases, executed 2026-09-05: red under violation, green after restore. The first version of assertion 1 passed under its own violation because dispatch skips a handler-less trigger twice; an actor is now attached so the guard's removal is observable."
 
+[checks.CI-135]
+name = "the-ground-gives-a-taken-desktop-back"
+enforces = ["INV-HOME-8"]
+kind = "structural"
+impl = "tools/ci/checks.py the-ground-gives-a-taken-desktop-back"
+blocking = "pr"
+self_test = "Let the judge notice and not retract; give the control its own copy of the retraction; delete the shipped call to the judge; put the judge back on a fixed delay; arm a resume watch that does nothing; drop the emptiness test before planting; let the resume control report PASS on an empty Desktop; judge the retraction by `home == nil` instead of by re-reading the room."
+self_test_evidence = "tools/ci/self_test.py the-ground-gives-a-taken-desktop-back -- 8 cases, executed 2026-09-09: red under violation, green after restore. TWO CASES FIRST PASSED UNDER THEIR OWN VIOLATION -- the diagnostic controls call `groundIsVisible()` and `armResumeWatch()` themselves, so deleting the SHIPPED call sites left the strings present and the check green off the controls' copies; both control bodies are now excluded before the shipped path is asked what it calls. The first run of the check also reported a defect that was a SENTENCE: a print string naming `retract()` counted as a second call site, so string literals are stripped as well as comments."
+live_evidence = "app/VESPER.app/Contents/MacOS/VESPER --ground-retract-check, 2026-09-09: ground planted deliberately on a Desktop with 6 of the owner's windows, judged, retracted; the Desktop read identical afterwards. Ground visible 0.06s after startHome() (measured, replacing a guessed 0.60s delay); off the window list 0.06s after retract(). --ground-resume-check: 3s, 6 ticks, 7 foreign windows, nothing planted, watch still armed. Red runs on the live binary too: retract() neutered, control caught it and named the surviving ground (#31112, layer -1, 1728x1117) apart from the island (#31111, layer 1001); emptiness test removed, control caught the replant."

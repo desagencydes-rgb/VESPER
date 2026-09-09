@@ -6267,6 +6267,66 @@ CASES += [
 ]
 
 
+# CI-135 -- the ground took the owner's Desktop. Reported 2026-09-08: "vesper
+# showed up on desktop 1, the only desktop full of open windows, desktop 2 was
+# always empty and it did not show up there". The emptiness check and the
+# window's creation are two different moments, and nothing looked afterwards.
+# --------------------------------------------------------------------------
+GROUND_SWIFT = "app/island-macos/main.swift"
+
+CASES += [
+    ("the-ground-gives-a-taken-desktop-back", GROUND_SWIFT,
+     _sub("    home?.retract()\n", "", 1),
+     "the judge sees the ground landed on a Desktop full of the owner's "
+     "windows, says so, and leaves it sitting there"),
+
+    ("the-ground-gives-a-taken-desktop-back", GROUND_SWIFT,
+     _sub('    let retracted = verifyGroundLanding()\n',
+          '    home?.retract(); home = nil\n    let retracted = true\n', 1),
+     "the control retracts by itself instead of through the shipped judge, so "
+     "it goes green while the startup path keeps every Desktop it takes"),
+
+    ("the-ground-gives-a-taken-desktop-back", GROUND_SWIFT,
+     _sub("                guard verifyGroundLanding() else { return }\n", "", 1),
+     "the guard survives only inside its own diagnostic: the shipped path "
+     "creates a ground and never judges where it landed"),
+
+    ("the-ground-gives-a-taken-desktop-back", GROUND_SWIFT,
+     _sub("                guard groundIsVisible() else {",
+          "                guard Date().timeIntervalSince(appeared) > 0.6 else {", 1),
+     "the judge goes back to firing on a guessed delay rather than on the "
+     "ground existing -- on a loaded machine it judges nothing and a misplaced "
+     "ground stands behind a guard that looks present"),
+
+    ("the-ground-gives-a-taken-desktop-back", GROUND_SWIFT,
+     _sub("                let again = armResumeWatch()",
+          "                let again = Timer(timeInterval: 0.5, repeats: true) { _ in }", 1),
+     "VESPER gives the Desktop back and then never comes home: the resume "
+     "watch is armed with a timer that does nothing"),
+
+    ("the-ground-gives-a-taken-desktop-back", GROUND_SWIFT,
+     _sub("        let fp = SpaceWatch.fingerprint()\n        if !fp.isEmpty { return }\n",
+          "", 1),
+     "the resume watch stops asking whether the Desktop is empty, so the "
+     "retraction is followed immediately by taking the next Desktop -- one "
+     "wrong placement becomes a loop of them"),
+
+    ("the-ground-gives-a-taken-desktop-back", GROUND_SWIFT,
+     _sub('        FileHandle.standardError.write(("ground-resume-check: UNTESTED -- this "\n'
+          '            + "Desktop is empty, so a watch that replanted would be RIGHT to. "\n'
+          '            + "Run it on the Desktop with your windows on it.\\n")\n'
+          '            .data(using: .utf8)!)\n        exit(4)\n', "", 1),
+     "the resume control reports PASS on an empty Desktop, where a watch that "
+     "replanted would have been right to -- a green run that proves nothing"),
+
+    ("the-ground-gives-a-taken-desktop-back", GROUND_SWIFT,
+     _sub("    if retracted && !still && restored == before && home == nil {",
+          "    if retracted && home == nil {", 1),
+     "the control believes the instrument instead of re-reading the room: "
+     "`home == nil` was true in the very run where the ground was still on "
+     "screen"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
-

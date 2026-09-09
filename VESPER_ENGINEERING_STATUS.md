@@ -96,10 +96,10 @@ tools/traceability_lint.py                    PASS   0 errors, 0 warnings, 0 inf
 tools/traceability_lint.py --profile release  FAIL   2 errors, DEPTH only (SR-017, SR-034)
 tools/reference_lint.py                       PASS   0 errors — 179 normative files scanned
 tools/reference_lint.py --self-test           PASS   6/6 red-then-green
-tools/ci/checks.py all                        PASS   145/145 runnable checks
-tools/ci/self_test.py                         PASS   701/701 red under violation, green after restore
-tools/ci/checks.py status                            103/121 check IDs implemented, 18 PENDING
-tools/ci/checks.py ci-registry                       ENFORCED TODAY: 91/144 invariants
+tools/ci/checks.py all                        PASS   146/146 runnable checks
+tools/ci/self_test.py                         PASS   709/709 red under violation, green after restore
+tools/ci/checks.py status                            104/122 check IDs implemented, 18 PENDING
+tools/ci/checks.py ci-registry                       ENFORCED TODAY: 92/145 invariants
 verification/run_f0_acceptance.py             PASS
 verification/run_f1_acceptance.py             PASS
 verification/run_f2_acceptance.py             PASS
@@ -225,9 +225,9 @@ And one requirement gap:
 
 | Gap | Detail | Why it is acceptable now |
 |---|---|---|
-| **18 of 121 CI checks unimplemented** | `tools/ci/checks.py status` for the live figure | Most are structural checks over source code that does not exist. Each declares its self-test and lands **with** its subsystem. `CI-022`, `CI-034b`, `CI-046b` were deliberately split or held at `PENDING` rather than let a partial implementation be reported as full coverage. |
+| **18 of 122 CI checks unimplemented** | `tools/ci/checks.py status` for the live figure | Most are structural checks over source code that does not exist. Each declares its self-test and lands **with** its subsystem. `CI-022`, `CI-034b`, `CI-046b` were deliberately split or held at `PENDING` rather than let a partial implementation be reported as full coverage. |
 | **7 SRs below `SPECIFIED`** | SR-016, 017 (`DESIGNED`); SR-023, 033, 034, 035, 038 (`CONTRACTED`) | Each names the artifact required and why it is absent. **SR-034 is the worked example of the discriminator**: a decision function for *"clean hierarchy, formatting, vocabulary"* would be a document written to move a linter. |
-| **91 of 144 invariants enforced by an implemented, red-run, non-vacuous check** | Computed by `ci-registry` on every run; the remainder are enforced by acceptance tests or by nothing yet. | Visible in every `ci-registry` run as a note. Most require runtime state to check at all. |
+| **92 of 145 invariants enforced by an implemented, red-run, non-vacuous check** | Computed by `ci-registry` on every run; the remainder are enforced by acceptance tests or by nothing yet. | Visible in every `ci-registry` run as a note. Most require runtime state to check at all. |
 | **Acceptance tests are specifications** | 52 tests with procedures and assertions | Executable fixtures require the runtime. **None is executable today.** 49 name the wrong build that must fail; 3 record why a negative control cannot exist. |
 | **`A-029` and `A-031` never run** | The two decisive gates | Cannot run before the autonomy engine and interlock exist. `CI-027` blocks the autonomy release without their evidence. |
 | **11 of 12 spikes unrun; `capability_profiles.toml` still entirely `UNKNOWN`** | `SPIKE-001` is `RUNNING` — see below. The other 11 are `NOT_STARTED`. The profile file carries 31 unmeasured fields and `measured = false`. | Deliberate and enforced: `CI-034` fails the file if any figure is filled in from a datasheet while `measured = false`. Unmeasured is treated as **unavailable**, not as available. **Measured-but-unpromoted is the correct state**: SPIKE-001 has real numbers on disk and none of them has been written into the contract, because promotion is a separate deliberate act and the spike's own pass criteria are not all met. |
