@@ -3469,11 +3469,16 @@ CASES += [
      "room where nobody said the wake word"),
 
     ("wake-word-listens-locally-and-starts-once", RUNTIME_PY,
-     _sub("    seen = int(HEARD_OFFSET.read_text()) if HEARD_OFFSET.exists() else 0",
-          "    seen = 0", 1),
+     _sub("    seen = _read_heard_offset()", "    seen = 0", 1),
      "the wake queue is re-read from the top on every pass, so every clip ever "
      "captured is answered again on every pass -- the log fills with replies to "
      "things said once, hours ago"),
+
+    ("wake-word-listens-locally-and-starts-once", RUNTIME_PY,
+     _sub("        raw = HEARD_OFFSET.read_text(encoding=\"utf-8\").strip()",
+          "        raw = \"0\"", 1),
+     "the offset helper stops reading the recorded offset and always answers "
+     "zero, so the drain seeks to the top however much was already answered"),
 
     ("wake-word-listens-locally-and-starts-once", RUNTIME_PY,
      _sub('                pathlib.Path(path).unlink()     # the audio is not kept',

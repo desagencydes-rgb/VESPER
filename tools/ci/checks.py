@@ -11591,7 +11591,30 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
     # somewhere in the module is satisfied by the line that WRITES it; the
     # property is that the read seeks to what was written. A self-test that
     # replaced the read with `seen = 0` left the name in place and stayed green.
-    if "HEARD_OFFSET.read_text()" not in drain or "f.seek(seen)" not in drain:
+    # FOLLOW THE VALUE, NOT THE SPELLING. The read moved into
+    # `_read_heard_offset()` on 2026-09-09, because `int(HEARD_OFFSET.read_text())`
+    # raised on an EMPTY file -- which is what a kill between truncate and write
+    # leaves -- and the pump then died on that same line every tick forever
+    # while printing that it was continuing. The property is unchanged: the
+    # drain must take its start from what was recorded, so BOTH ends are
+    # asserted, and gutting either one is still red.
+    reads_offset = ("HEARD_OFFSET.read_text()" in drain
+                    or "_read_heard_offset()" in drain)
+    # ASKED OF THE AST, because the helper's own DOCSTRING quotes
+    # `int(HEARD_OFFSET.read_text())` while explaining why it stopped doing
+    # that -- so a substring test found the sentence after the code was gutted
+    # and stayed green. Prose that describes a call looks exactly like the call.
+    helper_reads = True
+    if "def _read_heard_offset" in p:
+        import ast as _a6
+        _h = next((n for n in _a6.walk(_a6.parse(p))
+                   if isinstance(n, _a6.FunctionDef)
+                   and n.name == "_read_heard_offset"), None)
+        helper_reads = _h is not None and any(
+            isinstance(n, _a6.Attribute) and n.attr == "read_text"
+            and isinstance(n.value, _a6.Name) and n.value.id == "HEARD_OFFSET"
+            for n in _a6.walk(_h))
+    if not reads_offset or not helper_reads or "f.seek(seen)" not in drain:
         r.err("the drain does not seek to the recorded offset, so every pass "
               "re-answers every clip ever captured")
     if "wake.discarded" not in drain:

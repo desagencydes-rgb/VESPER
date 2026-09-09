@@ -2045,6 +2045,44 @@ def observe(capability_id: str, args: dict, result: dict) -> dict:
         return [ln[:OBS_MAX_LINE_CHARS] for ln in out]
 
     result = result if isinstance(result, dict) else {}
+    if capability_id.startswith("window."):
+        # A LISTING THAT REACHES NOTHING IS A LOOK NOBODY TOOK.
+        #
+        # `window.list` produced no observation at all, so the next step planned
+        # with no idea what was on screen -- and ids are not guessable, which is
+        # exactly why the prompt says to list first. The owner asked VESPER to
+        # move the Notes window; the model correctly proposed `window.list`
+        # saying "need window IDs before relocating", the list ran, and the
+        # result went nowhere. The loop then had the same nothing it started
+        # with. Measured 2026-09-09.
+        #
+        # STRUCTURED AND BOUNDED, like every other branch here. Ids, the
+        # application label, provenance and geometry -- the fields a next step
+        # actually plans on. NO TITLES: `window_list_level` puts them at L5 and
+        # this crossing is capped at L1, so a title must never arrive here by
+        # the back door.
+        wins = result.get("windows")
+        rows = []
+        if isinstance(wins, list):
+            for w in wins[:OBS_MAX_LINES]:
+                if not isinstance(w, dict):
+                    continue
+                rows.append({"window_id": str(w.get("window_id") or ""),
+                             "app": str(w.get("app_label") or "")[:64],
+                             "provenance": str(w.get("provenance") or ""),
+                             "on_active_desktop": bool(w.get("on_active_desktop")),
+                             "x": w.get("x"), "y": w.get("y"),
+                             "width": w.get("width"), "height": w.get("height")})
+        out = {"capability": capability_id, "ok": bool(result.get("ok", True))}
+        if rows or capability_id == "window.list":
+            out["windows"] = rows
+            out["count"] = result.get("count", len(rows))
+        for k in ("window_id", "landed", "rung", "degraded"):
+            if result.get(k) is not None:
+                out[k] = result[k]
+        if result.get("reason"):
+            out["reason"] = str(result["reason"])[:OBS_MAX_LINE_CHARS]
+        return out
     if capability_id == "shell.run":
         return {"capability": capability_id,
                 "cmd": str(args.get("cmd") or "")[:OBS_MAX_LINE_CHARS],

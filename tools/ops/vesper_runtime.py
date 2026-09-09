@@ -158,6 +158,30 @@ OUTBOX = STATE / "say.jsonl"
 # the permission for it.
 HEARD = STATE / "heard.jsonl"
 HEARD_OFFSET = STATE / "heard.offset"
+
+
+def _read_heard_offset() -> int:
+    """How far the heard log has been consumed. An unreadable file is ZERO.
+
+    `int(HEARD_OFFSET.read_text())` raised on an EMPTY file, and an empty file
+    is exactly what a kill between truncate and write produces. The pump caught
+    the ValueError and continued -- and then hit it again on the next tick, and
+    every tick after, forever. A loop that fails identically every pass is not
+    degraded, it is stopped, and this one stopped while still printing that it
+    was continuing.
+
+    ZERO IS THE SAFE ANSWER, not the last known value: re-reading lines already
+    seen is idempotent here, while skipping ahead past unread ones loses what
+    the owner said.
+    """
+    try:
+        raw = HEARD_OFFSET.read_text(encoding="utf-8").strip()
+    except OSError:
+        return 0
+    try:
+        return int(raw)
+    except ValueError:
+        return 0
 OFFSET = STATE / "say.offset"
 
 # How often the outbox is re-read. See the loop at the bottom for why it is
@@ -1407,7 +1431,7 @@ def _drain_heard(bus, transcriber) -> int:
     """
     if not HEARD.exists():
         return 0
-    seen = int(HEARD_OFFSET.read_text()) if HEARD_OFFSET.exists() else 0
+    seen = _read_heard_offset()
     done = 0
     with HEARD.open("r", encoding="utf-8") as f:
         f.seek(seen)
@@ -1449,7 +1473,14 @@ def _drain_heard(bus, transcriber) -> int:
                         component="runtime")
             done += 1
         seen = f.tell()
-    HEARD_OFFSET.write_text(str(seen))
+    # ATOMIC, because a kill between truncate and write leaves an EMPTY file
+    # and the reader used to raise on it forever. Measured 2026-09-09: the pump
+    # died with `ValueError: invalid literal for int() with base 10: ''` on
+    # every tick, so nothing the owner typed was processed, the cards stopped
+    # updating and every model row read UNAVAILABLE -- from a zero-byte file.
+    _tmp = HEARD_OFFSET.with_name(f"heard.offset.{threading.get_ident()}.tmp")
+    _tmp.write_text(str(seen), encoding="utf-8")
+    _tmp.replace(HEARD_OFFSET)
     return done
 
 
@@ -2432,6 +2463,9 @@ def main() -> int:
             # Printed, not swallowed: a loop that hides its failures is how one
             # bad pass becomes a permanently degraded runtime that still looks
             # alive.
+            import traceback as _tb
+            print("pump error traceback:\n" + _tb.format_exc(), file=sys.stderr,
+                  flush=True)
             print(f"pump error (continuing): {type(e).__name__}: {e}",
                   file=sys.stderr, flush=True)
             # AND A LOOP THAT FAILS EVERY PASS SAYS SO ON THE SCREEN.
