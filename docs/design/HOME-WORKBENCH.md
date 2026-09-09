@@ -2158,13 +2158,20 @@ showing."* Rung 3 of the relocation ladder repeats it: *"a new window opens on
 the CURRENT Space."* Both are wrong, and the owner caught it on 2026-09-09:
 *"they opened in desktop 1 not 2 (the empty one)"*.
 
-Measured the same night. Safari's Desktop was the active one. `window.open`
-launched TextEdit -- which had **zero windows open at the time** -- and the new
-window went to Desktop 1, where TextEdit had last been used. The bridge
-correctly reported creating window 32009; it never appeared in the
-active-Desktop inventory, and the reason was placement, not visibility. Ruled
-out already: there is no Dock `Assign To` binding pinning that application to a
-Desktop (`defaults read com.apple.dock` carries no space binding).
+**WHAT IS ESTABLISHED, AND WHAT IS NOT.** Established: a new window does not
+always land on the active Desktop. Safari's Desktop was showing; the bridge
+reported creating window 32009 for TextEdit and it never appeared in the
+active-Desktop inventory, and the owner confirmed where it went. Also ruled out:
+there is no Dock `Assign To` binding pinning that application to a Desktop.
+
+**NOT established, and an earlier version of this section overclaimed it.** That
+version said TextEdit had *zero* windows at the time, and inferred that macOS
+remembers an application's last-used Space. The evidence does not support it --
+the same run read `count of documents` as 0 and then found FOUR windows after a
+single reopen, so the zero reading was not reliable -- and a later run on
+2026-09-09 placed a fresh TextEdit window on the ACTIVE Desktop. **The mechanism
+is unknown.** It is written down as unknown because the fix does not depend on
+it: whatever decides placement, VESPER must read back where the window landed.
 
 **WHY IT MATTERS MORE THAN THE BUG IT LOOKS LIKE.** `window_open`'s guard exists
 to stop VESPER putting a window into the owner's workspace uninvited, and it
@@ -2188,12 +2195,10 @@ correctly, because the objection behind that default ("closing cannot be undone"
 applies to the OWNER's windows and not to one VESPER created seconds ago with
 nothing in it.
 
-**THE RISK IN IT, WHICH MUST BE MEASURED BEFORE IT IS BUILT.** TextEdit had zero
-windows and its new window still went to Desktop 1, so "the app has no windows
-here" is not what decides placement -- macOS appears to remember the
-application's last-used Space. If that is what is happening, close-and-reopen
-returns the window to Desktop 1 and VESPER loops: open, wrong Desktop, close,
-reopen, wrong Desktop. **The ladder therefore needs a stop: attempt the rebuild
+**THE RISK IN IT, WHICH MUST BE MEASURED BEFORE IT IS BUILT.** If placement is
+sticky -- if the system returns the window to the same wrong Desktop -- then
+close-and-reopen loops: open, wrong Desktop, close, reopen, wrong Desktop. Since
+the mechanism is unknown, the loop cannot be ruled out by reasoning. **The ladder therefore needs a stop: attempt the rebuild
 ONCE, and if the window lands wrong again, flag it and stop.** The decisive
 experiment is opening an application with no windows while VESPER's ground holds
 the active Desktop, and it is owed.

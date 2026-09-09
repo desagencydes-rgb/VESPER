@@ -330,6 +330,25 @@ final class HomeChrome {
         return String(data: out, encoding: .utf8) ?? "[]"
     }
 
+    /// Every flag VESPER is currently raising, as the runtime published them.
+    ///
+    /// ONE DESTINATION FOR ALL OF THEM, per the owner 2026-09-09. Flags already
+    /// existed and had nowhere to go: the relocation ladder returns
+    /// `degraded: true` with a `notes` list that nothing renders, and
+    /// `window_open` now reports a window the system placed on a Desktop VESPER
+    /// cannot reach. Each of those would otherwise invent its own surface, and
+    /// a flag nobody has a habit of looking at is a flag that does not exist.
+    static func flagsJSON() -> String {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/VESPER/home.json")
+        guard let d = try? Data(contentsOf: url),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let f = o["flags"],
+              let out = try? JSONSerialization.data(withJSONObject: f)
+        else { return "[]" }
+        return String(data: out, encoding: .utf8) ?? "[]"
+    }
+
     static func faceBehaviour() -> String {
         let url = FileManager.default
             .homeDirectoryForCurrentUser
@@ -779,6 +798,27 @@ final class HomeChrome {
           /* Dock tier: blur 42, saturate 200%, fill .085, radius 34. The bar
              sits at the Dock's own position, bottom-centre, because §10 says
              VESPER's main menu TAKES that position rather than sharing it. */
+          /* THE FLAG BAR. One destination for every flag VESPER raises, sitting
+             directly above the main menu. Small in both dimensions on purpose: it is
+             an indicator, not a panel, and it is HIDDEN ENTIRELY when there is nothing
+             to say -- a permanent empty strip trains the eye to skip the place a flag
+             will appear. */
+          .flagbar{position:absolute;left:0;right:0;bottom:92px;display:flex;
+                   justify-content:center;pointer-events:none;z-index:3}
+          .flagbar .flags{display:flex;align-items:center;gap:6px;padding:5px 9px;
+                   border-radius:12px;pointer-events:auto;
+                   background:rgba(22,19,17,.62);border:1px solid rgba(255,255,255,.08);
+                   backdrop-filter:blur(14px) saturate(1.1)}
+          .flagbar button{width:16px;height:16px;padding:0;border:0;border-radius:5px;
+                   background:rgba(185,102,69,.9);cursor:pointer;flex:0 0 auto}
+          .flagbar button:hover,.flagbar button:focus-visible{background:rgba(206,120,84,1)}
+          .flag-tip{position:absolute;bottom:calc(100% + 8px);left:50%;
+                   transform:translateX(-50%);max-width:min(46ch,80vw);
+                   padding:8px 11px;border-radius:10px;font-size:12px;line-height:1.45;
+                   background:rgba(28,24,22,.96);color:rgba(244,240,236,.94);
+                   border:1px solid rgba(255,255,255,.10);pointer-events:none;
+                   white-space:normal;text-align:left}
+          .flag-tip[hidden]{display:none!important}
           .dockrow{position:absolute;left:0;right:0;bottom:10px;
                    display:flex;justify-content:center;align-items:flex-end;
                    gap:14px;
@@ -1248,6 +1288,13 @@ final class HomeChrome {
           <div class="stage"><div class="say" id="stage"></div></div>
         </div>
 
+        <!-- THE FLAG BAR sits above the menu and is deliberately OUTSIDE the codex
+             markers below, so the two can be edited without colliding. -->
+        <div class="flagbar" id="flagbar" hidden>
+          <div class="flags" id="flags" role="group" aria-label="Flags vesper is raising">
+            <div class="flag-tip" id="flag-tip" role="tooltip" hidden></div>
+          </div>
+        </div>
         <!-- ==== MENU: codex owns everything between these markers ==== -->
         <div class="dockrow">
           <div class="bar" role="group" aria-label="Main menu — seventeen approved destinations">
@@ -2215,6 +2262,45 @@ final class HomeChrome {
               for (var g = 0; g < gb.length; g++) gb[g].disabled = !anyGit;
             }
 
+            // EVERY FLAG, IN ONE PLACE. The owner's design, 2026-09-09: a small bar
+            // above the main menu, buttons revealing the flag on hover.
+            //
+            // NEVER innerHTML -- a flag carries a window title, an application name and
+            // a system error string, all of them content VESPER did not write.
+            // NO STAMP, NO ROW: a flag with no text is not rendered as an empty button,
+            // because a control that reveals nothing on hover is indistinguishable from
+            // one that is broken.
+            window.__vesperFlags = function (json) {
+              var bar = document.getElementById('flagbar');
+              var host = document.getElementById('flags');
+              var tip = document.getElementById('flag-tip');
+              if (!bar || !host || !tip) return;
+              var list;
+              try { list = JSON.parse(json); } catch (e) { return; }
+              if (!Array.isArray(list)) list = [];
+              var rows = list.filter(function (f) {
+                return f && typeof f.text === 'string' && f.text.length > 0;
+              });
+              var sig = JSON.stringify(rows.map(function (f) { return [f.id, f.text]; }));
+              if (sig === window.__vesperFlagSig) return;
+              window.__vesperFlagSig = sig;
+              while (host.firstChild && host.firstChild !== tip) host.removeChild(host.firstChild);
+              if (!rows.length) { bar.hidden = true; tip.hidden = true; return; }
+              bar.hidden = false;
+              rows.forEach(function (f) {
+                var b = document.createElement('button');
+                b.type = 'button';
+                b.setAttribute('aria-label', f.text);
+                var show = function () { tip.textContent = f.text; tip.hidden = false; };
+                var hide = function () { tip.hidden = true; };
+                b.addEventListener('pointerenter', show);
+                b.addEventListener('focus', show);
+                b.addEventListener('pointerleave', hide);
+                b.addEventListener('blur', hide);
+                host.insertBefore(b, tip);
+              });
+            };
+
             window.__vesperChanges = function (json) {
               var payload;
               try { payload = JSON.parse(json); } catch (e) { return; }
@@ -2900,6 +2986,10 @@ final class HomeChrome {
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "`", with: "\\`")
                 .replacingOccurrences(of: "$", with: "\\$")
+            let flagSafe = Self.flagsJSON()
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "`", with: "\\`")
+                .replacingOccurrences(of: "$", with: "\\$")
             let histSafe = Self.historyJSON()
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "`", with: "\\`")
@@ -2934,6 +3024,7 @@ final class HomeChrome {
               step('work',    function(){ if (window.__vesperWork) window.__vesperWork(`\(workSafe)`); });
               step('changes', function(){ if (window.__vesperChanges) window.__vesperChanges(`\(chgSafe)`); });
               step('metrics', function(){ if (window.__vesperMetrics) window.__vesperMetrics(`\(metSafe)`); });
+              step('flags',   function(){ if (window.__vesperFlags) window.__vesperFlags(`\(flagSafe)`); });
             })();
             """
             // REPORT WHAT THE PUSH DID. `completionHandler: nil` swallowed

@@ -294,6 +294,46 @@ class Executor:
                        idempotency_key=key, checkpoint=checkpoint_id)
         self._bus.publish("tool.completed", subject=task_id or subject,
                           payload=ex.to_dict(), component="executor")
+        # A FLAG IS PART OF A RESULT AND MUST REACH A SURFACE.
+        #
+        # Published HERE because this is the one place every capability's
+        # result passes through, and because `Execution.to_dict()` deliberately
+        # does not carry the result -- so a subscriber to `tool.completed`
+        # cannot see a flag at all. Without this the flags already being
+        # produced go nowhere: `window.relocate` returns `degraded: true` with
+        # its `notes`, and `window.open` reports a window the system placed on a
+        # Desktop VESPER cannot reach, and both were read by nothing.
+        #
+        # A DEGRADED RESULT WITH NO TEXT IS STILL A FLAG. `degraded` without a
+        # `flag` string means something was raised and never given words, which
+        # is worth surfacing as itself rather than dropping silently.
+        if isinstance(result, dict) and (result.get("flag") or result.get("degraded")):
+            text = str(result.get("flag") or "").strip()
+            if not text:
+                notes = result.get("notes")
+                if isinstance(notes, list) and notes:
+                    text = "; ".join(str(n) for n in notes)[:400]
+            if not text:
+                text = (f"{capability_id} completed in a degraded way and said "
+                        "nothing about how")
+            # THE ID NAMES THE CONDITION, NOT THE EXECUTION.
+            #
+            # This keyed on the idempotency key, which carries a per-execution
+            # uuid -- so every retry of the same failure produced a NEW flag and
+            # the dedupe in `HomeState.raise_flag` could never fire. Driven
+            # 2026-09-09: asking twice for the same impossible relocation put
+            # two identical flags in the bar, which is exactly the "a repeating
+            # failure fills the bar it is trying to be visible in" case the
+            # dedupe was written for. A capability may name its own condition;
+            # otherwise it is the capability plus what it was acting on.
+            flag_id = str(result.get("flag_id") or "").strip() or ":".join(
+                str(x) for x in (capability_id, result.get("rung") or "",
+                                 args.get("window_id") or target) if x)
+            self._bus.publish("flag.raised", subject=task_id or subject,
+                              payload={"id": flag_id[:160],
+                                       "capability_id": capability_id,
+                                       "text": text[:400]},
+                              component="executor")
         return ex
 
     def _handle_failure(self, eid: str, cap, subject: str, args: dict,

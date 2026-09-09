@@ -290,6 +290,21 @@ enum WindowBridge {
     /// "save changes?" sheet. Killing the process would take the decision away
     /// from the one party entitled to make it, and `host_actions.toml` already
     /// keeps `terminate_process` disabled for that reason.
+    /// Can VESPER dismiss this window if it decides to?
+    ///
+    /// Asked BEFORE claiming a window, because claiming one that cannot be
+    /// closed leaves the owner to tidy up after VESPER -- and the whole basis
+    /// for VESPER managing a window it opened is that it can also put it away.
+    /// A false answer here costs one refusal; a false claim costs the owner a
+    /// window they did not ask for and cannot attribute.
+    static func dismissable(pid: Int, windowId: String) -> Bool {
+        guard accessible(), let el = element(forPID: pid, windowId: windowId)
+        else { return false }
+        var btn: CFTypeRef?
+        return AXUIElementCopyAttributeValue(el, kAXCloseButtonAttribute as CFString,
+                                             &btn) == .success && btn != nil
+    }
+
     static func close(pid: Int, windowId: String) -> [String: Any] {
         guard accessible() else {
             return ["ok": false, "reason": "accessibility is not granted to VESPER"]
@@ -298,12 +313,26 @@ enum WindowBridge {
             return ["ok": false, "reason": "no unique accessibility handle for that "
                   + "window. " + lastMatchReport]
         }
+        // NOT EVERY WINDOW HAS A CLOSE BUTTON, and one VESPER opened itself may
+        // well not. Driven 2026-09-09: `window.open("TextEdit")` on an
+        // application with no documents produced TextEdit's **Open dialog** --
+        // a real window, correctly attributed, titled "Open", 880x448, with no
+        // close button. VESPER had opened it, could not close it, and reported
+        // "this window has no close button to press" as a dead end.
+        //
+        // So the second rung is what a person does to a dialog: cancel it.
+        // `kAXCancelAction` is the accessibility interface's own name for the
+        // Escape key, which is structure rather than a keystroke aimed at
+        // whatever happens to be focused.
         var btn: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(el, kAXCloseButtonAttribute as CFString,
-                                            &btn) == .success else {
-            return ["ok": false, "reason": "this window has no close button to press"]
+        if AXUIElementCopyAttributeValue(el, kAXCloseButtonAttribute as CFString,
+                                         &btn) == .success, let b = btn {
+            AXUIElementPerformAction(b as! AXUIElement, kAXPressAction as CFString)
+        } else if AXUIElementPerformAction(el, kAXCancelAction as CFString) != .success {
+            return ["ok": false, "reason": "this window has neither a close button "
+                  + "nor a cancel action, so there is no way to dismiss it that "
+                  + "does not involve typing at whatever is focused"]
         }
-        AXUIElementPerformAction(btn as! AXUIElement, kAXPressAction as CFString)
         // RE-READ, because a modal "save changes?" sheet means the window is
         // still there and the honest answer is that it did not close.
         let gone = !SpaceWatch.onScreen().contains { String($0.number) == windowId }
@@ -414,14 +443,35 @@ enum WindowBridge {
             return ["ok": false, "reason": "the application did not report a "
                   + "process, so no window could be attributed to it"]
         }
+        // AND IT MUST BE A WINDOW, NOT A DIALOG THE APPLICATION THREW UP.
+        //
+        // Driven 2026-09-09: `window.open("TextEdit")` against an application
+        // with no documents produced TextEdit's **Open panel** -- correctly
+        // attributed, genuinely new, and useless. It exposes no buttons and no
+        // action but `AXRaise`, so VESPER opened a window it could not close,
+        // move or resize, and stamped it as its own. A window VESPER cannot
+        // dismiss is not one it should claim: the request was for something to
+        // put on the Desktop, and a modal asking the owner a question is not
+        // that. The close button is the discriminator because it is exactly the
+        // capability that was missing.
+        var sawUndismissable = false
         for _ in 0..<20 {
             usleep(150_000)
-            if let fresh = SpaceWatch.onScreen().first(where: {
+            let cands = SpaceWatch.onScreen().filter {
                 $0.pid == Int(launchedPid) && $0.number > frontier && $0.layer == 0
-            }) {
-                return ["ok": true, "window_id": String(fresh.number), "pid": fresh.pid]
+            }
+            for c in cands {
+                if dismissable(pid: c.pid, windowId: String(c.number)) {
+                    return ["ok": true, "window_id": String(c.number), "pid": c.pid]
+                }
+                sawUndismissable = true
             }
         }
+        // A DIALOG IS NOT A DEAD END, IT IS A REASON TO TRY THE NEXT RUNG.
+        // Returning here skipped `pressNew` entirely, so an application that
+        // greets a launch with its Open panel could never be asked for a real
+        // document window -- and the Open panel is exactly what TextEdit does.
+        // The refusal below is reached only when the menu rung fails too.
         // ACTIVATING AN APP THAT IS ALREADY RUNNING OPENS NOTHING, which is
         // correct behaviour and useless on its own. So the second rung is the
         // route a PERSON would take: the File menu's New item, pressed through
@@ -430,6 +480,12 @@ enum WindowBridge {
         // anything VESPER does on their behalf.
         if let fresh = pressNew(pid: Int(launchedPid), since: frontier) {
             return fresh
+        }
+        if sawUndismissable {
+            return ["ok": false, "reason": "the application put up a dialog rather "
+                  + "than opening a window, and its File > New produced nothing "
+                  + "either -- it is asking the owner something, and vesper will "
+                  + "not claim a window it cannot close"]
         }
         return ["ok": false, "reason": "the application was activated and would not "
               + "open a new window -- neither launching it nor its File > New "
@@ -492,6 +548,14 @@ enum WindowBridge {
                     // THE SAME TWO CONDITIONS. This rung already held the pid
                     // and did not consult it, so pressing New in one application
                     // could return a window that belonged to another.
+                    // NO `dismissable` TEST ON THIS RUNG. What File > New
+                    // produces IS a document window by construction, and adding
+                    // the check here broke the rung that worked: the AX close
+                    // button is not readable the instant the window appears in
+                    // the window list, so the filter rejected a perfectly good
+                    // window and the whole call reported that the application
+                    // would not open one. The dialog problem belongs to the
+                    // LAUNCH path, which is where the test stays.
                     if let f = SpaceWatch.onScreen().first(where: {
                         $0.pid == pid && $0.number > frontier && $0.layer == 0
                     }) {

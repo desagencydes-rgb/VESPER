@@ -84,6 +84,7 @@ class HomeState:
         self._since = time.time()
         self._reason = "no activity yet"
         self._workbench: dict = {}
+        self._flags: list = []
         self._changes: dict = {}
         self._transcript: list = []
         self._rows: list = []
@@ -231,6 +232,33 @@ class HomeState:
             self._changes = dict(state or {})
         self.write()
 
+    def raise_flag(self, flag_id: str, text: str) -> None:
+        """Record a flag for the bar above the main menu.
+
+        NEWEST LAST, DEDUPED BY ID, AND BOUNDED. The same flag raised twice --
+        a rebuild that fails on every attempt, say -- is one condition, not a
+        row per attempt, so it replaces its earlier self and keeps its place at
+        the end. The cap is what stops a repeating failure from filling the bar
+        it is trying to be visible in.
+        """
+        text = str(text or "").strip()
+        if not text:
+            return                    # a flag with no words reveals nothing
+        with self._lock:
+            self._flags = [f for f in self._flags if f.get("id") != flag_id]
+            self._flags.append({"id": str(flag_id), "text": text[:400]})
+            del self._flags[:-8]
+        self.write()
+
+    def clear_flag(self, flag_id: str) -> None:
+        """Drop one flag, for when the condition it names is resolved."""
+        with self._lock:
+            before = len(self._flags)
+            self._flags = [f for f in self._flags if f.get("id") != flag_id]
+            changed = len(self._flags) != before
+        if changed:
+            self.write()
+
     def set_rows(self, rows: list) -> None:
         """The metrics card's rows. Owned by whoever measured them."""
         with self._lock:
@@ -267,6 +295,11 @@ class HomeState:
             existing["changes"] = self._changes
             if self._rows:
                 existing["rows"] = self._rows
+            # WRITTEN UNCONDITIONALLY, like the workbench and changes above. A
+            # bar that keeps its last flags after they are cleared reports a
+            # problem that is over, which is the same defect as a face stuck on
+            # `thinking` -- and worse here, because a flag is a call to act.
+            existing["flags"] = self._flags
             self._path.parent.mkdir(parents=True, exist_ok=True)
             # A UNIQUE TEMP PER WRITE, NOT A FIXED NAME.
             #

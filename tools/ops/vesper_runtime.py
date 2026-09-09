@@ -609,6 +609,21 @@ def build(node: str = "vesper-runtime"):
     router = Router(bus, measured_profiles(rows, purpose="text"))
 
     home = HomeState(bus=bus, clock=clock)
+
+    # EVERY FLAG REACHES THE BAR. The executor publishes `flag.raised` from the
+    # one point every capability's result passes through; without this
+    # subscription those events are produced and consumed by nothing, which is
+    # the built-and-unreached shape this tree keeps finding.
+    def _on_flag(e) -> None:
+        pay = e.payload or {}
+        home.raise_flag(str(pay.get("id") or "flag"), str(pay.get("text") or ""))
+
+    # `event_id` IS THE KEY, and INV-COORD-5 asks for it to be said. A flag is
+    # raised by one execution; a redelivery of that event re-raises the same
+    # condition with the same id, which `raise_flag` collapses rather than
+    # duplicating -- so the subscription is idempotent in the way that matters.
+    bus.subscribe("flag.raised", _on_flag, name="home-flags",
+                  idempotency_key=lambda e: e.event_id)
     home.attach(bus)
 
     triage = TriageQueue(path=STATE / "triage.json", bus=bus, clock=clock)

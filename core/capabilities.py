@@ -888,12 +888,14 @@ def window_open(args: dict) -> dict:
     # VESPER DOES NOT CREATE WINDOWS ON A DESKTOP IT DOES NOT OWN.
     #
     # A new window appears WHERE THE SYSTEM DECIDES, and this guard used to say
-    # "on whichever Desktop is showing". That is false, measured 2026-09-09:
-    # TextEdit with zero windows open, launched while another Desktop was
-    # active, put its window on Desktop 1 where it had last been used. The guard
-    # is kept because it removes the common case and costs nothing, but it does
-    # NOT guarantee placement -- only the readback after opening does, and this
-    # function now performs one. If that is the owner's Desktop, VESPER has just
+    # "on whichever Desktop is showing". That is false: on 2026-09-09 a window
+    # this function created never appeared on the active Desktop, and the owner
+    # found it on another one. What decides placement is NOT established -- a
+    # later run put a fresh window on the active Desktop -- and the fix does not
+    # depend on knowing. The guard is kept because it removes the common case
+    # and costs nothing, but it does NOT guarantee placement; only the readback
+    # after opening does, and this function now performs one. If it lands on the
+    # owner's Desktop, VESPER has just
     # put something into their workspace uninvited --
     # and then, because the ownership rule's clause 1 does not apply there, it
     # cannot tidy it away again either. The owner's whole framing is that their
@@ -1023,10 +1025,10 @@ def window_relocate(args: dict) -> dict:
     recovers what was in it.
 
     And it cannot choose the Desktop a rebuilt window lands on. This said "a new
-    window opens on the CURRENT Space"; measured 2026-09-09, that is false --
-    macOS placed a new window on the Desktop where its application had last been
-    used, not the active one, even with that application holding no windows at
-    all. So requiring VESPER's Desktop to be showing is necessary and NOT
+    window opens on the CURRENT Space"; observed 2026-09-09, that is false -- a
+    window created here never appeared on the active Desktop. What DOES decide
+    placement is not established, so nothing may be inferred from it either way.
+    So requiring VESPER's Desktop to be showing is necessary and NOT
     sufficient, the rebuild must READ BACK where the replacement landed, and it
     must attempt once and then flag rather than retry: if placement is sticky, a
     retry loop reopens onto the wrong Desktop forever.
@@ -1087,6 +1089,10 @@ def window_relocate(args: dict) -> dict:
                      "-- a new window opens on the current Space, and switching "
                      "Space is the same capability that just failed")
         return {"ok": False, "rung": "cannot_degrade", "notes": notes,
+                "degraded": True,
+                "flag": "vesper could not move a window to another desktop: the "
+                        "system refuses the move for windows it does not own, "
+                        "and the rebuild needs vesper's desktop to be showing.",
                 "reason": "cross-Desktop relocation is unavailable and the "
                           "rebuild fallback cannot reach VESPER's Desktop from here"}
 
@@ -1096,6 +1102,10 @@ def window_relocate(args: dict) -> dict:
         notes.append(f"the rebuild was refused: unsaved work is "
                      f"{ident.get('edited')!r}")
         return {"ok": False, "rung": "refused_unsaved", "notes": notes,
+                "degraded": True,
+                "flag": "vesper stopped short of rebuilding a window because it "
+                        "holds unsaved work, or the application would not say. "
+                        "nothing recovers what is inside a window it closes.",
                 "reason": "this window has unsaved work, or the application "
                           "would not say -- rebuilding it means closing it, and "
                           "nothing recovers what was inside"}
@@ -1105,6 +1115,9 @@ def window_relocate(args: dict) -> dict:
     if not closed.get("ok"):
         notes.append(f"the window would not close: {str(closed.get('reason'))[:120]}")
         return {"ok": False, "rung": "rebuild_failed", "notes": notes,
+                "degraded": True,
+                "flag": "vesper could not close a window it was rebuilding, so "
+                        "the window is where it was and the move did not happen.",
                 "reason": "the rebuild could not close the original window"}
 
     fresh = _window_bridge("--window-act", "reopen", "--window-id", wid,
@@ -1113,6 +1126,10 @@ def window_relocate(args: dict) -> dict:
     if not fresh.get("ok"):
         notes.append(f"the application did not reopen: {str(fresh.get('reason'))[:140]}")
         return {"ok": False, "rung": "rebuild_failed", "notes": notes,
+                "degraded": True,
+                "flag": "vesper closed a window to rebuild it and the "
+                        "application opened no replacement. the window is gone "
+                        "and nothing took its place.",
                 "reason": "the original window was closed and the application "
                           "opened no replacement -- say so plainly rather than "
                           "leaving the owner to notice"}
