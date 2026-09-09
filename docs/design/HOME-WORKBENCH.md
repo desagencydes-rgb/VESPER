@@ -2415,6 +2415,8 @@ run before it.
 
 ## 11.10 THE SESSION RECORD — 2026-09-09
 
+**Gates at the close of that session: 154/154 checks and 754/754 self-test cases, both executed to completion on the committed tree.**
+
 **`docs/planning/HANDOFF-2026-09-09-WINDOWS-MODES.md` is the full account** of
 the session that built §11.1c, §11.8, §11.9, §11.2 and §11.2a: nine checks with
 their red runs, eleven measurements not to re-derive, four platform limits,

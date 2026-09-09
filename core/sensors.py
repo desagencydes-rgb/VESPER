@@ -237,8 +237,7 @@ class SensorRegistry:
             # Whether that read as "always expired" or "never expired" depended
             # on what clock the world model happened to be given, and both look
             # identical from outside.
-            deadline = (self._world.now_ms() + s.ttl_ms
-                        if s.ttl_ms is not None else None)
+            deadline = s.ttl_ms
             obs = Observation(subject=s.subject, attribute=s.attribute,
                               value=value, observed_at_hlc=self._clock.now(),
                               source=f"sensor:{s.name}",
