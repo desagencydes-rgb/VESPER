@@ -21729,6 +21729,103 @@ def _swift_body(src: str, opener: str) -> str:
     return ""
 
 
+def check_a_refusal_is_never_reported_as_done() -> Result:
+    """What VESPER says happened must match what happened.
+
+    THE OWNER, 2026-09-09, after asking for four window actions in a row:
+    "vesper also opened apple music window as asked but cannot resize it, move
+    it anywhere inside its desktop, and cannot move it to another desktop". Every
+    one of those had been answered **"done"**.
+
+    `_describe` ended in a bare `return "done"` for any capability it did not
+    name, which is every window capability, and it never looked at `ok`. So a
+    result of `{"ok": false, "reason": ...}` -- with the reason already written,
+    already in the record -- was reported to the owner as success.
+
+    THAT IS THE WORST ANSWER AVAILABLE, worse than an error, because it ends the
+    exchange. The owner has no reason to look, and a system that claims success
+    for work it did not do cannot be trusted about the work it did. It is the
+    launcher-returning-zero failure at the last inch, in the one place the owner
+    actually reads.
+
+    THE CHECK IS DELIBERATELY BROAD: every capability, not just windows. The
+    fall-through is what failed, so the property is asserted at the
+    fall-through.
+    """
+    r = Result("a-refusal-is-never-reported-as-done")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.actor import _describe
+        from core import capabilities as C
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"core.actor does not import: {exc!r}")
+        return r
+
+    class _P:
+        def __init__(self, cid):
+            self.capability_id = cid
+            self.why = "do the thing"
+
+    SUCCESS_WORDS = ("done", "written", "opened it", "closed it")
+
+    # 1. NO CAPABILITY MAY REPORT SUCCESS FOR ok=False.
+    for cid in ("window.move", "window.resize", "window.close", "window.open",
+                "window.relocate", "window.list", "ui.open", "agent.run"):
+        said = str(_describe(_P(cid), {"ok": False, "reason": "the reason"}))
+        low = said.strip().lower()
+        if low.startswith(SUCCESS_WORDS) or low in ("done", "done."):
+            r.err(f"{cid} reports {said!r} for a result that says ok=false. The "
+                  "owner is told the thing happened; it did not, and the reason "
+                  "was already written")
+        if "the reason" not in said:
+            r.err(f"{cid} drops the reason on a refusal, saying {said!r}. A "
+                  "failure the owner cannot see is one they cannot act on")
+
+    # 2. AN OWNERSHIP REFUSAL IS NOT A FAILURE, and reads differently.
+    said = _describe(_P("window.move"),
+                     {"ok": False, "refused_by": "ownership",
+                      "reason": "that window is the owner's"})
+    if "did not" not in said.lower():
+        r.err(f"an ownership refusal reads {said!r}; it should say vesper chose "
+              "not to, which is a different thing from failing")
+
+    # 3. A DEGRADED SUCCESS SAYS SO.
+    said = _describe(_P("window.relocate"),
+                     {"ok": True, "degraded": True, "flag": "it went sideways"})
+    if "done" == said.strip().lower() or "it went sideways" not in said:
+        r.err(f"a degraded result reads {said!r}; a caller reading only `ok` "
+              "would report a rebuild as an ordinary move, which is what the "
+              "relocation ladder's `degraded` flag exists to prevent")
+
+    # 4. AND A REAL SUCCESS STILL READS AS ONE, or the check is satisfied by
+    #    a function that refuses to say anything good ever happened.
+    said = _describe(_P("window.move"),
+                     {"ok": True, "after": {"x": 1, "y": 2, "width": 3, "height": 4}})
+    if "done" not in said.lower():
+        r.err(f"a successful move reads {said!r}, which does not report success. "
+              "A check that only forbids false positives is satisfied by a "
+              "function that never reports anything")
+
+    # 5. THE UNREACHABLE CASE IS NAMED, not left to a cryptic accessibility dump.
+    src = (REPO / "core" / "capabilities.py").read_text(encoding="utf-8")
+    import ast as _a7
+    act = next((n for n in _a7.walk(_a7.parse(src))
+                if isinstance(n, _a7.FunctionDef) and n.name == "_act"), None)
+    seg = _a7.get_source_segment(src, act) if act else ""
+    if "on_active_desktop" not in (seg or ""):
+        r.err("_act does not check whether the window is on the desktop that is "
+              "showing. macOS answers accessibility only for that desktop, so "
+              "every other window fails with an empty tree -- and the owner is "
+              "owed the sentence rather than the symptom")
+
+    r.note("no capability reports success for ok=false and none drops the "
+           "reason; an ownership refusal reads as a choice; a degraded result "
+           "says so; a real success still reads as one; and an unreachable "
+           "window is named rather than dumped")
+    return r
+
+
 def check_the_shipped_runtime_can_reach_what_it_needs() -> Result:
     """What the owner says must reach the capabilities, from the SHIPPED copy.
 
@@ -22792,6 +22889,7 @@ CHECK_FNS = {
     "a-restored-stamp-is-corroborated": check_a_restored_stamp_is_corroborated,
     "the-window-log-records-and-never-reopens": check_the_window_log_records_and_never_reopens,
     "the-shipped-runtime-can-reach-what-it-needs": check_the_shipped_runtime_can_reach_what_it_needs,
+    "a-refusal-is-never-reported-as-done": check_a_refusal_is_never_reported_as_done,
 }
 
 

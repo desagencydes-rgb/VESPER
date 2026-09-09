@@ -163,20 +163,63 @@ enum WindowBridge {
     private static func element(forPID pid: Int, windowId: String) -> AXUIElement? {
         let app = AXUIElementCreateApplication(pid_t(pid))
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString,
-                                            &value) == .success,
-              let windows = value as? [AXUIElement] else { return nil }
+        // EVERY EXIT SETS THE REPORT, or the failure describes a DIFFERENT CALL.
+        //
+        // These two early returns left `lastMatchReport` holding whatever the
+        // previous attempt wrote, so a message about Safari carried `ax=[]`
+        // from an earlier window entirely -- and I spent an hour concluding
+        // Safari exposed nothing to accessibility on the strength of a
+        // stale sentence. An instrument that reports the last thing it saw
+        // rather than the thing being asked about is worse than no instrument.
+        // THE FIRST ANSWER IS NOT ALWAYS THE ANSWER.
+        //
+        // MEASURED 2026-09-09: Safari answers this query with an EMPTY list the
+        // first time and with its real windows a moment later, so a single
+        // attempt concluded that Safari exposes nothing to accessibility -- and
+        // the owner was told vesper could not touch a window that was sitting
+        // right there. The same shape as every other too-early read found
+        // today: ask once, believe the first thing the system says, be wrong.
+        var err = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString,
+                                                &value)
+        for _ in 0..<10 {
+            if err == .success, let ws = value as? [AXUIElement], !ws.isEmpty { break }
+            usleep(80_000)
+            err = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString,
+                                               &value)
+        }
+        guard err == .success else {
+            lastMatchReport = "the accessibility query for pid \(pid) failed "
+                            + "with AXError \(err.rawValue)"
+            return nil
+        }
+        guard let windows = value as? [AXUIElement] else {
+            lastMatchReport = "pid \(pid) answered the accessibility query with "
+                            + "something that is not a window list"
+            return nil
+        }
         // THE ACCESSIBILITY TREE DOES NOT CARRY THE CGWindow NUMBER, so the
         // window is identified by matching geometry against the inventory that
         // was just read. That is a real weakness and it is named rather than
         // hidden: two windows of one process at identical size and position are
         // indistinguishable here, and the match is refused rather than guessed.
-        // ACROSS EVERY DESKTOP. This read `onScreen()`, so a window on any
-        // other Desktop had no accessibility handle at all and could not be
-        // moved, resized or closed -- which is why the rebuild rung was
-        // unimplementable and why vesper could open a window and then be unable
-        // to tidy it away.
-        guard let target = SpaceWatch.allWindows().first(where: {
+        // THE ACTIVE DESKTOP, AND DELIBERATELY SO.
+        //
+        // This was widened to `allWindows()` to let vesper act on a window
+        // anywhere. It cannot: MEASURED 2026-09-09, the accessibility tree
+        // answers only for the Desktop that is showing, so the wider search
+        // bought nothing and cost precision. `allWindows()` passes no options
+        // to `CGWindowListCopyWindowInfo`, which returns stale and non-window
+        // surfaces as well as live ones -- Safari reported THREE windows while
+        // that list showed SIX, two of them phantoms sharing exact geometry
+        // with a real one. Since this function identifies its target by
+        // geometry, those phantoms made real windows ambiguous, and the match
+        // is refused rather than guessed. So the owner's window became
+        // untouchable because of windows that no longer existed.
+        //
+        // `_act` already refuses anything not on the active Desktop, so this
+        // narrower list is the same set it is allowed to act on -- and it is
+        // the authoritative one.
+        guard let target = SpaceWatch.onScreen().first(where: {
             String($0.number) == windowId && $0.pid == pid }) else { return nil }
         var matches: [AXUIElement] = []
         for w in windows {
@@ -193,10 +236,46 @@ enum WindowBridge {
                 matches.append(w)
             }
         }
+        // TWO WINDOWS THAT LOOK ALIKE ARE THE NORMAL CASE, NOT AN EDGE ONE.
+        //
+        // Two default-sized windows of one application have identical geometry,
+        // and matching on geometry alone then refuses both -- so the owner's
+        // second Safari window was untouchable simply for being the second.
+        // Reported 2026-09-09 as "cannot resize it, move it anywhere inside its
+        // desktop".
+        //
+        // DISAMBIGUATED BY ORDER, AND ONLY AMONG TRUE TWINS. Both lists are
+        // front-to-back for a given process: `CGWindowListCopyWindowInfo` with
+        // `.optionOnScreenOnly` returns front-to-back, and `kAXWindows` does
+        // too. So the Nth window of this pid at this exact geometry in one list
+        // is the Nth in the other. That correspondence is ASSUMED nowhere else
+        // and is measured by `--ax-order-check`; if a macOS release breaks it,
+        // that control goes red rather than vesper silently moving the wrong
+        // window.
+        //
+        // NO TITLES ARE READ. `window_list` puts titles at L5 because a title
+        // is content, and using one to pick between windows would be reading it
+        // by another name.
+        var chosen: AXUIElement? = matches.count == 1 ? matches[0] : nil
+        if matches.count > 1 {
+            let twins = SpaceWatch.onScreen().filter {
+                $0.pid == pid
+                && abs($0.bounds.origin.x - target.bounds.origin.x) < 2
+                && abs($0.bounds.origin.y - target.bounds.origin.y) < 2
+                && abs($0.bounds.width - target.bounds.width) < 2
+                && abs($0.bounds.height - target.bounds.height) < 2
+            }
+            if let idx = twins.firstIndex(where: { String($0.number) == windowId }),
+               idx < matches.count, twins.count == matches.count {
+                chosen = matches[idx]
+            }
+        }
         lastMatchReport = "cg=(\(Int(target.bounds.origin.x)),\(Int(target.bounds.origin.y)) "
             + "\(Int(target.bounds.width))x\(Int(target.bounds.height))) ax=["
             + axGeometries(windows).joined(separator: " ") + "] matched=\(matches.count)"
-        return matches.count == 1 ? matches[0] : nil
+            + (matches.count > 1 ? (chosen != nil ? " disambiguated-by-order"
+                                                  : " order did not line up") : "")
+        return chosen
     }
 
     /// What the accessibility tree says, so a failed match can be diagnosed
@@ -234,10 +313,7 @@ enum WindowBridge {
                   + "`open -n app/VESPER.app --args --accessibility-consent`."]
         }
         guard let el = element(forPID: pid, windowId: windowId) else {
-            return ["ok": false, "reason": "no unique accessibility handle for window "
-                  + "\(windowId) of pid \(pid) -- it is gone, on another Desktop, "
-                  + "or indistinguishable from a sibling at the same geometry. "
-                  + lastMatchReport]
+            return ["ok": false, "reason": noHandleReason(pid: pid, windowId: windowId)]
         }
         let before = SpaceWatch.onScreen().first { String($0.number) == windowId }
         var codes: [String] = []
@@ -323,6 +399,36 @@ enum WindowBridge {
     /// for VESPER managing a window it opened is that it can also put it away.
     /// A false answer here costs one refusal; a false claim costs the owner a
     /// window they did not ask for and cannot attribute.
+    /// Why a window has no accessibility handle -- and the two reasons differ.
+    ///
+    /// AN EMPTY TREE IS NOT AN AMBIGUOUS MATCH. Measured 2026-09-09: Safari and
+    /// Music expose NO accessibility windows to vesper at all, while TextEdit,
+    /// Calculator and Notes expose theirs normally. Both are Apple's, both were
+    /// already running, and the difference is that the two silent ones are
+    /// delivered in a CRYPTEX (`/System/Volumes/Preboot/Cryptexes/App/...`).
+    /// So the honest sentence for those is that the application does not answer,
+    /// not that vesper could not tell two windows apart -- and the owner can act
+    /// on the first (use another application, or move the window themselves)
+    /// while the second is vesper's problem to solve.
+    static func noHandleReason(pid: Int, windowId: String) -> String {
+        let app = NSRunningApplication(processIdentifier: pid_t(pid))
+        let name = app?.localizedName ?? "that application"
+        var ref: CFTypeRef?
+        let axApp = AXUIElementCreateApplication(pid_t(pid))
+        let ok = AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString,
+                                               &ref) == .success
+        let n = (ref as? [AXUIElement])?.count ?? 0
+        if !ok || n == 0 {
+            return "\(name) does not expose its windows to vesper. Some of "
+                 + "apple's own applications -- safari and music among them -- "
+                 + "refuse this, and vesper cannot move, resize or close their "
+                 + "windows however they were opened. \(lastMatchReport)"
+        }
+        return "vesper could not tell that window apart from another of "
+             + "\(name)'s at the same size and position, and will not guess "
+             + "between them. \(lastMatchReport)"
+    }
+
     static func dismissable(pid: Int, windowId: String) -> Bool {
         guard accessible(), let el = element(forPID: pid, windowId: windowId)
         else { return false }
@@ -336,8 +442,7 @@ enum WindowBridge {
             return ["ok": false, "reason": "accessibility is not granted to VESPER"]
         }
         guard let el = element(forPID: pid, windowId: windowId) else {
-            return ["ok": false, "reason": "no unique accessibility handle for that "
-                  + "window. " + lastMatchReport]
+            return ["ok": false, "reason": noHandleReason(pid: pid, windowId: windowId)]
         }
         // NOT EVERY WINDOW HAS A CLOSE BUTTON, and one VESPER opened itself may
         // well not. Driven 2026-09-09: `window.open("TextEdit")` on an
@@ -361,7 +466,24 @@ enum WindowBridge {
         }
         // RE-READ, because a modal "save changes?" sheet means the window is
         // still there and the honest answer is that it did not close.
-        let gone = !SpaceWatch.allWindows().contains { String($0.number) == windowId }
+        //
+        // AND POLL, BECAUSE PRESSING IS NOT DISAPPEARING. Reading once, on the
+        // line after the press, asks the window server before it has caught up.
+        // Measured 2026-09-09: a Calculator window closed correctly and this
+        // reported `ok: false`, because the check ran first. That is the FOURTH
+        // too-early read found in one day -- the ground retraction, the window
+        // list after opening, the placement readback, and this -- so the answer
+        // is the same one each time: wait for the fact rather than assume how
+        // long it takes to become one. A window that is still there after a
+        // second really is still there, and that is the sheet case.
+        var gone = false
+        for _ in 0..<20 {
+            if !SpaceWatch.allWindows().contains(where: { String($0.number) == windowId }) {
+                gone = true
+                break
+            }
+            usleep(50_000)
+        }
         return ["ok": gone,
                 "reason": gone ? "" : "the close was pressed and the window is still "
                                     + "open -- the application is likely asking the "
@@ -381,12 +503,34 @@ enum WindowBridge {
     /// and this file is mechanism.
     static func identity(pid: Int, windowId: String) -> [String: Any] {
         let app = NSRunningApplication(processIdentifier: pid_t(pid))
-        let w = SpaceWatch.onScreen().first { String($0.number) == windowId }
+        // EVERY DESKTOP FOR THE GEOMETRY, and a REFUSAL when there is no window.
+        //
+        // This read `onScreen()`, so for a window on any other Desktop `w` was
+        // nil, every dimension defaulted to 0, and the call still answered
+        // `ok: true`. Measured 2026-09-09: identity on five real windows
+        // returned `ok:true` with `0x0 at (0,0)` for all five. A caller reading
+        // `ok` was told the window had been inspected; what it got was the
+        // default value of a missing optional. That is the same defect as
+        // reporting a move that never happened, one layer further in.
+        guard let w = SpaceWatch.allWindows().first(where: {
+            String($0.number) == windowId }) else {
+            return ["ok": false, "reason": "there is no window with that number "
+                  + "on any desktop -- it has been closed"]
+        }
+        // WHETHER IT CAN BE ACTED ON AT ALL, stated rather than discovered.
+        // MEASURED 2026-09-09: the accessibility tree only answers for windows
+        // on the Desktop that is SHOWING. Every move, resize and close the
+        // owner asked for failed with `ax=[] matched=0`, because their windows
+        // were on a different Desktop from vesper's ground -- and each failure
+        // was then reported to them as "done".
+        let reachable = SpaceWatch.onScreen().contains { String($0.number) == windowId }
         var out: [String: Any] = [
+            "ok": true,
+            "reachable": reachable,
             "bundle_id": app?.bundleIdentifier ?? "",
-            "app_label": app?.localizedName ?? (w?.owner ?? "?"),
-            "x": Int(w?.bounds.origin.x ?? 0), "y": Int(w?.bounds.origin.y ?? 0),
-            "width": Int(w?.bounds.width ?? 0), "height": Int(w?.bounds.height ?? 0),
+            "app_label": app?.localizedName ?? w.owner,
+            "x": Int(w.bounds.origin.x), "y": Int(w.bounds.origin.y),
+            "width": Int(w.bounds.width), "height": Int(w.bounds.height),
         ]
         // UNSAVED WORK MAKES THE FALLBACK REFUSE, AND UNKNOWN COUNTS AS UNSAVED.
         //
@@ -507,15 +651,55 @@ enum WindowBridge {
         if let fresh = pressNew(pid: Int(launchedPid), since: frontier) {
             return fresh
         }
+        // THIRD RUNG: ASK THE APPLICATION ITSELF, IN ITS OWN LANGUAGE.
+        //
+        // Pressing File > New through the accessibility interface only works
+        // while the application is FRONTMOST, and vesper deliberately launches
+        // with `activates: false` because activating can drag the owner to
+        // another Space. So for an application that is already running and not
+        // in front -- which is every "open a new safari window here" the owner
+        // has asked for -- the menu rung silently does nothing.
+        //
+        // MEASURED 2026-09-09: with Safari holding four windows on other
+        // Desktops, launching opened nothing and File > New opened nothing,
+        // while `make new document` opened a window every time. Scripting is
+        // the route a person would take when the menu is out of reach, and it
+        // needs no activation.
+        //
+        // IT DOES NOT CHOOSE THE DESKTOP EITHER. The window lands where the
+        // system puts it, so the caller still reads back where it went and
+        // flags it when that is not vesper's own Desktop.
+        if let name = NSRunningApplication(processIdentifier: launchedPid)?
+                        .localizedName, !name.isEmpty {
+            let script = "tell application \"\(name)\" to make new document"
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            task.arguments = ["-e", script]
+            task.standardOutput = Pipe()
+            task.standardError = Pipe()
+            try? task.run()
+            task.waitUntilExit()
+            for _ in 0..<20 {
+                usleep(150_000)
+                if let f = SpaceWatch.allWindows().first(where: {
+                    $0.pid == Int(launchedPid) && $0.number > frontier && $0.layer == 0
+                }) {
+                    return ["ok": true, "window_id": String(f.number), "pid": f.pid,
+                            "via": "script:new document"]
+                }
+            }
+        }
         if sawUndismissable {
             return ["ok": false, "reason": "the application put up a dialog rather "
-                  + "than opening a window, and its File > New produced nothing "
-                  + "either -- it is asking the owner something, and vesper will "
-                  + "not claim a window it cannot close"]
+                  + "than opening a window, and neither its File > New nor asking "
+                  + "it to make a new document produced one -- it is asking the "
+                  + "owner something, and vesper will not claim a window it "
+                  + "cannot close"]
         }
-        return ["ok": false, "reason": "the application was activated and would not "
-              + "open a new window -- neither launching it nor its File > New "
-              + "menu item produced one"]
+        return ["ok": false, "reason": "the application would not open a new window: "
+              + "launching it did nothing, its File > New menu item is only "
+              + "reachable while it is frontmost, and it does not answer a "
+              + "request to make a new document"]
     }
 
     /// Press the application's own New menu item, and re-read for a window.

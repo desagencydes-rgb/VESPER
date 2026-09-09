@@ -1232,4 +1232,51 @@ def _describe(proposal: Any, result: dict) -> str:
         return f"{result.get('path')} — {n} bytes:\n{(result.get('text') or '')[:600]}"
     if cid == "fs.write":
         return f"written: {result.get('path')}"
+
+    # A CAPABILITY THAT SAYS `ok: false` DID NOT DO THE THING.
+    #
+    # This fell through to a bare "done" for everything not named above, which
+    # is every window capability. The owner asked VESPER to resize a window,
+    # to move it, to send it to another Desktop; each call came back
+    # `{"ok": false, "reason": ...}` with the reason already written, and each
+    # time VESPER answered "done". Reported 2026-09-09: "vesper also opened
+    # apple music window as asked but cannot resize it, move it anywhere inside
+    # its desktop, and cannot move it to another desktop" -- every one of those
+    # had been answered "done".
+    #
+    # THAT IS THE WORST ANSWER AVAILABLE, worse than an error, because it ends
+    # the exchange: the owner has no reason to look, and a system that reports
+    # success for work it did not do cannot be trusted about the work it did.
+    # It is the launcher-returning-zero failure at the last inch, in the one
+    # place the owner actually reads.
+    if result.get("ok") is False:
+        why = str(result.get("reason") or result.get("flag") or "").strip()
+        if result.get("refused_by") == "ownership":
+            return f"I did not: {why}" if why else (
+                "I did not -- that window is not mine to touch")
+        return f"that did not go through: {why}" if why else (
+            "that did not go through, and it gave no reason")
+
+    if cid.startswith("window."):
+        # SAY WHAT CHANGED, and say when it changed less than was asked.
+        if result.get("degraded"):
+            note = str(result.get("flag") or result.get("reason") or "").strip()
+            return f"partly -- {note}" if note else "partly, and it is flagged"
+        if cid == "window.list":
+            n = result.get("count")
+            free = result.get("may_arrange")
+            return (f"{n} window(s) open, {free} of them mine to arrange"
+                    if n is not None else "I looked at the windows")
+        if cid == "window.open":
+            where = result.get("landed")
+            place = (" on my desktop" if where == "vespers_desktop" else
+                     " here" if where == "active_desktop" else "")
+            return f"opened it{place}"
+        if cid == "window.close":
+            return "closed it"
+        after = result.get("after") or {}
+        if after:
+            return (f"done -- it is now {after.get('width')}x{after.get('height')} "
+                    f"at ({after.get('x')},{after.get('y')})")
+        return "done"
     return "done"

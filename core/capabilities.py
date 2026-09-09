@@ -777,7 +777,11 @@ def _inventory() -> tuple[list, str | None]:
                       provenance=(W.VESPER_OPENED if str(w["window_id"]) in mine
                                   else W.UNKNOWN),
                       meta={"x": w.get("x"), "y": w.get("y"),
-                            "width": w.get("width"), "height": w.get("height")})
+                            "width": w.get("width"), "height": w.get("height"),
+                            # WHETHER VESPER CAN TOUCH IT AT ALL, carried beside
+                            # the geometry because the two are read together and
+                            # the answer is not derivable from anything else here.
+                            "on_active_desktop": bool(w.get("on_active_desktop"))})
              for w in raw.get("windows", [])],
             vespers)
 
@@ -965,6 +969,27 @@ def _act(effect: str, args: dict, *argv: str) -> dict:
                              owner_requested=bool(args.get("owner_requested")))
     if not allowed:
         return {"ok": False, "refused_by": "ownership", "reason": why,
+                "window": W.describe(target, vespers_desktop=desktop)}
+    # A WINDOW ON ANOTHER DESKTOP CANNOT BE TOUCHED, AND SAYING SO IS THE
+    # WHOLE ANSWER.
+    #
+    # MEASURED 2026-09-09: the accessibility tree answers only for windows on
+    # the Desktop that is SHOWING. The owner asked vesper to resize a window,
+    # move it, and send it elsewhere; all three failed with `ax=[] matched=0`
+    # because the window was on a different Desktop from vesper's ground -- and
+    # all three were reported to them as "done". The failure is not a defect to
+    # be fixed here, it is a platform limit, and the owner is owed the sentence
+    # rather than the symptom.
+    if target.meta.get("on_active_desktop") is False:
+        return {"ok": False, "refused_by": "unreachable",
+                "degraded": True, "flag_id": f"window.unreachable:{wid}",
+                "flag": f"vesper cannot act on the {target.app_label} window: it "
+                        "is on another desktop, and macos only lets vesper touch "
+                        "windows on the desktop that is showing.",
+                "reason": f"the {target.app_label} window is on another desktop. "
+                          "macos only allows acting on windows that are on the "
+                          "desktop currently showing, so bring it here (or come "
+                          "to it) and ask again",
                 "window": W.describe(target, vespers_desktop=desktop)}
     out = _window_bridge(*argv, "--window-id", wid, "--window-pid", str(target.pid))
     out.setdefault("window", W.describe(target, vespers_desktop=desktop))
@@ -1196,6 +1221,24 @@ def window_open(args: dict) -> dict:
                         "another desktop, where vesper cannot reach it to move "
                         "or close it. it is yours to close.",
                 "line": ""}
+    # WHERE IT LANDED IS READ OFF THE WINDOW, NOT INFERRED FROM THE GROUND.
+    #
+    # This said `"vespers_desktop" if vespers else "active_desktop"` -- which
+    # asks whether VESPER holds a Desktop, not where the window went. Measured
+    # 2026-09-09: a window reported `landed: active_desktop` while the inventory
+    # said `on_active_desktop: False` in the same breath. The field added to
+    # stop this function predicting placement was itself a prediction.
+    here = bool(made.meta.get("on_active_desktop"))
+    if not here:
+        return {"ok": True, "degraded": True, "window_id": new_id,
+                "provenance": W.classify_opened(by_vesper=True),
+                "landed": "off_vespers_desktop",
+                "flag_id": f"window.landed_elsewhere:{new_id}",
+                "flag": f"vesper opened a {made.app_label} window and the system "
+                        "placed it on another desktop, where vesper cannot reach "
+                        "it to move or close it. it is yours to close.",
+                "line": W.describe(made, vespers_desktop=vespers),
+                **made.meta}
     return {"ok": True, "window_id": new_id,
             "provenance": W.classify_opened(by_vesper=True),
             "landed": "vespers_desktop" if vespers else "active_desktop",

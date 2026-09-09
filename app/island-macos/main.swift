@@ -1753,6 +1753,76 @@ if args.contains("--ground-retract-check") {
     exit(5)
 }
 
+if args.contains("--ax-order-check") {
+    // THE ASSUMPTION THAT LETS VESPER TELL TWO IDENTICAL WINDOWS APART.
+    //
+    // `WindowBridge.element(forPID:windowId:)` identifies a window by geometry,
+    // because the accessibility tree carries no CGWindow number. Two default
+    // windows of one application have IDENTICAL geometry -- the normal case,
+    // not an edge one -- and the match then refuses both, which is why the
+    // owner could not move their second Safari window on 2026-09-09.
+    //
+    // The disambiguation assumes both lists are front-to-back for a given
+    // process, so the Nth twin in `CGWindowListCopyWindowInfo` is the Nth in
+    // `kAXWindows`. Nothing in Apple's documentation promises that. So it is
+    // MEASURED here rather than trusted: two real twins are created, one is
+    // moved through the accessibility interface, and the window server is asked
+    // which one actually moved. If a macOS release reorders either list, this
+    // goes red instead of vesper silently moving the wrong window.
+    let bundle = "com.apple.TextEdit"
+    func openOne() -> [String: Any]? {
+        let r = WindowBridge.reopen(bundleId: bundle)
+        return (r["ok"] as? Bool) == true ? r : nil
+    }
+    guard let a = openOne(), let b = openOne(),
+          let aid = a["window_id"] as? String, let bid = b["window_id"] as? String,
+          let apid = a["pid"] as? Int, let bpid = b["pid"] as? Int, apid == bpid
+    else {
+        FileHandle.standardError.write(("ax-order-check: UNTESTED -- could not "
+            + "open two windows of the probe application, so the ordering was "
+            + "never exercised.\n").data(using: .utf8)!)
+        exit(4)
+    }
+    // TRUE TWINS, or the geometry match alone would separate them and the
+    // ordering path -- the only thing under test -- would never run.
+    for id in [aid, bid] {
+        _ = WindowBridge.geometry(pid: apid, windowId: id, x: 300, y: 250,
+                                  w: 520, h: 400)
+        usleep(250_000)
+    }
+    let twins = SpaceWatch.onScreen().filter {
+        $0.pid == apid && (String($0.number) == aid || String($0.number) == bid) }
+    guard twins.count == 2,
+          abs(twins[0].bounds.width - twins[1].bounds.width) < 2,
+          abs(twins[0].bounds.origin.x - twins[1].bounds.origin.x) < 2 else {
+        FileHandle.standardError.write(("ax-order-check: UNTESTED -- the two "
+            + "windows did not end up identical, so nothing was ambiguous.\n")
+            .data(using: .utf8)!)
+        for id in [aid, bid] { _ = WindowBridge.close(pid: apid, windowId: id) }
+        exit(4)
+    }
+    let moved = WindowBridge.geometry(pid: apid, windowId: bid, x: 800, y: 500,
+                                      w: 520, h: 400)
+    usleep(400_000)
+    let after = SpaceWatch.onScreen()
+    let movedOne = after.first { String($0.number) == bid }
+    let stayed = after.first { String($0.number) == aid }
+    let rightOne = (movedOne.map { abs($0.bounds.origin.x - 800) < 3 } ?? false)
+                && (stayed.map { abs($0.bounds.origin.x - 300) < 3 } ?? false)
+    for id in [aid, bid] { _ = WindowBridge.close(pid: apid, windowId: id) }
+    if (moved["ok"] as? Bool) == true && rightOne {
+        print("ax-order-check: PASS -- two identical windows, the second was "
+              + "asked to move, and the second is the one that moved. The "
+              + "accessibility list and the window list agree on order.")
+        exit(0)
+    }
+    FileHandle.standardError.write(("ax-order-check: FAILED -- asked the SECOND "
+        + "of two identical windows to move; moved=\(moved["ok"] ?? false), "
+        + "the right one moved=\(rightOne). Vesper would be moving a window "
+        + "the owner did not name.\n").data(using: .utf8)!)
+    exit(5)
+}
+
 if args.contains("--window-id-reuse-check") {
     // THE MEASUREMENT THE FORGERY FIX RESTS ON, MADE REPEATABLE.
     //

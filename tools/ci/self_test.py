@@ -6545,5 +6545,34 @@ CASES += [
 ]
 
 
+# CI-141 -- vesper told the owner "done" four times for four things it had not
+# done. Reported 2026-09-09.
+# --------------------------------------------------------------------------
+ACTOR_PY = "core/actor.py"
+
+CASES += [
+    ("a-refusal-is-never-reported-as-done", ACTOR_PY,
+     _sub('    if result.get("ok") is False:', '    if False:', 1),
+     "a result that says ok=false is reported as success again, so the owner "
+     "is told a window moved when it did not and has no reason to look"),
+
+    ("a-refusal-is-never-reported-as-done", ACTOR_PY,
+     _sub('        return f"that did not go through: {why}" if why else (', '        return ("that did not go through") if True else (', 1),
+     "the refusal drops the reason, so the owner is told it failed and not why "
+     "-- a failure they cannot act on"),
+
+    ("a-refusal-is-never-reported-as-done", ACTOR_PY,
+     _sub('        if result.get("degraded"):', '        if False:', 1),
+     "a degraded result reads as an ordinary success, so a rebuild is reported "
+     "as a move and the flag the ladder raised says nothing to anyone"),
+
+    ("a-refusal-is-never-reported-as-done", CAPS_PY,
+     _sub('    if target.meta.get("on_active_desktop") is False:', '    if False:', 1),
+     "_act stops checking whether the window is on the desktop that is showing, "
+     "so an unreachable window fails with an empty accessibility tree and the "
+     "owner gets the symptom instead of the sentence"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())
