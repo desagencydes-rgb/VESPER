@@ -56,6 +56,8 @@ final class GroundWindow: NSWindow {
 }
 
 final class HomeController: NSObject {
+    private var modeWatch: Timer?
+    private var lastAppliedAmbience: String = ""
 
     let screen: NSScreen
     let ground: NSWindow
@@ -773,6 +775,40 @@ final class HomeController: NSObject {
     /// Set the mode. The picture is the Space's own desktop picture, so this
     /// changes whichever Desktop is active -- the caller owns residency.
     @discardableResult
+    /// Watch `home.json` for the mode the runtime resolved, and apply changes.
+    ///
+    /// THE PAIRING IS RESOLVED IN PYTHON AND APPLIED HERE, deliberately. The
+    /// owner's decision is that a mode is a named `(stage, ambience)` pair;
+    /// which pair a word means is policy, and policy lives in
+    /// `contracts/policy/mode_pairings.toml` where it can be read and changed
+    /// without a rebuild. This side is mechanism: it takes an ambience name and
+    /// paints the room.
+    ///
+    /// THERE IS NO IPC INTO A RUNNING HOME, and inventing one for this would be
+    /// a second way to command vesper that nothing else uses. `home.json` is
+    /// already the contract between the runtime and this process -- the face,
+    /// the transcript, the cards and the flags all arrive that way -- so the
+    /// mode arrives the same way.
+    ///
+    /// ONLY ON CHANGE. Re-applying the same mode every quarter second would
+    /// re-set the desktop picture forever, and `setDesktopImageURL` is not free.
+    func watchModeFile() {
+        let path = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/VESPER/home.json")
+        let t = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            guard let d = try? Data(contentsOf: path),
+                  let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
+            else { return }
+            guard let want = o["ambience"] as? String, !want.isEmpty,
+                  want != self.lastAppliedAmbience else { return }
+            self.lastAppliedAmbience = want
+            _ = self.setMode(want, quiet: true)
+        }
+        RunLoop.main.add(t, forMode: .common)
+        modeWatch = t
+    }
+
     func setMode(_ name: String, quiet: Bool = false) -> Bool {
         guard let m = Ambience.mode(named: name) else {
             if !quiet { print("  no mode named '\(name)'") }

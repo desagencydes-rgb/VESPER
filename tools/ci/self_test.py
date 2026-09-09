@@ -6608,5 +6608,46 @@ CASES += [
 ]
 
 
+# CI-143 -- modes as named pairings. Two axes, kept apart.
+# --------------------------------------------------------------------------
+MODES_PY = "core/modes.py"
+PAIRINGS_TOML = "contracts/policy/mode_pairings.toml"
+
+CASES += [
+    ("a-mode-is-a-pairing-of-two-axes", PAIRINGS_TOML,
+     _sub('ambience = "Working"', 'ambience = "Concentrating"', 1),
+     "a pairing names an ambience that is not one of the eleven, so it has no "
+     "wallpaper and no accent and the room is left half-changed"),
+
+    ("a-mode-is-a-pairing-of-two-axes", PAIRINGS_TOML,
+     _sub('stage = "research"\nambience', 'stage = "reserach"\nambience', 1),
+     "a pairing names an undeclared stage, so nothing says which windows its "
+     "work may open"),
+
+    ("a-mode-is-a-pairing-of-two-axes", MODES_PY,
+     _sub("    if key not in ps:\n        raise UnknownMode(", "    if False:\n        raise UnknownMode(", 1),
+     "a misspelled mode no longer raises, so a typo becomes a mode switch the "
+     "owner did not ask for"),
+
+    ("a-mode-is-a-pairing-of-two-axes", MODES_PY,
+     _sub('    return list(st.get("may_open") or []) if isinstance(st, dict) else []',
+          '    return list(st.get("may_open") or []) if isinstance(st, dict) else ["browser"]', 1),
+     "an unknown stage may open windows anyway, which is the permissive default "
+     "a stage exists to refuse"),
+
+    ("a-mode-is-a-pairing-of-two-axes", MODES_PY,
+     _sub('    existing["stage"] = resolved["stage"]\n', "", 1),
+     "the stage stops reaching the file, so the pairing arrives as ambience "
+     "alone and the two axes are welded in the format itself"),
+
+    ("a-mode-is-a-pairing-of-two-axes", MODES_PY,
+     _sub("        existing = json.loads(target.read_text(encoding=\"utf-8\"))\n"
+          "        if not isinstance(existing, dict):\n            existing = {}",
+          "        existing = {}", 1),
+     "select() rewrites home.json whole instead of merging, deleting the face, "
+     "the transcript, the cards and the flags whenever a mode is chosen"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

@@ -21729,6 +21729,105 @@ def _swift_body(src: str, opener: str) -> str:
     return ""
 
 
+def check_a_mode_is_a_pairing_of_two_axes() -> Result:
+    """A mode names a stage and an ambience, and neither is welded to the other.
+
+    THE OWNER'S DECISION, 2026-09-08: a mode is a named `(stage, ambience)`
+    pair -- "research mode" is *stage: research, ambience: Working* -- and the
+    button selects the pair.
+
+    THE AXES STAY INDEPENDENT UNDERNEATH, which is the whole reason
+    HOME-ARCHITECTURE §6 exists: conflating them "produces an interface that
+    rearranges itself while you are reading, which is the single most common way
+    an ambient interface becomes unusable". A pairing is an ENTRY POINT -- it
+    sets both when chosen -- and VESPER still moves along the ambience axis on
+    its own afterwards without the stage following.
+
+    WHICH IS WHY THIS CHECK ASSERTS THREE FIELDS AND NOT ONE. If `home.json`
+    carried a single collapsed string, the two axes could not be moved apart
+    again, and the welding §6 refuses would be a fact of the file format.
+    """
+    r = Result("a-mode-is-a-pairing-of-two-axes")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf, json as _js
+    try:
+        from core import modes as M
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"core.modes does not import: {exc!r}")
+        return r
+
+    ps, st = M.pairings(), M.stages()
+    if not ps:
+        r.err("no pairings are declared, so there are no modes to enter")
+        return r
+    names = M.ambience_names()
+    if len(names) != 11:
+        r.err(f"{len(names)} ambiences were read; DESIGN-FOUNDATION §7 has "
+              "eleven, and the eleven feel images ARE the eleven wallpapers")
+
+    # 1. EVERY PAIRING NAMES A REAL STAGE AND A REAL AMBIENCE.
+    for key in ps:
+        try:
+            got = M.resolve(key)
+        except M.UnknownMode as exc:
+            r.err(f"pairing {key!r} does not resolve: {exc}")
+            continue
+        if got["stage"] not in st:
+            r.err(f"pairing {key!r} names an undeclared stage")
+        if names and got["ambience"] not in names:
+            r.err(f"pairing {key!r} names ambience {got['ambience']!r}, which is "
+                  "not one of the eleven -- it would have no wallpaper and no "
+                  "accent, leaving the room half-changed")
+
+    # 2. AN UNDECLARED NAME IS REFUSED, NOT APPROXIMATED.
+    try:
+        M.resolve("reserach")
+        r.err("a misspelled mode resolved. The nearest match to 'reserach' is "
+              "'research', and acting on that guess is how a typo becomes a "
+              "mode switch the owner did not ask for")
+    except M.UnknownMode:
+        pass
+    if M.may_open("not-a-stage"):
+        r.err("an unknown stage may open windows. The empty list is the safe "
+              "answer; 'anything' is what a permissive default would mean here")
+
+    # 3. THE TWO AXES REACH THE FILE SEPARATELY.
+    with _tf.TemporaryDirectory() as _td:
+        f = Path(_td) / "home.json"
+        f.write_text(_js.dumps({"workbench": {"keep": "me"}, "transcript": [1]}),
+                     encoding="utf-8")
+        M.select("research", path=f)
+        doc = _js.loads(f.read_text(encoding="utf-8"))
+        for k in ("mode", "stage", "ambience"):
+            if not doc.get(k):
+                r.err(f"select() did not write {k!r}. Collapsing the pairing "
+                      "into one field would weld the axes in the file format "
+                      "itself, which §6 refuses")
+        # 4. AND IT MERGES. `home.json` has several writers and rewriting it
+        #    whole deletes whichever ran first -- a race with no error.
+        if doc.get("workbench") != {"keep": "me"} or doc.get("transcript") != [1]:
+            r.err("select() rewrote home.json instead of merging, so the face, "
+                  "the transcript, the cards and the flags are deleted whenever "
+                  "a mode is chosen")
+
+    # 5. AND IT IS REACHABLE FROM WHAT THE OWNER SAYS.
+    import core.intent as I
+    if "mode.set" not in I.KNOWN:
+        r.err("mode.set is not in the intent vocabulary, so nothing the owner "
+              "says can produce it -- registered, bound, and unreachable, which "
+              "is the shape this tree keeps finding")
+    caps = (REPO / "core" / "capabilities.py").read_text(encoding="utf-8")
+    if 'reg.register("mode.set"' not in caps or 'executor.bind("mode.set"' not in caps:
+        r.err("mode.set is not both registered and bound")
+
+    r.note(f"{len(ps)} pairings, each naming a declared stage and one of the "
+           f"{len(names)} ambiences; a misspelling is refused; an unknown stage "
+           "opens nothing; and the pairing reaches home.json as three separate "
+           "fields, merged")
+    return r
+
+
 def check_the_wallpaper_changes_only_on_vespers_desktop() -> Result:
     """VESPER may repaint its own Desktop and no one else's.
 
@@ -22977,6 +23076,7 @@ CHECK_FNS = {
     "the-shipped-runtime-can-reach-what-it-needs": check_the_shipped_runtime_can_reach_what_it_needs,
     "a-refusal-is-never-reported-as-done": check_a_refusal_is_never_reported_as_done,
     "the-wallpaper-changes-only-on-vespers-desktop": check_the_wallpaper_changes_only_on_vespers_desktop,
+    "a-mode-is-a-pairing-of-two-axes": check_a_mode_is_a_pairing_of_two_axes,
 }
 
 

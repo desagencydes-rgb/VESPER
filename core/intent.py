@@ -121,6 +121,12 @@ The only capabilities that exist are:
   window.close args: {"window_id": "<id>"}
               Close a window. Never for tidying -- only when the owner asks.
 
+  mode.set    args: {"mode": "<one of: idle, research, work, explain, show, rest>"}
+              Enter a named mode. "research mode", "switch to work mode",
+              "go idle", "rest mode" are all this. A mode is a PAIRING of what
+              the owner is doing with how vesper looks, and choosing one sets
+              both. Only the names listed exist -- do not invent one.
+
 Rules:
 - If unsure, return {"action": "none"}. A wrong action costs more than a
   missed one.
@@ -145,7 +151,11 @@ KNOWN = ("shell.run", "ui.open", "fs.read", "fs.write", "fs.edit",
          # `core/windows.py` does. The gap was one layer up, between what the
          # owner can ask for and what the system can propose.
          "window.list", "window.open", "window.move", "window.resize",
-         "window.relocate", "window.close")
+         "window.relocate", "window.close",
+         # MODES. Registered, bound, and until this line was added, unreachable
+         # from anything the owner could say -- the same gap the window block
+         # above records, one step later in the same build.
+         "mode.set")
 
 
 # CAPABILITIES WHOSE CORRECT ARGUMENTS ARE EMPTY.

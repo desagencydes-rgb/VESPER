@@ -2451,6 +2451,11 @@ func startHome() {
     if let i = args.firstIndex(of: "--mode"), i + 1 < args.count {
         h.setMode(args[i + 1])
     }
+    // THE MODE CAN CHANGE WHILE VESPER IS RUNNING, which `--mode` alone cannot
+    // express: it is read once at launch. The owner asking for "research mode"
+    // reaches the runtime, which resolves the pairing and writes the ambience
+    // into `home.json`; this watch is what makes that arrive.
+    h.watchModeFile()
     // --face-check reads the region the face occupies out of the WINDOW SERVER
     // rather than asking the renderer whether it rendered. `framesDrawn` counts
     // ATTEMPTS: a renderer that attempts 120 times a second and paints nothing

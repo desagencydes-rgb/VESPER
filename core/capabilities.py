@@ -1044,6 +1044,38 @@ def window_close(args: dict) -> dict:
     return out
 
 
+def mode_set_level(args: dict) -> str:
+    """Choosing a mode is L2, and it is levelled on the argument like everything.
+
+    IT REPAINTS VESPER'S OWN DESKTOP AND NOTHING ELSE -- the residency guard in
+    `Home.setMode` refuses anywhere else -- so it changes the room vesper is in
+    and no work of the owner's. That is `adjust_reversible`: the previous mode
+    can be chosen again and the wallpaper record puts the owner's own picture
+    back. A mode that is not declared levels L5, because an unknown name is a
+    request to do something nobody has described.
+    """
+    from core import modes as M
+
+    try:
+        M.resolve(str(args.get("mode") or ""))
+    except M.UnknownMode:
+        return "L5"
+    return "L2"
+
+
+def mode_set(args: dict) -> dict:
+    """Enter a named mode: a (stage, ambience) pair, per the owner 2026-09-08."""
+    from core import modes as M
+
+    try:
+        r = M.select(str(args.get("mode") or ""))
+    except M.UnknownMode as exc:
+        return {"ok": False, "reason": str(exc)}
+    return {"ok": True, "mode": r["mode"], "stage": r["stage"],
+            "ambience": r["ambience"], "may_open": r.get("may_open") or [],
+            "line": f"{r['mode']} mode -- {r.get('description') or ''}".strip()}
+
+
 def window_open_level(args: dict) -> str:
     """Opening an application is L2; opening a FILE is levelled on the file.
 
@@ -2322,6 +2354,14 @@ def build_registry() -> CapabilityRegistry:
     # authorises VESPER to move or close it unasked. A flag on `ui.open` would
     # have let a capability the owner already approved acquire new authority
     # without a new approval.
+    # A MODE IS A NAMED PAIRING, and the level depends on whether the name is
+    # one. INV-AUTH-5 refuses a constant level, and this is not one: an
+    # undeclared mode is L5 because nobody has described what it would do.
+    reg.register("mode.set", mode_set_level, [
+        LevelRule("a declared mode", "L2", {"mode": "research"}),
+        LevelRule("one nobody declared", "L5", {"mode": "zzz-not-a-mode"}),
+    ], reversibility="reversible")
+
     reg.register("window.open", window_open_level, [
         LevelRule("an application", "L2", {"app": "TextEdit"},
                   refutes=({"path": "~/.config/vesper/secrets.env"},)),
@@ -2400,6 +2440,7 @@ def bind_all(executor, *, jobs=None, agent=None, runner=None) -> None:
     executor.bind("window.close", window_close)
     executor.bind("window.relocate", window_relocate)
     executor.bind("window.open", window_open)
+    executor.bind("mode.set", mode_set)
 
     # THE SUB-AGENT IS BOUND, NOT PASSED IN ARGS, for the reason the job
     # registry is: what a proposal may ASK for and what carries the request are

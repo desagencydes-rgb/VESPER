@@ -1,0 +1,74 @@
+# NAMED PAIRINGS — the owner's decision, 2026-09-08.
+#
+# HOME-ARCHITECTURE §6 is emphatic that the two axes must not be conflated,
+# because an interface that rearranges itself while you are reading is the
+# single most common way an ambient interface becomes unusable. So they stay
+# independent underneath, and a PAIRING is an entry point rather than a weld:
+# picking one sets both, and VESPER may still move along the ambience axis on
+# its own afterwards -- Thinking, Speaking, Alert -- without the stage moving.
+#
+#   axis A, AMBIENCE: what VESPER is doing. Eleven, in docs/design/source/modes.json.
+#   axis B, STAGE:    what the OWNER is doing, and what windows that work may open.
+#
+# A stage names the windows its work legitimately needs (HOME-WORKBENCH §11.2a).
+# It grants no authority: every window is still `window.open` under the
+# ownership rule and the level ladder. What it supplies is the REASON a step
+# has, which INV-TRIG-1 already requires and the window log already records.
+
+schema_version = 1
+
+[stages.idle]
+description = "Nothing asked. VESPER is present and doing nothing."
+may_open = []
+
+[stages.research]
+description = "Finding something out and showing the sources."
+may_open = ["browser"]
+
+[stages.work]
+description = "Doing a task while the owner watches."
+may_open = ["editor", "terminal", "browser"]
+
+[stages.explain]
+description = "Answering with something on screen."
+may_open = ["viewer"]
+closes_when_done = true
+
+[stages.show]
+description = "Putting one artefact in front of the owner."
+may_open = ["viewer"]
+max_windows = 1
+# THE OWNER KEEPS THIS ONE. Everything else a stage opens is vesper's to close;
+# what the owner asked to be shown is theirs, and closing it would be taking
+# away the thing they asked for.
+owner_keeps = true
+
+# ---------------------------------------------------------------- pairings
+#
+# `ambience` MUST name one of the eleven in modes.json. `stage` must name one
+# above. A pairing that names something absent is refused rather than
+# approximated -- the same fail-closed posture host_actions.toml takes.
+
+[pairings.idle]
+stage = "idle"
+ambience = "Idle"
+
+[pairings.research]
+stage = "research"
+ambience = "Working"
+
+[pairings.work]
+stage = "work"
+ambience = "Working"
+
+[pairings.explain]
+stage = "explain"
+ambience = "Speaking"
+
+[pairings.show]
+stage = "show"
+ambience = "Home"
+
+[pairings.rest]
+stage = "idle"
+ambience = "Rest"

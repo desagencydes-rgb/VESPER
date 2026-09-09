@@ -85,6 +85,9 @@ class HomeState:
         self._reason = "no activity yet"
         self._workbench: dict = {}
         self._flags: list = []
+        self._mode = ""
+        self._stage = ""
+        self._ambience = ""
         self._changes: dict = {}
         self._transcript: list = []
         self._rows: list = []
@@ -259,6 +262,21 @@ class HomeState:
         if changed:
             self.write()
 
+    def set_mode(self, mode: str, stage: str, ambience: str) -> None:
+        """The mode the owner chose, for the surface and for the running home.
+
+        WRITTEN AS THREE FIELDS, not one. `mode` is the name they used,
+        `ambience` is what the home paints, and `stage` is what the work is --
+        and they are separate because HOME-ARCHITECTURE §6 insists the two axes
+        stay independent underneath. Collapsing them into one string here would
+        be exactly the welding a pairing is meant not to do.
+        """
+        with self._lock:
+            self._mode = str(mode or "")
+            self._stage = str(stage or "")
+            self._ambience = str(ambience or "")
+        self.write()
+
     def set_rows(self, rows: list) -> None:
         """The metrics card's rows. Owned by whoever measured them."""
         with self._lock:
@@ -300,6 +318,13 @@ class HomeState:
             # problem that is over, which is the same defect as a face stuck on
             # `thinking` -- and worse here, because a flag is a call to act.
             existing["flags"] = self._flags
+            # ONLY WHEN A MODE HAS BEEN CHOSEN. Writing an empty ambience every
+            # tick would tell the home to paint nothing, which is not the same
+            # as leaving it alone.
+            if self._ambience:
+                existing["mode"] = self._mode
+                existing["stage"] = self._stage
+                existing["ambience"] = self._ambience
             self._path.parent.mkdir(parents=True, exist_ok=True)
             # A UNIQUE TEMP PER WRITE, NOT A FIXED NAME.
             #
