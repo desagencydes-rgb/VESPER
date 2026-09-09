@@ -39,10 +39,28 @@ evidence.
 Both panes hide themselves when their feed is empty. The handoff's §6.2 already
 conceded the flag bar "has never been seen by the owner with a flag in it".
 
-**Open, and not yet answered:** whether `commands` is empty because nothing ran
-or because its producer is dead. `actions` has 27 entries from the same board,
-so the board is alive; the commands feed specifically is not arriving. That is a
-different fault from "the UI broke" and is not fixed by this document.
+**ANSWERED, 2026-09-10, and it is neither.** `_record_command`
+(`tools/ops/vesper_runtime.py:289`) opens with:
+
+```python
+if capability_id != "shell.run" or bench is None:
+    return
+```
+
+**Only `shell.run` ever reaches the commands card.** Window actions, `mode.set`,
+file writes and everything else record nothing to it — by design, per its own
+docstring: the actions column carries those, and a second copy would be worse.
+The owner's session had been window operations exclusively, so the card had
+nothing and hid itself.
+
+Driven to confirm rather than argued: `run df -h and show me the output` through
+the live app put one entry on the card immediately (`display: "df -h"`,
+`state: ok`, `exit: 0`). The producer is alive; the card was empty.
+
+**What remains a real question is the presentation, not the plumbing.** A pane
+that vanishes entirely when its feed is empty is indistinguishable, to the
+owner, from one that broke — and that is exactly how it was read. That is a
+decision for the owner, not a defect to fix unasked.
 
 ---
 
