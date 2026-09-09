@@ -80,6 +80,7 @@ from core.arbiter import Arbiter                                 # noqa: E402
 from core.compactor import Compactor                            # noqa: E402
 from core.context import ContextBudgetManager                   # noqa: E402
 from core.actor import Actor, ACTIVE_SESSION                    # noqa: E402
+from core.intent import capability_statement                    # noqa: E402
 from core import permission_mode                                # noqa: E402
 from core import agenda                                         # noqa: E402
 from core import consent                                        # noqa: E402
@@ -543,17 +544,70 @@ _island_at = [0.0]
 _island_sig = [None]
 
 
-def _island_vesper(bench, changes) -> list:
-    """The three things about VESPER worth a glance, or fewer."""
+_home_mode_cache: list = [0.0, ""]
+
+
+def _home_mode() -> str:
+    """The (stage, ambience) pairing the owner chose, or "" if none has been.
+
+    THE EMPTY STRING IS A REAL ANSWER HERE and it is why the row is omitted
+    rather than shown blank: until `mode.set` runs, `home.json` carries no
+    `mode` key at all, and a row reading "Mode: —" would state that a mode is
+    set to nothing. It is not set.
+    """
+    path = STATE / "home.json"
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return ""
+    if mtime == _home_mode_cache[0]:
+        return _home_mode_cache[1]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        mode = str(data.get("mode") or "").strip() if isinstance(data, dict) else ""
+    except (json.JSONDecodeError, OSError):
+        mode = _home_mode_cache[1]          # keep the last good read
+    _home_mode_cache[0] = mtime
+    _home_mode_cache[1] = mode
+    return mode
+
+
+def _island_vesper(bench, changes, mode: str = "") -> list:
+    """The things about VESPER worth a glance, or fewer.
+
+    `mode` IS A PARAMETER AND NOT A READ. `the-island-shows-vespers-own-state`
+    extracts this function by AST and execs it with `permission_mode` alone in
+    scope, so a module-level helper called from in here is a `NameError` under
+    the check and works fine in production -- which is the worse direction of
+    the two. Taking it as an argument keeps the function pure, keeps the check
+    able to drive it, and lets the check drive the BOTH-MODES case that no
+    live run would reach on demand.
+    """
     rows = []
     # THE PERMISSION MODE FIRST, because it is a live authority state with no
     # indicator anywhere on any surface. The owner switches it and then has to
     # remember what they switched it to -- and in `auto` VESPER acts without
     # asking, which is precisely the state worth being able to see at a glance.
+    #
+    # LABELLED "Permission", NOT "Mode", SINCE 2026-09-10. It read "Mode", and
+    # VESPER's own mode -- the (stage, ambience) pairing -- appeared on this
+    # surface nowhere at all. A reader looking at `Mode: auto` and asking
+    # whether modes worked got the wrong answer from the right row; that
+    # happened, and the owner had to correct it. Two different axes cannot
+    # share one word on a surface 185pt wide.
     try:
-        rows.append({"label": "Mode", "value": permission_mode.read()})
+        rows.append({"label": "Permission", "value": permission_mode.read()})
     except Exception:                               # noqa: BLE001
         pass
+    # AND THE MODE THE OWNER ACTUALLY CHOSE. Read from `home.json`, which is
+    # where `core/modes.select` publishes it -- not from `HomeState`, whose
+    # copy is written only by a caller that has one and `mode.set` does not.
+    #
+    # ONLY WHEN THE FILE HAS MOVED. `home.json` is ~140 KB and this runs every
+    # five seconds; re-parsing it on a tick that has nothing to say is work
+    # done to learn nothing, so the mtime gates it.
+    if mode:
+        rows.append({"label": "Mode", "value": mode})
     st = bench.state() if bench is not None else {}
     cmds = st.get("commands") or []
     if cmds:
@@ -575,7 +629,7 @@ def _publish_island(bench, changes, bus) -> None:
     if now - _island_at[0] < ISLAND_EVERY_S:
         return
     _island_at[0] = now
-    rows = _island_vesper(bench, changes)
+    rows = _island_vesper(bench, changes, mode=_home_mode())
     sig = json.dumps(rows, sort_keys=True)
     if sig == _island_sig[0]:
         return                       # unchanged: do not rewrite the file
@@ -1264,9 +1318,38 @@ def build(node: str = "vesper-runtime"):
             changes)
 
 
+def _render_conversation(recent: list) -> str:
+    """The last few turns, BOTH SIDES, for the path that is not acting.
+
+    NOT `intent._render_recent`, WHICH DROPS VESPER'S PROSE ON PURPOSE. That
+    one feeds the proposer, whose job is to pick a capability, and its comment
+    is right that the assistant's prose is the part most likely to talk it into
+    re-proposing finished work. This one feeds the answerer, and here vesper's
+    own last sentence IS the antecedent: "why is that?" refers to the reason
+    vesper gave, and nothing else in the turn contains it.
+
+    NOT THE WHOLE TRANSCRIPT EITHER -- `CONVERSATION_MAX` is 200 and this runs
+    on rungs that fail on tokens per minute long before they fail on money.
+    """
+    lines = []
+    for item in recent[-8:]:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "").strip()
+        if not text:
+            continue
+        who = "you" if item.get("who") == "owner" else "vesper"
+        lines.append(f"  {who}: {text[:400]}")
+    if not lines:
+        return ""
+    return ("The conversation so far, most recent last. When the owner says "
+            "\"that\", \"it\" or \"what you just said\", this is what they "
+            "mean:\n" + "\n".join(lines))
+
+
 def answer(gw, router, persona, utterance, renderer=None,
            updater=None, misses=None, chooser=None,
-           context_cmds=None) -> str:
+           context_cmds=None, can_do=None, recent=None) -> str:
     """One request across the ladder. Difficulty routes it; the ladder serves it.
 
     `privacy_class` IS NOT PASSED, and that is the point of the default. Anything
@@ -1325,6 +1408,42 @@ def answer(gw, router, persona, utterance, renderer=None,
     else:
         system, _ = persona.compose(situation)
         request, bus_payload = utterance.text, None
+
+    # WHAT VESPER CAN DO, AND WHAT IT JUST SAID. Neither reached here until
+    # 2026-09-10, and the owner's transcript is what found it:
+    #
+    #   YOU     why is that?
+    #   VESPER  Sir, could you clarify what "that" refers to?
+    #   YOU     the shit you just said about windows
+    #   VESPER  Sir, I can only display text in this console. I have no
+    #           capability to spawn a separate terminal or manipulate GUI
+    #           windows such as the Notes app.
+    #
+    # Two turns earlier `window.open` had run and reported a real failure with
+    # a real reason. This path was handed `intake.history[-1]` and nothing
+    # else, so "that" named nothing and the registry was absent -- and a model
+    # with no registry answers from its priors, which is where "the Notes app"
+    # came from. Nobody had mentioned Notes.
+    #
+    # TWELVE LINES ABOVE THE CALL SITE, the actor path already assembles
+    # `recent` from the turns either side, with a comment explaining that "run
+    # it" names nothing without them. THAT FIX WAS MADE FOR THE PROPOSER AND
+    # NEVER FOR THE ANSWERER -- the same gap, one path over, for a fortnight.
+    #
+    # THE CAPABILITY STATEMENT GOES IN THE SYSTEM POSITION and the history does
+    # not. The statement is static -- derived once from `intent.KNOWN` -- so it
+    # stays part of the cached prefix; the history changes every turn and would
+    # cost a cache miss on every turn if it went there.
+    if can_do:
+        system = f"{system}\n\n{can_do}" if system else can_do
+    # BEFORE BLOCK B, NEVER BETWEEN IT AND THE QUESTION. `Rendered.prompt` is
+    # documented as "Block B then the question, in that order and nothing
+    # between them", so the conversation is prepended to the whole thing rather
+    # than inserted into it.
+    if recent:
+        conversation = _render_conversation(recent)
+        if conversation:
+            request = conversation + "\n\n" + request
 
     t0 = time.perf_counter()
     try:
@@ -2084,7 +2203,9 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                     reply = answer(gw, router, persona, intake.history[-1],
                                    renderer=renderer, updater=updater,
                                    misses=misses, chooser=chooser,
-                                   context_cmds=context_cmds)
+                                   context_cmds=context_cmds,
+                                   can_do=capability_statement(),
+                                   recent=transcript)
                 # VESPER'S REPLY IS NOT AN UTTERANCE, and the first version put
                 # it into `intake.history` as one. `Intake` is the record of
                 # things said TO VESPER -- its confidence, its partials and its

@@ -78,8 +78,15 @@ Two things it does not do:
 
 ## 3. "MODES DON'T WORK" — correct, and the handoff says so
 
-`island.json` reads `Mode: auto`. `home.json` has **no `mode` key at all** —
-not `mode: None` as the handoff states; the key is absent.
+`home.json` has **no `mode` key at all** — not `mode: None` as the handoff
+states; the key is absent.
+
+**Corrected by the owner, 2026-09-10:** an earlier draft of this section read
+`island.json`'s `Mode: auto` as the ambience/stage mode. It is the PERMISSION
+mode, and it is a different axis entirely. The island therefore displays no
+VESPER mode at all — which is its own gap, and the owner has asked for a
+separate row rather than a reused one. Two things called "mode" on one surface
+is how the reading went wrong in the first place.
 
 Handoff §6.3, unprompted: *"`mode.set` has never been driven live end to end …
 the wallpaper has never been observed changing on VESPER's Desktop through that

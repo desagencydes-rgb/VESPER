@@ -178,6 +178,106 @@ KNOWN = ("shell.run", "ui.open", "fs.read", "fs.write", "fs.edit",
 TAKES_NO_ARGS = ("window.list",)
 
 
+# WHAT VESPER CAN DO, IN THE OWNER'S TERMS, FOR THE PATH THAT IS NOT ACTING.
+#
+# `SYSTEM` above is an ARGUMENT SCHEMA. It tells the proposer how to call
+# these, which is exactly the thing the conversational path does not need and
+# never received. That path was handed the owner's last sentence and nothing
+# else -- no registry, no history -- so a model working from its own priors
+# answered "I can only display text in this console. I have no capability to
+# spawn a separate terminal or manipulate GUI windows such as the Notes app",
+# ONE TURN AFTER `window.open` had run and reported a real failure for a real
+# reason, and naming an app nobody had mentioned. Taken from the owner's own
+# transcript, 2026-09-09.
+#
+# A SYSTEM THAT DENIES A CAPABILITY IT JUST USED IS WORSE THAN ONE THAT LACKS
+# IT: the owner stops asking. It is the same failure as reporting success for
+# work not done (`core/actor.py`'s `ok:false` note), inverted -- and it ends
+# the exchange the same way.
+#
+# KEYED ON `KNOWN`, NEVER WRITTEN BESIDE IT. A second hand-maintained list
+# drifts from the first the day someone adds a capability, and it drifts
+# SILENTLY and in the direction that caused this bug -- vesper under-reporting
+# itself. So the import refuses instead, which is what `CapabilityRegistry`
+# does at registration and what `INV-HW-2` does to an unmeasured number.
+CAN_DO: dict[str, str] = {
+    "shell.run":       "run a command on this Mac and tell you what it printed",
+    "ui.open":         "open a file, folder or link for you to look at",
+    "fs.read":         "read a file and tell you what is in it",
+    "fs.write":        "create a file, or overwrite one",
+    "fs.edit":         "change part of a file that already exists",
+    "agent.ask":       "ask a coding agent about this codebase",
+    "agent.run":       "have a coding agent make a change",
+    "window.list":     "see every window that is open, whose it is, and which "
+                       "Desktop it is on",
+    "window.open":     "open an application or a file AS A WINDOW I own, so I "
+                       "may then arrange it",
+    "window.move":     "move a window that is already open",
+    "window.resize":   "resize a window that is already open",
+    "window.relocate": "send a window to another Desktop",
+    "window.close":    "close a window, when you ask",
+    "mode.set":        "enter a named mode, which sets both what you are doing "
+                       "and how I look",
+}
+
+_undescribed = set(KNOWN) - set(CAN_DO)
+_unknown = set(CAN_DO) - set(KNOWN)
+if _undescribed or _unknown:
+    raise RuntimeError(
+        "core/intent.CAN_DO and KNOWN disagree: "
+        f"described-but-not-proposable={sorted(_unknown)}, "
+        f"proposable-but-undescribed={sorted(_undescribed)}. The list vesper "
+        "states about itself is derived from the list it can actually propose, "
+        "so a capability added to one and not the other is refused here rather "
+        "than becoming a sentence vesper cannot say about work it can do.")
+
+
+# THE LIMITS VESPER MUST BE ABLE TO EXPLAIN, because the owner asked "why is
+# that?" and got "could you clarify what 'that' refers to?". These are MEASURED
+# (see docs/planning/HANDOFF-2026-09-09-WINDOWS-MODES.md §3 and §5), not
+# guessed, and they are the reasons behind most window refusals the owner will
+# ever see. A refusal whose reason vesper cannot state is one the owner reports
+# as a bug -- the argument `core/windows.may_act` already makes for returning
+# the reason rather than logging it.
+LIMITS = (
+    "macOS only lets me ACT on the Desktop that is currently showing. I can "
+    "SEE windows on every Desktop, but to move, resize or close one, its "
+    "Desktop has to be the one on screen.",
+    "Some applications will not open a second window on request: launching "
+    "them again does nothing when they are already running, and their "
+    "File > New menu item is only reachable while they are frontmost.",
+    "I do not read window titles. I know an application, a size and a "
+    "position, not what is in the window.",
+    "macOS chooses where a new window lands. I read back where it actually "
+    "went rather than predicting it.",
+)
+
+
+def capability_statement() -> str:
+    """What vesper can do and what it cannot, for the system position.
+
+    STATIC BY CONSTRUCTION, so it stays the cached prefix. It is derived at
+    import from `KNOWN`, and `KNOWN` does not change while the process runs;
+    building it per turn would cost a cache miss on every single turn to say
+    the same sentence.
+    """
+    doing = "\n".join(f"  - {CAN_DO[c]}  ({c})" for c in KNOWN)
+    limits = "\n".join(f"  - {line}" for line in LIMITS)
+    return (
+        "WHAT YOU CAN ACTUALLY DO ON THIS MAC. This is the real list, and it "
+        "is the only one. Never tell the owner you cannot do something on it, "
+        "and never say you can only display text -- you are not a chat window, "
+        "you act on this machine:\n"
+        f"{doing}\n\n"
+        "WHAT GENUINELY LIMITS YOU. Say these when they apply, in place of "
+        "claiming you have no capability at all:\n"
+        f"{limits}\n\n"
+        "If the owner is asking WHY something did not work, the reason is in "
+        "the conversation above -- give it to them in your own words rather "
+        "than asking what they are referring to."
+    )
+
+
 @dataclass(slots=True)
 class Proposal:
     capability_id: str

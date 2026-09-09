@@ -1263,10 +1263,48 @@ def _describe(proposal: Any, result: dict) -> str:
             note = str(result.get("flag") or result.get("reason") or "").strip()
             return f"partly -- {note}" if note else "partly, and it is flagged"
         if cid == "window.list":
+            # THE COUNT THAT WAS REPORTED WAS THE ONE THAT DID NOT MATTER.
+            #
+            # The owner asked "move the safari window in the other desktop to
+            # this desktop" and was told "33 window(s) open, 0 of them mine to
+            # arrange" -- which reads as a refusal, and is not one. `may_arrange`
+            # counts what vesper may touch UNPROMPTED: `vespers_desktop` is null
+            # unless vesper's ground is on the Space that is showing, so clause 1
+            # of the ownership rule cannot apply and the unprompted count is
+            # legitimately zero. But the owner had just asked, and
+            # `windows.may_act(..., owner_requested=True)` returns True for
+            # every one of those 33.
+            #
+            # `window_list` computes `needs_a_request` and this dropped it. So
+            # the one number the owner could act on was the one not shown, and
+            # the doctrine took the blame for a sentence.
+            #
+            # THE RULE IS NOT LOOSENED TO MAKE THE NUMBER LOOK BETTER.
+            # `core/windows.authority` is the owner's own decision and widening
+            # it would hand vesper their whole session; see its docstring on the
+            # relocation escape. This is presentation, and it is fixed here.
             n = result.get("count")
-            free = result.get("may_arrange")
-            return (f"{n} window(s) open, {free} of them mine to arrange"
-                    if n is not None else "I looked at the windows")
+            if n is None:
+                return "I looked at the windows"
+            free = int(result.get("may_arrange") or 0)
+            ask = int(result.get("needs_a_request") or 0)
+            if free and ask:
+                return (f"{n} window(s) open -- {free} on my desktop that I can "
+                        f"arrange on my own, and {ask} of yours that I will move "
+                        f"if you ask")
+            if free:
+                return (f"{n} window(s) open, all {free} on my desktop and mine "
+                        f"to arrange")
+            if ask:
+                # AND THE REAL BLOCKER IS NAMED. Accessibility reaches only the
+                # Desktop that is showing (measured; HANDOFF §3), which is what
+                # actually stops the owner's request -- not ownership. A refusal
+                # that names the wrong reason sends them to fix the wrong thing.
+                return (f"{n} window(s) open. None are mine, so I will not "
+                        f"rearrange them on my own -- but tell me which one and "
+                        f"I will move it, as long as its desktop is the one on "
+                        f"screen")
+            return f"{n} window(s) open"
         if cid == "window.open":
             where = result.get("landed")
             place = (" on my desktop" if where == "vespers_desktop" else

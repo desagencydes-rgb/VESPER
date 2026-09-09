@@ -15079,17 +15079,47 @@ def check_the_island_shows_vespers_own_state() -> Result:
     rows = rows_of(bench, None)
     labels = [x["label"] for x in rows]
 
-    # 1. THE MODE IS ALWAYS THERE. It is the row with no other surface, and in
-    #    `auto` it is the difference between VESPER asking and VESPER acting.
-    if "Mode" not in labels:
+    # 1. THE PERMISSION MODE IS ALWAYS THERE. It is the row with no other
+    #    surface, and in `auto` it is the difference between VESPER asking and
+    #    VESPER acting.
+    #
+    #    LABELLED "Permission" SINCE 2026-09-10, AND THE ASSERTION MOVED WITH
+    #    IT. It read "Mode" -- while VESPER's own (stage, ambience) mode had no
+    #    row on this surface at all. A reader who saw `Mode: auto` and concluded
+    #    that modes were working was reading the right row for the wrong
+    #    question, and that is exactly what happened; the owner corrected it.
+    #    The invariant is untouched: the permission mode always has a surface.
+    #    What changed is that it no longer holds a word a second axis wants.
+    if "Permission" not in labels:
         r.err(f"the island does not show the permission mode: {labels}. It is "
               f"a live authority state with no indicator anywhere else, and in "
               f"`auto` VESPER acts without asking.")
     else:
-        mode_row = next(x for x in rows if x["label"] == "Mode")
+        mode_row = next(x for x in rows if x["label"] == "Permission")
         if mode_row["value"] not in permission_mode.MODES:
-            r.err(f"the mode row reads {mode_row['value']!r}, which is not one "
-                  f"of {permission_mode.MODES}")
+            r.err(f"the permission row reads {mode_row['value']!r}, which is "
+                  f"not one of {permission_mode.MODES}")
+
+    # 1b. AND THE TWO AXES NEVER SHARE A LABEL. Strictly stronger than what
+    #     this check held before, and it is the assertion that would have
+    #     caught the confusion rather than a reader having to. Driven with a
+    #     mode set, because no live run reaches that state on demand -- until
+    #     `mode.set` is used, `home.json` carries no `mode` key at all and the
+    #     row is correctly absent.
+    both = rows_of(bench, None, mode="research")
+    blabels = [x["label"] for x in both]
+    if "Mode" not in blabels:
+        r.err(f"a mode the owner chose does not reach the island: {blabels}. "
+              f"`mode.set` writes it to home.json and this surface is where a "
+              f"glance would find it.")
+    if "Permission" not in blabels:
+        r.err(f"the permission mode vanishes once a VESPER mode is set: "
+              f"{blabels}. Two axes, two rows, always both.")
+    if len(set(blabels)) != len(blabels):
+        r.err(f"two island rows share a label: {blabels}. The permission mode "
+              f"and the (stage, ambience) mode are different axes, and one "
+              f"word for both is what made a reader answer the wrong question "
+              f"about whether modes worked.")
 
     # 2. IT IS A GLANCE, NOT A BOARD. The island is 185pt wide; a long value is
     #    a value nobody can read at that size, and the detail already has cards

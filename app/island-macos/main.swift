@@ -1424,6 +1424,70 @@ if args.contains("--demo") {
 // existed from the day the wallpaper became the real desktop picture, and until
 // now nothing on the command line called it -- so the promise in the design doc
 // was true of the code and false of the owner's machine.
+// WHAT THE DESKTOP PICTURE ACTUALLY IS, READ FROM THE WINDOW SERVER.
+//
+// ADDED 2026-09-10 BECAUSE THE OWNER'S REQUIREMENT WAS UNVERIFIABLE. They asked
+// that vesper paint its own Desktop and "not touch the other desktop, nor the
+// lock screen, not even if vesper is off" -- and nothing in this binary could
+// say what the picture WAS, so the claim could only ever be argued from source.
+// `desktoppicture.db` does not exist on this macOS version, so there is no file
+// to read either: measured 2026-09-10, ~/Library/Application Support/Dock is
+// absent entirely.
+//
+// AN INSTRUMENT'S SELF-REPORT IS NOT EVIDENCE, and neither is a guard's. This
+// reads the world back, which is the only thing that distinguishes "the guard
+// is written" from "the owner's picture is untouched".
+//
+// READ-ONLY BY CONSTRUCTION. It sets nothing. A diagnostic that can change the
+// thing it measures is how the wallpaper record got poisoned in the first
+// place.
+if args.contains("--wallpaper-status") {
+    guard let screen = NSScreen.main else {
+        FileHandle.standardError.write("wallpaper-status: no screen\n"
+            .data(using: .utf8)!)
+        exit(6)
+    }
+    let cur = Ambience.currentPicture(screen)?.path ?? ""
+    let dir = Ambience.wallpaperDir()
+    let ours = (dir != nil && !cur.isEmpty) ? cur.hasPrefix(dir!) : false
+    print("")
+    print("  wallpaper status — read from NSWorkspace, not from a flag vesper keeps")
+    print("  ──────────────────────────────────────────────────────────────────────")
+    print("  this Space's picture : \(cur.isEmpty ? "*** could not be read ***" : cur)")
+    print("  is it one of ours    : \(ours ? "YES — this Space is showing a VESPER image" : "no — this is not a VESPER picture")")
+
+    // THE RECORD, AND WHETHER IT IS TRUSTWORTHY. A saved "original" that points
+    // inside vesper's own wallpapers folder is the poisoned case: restoring
+    // from it would put a VESPER image back and report success.
+    let saved = Ambience.savedOriginalPath
+    if let s = try? String(contentsOfFile: saved, encoding: .utf8) {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+        let poisoned = (dir != nil) ? t.hasPrefix(dir!) : false
+        print("  saved original       : \(t)")
+        if poisoned {
+            print("                         *** POISONED — that is one of vesper's own")
+            print("                         images, so --mode-restore would put a VESPER")
+            print("                         picture back and call it the owner's ***")
+        }
+    } else {
+        print("  saved original       : NONE RECORDED — --mode-restore can put nothing")
+        print("                         back. Vesper has no record of the owner's picture.")
+    }
+
+    // WHOSE DESKTOP IS SHOWING. The picture above belongs to whichever Space is
+    // on screen, so the reading is only interpretable beside this.
+    let seen = SpaceWatch.onScreen().filter { $0.layer == 0 }
+    let foreign = seen.filter { $0.owner != "VESPER" }
+    print("  showing Desktop      : \(seen.count) window(s), \(foreign.count) not vesper's")
+    if foreign.isEmpty && !seen.isEmpty {
+        print("                         (looks like VESPER's own Desktop)")
+    } else if !foreign.isEmpty {
+        print("                         (the owner's Desktop — vesper must not repaint here)")
+    }
+    print("")
+    exit(0)
+}
+
 if args.contains("--mode-restore") {
     Ambience.restore(on: NSScreen.main ?? screen)
     exit(0)
