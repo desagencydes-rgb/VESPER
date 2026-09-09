@@ -1484,9 +1484,9 @@ been driven against the running surface.**
 | — | **The home's four model rows** (§9t) | ✅ DONE 2026-09-08 — `the-model-rows-read-a-real-completion`, 8 red runs. They had NEVER worked: no producer, and a comment claiming one. Live: `thinking = yes, 15 tok`, `context = 349`, `tokens = 466.4`. Found and fixed a pre-existing leak of menu rows into the HOST card in the same pass |
 | 14 | **`f5-acceptance` flakes under load** (§9i, §11.0) | ✅ DONE 2026-09-08 — the gate compared a live in-memory counter against the durable store and reported its own sampling as a defect. Both negative controls driven RED. §9i's recorded cause was wrong twice over; §11.0 supersedes it |
 | 15 | **Window management** (§11.1) | 🟡 IN PROGRESS 2026-09-09 — vocabulary, ownership rule, native bridge and capability ladder landed and DRIVEN LIVE. `a-window-belongs-to-someone`, 7 red runs. `window.open` drove live and its provenance stamp is real. **Driving it found a forgery path** (§11.1c): `reopen` claimed any newly-seen window, and returned one of the owner's Safari windows from `window.open("TextEdit")` — fixed by requiring the launched pid and a cross-Desktop frontier. **Owed:** placement verification (§11.1c), a check for the forgery fix, and rung 3, which has never executed |
-| 15a | **Placement is verified, not predicted** (§11.1c) | `window_open` reads where the window actually landed; one rebuild attempt onto VESPER's Desktop, then a flag. Needs the placement experiment first |
-| 15b | **Window memory across a restart** (§11.8) | corroborated stamps for a VESPER restart; an interaction log that reopens nothing by itself. Owner's design, 2026-09-09 |
-| 15c | **The flag bar** (§11.9) | one bar above the main menu holding every flag in the system. Owner's design, 2026-09-09 |
+| 15a | **Placement is verified, not predicted** (§11.1c) | 🟡 PART DONE 2026-09-09 — `window_open` now READS BACK where the window landed and reports `degraded` with a flag instead of `ok: true`; the two false comments are corrected. Also fixed: vesper claimed TextEdit's **Open dialog** as a window it opened, so the launch rung now requires a close button. **Owed:** the close-and-reopen rebuild, which needs a bridge that can reach a window on another Desktop — every act matches through `SpaceWatch.onScreen()`, one Desktop only |
+| 15b | **Window memory across a restart** (§11.8) | 🟡 PART DONE 2026-09-09 — the AUTHORITY half is built, checked and driven across processes: `CI-138`, 7 red runs, one interpreter opened window 33429 and a second read it back as vesper's. Boot-keyed, corroborated against the live window, fail-closed on every unreadable state. **Owed:** the interaction LOG itself (L3, titles with the two reason codes, weekly compression reusing `StoreSet.rotate`) |
+| 15c | **The flag bar** (§11.9) | ✅ DONE 2026-09-09 — small bar above the main menu, hidden when empty, buttons revealing the flag on hover. Published from the EXECUTOR (the one point every result passes through), deduped by CONDITION not execution, written to `home.json`, rendered as text. `CI-137`, 8 red runs, driven end to end with a real degraded relocation |
 | 16 | **Modes, end to end** (§11.2) | the eleven ambience modes and the stages, manual from the menu and automatic, with the wallpaper switch bounded to VESPER's Desktop |
 | 17 | **Apps management** (§11.3) | drive macOS applications without clicking, where a real interface exists |
 | 18 | **Notes, in full** (§11.4) | read, edit, create, share, lock — replacing the titles-only integration `CI-131` gates |
@@ -2382,10 +2382,17 @@ something needs them, it goes here and waits.
 2. **Rung 3 of the relocation ladder has never executed.** It declines by design
    unless VESPER's Desktop is showing, for the same reason. Its drive is written
    and ready (`drive_rung3.py`), and reports UNTESTED rather than passing.
-3. **TCC consent is owed.** Grants are keyed to the ad-hoc cdhash and every
-   build revokes them; there have been many builds. Re-granting needs
-   `open -n app/VESPER.app --args --speech-consent` and the owner to answer a
-   system dialog. Not attemptable alone.
+3. **ACCESSIBILITY IS REVOKED, AND IT BLOCKS WINDOW ACTIONS.** Confirmed with
+   evidence 2026-09-09, not inferred: `universalAccessAuthWarn` is on screen,
+   and System Events reports **0 windows** for a TextEdit process that held
+   six. Every `close`, `move` and `resize` failure in the overnight drives ends
+   `ax=[] matched=0` -- the accessibility tree is empty because the grant is
+   gone, which `CLAUDE.md` warns of: grants are keyed to the ad-hoc cdhash and
+   every build revokes them. **This is not a code fault and nothing in the
+   window ladder can be finished without it.** Grant Accessibility to
+   `app/VESPER.app` in System Settings > Privacy & Security > Accessibility,
+   AFTER the last build. Speech/microphone consent is owed on the same grounds
+   (`open -n app/VESPER.app --args --speech-consent`).
 4. **Ordering question.** The owner said the flag bar comes "after we're done of
    this and the other thing" (§11.1c and §11.8), and separately said to continue
    the plan where it was left off (step 16, modes). 15a/15b/15c are placed
