@@ -186,11 +186,23 @@ Recorded because a handoff that only lists wins is not a handoff.
 ## 9. HOW TO PICK THIS UP
 
 ```sh
-python3.13 tools/ci/checks.py all          # expect 154/154
-python3.13 tools/ci/self_test.py           # expect 754/754, ~50-70 min, run ALONE
+python3.13 tools/ci/checks.py all          # 154/154, CONFIRMED 2026-09-09
+python3.13 tools/ci/self_test.py           # 754/754, CONFIRMED 2026-09-09
+                                           # ~50-70 min, and run it ALONE
 python3.13 tools/traceability_lint.py
 python3.13 tools/reference_lint.py
 ```
+
+**Both figures are CONFIRMED, not expected.** The full suite ran to completion
+on the committed tree: `754/754 self-tests behaved correctly (red under
+violation, green after restore)`, zero failures.
+
+**A trap when waiting for it.** A shell waiting with
+`until ! pgrep -f "tools/ci/self_test.py"` **matches its own command line**, so
+the condition never becomes true and a finished suite looks like it is still
+running -- it hid a completed run for fifteen minutes at the end of this
+session. `MEMORY.md` records this trap for this exact command. Read the log's
+last line, or compare a process COUNT against a threshold.
 
 VESPER runs as:
 
