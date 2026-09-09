@@ -1483,7 +1483,10 @@ been driven against the running surface.**
 | 13 | **Active-Space reading from a background process** (§9f) | fix implemented and owner-verified (§9p) — `SpaceWatch.Anchor`, confirmed `0`/`0` with Desktop 1 populated and Desktop 2 genuinely empty. The batched rebuild it was waiting on happened 2026-09-08 with §9t, and `--spaces` from a freshly launched background process correctly enumerated the active Desktop and refused it (`2 foreign window(s)`, ChatGPT) — so the anchor works off the login path too. **The LOGIN-ITEM path itself is still unconfirmed:** `ai.vesper.island` is not bootstrapped in the `gui/501` domain (only `.wake`, `.fnwatch`, `.agenda`, `.arm` are), so `launchctl kickstart` cannot reach it and a real login is needed. Not a prediction — a named, outstanding step |
 | — | **The home's four model rows** (§9t) | ✅ DONE 2026-09-08 — `the-model-rows-read-a-real-completion`, 8 red runs. They had NEVER worked: no producer, and a comment claiming one. Live: `thinking = yes, 15 tok`, `context = 349`, `tokens = 466.4`. Found and fixed a pre-existing leak of menu rows into the HOST card in the same pass |
 | 14 | **`f5-acceptance` flakes under load** (§9i, §11.0) | ✅ DONE 2026-09-08 — the gate compared a live in-memory counter against the durable store and reported its own sampling as a defect. Both negative controls driven RED. §9i's recorded cause was wrong twice over; §11.0 supersedes it |
-| 15 | **Window management** (§11.1) | 🟡 MOSTLY DONE 2026-09-08 — vocabulary, ownership rule, native bridge and capability ladder all landed and DRIVEN LIVE (a real window moved, resized, and correctly refused 10x10). `a-window-belongs-to-someone`, 7 red runs. **Two pieces owed:** `open_window`'s implementation, and cross-Desktop relocation, which needs a private API and therefore an owner decision (§11.1a) |
+| 15 | **Window management** (§11.1) | 🟡 IN PROGRESS 2026-09-09 — vocabulary, ownership rule, native bridge and capability ladder landed and DRIVEN LIVE. `a-window-belongs-to-someone`, 7 red runs. `window.open` drove live and its provenance stamp is real. **Driving it found a forgery path** (§11.1c): `reopen` claimed any newly-seen window, and returned one of the owner's Safari windows from `window.open("TextEdit")` — fixed by requiring the launched pid and a cross-Desktop frontier. **Owed:** placement verification (§11.1c), a check for the forgery fix, and rung 3, which has never executed |
+| 15a | **Placement is verified, not predicted** (§11.1c) | `window_open` reads where the window actually landed; one rebuild attempt onto VESPER's Desktop, then a flag. Needs the placement experiment first |
+| 15b | **Window memory across a restart** (§11.8) | corroborated stamps for a VESPER restart; an interaction log that reopens nothing by itself. Owner's design, 2026-09-09 |
+| 15c | **The flag bar** (§11.9) | one bar above the main menu holding every flag in the system. Owner's design, 2026-09-09 |
 | 16 | **Modes, end to end** (§11.2) | the eleven ambience modes and the stages, manual from the menu and automatic, with the wallpaper switch bounded to VESPER's Desktop |
 | 17 | **Apps management** (§11.3) | drive macOS applications without clicking, where a real interface exists |
 | 18 | **Notes, in full** (§11.4) | read, edit, create, share, lock — replacing the titles-only integration `CI-131` gates |
@@ -2146,3 +2149,239 @@ not depend on its arguments cannot distinguish `ls` from `rm -rf ~`". The second
 distinction was already in the design — inventory is L1, and asking for window
 TITLES is content — so titles now level L5 and the boundary lives in the ladder
 instead of in a comment.
+
+## 11.1c THE THING THAT DECIDES WHERE A WINDOW GOES IS NOT VESPER
+
+**THE ASSUMPTION TWO PARTS OF THIS SYSTEM WERE BUILT ON IS FALSE.**
+`window_open` states it: *"A new window appears on whichever Desktop is
+showing."* Rung 3 of the relocation ladder repeats it: *"a new window opens on
+the CURRENT Space."* Both are wrong, and the owner caught it on 2026-09-09:
+*"they opened in desktop 1 not 2 (the empty one)"*.
+
+Measured the same night. Safari's Desktop was the active one. `window.open`
+launched TextEdit -- which had **zero windows open at the time** -- and the new
+window went to Desktop 1, where TextEdit had last been used. The bridge
+correctly reported creating window 32009; it never appeared in the
+active-Desktop inventory, and the reason was placement, not visibility. Ruled
+out already: there is no Dock `Assign To` binding pinning that application to a
+Desktop (`defaults read com.apple.dock` carries no space binding).
+
+**WHY IT MATTERS MORE THAN THE BUG IT LOOKS LIKE.** `window_open`'s guard exists
+to stop VESPER putting a window into the owner's workspace uninvited, and it
+implements that by refusing unless VESPER's Desktop is showing. That guard does
+not achieve what it claims: VESPER's Desktop can be showing and the window can
+still land on Desktop 1. The trespass the guard was written to prevent is
+reachable **through** the guard.
+
+**AND IT IS THE SAME ERROR AS THE GROUND, FOR THE THIRD TIME IN ONE NIGHT.**
+The ground checked a Desktop and created its window on a different one. `reopen`
+compared before and after across a moment when the Desktop could change. Now
+`window_open` predicts where a window will land instead of reading where it
+went. Every one is VESPER deciding what the world will do rather than looking at
+what it did. The rule that fixed the ground is the rule that fixes all three:
+**do not predict placement, verify it.**
+
+**THE OWNER'S DECISION, 2026-09-09:** when a window lands somewhere it should
+not, VESPER *"should close it and reopen it properly in it's desktop, if not, it
+gets flagged"*. This supersedes the leave-and-flag default proposed earlier --
+correctly, because the objection behind that default ("closing cannot be undone")
+applies to the OWNER's windows and not to one VESPER created seconds ago with
+nothing in it.
+
+**THE RISK IN IT, WHICH MUST BE MEASURED BEFORE IT IS BUILT.** TextEdit had zero
+windows and its new window still went to Desktop 1, so "the app has no windows
+here" is not what decides placement -- macOS appears to remember the
+application's last-used Space. If that is what is happening, close-and-reopen
+returns the window to Desktop 1 and VESPER loops: open, wrong Desktop, close,
+reopen, wrong Desktop. **The ladder therefore needs a stop: attempt the rebuild
+ONCE, and if the window lands wrong again, flag it and stop.** The decisive
+experiment is opening an application with no windows while VESPER's ground holds
+the active Desktop, and it is owed.
+
+### What step 15 still owes
+
+- `window_open` must verify **where the window landed**, not assume it.
+- One rebuild attempt, then flag. Never a retry loop against the window server.
+- The forgery fix (below) has no check yet, and an unguarded fix regresses.
+- Rung 3 has still never executed. It needs VESPER's ground on the active
+  Desktop, which needs the owner present, and it is flagged rather than faked.
+
+### The forgery path, closed 2026-09-09
+
+`reopen` and `pressNew` returned the first newly-seen window **without checking
+which application it belonged to**, over a view that sees only the active
+Desktop. Driven live, `window.open("TextEdit")` returned window 101 of pid 640 --
+one of the owner's **Safari** windows -- stamped `vesper_opened`. That is a
+forged claim of ownership over the owner's work, and it is exactly what
+`classify_opened` refuses to allow: *"the only thing that actually knows is the
+code that did the opening"*. Knowing it opened SOMETHING is not knowing WHICH.
+
+Both rungs now require the window to belong to the launched pid **and** to
+postdate a frontier taken across every Desktop (`SpaceWatch.highWaterNumber()`).
+The frontier is only sound because of a measurement, so the measurement is
+load-bearing and is owed a repeatable control (§11.8).
+
+
+## 11.8 WINDOW MEMORY ACROSS A RESTART — THE OWNER'S DESIGN
+
+**FIRST, A CORRECTION THAT SHRINKS THE PROBLEM.** Window numbers reset on a
+MACHINE boot, not on a VESPER restart. VESPER restarting -- which happened a
+dozen times on 2026-09-08 alone -- leaves every window open and every number
+valid. After a machine reboot the windows are gone anyway, so nothing is lost by
+forgetting them.
+
+| Situation | What happens |
+|---|---|
+| VESPER restarts, machine still up | Windows still open, numbers still valid. Corroborated stamps restore authority. **Nothing reopens.** |
+| Machine reboots | Windows gone, numbers reset. The log is pure history. VESPER opens what a task needs, when it needs it. |
+
+### The measurement the whole design rests on
+
+Nothing in Apple's documentation states whether window numbers are reused, and
+the established macOS window managers (yabai, Mosaico) do not persist window
+identity at all -- they re-discover, using `_AXUIElementGetWindow`, which returns
+the same CGWindowID rather than a more durable handle. So it was measured on this
+host, 2026-09-09:
+
+- 8 windows created, all closed, 8 more created: **no number reused**
+- 25 sequential open-close cycles: **25 distinct, strictly increasing numbers**
+- 41 windows total, 41 distinct numbers, range 31805..31845
+- allocation rate ~4,460/day; uptime 7 days had reached ~31,845
+
+**Window numbers are allocated monotonically and are not reused within a boot.**
+That is the property that makes a restored stamp safe: if VESPER opened window
+500, exited, the owner closed 500 and opened their own window, theirs gets 501 or
+higher. A stale stamp can only ever match the window it was made for.
+
+This also retro-explains the Tahoe "window number too large" reports: numbers
+only climb past the `UInt32` range **because** nothing recycles them.
+
+### Authority: a persisted stamp is a hint, never a source of truth
+
+Four conditions, all required, or the stamp resolves to `unknown` -- which is the
+owner's, the safe direction:
+
+1. the file's `boot_id` (from `kern.boottime`) equals the current boot, or the
+   **whole file is discarded** -- numbers restart at boot
+2. the window id is present in the live inventory
+3. the `pid` matches the live row
+4. the application matches
+
+Any parse error, missing field or mismatch resolves to `unknown`. The file can
+restore a stamp only for a window that demonstrably still exists; it can never
+invent authority. This does not become a back door to the inference
+`classify_opened` refuses.
+
+**And it must be visible.** VESPER regaining authority over windows after a
+restart should say so on the workbench -- "resumed with 3 windows from before the
+restart" -- rather than authority reappearing with no surface.
+
+### History: a log, and nothing reopens by itself
+
+**THE OWNER'S DESIGN, 2026-09-09:** *"no windows open after reboot, vesper can
+look at the logs and define the windows it was working on, and then opens what it
+needs at that time, it's a fresh start for it anyways"*.
+
+This is better than the alternative it replaced, and for reasons beyond avoiding
+a screen full of windows:
+
+- **It deletes the fragile part.** A "should be reopened" status marked at
+  shutdown only runs on a graceful exit; a crash, a panic or a flat battery skips
+  it, so the feature would be absent exactly when it was wanted.
+- **It needs no new authority.** Restoring windows at startup would have been a
+  new outward act needing its own tier row and its own approval. Opening on
+  demand is `window.open`, already governed.
+- **It obeys `INV-TRIG-1`.** Every autonomous action must trace to exactly one
+  registered trigger. A bulk restore at startup is an action with no trigger; a
+  window opened because a task needs it inherits that task's trigger.
+- **It is the compactor's own doctrine.** `L1(n+1) = project(L3)`, never
+  `compact(L1(n))`. Restoring a saved window set replays a previous answer;
+  reading the log and deciding fresh projects from the record.
+- **It is more correct, not just tidier.** After a reboot the world may have
+  moved -- files renamed, applications updated, the work abandoned. Restoring
+  blindly asserts yesterday's context is today's.
+
+**Bound it.** The clutter problem returns if VESPER ever reads the log and opens
+a batch. The rule is that it opens what the current task needs, as it needs it,
+never a restore-batch under another name.
+
+### What the log holds
+
+Scoped to **windows VESPER interacted with**, which bounds its size and keeps it
+from becoming a record of the owner's whole session.
+
+Every entry carries the title **and whatever else is useful** -- the owner's
+instruction is that VESPER should have everything at its disposal and read only
+what it needs: application, bundle id, geometry, Desktop, provenance, the task or
+command that caused the interaction, and timestamps.
+
+**A TITLE-LESS WINDOW SAYS WHY, AND THE REASON IS A CODE.** Two cases, per the
+owner:
+
+- `no_file` — the document has never been saved to a folder
+- `no_file_model` — this application does not open documents from folders
+
+Reason codes rather than sentences, because the owner's requirement is that
+VESPER *"can actually look them up and understand not get confused or fail"*.
+Free text would leave VESPER interpreting prose it wrote itself, which is the
+compact-your-own-answer trap in another costume. A closed set of reasons can be
+queried; a sentence can only be re-read and guessed at. This is the corpus's
+existing rule that **an absence says why and carries no stamp**.
+
+**Titles are content**, and this is the one place the design spends privacy for
+usefulness. `window_list` refuses titles at L1 and levels them L5 precisely
+because a title is a document name, a subject line, a URL. The owner chose to
+record them; the log therefore inherits that sensitivity and must be stored and
+read accordingly, never flattened to a low-sensitivity record because it is
+convenient.
+
+**Compression reuses what exists.** Weekly rotation, older segments compressed
+and still readable without a decompression step. `StoreSet.rotate` already does
+segment rotation and already solves the hazard that matters -- sequence numbers
+must not restart, or a tombstone for seq 42 in one segment silently erases a
+different record at seq 42 in the next. The check
+`a-compressed-archive-is-still-a-readable-log` already exists and is held out of
+the registry pending ratification. The current week stays uncompressed and near.
+
+
+## 11.9 THE FLAG BAR — ONE DESTINATION FOR EVERY FLAG
+
+**THE OWNER'S DESIGN, 2026-09-09:** a small bar directly above the main menu,
+small in width and height, holding **every flag VESPER raises**, with buttons
+that reveal the flag on hover.
+
+**WHY IT IS ONE BAR AND NOT A SURFACE PER FEATURE.** Flags already exist and have
+nowhere to go. The relocation ladder returns `degraded: true` and a `notes` list
+that nothing renders. A window that lands on the wrong Desktop needs to be
+flagged. A ground that retracted needs to say so. Each of those would otherwise
+invent its own surface, and a flag nobody has a habit of looking at is a flag
+that does not exist. One bar, one habit.
+
+**Scope:** global, end to end, every flag in the system so far. To be built after
+§11.1c and §11.8. Deliberately not designed further here -- the owner stops the
+run before it.
+
+
+## 12 WAITING ON THE OWNER — 2026-09-09
+
+Written down rather than worked around, per the owner's instruction: if
+something needs them, it goes here and waits.
+
+1. **The placement experiment (blocks §11.1c).** Where does a new window land
+   when the application has no windows and VESPER's ground holds the ACTIVE
+   Desktop? Measured so far: TextEdit with zero windows opened on Desktop 1
+   while Safari's Desktop was active, so "no windows here" is not what decides
+   it. The experiment needs VESPER's ground planted, which needs an empty
+   Desktop to be the active one — that is, the owner at the machine. **Until it
+   is answered, close-and-reopen cannot be built without risking a loop.**
+2. **Rung 3 of the relocation ladder has never executed.** It declines by design
+   unless VESPER's Desktop is showing, for the same reason. Its drive is written
+   and ready (`drive_rung3.py`), and reports UNTESTED rather than passing.
+3. **TCC consent is owed.** Grants are keyed to the ad-hoc cdhash and every
+   build revokes them; there have been many builds. Re-granting needs
+   `open -n app/VESPER.app --args --speech-consent` and the owner to answer a
+   system dialog. Not attemptable alone.
+4. **Ordering question.** The owner said the flag bar comes "after we're done of
+   this and the other thing" (§11.1c and §11.8), and separately said to continue
+   the plan where it was left off (step 16, modes). 15a/15b/15c are placed
+   before 16 on that reading; say if 16 should come first.

@@ -2256,8 +2256,8 @@ CASES += [
      "provider that is working perfectly as broken"),
 
     ("effort-floor-and-null-answer", GATEWAY,
-     _sub('TERMINAL = ("auth_failed", "quota_exhausted", "revoked", "bad_request",\n            "budget_too_large")',
-          'TERMINAL = ("auth_failed", "quota_exhausted", "revoked", "bad_request")', 1),
+     _sub('TERMINAL = ("auth_failed", "quota_exhausted", "revoked", "bad_request",\n            "budget_too_large", "model_gone")',
+          'TERMINAL = ("auth_failed", "quota_exhausted", "revoked", "bad_request",\n            "model_gone")', 1),
      "`budget_too_large` left with no rule in the chain: neither retried nor "
      "abandoned, on an error that fails identically every time"),
 
@@ -4699,7 +4699,7 @@ CASES += [
     ("a-sub-agent-thinks-and-never-acts", INTENT_PY,
      # The element this case is actually about -- see the note on
      # `edit-names-one-place` for why the whole-tuple literal kept decaying.
-     _sub('"agent.ask", "agent.run")', '"agent.run")', 1),
+     _sub('"agent.ask", "agent.run",', '"agent.run",', 1),
      "no proposal may name agent.ask, so delegation is built and reachable from "
      "nothing -- the state fifteen other subsystems were found in"),
 
@@ -6040,8 +6040,13 @@ CASES += [
      "publisher that stops leaves its last value on screen looking current"),
 
     ("commands-card-shows-what-ran", CHROME_TPL,
-     _sub("        if (!r.at_ms || !r.ttl_ms) return true;   // no stamp: not ours to judge\n"
-          "        return (now - r.at_ms) <= r.ttl_ms;", "        return true;", 1),
+     # AIMED AT THE RENDERER THE CHECK READS. An earlier re-point hit the
+     # generic `fresh()` helper instead of the HOST card's own filter, so the
+     # mutation applied and the check -- which locates the function writing
+     # `metricsEl` -- never saw it.
+     _sub("            || (Number.isFinite(r.at_ms) && Number.isFinite(r.ttl_ms) && r.at_ms>0 && r.ttl_ms>0\n"
+          "                && r.at_ms<=now && now-r.at_ms<=r.ttl_ms)));",
+          "            || true));", 1),
      "the page shows a reading whatever its age: if the runtime stops, "
      "home.json keeps its last contents and the HOST card reads as current "
      "forever"),
@@ -6325,6 +6330,64 @@ CASES += [
      "the control believes the instrument instead of re-reading the room: "
      "`home == nil` was true in the very run where the ground was still on "
      "screen"),
+]
+
+
+# CI-136 -- the forged claim. `window.open("TextEdit")` returned one of the
+# owner's Safari windows, stamped `vesper_opened`. Measured live 2026-09-09.
+# --------------------------------------------------------------------------
+BRIDGE_SWIFT = "app/home-macos/WindowBridge.swift"
+WATCH_SWIFT = "app/home-macos/SpaceWatch.swift"
+
+CASES += [
+    ("a-window-is-claimed-only-by-the-app-that-opened-it", BRIDGE_SWIFT,
+     _sub("        let frontier = SpaceWatch.highWaterNumber()",
+          "        let frontier = SpaceWatch.onScreen().map(\\.number).max() ?? 0", 1),
+     "the frontier is taken from the ACTIVE Desktop again, so a Desktop change "
+     "during the launch makes every window on the new one look newly created"),
+
+    ("a-window-is-claimed-only-by-the-app-that-opened-it", BRIDGE_SWIFT,
+     _sub("                $0.pid == Int(launchedPid) && $0.number > frontier && $0.layer == 0",
+          "                $0.number > frontier && $0.layer == 0", 1),
+     "reopen claims whatever appeared without checking it belongs to the "
+     "application it launched -- the exact forgery, restored"),
+
+    ("a-window-is-claimed-only-by-the-app-that-opened-it", BRIDGE_SWIFT,
+     _sub("                $0.pid == Int(launchedPid) && $0.number > frontier && $0.layer == 0",
+          "                $0.pid == Int(launchedPid) && $0.layer == 0", 1),
+     "reopen stops requiring the window to postdate the frontier, so a window "
+     "the application already had open is claimed as one VESPER created"),
+
+    ("a-window-is-claimed-only-by-the-app-that-opened-it", BRIDGE_SWIFT,
+     _sub("        guard let launchedPid = launched?.processIdentifier else {",
+          "        let launchedPid = launched?.processIdentifier ?? 0\n        if false {", 1),
+     "reopen proceeds with no process to attribute a window to, and claims one "
+     "anyway"),
+
+    ("a-window-is-claimed-only-by-the-app-that-opened-it", BRIDGE_SWIFT,
+     _sub("                        $0.pid == pid && $0.number > frontier && $0.layer == 0",
+          "                        $0.number > frontier && $0.layer == 0", 1),
+     "the menu rung claims a window without consulting the pid it was handed -- "
+     "the rung that actually produced the forged claim"),
+
+    ("a-window-is-claimed-only-by-the-app-that-opened-it", BRIDGE_SWIFT,
+     _sub("                        $0.pid == pid && $0.number > frontier && $0.layer == 0",
+          "                        $0.pid == pid && $0.layer == 0", 1),
+     "the menu rung stops requiring novelty, so pressing New and finding an "
+     "existing window of the same application reports it as new"),
+
+    ("a-window-is-claimed-only-by-the-app-that-opened-it", WATCH_SWIFT,
+     _sub("        guard let raw = CGWindowListCopyWindowInfo([], kCGNullWindowID)",
+          "        guard let raw = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID)", 1),
+     "the frontier is computed from one Desktop's windows, which is the defect "
+     "it exists to remove, restated one layer down"),
+
+    ("a-window-is-claimed-only-by-the-app-that-opened-it", GROUND_SWIFT,
+     _sub("    let reused = all.count - Set(all).count",
+          "    let reused = 0", 1),
+     "the reuse control stops comparing distinct numbers against the count "
+     "created, so it would pass on the macOS release that recycles them and "
+     "makes the frontier a way to claim the owner's window"),
 ]
 
 

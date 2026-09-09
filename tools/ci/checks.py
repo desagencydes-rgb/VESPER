@@ -12171,12 +12171,31 @@ def check_capabilities_registered_and_levelled_by_argument() -> Result:
 
     # 11. WIRED. A capability system nothing calls is the state this replaced.
     rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
-    calls = rt.count("actor=actor")
-    pumps = rt.count("pump(bus, gw")
-    if calls < pumps - 1:
-        r.err(f"{calls} of {pumps - 1} pump() call sites pass the actor. A "
-              "half-wired path is how `--say` spoke and the daemon did not, on "
-              "2026-08-31")
+    # EVERY pump() CALL, ASKED OF THE CALL ITSELF.
+    #
+    # This counted the string `actor=actor` anywhere in the file and compared it
+    # to `pump(bus, gw` occurrences MINUS ONE. Two faults compounded: an
+    # unrelated `_menu_context.update(..., actor=actor, ...)` counted toward the
+    # total, and the slack of one meant a call site could lose the actor with
+    # the arithmetic still satisfied. Measured 2026-09-09: the self-test removed
+    # the actor from a real pump() call and this stayed GREEN -- a guard against
+    # half-wiring that could not detect half-wiring, which is the failure it was
+    # written for.
+    import ast as _a3
+    _pumps = [n for n in _a3.walk(_a3.parse(rt))
+              if isinstance(n, _a3.Call)
+              and ((isinstance(n.func, _a3.Name) and n.func.id == "pump")
+                   or (isinstance(n.func, _a3.Attribute) and n.func.attr == "pump"))]
+    calls = sum(1 for n in _pumps if any(k.arg == "actor" for k in n.keywords))
+    if not _pumps:
+        r.err("the runtime makes no pump() call at all; the turn loop this "
+              "check reads has changed shape and it is no longer testing it")
+    for n in _pumps:
+        if not any(k.arg == "actor" for k in n.keywords):
+            r.err(f"the pump() call at line {n.lineno} does not pass the actor, "
+                  "so VESPER acts from one entry point and not the other. A "
+                  "half-wired path is how `--say` spoke and the daemon did not, "
+                  "on 2026-08-31")
     if "maybe_act" not in rt:
         r.err("the runtime never asks whether a turn is an action, so the "
               "capability system is registered and unreachable")
@@ -12189,7 +12208,7 @@ def check_capabilities_registered_and_levelled_by_argument() -> Result:
            f"authority; the standing grant is {actor_mod.STANDING_LEVEL} and "
            "non-delegable; refusals reach the confirmation ladder; a write is "
            "verified by reading the disk back and that verifier can fail; and "
-           f"{calls} pump call sites carry the actor")
+           f"all {calls} of {len(_pumps)} pump call sites carry the actor")
     return r
 
 
@@ -13395,12 +13414,30 @@ def check_commands_card_shows_what_ran() -> Result:
         r.err("`_metric_rows` is gone; the HOST card has no producer again")
     else:
         seg = _a2.get_source_segment(_rt, _mr) or ""
-        if '"at_ms"' not in seg:
-            r.err("a metrics row carries no observation time. The reading is "
-                  "stamped by the producer and the stamp is thrown away here, "
-                  "so nothing downstream can tell fresh from stale -- and a "
-                  "publisher that stops leaves its last value on screen "
-                  "looking current.")
+        # EVERY ROW, NOT THE FUNCTION SOMEWHERE. This asked whether the string
+        # `"at_ms"` appeared anywhere in `_metric_rows`, and on 2026-09-09 a
+        # second row-building site was added for unavailable readings -- so
+        # deleting the stamp from ONE row left the other's occurrence behind
+        # and the check stayed green under its own violation. The self-test
+        # caught it; `checks.py all` could not, because the check still passed.
+        _rows = [d for d in _a2.walk(_mr) if isinstance(d, _a2.Dict)
+                 and {"label", "value"} <= {k.value for k in d.keys
+                                            if isinstance(k, _a2.Constant)}]
+        if not _rows:
+            r.err("`_metric_rows` builds no row carrying a label and a value; "
+                  "the HOST card's producer has changed shape and this check "
+                  "is no longer reading what it thinks it is")
+        for _d in _rows:
+            _keys = {k.value for k in _d.keys if isinstance(k, _a2.Constant)}
+            if "at_ms" not in _keys:
+                r.err("a metrics row carries no observation time. The reading "
+                      "is stamped by the producer and the stamp is thrown away "
+                      "here, so nothing downstream can tell fresh from stale -- "
+                      "and a publisher that stops leaves its last value on "
+                      f"screen looking current. Row keys: {sorted(_keys)}")
+            if not any("ttl" in str(k).lower() for k in _keys):
+                r.err("a metrics row carries no TTL, so nothing downstream can "
+                      f"decide when it goes stale. Row keys: {sorted(_keys)}")
         if "TTL" not in seg.upper():
             r.err("nothing drops a reading past its TTL. INV-HW-2: unknown "
                   "means unavailable, fail-closed -- a stale number shown as "
@@ -13418,11 +13455,20 @@ def check_commands_card_shows_what_ran() -> Result:
     _seg = _js_body(_tpl[_start:], "function") if _start > 0 else ""
     if not _seg:
         r.err("the HOST card's metrics renderer cannot be found")
-    elif "at_ms" not in _seg or "ttl_ms" not in _seg:
-        r.err("the page renders metrics without checking their freshness. The "
-              "runtime dropping stale rows is a different claim from the page "
-              "refusing to show them: if the runtime STOPS, home.json keeps "
-              "its last contents and the card reads as current forever.")
+    else:
+        # THE COMPARISON, NOT THE IDENTIFIER. `at_ms` appears twice in this
+        # renderer for two different reasons -- filtering stale rows, and
+        # scheduling the next repaint -- so testing that the NAME occurs left
+        # the check green with the whole freshness filter deleted. Assert the
+        # arithmetic that actually drops a stale reading, whitespace-normalised
+        # so reformatting the page is not mistaken for removing the guard.
+        _flat = "".join(_seg.split())
+        if "now-r.at_ms<=r.ttl_ms" not in _flat:
+            r.err("the page renders metrics without comparing a reading's age "
+                  "to its TTL. The runtime dropping stale rows is a different "
+                  "claim from the page refusing to show them: if the runtime "
+                  "STOPS, home.json keeps its last contents and the card reads "
+                  "as current forever.")
 
     r.note("a real command run through the real executor reaches the card with "
            "the argv the kernel received, its output and its exit code; a "
@@ -21660,6 +21706,112 @@ def _swift_body(src: str, opener: str) -> str:
     return ""
 
 
+def check_a_window_is_claimed_only_by_the_app_that_opened_it() -> Result:
+    """VESPER may stamp a window as its own only if it can prove it opened it.
+
+    THE FORGERY, MEASURED LIVE 2026-09-09. `window.open("TextEdit")` returned
+    window 101 of pid 640 -- one of the owner's SAFARI windows -- stamped
+    `vesper_opened`. `reopen` and `pressNew` took the first window that had not
+    been there a moment ago and claimed it, with no test of WHOSE it was, over
+    `SpaceWatch.onScreen()`, which sees only the ACTIVE Desktop. So when the
+    Desktop changed during a launch, every window on the new one looked new.
+
+    `classify_opened` refuses to infer provenance because "the only thing that
+    actually knows is the code that did the opening". Knowing it opened
+    SOMETHING is not knowing WHICH, and the gap between those two is the
+    owner's whole session.
+
+    TWO CONDITIONS, AND NEITHER ALONE IS ENOUGH. The window must belong to the
+    process that was launched, and its number must postdate a frontier taken
+    across EVERY Desktop. Ownership alone would claim a window the same
+    application already had open; novelty alone is what failed here.
+
+    THE FRONTIER IS ONLY SOUND BECAUSE OF A MEASUREMENT, so the measurement
+    ships as `--window-id-reuse-check` rather than living in a commit message.
+    Window numbers are allocated monotonically and not reused within a boot --
+    41 windows created and destroyed, 41 distinct strictly increasing numbers.
+    If a macOS release recycles them, that control goes red and this guard
+    becomes a way to claim the owner's window.
+    """
+    r = Result("a-window-is-claimed-only-by-the-app-that-opened-it")
+    bridge_p = REPO / "app" / "home-macos" / "WindowBridge.swift"
+    watch_p = REPO / "app" / "home-macos" / "SpaceWatch.swift"
+    main_p = REPO / "app" / "island-macos" / "main.swift"
+    for f in (bridge_p, watch_p, main_p):
+        if not f.exists():
+            r.err(f"{f.name} is missing")
+            return r
+    bridge = bridge_p.read_text(encoding="utf-8")
+    reopen = _swift_nostrings(_swift_body(bridge, "static func reopen(bundleId: String) -> [String: Any] {"))
+    press = _swift_nostrings(_swift_body(bridge, "private static func pressNew(pid: Int, since frontier: Int) -> [String: Any]? {"))
+
+    if not reopen:
+        r.err("WindowBridge has no reopen(bundleId:); the path that creates a "
+              "window VESPER may then claim has changed shape")
+        return r
+    flat = "".join(reopen.split())
+    if "SpaceWatch.highWaterNumber()" not in flat:
+        r.err("reopen does not take its frontier from highWaterNumber(). A "
+              "frontier built from onScreen() sees only the ACTIVE Desktop, so "
+              "a Desktop change during the launch makes every window over there "
+              "look newly created -- which is how one of the owner's Safari "
+              "windows came back from window.open(\"TextEdit\")")
+    if "$0.pid==Int(launchedPid)" not in flat:
+        r.err("reopen claims a window without checking it belongs to the "
+              "application it launched. Knowing VESPER opened SOMETHING is not "
+              "knowing WHICH, and the difference is the owner's session")
+    if "$0.number>frontier" not in flat:
+        r.err("reopen claims a window without checking it postdates the "
+              "frontier, so a window the application already had open counts "
+              "as one VESPER just created")
+    if "guard let launchedPid" not in reopen:
+        r.err("reopen does not refuse when no process is reported. With no pid "
+              "there is nothing to verify against, and the only safe answer is "
+              "to claim nothing")
+
+    if not press:
+        r.err("WindowBridge has no pressNew(pid:since:) taking a frontier; the "
+              "menu rung is the one that actually produced the forged claim")
+    else:
+        pflat = "".join(press.split())
+        if "$0.pid==pid" not in pflat:
+            r.err("pressNew claims a window without checking the pid it was "
+                  "handed. This rung ALREADY held the pid and did not consult "
+                  "it")
+        if "$0.number>frontier" not in pflat:
+            r.err("pressNew claims a window without checking it postdates the "
+                  "frontier")
+
+    watch = _swift_nostrings(_swift_body(watch_p.read_text(encoding="utf-8"),
+                                         "static func highWaterNumber() -> Int {"))
+    if not watch:
+        r.err("SpaceWatch has no highWaterNumber(); the frontier has no source")
+    elif "optionOnScreenOnly" in watch:
+        r.err("highWaterNumber reads only on-screen windows, so the frontier it "
+              "returns is a frontier of ONE Desktop. That is the defect it "
+              "exists to remove, restated")
+
+    # THE MEASUREMENT MUST BE RE-RUNNABLE, AND MUST BE ABLE TO FAIL.
+    ctl = _swift_nostrings(_swift_body(main_p.read_text(encoding="utf-8"),
+                                       'if args.contains("--window-id-reuse-check") {'))
+    if not ctl:
+        r.err("--window-id-reuse-check is gone. The frontier is sound only "
+              "while window numbers are not reused, and a measured property "
+              "with no repeatable measurement is a claim")
+    else:
+        if "exit(5)" not in ctl or "reused" not in ctl:
+            r.err("--window-id-reuse-check cannot report reuse, so it would "
+                  "pass on the macOS that breaks the frontier")
+        if "Set(all).count" not in "".join(ctl.split()):
+            r.err("--window-id-reuse-check does not compare distinct numbers "
+                  "against the count created, which is the whole measurement")
+
+    r.note("a window is claimed only when it belongs to the launched process "
+           "AND postdates a cross-Desktop frontier; the frontier's soundness is "
+           "re-measurable through --window-id-reuse-check")
+    return r
+
+
 def check_the_ground_gives_a_taken_desktop_back() -> Result:
     """VESPER's ground must never keep a Desktop that has the owner's work on it.
 
@@ -22085,6 +22237,7 @@ CHECK_FNS = {
     "effort-floor-and-null-answer": check_effort_floor,
     "permission-mode-ceiling-only-lowers": check_permission_mode_ceiling_only_lowers,
     "the-ground-gives-a-taken-desktop-back": check_the_ground_gives_a_taken_desktop_back,
+    "a-window-is-claimed-only-by-the-app-that-opened-it": check_a_window_is_claimed_only_by_the_app_that_opened_it,
 }
 
 

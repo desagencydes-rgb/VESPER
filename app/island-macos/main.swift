@@ -1753,6 +1753,65 @@ if args.contains("--ground-retract-check") {
     exit(5)
 }
 
+if args.contains("--window-id-reuse-check") {
+    // THE MEASUREMENT THE FORGERY FIX RESTS ON, MADE REPEATABLE.
+    //
+    // `reopen` and `pressNew` decide a window is new by comparing its number to
+    // a frontier taken before the call. That is only sound if window numbers are
+    // allocated monotonically and are NOT reused within a boot -- and nothing in
+    // Apple's documentation says either way. Measured on this host 2026-09-09:
+    // 41 windows created and destroyed gave 41 distinct, strictly increasing
+    // numbers with no reuse. If a future macOS recycles them, that guard becomes
+    // a way to claim the owner's window and this check is what says so.
+    //
+    // The windows are 1x1, fully transparent, and placed far offscreen.
+    func makeWindow() -> NSWindow {
+        let w = NSWindow(contentRect: NSRect(x: -30000, y: -30000, width: 1, height: 1),
+                         styleMask: [.borderless], backing: .buffered, defer: false)
+        w.alphaValue = 0
+        w.isOpaque = false
+        w.backgroundColor = .clear
+        w.orderFront(nil)
+        return w
+    }
+    var batchA: [Int] = [], batchB: [Int] = [], held: [NSWindow] = []
+    for _ in 0..<8 { let w = makeWindow(); batchA.append(w.windowNumber); held.append(w) }
+    for w in held { w.orderOut(nil); w.close() }
+    held.removeAll()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+    for _ in 0..<8 { let w = makeWindow(); batchB.append(w.windowNumber); held.append(w) }
+    for w in held { w.orderOut(nil); w.close() }
+    held.removeAll()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+    // THE TIGHTEST CASE: one window opened and closed, over and over. If a
+    // number is ever going to come back, it comes back here.
+    var seq: [Int] = []
+    for _ in 0..<25 {
+        let w = makeWindow()
+        seq.append(w.windowNumber)
+        w.orderOut(nil); w.close()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    }
+    let all = batchA + batchB + seq
+    let reused = all.count - Set(all).count
+    let rising = zip(seq, seq.dropFirst()).allSatisfy { $0 < $1 }
+    print("window-id-reuse-check: \(all.count) windows created and destroyed, "
+          + "\(Set(all).count) distinct numbers, range \(all.min() ?? 0)..."
+          + "\(all.max() ?? 0); sequential batch strictly increasing: \(rising)")
+    if reused == 0 && rising {
+        print("window-id-reuse-check: PASS -- no number was reused, so a window "
+              + "whose number exceeds a frontier taken earlier was created after "
+              + "it. That is what lets a claim be verified rather than assumed.")
+        exit(0)
+    }
+    FileHandle.standardError.write(("window-id-reuse-check: FAILED -- \(reused) "
+        + "number(s) reused, strictly increasing=\(rising). The frontier in "
+        + "WindowBridge.reopen/pressNew is UNSOUND on this macOS: a recycled "
+        + "number can make one of the owner's windows look newly created, and "
+        + "VESPER would claim it.\n").data(using: .utf8)!)
+    exit(5)
+}
+
 if args.contains("--ground-resume-check") {
     // THE RETRACTION WAS PROVEN; THE RESUME WAS NOT. After giving a Desktop
     // back, VESPER arms a watch that replants when a Desktop is empty. If that

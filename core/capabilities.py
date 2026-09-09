@@ -887,8 +887,14 @@ def window_open(args: dict) -> dict:
 
     # VESPER DOES NOT CREATE WINDOWS ON A DESKTOP IT DOES NOT OWN.
     #
-    # A new window appears on whichever Desktop is showing. If that is the
-    # owner's, VESPER has just put something into their workspace uninvited --
+    # A new window appears WHERE THE SYSTEM DECIDES, and this guard used to say
+    # "on whichever Desktop is showing". That is false, measured 2026-09-09:
+    # TextEdit with zero windows open, launched while another Desktop was
+    # active, put its window on Desktop 1 where it had last been used. The guard
+    # is kept because it removes the common case and costs nothing, but it does
+    # NOT guarantee placement -- only the readback after opening does, and this
+    # function now performs one. If that is the owner's Desktop, VESPER has just
+    # put something into their workspace uninvited --
     # and then, because the ownership rule's clause 1 does not apply there, it
     # cannot tidy it away again either. The owner's whole framing is that their
     # Desktop is theirs; adding to it unasked is the same trespass as
@@ -932,10 +938,42 @@ def window_open(args: dict) -> dict:
     _VESPER_OPENED_WINDOWS.add(new_id)
     wins, vespers = _inventory()
     made = next((w for w in wins if w.window_id == new_id), None)
+    if made is None:
+        # THE WINDOW OPENED AND IT IS NOT HERE, AND THAT IS NOT A SUCCESS.
+        #
+        # This returned `ok: True` with an empty line whenever the window could
+        # not be found, which reads as "opened, nothing to report" and is the
+        # opposite of what happened. The owner found it on 2026-09-09: "they
+        # opened in desktop 1 not 2 (the empty one)".
+        #
+        # THE ASSUMPTION THIS FUNCTION WAS BUILT ON IS FALSE. Its own comment
+        # says a new window appears on whichever Desktop is showing. Measured
+        # the same night: TextEdit with ZERO windows open, launched while a
+        # different Desktop was active, put its window on Desktop 1 where it had
+        # last been used. So the guard above -- refuse unless VESPER's Desktop is
+        # showing -- does not achieve what it claims, and the trespass it exists
+        # to prevent is reachable straight through it.
+        #
+        # The honest report is that VESPER opened something into the owner's
+        # workspace and cannot even tidy it away: every act in the bridge matches
+        # its target through `SpaceWatch.onScreen()`, which sees only the active
+        # Desktop, so a window that landed elsewhere cannot be moved, resized or
+        # closed. Rebuilding it in place is the owner's instruction and is owed
+        # (HOME-WORKBENCH §11.1c); it needs a bridge that can reach a window on
+        # another Desktop, and it must attempt ONCE and then flag rather than
+        # retry, because placement may be sticky.
+        return {"ok": True, "degraded": True, "window_id": new_id,
+                "provenance": W.classify_opened(by_vesper=True),
+                "landed": "off_vespers_desktop",
+                "flag": "vesper opened a window and the system placed it on "
+                        "another desktop, where vesper cannot reach it to move "
+                        "or close it. it is yours to close.",
+                "line": ""}
     return {"ok": True, "window_id": new_id,
             "provenance": W.classify_opened(by_vesper=True),
-            "line": W.describe(made, vespers_desktop=vespers) if made else "",
-            **(made.meta if made else {})}
+            "landed": "vespers_desktop" if vespers else "active_desktop",
+            "line": W.describe(made, vespers_desktop=vespers),
+            **made.meta}
 
 
 def _bundle_for(name: str) -> str:
@@ -984,11 +1022,14 @@ def window_relocate(args: dict) -> dict:
     `close_window` outside the owner's authorisation precisely because nothing
     recovers what was in it.
 
-    And it cannot place a window on a Desktop that is not showing: a new window
-    opens on the CURRENT Space, and switching Space is the same private
-    capability that just failed. So the fallback is honest about being
-    available only when VESPER's Desktop is the active one, rather than
-    reporting a window it put somewhere else.
+    And it cannot choose the Desktop a rebuilt window lands on. This said "a new
+    window opens on the CURRENT Space"; measured 2026-09-09, that is false --
+    macOS placed a new window on the Desktop where its application had last been
+    used, not the active one, even with that application holding no windows at
+    all. So requiring VESPER's Desktop to be showing is necessary and NOT
+    sufficient, the rebuild must READ BACK where the replacement landed, and it
+    must attempt once and then flag rather than retry: if placement is sticky, a
+    retry loop reopens onto the wrong Desktop forever.
     """
     from core import windows as W
 
