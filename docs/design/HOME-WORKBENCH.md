@@ -2413,7 +2413,48 @@ that does not exist. One bar, one habit.
 run before it.
 
 
+## 11.10 THE SESSION RECORD — 2026-09-09
+
+**`docs/planning/HANDOFF-2026-09-09-WINDOWS-MODES.md` is the full account** of
+the session that built §11.1c, §11.8, §11.9, §11.2 and §11.2a: nine checks with
+their red runs, eleven measurements not to re-derive, four platform limits,
+the debris it caused, and — the part to read first — **the three things verified
+only by me and not by the owner.**
+
+**Its central finding, which belongs here rather than only there:** every drive,
+check and self-test in this tree imports `core/` from the WORKING TREE, and the
+runtime that actually runs is the copy inside the app bundle. Four faults lived
+in that gap and passed every gate, while the owner could not open a window at
+all. *"Driven live" from the repo is not the same claim as "the owner can use
+it."* `CI-140` now asserts the bundle matches the repo, because a fix that lands
+only in the repo is a fix the owner never gets.
+
+**And the defect that recurred nine times in one session:** a check that asks
+whether a NAME APPEARS goes vacuous the moment a second place uses that name.
+Count the sites, or ask the AST. Adding code that reuses a helper should be
+assumed to have made some check stop detecting anything.
+
+
 ## 12 WAITING ON THE OWNER — 2026-09-09
+
+**FIRST, THREE THINGS THAT ARE CLAIMS AND NOT FACTS** until the owner exercises
+them. They are the most likely place a "done" in this document is wrong:
+
+0a. **Window management since the fixes.** The owner's last hands-on test
+    predates every fix in `2f940ee`..`1f7ec88`. The phrases to retry are *open a
+    new safari window here*, *what windows do i have open*, and *move the notes
+    window to your desktop* — the last takes two turns by design, because window
+    ids are not guessable so it lists first.
+0b. **The flag bar has never been seen by the owner with a flag in it.** The
+    receiver is mounted and the chain is driven end to end, but the bar hides
+    when empty and no live flag has been raised in front of them.
+0c. **`mode.set` has never been driven live end to end.** `home.json` reads
+    `mode: None`. The pairing resolves, the capability writes it, the home
+    watches the file — and the wallpaper has never been OBSERVED changing
+    through that path, because it needs vesper's ground on the ACTIVE Desktop
+    and that never coincided with a test. **This is the biggest untested claim
+    in the build.**
+
 
 Written down rather than worked around, per the owner's instruction: if
 something needs them, it goes here and waits.
