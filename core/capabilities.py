@@ -930,7 +930,7 @@ def _act(effect: str, args: dict, *argv: str) -> dict:
     wins, desktop = _inventory()
     target = next((w for w in wins if w.window_id == wid), None)
     if target is None:
-        raise ValueError(f"window {wid} is not on the active desktop, so it "
+        raise ValueError(f"window {wid} does not exist on any desktop, so it "
                          "cannot be judged or acted on")
     allowed, why = W.may_act(target, effect, vespers_desktop=desktop,
                              owner_requested=bool(args.get("owner_requested")))
@@ -1112,8 +1112,24 @@ def window_open(args: dict) -> dict:
                     "create is not VESPER's to claim"}
 
     _VESPER_OPENED_WINDOWS.add(new_id)
-    wins, vespers = _inventory()
-    made = next((w for w in wins if w.window_id == new_id), None)
+    # WAIT FOR THE WINDOW TO BE LISTED, DO NOT READ ONCE AND CONCLUDE.
+    #
+    # The bridge returning a window id means the window server accepted the
+    # creation, not that `CGWindowListCopyWindowInfo` already reports it.
+    # Measured 2026-09-09: at 0.0 s the window is absent from the listing and at
+    # 0.3 s it is there. Reading once therefore found nothing and reported
+    # `landed: off_vespers_desktop, degraded: true` -- a flag raised about a
+    # window that was sitting exactly where it should be. That is the same
+    # too-early read that made the ground retraction control report a failure
+    # earlier the same night, and the same answer applies: poll for the fact
+    # rather than assume how long it takes to become one.
+    wins, vespers, made = [], None, None
+    for _ in range(20):
+        wins, vespers = _inventory()
+        made = next((w for w in wins if w.window_id == new_id), None)
+        if made is not None:
+            break
+        time.sleep(0.1)
     # RECORDED WITH WHAT THE WORLD SAYS, not with what was asked for. The pid
     # and application come from the window that actually appeared, because those
     # are the two fields a later run corroborates against -- recording the

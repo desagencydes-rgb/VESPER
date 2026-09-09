@@ -52,6 +52,36 @@ enum SpaceWatch {
         }
     }
 
+    /// Every window, on every Desktop, not only the one showing.
+    ///
+    /// `onScreen()` passes `.optionOnScreenOnly` and therefore answers about
+    /// ONE Desktop. That is right for judging ownership -- the rule is about
+    /// the room VESPER is in -- and wrong for FINDING a window to act on, and
+    /// the two were the same call. Measured 2026-09-09: `reopen` created two
+    /// TextEdit windows on another Desktop, could not see either, reported
+    /// "the application would not open a new window", and left them behind.
+    /// It had done the thing it said it had failed to do.
+    ///
+    /// Public API throughout: passing no options returns windows regardless of
+    /// which Space they are on. No private symbol is needed to look.
+    static func allWindows() -> [SeenWindow] {
+        guard let raw = CGWindowListCopyWindowInfo([], kCGNullWindowID)
+                as? [[String: Any]] else { return [] }
+        return raw.compactMap { w in
+            guard let n = w[kCGWindowNumber as String] as? Int,
+                  let l = w[kCGWindowLayer as String] as? Int,
+                  let p = w[kCGWindowOwnerPID as String] as? Int else { return nil }
+            var r = CGRect.zero
+            if let b = w[kCGWindowBounds as String] as? [String: Any] {
+                r = CGRect(x: (b["X"] as? CGFloat) ?? 0, y: (b["Y"] as? CGFloat) ?? 0,
+                           width: (b["Width"] as? CGFloat) ?? 0,
+                           height: (b["Height"] as? CGFloat) ?? 0)
+            }
+            return SeenWindow(owner: (w[kCGWindowOwnerName as String] as? String) ?? "?",
+                              layer: l, number: n, pid: p, bounds: r)
+        }
+    }
+
     /// The highest window number in existence right now, on EVERY Desktop.
     ///
     /// A FRONTIER, NOT A COUNT. `onScreen()` sees only the active Desktop, so a

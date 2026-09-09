@@ -2922,7 +2922,7 @@ final class HomeChrome {
           // silently when they do not, which looks identical to a push that
           // worked and rendered nothing -- §9r's whole failure in one line.
           var recv = ['__vesperStage','__vesperHistory','__vesperWork',
-                      '__vesperChanges','__vesperMetrics']
+                      '__vesperChanges','__vesperMetrics','__vesperFlags']
                      .map(function(n){ return n.replace('__vesper','')
                         + ':' + (typeof window[n] === 'function' ? 'fn' : 'MISSING'); })
                      .join(',');

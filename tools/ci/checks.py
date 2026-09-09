@@ -22197,6 +22197,21 @@ def check_a_window_is_claimed_only_by_the_app_that_opened_it() -> Result:
         r.err("highWaterNumber reads only on-screen windows, so the frontier it "
               "returns is a frontier of ONE Desktop. That is the defect it "
               "exists to remove, restated")
+    # BOTH CROSS-DESKTOP READERS, not just the frontier's. `allWindows()` is
+    # what lets the bridge find a window to act on and the window it just
+    # created; narrowing IT to the active Desktop restores every failure this
+    # check exists for, one layer down. The two functions share a line, so a
+    # guard on only one of them can be satisfied while the other is broken.
+    walls = _swift_nostrings(_swift_body(watch_p.read_text(encoding="utf-8"),
+                                         "static func allWindows() -> [SeenWindow] {"))
+    if not walls:
+        r.err("SpaceWatch has no allWindows(); the bridge is back to seeing one "
+              "Desktop, so a window anywhere else cannot be found, moved, "
+              "closed, or recognised as one vesper just opened")
+    elif "optionOnScreenOnly" in walls:
+        r.err("allWindows() reads only the active Desktop, so it is onScreen() "
+              "under another name -- and vesper reports 'the application would "
+              "not open a new window' for windows it did open and left behind")
 
     # THE MEASUREMENT MUST BE RE-RUNNABLE, AND MUST BE ABLE TO FAIL.
     ctl = _swift_nostrings(_swift_body(main_p.read_text(encoding="utf-8"),

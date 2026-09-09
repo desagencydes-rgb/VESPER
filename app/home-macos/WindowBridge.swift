@@ -44,8 +44,28 @@ enum WindowBridge {
     /// than reporting a partial list as though it were everything, so the
     /// payload says which Desktop it covers and the caller can say so too.
     static func list() -> [[String: Any]] {
+        // EVERY DESKTOP, AND EACH WINDOW SAYS WHICH ONE IT IS ON.
+        //
+        // This listed only the active Desktop and then hardcoded
+        // `on_active_desktop: true` for every row, so the field carried no
+        // information and the ownership rule could not judge a window anywhere
+        // else. That made clause 2 -- "everywhere else, provenance decides" --
+        // unreachable in practice: vesper could open a window, have the system
+        // place it on another Desktop, and then be told its own window "is not
+        // on the active desktop, so it cannot be judged or acted on".
+        //
+        // A WINDOW ELSEWHERE GETS A SENTINEL, NOT A GUESS. Without the private
+        // Spaces API there is no public way to name the Space a non-active
+        // window sits on, so every one of them reads `desktop-elsewhere`. That
+        // is honest about the limit and it is SAFE for the rule: `vespers_desktop`
+        // is non-null only when vesper's ground is on the Desktop showing, so a
+        // sentinel can never equal it, clause 1 cannot apply, and provenance
+        // decides -- which is exactly what clause 2 says should happen. The
+        // limit it does carry, stated rather than discovered: two windows on
+        // two DIFFERENT non-active Desktops are indistinguishable here.
         let fp = SpaceWatch.fingerprint()
-        return SpaceWatch.onScreen().filter(manageable).map { w in
+        let here = Set(SpaceWatch.onScreen().map(\.number))
+        return SpaceWatch.allWindows().filter(manageable).map { w in
             [
                 "window_id": String(w.number),
                 "pid": w.pid,
@@ -61,8 +81,9 @@ enum WindowBridge {
                 // identity everywhere else in this app. Two reads of the same
                 // Desktop agree; a switch changes it, which is the property
                 // `SpaceWatch.switched` is built on.
-                "desktop_id": desktopId(fp),
-                "on_active_desktop": true,
+                "desktop_id": here.contains(w.number) ? desktopId(fp)
+                                                      : "desktop-elsewhere",
+                "on_active_desktop": here.contains(w.number),
             ]
         }
     }
@@ -150,7 +171,12 @@ enum WindowBridge {
         // was just read. That is a real weakness and it is named rather than
         // hidden: two windows of one process at identical size and position are
         // indistinguishable here, and the match is refused rather than guessed.
-        guard let target = SpaceWatch.onScreen().first(where: {
+        // ACROSS EVERY DESKTOP. This read `onScreen()`, so a window on any
+        // other Desktop had no accessibility handle at all and could not be
+        // moved, resized or closed -- which is why the rebuild rung was
+        // unimplementable and why vesper could open a window and then be unable
+        // to tidy it away.
+        guard let target = SpaceWatch.allWindows().first(where: {
             String($0.number) == windowId && $0.pid == pid }) else { return nil }
         var matches: [AXUIElement] = []
         for w in windows {
@@ -335,7 +361,7 @@ enum WindowBridge {
         }
         // RE-READ, because a modal "save changes?" sheet means the window is
         // still there and the honest answer is that it did not close.
-        let gone = !SpaceWatch.onScreen().contains { String($0.number) == windowId }
+        let gone = !SpaceWatch.allWindows().contains { String($0.number) == windowId }
         return ["ok": gone,
                 "reason": gone ? "" : "the close was pressed and the window is still "
                                     + "open -- the application is likely asking the "
@@ -457,7 +483,7 @@ enum WindowBridge {
         var sawUndismissable = false
         for _ in 0..<20 {
             usleep(150_000)
-            let cands = SpaceWatch.onScreen().filter {
+            let cands = SpaceWatch.allWindows().filter {
                 $0.pid == Int(launchedPid) && $0.number > frontier && $0.layer == 0
             }
             for c in cands {
@@ -556,7 +582,7 @@ enum WindowBridge {
                     // window and the whole call reported that the application
                     // would not open one. The dialog problem belongs to the
                     // LAUNCH path, which is where the test stays.
-                    if let f = SpaceWatch.onScreen().first(where: {
+                    if let f = SpaceWatch.allWindows().first(where: {
                         $0.pid == pid && $0.number > frontier && $0.layer == 0
                     }) {
                         return ["ok": true, "window_id": String(f.number), "pid": f.pid,
