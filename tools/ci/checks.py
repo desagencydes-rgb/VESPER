@@ -24475,6 +24475,301 @@ def check_permission_mode_ceiling_only_lowers() -> Result:
     return r
 
 
+
+# --------------------------------------------------------------------------
+# APPLICATIONS (§11.3) -- four assertions about driving other applications.
+#
+# THE FAILURE THESE ARE WRITTEN AGAINST is not "VESPER cannot drive an app". It
+# is "VESPER could not drive the app and said it had". Every other capability
+# in this corpus that reached outside the process has produced that shape at
+# least once, and an Apple Event is the easiest place yet to produce it: the
+# call returns, an error number nobody reads comes back, and an empty document
+# list is indistinguishable from an application with nothing open.
+# --------------------------------------------------------------------------
+APPS_BRIDGE = REPO / "app" / "home-macos" / "AppsBridge.swift"
+
+
+def _apps_run_body() -> str:
+    """The text of `AppsBridge.run`, brace-matched rather than line-sliced.
+
+    Sliced by line count this would silently start reading the next function
+    the moment anything above it grew, and the assertions below would then be
+    made about code that is not the one they name.
+    """
+    src = APPS_BRIDGE.read_text(encoding="utf-8")
+    i = src.index("static func run(verb:")
+    j = src.index("{", i)
+    depth, k = 0, j
+    while k < len(src):
+        if src[k] == "{":
+            depth += 1
+        elif src[k] == "}":
+            depth -= 1
+            if depth == 0:
+                return src[j:k + 1]
+        k += 1
+    raise AssertionError("AppsBridge.run has unbalanced braces")
+
+
+def check_app_never_driven_without_permission() -> Result:
+    r = Result("an-application-is-never-driven-without-permission")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    if not APPS_BRIDGE.is_file():
+        r.err("app/home-macos/AppsBridge.swift is missing")
+        return r
+    body = _apps_run_body()
+
+    # THE ORDER IS THE ASSERTION, not the presence. Measured on this node
+    # 2026-09-10: an application VESPER has never been granted returns
+    # `errAEEventWouldRequireUserConsent`, and SENDING the event anyway is what
+    # raises a consent dialog. A permission check that runs after the send is
+    # not a check, it is a log line -- and the dialog it fails to prevent lands
+    # on the owner's screen during an unattended run.
+    sends = [m.start() for m in re.finditer(r"NSAppleScript\(", body)]
+    if not sends:
+        r.err("AppsBridge.run sends no Apple Event at all -- this check would "
+              "then be asserting the ordering of something that does not "
+              "happen, which is a green light for nothing")
+        return r
+    guards = [m.start() for m in re.finditer(r"guard\s+state\s*==\s*GRANTED", body)]
+    if not guards:
+        r.err("AppsBridge.run does not refuse on `state == GRANTED` before "
+              "acting; an ungranted application would be driven and the owner "
+              "would get a consent dialog raised by an unattended run")
+    elif min(guards) > min(sends):
+        r.err("AppsBridge.run sends an Apple Event before it checks the "
+              "permission. Discovering a refusal afterwards is discovering it "
+              "after the dialog has already appeared")
+    if "permission(" not in body:
+        r.err("AppsBridge.run never reads the permission")
+
+    # AND THE RULE MODULE MUST REFUSE IT TOO, driven rather than read. The Swift
+    # half can only be inspected as text on this platform; this half is executed.
+    from core import apps as A
+    for state in ("needs_consent", "denied", "unknown", "no_such_app", ""):
+        for effect in A.EFFECTS:
+            ok, _why = A.may_reach(A.ORDINARY, effect, permission=state)
+            if ok:
+                r.err(f"core/apps.may_reach permits {effect!r} on an "
+                      f"application whose permission reads {state!r}")
+    ok, _ = A.may_reach(A.ORDINARY, A.READ, permission="granted")
+    if not ok:
+        # THE PASSING CONTROL. Without it every assertion above is satisfied by
+        # a function that refuses everything, which is the shape this corpus has
+        # shipped before and called a gate.
+        r.err("core/apps.may_reach refuses a granted read, so the refusals "
+              "above prove nothing -- a rule that says no to everything is not "
+              "enforcing a distinction")
+    for cls in (A.SHELL_HOST, A.AUTOMATION_HOST, A.CREDENTIAL_STORE,
+                A.VESPER_ITSELF):
+        ok, _ = A.may_reach(cls, A.CHANGE, permission="granted")
+        if ok:
+            r.err(f"core/apps.may_reach lets VESPER change a {cls!r} target -- "
+                  f"that reaches past the gate that governs the same act "
+                  f"directly")
+    r.note(f"{len(guards)} permission guard(s) before {len(sends)} send site(s); "
+           f"rule module refused {len(A.EFFECTS) * 5} ungranted combinations")
+    return r
+
+
+def check_app_refusal_is_not_a_success() -> Result:
+    r = Result("an-app-refusal-is-not-a-success")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    from core import capabilities as C
+
+    seen = {}
+
+    def fake(*argv):
+        # The bridge's own shape for an application VESPER may not drive.
+        return {"ok": False, "verb": seen["verb"], "bundle_id": seen["bundle"],
+                "state": seen["state"], "why": "no grant", "code": -1744}
+
+    real = C._window_bridge
+    try:
+        C._window_bridge = fake
+        for state in ("needs_consent", "denied", "unknown"):
+            seen.update(verb="documents", bundle="com.example.app", state=state)
+            out = C.app_query({"verb": "documents", "bundle_id": "com.example.app"})
+            if out.get("ok"):
+                r.err(f"app.query reports ok=True for an application whose "
+                      f"permission is {state!r} -- a refused automation "
+                      f"reported as a success is the exact shape the owner has "
+                      f"been finding all week")
+            if not out.get("degraded"):
+                r.err(f"app.query does not mark {state!r} as degraded, so "
+                      f"nothing reaches the flag bar and the refusal is "
+                      f"invisible unless someone reads a log")
+            if not out.get("flag_id"):
+                r.err(f"app.query raises no flag for {state!r}")
+            if not str(out.get("why") or "").strip():
+                r.err(f"app.query refuses {state!r} without saying why")
+
+        # READING A DENIAL IS A SUCCESSFUL READ, and this is the control that
+        # stops the assertions above being satisfied by a capability that fails
+        # unconditionally.
+        seen.update(verb="permission", bundle="com.example.app", state="denied")
+        out = C.app_query({"verb": "permission", "bundle_id": "com.example.app"})
+        if not out.get("ok"):
+            r.err("app.query reports the PERMISSION verb as a failure when the "
+                  "answer is 'denied'. Reading a no is a successful read, and "
+                  "collapsing the two leaves no way to ask what VESPER may do")
+        if out.get("may_read") is not False:
+            r.err("app.query's permission verb claims may_read on a denied app")
+    finally:
+        C._window_bridge = real
+
+    # AND THE EXPLANATION MUST REACH BOTH READERS, which is a separate
+    # assertion from "there is an explanation". Driven end to end 2026-09-10:
+    # the capability returned its reason under `why`, `core/actor.py` builds the
+    # owner's sentence from `reason`, `core/executor.py` builds the flag bar's
+    # text from `flag` -- and the owner was told "that did not go through, and
+    # it gave no reason" while the reason sat in the result. Two consumers
+    # reading different keys is invisible to any test that only asks whether
+    # the capability explained itself.
+    actor_src = (REPO / "core" / "actor.py").read_text(encoding="utf-8")
+    exec_src = (REPO / "core" / "executor.py").read_text(encoding="utf-8")
+    for name, src in (("core/actor.py", actor_src), ("core/executor.py", exec_src)):
+        if 'result.get("reason")' not in src:
+            r.err(f"{name} no longer reads `reason`, so the key this capability "
+                  f"explains itself in reaches it as nothing -- the pair has to "
+                  f"agree on where the explanation lives")
+
+    seen.update(verb="documents", bundle="com.example.app", state="denied")
+    try:
+        C._window_bridge = fake
+        out = C.app_query({"verb": "documents", "bundle_id": "com.example.app"})
+    finally:
+        C._window_bridge = real
+    for key in ("reason", "flag"):
+        if not str(out.get(key) or "").strip():
+            r.err(f"a refused app.query carries no {key!r}, so the owner is "
+                  f"told it did not go through and given no reason -- the "
+                  f"reason exists and simply never reaches them")
+
+    r.note("three refusal states carry ok=False + degraded + a flag; the "
+           "permission verb still succeeds while reporting a denial; the "
+           "reason reaches both the sentence and the bar")
+    return r
+
+
+def check_app_verb_set_is_closed() -> Result:
+    r = Result("the-app-verb-set-is-closed")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    if not APPS_BRIDGE.is_file():
+        r.err("app/home-macos/AppsBridge.swift is missing")
+        return r
+    src = APPS_BRIDGE.read_text(encoding="utf-8")
+
+    m = re.search(r"static let VERBS = \[([^\]]*)\]", src)
+    if not m:
+        r.err("AppsBridge declares no VERBS set, so nothing bounds what may be "
+              "asked of another application")
+        return r
+    verbs = set(re.findall(r'"([^"]+)"', m.group(1)))
+
+    # THE SWITCH AND THE SET MUST AGREE IN BOTH DIRECTIONS. A `case` with no
+    # entry in VERBS is a verb that can never be reached, which is harmless and
+    # confusing; an entry in VERBS with no `case` is a verb that is advertised,
+    # accepted, and then silently does nothing -- and `permission` is
+    # deliberately the one member with no script, so the arithmetic is exact
+    # rather than approximate.
+    body = src[src.index("private static func script("):]
+    body = body[:body.index("\n    /// Run one verb")]
+    cases = set(re.findall(r'case "([^"]+)":', body))
+    advertised_without_script = verbs - cases - {"permission"}
+    if advertised_without_script:
+        r.err(f"AppsBridge advertises {sorted(advertised_without_script)} in "
+              f"VERBS with no script -- accepted and then silently doing "
+              f"nothing is the failure this whole section is written against")
+    scripted_without_advert = cases - verbs
+    if scripted_without_advert:
+        r.err(f"AppsBridge has a script for {sorted(scripted_without_advert)} "
+              f"which is not in VERBS")
+
+    if not re.search(r"guard VERBS\.contains\(verb\)", src):
+        r.err("AppsBridge.run does not refuse a verb outside the set. The set "
+              "is the boundary; unenforced, it is a comment")
+
+    # AND THE LADDER MUST NOT LEVEL AN UNKNOWN VERB DOWN TO A KNOWN ONE.
+    from core import capabilities as C
+    known = {C.app_query_level({"verb": v}) for v in sorted(verbs)}
+    unknown = C.app_query_level({"verb": "zzz-not-a-verb"})
+    if unknown != "L5":
+        r.err(f"app_query_level puts an undeclared verb at {unknown}, not L5. "
+              f"Nobody has described what it would do, so approving it "
+              f"approves an unnamed act at the price of a named one")
+    if unknown in known:
+        r.err("an undeclared verb levels the same as a declared one, so the "
+              "ladder cannot tell them apart")
+    r.note(f"verbs {sorted(verbs)}; scripts {sorted(cases)}; "
+           f"declared levels {sorted(known)}, undeclared {unknown}")
+    return r
+
+
+def check_app_rule_branches_on_a_class() -> Result:
+    r = Result("an-application-rule-branches-on-a-class-not-a-program")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    p = REPO / "core" / "apps.py"
+    if not p.is_file():
+        r.err("core/apps.py is missing")
+        return r
+    tree = ast.parse(p.read_text(encoding="utf-8"))
+
+    # WHY THIS CHECK EXISTS AT ALL. `core/windows.py` states the rule -- "an
+    # application's NAME ... may never be the thing a rule branches on" -- and
+    # CI-007 would not catch a breach of it, because CI-007 scans for HARDWARE
+    # names. So the doctrine was held by nothing but the next reader's memory,
+    # which is the kind that erodes. The obvious implementation of "do not let
+    # VESPER drive a terminal" is a list of bundle identifiers, and it would
+    # have passed every gate in this repository.
+    #
+    # DOCSTRINGS ARE STRIPPED FIRST. This module's own prose has to be able to
+    # SAY what it refuses to do, and a check that cannot tell an example from a
+    # branch would forbid explaining the rule it enforces.
+    docstrings = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                             ast.AsyncFunctionDef)):
+            d = ast.get_docstring(node, clean=False)
+            if d is not None:
+                docstrings.add(d)
+
+    bundle_like = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+){2,}$")
+    offenders = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if node.value in docstrings:
+                continue
+            if bundle_like.match(node.value.strip()):
+                offenders.append((node.lineno, node.value))
+    for lineno, val in offenders:
+        r.err(f"core/apps.py:{lineno} branches on {val!r}, which is a program "
+              f"and not a class. A rule that special-cases one program is a "
+              f"rule the next node cannot honour (INV-HW-1)")
+
+    from core import apps as A
+    if len(A.CLASSES) < 3:
+        r.err("core/apps.CLASSES has fewer than three members, so 'branches on "
+              "a class' is not a meaningful claim")
+    if A.UNCLASSIFIED not in A.CLASSES:
+        r.err("core/apps has no UNCLASSIFIED class -- an unrecognised target "
+              "then has to be treated as something, and every available "
+              "something grants more authority than it should")
+    try:
+        A.may_reach("not-a-class", A.READ, permission="granted")
+    except A.AppRuleViolation:
+        pass
+    else:
+        r.err("core/apps.may_reach accepts a class it does not know instead of "
+              "raising -- an unrecognised class silently treated as ordinary "
+              "is the direction that grants authority by accident")
+    r.note(f"{len(A.CLASSES)} classes, no program named in a branch")
+    return r
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -24518,6 +24813,10 @@ CHECK_FNS = {
     "enable-token-presented-once-per-mint": check_enable_token_presented_once_per_mint,
     "a-due-item-is-spoken-not-merely-noticed": check_a_due_item_is_spoken_not_merely_noticed,
     "a-failure-is-something-the-next-step-can-see": check_a_failure_is_something_the_next_step_can_see,
+    "an-application-is-never-driven-without-permission": check_app_never_driven_without_permission,
+    "an-app-refusal-is-not-a-success": check_app_refusal_is_not_a_success,
+    "the-app-verb-set-is-closed": check_app_verb_set_is_closed,
+    "an-application-rule-branches-on-a-class-not-a-program": check_app_rule_branches_on_a_class,
     "commands-card-shows-what-ran": check_commands_card_shows_what_ran,
     "an-explanation-is-shown-and-never-spoken": check_an_explanation_is_shown_and_never_spoken,
     "the-board-survives-a-restart": check_the_board_survives_a_restart,

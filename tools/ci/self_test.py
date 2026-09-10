@@ -7083,5 +7083,87 @@ CASES += [
 ]
 
 
+APPS_SWIFT = "app/home-macos/AppsBridge.swift"
+APPS_PY = "core/apps.py"
+
+CASES += [
+    ("an-application-is-never-driven-without-permission", APPS_SWIFT,
+     _sub("        guard state == GRANTED else {\n", "        if false {\n", 1),
+     "the bridge stops refusing an application vesper was never granted, so an "
+     "unattended run sends the event anyway -- and macos answers a never-granted "
+     "app by putting a consent dialog on the owner's screen with nobody there"),
+
+    ("an-application-is-never-driven-without-permission", APPS_PY,
+     _sub('    if permission != "granted":\n', '    if permission == "zzz-never":\n', 1),
+     "the rule module permits every permission state, so needs_consent, denied "
+     "and unknown all read as allowed -- unknown is the one that matters, "
+     "because an app that is merely not running would be driven on the strength "
+     "of a reading nobody took"),
+
+    ("an-application-is-never-driven-without-permission", APPS_PY,
+     _sub('        return True, "vesper reads freely where the owner has granted it"',
+          '        return False, "no"', 1),
+     "the rule refuses a granted read as well, so every refusal it makes proves "
+     "nothing: a function that says no to everything satisfies each negative "
+     "assertion above while enforcing no distinction at all"),
+
+    ("an-app-refusal-is-not-a-success", CAPS_PY,
+     _sub('        return {"ok": False, "degraded": True, "verb": verb,\n'
+          '                "bundle_id": bundle, "state": state or "refused",',
+          '        return {"ok": True, "degraded": True, "verb": verb,\n'
+          '                "bundle_id": bundle, "state": state or "refused",', 1),
+     "a refused automation is reported as a success again. the owner asks what "
+     "a locked app has open, vesper reads nothing, and answers as though the "
+     "app had nothing open"),
+
+    ("an-app-refusal-is-not-a-success", CAPS_PY,
+     _sub('                "flag_id": f"app.not_permitted:{bundle}",\n'
+          '                "resolved": [f"app.not_permitted:{bundle}"],\n'
+          '                "reason": why, "flag": why, "why": why}',
+          '                "resolved": [f"app.not_permitted:{bundle}"],\n'
+          '                "reason": why, "flag": why, "why": why}', 1),
+     "the refusal raises no flag, so nothing reaches the bar and the only trace "
+     "of a capability that could not run is a log line nobody reads"),
+
+    ("an-app-refusal-is-not-a-success", CAPS_PY,
+     _sub('                "reason": why, "flag": why, "why": why}',
+          '                "why": why}', 1),
+     "the refusal explains itself under a key neither reader reads, so the "
+     "owner is told 'that did not go through, and it gave no reason' and the "
+     "bar says 'said nothing about how' -- while the reason sits in the result"),
+
+    ("the-app-verb-set-is-closed", APPS_SWIFT,
+     _sub('    static let VERBS = ["permission", "documents"]',
+          '    static let VERBS = ["permission", "documents", "rename"]', 1),
+     "a verb is advertised with no script behind it, so asking for it is "
+     "accepted, does nothing, and returns as though it had worked"),
+
+    ("the-app-verb-set-is-closed", APPS_SWIFT,
+     _sub("        guard VERBS.contains(verb) else {\n", "        if false {\n", 1),
+     "the verb set stops being enforced, so it is a comment rather than a "
+     "boundary -- and the whole safety property of the file is that what "
+     "reaches an application is a name the compiler knew"),
+
+    ("the-app-verb-set-is-closed", CAPS_PY,
+     _sub('    if verb == "documents":\n        return "L2"\n    return "L5"',
+          '    return "L2"', 1),
+     "an undeclared verb levels the same as a declared one, so approving a "
+     "named act silently approves an unnamed one"),
+
+    ("an-application-rule-branches-on-a-class-not-a-program", APPS_PY,
+     _sub("    if target_class == VESPER_ITSELF:\n",
+          '    if target_class == "com.apple.terminal":\n', 1),
+     "the rule branches on a program again. core/windows.py refuses that shape "
+     "in as many words, ci-007 would not catch it because it scans for hardware "
+     "names, and a rule that special-cases one program is a rule the next node "
+     "cannot honour"),
+
+    ("an-application-rule-branches-on-a-class-not-a-program", APPS_PY,
+     _sub("    if target_class not in CLASSES:\n        raise AppRuleViolation(",
+          "    if False:\n        raise AppRuleViolation(", 1),
+     "an unrecognised target class stops raising and falls through to the "
+     "ordinary path, which is the direction that grants authority by accident"),
+]
+
 if __name__ == "__main__":
     sys.exit(main())

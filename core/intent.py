@@ -121,6 +121,12 @@ The only capabilities that exist are:
   window.close args: {"window_id": "<id>"}
               Close a window. Never for tidying -- only when the owner asks.
 
+  app.query   args: {"verb": "<permission|documents>", "bundle_id": "<id>"}
+              Ask about an application. "permission" says whether the owner has
+              allowed vesper to drive that app; "documents" lists what it has
+              open. READS ONLY -- this cannot change an application, and asking
+              for permission does not request it.
+
   mode.set    args: {"mode": "<one of: idle, research, work, explain, show, rest>"}
               Enter a named mode. "research mode", "switch to work mode",
               "go idle", "rest mode" are all this. A mode is a PAIRING of what
@@ -155,7 +161,11 @@ KNOWN = ("shell.run", "ui.open", "fs.read", "fs.write", "fs.edit",
          # MODES. Registered, bound, and until this line was added, unreachable
          # from anything the owner could say -- the same gap the window block
          # above records, one step later in the same build.
-         "mode.set")
+         "mode.set",
+         # APPLICATIONS (§11.3). Reads only: the verbs that CHANGE another
+         # application are not in the vocabulary yet, so proposing one is not
+         # something the parser should learn to do before it can be honoured.
+         "app.query")
 
 
 # CAPABILITIES WHOSE CORRECT ARGUMENTS ARE EMPTY.
@@ -218,6 +228,8 @@ CAN_DO: dict[str, str] = {
     "window.close":    "close a window, when you ask",
     "mode.set":        "enter a named mode, which sets both what you are doing "
                        "and how I look",
+    "app.query":       "ask whether i may drive an application, or what it has "
+                       "open -- reading only, never changing it",
 }
 
 _undescribed = set(KNOWN) - set(CAN_DO)

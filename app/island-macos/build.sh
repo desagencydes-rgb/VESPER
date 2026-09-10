@@ -31,7 +31,7 @@ swiftc -O -swift-version 5 -target arm64-apple-macosx13.0 \
   "$HOME_SRC/Home.swift" "$HOME_SRC/HomeAmbience.swift" "$HOME_SRC/SpaceWatch.swift" \
   "$HOME_SRC/HomeVerify.swift" "$HOME_SRC/GlassGuard.swift" \
   "$HOME_SRC/HomeChrome.swift" "$HOME_SRC/HomeSurfaces.swift" "$HOME_SRC/RuntimeHost.swift" "$HOME_SRC/HomeCost.swift" \
-  "$HOME_SRC/ChromeProbe.swift" "$HOME_SRC/ActBridge.swift" "$HOME_SRC/WindowBridge.swift" "$HOME_SRC/SpacesHatch.swift" \
+  "$HOME_SRC/ChromeProbe.swift" "$HOME_SRC/ActBridge.swift" "$HOME_SRC/WindowBridge.swift" "$HOME_SRC/SpacesHatch.swift" "$HOME_SRC/AppsBridge.swift" \
   "$HOME_SRC/TerminalBridge.swift" \
   "$HOME_SRC/OcclusionWatch.swift" "$HOME_SRC/DockSwap.swift" \
   -o island

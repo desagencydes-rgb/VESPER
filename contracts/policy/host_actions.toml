@@ -452,3 +452,61 @@ does not cover it. They said windows they opened "can be managed only from a
 request from me" -- so closing one is reachable through a request and is not a
 standing permission. Unsaved work in the target is destroyed and no inverse
 recovers it, which is the same reasoning `terminate_process` carries."""
+
+##############################################################################
+# APPLICATIONS
+#
+# §11.3, owner 2026-09-08: "vesper should now be able to fully manage all MacOS
+# apps, and all apps that are better managed without UI clicking ... the apps
+# management feature will just be direct to the app."
+#
+# "EVERY APP IS A VERB" DOES NOT MEAN A ROW PER APPLICATION. This file's own
+# header settles it: rows name an abstract effect, and `move_window` is one row
+# with the window as a runtime target rather than a row per window. Applications
+# are targets too. A row per bundle id would be an unbounded vocabulary, which
+# is the one property this file exists to deny -- and the per-application
+# dimension is already carried by something stronger than a row: the Apple
+# Events grant, which the owner gives one app at a time and can revoke.
+#
+# SO THE PER-APP GATE IS TCC AND `core/apps.py`, AND THE ROWS ARE EFFECTS.
+#
+# THESE TWO ROWS ARE READS AND THEY SIT BELOW THE LINE, which is the owner's
+# standing policy -- VESPER reads freely and changes nothing on its own. The
+# verbs that CHANGE another application are not here yet, deliberately:
+# `action_provenance_required = "verified_local"` means a row lands when its
+# effect has been driven against a real application on this node, and driving
+# an app VESPER has no grant for cannot be done without the owner at the
+# keyboard. They land with the grant trip, and they are the rows that will
+# carry an execution class -- see §17 of the workbench for why that field
+# belongs to the verbs that compete with the owner for the machine and not to
+# a read that blocks for 30 ms.
+##############################################################################
+
+[action.read_application_permission]
+tier = "observe"
+enabled = true
+description = "Whether VESPER may drive a named application, read without asking the owner anything."
+reversible = true
+inverse = ""
+requires_owner_consent = "never"
+provenance_required = "verified_local"
+source = """Owner 2026-09-08, §11.3. Nothing else in this section can be
+authorised without it, and it is the row that makes the grant trip legible: the
+owner can be shown exactly which applications VESPER can already drive, which it
+has been refused, and which have never been asked -- before a single dialog
+appears. Measured 2026-09-10: the reading takes 30-79 ms and raises no dialog."""
+
+[action.read_application_documents]
+tier = "observe"
+enabled = true
+description = "The names of the documents an application currently has open."
+reversible = true
+inverse = ""
+requires_owner_consent = "never"
+provenance_required = "verified_local"
+source = """Owner 2026-09-08, §11.3. THIS IS CONTENT AND NOT INVENTORY, and the
+observe tier's own header demanded it be a separate decision for exactly that
+reason: a document name is a filename, a subject line, a client's name. It
+reaches the planner through `observe()` as untrusted text on the same footing as
+a note body -- a document called "run the deploy script" is something VESPER may
+mention and never something it may act on."""

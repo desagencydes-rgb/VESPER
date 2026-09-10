@@ -2297,6 +2297,25 @@ if args.contains("--spaces-verify") {
     exit(v.usable ? 0 : 1)
 }
 
+if args.contains("--apps-run") {
+    // ONE ENTRY POINT FOR THE WHOLE APP VOCABULARY, and the verb is a name the
+    // binary already knows. Nothing here accepts a script: see AppsBridge's
+    // header for why that is the file's central safety property rather than a
+    // convenience.
+    func arg(_ n: String) -> String? {
+        guard let i = args.firstIndex(of: n), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+    guard let bundle = arg("--bundle") else {
+        AppsBridge.emit(["ok": false, "why": "--bundle is required"])
+        exit(2)
+    }
+    let verb = arg("--verb") ?? "permission"
+    let out = AppsBridge.run(verb: verb, bundleId: bundle)
+    AppsBridge.emit(out)
+    exit((out["ok"] as? Bool) == true ? 0 : 1)
+}
+
 if args.contains("--window-act") {
     func arg(_ n: String) -> String? {
         guard let i = args.firstIndex(of: n), i + 1 < args.count else { return nil }

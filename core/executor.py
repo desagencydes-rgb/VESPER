@@ -385,6 +385,15 @@ class Executor:
                 notes = result.get("notes")
                 if isinstance(notes, list) and notes:
                     text = "; ".join(str(n) for n in notes)[:400]
+            # `reason` IS READ HERE BECAUSE THE ACTOR READS IT THERE. This
+            # consumer took `flag`/`notes` and the actor took `reason`/`flag`,
+            # so a capability that explained itself in `reason` -- the key the
+            # owner-facing sentence uses -- reached the flag bar as "said
+            # nothing about how". Two readers of the same result disagreeing
+            # about which key holds the explanation is a defect in the pair,
+            # not in whichever capability picked the other one.
+            if not text:
+                text = str(result.get("reason") or "").strip()
             if not text:
                 text = (f"{capability_id} completed in a degraded way and said "
                         "nothing about how")

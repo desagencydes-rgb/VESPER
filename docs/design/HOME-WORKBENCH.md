@@ -1489,7 +1489,7 @@ been driven against the running surface.**
 | 15c | **The flag bar** (§11.9) | ✅ DONE 2026-09-09 — small bar above the main menu, hidden when empty, buttons revealing the flag on hover. Published from the EXECUTOR (the one point every result passes through), deduped by CONDITION not execution, written to `home.json`, rendered as text. `CI-137`, 8 red runs, driven end to end with a real degraded relocation |
 | 16 | **Modes, end to end** (§11.2) | ✅ DONE 2026-09-10 (§15.2, §16) — the eleven ambiences reachable and each with a wallpaper file; `research` given `Milestone`, which no pairing had ever reached; the three animated wallpapers played for the first time; a mode that does not land reaches the flag bar; and the wallpaper switch bounded to VESPER's Desktop **by construction** rather than by a guard — `HomeAmbience` writes the system picture zero times |
 | 16a | **Stages of work** (§11.2a) | ✅ DONE 2026-09-10 — `a-stage-bounds-what-vesper-opens`, 8 red runs. The contract had existed since 2026-09-09 and was read by nothing |
-| 17 | **Apps management** (§11.3) | drive macOS applications without clicking, where a real interface exists |
+| 17 | **Apps management** (§11.3) | 🟡 **PARTIAL** 2026-09-10 (§17) — the permission instrument (five states, **no dialog**, measured 30–79 ms), `app.query` with a closed verb set, `core/apps.py` branching on a class and never a program, and a refusal that reaches the owner's sentence **and** the flag bar with its reason. 4 checks, 11 red runs, driven end to end. **The verbs that CHANGE an application are not built** — `verified_local` provenance means they land with the grant trip that measures them, and so does `execution_class` |
 | 18 | **Notes, in full** (§11.4) | read, edit, create, share, lock — replacing the titles-only integration `CI-131` gates |
 | 19 | **UI view + clicking** (§11.5) | see any window and drive it: click, scroll, hold, type, inject. **The owner's stopping point** |
 | — | ⏸ **DISCUSS BEFORE BUILDING** | the owner stops the run here, 2026-09-08 |
@@ -2917,3 +2917,147 @@ picture survived it — the separation demonstrated rather than asserted.
 passing: its subject was deleted, and all three of its cases had gone stale —
 which the harness reported as *"the artifact has changed shape and this
 self-test is no longer testing anything"*.
+
+---
+
+## 17. APPS MANAGEMENT — THE INSTRUMENT, THE VOCABULARY, AND THE REFUSAL
+
+**§11.3 asked for the ability to drive applications. What landed is the half
+that can be driven with no grants at all, and it is the half that decides
+whether the other half is safe.**
+
+### THE MEASUREMENT THAT CHANGED THE DESIGN
+
+The plan assumed the denial path was the deliverable — *a denied Apple Event
+returns `-1743`, assert it surfaces as degraded rather than `ok`*. Driving the
+real API on this node **2026-09-10** showed that is not the state VESPER is
+actually in, and the difference matters:
+
+| status | meaning | when |
+|---|---|---|
+| `0` | granted | the owner has allowed it |
+| `-1743` | `errAEEventNotPermitted` | the owner has **refused** it |
+| `-1744` | `errAEEventWouldRequireUserConsent` | **never asked** |
+| `-600` | `procNotFound` | not running **or not installed** |
+
+**`-1743` only exists after a refusal.** An application VESPER has never been
+granted returns `-1744`, and the way to turn that into a real answer is to send
+the event — **which is what raises the consent dialog**. So the failure this
+feature could actually produce was never "a denial reported as success". It was
+**VESPER putting a modal dialog on the owner's screen during an unattended run,
+with nobody there to answer it.**
+
+**So permission is READ BEFORE ACTING, never discovered by acting.**
+`AEDeterminePermissionToAutomateTarget(..., askUserIfNeeded: false)` returns a
+status in **30–79 ms and raises no dialog** — measured, and it contradicts
+`NotesBridge.swift`'s own comment, which says it "still prompts". That comment
+is why step 10 probed permission by sending a real Apple Event, and why the
+per-app grant trip looked unmanageable: *a feature whose permission can only be
+discovered by triggering it cannot tell the owner what it is about to ask for.*
+
+**This is what makes "auto mode grants every permission" survivable.** VESPER
+acts freely wherever the owner has already granted it, and **says what it needs**
+everywhere else — instead of converting its own autonomy into a queue of dialogs.
+
+**AND `-600` DOES NOT MEAN "NOT RUNNING".** It came back identically for an
+installed-but-closed application and for a bundle id that does not exist.
+LaunchServices separates them and also does not prompt, so the instrument
+reports **five** states and collapses none: `granted`, `denied`, `needs_consent`,
+`unknown`, `no_such_app`. An application that is not running has a permission
+that **could not be read**, which `INV-HW-2` makes UNAVAILABLE rather than a
+value — reporting it as denied would tell the owner VESPER lacks a grant it may
+well hold.
+
+**The grant trip therefore costs one LAUNCH per app as well as one dialog.**
+
+### WHAT "EVERY APP IS A VERB" TURNED OUT TO MEAN
+
+**Not a row per bundle id.** `host_actions.toml`'s own header settles it — rows
+name an abstract effect, and `move_window` is one row with the window as a
+runtime target. Applications are targets too. A row per application is an
+unbounded vocabulary, the one property that file exists to deny, and the
+per-application dimension is already carried by something stronger than a row:
+**the Apple Events grant, which the owner gives one app at a time and can
+revoke.**
+
+So the shape is the three gates the window work already established:
+
+| gate | asks | lives in |
+|---|---|---|
+| the vocabulary | may VESPER do this **at all** | `host_actions.toml`, read by `CI-056` |
+| the rule | may it reach **this target** | `core/apps.py` |
+| the ladder | what does approving it **cost** | `app_query_level` |
+
+`core/apps.py` **branches on a class, never a program.** `core/windows.py` states
+that rule — *"an application's NAME may never be the thing a rule branches on"* —
+and `CI-007` would not have caught a breach, because it scans for **hardware**
+names. The obvious implementation of "do not let VESPER drive a terminal" is a
+list of bundle identifiers, and it would have passed every gate in this
+repository. It now fails one:
+`an-application-rule-branches-on-a-class-not-a-program` parses the module and
+refuses a reverse-DNS constant in a branch, docstrings stripped so the module can
+still **explain** the rule it enforces.
+
+**The verbs are compiled in and no script is ever passed from outside.** That is
+`AppsBridge`'s central property, not a convenience. If the runtime could hand it
+an AppleScript string, every gate above would be reasoning about a verb name
+while something else entirely reached the application — and the planner reads
+untrusted text: a note body, a window title, a web page. **Text that reaches a
+planner which can compose scripts is text that can drive this machine.**
+
+### WHAT IT COST TO FIND THE LAST DEFECT
+
+The capability was complete, its four checks were green, and ten red runs had
+executed. Driven end to end through VESPER's own channel, the owner got:
+
+> *that did not go through, and it gave no reason*
+
+— and the flag bar read *"app.query completed in a degraded way and said nothing
+about how"*, **while the reason sat in the result the whole time.**
+
+`core/actor.py` builds the owner's sentence from `reason`; `core/executor.py`
+builds the flag text from `flag`; this capability explained itself in `why`.
+**Two consumers of the same result disagreeing about which key holds the
+explanation** — a defect in the pair, not in whichever capability picked the
+third key. Both now read `reason`, and the check asserts the agreement rather
+than the existence of an explanation, because every test that only asks "did it
+explain itself" passes on the broken version.
+
+**No gate could have caught this and none was going to.** It is the
+`an-instrument's-self-report-is-not-evidence` rule at the last inch: the
+capability returned exactly what it was written to return.
+
+### WHAT LANDED, AND WHAT §11.3 STILL OWES
+
+| | state |
+|---|---|
+| permission instrument, five states, no dialog | ✅ measured on this node |
+| `read_application_documents`, content → `observe()` as untrusted | ✅ built and driven |
+| refusal reaches the sentence **and** the bar with its reason | ✅ driven end to end |
+| verbs that **CHANGE** an application | ❌ **not built** |
+| `execution_class` on a row | ❌ **deferred, deliberately** |
+| the class **classifier** | ❌ **not built** |
+
+**The changing verbs are not half-written, and that is deliberate.**
+`action_provenance_required = "verified_local"` means a row lands when its effect
+has been **driven against a real application on this node**, and that cannot
+happen before the grant trip. Code that exists, is gated, and has never been
+executed is the *"built, gated, and reachable from one path out of two"* shape
+this corpus keeps catching — writing it tonight would buy a fuller-looking table
+and no more capability.
+
+**`execution_class` is deferred with the verbs it belongs to.** §11.3 says every
+app verb carries one, and both rows that landed are **reads** — `execution_class`
+answers "may this compete with the owner for the machine while it runs", and a
+30 ms permission read does not. Adding the field to the eleven existing
+above-the-line rows tonight would honour the letter of §11.3 for rows nobody
+asked to clamp. It lands with the first verb that actually competes.
+
+**The classifier is a MEASUREMENT, not a list** — an application's scripting
+definition says whether it can be told to run an arbitrary command. Until it
+exists every target is `UNCLASSIFIED`, which gets reads and nothing else, and
+costs nothing today because no changing verb exists to refuse.
+
+**Gates:** `an-application-is-never-driven-without-permission`,
+`an-app-refusal-is-not-a-success`, `the-app-verb-set-is-closed`,
+`an-application-rule-branches-on-a-class-not-a-program` — **11 red runs.**
