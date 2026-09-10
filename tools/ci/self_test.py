@@ -5997,7 +5997,15 @@ ISLAND_SWIFT = "app/island-macos/main.swift"
 
 CASES += [
     ("the-island-shows-vespers-own-state", RUNTIME_PY,
-     _sub('        rows.append({"label": "Mode", "value": permission_mode.read()})\n', "", 1),
+     # ANCHOR MOVED 2026-09-10 WITH THE LABEL. The row read "Mode" while
+     # VESPER's own (stage, ambience) mode had no surface on the island at all,
+     # so a reader who saw `Mode: auto` and concluded modes worked was reading
+     # the right row for the wrong question -- the owner had to correct exactly
+     # that. Renaming it to "Permission" left this mutation matching nothing,
+     # and the case reported "the artifact has changed shape and this self-test
+     # is no longer testing anything" rather than passing vacuously. That is
+     # the §4 defect of 2026-09-09 caught by the machine instead of a reader.
+     _sub('        rows.append({"label": "Permission", "value": permission_mode.read()})\n', "", 1),
      "the permission mode loses its only surface: the owner switches it and "
      "then has to remember, while in `auto` it is the difference between "
      "VESPER asking and VESPER acting"),

@@ -2415,7 +2415,15 @@ run before it.
 
 ## 11.10 THE SESSION RECORD — 2026-09-09
 
-**Gates at the close of that session: 154/154 checks and 754/754 self-test cases, both executed to completion on the committed tree.**
+**Gates at the close of that session: 154/154 checks and 754/754 self-test
+cases.** Corrected 2026-09-10: the second half of that sentence read
+"both executed to completion on the committed tree", and the tree it was
+committed on was NOT the tree that passed. The same commit carried a live
+`self_test` mutation in `core/sensors.py` -- `deadline = s.ttl_ms`, the
+deliberate violation for the TTL case -- committed because the run was
+still mid-mutation when the commit was made. A gate result is a statement
+about a tree, so naming the wrong tree makes the number meaningless even
+when the number is right.
 
 **`docs/planning/HANDOFF-2026-09-09-WINDOWS-MODES.md` is the full account** of
 the session that built §11.1c, §11.8, §11.9, §11.2 and §11.2a: nine checks with
