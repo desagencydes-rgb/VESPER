@@ -891,11 +891,22 @@ def _corroborate(rows: list, live: list) -> set:
     return out
 
 
-def _remember_opened(window_id: str, pid: Any, app_label: str) -> None:
+def _remember_opened(window_id: str, pid: Any, app_label: str,
+                     owner_keeps: bool = False) -> None:
+    """Record a window vesper opened, and whether it is the owner's to keep.
+
+    `owner_keeps` IS RECORDED AT THE MOMENT OF OPENING, not looked up later.
+    HOME-WORKBENCH §11.2a: a stage "leaves the Desktop as it found it, except
+    for what the owner asked to keep", and `show` is the stage whose whole
+    purpose is putting one artefact in front of them. By the time a stage ends
+    the mode may have moved on, so asking then would ask about the wrong stage
+    -- the fact belongs to the window, and it is written with it.
+    """
     rows = [r for r in _load_opened()
             if str(r.get("window_id")) != str(window_id)]
     rows.append({"window_id": str(window_id), "pid": str(pid),
-                 "app_label": str(app_label), "at_ms": int(time.time() * 1000)})
+                 "app_label": str(app_label), "at_ms": int(time.time() * 1000),
+                 "owner_keeps": bool(owner_keeps)})
     _save_opened(rows[-64:])
 
 
@@ -1170,11 +1181,62 @@ def window_open(args: dict) -> dict:
                           "window would land in your workspace. Ask for it and "
                           "it will open here."}
 
+    # THE STAGE OF WORK DECIDES WHAT MAY GO ON SCREEN (HOME-WORKBENCH §11.2a).
+    #
+    # The owner: "steps like research, work.... vesper should be able to open
+    # necessary windows to continue its work". The contract for that has existed
+    # since 2026-09-09 -- `may_open`, `max_windows`, `owner_keeps` in
+    # `mode_pairings.toml` -- and NOTHING READ IT. A stage named the windows its
+    # work legitimately needed and any capability could open anything anyway,
+    # which is the built-and-reached-by-nothing shape this tree keeps finding.
+    #
+    # IT RESTRICTS VESPER, NEVER THE OWNER. `owner_requested` lifts every clause
+    # below, exactly as it lifts the empty-Desktop guard above. §11.2a is
+    # explicit that a stage "does not grant authority; it supplies the REASON a
+    # step has" -- so it bounds what vesper does UNPROMPTED and has no business
+    # refusing a person who asked.
+    #
+    # BEFORE THE APPLICATION IS LAUNCHED, not after. A refusal that arrives once
+    # the window exists is not a refusal, it is a cleanup problem -- and on the
+    # owner's Desktop it is one vesper cannot even perform.
+    bundle = _bundle_for(app) if app else ""
+    if app and not bundle:
+        raise ValueError(f"no application matching {app!r} on this machine")
+    if not args.get("owner_requested"):
+        from core import modes as M
+
+        stage = M.current_stage()
+        allowed, why = M.stage_may_open(stage, label=app or path, bundle=bundle)
+        if not allowed:
+            return {"ok": False, "refused_by": "stage", "stage": stage,
+                    "reason": why}
+        # THE CAP COUNTS WHAT IS STILL ON SCREEN, not what was ever opened.
+        # `show` is one artefact in front of the owner; if vesper opened one an
+        # hour ago and the owner closed it, the stage is not still spent.
+        limits = M.stage_limits(stage)
+        cap = limits.get("max_windows")
+        if cap is not None:
+            mine = sum(1 for w in wins if w.provenance == W.VESPER_OPENED)
+            if mine >= cap:
+                return {"ok": False, "refused_by": "stage", "stage": stage,
+                        "reason": (f"{stage} mode puts one thing in front of you "
+                                   f"at a time, and {mine} of mine "
+                                   f"{'is' if mine == 1 else 'are'} already "
+                                   f"open. Close it, or ask me directly")}
+
+    # WHOSE WINDOW THIS WILL BE, decided before it exists. A `show` window is
+    # the owner's to keep even when vesper opened it, so a later tidy-up must
+    # not treat it as vesper's litter.
+    _keeps = False
+    try:
+        from core import modes as _M
+
+        _keeps = bool(_M.stage_limits(_M.current_stage()).get("owner_keeps"))
+    except Exception:                                   # noqa: BLE001
+        _keeps = False
+
     before = {w.window_id for w in wins}
     if app:
-        bundle = _bundle_for(app)
-        if not bundle:
-            raise ValueError(f"no application matching {app!r} on this machine")
         out = _window_bridge("--window-act", "reopen", "--window-id", "0",
                              "--window-pid", "0", "--bundle", bundle)
         if not out.get("ok"):
@@ -1221,7 +1283,8 @@ def window_open(args: dict) -> dict:
     # are the two fields a later run corroborates against -- recording the
     # requested application would make the check compare a claim to itself.
     if made is not None:
-        _remember_opened(new_id, made.pid, made.app_label)
+        _remember_opened(new_id, made.pid, made.app_label,
+                         owner_keeps=_keeps)
     if made is None:
         # THE WINDOW OPENED AND IT IS NOT HERE, AND THAT IS NOT A SUCCESS.
         #
@@ -1274,6 +1337,7 @@ def window_open(args: dict) -> dict:
     return {"ok": True, "window_id": new_id,
             "provenance": W.classify_opened(by_vesper=True),
             "landed": "vespers_desktop" if vespers else "active_desktop",
+            "owner_keeps": _keeps,
             "line": W.describe(made, vespers_desktop=vespers),
             **made.meta}
 

@@ -1124,14 +1124,139 @@ if args.contains("--reinstall-login-item") {
         // that way. `.agenda` and `.arm` were added 2026-09-05 -- the calendar
         // reader and the minter, which are the two agents whose silence looks
         // most like "VESPER simply had nothing to say".
-        for name in ["ai.vesper.island.plist", "ai.vesper.island.fnwatch.plist",
-                     "ai.vesper.island.wake.plist", "ai.vesper.island.agenda.plist",
-                     "ai.vesper.island.arm.plist"] {
+        // THE ISLAND GOES LAST, BECAUSE UNREGISTERING IT STOPS IT.
+        //
+        // `unregister()` on `ai.vesper.island` boots out the running island --
+        // this command's own re-registration is what is supposed to bring it
+        // back, and twice on 2026-09-10 it did not: the label vanished from
+        // `launchctl list` entirely and had to be bootstrapped by hand, while
+        // this command had already printed "re-registered" for it and exited
+        // 0. Doing the other four first means a failure here costs only the
+        // island, and the readback below means it is never silent.
+        // THE ISLAND IS FILE-BASED, AND SMAppService MUST NOT TOUCH IT.
+        //
+        // `build.sh` writes `~/Library/LaunchAgents/ai.vesper.island.plist` and
+        // manages it with `launchctl`. `SMAppService.register()` on a label
+        // that already exists there fails "Operation not permitted" (Code=1) --
+        // but `unregister()` SUCCEEDS FIRST and boots the running island out.
+        // So every call to this command removed the app and could not put it
+        // back, and it happened three times on 2026-09-10 before the readback
+        // below made the failure say so out loud.
+        //
+        // The two mechanisms cannot both own one label. The bundle agents are
+        // SMAppService's; the island is launchctl's; and which one a label
+        // belongs to is decided by whether that file exists, not by a list
+        // here that would drift from `build.sh` the first time either changed.
+        let fileBased = FileManager.default.fileExists(
+            atPath: NSHomeDirectory() + "/Library/LaunchAgents/ai.vesper.island.plist")
+        var names = ["ai.vesper.island.fnwatch.plist", "ai.vesper.island.wake.plist",
+                     "ai.vesper.island.agenda.plist", "ai.vesper.island.arm.plist"]
+        if fileBased {
+            print("ai.vesper.island is a file-based LaunchAgent — left to "
+                  + "launchctl, which owns it")
+        } else {
+            names.append("ai.vesper.island.plist")
+        }
+        for name in names {
             let svc = SMAppService.agent(plistName: name)
             try? svc.unregister()
             Thread.sleep(forTimeInterval: 1.0)
             do { try svc.register(); print("re-registered \(name)") }
             catch { print("re-registration failed for \(name): \(error)") }
+        }
+
+        // AND IF IT IS FILE-BASED, MAKE SURE IT IS ACTUALLY LOADED. A previous
+        // run of this command may have booted it out before this guard existed,
+        // which is exactly the state this machine was left in.
+        if fileBased {
+            let uid = getuid()
+            let boot = Process()
+            boot.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            boot.arguments = ["bootstrap", "gui/\(uid)",
+                              NSHomeDirectory() + "/Library/LaunchAgents/ai.vesper.island.plist"]
+            boot.standardOutput = FileHandle.nullDevice
+            boot.standardError = FileHandle.nullDevice
+            try? boot.run(); boot.waitUntilExit()
+        }
+
+        // AND THEN ASK LAUNCHD, BECAUSE `register()` NOT THROWING IS NOT AN
+        // AGENT. That is the `spd-say exiting 0` failure this corpus keeps
+        // finding, and it bit here three times in one night: five lines of
+        // "re-registered", exit 0, and agents that never spawned.
+        //
+        // POLLED AND RETRIED, NOT READ ONCE. The first version of this readback
+        // slept three seconds and reported "all five agents are registered" --
+        // and `fnwatch` and `arm` were at `78` twenty seconds later, having
+        // never settled. A single read taken before the world has finished
+        // moving is the same too-early-read defect as the ground retraction and
+        // the wallpaper confirmation, and it produced the same false pass.
+        //
+        // `78` (EX_CONFIG) means launchd never got far enough to run the
+        // binary -- the stale-record symptom -- and an ABSENT label means an
+        // unregister landed and the register did not. Re-registering the
+        // specific failures once is what actually clears it; measured
+        // 2026-09-10, a second pass brought both back every time.
+        func unhealthy() -> [String] {
+            let probe = Process()
+            probe.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            probe.arguments = ["list"]
+            let pipe = Pipe()
+            probe.standardOutput = pipe
+            probe.standardError = FileHandle.nullDevice
+            var listing = ""
+            if (try? probe.run()) != nil {
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                probe.waitUntilExit()
+                listing = String(data: data, encoding: .utf8) ?? ""
+            }
+            var bad: [String] = []
+            for label in ["ai.vesper.island", "ai.vesper.island.fnwatch",
+                          "ai.vesper.island.wake", "ai.vesper.island.agenda",
+                          "ai.vesper.island.arm"] {
+                // The row is `PID<tab>STATUS<tab>LABEL`, matched EXACTLY --
+                // `ai.vesper.island` is a prefix of all four others, so a
+                // substring test would call the app healthy whenever any agent
+                // was.
+                let row = listing.split(separator: "\n").first {
+                    $0.split(separator: "\t").last.map(String.init) == label
+                }
+                guard let row else { bad.append(label); continue }
+                let cols = row.split(separator: "\t").map(String.init)
+                if cols.count > 1 && cols[1] == "78" { bad.append(label) }
+            }
+            return bad
+        }
+
+        var bad: [String] = []
+        for pass in 0..<3 {
+            Thread.sleep(forTimeInterval: pass == 0 ? 6.0 : 10.0)
+            bad = unhealthy()
+            if bad.isEmpty { break }
+            // `wake` EXITS 1 ON PURPOSE until speech is granted, and KeepAlive
+            // restarts it -- so it is never `78` for that reason and is not
+            // special-cased here. Anything in `bad` is genuinely unreachable.
+            for label in bad where label != "ai.vesper.island" {
+                let svc = SMAppService.agent(plistName: label + ".plist")
+                try? svc.unregister()
+                Thread.sleep(forTimeInterval: 1.0)
+                try? svc.register()
+            }
+            if bad == ["ai.vesper.island"] { break }   // launchctl's, not ours
+        }
+
+        if bad.isEmpty {
+            print("all five agents are registered and reachable by launchd")
+        } else {
+            for b in bad {
+                FileHandle.standardError.write(
+                    ("  \(b): not reachable (absent, or EX_CONFIG)\n").data(using: .utf8)!)
+            }
+            FileHandle.standardError.write(
+                ("re-registration did not settle after three passes. For the "
+                 + "app itself:\n  launchctl bootstrap gui/$(id -u) "
+                 + "~/Library/LaunchAgents/ai.vesper.island.plist\n")
+                    .data(using: .utf8)!)
+            exit(1)
         }
     }
     exit(0)
@@ -1476,13 +1601,33 @@ if args.contains("--wallpaper-status") {
 
     // WHOSE DESKTOP IS SHOWING. The picture above belongs to whichever Space is
     // on screen, so the reading is only interpretable beside this.
-    let seen = SpaceWatch.onScreen().filter { $0.layer == 0 }
-    let foreign = seen.filter { $0.owner != "VESPER" }
-    print("  showing Desktop      : \(seen.count) window(s), \(foreign.count) not vesper's")
-    if foreign.isEmpty && !seen.isEmpty {
-        print("                         (looks like VESPER's own Desktop)")
+    // THE GROUND IS NOT AT LAYER 0, AND THE FIRST VERSION OF THIS FILTERED FOR
+    // LAYER 0 ONLY.
+    //
+    // It is planted at `normal-1` so it sits BELOW the owner's windows -- that
+    // is the whole point of a ground -- so its layer is -1 and this reader
+    // excluded it. The instrument then printed "0 window(s), 0 not vesper's"
+    // on a Desktop where `island.out` said the ground was live, and
+    // "1 window(s), 1 not vesper's" while calling vesper's own Desktop the
+    // owner's. Measured 2026-09-10. An instrument that cannot see the thing it
+    // is reporting about is worse than no instrument, because it answers.
+    //
+    // TWO DIFFERENT QUESTIONS, SO TWO DIFFERENT FILTERS. Whether VESPER is here
+    // is asked of ALL layers, because the ground is deliberately beneath them.
+    // Whether the OWNER is here is asked of layer 0 only, which is the same
+    // discriminator `ground-log.txt` records as `layer0_on_this_desktop`.
+    let all = SpaceWatch.onScreen()
+    let mine = all.filter { $0.owner == "VESPER" }
+    let foreign = all.filter { $0.layer == 0 && $0.owner != "VESPER" }
+    print("  showing Desktop      : \(foreign.count) of your window(s) here, "
+          + "\(mine.count) of vesper's")
+    if foreign.isEmpty && !mine.isEmpty {
+        print("                         (VESPER's own Desktop — safe to repaint)")
     } else if !foreign.isEmpty {
-        print("                         (the owner's Desktop — vesper must not repaint here)")
+        print("                         (your Desktop — vesper must not repaint here)")
+    } else {
+        print("                         (no windows either way; vesper's ground "
+              + "is not on this Desktop)")
     }
     print("")
     exit(0)

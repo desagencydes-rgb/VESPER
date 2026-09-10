@@ -21804,6 +21804,170 @@ def _swift_body(src: str, opener: str) -> str:
     return ""
 
 
+def check_a_stage_bounds_what_vesper_opens() -> Result:
+    """A stage of work names the windows its work may open, and that is enforced.
+
+    THE OWNER, 2026-09-09: "steps like research, work.... vesper should be able
+    to open necessary windows to continue its work". HOME-WORKBENCH §11.2a
+    turned that into a contract -- `may_open`, `max_windows`, `owner_keeps` --
+    and until 2026-09-10 NOTHING READ IT. Every field was declared, parsed by
+    `modes.stages()`, and consulted by no capability: `window_open` would open
+    anything under any stage. That is the built-and-reached-by-nothing shape
+    this tree keeps finding, and it is why this check asserts the WIRING and not
+    only the decision.
+
+    A STAGE BOUNDS VESPER, NEVER THE OWNER. §11.2a: a stage "does not grant
+    authority; it supplies the REASON a step has". So every clause is lifted by
+    `owner_requested`, and a check that let the gate bind an explicit request
+    would be gating the wrong party.
+
+    AND NO STAGE IS NOT A REFUSAL. Before a mode is chosen there is no stage.
+    Gating on one would have refused every window action the moment this landed.
+    """
+    r = Result("a-stage-bounds-what-vesper-opens")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import ast as _ast
+    try:
+        from core import modes as M
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"core.modes does not import: {exc!r}")
+        return r
+
+    kinds = M.window_kinds()
+    if not kinds:
+        r.err("no [window_kinds] are declared, so `may_open` names kinds that "
+              "cannot be decided about any real application -- the list is "
+              "documentation rather than enforcement")
+        return r
+
+    # 1. EVERY KIND A STAGE NAMES CAN ACTUALLY BE RESOLVED. A stage permitting
+    #    a kind nothing defines refuses everything, silently.
+    for stage, row in M.stages().items():
+        for kind in (row.get("may_open") or []):
+            if kind not in kinds:
+                r.err(f"stage {stage!r} may open {kind!r}, which [window_kinds] "
+                      f"does not define -- so no application can ever match it "
+                      f"and the stage opens nothing while appearing to allow "
+                      f"something")
+
+    # 2. THE DECISION, DRIVEN. Not read off the table: the table is what is
+    #    being tested.
+    for stage, label, want, why in (
+            ("", "Safari", True, "no mode chosen yet must not gate anything"),
+            ("research", "Safari", True, "a browser is what research may open"),
+            ("research", "Terminal", False, "a terminal is not"),
+            ("work", "Terminal", True, "work may open a terminal"),
+            ("idle", "Safari", False, "idle opens nothing -- nothing was asked"),
+            ("show", "Preview", True, "show puts one artefact up"),
+            ("research", "Calculator", False,
+             "an application no kind claims is refused, not waved through"),
+            ("banana", "Safari", False, "an undeclared stage grants nothing")):
+        got, reason = M.stage_may_open(stage, label=label,
+                                       bundle=f"com.apple.{label.lower()}")
+        if got != want:
+            r.err(f"stage_may_open({stage!r}, {label!r}) = {got}, expected "
+                  f"{want}: {why}")
+        if not got and not reason.strip():
+            r.err(f"stage_may_open({stage!r}, {label!r}) refused with no reason. "
+                  f"A refusal the owner cannot read is one they report as a bug")
+
+    # 3. THE LIMITS ARE READ, AND ABSENT IS NOT ZERO.
+    show = M.stage_limits("show")
+    if show.get("max_windows") != 1 or not show.get("owner_keeps"):
+        r.err(f"`show` reads {show}: §11.2a says exactly one window, and it is "
+              f"the owner's to keep")
+    if M.stage_limits("research").get("max_windows") is not None:
+        r.err("`research` has acquired a window cap it does not declare -- an "
+              "absent `max_windows` means unbounded, not zero")
+
+    # 4. THE WIRING. Counted and ORDERED against the AST, never grepped: §4 of
+    #    the 2026-09-09 handoff records nine checks that stopped detecting their
+    #    own violations because an assertion asked whether a name appeared.
+    src = (REPO / "core" / "capabilities.py").read_text(encoding="utf-8")
+    fn = next((n for n in _ast.walk(_ast.parse(src))
+               if isinstance(n, _ast.FunctionDef) and n.name == "window_open"), None)
+    if fn is None:
+        r.err("`window_open` is gone; the window path has changed shape")
+        return r
+    body = _ast.get_source_segment(src, fn) or ""
+    i_gate = body.find("stage_may_open")
+    i_open = body.find("_window_bridge")
+    if i_gate < 0:
+        r.err("`window_open` never consults the stage. `may_open`, "
+              "`max_windows` and `owner_keeps` are declared in "
+              "mode_pairings.toml and read by nothing, so a stage bounds "
+              "nothing at all")
+    elif 0 <= i_open < i_gate:
+        r.err("`window_open` launches the application BEFORE asking whether the "
+              "stage may open it. A refusal that arrives once the window exists "
+              "is not a refusal -- and on the owner's Desktop it is one vesper "
+              "cannot even clean up")
+    # LIFTED BY `owner_requested` -- ASKED OF THE TREE, NOT OF A SUBSTRING.
+    #
+    # The first version of this assertion searched the 400 characters before the
+    # gate for the name `owner_requested`, and the empty-Desktop guard above
+    # uses that same name -- so replacing the gate's own condition with `if
+    # True:` left the check GREEN. Caught by its own red run, 2026-09-10, which
+    # is the ninth-plus instance of §4 and the first I wrote myself.
+    #
+    # So: find the `if` that ENCLOSES the gate call and read ITS test.
+    gate_if = None
+    for node in _ast.walk(fn):
+        if not isinstance(node, _ast.If):
+            continue
+        seg = _ast.get_source_segment(src, node) or ""
+        if "stage_may_open" in seg and (gate_if is None
+                                        or len(seg) < gate_if[1]):
+            gate_if = (node, len(seg))
+    if gate_if is None:
+        r.err("no `if` encloses the stage gate, so nothing can lift it and an "
+              "explicit request from the owner is refused by their own mode")
+    else:
+        test = _ast.get_source_segment(src, gate_if[0].test) or ""
+        if "owner_requested" not in test:
+            r.err(f"the stage gate is guarded by `{test.strip()[:60]}`, which "
+                  f"does not consult `owner_requested`. §11.2a: a stage "
+                  f"supplies the reason an UNPROMPTED step has; binding a "
+                  f"person who asked is gating the wrong party")
+        elif not isinstance(gate_if[0].test, _ast.UnaryOp):
+            r.err(f"the stage gate's condition `{test.strip()[:60]}` names "
+                  f"owner_requested without negating it, so the gate binds "
+                  f"exactly the requests it is meant to lift")
+
+    # 5. `owner_keeps` REACHES THE RECORD. A stage that ends "leaves the Desktop
+    #    as it found it, except for what the owner asked to keep" -- which is
+    #    undecidable later if it was never written down.
+    # ASKED OF THE DICT LITERAL, NOT OF THE FUNCTION TEXT. The parameter is
+    # also called `owner_keeps` and so is a line of the docstring, so deleting
+    # the RECORD while keeping the signature left a substring test green -- the
+    # same §4 defect as above, caught by the same red run.
+    rem = next((n for n in _ast.walk(_ast.parse(src))
+                if isinstance(n, _ast.FunctionDef) and n.name == "_remember_opened"), None)
+    if rem is None:
+        r.err("`_remember_opened` is gone: nothing records that vesper opened a "
+              "window, so provenance stops existing")
+    else:
+        written = set()
+        for node in _ast.walk(rem):
+            if isinstance(node, _ast.Dict):
+                for k in node.keys:
+                    if isinstance(k, _ast.Constant) and isinstance(k.value, str):
+                        written.add(k.value)
+        if "owner_keeps" not in written:
+            r.err(f"`_remember_opened` writes {sorted(written)} and not "
+                  f"`owner_keeps`, so nothing can later tell a `show` window "
+                  f"the owner keeps from litter vesper should close")
+
+    r.note("every kind a stage names resolves; the decision is driven across "
+           "eight cases including no-stage, idle, an unclassifiable application "
+           "and an undeclared stage; `show` is one window and the owner's to "
+           "keep while an absent cap stays unbounded; the gate is ordered "
+           "BEFORE the launch and lifted by owner_requested; and owner_keeps "
+           "reaches the record")
+    return r
+
+
 def check_a_mode_is_a_pairing_of_two_axes() -> Result:
     """A mode names a stage and an ambience, and neither is welded to the other.
 
@@ -23172,6 +23336,7 @@ CHECK_FNS = {
     "a-refusal-is-never-reported-as-done": check_a_refusal_is_never_reported_as_done,
     "the-wallpaper-changes-only-on-vespers-desktop": check_the_wallpaper_changes_only_on_vespers_desktop,
     "a-mode-is-a-pairing-of-two-axes": check_a_mode_is_a_pairing_of_two_axes,
+    "a-stage-bounds-what-vesper-opens": check_a_stage_bounds_what_vesper_opens,
 }
 
 

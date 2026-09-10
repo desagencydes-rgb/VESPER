@@ -72,3 +72,39 @@ ambience = "Home"
 [pairings.rest]
 stage = "idle"
 ambience = "Rest"
+
+# ---------------------------------------------------------------- window kinds
+#
+# WHAT A STAGE'S `may_open` NAMES. A stage says it may open a "browser"; this is
+# what makes that word decidable about a real application. Kept in the contract
+# rather than in `core/` for the reason the pairings are: which application
+# counts as a browser is POLICY, and policy here can be read and changed without
+# a rebuild.
+#
+# MATCHED AGAINST THE LABEL THE OWNER USED **AND** THE RESOLVED BUNDLE ID, both
+# lowercased, as a substring. The bundle id is the durable half -- an owner may
+# say "safari" or "Safari.app" or "the browser" -- and `_bundle_for` has already
+# turned the label into an identifier by the time this is consulted.
+#
+# AN APPLICATION IN NO LIST HAS NO KIND, AND THAT IS NOT A GAP. Under a stage
+# with a `may_open` list, an unclassifiable application is REFUSED rather than
+# allowed, which is the same fail-closed posture `stages()` takes for an unknown
+# stage ("the empty list is the safe answer"). The refusal names the application
+# and this table, so the fix is one line here rather than an argument with the
+# machine.
+#
+# AND IT ONLY EVER BINDS VESPER ACTING ON ITS OWN. An explicit request from the
+# owner lifts it, exactly as it lifts the empty-Desktop guard in `window_open`:
+# a stage supplies the REASON an unprompted step has, it does not overrule the
+# person asking.
+
+[window_kinds]
+browser  = ["safari", "chrome", "firefox", "arc", "brave", "edge", "opera",
+            "com.apple.safari", "com.google.chrome", "org.mozilla"]
+editor   = ["textedit", "code", "vscode", "sublime", "nova", "zed", "xcode",
+            "com.apple.textedit", "com.microsoft.vscode", "com.apple.dt.xcode"]
+terminal = ["terminal", "iterm", "warp", "ghostty", "alacritty", "kitty",
+            "com.apple.terminal", "com.googlecode.iterm2"]
+viewer   = ["preview", "quicklook", "quick look", "books", "pdf",
+            "com.apple.preview", "com.apple.quicklookui"]
+notes    = ["notes", "com.apple.notes"]

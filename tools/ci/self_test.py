@@ -6657,5 +6657,70 @@ CASES += [
 ]
 
 
+
+# --------------------------------------------------------------------------
+# A STAGE OF WORK BOUNDS WHAT VESPER PUTS ON SCREEN (HOME-WORKBENCH 11.2a).
+#
+# The contract -- `may_open`, `max_windows`, `owner_keeps` -- existed from
+# 2026-09-09 and was read by NOTHING until 2026-09-10. Three of these cases
+# exist because the check's own first draft did not detect them: it asked
+# whether the name `owner_requested` appeared near the gate (the empty-Desktop
+# guard above it uses the same name) and whether `owner_keeps` appeared in
+# `_remember_opened` (so does its parameter, and its docstring). Both went
+# GREEN under violation. That is section 4 of the 2026-09-09 handoff, committed
+# by the session that was cleaning section 4 up -- so the assertions now read
+# the AST instead of the text.
+# --------------------------------------------------------------------------
+
+CASES += [
+    ("a-stage-bounds-what-vesper-opens", CAPS_PY,
+     _sub("        allowed, why = M.stage_may_open(stage, label=app or path, bundle=bundle)",
+          "        allowed, why = (True, '')", 1),
+     "the stage is never consulted, so every field of the contract is declared "
+     "and read by nothing and a stage bounds nothing at all"),
+
+    ("a-stage-bounds-what-vesper-opens", CAPS_PY,
+     _sub('    bundle = _bundle_for(app) if app else ""',
+          "    _window_bridge('--windows-list')\n    bundle = _bundle_for(app) if app else \"\"", 1),
+     "the application is launched before the stage is asked, so the refusal "
+     "arrives once the window exists -- which on the owner's Desktop is one "
+     "vesper cannot even clean up"),
+
+    ("a-stage-bounds-what-vesper-opens", CAPS_PY,
+     _sub('    if not args.get("owner_requested"):\n        from core import modes as M',
+          "    if True:\n        from core import modes as M", 1),
+     "the gate stops being lifted by owner_requested, so a stage refuses the "
+     "person who asked -- gating the party 11.2a explicitly does not bind"),
+
+    ("a-stage-bounds-what-vesper-opens", CAPS_PY,
+     _sub('    if not args.get("owner_requested"):\n        from core import modes as M',
+          '    if args.get("owner_requested"):\n        from core import modes as M', 1),
+     "the gate binds exactly the requests it exists to lift, and lifts exactly "
+     "the unprompted ones it exists to bind"),
+
+    ("a-stage-bounds-what-vesper-opens", CAPS_PY,
+     _sub('                 "owner_keeps": bool(owner_keeps)})', "                 })", 1),
+     "owner_keeps stops reaching the record, so nothing can later tell a `show` "
+     "window the owner keeps from litter vesper should close"),
+
+    ("a-stage-bounds-what-vesper-opens", PAIRINGS_TOML,
+     _sub('may_open = ["browser"]\n\n[stages.work]',
+          'may_open = ["telescope"]\n\n[stages.work]', 1),
+     "a stage may open a kind [window_kinds] does not define, so no application "
+     "can ever match it and the stage opens nothing while appearing to allow "
+     "something"),
+
+    ("a-stage-bounds-what-vesper-opens", PAIRINGS_TOML,
+     _sub("max_windows = 1", "max_windows = 9", 1),
+     "`show` loses the one-window cap that is the whole of what `show` means"),
+
+    ("a-stage-bounds-what-vesper-opens", MODES_PY,
+     _sub('    if not kind:\n        return False, (f"I do not know what kind of window {label or bundle!r} "',
+          '    if not kind:\n        return True, ""\n    if False:\n        return False, (f"I do not know what kind of window {label or bundle!r} "', 1),
+     "an application no kind claims is waved through, which makes may_open "
+     "advisory -- and that is how a reservation becomes a suggestion"),
+]
+
+
 if __name__ == "__main__":
     sys.exit(main())

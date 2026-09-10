@@ -2534,3 +2534,61 @@ work is the list of things that turned out not to be true.
 **The failure that cost the most:** the machine was left to sleep for three
 hours because no `caffeinate` assertion was held. That is the reason this list
 is shorter than it should be.
+
+
+## 14 WHAT LANDED OVERNIGHT, 2026-09-10
+
+The owner's own words for why this night happened: *"nothing is working
+properly, and some cards even disappeared, even the UI is missed"*. Almost none
+of that turned out to be destruction. **The code from 2026-09-09 had landed;
+what was wrong was state, one sentence, one dedupe, and a language detector.**
+
+### Done, driven through the RUNNING APP rather than the repo
+
+| | |
+|---|---|
+| The answerer knows what vesper just said and what vesper can do | `answer()` took `intake.history[-1]` and nothing else. **Dating from 26 August**, not from the session being cleaned up |
+| `window.list` reports the count the owner can act on | it reported `may_arrange` and dropped `needs_a_request`, so the doctrine took the blame for a sentence |
+| **Modes, end to end, for the first time** | the watcher marked an ambience applied at the instant it FAILED, so it never retried. `Working -> working.png CONFIRMED by reading it back` |
+| Speech stops switching to Arabic mid-sentence | `looks_arabizi` judged a `df -h` table to be Darija; 9 of its 37 tokens tripped it |
+| A stage of work bounds what vesper opens (§11.2a) | the contract existed since 2026-09-09 and was **read by nothing**. `a-stage-bounds-what-vesper-opens`, 8 red runs, 8 self-test cases |
+| The island shows both mode axes | `Mode` was the PERMISSION mode; vesper's own had no row at all |
+| `--wallpaper-status` | the owner's first requirement was **unverifiable** — nothing could say what the desktop picture was |
+| `--reinstall-login-item` re-reads the world | it printed five successes and exited 0 while the island was gone. Twice |
+
+### Five things that were believed and were false
+
+1. *The commands card is broken.* It is not: `_record_command` returns unless
+   the capability is `shell.run`, so window work reaches it never. Driven: one
+   `df -h` put an entry on it immediately.
+2. *The wallpaper's problem is the lost record.* The problem was SCOPE, and the
+   owner wants mode switching — they added those images. The residency guard
+   had already landed; what had not is any way to check it.
+3. *`island.json`'s `Mode: auto` shows the mode.* It is the PERMISSION mode. A
+   reader who saw it and concluded modes worked was reading the right row for
+   the wrong question. The owner corrected it.
+4. *The capability-denial bug was last night's.* `git merge-base` puts it at
+   26 August. The fix had been made for the proposer and never for the answerer.
+5. *`self_test` finishing means the tree is safe.* `3c065dc` committed
+   `deadline = s.ttl_ms` — a live mutation — as real code, and claimed in the
+   same commit that 754/754 had passed "on the committed tree". It had not: the
+   tree that passed and the tree that was committed were different trees.
+
+### THE RULE THIS NIGHT ADDS
+
+**Never commit while `self_test` is running.** MEMORY.md said run it alone, and
+that was read as "or you get false failures". The real reason is that for the
+fifty minutes it runs, **every file under the repo root is unsafe to read, let
+alone commit** — it mutates a source file, runs a check, and restores it. A
+commit lands whatever is mutated at that instant, with no signal at all.
+
+### OWED, AND THE REASON — NOT "NOT STARTED"
+
+| Owed | Why it did not happen tonight | What would unblock it |
+|---|---|---|
+| `window.open` rung 4 for already-running apps (Terminal answers `do script`, not `make new document`) | **Needs a live drive with the owner present.** TCC attributes automation to the RESPONSIBLE process, so testing it from a shell answers a different question than the one about vesper — that is §1 of the 2026-09-09 handoff and repeating it was refused | one drive from inside VESPER with its Desktop showing |
+| Mode failures reaching the flag bar | **Structural, not an oversight.** Flags come from `executor.py` publishing `flag.raised` on a DEGRADED capability result; `mode.set` returns `ok` and Swift paints afterwards, so the failure happens after the only thing that can raise a flag has returned | a channel from the home back to the runtime, or `mode.set` not returning until the paint is judged |
+| Steps 17 / 18 / 19 (apps, Notes, UI view) | **Acceptance is the owner looking at a screen.** "Working end to end with no hidden bugs" is their standard and it cannot be met on a display nobody is watching. Building them unverified is precisely the failure this night was spent cleaning up | the owner at the machine |
+| Steps 20 / 21 (settings, projects/research) | the owner's own **⏸ DISCUSS FIRST** | their decision |
+| A base wallpaper for the owner's OWN Desktops | the record was poisoned before it was quarantined; **what their picture was is not recoverable from here** | they pick one — the eleven were sent as a contact sheet |
+| `INV-HOME-8` ratification; the `_AXUIElementGetWindow` decision; a Developer ID certificate | each is the owner's act, not an engineering task | their decision |
