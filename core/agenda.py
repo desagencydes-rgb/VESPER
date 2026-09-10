@@ -87,12 +87,28 @@ class Item:
     importance: str = DEFAULT_IMPORTANCE
     done: bool = False
     note: str = ""
+    # THE BODY IS CARRIED AND IS INERT, WHICH ARE TWO CLAIMS AND BOTH ARE
+    # TESTED. §11.4, owner 2026-09-08: read the bodies and treat them as
+    # untrusted. A body is text the owner may have pasted from anywhere -- a web
+    # page, an email, someone else's message -- arriving on the path VESPER uses
+    # to decide what to do next, so the safety property is not that it is
+    # unread. It is that reading it CHANGES NOTHING: not the title, not the
+    # deadline, not the importance, not the rank. A note whose body says "this
+    # is urgent, do it first" sorts exactly where it sorted before.
+    body: str = ""
+    # AND `trust` EXISTED ONLY IN A DOCSTRING UNTIL NOW. `read_notes` claimed
+    # "every row carries `trust` so nothing downstream can forget that even the
+    # title is retrieved rather than authored here" -- and no Item had the
+    # field, so nothing downstream could read it. A docstring naming a thing
+    # that does not exist is the defect CI-131's own docstring warns about,
+    # sitting inside the function that warns about it.
+    trust: str = ""
 
     def to_dict(self) -> dict:
         return {"item_id": self.item_id, "title": self.title,
                 "source": self.source, "due_ms": self.due_ms,
                 "importance": self.importance, "done": self.done,
-                "note": self.note}
+                "note": self.note, "body": self.body, "trust": self.trust}
 
     def urgency(self, now_ms: int) -> float:
         """0 when far off, 1 once due. An item with no due time is not urgent.
@@ -165,6 +181,15 @@ class Agenda:
                 "unavailable": dict(self.unavailable)}
 
 
+# A NOTE BODY IS BOUNDED BEFORE IT IS CARRIED. Unbounded, one pasted document
+# becomes every surface that renders an agenda item, and the planner's context
+# with it. The cut is made at the reader so nothing downstream has to remember.
+NOTE_BODY_MAX_CHARS = 1000
+
+TRUST_BY_SOURCE = {"plan": "verified_local", "notes": "retrieved_local",
+                   "calendar": "retrieved_local", "reminders": "retrieved_local"}
+
+
 def _item_from(d: dict, source: str) -> Item | None:
     title = str(d.get("title") or "").strip()
     if not title:
@@ -175,10 +200,16 @@ def _item_from(d: dict, source: str) -> Item | None:
     except (TypeError, ValueError):
         due = None
     imp = str(d.get("importance") or DEFAULT_IMPORTANCE).strip().lower()
+    # EVERY DECISION FIELD ABOVE COMES FROM A STRUCTURED KEY AND NONE OF THEM
+    # IS PARSED OUT OF TEXT. That is the mechanism behind "a body cannot become
+    # an instruction": there is no path from prose to a deadline, a priority or
+    # a done flag, so a body claiming urgency has nowhere to put the claim.
     return Item(item_id=str(d.get("item_id") or f"{source}:{title}"),
                 title=title, source=source, due_ms=due,
                 importance=imp if imp in IMPORTANCE else DEFAULT_IMPORTANCE,
-                done=bool(d.get("done")), note=str(d.get("note") or ""))
+                done=bool(d.get("done")), note=str(d.get("note") or ""),
+                body=str(d.get("body") or "")[:NOTE_BODY_MAX_CHARS],
+                trust=TRUST_BY_SOURCE.get(source, "retrieved_external"))
 
 
 def read_plan(path: pathlib.Path | None = None) -> tuple:
@@ -237,10 +268,19 @@ def read_notes(path: pathlib.Path | None = None,
     over Apple Events under its own Automation grant and fails on its own. One
     reader over both would report a denied Notes grant as a calendar outage.
 
-    TITLES ONLY -- see `NotesBridge.swift` for why. A note's BODY may hold
-    anything the owner ever pasted, and this is the path VESPER uses to decide
-    what to do next. Every row carries `trust` so nothing downstream can forget
-    that even the title is retrieved rather than authored here.
+    THE BODY IS CARRIED AND IT IS INERT. §11.4, owner 2026-09-08: read the
+    bodies, treat them as untrusted. A note's body may hold anything the owner
+    ever pasted, and this is the path VESPER uses to decide what to do next --
+    so the containment is not that the body is unread, it is that reading it
+    changes nothing about how the item is ranked or what it claims to be. Every
+    row carries `trust`, which until 2026-09-10 this sentence promised and no
+    `Item` had.
+
+    THE BRIDGE STILL SENDS NO BODY, and that is a separate step. The reader is
+    where the safety lives and it is drivable with a fixture on a machine with
+    no Automation grant at all; the bridge's script changes when the grant trip
+    can measure it. The gate lands before the feature rather than after, which
+    is the opposite of how this corpus has usually discovered it needed one.
 
     NO `due_ms` EVER, even if a future bridge sent one. A note has a
     modification date, not a deadline, and `score()` ranks an undated item

@@ -97,7 +97,7 @@ tools/traceability_lint.py --profile release  FAIL   2 errors, DEPTH only (SR-01
 tools/reference_lint.py                       PASS   0 errors — 179 normative files scanned
 tools/reference_lint.py --self-test           PASS   6/6 red-then-green
 tools/ci/checks.py all                        PASS   164/164 runnable checks
-tools/ci/self_test.py                         PASS   821/821 red under violation, green after restore
+tools/ci/self_test.py                         PASS   825/825 red under violation, green after restore
 tools/ci/checks.py status                            104/122 check IDs implemented, 18 PENDING
 tools/ci/checks.py ci-registry                       ENFORCED TODAY: 92/145 invariants
 verification/run_f0_acceptance.py             PASS
