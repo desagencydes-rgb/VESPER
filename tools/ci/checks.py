@@ -23272,6 +23272,114 @@ def check_vesper_answers_in_the_owners_words() -> Result:
                       "`strip_internal_prefix`, so what the model wrote reaches "
                       "them unchanged")
 
+    # 6. AND IT KNOWS WHICH MODE IT IS IN, not only which ones exist.
+    #
+    #    The owner asked "hey there, what mode are you on?" and was told
+    #    `idle -- present and awaiting commands`. That sentence is in no file in
+    #    this repository. The answerer had been handed the list of modes that
+    #    EXIST -- added hours earlier so it would stop inventing mode names --
+    #    and nothing saying which was current, so it picked a legal name and
+    #    wrote a description under it. Supplying the legal answers without the
+    #    actual one does not stop a model guessing; it tells it which guesses
+    #    will look right.
+    #
+    #    IT PICKED THE STAGE, WHICH IS THE HALF WORTH GATING. `rest` is the
+    #    pairing (stage `idle`, ambience `Rest`), so `idle` was the OTHER AXIS of
+    #    the mode the owner had just set -- the same confusion the island had in
+    #    reverse on 2026-09-09.
+    try:
+        from core.home_state import HomeState as _HS
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"core.home_state does not import: {exc!r}")
+        _HS = None
+    if _HS is not None and not hasattr(_HS, "mode_now"):
+        r.err("HomeState has no `mode_now`, so nothing can tell the answerer "
+              "which mode vesper is in and the only material it has is the list "
+              "of names it may invent from")
+    elif _HS is not None:
+        # DRIVEN AGAINST A FILE WITH EMPTY MEMORY, which is the case that
+        # actually occurs and the one a presence test cannot see. `_mode` is ""
+        # at construction, so after a runtime restart memory says "no mode" while
+        # `home.json` still holds the last one -- and the SWIFT side paints from
+        # that file, so memory would have vesper deny the mode the owner is
+        # looking at. The first version of this asserted only that the method
+        # existed, and the negative control for exactly this went GREEN.
+        import tempfile as _tf2, json as _js2
+        with _tf2.TemporaryDirectory() as _td2:
+            _hp = Path(_td2) / "home.json"
+            _hp.write_text(_js2.dumps({"mode": "rest", "stage": "idle",
+                                       "ambience": "Rest"}), encoding="utf-8")
+            try:
+                _h = _HS(path=_hp)
+                got = _h.mode_now()
+            except Exception as exc:                      # noqa: BLE001
+                r.err(f"`mode_now` raised on a plain home.json: {exc!r}")
+                got = {}
+            if str(got.get("mode") or "") != "rest":
+                r.err(f"`mode_now` read {got.get('mode')!r} from a home.json "
+                      f"holding 'rest'. It is reading MEMORY, which is empty "
+                      f"after every runtime restart -- so vesper would deny the "
+                      f"mode it is painting on screen")
+            if str(got.get("stage") or "") != "idle":
+                r.err("`mode_now` does not carry the stage, so the answerer "
+                      "cannot be told which axis answers the question")
+    rendered = None
+    for fn_name in ("_render_mode_now",):
+        f = getattr(_vr, fn_name, None) if (_vr := sys.modules.get("_vr_modecheck")) else None
+        rendered = f
+    if rendered is None:
+        try:
+            import importlib.util as _ilu2
+            _spec = _ilu2.spec_from_file_location(
+                "_vr_answercheck", REPO / "tools" / "ops" / "vesper_runtime.py")
+            _mod = _ilu2.module_from_spec(_spec)
+            sys.modules["_vr_answercheck"] = _mod
+            _spec.loader.exec_module(_mod)
+            rendered = getattr(_mod, "_render_mode_now", None)
+        except Exception as exc:                          # noqa: BLE001
+            r.err(f"the runtime does not import: {exc!r}")
+    if rendered is None:
+        r.err("the runtime has no `_render_mode_now`, so the current mode "
+              "reaches the answerer nowhere")
+    else:
+        said = rendered({"mode": "rest", "stage": "idle", "ambience": "Rest"})
+        if "rest" not in said:
+            r.err("the rendered state does not name the mode vesper is in, "
+                  "which is the one fact the block exists to carry")
+        if "idle" in said and "never the stage" not in said:
+            r.err("the rendered state names the STAGE without saying it is not "
+                  "the answer. `rest` mode's stage is `idle`, and `idle` is "
+                  "exactly the wrong word the owner was given -- naming it "
+                  "without marking it hands the model the same mistake")
+        empty = rendered({})
+        if not empty.strip():
+            r.err("with no mode set the block is EMPTY, which is the state that "
+                  "produced the invented answer. 'No mode has been chosen' is a "
+                  "true answer and it is not guessable; silence is not")
+        for cid in sorted(KNOWN):
+            if cid in said or cid in empty:
+                r.err(f"the rendered state contains the internal name {cid!r}, "
+                      f"which puts back the leak section 5 takes out")
+
+    # AND THE CALL SITE HANDS IT OVER, per turn rather than in the cached prefix.
+    for call in owner_turns:
+        if "state" not in {k.arg for k in call.keywords}:
+            r.err("`answer` is called without `state`, so the answerer is told "
+                  "which modes exist and not which one it is in -- and it "
+                  "answers the question anyway")
+    ans = [n for n in _ast.walk(rt_tree) if isinstance(n, _ast.FunctionDef)
+           and n.name == "answer"]
+    if ans:
+        sysline = [n for n in _ast.walk(ans[0]) if isinstance(n, _ast.AugAssign)]
+        body_src = _ast.get_source_segment(rt_src, ans[0]) or ""
+        i_sys = body_src.find("system = f\"{system}")
+        i_state = body_src.find("_render_mode_now(state)")
+        if i_state >= 0 and i_sys >= 0 and i_state < i_sys:
+            r.err("the current mode is being folded into the SYSTEM position, "
+                  "which is the cached prefix. It changes whenever the owner "
+                  "changes it, so every turn would pay a cache miss to repeat a "
+                  "sentence that is usually the same")
+
     r.note(f"the answerer is told all {len(KNOWN)} capabilities in the owner's "
            f"words, with no internal name anywhere in the statement, the "
            f"{len(real)} modes are named from the contract rather than copied, "

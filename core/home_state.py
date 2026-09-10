@@ -137,6 +137,38 @@ class HomeState:
                                "work that is not happening is worse than one "
                                "at rest") if stale else self._reason}
 
+    def mode_now(self) -> dict:
+        """The mode vesper is actually in, for anyone about to say so out loud.
+
+        THE OWNER ASKED "what mode are you on?" AND WAS TOLD `idle -- present and
+        awaiting commands`. That sentence is in no file in this repository: the
+        answerer invented it. It had been given the list of modes that EXIST --
+        added 2026-09-10 so it could stop inventing mode names -- and nothing
+        that says which one is current, so it picked a valid name and wrote a
+        plausible description under it. A list of legal answers with no actual
+        answer is an invitation to guess, and the guess arrives in the owner's
+        own words with no marking that it was one.
+
+        READ FROM THE FILE FIRST, NOT FROM MEMORY, and the difference is not
+        academic. `_mode` is empty at construction, so after a runtime restart
+        memory says "no mode" while `home.json` still holds the last one -- and
+        the SWIFT side paints from that file, so the picture on screen is the
+        file's answer. Memory would have vesper deny the mode the owner is
+        looking at. Memory is the fallback for an unreadable file, not the
+        source.
+        """
+        row = {}
+        try:
+            import json as _json
+
+            row = _json.loads(self._path.read_text(encoding="utf-8"))
+        except Exception:                                     # noqa: BLE001
+            row = {}
+        with self._lock:
+            return {"mode": str(row.get("mode") or self._mode or ""),
+                    "stage": str(row.get("stage") or self._stage or ""),
+                    "ambience": str(row.get("ambience") or self._ambience or "")}
+
     # ---------------------------------------------------------------- wiring
 
     def attach(self, bus: Any) -> None:

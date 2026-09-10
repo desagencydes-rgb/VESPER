@@ -6843,7 +6843,7 @@ CASES += [
      "denying capabilities it has just used"),
 
     ("vesper-answers-in-the-owners-words", RUNTIME_PY,
-     _sub("                               recent=transcript))", "                               )", 1),
+     _sub("                               recent=transcript,\n", "", 1),
      "the answerer stops being told what vesper just said, so it asks the "
      "owner what they are referring to"),
 ]
@@ -6931,6 +6931,37 @@ CASES += [
           "                    reply = (\n                        answer(gw, router, persona, intake.history[-1],", 1),
      "what the model wrote reaches the owner unchanged, which is how "
      "`mode.set: focus mode.` became an answer they were given"),
+]
+
+CASES += [
+    ("vesper-answers-in-the-owners-words", RUNTIME_PY,
+     _sub("                               state=home.mode_now()))",
+          "                               ))", 1),
+     "the answerer is told which modes exist and not which one it is in, so it "
+     "picks a legal name and writes a description under it -- which is how the "
+     "owner asking what mode vesper was on got back `idle -- present and "
+     "awaiting commands`, a sentence in no file in this repository"),
+
+    ("vesper-answers-in-the-owners-words", RUNTIME_PY,
+     _sub('        return ("No mode has been chosen yet. If the owner asks what mode you "\n                "are on, say that plainly -- do not name one.")',
+          '        return ""', 1),
+     "with no mode set the block goes empty, which is exactly the state that "
+     "produced the invented answer -- and 'no mode' is a true answer that "
+     "cannot be guessed, while silence is an invitation to"),
+
+    ("vesper-answers-in-the-owners-words", RUNTIME_PY,
+     _sub('    parts.append(f"If the owner asks what mode you are on, the answer is "\n                 f"{mode!r} -- the mode\'s name, never the stage or the look.")',
+          '    parts.append("")', 1),
+     "the stage is named beside the mode with nothing saying which one answers "
+     "the question -- and the stage is the exact wrong word the owner was given, "
+     "because `rest` mode's stage is `idle`"),
+
+    ("vesper-answers-in-the-owners-words", HOME_STATE,
+     _sub('            row = _json.loads(self._path.read_text(encoding="utf-8"))',
+          '            row = {}', 1),
+     "the current mode is read from memory instead of the file, so after a "
+     "runtime restart vesper denies the mode it is painting -- memory starts "
+     "empty and the swift side paints from the file"),
 ]
 
 CASES += [

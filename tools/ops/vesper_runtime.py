@@ -1345,6 +1345,51 @@ def build(node: str = "vesper-runtime"):
             changes)
 
 
+def _render_mode_now(state: dict) -> str:
+    """What mode vesper is in, for the turn that is about to answer for it.
+
+    THE OWNER ASKED "hey there, what mode are you on?" AND WAS TOLD
+    `idle -- present and awaiting commands`. Neither half is in this repository:
+    the answerer invented the sentence and picked the name out of the list of
+    modes that EXIST, which had been handed to it hours earlier so it would stop
+    inventing mode names. Giving a model the legal answers without the actual one
+    does not stop it guessing -- it tells it which guesses will look right.
+
+    AND IT PICKED THE STAGE, WHICH IS THE PART WORTH SAYING OUT LOUD. `rest` mode
+    is the pairing (stage `idle`, ambience `Rest`), so `idle` was not random: it
+    is the other axis of the very mode the owner had set. HOME-ARCHITECTURE §6
+    keeps those axes independent underneath, and the island had this exact
+    confusion the other way round on 2026-09-09, showing the PERMISSION mode
+    where vesper's own belonged. A reader who cannot tell the axes apart will
+    answer with whichever one is nearer.
+
+    PER TURN, NEVER IN THE SYSTEM POSITION. The capability statement is static so
+    it stays the cached prefix; this changes whenever the owner changes it, and
+    putting it there would cost a cache miss on every turn to say a sentence that
+    is usually the same. It goes with the conversation, which is per-turn already.
+    """
+    mode = str((state or {}).get("mode") or "").strip()
+    stage = str((state or {}).get("stage") or "").strip()
+    ambience = str((state or {}).get("ambience") or "").strip()
+    if not mode:
+        # SAYING "NONE" IS THE POINT, not a reason to omit the block. An absent
+        # block is what produced the invented answer; an explicit "no mode" is
+        # the true one and it is not guessable.
+        return ("No mode has been chosen yet. If the owner asks what mode you "
+                "are on, say that plainly -- do not name one.")
+    parts = [f"You are in {mode} mode right now."]
+    if stage or ambience:
+        parts.append(
+            "A mode is a PAIR: "
+            + " and ".join(x for x in
+                           (f"the work you are set up for is {stage!r}" if stage else "",
+                            f"the look is {ambience!r}" if ambience else "") if x)
+            + ".")
+    parts.append(f"If the owner asks what mode you are on, the answer is "
+                 f"{mode!r} -- the mode's name, never the stage or the look.")
+    return " ".join(parts)
+
+
 def _render_conversation(recent: list) -> str:
     """The last few turns, BOTH SIDES, for the path that is not acting.
 
@@ -1382,7 +1427,7 @@ def _render_conversation(recent: list) -> str:
 
 def answer(gw, router, persona, utterance, renderer=None,
            updater=None, misses=None, chooser=None,
-           context_cmds=None, can_do=None, recent=None) -> str:
+           context_cmds=None, can_do=None, recent=None, state=None) -> str:
     """One request across the ladder. Difficulty routes it; the ladder serves it.
 
     `privacy_class` IS NOT PASSED, and that is the point of the default. Anything
@@ -1477,6 +1522,14 @@ def answer(gw, router, persona, utterance, renderer=None,
         conversation = _render_conversation(recent)
         if conversation:
             request = conversation + "\n\n" + request
+    # AND WHAT IS TRUE RIGHT NOW, nearest the question. The conversation says
+    # what was said; this says what IS -- and without it the answerer had the
+    # list of modes that exist and no idea which one it was in, so it named a
+    # plausible one and wrote a description to match.
+    if state:
+        now = _render_mode_now(state)
+        if now:
+            request = now + "\n\n" + request
 
     t0 = time.perf_counter()
     try:
@@ -2325,7 +2378,8 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                                misses=misses, chooser=chooser,
                                context_cmds=context_cmds,
                                can_do=capability_statement(),
-                               recent=transcript))
+                               recent=transcript,
+                               state=home.mode_now()))
                 # VESPER'S REPLY IS NOT AN UTTERANCE, and the first version put
                 # it into `intake.history` as one. `Intake` is the record of
                 # things said TO VESPER -- its confidence, its partials and its
