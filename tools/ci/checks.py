@@ -23058,6 +23058,39 @@ def check_a_flag_is_retracted_when_its_condition_clears() -> Result:
                   "condition ends with an act by the OWNER that no capability is "
                   "running for, and only the next look at the world can see it")
 
+    # 8. A CONDITION ABOUT SOMETHING OTHER THAN THE TARGET MUST NAME ITSELF.
+    #
+    #    The derived id is `capability_id` plus what the call was acting on, and
+    #    that is sound only when the flag is ABOUT that thing. `window.open`'s
+    #    flags are not: they are about the window it just created, while the
+    #    target is the request -- and `Actor._target` is the constant "host",
+    #    which nothing overrides. So every `window.open` derived the SAME id.
+    #    Two stranded windows overwrote each other, and once retraction landed
+    #    the next successful open of anything cleared the warning about a window
+    #    still sitting unreachable on the owner's Desktop.
+    #
+    #    READ OFF THE RETURN'S OWN KEYS, not looked for in the text: the string
+    #    "flag_id" appears in this function's comments and in its sibling
+    #    return, so a substring test reports the opposite of the truth.
+    wo = fns.get("window_open")
+    if wo is None:
+        r.err("core/capabilities has no `window_open`")
+    else:
+        for node in _ast.walk(wo):
+            if not (isinstance(node, _ast.Return)
+                    and isinstance(node.value, _ast.Dict)):
+                continue
+            keys = {k.value for k in node.value.keys
+                    if isinstance(k, _ast.Constant)}
+            if "degraded" not in keys or "flag_id" in keys:
+                continue
+            r.err(f"the degraded return at core/capabilities.py:{node.lineno} "
+                  f"names no `flag_id`, so its condition is filed under "
+                  f"`window.open:<target>` -- and the target is the constant "
+                  f"'host'. Every open shares that one name: the warnings "
+                  f"overwrite each other, and the next open that works retracts "
+                  f"a window still stranded on the owner's desktop")
+
     r.note("a clean result retracts the flag its own failure raised; a refusal "
            "and a degraded success do not; the rung is out of the derivation so "
            "raise and retract agree; a read with no `ok` key may resolve "

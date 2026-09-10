@@ -1380,9 +1380,25 @@ def window_open(args: dict) -> dict:
         # (HOME-WORKBENCH §11.1c); it needs a bridge that can reach a window on
         # another Desktop, and it must attempt ONCE and then flag rather than
         # retry, because placement may be sticky.
+        # NAMED, LIKE ITS SIBLING BELOW, AND WITHOUT THE NAME IT WAS UNSOUND.
+        #
+        # This return carried a `flag` and no `flag_id`, so the executor derived
+        # one from the capability and its target -- and `Actor._target` is the
+        # constant `"host"`, which nothing overrides. So EVERY `window.open`
+        # shared the id `window.open:host`. Two stranded windows overwrote each
+        # other's warning, and worse, once retraction landed (2026-09-10) the
+        # next successful open of ANYTHING derived that same id and cleared it:
+        # a window still sitting unreachable on the owner's Desktop, and the one
+        # sentence telling them so silently withdrawn.
+        #
+        # The condition is about the WINDOW, not about the request that made it,
+        # so the id has to be too -- and then `window_list` retires it when that
+        # window is genuinely gone, which is what the flag's own last four words
+        # ask the owner to do.
         return {"ok": True, "degraded": True, "window_id": new_id,
                 "provenance": W.classify_opened(by_vesper=True),
                 "landed": "off_vespers_desktop",
+                "flag_id": f"window.landed_elsewhere:{new_id}",
                 "flag": "vesper opened a window and the system placed it on "
                         "another desktop, where vesper cannot reach it to move "
                         "or close it. it is yours to close.",

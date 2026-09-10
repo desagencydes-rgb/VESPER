@@ -6791,6 +6791,16 @@ CASES += [
      "built-and-unreached shape that left a working clear_flag with no caller"),
 ]
 
+CASES += [
+    ("a-flag-is-retracted-when-its-condition-clears", CAPS_PY,
+     _sub('                "flag_id": f"window.landed_elsewhere:{new_id}",\n                "flag": "vesper opened a window and the system placed it on "',
+          '                "flag": "vesper opened a window and the system placed it on "', 1),
+     "the stranded-window warning goes back to being filed under the derived "
+     "`window.open:host` -- one name shared by every open, so two stranded "
+     "windows overwrite each other and the next successful open retracts a "
+     "window still sitting unreachable on the owner's desktop"),
+]
+
 
 # --------------------------------------------------------------------------
 # THE ANSWERER WAS GIVEN THE CAPABILITY LIST AND READ IT ALOUD.
