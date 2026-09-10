@@ -22415,21 +22415,41 @@ def check_the_shipped_runtime_can_reach_what_it_needs() -> Result:
 
     # 3. THE SHIPPED COPY MUST NOT BE STALE, or a fix lands in the repo and the
     #    owner keeps running the bug. That is precisely what happened here.
+    #    EVERY MODULE, NOT THREE NAMED ONES. This compared `capabilities.py`,
+    #    `intent.py` and `windows.py` while its note said "the shipped copy of
+    #    core matches the repo" -- a note asserting more than the code checked,
+    #    which is the same defect as `read_notes` promising a `trust` field no
+    #    Item had. Measured 2026-09-10: `core/actor.py` and
+    #    `core/permission_mode.py` were both edited after the last build, the
+    #    owner's running VESPER did not have the fix, and this gate was green.
+    #    A drift gate with a fixed list goes stale every time a module is added,
+    #    and `core/apps.py` had already landed uncovered.
     bundled = REPO / "app" / "VESPER.app" / "Contents" / "Resources" / "runtime" / "core"
     if bundled.exists():
-        for name in ("capabilities.py", "intent.py", "windows.py"):
-            a, b = REPO / "core" / name, bundled / name
+        checked = 0
+        for a in sorted((REPO / "core").glob("*.py")):
+            b = bundled / a.name
+            checked += 1
             if not b.exists():
-                r.err(f"the bundle is missing core/{name}; the shipped runtime "
-                      "is not the runtime that was tested")
+                r.err(f"the bundle is missing core/{a.name}; the shipped "
+                      "runtime is not the runtime that was tested")
             elif a.read_bytes() != b.read_bytes():
-                r.err(f"core/{name} differs between the repo and the bundle. "
+                r.err(f"core/{a.name} differs between the repo and the bundle. "
                       "The owner runs the bundle, so a fix that lands only in "
                       "the repo is a fix they never get -- rebuild")
+        # A COMPARISON OVER NOTHING IS NOT A CLEAN COMPARISON. If the glob ever
+        # stops matching, every assertion above passes vacuously and the note
+        # goes on saying the copies agree.
+        if checked < 3:
+            r.err(f"only {checked} module(s) were compared against the bundle; "
+                  f"the drift check is reporting agreement it did not test")
+        r.note(f"{checked} core modules compared byte-for-byte against the bundle")
+    else:
+        r.note("no bundle present, so nothing could be compared -- this is not "
+               "evidence the shipped runtime matches")
 
     r.note("the binary resolves from inside a simulated bundle; window.list's "
-           "empty args parse while an argument-free shell.run is still refused; "
-           "and the shipped copy of core matches the repo")
+           "empty args parse while an argument-free shell.run is still refused")
     return r
 
 
@@ -24904,7 +24924,44 @@ def check_a_screen_never_lifts_its_own_ceiling() -> Result:
         r.err("ask mode waives an ordinary observation, so the ceiling is gone "
               "in the mode whose whole purpose is to keep it")
 
-    # 3. THE ACTOR ASKS PER OBSERVATION, AND `all` IS THE WHOLE POINT. A step
+    # 3. AND THE DECISION IS DRIVEN, NOT PARSED. The first version of this
+    #    check called `permission_mode` directly and read the actor's source for
+    #    `all` versus `any`. Neither route ever passed an observation the actor
+    #    could not read, and the actor's own expression was FAIL-OPEN: the
+    #    `isinstance` was a filter, so a non-empty list of unrecognised
+    #    observations yielded nothing, `all([])` is True, and the ceiling rose
+    #    to L5 in every mode including `ask`. Both clauses stayed green.
+    try:
+        from core.actor import _observations_waive
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"core.actor._observations_waive is gone: the waiver decision is "
+              f"back inside an expression nothing can drive ({exc!r})")
+        return r
+
+    ordinary = [{"capability": "shell.run"}]
+    screened = [{"capability": screen}]
+    for mode in (pm.AUTO, "ask", "workspace"):
+        # AN OBSERVATION THE ACTOR CANNOT READ MUST BIND THE STEP.
+        for junk in (["not a dict"], [None], [42],
+                     [{"capability": "shell.run"}, "not a dict"]):
+            if _observations_waive(mode, junk):
+                r.err(f"an unrecognised observation waives the ceiling in "
+                      f"{mode!r} mode. Not knowing what something is has to be "
+                      f"the restrictive answer, and this is the direction that "
+                      f"lifts the cap for context nobody could classify")
+        if _observations_waive(mode, screened):
+            r.err(f"a screen observation waives the ceiling in {mode!r} mode")
+    if _observations_waive(pm.AUTO, []):
+        r.err("an empty context waives the ceiling, so a step with nothing "
+              "observed at all runs at L5")
+    if not _observations_waive(pm.AUTO, ordinary):
+        r.err("auto mode no longer waives ordinary output, so every assertion "
+              "above is satisfied by a waiver that never fires -- and "
+              "multi-step work is impossible again")
+    if _observations_waive("ask", ordinary):
+        r.err("ask mode waives an ordinary observation")
+
+    # 4. THE ACTOR ASKS PER OBSERVATION, AND `all` IS THE WHOLE POINT. A step
     #    that waives as long as SOMETHING in context was ordinary is walked
     #    through by an injected page arriving next to a file read. Parsed, not
     #    grepped: `"observation_waivable" in src` survives changing `all` to
@@ -24942,7 +24999,7 @@ def check_a_screen_never_lifts_its_own_ceiling() -> Result:
         r.err("`observation_waivable` is called but not over every observation, "
               "so a single unwaivable source does not bind the step")
 
-    # 4. AND `observations_taint` MUST NOT STILL BE THE THING THE ACTOR ASKS.
+    # 5. AND `observations_taint` MUST NOT STILL BE THE THING THE ACTOR ASKS.
     #    Leaving the old per-mode call in place beside the new one would waive
     #    on the mode alone and never reach the per-source rule at all.
     old_calls = [n for n in ast.walk(tree)
@@ -24956,8 +25013,9 @@ def check_a_screen_never_lifts_its_own_ceiling() -> Result:
 
     r.note(f"{len(pm.NEVER_WAIVED_SOURCES)} source(s) never waived "
            f"({', '.join(sorted(pm.NEVER_WAIVED_SOURCES))}); auto still waives "
-           f"ordinary output and ask still waives nothing; the actor asks over "
-           f"every observation with `all`")
+           f"ordinary output and ask still waives nothing; an observation the "
+           f"actor cannot read binds the step in every mode; and the decision "
+           f"is driven rather than read")
     return r
 
 CHECK_FNS = {

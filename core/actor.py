@@ -134,6 +134,35 @@ class Outcome:
                 "level": self.level, "said": self.said, "detail": self.detail}
 
 
+def _observations_waive(mode: str, observations: Any) -> bool:
+    """May this step's context stop capping what VESPER does next?
+
+    A FUNCTION RATHER THAN AN EXPRESSION IN THE CALLER, because the first
+    version of it was fail-open and no gate could see the hole. It read
+    `all(... for o in observations if isinstance(o, dict))`, where the
+    `isinstance` was a FILTER: an observation that is not a dict was dropped
+    from the sequence instead of judged, so a non-empty list of unrecognised
+    observations yielded nothing, `all([])` is True, and the ceiling rose to L5
+    in EVERY mode -- `ask` included, where the code it replaced returned False.
+    The check drove `permission_mode` directly and parsed this file for `all`
+    versus `any`; neither route ever passed a non-dict through, so both stayed
+    green. Now it is callable, and it is called with one.
+
+    AN OBSERVATION THIS CANNOT READ BINDS THE STEP. Not knowing what something
+    is has to be the restrictive answer -- INV-HW-2's shape applied to context.
+
+    AND `all`, NEVER `any`. One unwaivable observation binds the whole step:
+    waiving while SOMETHING in context was ordinary is a rule an injected page
+    walks through by arriving next to a file read.
+    """
+    if not observations:
+        return False
+    return all(
+        isinstance(o, dict) and permission_mode.observation_waivable(
+            mode, str(o.get("capability") or ""))
+        for o in observations)
+
+
 def _failed_sentence(err: Any) -> str:
     """What failed, in one line the owner can act on.
 
@@ -922,11 +951,7 @@ class Actor:
         # ONE UNWAIVABLE OBSERVATION BINDS THE STEP. Waiving as long as
         # SOMETHING in context was ordinary is a rule an injected page walks
         # through by arriving next to a file read.
-        waivable = bool(observations) and all(
-            permission_mode.observation_waivable(
-                mode, str((o or {}).get("capability") or ""))
-            for o in observations if isinstance(o, dict))
-        if waivable:
+        if _observations_waive(mode, observations):
             self._bus.publish(
                 "authz.observation_taint_waived", subject=self._subject,
                 payload={"capability_id": p.capability_id, "mode": mode,

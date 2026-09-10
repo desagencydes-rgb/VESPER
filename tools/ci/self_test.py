@@ -7111,6 +7111,25 @@ CASES += [
 ]
 
 
+CHECKS_PY_SELF = "tools/ci/checks.py"
+
+CASES += [
+    ("the-shipped-runtime-can-reach-what-it-needs", CHECKS_PY_SELF,
+     _sub('        for a in sorted((REPO / "core").glob("*.py")):',
+          '        for a in sorted((REPO / "core").glob("capabilities.py")):', 1),
+     "the drift gate goes back to a narrow list, so a module edited after the "
+     "last build ships stale and the gate stays green -- which is exactly what "
+     "happened to core/actor.py and core/permission_mode.py, while the note "
+     "went on saying the shipped copy of core matched the repo"),
+
+    ("the-shipped-runtime-can-reach-what-it-needs", CHECKS_PY_SELF,
+     _sub('        for a in sorted((REPO / "core").glob("*.py")):',
+          '        for a in sorted((REPO / "core").glob("*.nothing")):', 1),
+     "the comparison matches no modules at all, so every assertion passes "
+     "vacuously and the check reports agreement it never tested"),
+]
+
+
 PERMMODE_PY = "core/permission_mode.py"
 
 CASES += [
@@ -7135,17 +7154,30 @@ CASES += [
      "-- the failure the owner watched for days"),
 
     ("a-screen-never-lifts-its-own-ceiling", ACTOR_PY,
-     _sub("        waivable = bool(observations) and all(",
-          "        waivable = bool(observations) and any(", 1),
+     _sub("    return all(\n", "    return any(\n", 1),
      "one ordinary file read lifts the cap for a screen capture sitting beside "
      "it in the same step, which is exactly how an injected page would arrive"),
 
     ("a-screen-never-lifts-its-own-ceiling", ACTOR_PY,
-     _sub("        waivable = bool(observations) and all(\n"
-          "            permission_mode.observation_waivable(\n"
-          '                mode, str((o or {}).get("capability") or ""))\n'
-          "            for o in observations if isinstance(o, dict))",
-          "        waivable = bool(observations) and not permission_mode.observations_taint(mode)", 1),
+     _sub("        isinstance(o, dict) and permission_mode.observation_waivable(\n"
+          '            mode, str(o.get("capability") or ""))\n'
+          "        for o in observations)",
+          "        permission_mode.observation_waivable(\n"
+          '            mode, str((o or {}).get("capability") or ""))\n'
+          "        for o in observations if isinstance(o, dict))", 1),
+     "the isinstance goes back to being a FILTER, so an observation the actor "
+     "cannot read is dropped instead of judged: a non-empty list of "
+     "unrecognised observations yields nothing, all([]) is True, and the "
+     "ceiling rises to L5 in every mode including ask"),
+
+    ("a-screen-never-lifts-its-own-ceiling", ACTOR_PY,
+     _sub("    if not observations:\n        return False\n", "", 1),
+     "an empty context waives the ceiling, so a step that observed nothing at "
+     "all runs at L5"),
+
+    ("a-screen-never-lifts-its-own-ceiling", ACTOR_PY,
+     _sub("        if _observations_waive(mode, observations):",
+          "        if not permission_mode.observations_taint(mode):", 1),
      "the actor asks the per-mode question again and never reaches the "
      "per-source rule, so the screen is waived along with everything else"),
 ]
