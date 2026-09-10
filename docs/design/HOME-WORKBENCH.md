@@ -2592,3 +2592,41 @@ commit lands whatever is mutated at that instant, with no signal at all.
 | Steps 20 / 21 (settings, projects/research) | the owner's own **⏸ DISCUSS FIRST** | their decision |
 | A base wallpaper for the owner's OWN Desktops | the record was poisoned before it was quarantined; **what their picture was is not recoverable from here** | they pick one — the eleven were sent as a contact sheet |
 | `INV-HOME-8` ratification; the `_AXUIElementGetWindow` decision; a Developer ID certificate | each is the owner's act, not an engineering task | their decision |
+| **`owner_requested` is a flag nothing sets** — an authority decision, below | it would LOOSEN a guard that protects the owner's workspace, on my inference about what "the owner asked" means | the owner deciding turn-level vs step-level, below |
+
+### THE `owner_requested` DECISION — OWED, AND WHY IT WAS NOT TAKEN
+
+`window_open` and `_act` both lift their guards for `args["owner_requested"]`,
+and the empty-Desktop refusal ends *"Ask for it and it will open here."*
+**Nothing in the production path ever sets that flag.** `core/intent.py` does
+not emit it, the actor does not inject it, and its only writers in this tree are
+a check and a self-test asserting that the guards consult it. So the owner types
+*"open a new terminal window"*, is refused, and is told to ask — which they just
+did. Measured 2026-09-10 by driving their own sentence through the live app.
+
+**The fix is one line and it is not mine to write.** The actor already knows
+whether a turn is the owner's: `AutonomyLoop.dispatch` passes `permitted`, and
+an owner-typed turn passes nothing, which is the discriminator `maybe_act`'s own
+docstring names. So `owner_requested = (permitted is None)` is available.
+
+**What makes it a decision rather than a bug fix is the turn/step gap.**
+`permitted is None` marks a TURN as owner-originated, not each STEP. `maybe_act`
+loops: the first proposal is the direct reading of what the owner said, and the
+fifth is vesper's own elaboration on what it found. Lifting at turn level would
+authorise vesper to put windows in the owner's workspace during steps they never
+asked for — which is exactly the trespass §11.1's guard exists to refuse, and the
+comment there is explicit that adding to their Desktop unasked "is the same
+trespass as rearranging it unasked, and it is easier to do by accident".
+
+Three ways to settle it, for the owner to choose:
+
+1. **First step only.** `owner_requested` on step 0 of an owner-originated turn
+   and nowhere else. Narrowest, and it makes the common case ("open X") work.
+2. **Every step of an owner-originated turn.** Simplest, and it hands vesper the
+   owner's Desktop for the length of any turn they started.
+3. **Leave it unset and delete the lift.** Honest, and it means vesper never
+   opens a window while the owner's Desktop is showing — the guard becomes
+   absolute rather than advisory.
+
+Until then the sentence no longer names a remedy that does nothing: it says
+*"Switch to my desktop and I will open it there"*, which is true and works.

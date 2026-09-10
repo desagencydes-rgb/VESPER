@@ -1176,10 +1176,31 @@ def window_open(args: dict) -> dict:
     # An explicit request lifts this, because then it is not uninvited.
     wins, vespers = _inventory()
     if not vespers and not args.get("owner_requested"):
+        # THE SENTENCE TOLD THE OWNER TO DO THE THING THEY HAD JUST DONE.
+        #
+        # It ended "Ask for it and it will open here", and the owner HAD asked
+        # -- they typed "open a new terminal window" and got this back. The lift
+        # it points at is `args["owner_requested"]`, and NOTHING IN THE
+        # PRODUCTION PATH EVER SETS THAT FLAG: `intent.py` does not emit it, the
+        # actor does not inject it, and its only writers in the tree are a check
+        # and a self-test asserting that the guards consult it. Measured
+        # 2026-09-10 by driving the owner's own sentence through the live app.
+        #
+        # WIRING THE FLAG IS AN AUTHORITY DECISION AND IT IS NOT TAKEN HERE.
+        # `permitted is None` marks a TURN as owner-originated, not each STEP:
+        # in a multi-step turn the first proposal is the owner's request and the
+        # fifth is vesper's elaboration, so lifting at turn level would let
+        # vesper put windows in the owner's workspace during steps they never
+        # asked for -- which is the exact trespass this guard exists to refuse.
+        # Recorded for the owner in HOME-WORKBENCH §14 instead.
+        #
+        # What is fixed here is the part that is unambiguously wrong: a refusal
+        # must not name a remedy that does nothing. This one is true and it
+        # works.
         return {"ok": False, "refused_by": "ownership",
                 "reason": "vesper's desktop is not the one showing, so a new "
-                          "window would land in your workspace. Ask for it and "
-                          "it will open here."}
+                          "window would land in your workspace rather than "
+                          "mine. Switch to my desktop and I will open it there."}
 
     # THE STAGE OF WORK DECIDES WHAT MAY GO ON SCREEN (HOME-WORKBENCH §11.2a).
     #
