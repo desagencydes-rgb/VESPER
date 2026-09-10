@@ -6948,6 +6948,28 @@ CASES += [
      "their desktops busy, so the file grows without bound and repeats itself"),
 ]
 
+CASES += [
+    ("vesper-never-takes-the-owners-first-desktop", WATCH_SWIFT,
+     _sub("        case .none:\n            return \"vesper cannot tell which desktop this is, and you asked it \"",
+          "        case .none:\n            return nil\n        case .some(false) where false:\n            return \"vesper cannot tell which desktop this is, and you asked it \"", 1),
+     "a space list vesper could not read is treated as proof this is NOT "
+     "desktop 1, so it takes the owner's desktop at the exact moment it has "
+     "least idea which one it is on"),
+
+    ("vesper-never-takes-the-owners-first-desktop", WATCH_SWIFT,
+     _sub("                ((s[\"type\"] as? Int) ?? 0) == 0 ? s[\"ManagedSpaceID\"] as? Int : nil",
+          "                s[\"ManagedSpaceID\"] as? Int", 1),
+     "fullscreen spaces are counted as desktops, so the moment anything is "
+     "full-screened the first desktop stops being first and vesper takes the "
+     "owner's"),
+
+    ("vesper-never-takes-the-owners-first-desktop", ISLAND_SWIFT,
+     _sub("            let first = SpaceOrder.onFirstDesktop()\n            if let why = SpaceOrder.refusal(first) {",
+          "            let first = SpaceOrder.onFirstDesktop()\n            if let why = SpaceOrder.refusal(first), false {", 1),
+     "the refusal is computed and not acted on -- vesper works out that this is "
+     "desktop 1 and plants there anyway"),
+]
+
 
 if __name__ == "__main__":
     sys.exit(main())

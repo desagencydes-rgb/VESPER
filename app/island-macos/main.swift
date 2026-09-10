@@ -2490,6 +2490,9 @@ if args.contains("--home") {
         // ONCE PER AMBIENCE, not once per tick: this timer fires twice a second
         // and the wait can last as long as the owner keeps their Desktops busy.
         var reportedWant: String?
+        // PRINTED ONCE, like `announced` above and for the same reason: this
+        // poll runs twice a second and the owner can sit on Desktop 1 all day.
+        var announcedFirst = false
         var t: Timer?
         t = Timer(timeInterval: 0.5, repeats: true) { timer in
             let fp = SpaceWatch.fingerprint()
@@ -2509,11 +2512,37 @@ if args.contains("--home") {
                 }
                 return
             }
+            // EMPTY IS NO LONGER THE WHOLE CONDITION -- ORDER IS THE OTHER HALF.
+            //
             // Owner, 2026-08-24: "if both desktops are empty, say on boot for
             // example, it can just take one, and leave the other one untouched
-            // ... not take something i have work on". So the condition is
-            // exactly emptiness, and nothing else: an empty Desktop is fair
-            // game whether or not the machine has been used yet.
+            // ... not take something i have work on". That made emptiness the
+            // entire test, and on 2026-09-10 they saw where it leads: the Mac
+            // restarted, EVERY Desktop was empty, vesper took the first one, and
+            // they came back to find it on Desktop 1. The ground log said
+            // `foreign=0` and was telling the truth -- nothing of theirs was
+            // there YET. Emptiness at boot does not mean unclaimed; it means
+            // nothing has reopened.
+            //
+            // OWNER, 2026-09-10, ASKED DIRECTLY AND SUPERSEDING THE ABOVE:
+            // never take Desktop 1. It is the one they come back to.
+            //
+            // FAIL-CLOSED ON "CANNOT TELL", because the alternative takes their
+            // Desktop exactly when vesper has least idea where it is -- and not
+            // planting is now a state that EXPLAINS ITSELF in the flag bar,
+            // where before it would have been silence.
+            let first = SpaceOrder.onFirstDesktop()
+            if let why = SpaceOrder.refusal(first) {
+                if !announcedFirst {
+                    print("      here now: an EMPTY desktop, and vesper will not take it — \(why)")
+                    announcedFirst = true
+                }
+                if let want = AmbienceReport.wanted(), want != reportedWant {
+                    reportedWant = want
+                    AmbienceReport.append(want, ok: false, why: why)
+                }
+                return
+            }
             timer.invalidate(); t = nil
             anchor.close()
             print("home: empty Desktop — the ground is created HERE.")

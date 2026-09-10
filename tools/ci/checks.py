@@ -23543,6 +23543,157 @@ def check_a_mode_that_does_not_land_reaches_the_bar() -> Result:
     return r
 
 
+def check_vesper_never_takes_the_owners_first_desktop() -> Result:
+    """VESPER will not set up on Desktop 1, and cannot tell means no.
+
+    THE OWNER, 2026-09-10, SUPERSEDING THEIR OWN EARLIER RULE. On 2026-08-24 they
+    said *"if both desktops are empty, say on boot for example, it can just take
+    one"*, and emptiness became the entire test. That morning they saw where it
+    leads: the Mac restarted, EVERY Desktop was empty because nothing had
+    reopened yet, vesper took the first one, and they came back to find it on
+    Desktop 1. The ground log recorded `foreign=0` and was telling the truth --
+    nothing of theirs was there YET. **Emptiness at boot does not mean
+    unclaimed.** Asked directly, they chose: never take Desktop 1.
+
+    CONTENTS CANNOT ANSWER THIS AND ORDER CAN. `WindowBridge.desktopId()` hashes
+    the window numbers present, so every empty Desktop is the same string,
+    `desktop-empty` -- which is exactly the state the rule is about. Rooms that
+    are all empty are distinguishable only by their order.
+
+    AND THE ORDER IS A FILE, NOT A PRIVATE CALL. `CGSGetActiveSpace` is SPI, and
+    §11.1a already owes the owner a decision about one private API; taking a
+    second unasked would be deciding it for them. The WindowServer writes the
+    ordered Space list to `com.apple.spaces.plist`, and reading a file the user
+    owns is neither SPI nor a new permission.
+
+    FULLSCREEN SPACES ARE NOT DESKTOPS, and this is load-bearing rather than
+    tidy. Measured on this Mac 2026-09-10: `[(1, type 0), (3, type 4, fs_wid),
+    (6, type 0)]` -- two real Desktops with a fullscreen window sitting between
+    them in the order. Counting the raw list makes Desktop 2 look like Desktop 3
+    the moment anything is full-screened.
+
+    "CANNOT TELL" MUST FAIL CLOSED. An unreadable plist, an unfamiliar shape, or
+    a current Space absent from the list all mean vesper does not know where it
+    is -- and taking the Desktop then is taking it at the exact moment vesper has
+    least idea. Not planting is now a state that EXPLAINS ITSELF in the flag bar
+    (§15.2), so the safe answer is also a visible one.
+    """
+    r = Result("vesper-never-takes-the-owners-first-desktop")
+    watch_p = REPO / "app" / "home-macos" / "SpaceWatch.swift"
+    main_p = REPO / "app" / "island-macos" / "main.swift"
+    for f in (watch_p, main_p):
+        if not f.exists():
+            r.err(f"{f.name} is missing")
+            return r
+    watch = watch_p.read_text(encoding="utf-8")
+    main_src = main_p.read_text(encoding="utf-8")
+
+    order = _swift_body(watch, "static func onFirstDesktop() -> Bool? {")
+    refusal = _swift_body(watch, "static func refusal(_ answer: Bool?) -> String? {")
+    if not order:
+        r.err("SpaceWatch has no `SpaceOrder.onFirstDesktop()`, so nothing can "
+              "tell Desktop 1 from any other empty one -- and `desktopId()` "
+              "cannot: it hashes the windows present, and they are all empty")
+        return r
+
+    # 1. IT RETURNS AN OPTIONAL AND THE UNKNOWN CASE IS REAL. A function that
+    #    cannot say "I do not know" will say "not Desktop 1" instead.
+    if "-> Bool? {" not in watch:
+        r.err("`onFirstDesktop` no longer returns an optional, so 'cannot tell' "
+              "has to be reported as one of the two answers -- and either choice "
+              "is wrong: false takes the owner's Desktop, true never starts")
+    if "return nil" not in order:
+        r.err("`onFirstDesktop` never returns nil, so an unreadable or "
+              "unrecognised space list resolves to a definite answer vesper has "
+              "not got")
+
+    # 2. FULLSCREEN SPACES ARE FILTERED OUT. Read as the comparison it is: the
+    #    word `type` appears in prose, so its PRESENCE proves nothing.
+    flat = "".join(order.split())
+    if '["type"]asInt)??0)==0' not in flat and '"type"' not in flat:
+        r.err("the space list is not filtered to real Desktops. A fullscreen "
+              "window is an entry in that list, so counting it makes Desktop 2 "
+              "look like Desktop 3 and the first Desktop stop being first")
+    elif '==0' not in flat:
+        r.err("the space list is read but not compared against the desktop type, "
+              "so fullscreen spaces are counted as Desktops")
+
+    # 3. THE REFUSAL IS FAIL-CLOSED ON UNKNOWN. This is the assertion that
+    #    matters most and the easiest to get backwards.
+    if not refusal:
+        r.err("`SpaceOrder.refusal` is gone, so the caller has to decide what "
+              "an unknown answer means -- in the one place a wrong guess takes "
+              "the owner's Desktop")
+    else:
+        none_at = refusal.find("case .none:")
+        true_at = refusal.find("case .some(true):")
+        false_at = refusal.find("case .some(false):")
+        if none_at < 0 or true_at < 0 or false_at < 0:
+            r.err("`refusal` no longer answers all three of true, false and nil "
+                  "explicitly. The nil case is the one that decides what vesper "
+                  "does when it does not know where it is")
+        else:
+            tail = refusal[none_at:]
+            nxt = min([i for i in (tail.find("case .some(true):"),
+                                   tail.find("case .some(false):")) if i > 0]
+                      or [len(tail)])
+            if "return nil" in tail[:nxt]:
+                r.err("`refusal(nil)` returns no refusal, so a space list vesper "
+                      "could not read is treated as proof this is NOT Desktop 1 "
+                      "-- taking the owner's Desktop at the exact moment vesper "
+                      "has least idea which one it is on")
+            unknown_tail = refusal[false_at:]
+            if "return nil" not in unknown_tail:
+                r.err("`refusal(false)` does not return nil, so vesper refuses "
+                      "every Desktop including the ones it may have -- it would "
+                      "never set up anywhere")
+
+    # 4. AND THE PLANT DECISION ACTUALLY CONSULTS IT, BEFORE PLANTING. A rule
+    #    consulted after the ground exists is not a rule, it is a cleanup problem
+    #    on a Desktop vesper has already taken.
+    i_ref = main_src.find("SpaceOrder.refusal(")
+    i_plant = main_src.find("timer.invalidate(); t = nil")
+    if i_ref < 0:
+        r.err("the wait for an empty Desktop never asks which Desktop it is, so "
+              "the owner's rule is written down and enforced by nothing")
+    elif i_plant < 0:
+        r.err("the plant path has changed shape and this check is not reading it")
+    elif i_ref > i_plant:
+        r.err("the desktop order is consulted AFTER the ground is planted. By "
+              "then vesper is on Desktop 1 and the rule has been broken; the "
+              "check has to come first or it is a report rather than a guard")
+    else:
+        # THE CONDITION, NOT ITS CONTENTS. This asked whether a `return` appeared
+        # between the refusal and the plant, and appending `, false` to the guard
+        # leaves that `return` exactly where it was -- inside a block that can no
+        # longer run. The control went GREEN under its own violation, which is
+        # the fourth time this shape has caught me in two days. What must be read
+        # is what DECIDES, not what sits inside the decision.
+        opener = "if let why = SpaceOrder.refusal("
+        j = main_src.find(opener)
+        if j < 0 or j > i_plant:
+            r.err("the refusal is computed and never used as a condition, so "
+                  "vesper works out that this is Desktop 1 and plants anyway")
+        else:
+            brace = main_src.find("{", j)
+            cond = main_src[j + len("if "):brace].strip()
+            if cond != "let why = SpaceOrder.refusal(first)":
+                r.err(f"the plant is guarded by {cond!r} rather than by the "
+                      f"refusal alone. An extra clause makes the guard "
+                      f"unreachable while leaving every line inside it intact, "
+                      f"which is exactly what a test of the block cannot see")
+            body = main_src[brace:i_plant]
+            if "return" not in body:
+                r.err("the guard fires and does not return, so the refusal is "
+                      "announced and the ground is planted regardless")
+
+    r.note("the desktop order is read from macos's own space list rather than "
+           "SPI, fullscreen spaces are not counted as desktops, 'cannot tell' "
+           "refuses rather than guessing, and the rule is consulted before the "
+           "ground is created")
+    return r
+
+
 def check_a_window_is_claimed_only_by_the_app_that_opened_it() -> Result:
     """VESPER may stamp a window as its own only if it can prove it opened it.
 
@@ -24116,6 +24267,8 @@ CHECK_FNS = {
     "vesper-answers-in-the-owners-words": check_vesper_answers_in_the_owners_words,
     "a-mode-that-does-not-land-reaches-the-bar":
         check_a_mode_that_does_not_land_reaches_the_bar,
+    "vesper-never-takes-the-owners-first-desktop":
+        check_vesper_never_takes_the_owners_first_desktop,
     "a-restored-stamp-is-corroborated": check_a_restored_stamp_is_corroborated,
     "the-window-log-records-and-never-reopens": check_the_window_log_records_and_never_reopens,
     "the-shipped-runtime-can-reach-what-it-needs": check_the_shipped_runtime_can_reach_what_it_needs,

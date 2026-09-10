@@ -244,3 +244,86 @@ enum SpaceWatch {
         VESPER.app. See HOME-ARCHITECTURE §2.3a.
         """
 }
+
+/// WHICH DESKTOP IS SHOWING, BY ORDER RATHER THAN BY CONTENTS.
+///
+/// THE OWNER'S RULE, 2026-09-10: *"never take Desktop 1"*. It supersedes their
+/// 2026-08-24 one ("if both desktops are empty, say on boot for example, it can
+/// just take one"), and it supersedes it for a reason they hit that morning: at
+/// BOOT every Desktop is empty, so "the first empty Desktop" is Desktop 1 — the
+/// one they come back to. `foreign=0` in the ground log was true and beside the
+/// point.
+///
+/// `WindowBridge.desktopId()` CANNOT ANSWER THIS. It hashes the window numbers
+/// present, so every empty Desktop is the same string, `desktop-empty` — which
+/// is exactly the state this rule is about. Contents cannot distinguish rooms
+/// that are all empty; only ORDER can.
+///
+/// AND THE ORDER IS A FILE, NOT A PRIVATE CALL. `CGSGetActiveSpace` and friends
+/// are SPI, and §11.1a already owes the owner a decision about one private API;
+/// adding a second unasked would be taking that decision for them. The
+/// WindowServer writes the ordered Space list to `com.apple.spaces.plist`, and
+/// reading a file the user owns is neither SPI nor a new permission.
+///
+/// FULLSCREEN SPACES ARE NOT DESKTOPS. Measured 2026-09-10 on this Mac: the list
+/// held `[(1, type 0), (3, type 4, fs_wid), (6, type 0)]` — two real Desktops
+/// and one fullscreen window sitting between them in the order. Counting the
+/// raw list would make Desktop 2 look like Desktop 3 the moment anything is
+/// full-screened, so `type == 0` is the filter and it is load-bearing.
+enum SpaceOrder {
+    static let plist = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Preferences/com.apple.spaces.plist")
+
+    /// Is the Desktop showing the FIRST one? `nil` when that cannot be told.
+    ///
+    /// NIL IS NOT FALSE, AND THE CALLER MUST NOT TREAT IT AS ONE. Unreadable,
+    /// unparseable, a shape this does not recognise, or a current Space that is
+    /// not in the list at all — every one of those means "cannot tell", and the
+    /// only answer that honours "never take Desktop 1" is to decline to plant.
+    /// Returning false on a bad read would take the owner's Desktop precisely
+    /// when vesper had least idea where it was.
+    ///
+    /// READ FRESH EVERY TIME, never cached: the answer changes when the owner
+    /// switches Desktop, which is the whole reason it is being asked.
+    static func onFirstDesktop() -> Bool? {
+        guard let data = try? Data(contentsOf: plist),
+              let root = try? PropertyListSerialization.propertyList(
+                  from: data, options: [], format: nil) as? [String: Any],
+              let cfg = root["SpacesDisplayConfiguration"] as? [String: Any],
+              let mgmt = cfg["Management Data"] as? [String: Any],
+              let monitors = mgmt["Monitors"] as? [[String: Any]]
+        else { return nil }
+        for m in monitors {
+            guard let cur = m["Current Space"] as? [String: Any],
+                  let curId = cur["ManagedSpaceID"] as? Int,
+                  let spaces = m["Spaces"] as? [[String: Any]]
+            else { continue }
+            let desktops = spaces.compactMap { s -> Int? in
+                ((s["type"] as? Int) ?? 0) == 0 ? s["ManagedSpaceID"] as? Int : nil
+            }
+            guard let first = desktops.first else { continue }
+            // ONLY THE MONITOR THAT IS SHOWING THIS SPACE ANSWERS. With two
+            // displays each has its own Current Space, and the one vesper is
+            // about to plant on is the one whose list contains it.
+            if desktops.contains(curId) { return curId == first }
+        }
+        return nil
+    }
+
+    /// The owner's sentence for why vesper is not setting up here.
+    static func refusal(_ answer: Bool?) -> String? {
+        switch answer {
+        case .some(true):
+            return "this is desktop 1, and you asked vesper never to take that "
+                 + "one — it is where you come back to. switch to another empty "
+                 + "desktop and vesper will set up there"
+        case .none:
+            return "vesper cannot tell which desktop this is, and you asked it "
+                 + "never to take desktop 1 — so it is not taking this one "
+                 + "either. it reads the desktop order from macos's own space "
+                 + "list, and that could not be read"
+        case .some(false):
+            return nil
+        }
+    }
+}
