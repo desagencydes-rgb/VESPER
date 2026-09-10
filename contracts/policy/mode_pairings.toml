@@ -55,7 +55,13 @@ ambience = "Idle"
 
 [pairings.research]
 stage = "research"
-ambience = "Working"
+# THE OWNER, 2026-09-10: *"this is work wallpaper not research"*. `research` and
+# `work` both paired to `Working`, so asking for research changed the stage and
+# left the room identical -- a mode that announced itself and looked like the
+# one before it. `Milestone` is the eleventh ambience and had no pairing reaching
+# it, so it was authored, shipped, and unreachable from anything the owner could
+# say.
+ambience = "Milestone"
 
 [pairings.work]
 stage = "work"

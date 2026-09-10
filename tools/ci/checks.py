@@ -22068,88 +22068,86 @@ def check_a_mode_is_a_pairing_of_two_axes() -> Result:
 
 
 def check_the_wallpaper_changes_only_on_vespers_desktop() -> Result:
-    """VESPER may repaint its own Desktop and no one else's.
+    """VESPER has exactly one way to write the system picture: the owner asking.
 
-    HOME-WORKBENCH §11.2 states it as a hard bound: "the switch applies only to
-    VESPER's Desktop, and only while VESPER is up. Other Desktops and the lock
-    screen are untouched." `setDesktopImageURL` takes an `NSScreen` and has no
-    Space argument -- it repaints whichever Space is SHOWING -- so the bound is
-    not something the API gives, it is something the caller must enforce.
+    THIS CHECK USED TO GUARD A RESIDENCY GUARD, AND THE GUARD IS GONE ON PURPOSE.
+    It asserted that `setMode` asks whether vesper's ground is on the Desktop
+    showing before calling `setDesktopImageURL`. That question was the best
+    available answer while vesper still wrote the system picture -- and it was
+    not good enough: a guard is only as good as the instant it is asked in, and
+    MEASURED 2026-09-10 from macOS's own wallpaper store, ALL THREE of the
+    owner's live Desktops were showing a VESPER image with the guard in place.
 
-    `Ambience.apply`'s own header said the caller must confirm residency first,
-    and NO CALLER DID. `setMode` applied unconditionally, so a mode set while
-    the owner was looking at their own Desktop replaced their picture. Found
-    2026-09-09 by reading the code the spec pointed at.
+    SO THE INVARIANT MOVED RATHER THAN RELAXED. Vesper paints its own ground
+    layer, which cannot reach another Space by construction, and
+    `vespers-wallpapers-never-touch-the-owners` gates that. What is left for THIS
+    check is the other half, and it is the half that would rot quietly: the write
+    path still EXISTS in the codebase, because `restore` needs it to put the
+    owner's own picture back. One reachable caller, and it is the owner asking.
 
-    AND THE RECORD OF WHAT TO PUT BACK WAS ALREADY POISONED. The saved
-    "original" held `rest.png` -- one of VESPER's own images -- so restoring
-    would have put a VESPER picture back and reported success. Whatever wrote it
-    did so when VESPER had already replaced the wallpaper, and the owner's real
-    picture was gone from the only place holding it. A record that cannot be
-    distinguished from the thing it is supposed to protect against is not a
-    backup.
+    A CHECK WHOSE SUBJECT IS DELETED MUST BE REWRITTEN, NOT LEFT PASSING. Left
+    alone this would have gone green while asserting things about code no path
+    reaches -- the sixth instance of that shape in two days, and the only one
+    that was predicted before it happened.
     """
     r = Result("the-wallpaper-changes-only-on-vespers-desktop")
-    home = REPO / "app" / "home-macos" / "Home.swift"
-    amb = REPO / "app" / "home-macos" / "HomeAmbience.swift"
-    main = REPO / "app" / "island-macos" / "main.swift"
-    for f in (home, amb, main):
+    amb_p = REPO / "app" / "home-macos" / "HomeAmbience.swift"
+    home_p = REPO / "app" / "home-macos" / "Home.swift"
+    for f in (amb_p, home_p):
         if not f.exists():
             r.err(f"{f.name} is missing")
             return r
+    amb = amb_p.read_text(encoding="utf-8")
+    home = home_p.read_text(encoding="utf-8")
 
-    # 1. RESIDENCY IS CHECKED BEFORE THE PICTURE IS TOUCHED, and in that order.
-    body = _swift_nostrings(_swift_body(home.read_text(encoding="utf-8"),
-                                        "func setMode(_ name: String, quiet: Bool = false) -> Bool {"))
-    if not body:
-        r.err("Home.swift has no setMode; the mode path has changed shape")
+    # ZERO, AND ZERO IS THE ONLY NUMBER THAT MEANS SEPARATE.
+    #
+    # This first asserted "exactly one write path, and it is `restore`". That was
+    # wrong by one: `restore` put the owner's picture back after vesper replaced
+    # it, and vesper no longer replaces it -- so the reversal had nothing to
+    # reverse, while still holding a live `setDesktopImageURL`. One caller is one
+    # more than zero, and the call is the entire hazard: no Space argument, it
+    # repaints whatever is showing.
+    #
+    # COUNTED AS A CALL, NOT AS A NAME. The first version counted every
+    # occurrence and read 4 on a file whose comments explain at length why the
+    # call is not made -- the same substring trap that made four negative
+    # controls pass under violation the day before.
+    writes = amb.count("NSWorkspace.shared.setDesktopImageURL(")
+    if writes:
+        r.err(f"HomeAmbience writes the system desktop picture in {writes} "
+              f"place(s). The owner asked for two systems that never touch, and "
+              f"`setDesktopImageURL` has no Space argument -- it repaints "
+              f"whichever Space is showing, which is how all three of their live "
+              f"Desktops came to hold a VESPER image with a guard in place")
+
+    # AND NOTHING ELSE IN THE APP WRITES IT EITHER, except the standalone
+    # wallpaper tool, which is the owner running a command at their own prompt.
+    for f in sorted((REPO / "app").rglob("*.swift")):
+        if f.name in ("wallpaper.swift",):
+            continue
+        if "NSWorkspace.shared.setDesktopImageURL(" in f.read_text(encoding="utf-8"):
+            r.err(f"{f.name} writes the system desktop picture. Vesper's "
+                  f"wallpapers and macOS's are two systems that never touch, and "
+                  f"the separation is the absence of this call rather than a "
+                  f"guard in front of it")
+
+    # 3. THE MODE PATH DOES NOT REACH IT. This is what changed, and it is the
+    #    assertion that replaces the residency question.
+    set_mode = _swift_nostrings(
+        _swift_body(home, "func setMode(_ name: String, quiet: Bool = false) -> Bool {"))
+    if not set_mode:
+        r.err("Home.swift has no setMode(_:quiet:)")
     else:
-        flat = "".join(body.split())
-        i_guard = flat.find("ground.windowNumber")
-        i_apply = flat.find("Ambience.apply")
-        if i_guard < 0:
-            r.err("setMode does not ask whether vesper's ground is on the "
-                  "desktop that is showing. `setDesktopImageURL` repaints "
-                  "whichever Space is showing, so without that question a mode "
-                  "set on the owner's desktop replaces the owner's picture")
-        elif i_apply >= 0 and i_guard > i_apply:
-            r.err("setMode applies the picture BEFORE checking residency, so "
-                  "the check cannot prevent anything")
+        for needle in ("setDesktopImageURL", "Ambience.apply"):
+            if needle in set_mode:
+                r.err(f"setMode reaches `{needle}` again. Changing a mode must "
+                      f"not be able to write the system picture at all")
 
-    # 2. VESPER'S OWN PICTURE IS NEVER RECORDED AS THE OWNER'S.
-    ab = _swift_nostrings(_swift_body(amb.read_text(encoding="utf-8"),
-                                      "static func apply(_ mode: Mode, on screen: NSScreen, quiet: Bool = false) -> Bool {"))
-    if not ab:
-        r.err("HomeAmbience has no apply(); the wallpaper path has changed shape")
-    elif "wallpaperDir" not in ab or "hasPrefix" not in ab:
-        r.err("apply() can record one of vesper's own wallpapers as the owner's "
-              "original. Restoring would then put a VESPER image back and report "
-              "success -- which is what the poisoned record on this machine did")
-
-    # 3. THE CONTROL EXISTS AND CAN FAIL.
-    ctl = _swift_nostrings(_swift_body(main.read_text(encoding="utf-8"),
-                                       'if args.contains("--mode-residency-check") {'))
-    if not ctl:
-        r.err("--mode-residency-check is gone. §11.2 asks for exactly this "
-              "negative control: switch modes with vesper on a desktop that is "
-              "not its own and assert nothing changed")
-    else:
-        if "exit(5)" not in ctl:
-            r.err("--mode-residency-check cannot report a failure")
-        # THE CALL, NOT A NAME THAT CONTAINS IT. Testing for "retract" was
-        # satisfied by the local variable `retracted`, so gutting the call left
-        # the check green -- the fourth time today a substring test mistook an
-        # identifier for the behaviour it names.
-        if "verifyGroundLanding()" not in ctl:
-            r.err("--mode-residency-check never removes the ground through the "
-                  "shipped judge, so vesper still owns the desktop and the "
-                  "refusal is never exercised -- the control would pass without "
-                  "testing anything")
-
-    r.note("setMode asks whether the ground is on the desktop showing before "
-           "touching the picture; apply() refuses to record a vesper wallpaper "
-           "as the owner's; and the negative control removes the ground so the "
-           "refusal is actually exercised")
+    r.note("nothing in the app writes the system desktop picture -- not the "
+           "mode path, not a reversal path, not anywhere -- so vesper's "
+           "wallpapers and macOS's are separate by construction rather than by "
+           "a guard")
     return r
 
 
@@ -23771,6 +23769,42 @@ def check_vesper_never_takes_the_owners_first_desktop() -> Result:
               "unrecognised space list resolves to a definite answer vesper has "
               "not got")
 
+    # 1a. THE SPACE THAT IS SHOWING IS ASKED LIVE, NOT READ FROM THE FILE.
+    #
+    #     The first version read `Current Space` out of `com.apple.spaces.plist`.
+    #     MEASURED 2026-09-10: that file sat unwritten for 4.5 minutes across
+    #     several of the owner's Desktop switches, so it answers with a stale id
+    #     CONFIDENTLY -- worse than not answering, because the fail-closed path
+    #     never fires. Vesper planted on Desktop 1 with this guard in place and
+    #     the guard reading "you are on the third".
+    #
+    #     THE OWNER TOOK THE SPI DECISION on being shown that there is no public
+    #     alternative: `CGWindowListCopyWindowInfo` on macOS 26.5 returns eleven
+    #     keys and `kCGWindowWorkspace` is not among them. So the live answer
+    #     comes from `CGSGetActiveSpace`, loaded BY NAME at runtime so that a
+    #     macOS update which removes it yields nil -- which this rule refuses on
+    #     -- rather than a process that will not launch.
+    # ASKED OF `onFirstDesktop`'s OWN BODY, not of the file. The symbol is also
+    # named in `activeSpaceFn` and in the comments explaining why it is used, so
+    # a file-wide test stays true while the rule goes back to reading the stale
+    # plist value -- which is exactly what its negative control demonstrated.
+    if "activeSpaceId()" not in order:
+        r.err("`onFirstDesktop` does not ask which Space is showing LIVE. The "
+              "only other source is `Current Space` in the spaces plist, which "
+              "was measured 4.5 minutes stale across live Desktop switches -- it "
+              "answers wrongly and confidently, so the guard cannot fail closed")
+    if "CGSGetActiveSpace" not in watch:
+        r.err("nothing in SpaceWatch looks up the live active space at all")
+    if "dlsym" not in watch:
+        r.err("the private symbol is linked rather than looked up at runtime, so "
+              "a macOS release that drops it stops vesper from launching at all "
+              "instead of producing the 'cannot tell' this rule already refuses "
+              "on")
+    if '"Current Space"' in "".join(order.split()):
+        r.err("`onFirstDesktop` is back to reading `Current Space` from the "
+              "plist for the SHOWING space. That value is the stale half; the "
+              "ORDER is the half that file can be trusted for")
+
     # 2. FULLSCREEN SPACES ARE FILTERED OUT. Read as the comparison it is: the
     #    word `type` appears in prose, so its PRESENCE proves nothing.
     flat = "".join(order.split())
@@ -23855,6 +23889,171 @@ def check_vesper_never_takes_the_owners_first_desktop() -> Result:
            "SPI, fullscreen spaces are not counted as desktops, 'cannot tell' "
            "refuses rather than guessing, and the rule is consulted before the "
            "ground is created")
+    return r
+
+
+def check_vespers_wallpapers_never_touch_the_owners() -> Result:
+    """VESPER paints its own ground and nothing else, for every mode it has.
+
+    THE OWNER, 2026-09-10: *"i would like the default wallpaper from mac os that
+    i will apply everywhere to be separate from vesper's wallpaper system, and
+    viseversa, nothing touches the other's"* -- and *"i want all wallpaper from
+    vesper to be attached to their modes and actually working end to end, not
+    just some of them, with the animation thing"*.
+
+    THE OLD ROUTE COULD NOT BE MADE SAFE, ONLY ABANDONED. `setDesktopImageURL`
+    has no Space argument: it repaints whichever Space is showing. A residency
+    guard stood in front of it and was not enough, because a guard is only as
+    good as the instant it is asked in and vesper has run across many Space
+    arrangements. MEASURED from macOS's own wallpaper store: ALL THREE live
+    Desktops were showing a VESPER image, 37 of 42 entries in the store were
+    ours, the owner's own picture survived in exactly one, and the record that
+    was supposed to allow restoring it was EMPTY.
+
+    SO THE FIX IS THE ABSENCE OF THE CALL. Vesper's ground is a full-screen layer
+    at `normal - 1` -- below every window of the owner's, above the desktop
+    icons. Painting that is confined to vesper's own window by construction: it
+    cannot reach another Space, it cannot reach the lock screen, and when vesper
+    is off the window does not exist. No guard can promise that. This check
+    exists because a guard is what was there before, and a guard is what someone
+    would add back.
+
+    AND IT IS THE ONLY ROUTE THE ANIMATIONS COULD TAKE. `setDesktopImageURL`
+    accepts a still image; three of the eleven modes ship a `_animated.mp4` that
+    nothing had ever opened. A layer takes either.
+    """
+    r = Result("vespers-wallpapers-never-touch-the-owners")
+    import json as _js
+    home_p = REPO / "app" / "home-macos" / "Home.swift"
+    amb_p = REPO / "app" / "home-macos" / "HomeAmbience.swift"
+    main_p = REPO / "app" / "island-macos" / "main.swift"
+    for f in (home_p, amb_p, main_p):
+        if not f.exists():
+            r.err(f"{f.name} is missing")
+            return r
+    home = home_p.read_text(encoding="utf-8")
+    set_mode = _swift_body(home, "func setMode(_ name: String, quiet: Bool = false) -> Bool {")
+    if not set_mode:
+        r.err("Home.swift has no setMode(_:quiet:); the wallpaper path has "
+              "changed shape and this check is not reading it")
+        return r
+
+    # 1. THE MODE PATH DOES NOT WRITE THE SYSTEM PICTURE. Both the direct call
+    #    and the wrapper that used to make it.
+    for needle, why in (
+            ("setDesktopImageURL",
+             "sets the system desktop picture directly. That API has no Space "
+             "argument, so it repaints whichever Space is showing -- which is "
+             "how all three of the owner's live Desktops came to hold a VESPER "
+             "image"),
+            ("Ambience.apply",
+             "calls `Ambience.apply`, which is the wrapper that called "
+             "`setDesktopImageURL`. The separation the owner asked for is the "
+             "absence of that call, not a guard in front of it")):
+        if needle in _swift_nostrings(set_mode):
+            r.err(f"setMode {why}")
+
+    # 2. IT PAINTS ITS OWN LAYER INSTEAD, or vesper's Desktop shows the owner's
+    #    picture and their desktop icons through the ground.
+    flat = "".join(_swift_nostrings(set_mode).split())
+    if "wallpaper.contents=img" not in flat:
+        r.err("setMode no longer paints vesper's own ground layer, so vesper's "
+              "Desktop shows whatever the owner's picture is -- and their "
+              "desktop icons through it")
+
+    # 3. EVERY MODE HAS A FILE. "not just some of them" is the owner's phrase and
+    #    it is checkable: the modes are declared in one place and the files sit
+    #    in another, and nothing had ever compared the two.
+    modes_p = REPO / "docs" / "design" / "source" / "modes.json"
+    wall_dir = REPO / "docs" / "design" / "assets" / "wallpapers"
+    if not modes_p.exists() or not wall_dir.exists():
+        r.err("the modes source or the wallpaper folder is missing")
+        return r
+    modes = _js.loads(modes_p.read_text(encoding="utf-8"))
+    names = [str(m.get("mode") or "") for m in modes if isinstance(m, dict)]
+    if not names:
+        r.err("no modes are declared, so this check cannot tell complete from empty")
+    exts = ("png", "jpg", "jpeg", "avif", "heic")
+    missing = [n for n in names
+               if not any((wall_dir / f"{n.lower()}.{e}").exists() for e in exts)]
+    if missing:
+        r.err(f"{missing} have no wallpaper file, so entering those modes leaves "
+              f"the ground blank and the owner's desktop clutter showing through")
+
+    # 4. THE ANIMATED ONES ARE REACHED. They shipped beside the stills and were
+    #    opened by nothing until 2026-09-10.
+    animated = sorted(p.name for p in wall_dir.glob("*_animated.mp4"))
+    if not animated:
+        r.err("no animated wallpapers are present, so this check cannot tell "
+              "whether the code that plays them works")
+    else:
+        amb = amb_p.read_text(encoding="utf-8")
+        if "_animated.mp4" not in amb:
+            r.err(f"{len(animated)} animated wallpapers ship and nothing names "
+                  f"the convention that finds them -- which was true for weeks")
+        for f in animated:
+            stem = f.replace("_animated.mp4", "")
+            if not any(n.lower() == stem for n in names):
+                r.err(f"{f} belongs to no declared mode, so it can never play")
+
+    # 5. ARMED WHEN SET, PLAYED WHEN ENTERED, and those are different moments.
+    #    The owner asked for it "the first time i enter that desktop when that
+    #    mode is set" -- playing at `setMode` runs it where nobody is looking.
+    if "armedAnimation = m.animated(in: dir)" not in set_mode:
+        r.err("setMode does not arm the mode's animation, so a mode with a "
+              "moving wallpaper shows only the still one")
+    if "playedThisModeSession = false" not in set_mode:
+        r.err("setting a mode does not reset the once-per-session flag, so an "
+              "animation plays once per PROCESS -- the owner asked for it to "
+              "trigger again when the mode is re-set or changed")
+    watch = _swift_body(home, "func watchModeFile() {")
+    wflat = "".join((watch or "").split())
+    if "playAnimationIfArmed()" not in wflat:
+        r.err("nothing plays the armed animation on arrival, so it is armed and "
+              "never fires")
+    if "onNow&&!self.groundWasOnScreen" not in wflat:
+        r.err("the arrival is not read as an EDGE, so the animation restarts "
+              "every tick for as long as the owner stays on vesper's Desktop")
+
+    # 6. IT PLAYS ONCE AND STOPS. A looping AVPlayerLayer is a sustained decode
+    #    on a laptop the owner has asked to be careful with the heat of.
+    play = _swift_body(home, "func playAnimationIfArmed() {")
+    if not play:
+        r.err("Home.swift has no playAnimationIfArmed()")
+    else:
+        if "AVPlayerItemDidPlayToEndTime" not in play:
+            r.err("the animation's end is not observed, so either it loops or it "
+                  "is torn down on a guessed duration -- reporting on a clock "
+                  "instead of on the world")
+        if "playedThisModeSession = true" not in play:
+            r.err("playing does not spend the session, so entering the Desktop "
+                  "twice plays it twice")
+        if ".isMuted = true" not in play:
+            r.err("the moving wallpaper is not muted. A wallpaper that makes a "
+                  "noise when you walk into the room is not a wallpaper")
+
+    # 7. THE INSTRUMENT TELLS THE GROUND FROM THE ISLAND. The island is
+    #    `.canJoinAllSpaces` and is on every Desktop by design, so counting it
+    #    makes every Desktop look like vesper's -- which it did, and which sent
+    #    a reader looking for vesper on the wrong Desktop.
+    main_src = main_p.read_text(encoding="utf-8")
+    i = main_src.find('let mine = all.filter { $0.owner == "VESPER"')
+    if i < 0:
+        r.err("--wallpaper-status no longer counts vesper's windows, so nothing "
+              "reports which Desktop the ground is on")
+    else:
+        line = main_src[i:main_src.find("\n", i)]
+        if "layer" not in line:
+            r.err("--wallpaper-status counts EVERY vesper window as the ground. "
+                  "The island joins all spaces by design, so every Desktop reads "
+                  "as vesper's -- measured telling a reader the ground was on a "
+                  "Desktop it was not")
+
+    r.note(f"the mode path writes no system picture and paints vesper's own "
+           f"layer; all {len(names)} modes have a wallpaper file and "
+           f"{len(animated)} have a moving one; the animation is armed on set "
+           f"and played on an arrival edge, once, muted, and torn down when it "
+           f"ends; and the status instrument tells the ground from the island")
     return r
 
 
@@ -24433,6 +24632,8 @@ CHECK_FNS = {
         check_a_mode_that_does_not_land_reaches_the_bar,
     "vesper-never-takes-the-owners-first-desktop":
         check_vesper_never_takes_the_owners_first_desktop,
+    "vespers-wallpapers-never-touch-the-owners":
+        check_vespers_wallpapers_never_touch_the_owners,
     "a-restored-stamp-is-corroborated": check_a_restored_stamp_is_corroborated,
     "the-window-log-records-and-never-reopens": check_the_window_log_records_and_never_reopens,
     "the-shipped-runtime-can-reach-what-it-needs": check_the_shipped_runtime_can_reach_what_it_needs,

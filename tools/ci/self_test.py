@@ -6596,30 +6596,34 @@ HOME_SWIFT = "app/home-macos/Home.swift"
 AMBIENCE_SWIFT = "app/home-macos/HomeAmbience.swift"
 
 CASES += [
-    ("the-wallpaper-changes-only-on-vespers-desktop", HOME_SWIFT,
-     _sub("        let mine = SpaceWatch.onScreen().contains {\n"
-          "            $0.number == Int(ground.windowNumber)\n        }",
-          "        let mine = true", 1),
-     "setMode stops asking whether vesper's ground is on the desktop showing, "
-     "so a mode set while the owner is on their own desktop repaints theirs"),
+    # THE OLD THREE MUTATED CODE THAT NO LONGER EXISTS -- the residency guard in
+    # `setMode` and `Ambience.apply` -- because the check they belonged to was
+    # rewritten when its subject was deleted. The harness reported all three as
+    # "the mutation did not apply", which is the whole reason it re-runs them.
+    ("the-wallpaper-changes-only-on-vespers-desktop", WATCH_SWIFT,
+     _sub("enum SpaceOrder {",
+          "enum SpaceOrder {\n    static func put(_ u: URL, on s: NSScreen) {\n"
+          "        try? NSWorkspace.shared.setDesktopImageURL(u, for: s, options: [:])\n"
+          "    }\n", 1),
+     "a write into the system picture appears in some OTHER file of the app, "
+     "where a check that only reads HomeAmbience would never look -- and that "
+     "call repaints whichever space is showing, from anywhere"),
 
     ("the-wallpaper-changes-only-on-vespers-desktop", AMBIENCE_SWIFT,
-     _sub("            let ours = wallpaperDir().map { c.path.hasPrefix($0) } ?? false",
-          "            let ours = false", 1),
-     "one of vesper's own pictures can be recorded as the owner's original "
-     "again, so restoring puts a vesper image back and calls it the owner's"),
+     _sub("enum Ambience {",
+          "enum Ambience {\n    static func put(_ u: URL, on s: NSScreen) {\n"
+          "        try? NSWorkspace.shared.setDesktopImageURL(u, for: s, options: [:])\n"
+          "    }\n", 1),
+     "a write path into the system picture is reintroduced anywhere in "
+     "HomeAmbience, and that call has no space argument -- it repaints whichever "
+     "space is showing, guard or no guard"),
 
-    ("the-wallpaper-changes-only-on-vespers-desktop", GROUND_SWIFT,
-     # ANCHORED ON THE LINES THAT FOLLOW, because `let retracted =
-     # verifyGroundLanding()` appears in the ground control too and the first
-     # occurrence is that one -- so the mutation was landing on a different
-     # control entirely and this case tested nothing.
-     _sub("    let retracted = verifyGroundLanding()\n"
-          "    RunLoop.main.run(until: Date().addingTimeInterval(0.4))\n"
-          "    let stillHere = groundIsVisible()",
-          "    let retracted = true\n    let stillHere = false", 1),
-     "the negative control stops removing the ground, so vesper still owns the "
-     "desktop and the refusal it exists to exercise never happens"),
+    ("the-wallpaper-changes-only-on-vespers-desktop", HOME_SWIFT,
+     _sub("        var painted = false\n",
+          "        var painted = false\n"
+          "        _ = try? NSWorkspace.shared.setDesktopImageURL(URL(fileURLWithPath: \"/tmp/x\"), for: screen, options: [:])\n", 1),
+     "changing a mode can write the system picture again, which is the call "
+     "that has no space argument and the one no guard in front of it held"),
 ]
 
 
@@ -7022,6 +7026,60 @@ CASES += [
           "            let first = SpaceOrder.onFirstDesktop()\n            if let why = SpaceOrder.refusal(first), false {", 1),
      "the refusal is computed and not acted on -- vesper works out that this is "
      "desktop 1 and plants there anyway"),
+]
+
+CASES += [
+    ("vespers-wallpapers-never-touch-the-owners", HOME_SWIFT,
+     _sub("        var painted = false\n", "        var painted = false\n        _ = try? NSWorkspace.shared.setDesktopImageURL(URL(fileURLWithPath: \"/tmp/x\"), for: screen, options: [:])\n", 1),
+     "the mode path writes the system desktop picture again, and that api has no "
+     "space argument -- which is how all three of the owner's live desktops came "
+     "to hold a vesper image"),
+
+    ("vespers-wallpapers-never-touch-the-owners", HOME_SWIFT,
+     _sub("            wallpaper.contents = img\n", "            wallpaper.contents = nil\n", 1),
+     "vesper stops painting its own ground layer, so its desktop shows the "
+     "owner's picture and their desktop icons straight through it"),
+
+    ("vespers-wallpapers-never-touch-the-owners", HOME_SWIFT,
+     _sub("            armedAnimation = m.animated(in: dir)", "            armedAnimation = nil", 1),
+     "a mode with a moving wallpaper never arms it, so three of the eleven show "
+     "only their still frame -- which was true for weeks"),
+
+    ("vespers-wallpapers-never-touch-the-owners", HOME_SWIFT,
+     _sub("            playedThisModeSession = false\n", "", 1),
+     "setting a mode does not start a new animation session, so the moving "
+     "wallpaper plays once per process instead of once per mode as asked"),
+
+    ("vespers-wallpapers-never-touch-the-owners", HOME_SWIFT,
+     _sub("            if onNow && !self.groundWasOnScreen { self.playAnimationIfArmed() }",
+          "            if onNow { self.playAnimationIfArmed() }", 1),
+     "arrival is read as a state rather than an edge, so the animation restarts "
+     "twice a second for as long as the owner stays on vesper's desktop"),
+
+    ("vespers-wallpapers-never-touch-the-owners", HOME_SWIFT,
+     _sub("        videoEnd = NotificationCenter.default.addObserver(\n            forName: .AVPlayerItemDidPlayToEndTime,",
+          "        videoEnd = NotificationCenter.default.addObserver(\n            forName: .AVPlayerItemTimeJumped,", 1),
+     "the end of the animation is not observed, so the video layer is never torn "
+     "down -- a sustained decode on a laptop the owner asked to be careful with"),
+
+    ("vespers-wallpapers-never-touch-the-owners", HOME_SWIFT,
+     _sub("        player.isMuted = true", "        player.isMuted = false", 1),
+     "the moving wallpaper plays its audio, so walking into vesper's desktop "
+     "makes a noise"),
+
+    ("vespers-wallpapers-never-touch-the-owners", ISLAND_SWIFT,
+     _sub('    let mine = all.filter { $0.owner == "VESPER" && $0.layer < 0 }',
+          '    let mine = all.filter { $0.owner == "VESPER" }', 1),
+     "the status instrument counts the island as the ground. the island joins "
+     "all spaces by design, so every desktop reads as vesper's -- and it told a "
+     "reader the ground was on a desktop it was not"),
+
+    ("vesper-never-takes-the-owners-first-desktop", WATCH_SWIFT,
+     _sub("        guard let curId = activeSpaceId() else { return nil }",
+          "        guard let curId = (monitors.first?[\"Current Space\"] as? [String: Any])?[\"ManagedSpaceID\"] as? Int else { return nil }", 1),
+     "the showing space is read from the plist again, and that value was "
+     "measured 4.5 minutes stale across live desktop switches -- it answers "
+     "wrongly and confidently, so the guard never fails closed"),
 ]
 
 

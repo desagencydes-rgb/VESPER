@@ -1616,11 +1616,29 @@ if args.contains("--wallpaper-status") {
     // is asked of ALL layers, because the ground is deliberately beneath them.
     // Whether the OWNER is here is asked of layer 0 only, which is the same
     // discriminator `ground-log.txt` records as `layer0_on_this_desktop`.
+    // AND THE ISLAND IS NOT THE GROUND, WHICH IS THE THIRD TIME THIS READER HAS
+    // ANSWERED ABOUT THE WRONG WINDOW.
+    //
+    // The island is created `.canJoinAllSpaces`, so it is on EVERY Desktop by
+    // design -- it is the one part of vesper that follows the owner around.
+    // Counting it as "vesper is here" makes every Desktop look like vesper's.
+    // Measured 2026-09-10: this printed "3 of your window(s) here, 1 of
+    // vesper's" on a Desktop whose only vesper window was the island at layer
+    // 1001, while the ground was on another Desktop entirely -- and it led me
+    // to tell the owner vesper was somewhere it was not.
+    //
+    // THE GROUND IS THE ONLY WINDOW THAT MEANS "THIS DESKTOP IS MINE", because
+    // it is the only one that cannot follow. It sits at `normal - 1`, below the
+    // owner's windows and above the desktop icons, so it is identified by being
+    // beneath layer 0 rather than by being present at all.
     let all = SpaceWatch.onScreen()
-    let mine = all.filter { $0.owner == "VESPER" }
+    let mine = all.filter { $0.owner == "VESPER" && $0.layer < 0 }
+    let island = all.filter { $0.owner == "VESPER" && $0.layer >= 0 }
     let foreign = all.filter { $0.layer == 0 && $0.owner != "VESPER" }
     print("  showing Desktop      : \(foreign.count) of your window(s) here, "
-          + "\(mine.count) of vesper's")
+          + "\(mine.count) of vesper's ground"
+          + (island.isEmpty ? ""
+             : " (+\(island.count) island, which is on every desktop by design)"))
     if foreign.isEmpty && !mine.isEmpty {
         print("                         (VESPER's own Desktop — safe to repaint)")
     } else if !foreign.isEmpty {
@@ -1634,7 +1652,32 @@ if args.contains("--wallpaper-status") {
 }
 
 if args.contains("--mode-restore") {
-    Ambience.restore(on: NSScreen.main ?? screen)
+    // THERE IS NOTHING LEFT TO RESTORE, AND SAYING SO IS THE HONEST ANSWER.
+    //
+    // This called `Ambience.restore`, which put the owner's own picture back
+    // after vesper had replaced it. Vesper no longer replaces it: it paints its
+    // own ground layer, and `HomeAmbience` writes the system picture zero times.
+    // So the reversal has nothing to reverse, and the record it read from can
+    // never be populated again -- the only thing that ever wrote it was the
+    // function that was about to overwrite their picture.
+    //
+    // AND THE DAMAGE ALREADY DONE IS NOT REVERSIBLE FROM HERE EITHER, which is
+    // the part worth printing rather than hiding behind a no-op.
+    // `setDesktopImageURL` reaches only the Space that is showing, so undoing 37
+    // of them meant visiting each Desktop in turn. One pass through System
+    // Settings does the whole thing.
+    print("")
+    print("  vesper no longer changes your desktop picture at all.")
+    print("")
+    print("  it paints its own ground layer instead, which is inside its own")
+    print("  window — so it cannot reach another desktop, or the lock screen,")
+    print("  and when vesper is off there is nothing of its to undo.")
+    print("")
+    print("  if a desktop of yours is still showing a vesper wallpaper, that is")
+    print("  from before this change. set your own picture once in")
+    print("  System Settings > Wallpaper — it applies across every desktop at")
+    print("  once, and nothing here will write over it again.")
+    print("")
     exit(0)
 }
 

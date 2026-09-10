@@ -44,6 +44,25 @@ struct Mode {
         }
         return nil
     }
+
+    /// The moving version of this wallpaper, when the mode has one.
+    ///
+    /// THREE OF THE ELEVEN HAVE ONE -- `milestone`, `rest` and `speaking` --
+    /// and until 2026-09-10 nothing in the app opened any of them. They shipped
+    /// beside the stills, in the same folder, named by the same convention, and
+    /// were reachable from no code path at all.
+    ///
+    /// AND THEY COULD NOT HAVE BEEN REACHED THROUGH THE OLD ROUTE.
+    /// `setDesktopImageURL` takes a still image; there is no argument for a
+    /// movie. So the animation requirement is not an addition to the desktop-
+    /// picture approach, it is a second independent reason that approach had to
+    /// go -- vesper paints its own ground layer now, and a layer can hold a
+    /// video as easily as an image.
+    func animated(in dir: String) -> URL? {
+        let p = dir + "/" + name.lowercased() + "_animated.mp4"
+        return FileManager.default.fileExists(atPath: p)
+             ? URL(fileURLWithPath: p) : nil
+    }
 }
 
 enum Ambience {
@@ -204,97 +223,40 @@ enum Ambience {
         NSWorkspace.shared.desktopImageURL(for: screen)
     }
 
-    /// Set the desktop picture for the Space that is active RIGHT NOW.
-    ///
-    /// `setDesktopImageURL` has no Space argument and never has had one -- it
-    /// applies to the active Space, which is the same reason §2.3a exists.
-    /// Calling this while the owner is on their own Desktop changes THEIR
-    /// wallpaper, so the caller must have confirmed residency first.
-    ///
-    /// Returns true only when reading the value back agrees. The call not
-    /// throwing is the instrument's self-report; `desktopImageURL(for:)` is
-    /// the world's.
-    @discardableResult
-    static func apply(_ mode: Mode, on screen: NSScreen, quiet: Bool = false) -> Bool {
-        guard let dir = wallpaperDir(), let url = mode.wallpaper(in: dir) else {
-            if !quiet { print("  no wallpaper file for mode '\(mode.name)'") }
-            return false
-        }
-        let fm = FileManager.default
-        // NEVER RECORD ONE OF VESPER'S OWN PICTURES AS THE OWNER'S.
-        //
-        // Found 2026-09-09: the saved "original" was `rest.png` -- a VESPER
-        // wallpaper. Whatever wrote it did so at a moment when VESPER had
-        // already replaced the picture, so the record pointed at VESPER's image
-        // and the owner's real wallpaper was gone from the only place that held
-        // it. Restoring would then put back a different VESPER image and report
-        // success, which is worse than admitting the record is empty.
-        //
-        // The test is the DIRECTORY the file lives in, not its name: every mode
-        // image sits in the wallpapers folder and nothing of the owner's does.
-        if !fm.fileExists(atPath: savedOriginalPath), let c = currentPicture(screen) {
-            let ours = wallpaperDir().map { c.path.hasPrefix($0) } ?? false
-            if ours {
-                if !quiet {
-                    print("  NOT saving \(c.lastPathComponent) as your original: "
-                          + "it is one of vesper's own pictures, so the record "
-                          + "would point at vesper's image instead of yours")
-                }
-            } else {
-                try? c.path.write(toFile: savedOriginalPath, atomically: true,
-                                  encoding: .utf8)
-                if !quiet { print("  saved your original: \(c.path)") }
-            }
-        }
-        // The owner's fill rule -- "fill the screen automatically, not leaving
-        // empty spaces, nor reshape to fill" -- is aspect-fill with a centre
-        // crop, and the window server does it better than our own crop code.
-        let opts: [NSWorkspace.DesktopImageOptionKey: Any] = [
-            .imageScaling: NSImageScaling.scaleProportionallyUpOrDown.rawValue,
-            .allowClipping: true
-        ]
-        do { try NSWorkspace.shared.setDesktopImageURL(url, for: screen, options: opts) }
-        catch {
-            if !quiet { print("  FAILED: \(error.localizedDescription)") }
-            return false
-        }
-        // THE READ-BACK IS NOT INSTANT, and reading it as though it were is
-        // how a working change reported itself as broken. On 2026-08-23 this
-        // printed "*** NOT confirmed: reads back as .../rest.png ***" -- naming
-        // as the disagreeing value the exact path it had just set. The single
-        // read happened before the window server had swapped, and the SECOND
-        // read, in the message that reports the failure, happened after.
-        //
-        // "Re-read the world after acting" does not mean re-read it in the same
-        // breath. Poll to a deadline, and let the deadline be the failure.
-        var confirmed = false
-        let deadline = Date().addingTimeInterval(2.0)
-        repeat {
-            confirmed = currentPicture(screen)?.path == url.path
-            if confirmed { break }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
-        } while Date() < deadline
-        if !quiet {
-            print(confirmed
-                  ? "  \(mode.name) → \(url.lastPathComponent)   CONFIRMED by reading it back"
-                  : "  \(mode.name) → \(url.lastPathComponent)   *** NOT confirmed: reads back as "
-                    + "\(currentPicture(screen)?.path ?? "nil") ***")
-        }
-        return confirmed
-    }
+    // `apply` IS GONE, AND ITS ABSENCE IS THE FEATURE.
+    //
+    // It set the system desktop picture for a mode. `setDesktopImageURL` has no
+    // Space argument -- it repaints whichever Space is showing -- and a residency
+    // guard in front of it was not enough: MEASURED 2026-09-10 from macOS's own
+    // wallpaper store, ALL THREE of the owner's live Desktops were holding a
+    // VESPER image, 37 of 42 entries in the store were ours, and the record that
+    // was supposed to allow undoing it was empty.
+    //
+    // OWNER, 2026-09-10: *"i would like the default wallpaper from mac os that i
+    // will apply everywhere to be separate from vesper's wallpaper system, and
+    // viseversa, nothing touches the other's"*. Vesper paints its own ground
+    // layer now, which cannot reach another Space by construction. The one write
+    // path left in this file is `restore`, and the owner is the only caller.
 
-    @discardableResult
-    static func restore(on screen: NSScreen) -> Bool {
-        guard let s = try? String(contentsOfFile: savedOriginalPath, encoding: .utf8) else {
-            print("  nothing saved — VESPER has not changed this Space's picture")
-            return false
-        }
-        let p = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        do { try NSWorkspace.shared.setDesktopImageURL(
-                URL(fileURLWithPath: p), for: screen, options: [:]) }
-        catch { print("  FAILED: \(error.localizedDescription)"); return false }
-        try? FileManager.default.removeItem(atPath: savedOriginalPath)
-        print("  restored → \(p)")
-        return true
-    }
+
+    // `restore` IS GONE TOO, AND FOR A BETTER REASON THAN `apply` WAS.
+    //
+    // It existed to put the owner's own picture back after vesper had replaced
+    // it. Vesper no longer replaces it, so there is nothing to put back -- and
+    // the record it read from could never be populated again, because the only
+    // thing that ever wrote it was `apply`, saving the picture it was about to
+    // overwrite.
+    //
+    // KEEPING IT WOULD HAVE BEEN THE WORSE CHOICE. A reversal path for an action
+    // nobody takes is dead code that still holds a live `setDesktopImageURL`,
+    // and that call is the entire hazard: no Space argument, repaints whatever
+    // is showing. One caller is one more than zero, and zero is now expressible.
+    //
+    // THE EXISTING DAMAGE IS THE OWNER'S TO CLEAR, ONCE. 37 entries in macOS's
+    // wallpaper store hold a vesper image, including all three live Desktops.
+    // `setDesktopImageURL` could only ever have fixed the Space that was
+    // showing, so undoing it from here meant visiting each Desktop in turn.
+    // System Settings > Wallpaper applies across Spaces in one act, and after
+    // this file stopped writing there, nothing will undo it again.
+
 }

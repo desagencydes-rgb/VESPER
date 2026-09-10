@@ -30,6 +30,7 @@
 // host's lifetime is the product.
 
 import AppKit
+import AVFoundation
 import Metal
 
 /// The ground, which must be able to take a keystroke.
@@ -117,6 +118,36 @@ final class HomeController: NSObject {
     /// the menu bar samples the very image being painted here. Same picture,
     /// same aspect-fill crop, one of them just happens to be above the icons.
     private let wallpaper = CALayer()
+
+    /// The moving wallpaper waiting for the owner to arrive, if this mode has one.
+    ///
+    /// ARMED WHEN THE MODE IS SET, PLAYED WHEN THE DESKTOP IS ENTERED. The owner
+    /// asked for the animation "the first time i enter that desktop when that
+    /// mode is set", and those are two different moments: vesper is usually told
+    /// to change mode while the owner is somewhere else entirely. Playing at
+    /// `setMode` would run the whole thing at a Desktop nobody is looking at and
+    /// leave a still frame waiting -- which is exactly the thing they asked not
+    /// to happen.
+    private var armedAnimation: URL?
+
+    /// Whether this mode SESSION has already had its animation.
+    ///
+    /// "if the mode was reset or changed to another animated one, the animation
+    /// should still trigger when i enter it for the first time in that mode
+    /// session" -- so the counter is per mode-set, not per process and not per
+    /// Desktop entry. Setting a mode (even the same one again) starts a new
+    /// session and re-arms; entering afterwards spends it once.
+    private var playedThisModeSession = false
+
+    /// Was vesper's ground the Desktop showing, last time anything looked.
+    ///
+    /// The trigger is an EDGE, not a state: playing whenever the ground happens
+    /// to be on screen would replay every half second for as long as the owner
+    /// stayed put.
+    private var groundWasOnScreen = false
+    private var videoLayer: AVPlayerLayer?
+    private var videoPlayer: AVPlayer?
+    private var videoEnd: Any?
     private let scrim = NSView()
     /// The falloff. A FLAT scrim at the solved fill is what the owner saw on
     /// 2026-08-24 and it read as a slab, not as glass -- at 0.757 there is
@@ -809,6 +840,18 @@ final class HomeController: NSObject {
             .appendingPathComponent("Library/Application Support/VESPER/home.json")
         let t = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self else { return }
+            // THE OWNER ARRIVING IS AN EDGE, AND THIS IS THE ONLY THING THAT
+            // TICKS OFTEN ENOUGH TO SEE IT. `onVisibilityChange` answers a
+            // different question -- whether vesper is COVERED by a window --
+            // and a Desktop switch is not an occlusion. So the arrival is read
+            // here, off the window server, twice a second.
+            //
+            // FALSE -> TRUE ONLY. Playing whenever the ground merely IS on
+            // screen would restart the animation every half second for as long
+            // as the owner stayed on vesper's Desktop.
+            let onNow = self.isGroundOnScreen()
+            if onNow && !self.groundWasOnScreen { self.playAnimationIfArmed() }
+            self.groundWasOnScreen = onNow
             guard let d = try? Data(contentsOf: path),
                   let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any]
             else { return }
@@ -854,6 +897,63 @@ final class HomeController: NSObject {
         }
         RunLoop.main.add(t, forMode: .common)
         modeWatch = t
+    }
+
+    /// Is vesper's ground on the Desktop that is showing?
+    ///
+    /// ASKED OF THE WINDOW SERVER, not of a flag vesper keeps. The ground is the
+    /// one piece of vesper that sits below the owner's windows, so its presence
+    /// in the on-screen list IS the statement "this Desktop is mine" -- the same
+    /// discriminator `vespersDesktop()` uses. This is what the residency guard
+    /// used to gate the WALLPAPER on; it no longer gates anything, because
+    /// painting vesper's own layer is safe anywhere. It decides when the owner
+    /// has ARRIVED, which is a question about them rather than about safety.
+    func isGroundOnScreen() -> Bool {
+        SpaceWatch.onScreen().contains { $0.number == Int(ground.windowNumber) }
+    }
+
+    /// Play the armed animation, once, and leave its last frame standing.
+    ///
+    /// NEVER LOOPS, AND THAT IS A HEAT DECISION AS MUCH AS A TASTE ONE. A
+    /// continuously decoding `AVPlayerLayer` is a sustained cost on a laptop the
+    /// owner has asked to be careful with, and their own wording is "the first
+    /// time i enter" -- once. When it ends the player layer is torn down and the
+    /// still image underneath is what remains, so the steady state costs exactly
+    /// what it did before this feature existed: one CALayer holding a bitmap.
+    func playAnimationIfArmed() {
+        guard let url = armedAnimation, !playedThisModeSession else { return }
+        playedThisModeSession = true
+        stopAnimation()
+        let player = AVPlayer(url: url)
+        // MUTED, ALWAYS. A wallpaper that makes a noise when you walk into the
+        // room is not a wallpaper.
+        player.isMuted = true
+        let layer = AVPlayerLayer(player: player)
+        layer.frame = wallpaper.frame
+        layer.videoGravity = .resizeAspectFill
+        wallpaper.superlayer?.insertSublayer(layer, above: wallpaper)
+        videoLayer = layer
+        videoPlayer = player
+        // THE END IS OBSERVED, NOT TIMED. Guessing a duration and tearing down
+        // on a timer is the same class of mistake as reading a desktop picture
+        // back in the same breath as setting it: it reports on a clock instead
+        // of on the world.
+        videoEnd = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: player.currentItem, queue: .main) { [weak self] _ in
+                self?.stopAnimation()
+            }
+        player.play()
+    }
+
+    /// Take the video layer down and leave the still frame showing.
+    func stopAnimation() {
+        if let o = videoEnd { NotificationCenter.default.removeObserver(o) }
+        videoEnd = nil
+        videoPlayer?.pause()
+        videoPlayer = nil
+        videoLayer?.removeFromSuperlayer()
+        videoLayer = nil
     }
 
     /// Tell the runtime how the last ambience application went.
@@ -903,46 +1003,41 @@ final class HomeController: NSObject {
             face.uniforms.tintG = baseTint.1
             face.uniforms.tintB = baseTint.2
         }
-        // THE WALLPAPER IS CHANGED ONLY ON VESPER'S OWN DESKTOP.
+        // VESPER'S WALLPAPERS AND MACOS'S ARE TWO SYSTEMS THAT NEVER TOUCH.
         //
-        // `setDesktopImageURL` has no Space argument: it applies to whichever
-        // Space is showing. `Ambience.apply`'s own header says the caller must
-        // have confirmed residency first -- and no caller did. So setting a
-        // mode while the owner was looking at their own Desktop replaced THEIR
-        // picture, which is the one thing HOME-WORKBENCH §11.2 states as a hard
-        // bound: "the switch applies only to VESPER's Desktop, and only while
-        // VESPER is up. Other Desktops and the lock screen are untouched."
+        // OWNER, 2026-09-10: *"i would like the default wallpaper from mac os
+        // that i will apply everywhere to be separate from vesper's wallpaper
+        // system, and viseversa, nothing touches the other's"*.
         //
-        // ASKED OF THE WINDOW SERVER, not of a flag vesper keeps. The ground is
-        // the one piece of vesper that sits BELOW the owner's windows, so its
-        // presence in the on-screen list IS the statement "this Desktop is
-        // mine" -- the same discriminator `vespersDesktop()` uses.
-        let mine = SpaceWatch.onScreen().contains {
-            $0.number == Int(ground.windowNumber)
-        }
-        guard mine else {
-            if !quiet {
-                print("  mode '\(m.name)' NOT applied: vesper's ground is not on "
-                      + "the desktop that is showing, and changing the picture "
-                      + "here would change yours")
-            }
-            lastModeReason = "vesper could not switch to \(m.name): its desktop is "
-                           + "not the one showing, and changing the picture from "
-                           + "here would change yours. it will apply the moment "
-                           + "you switch to vesper's desktop"
-            return false
-        }
-        let ok = Ambience.apply(m, on: screen, quiet: quiet)
-        if !ok {
-            lastModeReason = "vesper set the \(m.name) picture and the desktop did "
-                           + "not take it -- the file may be missing from vesper's "
-                           + "wallpapers"
-        }
-
-        // Paint it here too, so the icons and widgets underneath are covered.
-        // If the file cannot be read the ground stays transparent and says so:
-        // a home that silently shows the owner's desktop clutter is a worse
-        // failure than one that reports it.
+        // THIS USED TO CALL `Ambience.apply`, WHICH CALLED `setDesktopImageURL`,
+        // AND THAT API HAS NO SPACE ARGUMENT. It repaints whichever Space is
+        // showing. A residency guard stood here to make that safe -- refuse
+        // unless vesper's ground is on the Desktop showing -- and it was not
+        // enough, because the guard is only ever as good as the moment it is
+        // asked in, and vesper has run across many Space arrangements. MEASURED
+        // 2026-09-10 from macOS's own wallpaper store: ALL THREE live Desktops
+        // were showing a VESPER image, and 37 of the 42 entries in the store --
+        // including Spaces that no longer exist. The owner's own picture
+        // survived in exactly one, and `savedOriginalPath` held NOTHING, so
+        // vesper could not have put any of them back.
+        //
+        // THE FIX IS NOT A BETTER GUARD, IT IS NOT TOUCHING THE THING. Vesper's
+        // ground is a full-screen layer at `normal - 1`: below every window of
+        // the owner's, above the desktop icons. Painting THAT is confined to
+        // vesper's own window by construction -- it cannot reach another Space,
+        // it cannot reach the lock screen, and when vesper is off the window
+        // does not exist, so there is nothing to undo. No guard can promise
+        // that; the absence of the call is the promise.
+        //
+        // AND IT IS THE ONLY ROUTE THE ANIMATED WALLPAPERS COULD EVER TAKE.
+        // `setDesktopImageURL` takes a still image. A layer takes either.
+        //
+        // SO THE RESIDENCY GUARD IS GONE ON PURPOSE, not by oversight. There is
+        // nothing left for it to protect: painting vesper's own layer while the
+        // owner looks at their Desktop changes nothing they can see. What is
+        // still a real failure is having NO GROUND to paint on, and that is
+        // reported by the wait loop in `main.swift`, which has its own reporter.
+        var painted = false
         if let dir = Ambience.wallpaperDir(), let url = m.wallpaper(in: dir),
            let img = NSImage(contentsOf: url)?
                         .cgImage(forProposedRect: nil, context: nil, hints: nil) {
@@ -951,13 +1046,28 @@ final class HomeController: NSObject {
             wallpaper.contents = img
             wallpaper.isHidden = false
             CATransaction.commit()
+            painted = true
+            // ARMED, NOT PLAYED. The owner asked for the moving version "the
+            // first time i enter that desktop when that mode is set" -- so
+            // setting the mode arms it and ENTERING plays it. Playing here
+            // would run it at a Desktop nobody is looking at, which is the
+            // whole of what they asked against.
+            armedAnimation = m.animated(in: dir)
+            playedThisModeSession = false
         } else {
             wallpaper.isHidden = true
+            armedAnimation = nil
+            lastModeReason = "vesper has no wallpaper file for \(m.name) — the "
+                           + "mode is set but there is nothing to show for it"
             if !quiet {
                 print("  *** wallpaper NOT painted — the desktop's own icons and")
                 print("      widgets will show through the ground ***")
             }
         }
+        let ok = painted
+        // IF THE GROUND IS ALREADY THE DESKTOP SHOWING, the owner is looking at
+        // it right now and there is no later "first entry" to wait for.
+        if painted, isGroundOnScreen() { playAnimationIfArmed() }
         // The plate is adapted to the picture that is now behind it, not to the
         // one that was there when the process started.
         let url = Ambience.wallpaperDir().flatMap { m.wallpaper(in: $0) }

@@ -274,6 +274,50 @@ enum SpaceOrder {
     static let plist = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Preferences/com.apple.spaces.plist")
 
+    /// The Space showing RIGHT NOW, live, or nil if that cannot be asked.
+    ///
+    /// THIS IS A PRIVATE API AND THE OWNER TOOK THAT DECISION, 2026-09-10, after
+    /// being shown the measurement that forced it. There is no public route:
+    /// `CGWindowListCopyWindowInfo` on macOS 26.5 returns eleven keys and
+    /// `kCGWindowWorkspace` is not among them -- probed, not assumed.
+    ///
+    /// AND THE FILE COULD NOT STAND IN FOR IT. `com.apple.spaces.plist` carries
+    /// a `Current Space`, and the first version of this rule read it. Measured
+    /// the same afternoon: the file sat unwritten for 4.5 minutes across several
+    /// of the owner's Desktop switches, so it answers with a stale value
+    /// CONFIDENTLY -- which is worse than not answering, because the fail-closed
+    /// path never fires. Vesper planted on Desktop 1 with the guard in place and
+    /// the guard reading "you are on the third".
+    ///
+    /// THE FILE IS STILL USED FOR THE PART THAT IS STABLE. Which Spaces exist
+    /// and in what ORDER changes only when the owner adds or removes one; that
+    /// is not the volatile half and it needs no private call.
+    ///
+    /// LOADED BY NAME AT RUNTIME, NEVER LINKED. A macOS update that removes the
+    /// symbol then produces `nil` here -- which this file's callers already
+    /// treat as "cannot tell" and refuse on -- instead of a process that will
+    /// not start. An SPI that fails loudly and safely is the only kind worth
+    /// taking, and this makes its absence a measurable condition rather than a
+    /// crash.
+    private static let activeSpaceFn: ((Int32) -> UInt64)? = {
+        typealias Conn = @convention(c) () -> Int32
+        typealias Active = @convention(c) (Int32) -> UInt64
+        guard let h = dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics",
+                             RTLD_LAZY),
+              let c = dlsym(h, "CGSMainConnectionID"),
+              let a = dlsym(h, "CGSGetActiveSpace") else { return nil }
+        let conn = unsafeBitCast(c, to: Conn.self)
+        let active = unsafeBitCast(a, to: Active.self)
+        let cid = conn()
+        return { _ in active(cid) }
+    }()
+
+    static func activeSpaceId() -> Int? {
+        guard let f = activeSpaceFn else { return nil }
+        let v = f(0)
+        return v == 0 ? nil : Int(v)
+    }
+
     /// Is the Desktop showing the FIRST one? `nil` when that cannot be told.
     ///
     /// NIL IS NOT FALSE, AND THE CALLER MUST NOT TREAT IT AS ONE. Unreadable,
@@ -293,20 +337,27 @@ enum SpaceOrder {
               let mgmt = cfg["Management Data"] as? [String: Any],
               let monitors = mgmt["Monitors"] as? [[String: Any]]
         else { return nil }
+        // THE LIVE ID, NOT THE FILE'S. `Current Space` in this plist is stale --
+        // measured at 4.5 minutes across several switches -- and a stale answer
+        // here is the one that takes the owner's Desktop.
+        guard let curId = activeSpaceId() else { return nil }
         for m in monitors {
-            guard let cur = m["Current Space"] as? [String: Any],
-                  let curId = cur["ManagedSpaceID"] as? Int,
-                  let spaces = m["Spaces"] as? [[String: Any]]
-            else { continue }
+            guard let spaces = m["Spaces"] as? [[String: Any]] else { continue }
             let desktops = spaces.compactMap { s -> Int? in
                 ((s["type"] as? Int) ?? 0) == 0 ? s["ManagedSpaceID"] as? Int : nil
             }
             guard let first = desktops.first else { continue }
-            // ONLY THE MONITOR THAT IS SHOWING THIS SPACE ANSWERS. With two
-            // displays each has its own Current Space, and the one vesper is
-            // about to plant on is the one whose list contains it.
+            // ONLY THE MONITOR WHOSE LIST HOLDS THIS SPACE ANSWERS. With two
+            // displays each has its own set, and the one vesper is about to
+            // plant on is the one containing the Space that is showing.
             if desktops.contains(curId) { return curId == first }
         }
+        // NOT A PLAIN DESKTOP AT ALL, which is a real case and was missed by the
+        // first version. `CGSGetActiveSpace` returned 54 on this Mac while the
+        // owner's three Desktops were 1, 6 and 38: 54 is a FULLSCREEN space, and
+        // the plist lists those interleaved with the Desktops. Vesper has no
+        // business planting a ground inside somebody's fullscreen window, so an
+        // id that is in no Desktop list resolves to "cannot tell" and refuses.
         return nil
     }
 
@@ -320,8 +371,8 @@ enum SpaceOrder {
         case .none:
             return "vesper cannot tell which desktop this is, and you asked it "
                  + "never to take desktop 1 — so it is not taking this one "
-                 + "either. it reads the desktop order from macos's own space "
-                 + "list, and that could not be read"
+                 + "either. either macos would not say which space is showing, "
+                 + "or this is a fullscreen space rather than a desktop"
         case .some(false):
             return nil
         }
