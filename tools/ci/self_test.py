@@ -6667,7 +6667,7 @@ CASES += [
      "wallpaper and no accent and the room is left half-changed"),
 
     ("a-mode-is-a-pairing-of-two-axes", PAIRINGS_TOML,
-     _sub('stage = "research"\nambience', 'stage = "reserach"\nambience', 1),
+     _sub('stage = "research"', 'stage = "reserach"', 1),
      "a pairing names an undeclared stage, so nothing says which windows its "
      "work may open"),
 
@@ -6909,9 +6909,9 @@ CASES += [
      "their own Desktop, so the file grows without bound and says nothing new"),
 
     ("a-mode-that-does-not-land-reaches-the-bar", HOME_SWIFT,
-     _sub("            lastModeReason = \"vesper could not switch to \\(m.name): its desktop is \"",
-          "            _ = \"vesper could not switch to \\(m.name): its desktop is \"", 1),
-     "the commonest refusal loses its sentence, so the bar says a mode failed "
+     _sub('            lastModeReason = "vesper has no wallpaper file for \\(m.name) — the "',
+          '            _ = "vesper has no wallpaper file for \\(m.name) — the "', 1),
+     "a mode with no wallpaper file loses its sentence, so the bar says a mode failed "
      "without saying the one thing the owner can act on -- that switching to "
      "vesper's desktop applies it"),
 
@@ -7013,8 +7013,10 @@ CASES += [
 
 CASES += [
     ("a-mode-that-does-not-land-reaches-the-bar", CAPS_PY,
-     _sub("        if not _inventory()[1]:\n            line += (\" — set, though the picture will not change until you come \"",
-          "        if False:\n            line += (\" — set, though the picture will not change until you come \"", 1),
+     _sub("        if not _inventory()[1]:\n"
+          '            line += (" — set; you will see it when you come over to my desktop: "',
+          "        if False:\n"
+          '            line += (" — set; you will see it when you come over to my desktop: "', 1),
      "a mode answers identically whether or not vesper's desktop is showing, "
      "which is the sentence the owner was given on two consecutive days while "
      "the wallpaper did not move"),
