@@ -80,7 +80,7 @@ from core.arbiter import Arbiter                                 # noqa: E402
 from core.compactor import Compactor                            # noqa: E402
 from core.context import ContextBudgetManager                   # noqa: E402
 from core.actor import Actor, ACTIVE_SESSION                    # noqa: E402
-from core.intent import capability_statement                    # noqa: E402
+from core.intent import capability_statement, strip_internal_prefix  # noqa: E402
 from core import permission_mode                                # noqa: E402
 from core import agenda                                         # noqa: E402
 from core import consent                                        # noqa: E402
@@ -159,6 +159,18 @@ OUTBOX = STATE / "say.jsonl"
 # the permission for it.
 HEARD = STATE / "heard.jsonl"
 HEARD_OFFSET = STATE / "heard.offset"
+
+# HOW THE HOME TELLS THE RUNTIME A MODE DID NOT LAND.
+#
+# The same shape as the pair above and for the same reason: the fact is produced
+# in one process and needed in another, and `home.json` is written by THIS side
+# so it cannot carry a report from the other. `mode.set` returns `ok` the moment
+# it has resolved the pairing; the paint happens in the home up to half a second
+# later, so the failure occurs after the only thing that can raise a flag has
+# already returned. Driven 2026-09-09: the owner asked for a mode, vesper said
+# done, and the picture never changed.
+AMBIENCE = STATE / "ambience.jsonl"
+AMBIENCE_OFFSET = STATE / "ambience.offset"
 
 
 def _read_heard_offset() -> int:
@@ -701,6 +713,21 @@ def build(node: str = "vesper-runtime"):
     # condition with the same id, which `raise_flag` collapses rather than
     # duplicating -- so the subscription is idempotent in the way that matters.
     bus.subscribe("flag.raised", _on_flag, name="home-flags",
+                  idempotency_key=lambda e: e.event_id)
+
+    # AND EVERY RETRACTION REACHES IT TOO, or the bar is a list of things that
+    # were once wrong. `clear_flag` had exactly one caller before this line and
+    # it was the CHECK for the flag bar, which called it itself and asserted the
+    # row disappeared -- so the mechanism was proven and reached by nothing. The
+    # cost is a false alarm with no expiry: accessibility is revoked by every
+    # rebuild, the owner grants it, vesper works, and the bar goes on saying it
+    # is not granted until the process restarts.
+    def _off_flag(e) -> None:
+        fid = str((e.payload or {}).get("id") or "").strip()
+        if fid:
+            home.clear_flag(fid)
+
+    bus.subscribe("flag.cleared", _off_flag, name="home-flags-cleared",
                   idempotency_key=lambda e: e.event_id)
     home.attach(bus)
 
@@ -1339,7 +1366,13 @@ def _render_conversation(recent: list) -> str:
         if not text:
             continue
         who = "you" if item.get("who") == "owner" else "vesper"
-        lines.append(f"  {who}: {text[:400]}")
+        # THE EXAMPLES ARE CLEANED, NOT ONLY THE OUTPUT, because this is where
+        # the loop lived. A reply that leaked an internal name became the next
+        # turn's example of how to answer, and the model copied it -- measured
+        # three turns running on 2026-09-10, each one renewing the pattern for
+        # the next. Cleaning only what vesper says now would leave every reply
+        # already in the transcript teaching the old shape.
+        lines.append(f"  {who}: {strip_internal_prefix(text)[:400]}")
     if not lines:
         return ""
     return ("The conversation so far, most recent last. When the owner says "
@@ -1600,6 +1633,77 @@ def _drain_heard(bus, transcriber) -> int:
     _tmp = HEARD_OFFSET.with_name(f"heard.offset.{threading.get_ident()}.tmp")
     _tmp.write_text(str(seen), encoding="utf-8")
     _tmp.replace(HEARD_OFFSET)
+    return done
+
+
+# WHICH AMBIENCE CONDITIONS THIS PROCESS HAS FLAGGED. Kept here rather than in
+# `home.json` because it answers a question about THIS run: the flags list is
+# rebuilt empty at startup, so a stale id could not survive a restart anyway,
+# and reading the file back to find out what to retract would make the drain
+# depend on the surface it writes to.
+_AMBIENCE_FLAGGED: set = set()
+
+
+def _drain_ambience(bus) -> int:
+    """Turn the home's report of a mode that did not land into a flag.
+
+    ONE CONDITION PER AMBIENCE, AND A SUCCESS RETIRES ALL OF THEM. The owner has
+    exactly one ambience at a time, so asking for `Focus` and getting it means
+    the earlier complaint about `Working` is over -- they are not waiting for
+    `Working` any more. Retracting only the id that just succeeded would leave a
+    flag about a mode nobody is asking for, which is the "a bar that shows
+    resolved problems teaches the owner to stop reading it" failure.
+
+    A LINE WITH NO REASON STILL RAISES. The home records the sentence at the
+    moment of failure; if that sentence is missing the mode still did not land,
+    and saying so without the reason beats saying nothing.
+    """
+    if not AMBIENCE.exists():
+        return 0
+    try:
+        seen = int((AMBIENCE_OFFSET.read_text(encoding="utf-8").strip() or "0"))
+    except (OSError, ValueError):
+        # ZERO IS THE SAFE ANSWER, for the reason `_read_heard_offset` gives at
+        # length: re-reading a line already seen re-raises or re-clears the same
+        # condition, which `raise_flag` and `clear_flag` both collapse, while
+        # skipping ahead loses a failure the owner is waiting to be told about.
+        seen = 0
+    done = 0
+    with AMBIENCE.open("r", encoding="utf-8") as f:
+        f.seek(seen)
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            name = str(row.get("ambience") or "").strip()
+            if not name:
+                continue
+            fid = f"mode.ambience:{name}"
+            if row.get("ok"):
+                for stale in sorted(_AMBIENCE_FLAGGED | {fid}):
+                    bus.publish("flag.cleared", subject="home",
+                                payload={"id": stale,
+                                         "capability_id": "mode.set"},
+                                component="runtime")
+                _AMBIENCE_FLAGGED.clear()
+            else:
+                _AMBIENCE_FLAGGED.add(fid)
+                bus.publish("flag.raised", subject="home",
+                            payload={"id": fid, "capability_id": "mode.set",
+                                     "text": (str(row.get("reason") or "").strip()
+                                              or f"vesper could not switch to "
+                                                 f"{name} and did not say why")},
+                            component="runtime")
+            done += 1
+        seen = f.tell()
+    _tmp = AMBIENCE_OFFSET.with_name(
+        f"ambience.offset.{threading.get_ident()}.tmp")
+    _tmp.write_text(str(seen), encoding="utf-8")
+    _tmp.replace(AMBIENCE_OFFSET)
     return done
 
 
@@ -1899,6 +2003,10 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
     # so a clip captured this pass is answered this pass rather than next.
     if transcriber is not None:
         _drain_heard(bus, transcriber)
+    # AND HOW THE LAST MODE WENT. Read every pass, because the failure it
+    # reports is one the owner is looking at right now -- their own Desktop
+    # showing while they wait for vesper's picture to change.
+    _drain_ambience(bus)
 
     OUTBOX.touch(exist_ok=True)
     seen = int(OFFSET.read_text()) if OFFSET.exists() else 0
@@ -2194,18 +2302,30 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                     # `Outcome` carries no args -- `said` is the sentence the
                     # owner was given, which is exactly the description a
                     # pronoun in the next turn needs.
-                    last_action = (f"{did.capability_id}: {did.said}"[:200]
-                                   if did.said else did.capability_id)
+                    # THE SENTENCE, WITHOUT THE IDENTIFIER IN FRONT OF IT. This
+                    # read `f"{did.capability_id}: {did.said}"`, and the comment
+                    # above already says why the id is not needed: `said` is the
+                    # description a pronoun in the next turn wants. What the
+                    # prefix DID do was put `mode.set: ...` into model-visible
+                    # text, which is the exact shape that came back out of the
+                    # answerer and into the owner's transcript.
+                    last_action = (str(did.said)[:200] if did.said
+                                   else did.capability_id)
                     bus.publish("act.outcome", subject=did.capability_id,
                                 payload=did.to_dict(), component="runtime")
                     reply = did.said
                 else:
-                    reply = answer(gw, router, persona, intake.history[-1],
-                                   renderer=renderer, updater=updater,
-                                   misses=misses, chooser=chooser,
-                                   context_cmds=context_cmds,
-                                   can_do=capability_statement(),
-                                   recent=transcript)
+                    # STRIPPED ON THE WAY OUT. The statement asks the answerer
+                    # never to read an internal name aloud, and an instruction is
+                    # a self-report -- which this corpus does not accept as
+                    # evidence anywhere else either.
+                    reply = strip_internal_prefix(
+                        answer(gw, router, persona, intake.history[-1],
+                               renderer=renderer, updater=updater,
+                               misses=misses, chooser=chooser,
+                               context_cmds=context_cmds,
+                               can_do=capability_statement(),
+                               recent=transcript))
                 # VESPER'S REPLY IS NOT AN UTTERANCE, and the first version put
                 # it into `intake.history` as one. `Intake` is the record of
                 # things said TO VESPER -- its confidence, its partials and its

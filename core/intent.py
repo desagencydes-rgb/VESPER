@@ -253,6 +253,40 @@ LIMITS = (
 )
 
 
+def strip_internal_prefix(text: str) -> str:
+    """Take an internal capability name off the front of something vesper says.
+
+    ASKING THE MODEL WAS NOT ENOUGH, AND THIS CORPUS ALREADY KNOWS WHY. The
+    statement above tells the answerer never to read an internal name out loud;
+    an instruction is a self-report, and `CLAUDE.md`'s rule is that an
+    instrument's self-report is not evidence. Measured 2026-09-10, twice, in the
+    running app: with the ids removed from the statement AND that sentence added,
+    the owner asked "is there a focus mode" and got back
+    `mode.set: focus - unknown. Available modes: ...`.
+
+    AND IT WAS FEEDING ITSELF. The answerer is given the conversation so far, the
+    first bad reply was in it, and the model copied the shape of its own previous
+    answer -- so every turn produced the next turn's example. That loop does not
+    decay: each new reply renews it. Which is why this is applied to the RENDERED
+    CONVERSATION as well as to the reply, and why one function does both -- two
+    copies of this rule is one place it stops being applied.
+
+    A PREFIX ONLY, AND ONLY A KNOWN NAME. The rest of that sentence is a good
+    answer -- it names the six modes that exist, which is exactly what the owner
+    asked -- so throwing it away over four words would lose a correct reply.
+    Nothing is removed from the middle of a sentence either: a name there may be
+    the owner's own word quoted back, and mangling their sentence is worse than
+    the leak.
+    """
+    s = str(text or "")
+    head = s.lstrip()
+    for cid in KNOWN:
+        for sep in (": ", ":"):
+            if head.startswith(cid + sep):
+                return head[len(cid) + len(sep):].lstrip()
+    return s
+
+
 def capability_statement() -> str:
     """What vesper can do and what it cannot, for the system position.
 
@@ -261,14 +295,48 @@ def capability_statement() -> str:
     building it per turn would cost a cache miss on every single turn to say
     the same sentence.
     """
-    doing = "\n".join(f"  - {CAN_DO[c]}  ({c})" for c in KNOWN)
+    # THE IDENTIFIER IS NOT IN THE SENTENCE, AND IT USED TO BE.
+    #
+    # This read `f"  - {CAN_DO[c]}  ({c})"`, so every line ended in the internal
+    # capability id. Driven 2026-09-10: the owner typed "switch to focus mode",
+    # the PROPOSER correctly returned no action -- its own prompt lists the six
+    # real modes and says "do not invent one" -- and the answerer, holding this
+    # list, replied with the four words `mode.set: focus mode.` That is not a
+    # sentence. It is this system's vocabulary read back to the person it was
+    # hidden from, and it left the owner with no idea that `focus` is not a mode
+    # or which ones are.
+    #
+    # THE ANSWERER IS THE ONLY CONSUMER and it has no use for the ids: it does
+    # not emit actions, `parse()` does, from `PROMPT`, which lists them properly
+    # with their arguments. A name given to a reader who must not say it aloud
+    # is a name that will be said aloud.
+    doing = "\n".join(f"  - {CAN_DO[c]}" for c in KNOWN)
     limits = "\n".join(f"  - {line}" for line in LIMITS)
+    # AND THE MODES ARE NAMED, because the answer the owner needed was a LIST.
+    # `modes.select` already writes the right refusal -- "there is no mode called
+    # 'focus mode'. The ones that exist are: ..." -- and it never reaches them,
+    # because a mode that does not exist never becomes a `mode.set` call for it
+    # to come back from. The only party that can answer is the answerer, and it
+    # could not: it knew a mode could be entered and not which ones there were.
+    try:
+        from core import modes as _M
+
+        _names = ", ".join(sorted(_M.pairings()))
+    except Exception:                                     # noqa: BLE001
+        # FAIL QUIET, NOT FAIL WRONG. A missing contract must not put an invented
+        # list of modes in front of the owner; saying nothing about them leaves
+        # the answerer where it was and breaks nothing else.
+        _names = ""
+    modes = (f"\n\nTHE MODES THAT EXIST are: {_names}. There are no others. If "
+             "the owner asks for one that is not on this list, tell them so and "
+             "name these -- do not invent a mode, and never read one of my "
+             "internal capability names out loud." if _names else "")
     return (
         "WHAT YOU CAN ACTUALLY DO ON THIS MAC. This is the real list, and it "
         "is the only one. Never tell the owner you cannot do something on it, "
         "and never say you can only display text -- you are not a chat window, "
         "you act on this machine:\n"
-        f"{doing}\n\n"
+        f"{doing}{modes}\n\n"
         "WHAT GENUINELY LIMITS YOU. Say these when they apply, in place of "
         "claiming you have no capability at all:\n"
         f"{limits}\n\n"

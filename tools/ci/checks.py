@@ -22762,6 +22762,754 @@ def check_every_flag_reaches_one_bar() -> Result:
     return r
 
 
+def check_a_flag_is_retracted_when_its_condition_clears() -> Result:
+    """A flag leaves the bar when the thing it calls for has been done.
+
+    THE BAR WAS RAISE-ONLY IN PRODUCTION UNTIL 2026-09-10, and the reason it
+    looked finished is the reason worth recording. `HomeState.clear_flag` was
+    written, worked, and had exactly ONE caller in the tree:
+    `every-flag-reaches-one-bar`, which called it itself and then asserted the
+    row was gone. So the check proved the mechanism and nothing reached it --
+    with the check's own comment, "or the bar reports a problem that is over",
+    describing the live defect instead of guarding against it. That is
+    `MEMORY.md`'s "checks can be alive and useless" in its purest form: the
+    probe supplied the behaviour it was testing for.
+
+    WHAT IT COSTS THE OWNER IS A FALSE ALARM WITH NO EXPIRY. `CLAUDE.md` records
+    that every rebuild revokes accessibility, so the ordinary sequence is:
+    rebuild, an act fails, `host.accessibility` is flagged, the owner grants it
+    in System Settings, vesper works again -- and the bar goes on telling them
+    to grant it for as long as the process lives. The mode watcher makes it
+    routine rather than rare: it RETRIES, so fail -> flag -> retry -> succeed is
+    the normal path, and a bar that cannot retract turns every recovered failure
+    into a permanent row. A surface that shows resolved problems teaches the
+    owner to stop reading it, which is the one thing a flag bar cannot survive.
+
+    `degraded` IS THE DISCRIMINATOR AND A REFUSAL IS NOT A RESOLUTION. Two
+    controls here are about that. `window.relocate` returns `ok: True` with
+    `degraded: True` when it rebuilt a window instead of moving it, so
+    retracting on `ok` would cancel the flag the same result just raised; and a
+    refusal ("that window is not yours") says nothing about whether an earlier
+    failure is over, so it must leave the bar alone.
+
+    DRIVEN THROUGH THE REAL CHAIN, because every link in it has been the missing
+    one somewhere in this tree: capability -> executor -> bus -> HomeState ->
+    home.json.
+    """
+    r = Result("a-flag-is-retracted-when-its-condition-clears")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import ast as _ast
+    import tempfile as _tf, json as _js, uuid as _uu
+    try:
+        from core.bus import EventBus
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+        from core.home_state import HomeState
+        from core.capability import CapabilityRegistry, LevelRule
+        from core.authorize import PolicyDecisionPoint, Grant
+        from core.executor import Executor, flag_id_for
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"the retraction chain does not import: {exc!r}")
+        return r
+
+    with _tf.TemporaryDirectory() as _td:
+        base = Path(_td)
+        clock = HybridLogicalClock("retractcheck")
+        bus = EventBus(clock, StoreSet(base, node_id="retractcheck"),
+                       component="retractcheck")
+        home = HomeState(path=base / "home.json", bus=bus, clock=clock)
+        bus.subscribe("flag.raised",
+                      lambda e: home.raise_flag(str((e.payload or {}).get("id") or "f"),
+                                                str((e.payload or {}).get("text") or "")),
+                      name="retract-raise", idempotency_key=lambda e: e.event_id)
+        bus.subscribe("flag.cleared",
+                      lambda e: home.clear_flag(str((e.payload or {}).get("id") or "")),
+                      name="retract-clear", idempotency_key=lambda e: e.event_id)
+        home.attach(bus)
+
+        reg = CapabilityRegistry()
+        reg.register("test.retract", lambda a: "L2" if a.get("x") else "L1",
+                     [LevelRule("plain", "L1", {}),
+                      LevelRule("with x", "L2", {"x": 1})],
+                     reversibility="reversible")
+        pdp = PolicyDecisionPoint(bus, reg)
+        ex = Executor(bus, reg, pdp)
+        mode = {"v": "degraded"}
+
+        def _impl(a):
+            if mode["v"] == "degraded":
+                # A RUNG IS CARRIED ON PURPOSE. It is what used to end up in the
+                # id, and the id it produced could never be cleared.
+                return {"ok": False, "degraded": True, "rung": "stuck",
+                        "flag": "a real degradation with words"}
+            if mode["v"] == "refused":
+                return {"ok": False, "refused_by": "ownership",
+                        "reason": "that window is not vesper's"}
+            if mode["v"] == "degraded_success":
+                return {"ok": True, "degraded": True, "rung": "rebuilt",
+                        "flag": "rebuilt rather than moved"}
+            if mode["v"] == "read":
+                # NO `ok` KEY AT ALL, which is what `window.list` returns.
+                return {"count": 3, "resolved": ["host.accessibility"]}
+            return {"ok": True}
+
+        ex.bind("test.retract", _impl)
+
+        def _run():
+            pdp.issue(Grant(grant_id=str(_uu.uuid4()), subject="owner",
+                            capability_id="test.retract", target_scope=("w1",),
+                            max_level="L5", expiry_ms=2**62, lease_epoch=0))
+            return ex.execute(subject="owner", capability_id="test.retract",
+                              args={}, target="w1",
+                              authorization="owner_explicit")
+
+        def _ids():
+            doc = _js.loads((base / "home.json").read_text(encoding="utf-8"))
+            return [f.get("id") for f in (doc.get("flags") or [])]
+
+        _run()
+        raised = _ids()
+        if not raised:
+            r.err("a degraded result raised no flag at all, so this check is not "
+                  "reading the chain it thinks it is")
+            return r
+
+        # 1. A REFUSAL IS NOT A RESOLUTION.
+        mode["v"] = "refused"
+        _run()
+        if _ids() != raised:
+            r.err("a REFUSAL retracted a flag. Being told a window is not "
+                  "vesper's says nothing about whether the earlier failure is "
+                  "over, and clearing on it hides an unresolved condition")
+
+        # 2. A DEGRADED SUCCESS IS NOT A RESOLUTION EITHER. `window.relocate`
+        #    returns exactly this when it rebuilt a window instead of moving it.
+        mode["v"] = "degraded_success"
+        _run()
+        if not _ids():
+            r.err("a result that is `ok` AND `degraded` cleared the bar. "
+                  "`window.relocate` returns that when it rebuilt a window "
+                  "rather than moving it -- retracting on `ok` cancels the flag "
+                  "the same result just raised")
+
+        # 3. THE RESOLUTION ITSELF, AND IT MUST SURVIVE THE RUNG. The raise
+        #    carried `rung: stuck` and the clean result carries no rung at all,
+        #    so an id built from the rung derives two different names and the
+        #    flag can never be cancelled. That was the second defect.
+        mode["v"] = "clean"
+        _run()
+        left = _ids()
+        if left:
+            r.err(f"a clean result left {left!r} in the bar. Either the executor "
+                  f"publishes no `flag.cleared`, or the id it clears is not the "
+                  f"id it raised -- which is what happens when the rung goes "
+                  f"into the derivation, since the failing rung and the working "
+                  f"one are different strings")
+
+        # 4. A CAPABILITY MAY NAME A CONDITION IT DID NOT RAISE, and a READ is
+        #    the case that matters: `window.list` returns no `ok` key, and it is
+        #    the only thing that can retire a flag about a window the owner has
+        #    since closed.
+        mode["v"] = "degraded"
+        _run()
+        home.raise_flag("host.accessibility", "accessibility is not granted")
+        mode["v"] = "read"
+        _run()
+        after = _ids()
+        if "host.accessibility" in after:
+            r.err("a result naming `host.accessibility` in `resolved` did not "
+                  "clear it. A capability that has read the world is the only "
+                  "thing that can retire a condition it did not itself raise")
+        if after:
+            r.err(f"a read with no `ok` key left {after!r}. `window.list` "
+                  "returns the inventory and no `ok` field, and it is the one "
+                  "capability whose whole job is re-reading the world")
+
+    # 5. ONE DERIVATION, NOT TWO. Raise and retract building the id separately
+    #    is a bar that raises under one name and clears under another, and the
+    #    symptom -- a flag that will not go away -- is indistinguishable from
+    #    the defect this replaced. Counted, not merely present: a second copy of
+    #    the expression is exactly what a presence test cannot see.
+    ex_src = (REPO / "core" / "executor.py").read_text(encoding="utf-8")
+    tree = _ast.parse(ex_src)
+    derivations = [n for n in _ast.walk(tree)
+                   if isinstance(n, _ast.FunctionDef) and n.name == "flag_id_for"]
+    if not derivations:
+        r.err("core/executor.py has no `flag_id_for`, so there is no single "
+              "derivation for raise and retract to share")
+    else:
+        # THE RUNG, ASKED OF THE AST RATHER THAN THE TEXT. The word `rung`
+        # appears in this function's own docstring explaining why it is absent,
+        # so a substring test reports the opposite of the truth.
+        body = _ast.Module(body=[n for n in derivations[0].body
+                                 if not (isinstance(n, _ast.Expr)
+                                         and isinstance(n.value, _ast.Constant))],
+                           type_ignores=[])
+        names = {n.value for n in _ast.walk(body)
+                 if isinstance(n, _ast.Constant) and isinstance(n.value, str)}
+        keys = {n.slice.value for n in _ast.walk(body)
+                if isinstance(n, _ast.Subscript)
+                and isinstance(n.slice, _ast.Constant)}
+        calls = {a.value for n in _ast.walk(body) if isinstance(n, _ast.Call)
+                 for a in n.args
+                 if isinstance(a, _ast.Constant) and isinstance(a.value, str)}
+        if "rung" in (names | keys | calls):
+            r.err("`flag_id_for` reads the rung. A rung is which ATTEMPT failed "
+                  "-- the execution detail the id is explicitly not about -- and "
+                  "putting it in the name gives one unresolvable situation a row "
+                  "per attempt AND makes every retraction miss")
+
+    raises = [n for n in _ast.walk(tree) if isinstance(n, _ast.Call)
+              and isinstance(n.func, _ast.Attribute) and n.func.attr == "publish"
+              and any(isinstance(a, _ast.Constant) and a.value == "flag.raised"
+                      for a in n.args)]
+    clears = [n for n in _ast.walk(tree) if isinstance(n, _ast.Call)
+              and isinstance(n.func, _ast.Attribute) and n.func.attr == "publish"
+              and any(isinstance(a, _ast.Constant) and a.value == "flag.cleared"
+                      for a in n.args)]
+    if not clears:
+        r.err("core/executor.py never publishes `flag.cleared`. The executor is "
+              "the one point every result passes through, so a retraction "
+              "published anywhere else is one some capability can skip")
+    for call in raises:
+        used = {c.func.id for c in _ast.walk(call) if isinstance(c, _ast.Call)
+                and isinstance(c.func, _ast.Name)}
+        if "flag_id_for" not in used:
+            r.err("the flag.raised site builds its own id instead of calling "
+                  "`flag_id_for`. Two copies of that expression drift, and the "
+                  "drift shows up as a flag that cannot be cleared")
+    # THE CLEARED SITE IS ASKED OF ITS ENCLOSING LOOP, not of its own arguments.
+    # It publishes one event per resolved id, so the call to the shared
+    # derivation is the loop's `iter` and appears nowhere inside the publish --
+    # the first version of this assertion looked there and went red on correct
+    # code, which is the cheaper direction to be wrong in.
+    loops = [n for n in _ast.walk(tree) if isinstance(n, (_ast.For, _ast.AsyncFor))
+             and isinstance(n.iter, _ast.Call)
+             and isinstance(n.iter.func, _ast.Name)
+             and n.iter.func.id == "_resolved_ids"
+             and any(c is pub for pub in clears for c in _ast.walk(n))]
+    if clears and not loops:
+        r.err("the flag.cleared site does not take its ids from "
+              "`_resolved_ids`, so retraction derives names by its own route. "
+              "Raise and retract must agree on what a condition is called or "
+              "the bar clears a flag nobody raised and keeps the one that was")
+
+    # 6. THE SUBSCRIPTION. A published retraction nobody consumes is the same
+    #    built-and-unreached shape as the raise-only bar it fixes.
+    rt = _ast.parse((REPO / "tools" / "ops" / "vesper_runtime.py")
+                    .read_text(encoding="utf-8"))
+    subs = [n for n in _ast.walk(rt) if isinstance(n, _ast.Call)
+            and isinstance(n.func, _ast.Attribute) and n.func.attr == "subscribe"
+            and any(isinstance(a, _ast.Constant) and a.value == "flag.cleared"
+                    for a in n.args)]
+    if not subs:
+        r.err("the runtime does not subscribe to `flag.cleared`, so the "
+              "retraction is published and consumed by nothing -- which is the "
+              "shape that let a working `clear_flag` sit unreached for a day")
+
+    # 7. THE CAPABILITIES THAT NAME WHAT THEY RESOLVED. Read off the AST: the
+    #    string "resolved" appears in prose in both functions.
+    caps = _ast.parse((REPO / "core" / "capabilities.py").read_text(encoding="utf-8"))
+    fns = {n.name: n for n in _ast.walk(caps) if isinstance(n, _ast.FunctionDef)}
+    act = fns.get("_act")
+    if act is None:
+        r.err("core/capabilities has no `_act`; the window act path has changed "
+              "shape and this check is not reading it")
+    else:
+        named = set()
+        for node in _ast.walk(act):
+            if isinstance(node, _ast.Call) and isinstance(node.func, _ast.Attribute) \
+                    and node.func.attr == "setdefault" and node.args \
+                    and isinstance(node.args[0], _ast.Constant) \
+                    and node.args[0].value == "resolved":
+                for c in _ast.walk(node):
+                    if isinstance(c, _ast.Constant) and isinstance(c.value, str):
+                        named.add(c.value)
+                    if isinstance(c, _ast.JoinedStr):
+                        named.add("".join(v.value for v in c.values
+                                          if isinstance(v, _ast.Constant)))
+        if "host.accessibility" not in named:
+            r.err("a successful window act does not resolve "
+                  "`host.accessibility`. Accessibility is diagnosed from a "
+                  "failure because its own report is worthless -- so it must be "
+                  "UNDIAGNOSED the same way, from an act that worked. This is "
+                  "the flag the owner meets after every rebuild")
+        if not any(n.startswith("window.unreachable:") for n in named):
+            r.err("a successful window act does not resolve "
+                  "`window.unreachable` for the window it just acted on. The "
+                  "flag says macos will not let vesper touch that window; "
+                  "touching it says otherwise")
+
+    wl = fns.get("window_list")
+    if wl is None:
+        r.err("core/capabilities has no `window_list`")
+    else:
+        returns = [n for n in _ast.walk(wl) if isinstance(n, _ast.Return)
+                   and isinstance(n.value, _ast.Dict)]
+        if not returns:
+            r.err("`window_list` no longer returns a dict literal")
+        elif not any("resolved" in [k.value for k in d.value.keys
+                                    if isinstance(k, _ast.Constant)]
+                     for d in returns):
+            r.err("`window_list` does not report `resolved`. It is the only "
+                  "capability that can retire `window.landed_elsewhere` -- the "
+                  "flag whose own words are \"it is yours to close\", so the "
+                  "condition ends with an act by the OWNER that no capability is "
+                  "running for, and only the next look at the world can see it")
+
+    r.note("a clean result retracts the flag its own failure raised; a refusal "
+           "and a degraded success do not; the rung is out of the derivation so "
+           "raise and retract agree; a read with no `ok` key may resolve "
+           "conditions it did not raise; and the retraction is published at the "
+           "executor and consumed by the runtime")
+    return r
+
+
+def check_vesper_answers_in_the_owners_words() -> Result:
+    """What vesper says it can do is real, complete, and not this system's jargon.
+
+    THE ANSWERER IS A DIFFERENT PARTY FROM THE PROPOSER AND IT KEPT BEING
+    FORGOTTEN. `parse()` turns a model's reply into an action and has always had
+    a prompt naming every capability with its arguments. `answer()` -- the path
+    taken when NO action is proposed -- had neither, so vesper denied
+    capabilities it had just used. That was fixed on 2026-09-10 by handing it
+    `capability_statement()`, and the fix arrived with no gate.
+
+    IT BROKE SOMETHING ELSE THE SAME NIGHT, AND NOTHING CAUGHT IT. The statement
+    ended each line with the internal id -- `(shell.run)`, `(mode.set)`. Driven
+    2026-09-10: the owner typed "switch to focus mode"; the proposer correctly
+    returned no action, because its own prompt lists the six real modes and says
+    "do not invent one"; and the answerer replied `mode.set: focus mode.` Four
+    words, none of them an answer, and one of them a name the owner has never
+    seen. A name given to a reader who must not say it aloud is a name that will
+    be said aloud, so the fix is that the answerer is not given it.
+
+    AND THE ANSWER THE OWNER NEEDED WAS A LIST. `modes.select` writes exactly the
+    right refusal -- "there is no mode called 'focus mode'. The ones that exist
+    are: ..." -- and it is unreachable for a mode that does not exist, because
+    nothing ever calls `mode.set` with it. The only party that can answer is the
+    answerer, and it knew that a mode could be entered without knowing which
+    ones there were. So the statement names them, READ FROM THE CONTRACT: a
+    hardcoded list here would be a second place to change when a pairing is
+    added, and the one that nobody would remember.
+    """
+    r = Result("vesper-answers-in-the-owners-words")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import ast as _ast
+    try:
+        from core.intent import capability_statement, CAN_DO, KNOWN
+        from core import modes as M
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"the answerer's context does not import: {exc!r}")
+        return r
+
+    stmt = capability_statement()
+
+    # 1. NO INTERNAL NAME REACHES THE OWNER. Every id, over the whole statement
+    #    -- not only the list -- because prose that names the thing it forbids
+    #    is the same leak with an explanation attached.
+    leaked = sorted(c for c in KNOWN if c in stmt)
+    if leaked:
+        r.err(f"the statement handed to the answerer contains the internal "
+              f"name(s) {leaked}. The owner typed 'switch to focus mode' and got "
+              f"back 'mode.set: focus mode.' -- this system's vocabulary read to "
+              f"the person it is hidden from, in place of an answer")
+
+    # 2. EVERY CAPABILITY IS DESCRIBED. A capability missing from the statement
+    #    is one vesper will deny having, which is the defect the statement exists
+    #    to fix.
+    missing = sorted(set(KNOWN) - set(CAN_DO))
+    if missing:
+        r.err(f"{missing} can be proposed and are described to the answerer "
+              f"nowhere, so vesper will tell the owner it cannot do something it "
+              f"is about to do")
+    for cid in KNOWN:
+        line = str(CAN_DO.get(cid) or "").strip()
+        if not line:
+            r.err(f"{cid} has an empty description")
+        elif cid in line:
+            r.err(f"{cid}'s description contains its own internal name, which "
+                  f"puts the id back into the statement one line at a time")
+
+    # 3. THE MODES ARE NAMED, AND NAMED FROM THE CONTRACT. Driven by comparing
+    #    against what the contract holds rather than a list written here: a
+    #    literal copy would pass while the statement went stale, which is the
+    #    exact shape `INV-HW-2` refuses -- declared where it could be read.
+    real = set(M.pairings())
+    if not real:
+        r.err("no pairings are declared, so this check cannot tell a complete "
+              "list from an empty one")
+    else:
+        absent = sorted(m for m in real if m not in stmt)
+        if absent:
+            r.err(f"the answerer is not told that {absent} exist, so it cannot "
+                  f"name them when the owner asks for a mode that does not -- "
+                  f"which is the only moment the list is worth anything")
+
+    # 4. AND IT IS ACTUALLY HANDED OVER. The statement being right is half of it;
+    #    the call site passing it is the half that was missing until 2026-09-10,
+    #    for the answerer and for the conversation both.
+    rt_src = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    # ONE TREE, REUSED. Parsed twice, the nodes below are different objects for
+    # the same source, so an `is` test between them is always false -- and the
+    # assertion that reads "the reply is passed through the strip" went red on
+    # correct code until this was hoisted.
+    rt_tree = _ast.parse(rt_src)
+    calls = [n for n in _ast.walk(rt_tree) if isinstance(n, _ast.Call)
+             and isinstance(n.func, _ast.Name) and n.func.id == "answer"]
+    if not calls:
+        r.err("the runtime never calls `answer`, so this check is not reading "
+              "the path it names")
+    # THE CALLS THAT ANSWER THE OWNER, WHICH IS NOT EVERY CALL. `answer` is also
+    # used to put the agenda's fixed line into vesper's voice, and that prompt
+    # says "Do not add anything that is not here" -- handing it the capability
+    # list would invite exactly what it forbids. The discriminator is where the
+    # utterance came from: one built from `intake` is something the owner said.
+    owner_turns = [c for c in calls
+                   if any(isinstance(a, _ast.Subscript)
+                          and "intake" in _ast.dump(a) for a in c.args)]
+    if not owner_turns:
+        r.err("no `answer` call takes an utterance from `intake`, so either the "
+              "owner's turn is answered somewhere else now or this check has "
+              "stopped reading the call it was written for")
+    for call in owner_turns:
+        kw = {k.arg for k in call.keywords}
+        if "can_do" not in kw:
+            r.err("`answer` is called without `can_do`, so the answerer is back "
+                  "to denying capabilities vesper has just used -- a defect that "
+                  "dated from 26 August and took an owner's transcript to find")
+        if "recent" not in kw:
+            r.err("`answer` is called without `recent`, so vesper cannot see "
+                  "what it just said and asks the owner what they are referring "
+                  "to")
+
+    # 5. AND ASKING IS NOT ENFORCING. The statement tells the answerer never to
+    #    read an internal name out loud, and the model did it anyway -- three
+    #    turns running, each one becoming the next turn's example, because the
+    #    conversation the answerer is given contains what it said last time. So
+    #    the rule is applied to the reply AND to the rendered examples, from one
+    #    function, and a prompt sentence is not accepted as the whole of it.
+    try:
+        from core.intent import strip_internal_prefix as _strip
+    except Exception:                                     # noqa: BLE001
+        r.err("core.intent has no `strip_internal_prefix`, so nothing but a "
+              "prompt instruction stops an internal name reaching the owner -- "
+              "and the instruction was measured failing")
+        _strip = None
+    if _strip is not None:
+        for cid in sorted(KNOWN)[:3]:
+            if _strip(f"{cid}: focus - unknown.") != "focus - unknown.":
+                r.err(f"a reply beginning {cid!r} keeps the name, so the leak "
+                      f"reaches the owner and the transcript teaches the shape "
+                      f"to the next turn")
+        kept = "I did not: that window is not mine"
+        if _strip(kept) != kept:
+            r.err("an ordinary sentence containing a colon is being cut. Only a "
+                  "known internal name at the FRONT may be removed; the rest of "
+                  "the answer is usually the part worth keeping")
+
+    rt_body = rt_src
+    if "strip_internal_prefix" not in rt_body:
+        r.err("the runtime never applies `strip_internal_prefix`, so the "
+              "function exists and is reached by nothing")
+    else:
+        conv = [n for n in _ast.walk(rt_tree)
+                if isinstance(n, _ast.FunctionDef)
+                and n.name == "_render_conversation"]
+        if not conv:
+            r.err("the runtime has no `_render_conversation`; the answerer's "
+                  "examples come from somewhere this check cannot see")
+        elif not any(isinstance(n, _ast.Call) and isinstance(n.func, _ast.Name)
+                     and n.func.id == "strip_internal_prefix"
+                     for n in _ast.walk(conv[0])):
+            r.err("the rendered conversation is not cleaned, so every reply "
+                  "already in the transcript goes on teaching the answerer to "
+                  "put an internal name in front of its answer. That loop does "
+                  "not decay -- each new reply renews it")
+        for call in owner_turns:
+            parent_ok = any(isinstance(n, _ast.Call)
+                            and isinstance(n.func, _ast.Name)
+                            and n.func.id == "strip_internal_prefix"
+                            and any(c is call for c in _ast.walk(n))
+                            for n in _ast.walk(rt_tree))
+            if not parent_ok:
+                r.err("the answer given to the owner is not passed through "
+                      "`strip_internal_prefix`, so what the model wrote reaches "
+                      "them unchanged")
+
+    r.note(f"the answerer is told all {len(KNOWN)} capabilities in the owner's "
+           f"words, with no internal name anywhere in the statement, the "
+           f"{len(real)} modes are named from the contract rather than copied, "
+           f"and the reply and its own examples are both cleaned rather than "
+           f"merely asked to be")
+    return r
+
+
+def check_a_mode_that_does_not_land_reaches_the_bar() -> Result:
+    """A mode the owner asked for and did not get is said, not swallowed.
+
+    THE FAILURE HAPPENS AFTER THE ONLY THING THAT CAN RAISE A FLAG HAS RETURNED,
+    which is why this needed a channel rather than a fix. `executor.py` publishes
+    every flag from the one point a capability result passes through; `mode.set`
+    resolves the pairing, writes `ambience` into `home.json` and returns `ok` --
+    and the PAINT happens in another process, up to half a second later, where
+    the usual answer is a refusal: vesper's ground is not on the Desktop that is
+    showing, so changing the picture would change the owner's. By then the result
+    that could have carried a flag is already spoken.
+
+    THE OWNER'S REPORT IS THE WHOLE REASON THIS EXISTS, 2026-09-09: they asked
+    for a mode, vesper said done, and the picture never changed. The first fix
+    (2026-09-10) made the watcher RETRY instead of marking a failed ambience
+    applied -- which is why retraction had to land before this did: fail, flag,
+    retry, succeed is now the NORMAL sequence, and a bar that cannot retract
+    would turn every recovered mode into a permanent row.
+
+    NOT BY BLOCKING `mode.set` UNTIL THE PAINT IS JUDGED, which was the other
+    option and is worse in the case that actually occurs. The refusal is
+    TRANSIENT -- the owner switches Desktop and it lands -- and it can last
+    minutes, so a blocking call would hang the turn rather than answer it. A
+    report the runtime drains lets the true answer be "asked for, not applied
+    yet, and here is why".
+    """
+    r = Result("a-mode-that-does-not-land-reaches-the-bar")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import ast as _ast, importlib.util as _ilu
+    import tempfile as _tf, json as _js
+
+    home_p = REPO / "app" / "home-macos" / "Home.swift"
+    if not home_p.exists():
+        r.err("app/home-macos/Home.swift is missing")
+        return r
+    swift = home_p.read_text(encoding="utf-8")
+    set_mode = _swift_nostrings(_swift_body(swift, "func setMode(_ name: String, quiet: Bool = false) -> Bool {"))
+    watch = _swift_nostrings(_swift_body(swift, "func watchModeFile() {"))
+    report = _swift_body(swift, "private func reportAmbience(_ name: String, ok: Bool, why: String) {")
+
+    if not report:
+        r.err("Home.swift has no reportAmbience(_:ok:why:), so the process that "
+              "knows a mode did not land has no way to say so")
+    # 1. EVERY REFUSAL CARRIES A SENTENCE, COUNTED AGAINST THE REFUSALS. A bool
+    #    was enough to retry and never enough to report, and a presence test is
+    #    satisfied by whichever path still sets one -- so the count is the
+    #    assertion, exactly as it is in `reopen`'s two claim sites.
+    if not set_mode:
+        r.err("Home.swift has no setMode(_:quiet:); the mode path has changed "
+              "shape and this check is not reading it")
+    else:
+        flat = "".join(set_mode.split())
+        # PER SEGMENT, NOT PER TOTAL, AND THE FIRST VERSION OF THIS WAS VACUOUS.
+        #
+        # It compared `count("lastModeReason=")` against `count("returnfalse")`
+        # and read 3 against 2 -- because one of the three ways setMode answers
+        # NO does not `return false` at all: `Ambience.apply` failing falls
+        # through to `return ok`. So the totals carried a spare, deleting a
+        # reason left 2 >= 2, and the negative control for the commonest refusal
+        # of the three went GREEN under its own violation. Counting sites is only
+        # sound when the sites are the same kind of thing.
+        #
+        # WHAT IS ACTUALLY REQUIRED IS AN ORDERING: no path may reach a `false`
+        # answer without having set a sentence since the previous one. Splitting
+        # on the refusals gives one segment per path, tail included, and each
+        # must carry its own.
+        parts = flat.split("returnfalse")
+        if len(parts) < 2:
+            r.err("setMode refuses on no path at all, so either the residency "
+                  "guard is gone -- and vesper is repainting the owner's own "
+                  "Desktop -- or this check is reading the wrong function")
+        else:
+            for i, seg in enumerate(parts):
+                if "lastModeReason=" in seg:
+                    continue
+                where = (f"the path reaching refusal {i + 1}" if i < len(parts) - 1
+                         else "the path where applying the picture fails and "
+                              "falls through to `return ok`")
+                r.err(f"setMode answers no on {where} without recording a "
+                      f"sentence. That reaches the bar as 'vesper could not "
+                      f"switch and did not say why' -- a row the owner can do "
+                      f"nothing with, when the true reason is usually that "
+                      f"switching to vesper's desktop would apply it")
+
+    # 2. BOTH OUTCOMES ARE REPORTED, and the failure only on the TRANSITION.
+    #    The watcher fires twice a second against a condition the owner may sit
+    #    inside for minutes.
+    if not watch:
+        r.err("Home.swift has no watchModeFile(); nothing watches for the mode")
+    else:
+        wflat = "".join(watch.split())
+        if "reportAmbience(want,ok:true" not in wflat:
+            r.err("a mode that LANDED is not reported, so the flag raised while "
+                  "it was failing stays in the bar after the picture changed -- "
+                  "and the retry makes fail-then-succeed the normal sequence")
+        if "reportAmbience(want,ok:false" not in wflat:
+            r.err("a mode that did not land is not reported, which is the whole "
+                  "of what this channel is for")
+        if "if self.lastFailedAmbience != want {" not in watch:
+            r.err("the failure is reported on every tick rather than on the "
+                  "transition. The watcher runs twice a second and the refusal "
+                  "it meets is one the owner may sit inside for minutes, so the "
+                  "file grows without bound and says nothing new")
+
+    # 2a. AND THE WAIT REPORTS, WHICH IS THE STATE THE WATCHER CANNOT SEE.
+    #
+    #     `Home` owns the mode watcher and does not exist until the ground is
+    #     planted. `--on-empty-desktop` refuses to plant it on a Desktop the
+    #     owner has windows on, and on a machine in use that wait is the NORMAL
+    #     state. Driven 2026-09-10 with four of the owner's windows on the
+    #     Desktop showing: they asked for rest mode, `mode.set` resolved it,
+    #     wrote `ambience: Rest`, answered "rest mode -- Nothing asked. VESPER
+    #     is present and doing nothing", and nothing painted or reported. The
+    #     channel was complete and blind in the one state it most needed to see.
+    main_p = REPO / "app" / "island-macos" / "main.swift"
+    if not main_p.exists():
+        r.err("app/island-macos/main.swift is missing")
+    else:
+        main_src = main_p.read_text(encoding="utf-8")
+        if "enum AmbienceReport" not in swift:
+            r.err("there is no shared `AmbienceReport`, so the two reporters -- "
+                  "the mode watcher and the pre-ground wait -- would each need "
+                  "their own append, and a second copy is one place the format "
+                  "drifts out of step with the drain")
+        # THE GUARD IS READ, NOT LOOKED FOR. Both of these were presence tests
+        # first -- `"AmbienceReport.append(" in main_src` -- and both negative
+        # controls went GREEN under their own violation: appending `, false` to
+        # the condition and deleting the `!= reportedWant` clause each leave
+        # every string still present. Same defect as three green controls on
+        # 2026-09-09 and the same answer: read the shape of the condition.
+        opener = "if let want = AmbienceReport.wanted()"
+        i = main_src.find(opener)
+        if i < 0:
+            r.err("the wait for an empty Desktop reports nothing, so a mode "
+                  "asked for before vesper has a desktop is accepted, answered "
+                  "as though it happened, and dropped -- which is the exact "
+                  "failure this channel was built to close, in the state that "
+                  "occurs most on a machine in use")
+        else:
+            brace = main_src.find("{", i)
+            cond = main_src[i + len(opener):brace].strip().strip(",").strip()
+            if cond != "want != reportedWant":
+                r.err(f"the wait's report is guarded by {cond!r} rather than by "
+                      f"'want != reportedWant' alone. An extra clause can make "
+                      f"it unreachable -- which is a mode silently dropped -- and "
+                      f"a missing one appends twice a second for as long as the "
+                      f"owner keeps their Desktops busy")
+            block = main_src[brace:brace + 900]
+            if "reportedWant = want" not in block:
+                r.err("the wait compares against `reportedWant` and never "
+                      "assigns it, so the condition is true on every tick and "
+                      "the once-per-ambience promise is not kept")
+            if "AmbienceReport.append(" not in block:
+                r.err("the wait's guard fires and appends nothing, so the "
+                      "condition is measured and the report is not made")
+
+    # 3. THE RUNTIME DRAINS IT AND TURNS IT INTO A FLAG. Driven, not read: the
+    #    chain is home -> jsonl -> drain -> bus -> HomeState -> home.json, and
+    #    every link in it has been the missing one somewhere in this tree.
+    try:
+        spec = _ilu.spec_from_file_location(
+            "_vr_modecheck", REPO / "tools" / "ops" / "vesper_runtime.py")
+        vr = _ilu.module_from_spec(spec)
+        sys.modules["_vr_modecheck"] = vr
+        spec.loader.exec_module(vr)
+        from core.bus import EventBus
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+        from core.home_state import HomeState
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"the mode-report chain does not import: {exc!r}")
+        return r
+
+    if not hasattr(vr, "_drain_ambience"):
+        r.err("the runtime has no `_drain_ambience`, so the file the home "
+              "appends to is written and read by nothing")
+        return r
+
+    with _tf.TemporaryDirectory() as _td:
+        base = Path(_td)
+        vr.AMBIENCE = base / "ambience.jsonl"
+        vr.AMBIENCE_OFFSET = base / "ambience.offset"
+        vr._AMBIENCE_FLAGGED.clear()
+        clock = HybridLogicalClock("modecheck")
+        bus = EventBus(clock, StoreSet(base, node_id="modecheck"),
+                       component="modecheck")
+        home = HomeState(path=base / "home.json", bus=bus, clock=clock)
+        bus.subscribe("flag.raised",
+                      lambda e: home.raise_flag(str((e.payload or {}).get("id") or "f"),
+                                                str((e.payload or {}).get("text") or "")),
+                      name="modecheck-raise", idempotency_key=lambda e: e.event_id)
+        bus.subscribe("flag.cleared",
+                      lambda e: home.clear_flag(str((e.payload or {}).get("id") or "")),
+                      name="modecheck-clear", idempotency_key=lambda e: e.event_id)
+        home.attach(bus)
+        home.write()
+
+        def _append(**row):
+            with vr.AMBIENCE.open("a", encoding="utf-8") as f:
+                f.write(_js.dumps(row) + "\n")
+
+        def _ids():
+            doc = _js.loads((base / "home.json").read_text(encoding="utf-8"))
+            return [f.get("id") for f in (doc.get("flags") or [])]
+
+        def _texts():
+            doc = _js.loads((base / "home.json").read_text(encoding="utf-8"))
+            return [str(f.get("text") or "") for f in (doc.get("flags") or [])]
+
+        _append(ambience="Working", ok=False,
+                reason="vesper's desktop is not the one showing")
+        vr._drain_ambience(bus)
+        if not _ids():
+            r.err("a mode that did not land raised nothing. The owner asked for "
+                  "a mode, vesper said done, and the picture never changed -- "
+                  "with nowhere for that to show")
+            return r
+        if not any("not the one showing" in t for t in _texts()):
+            r.err("the flag does not carry the home's own sentence, so the bar "
+                  "says a mode failed without saying the one thing the owner can "
+                  "act on -- that switching Desktop applies it")
+
+        # THE OFFSET HOLDS, or every pass re-raises everything ever reported.
+        before = len(_ids())
+        if vr._drain_ambience(bus) != 0 or len(_ids()) != before:
+            r.err("the drain re-reads lines it has already consumed, so the bar "
+                  "is rewritten from the whole history on every pass")
+
+        # A REASONLESS LINE STILL RAISES: the mode did not land either way.
+        _append(ambience="Rest", ok=False, reason="")
+        vr._drain_ambience(bus)
+        if len(_ids()) != 2:
+            r.err("a report with no reason raised nothing, so a failure vesper "
+                  "could not explain becomes a failure it does not mention")
+
+        # AND A SUCCESS RETIRES EVERY AMBIENCE COMPLAINT, not only its own. The
+        # owner has one ambience at a time: getting `Rest` means they are no
+        # longer waiting for `Working`.
+        _append(ambience="Rest", ok=True, reason="")
+        vr._drain_ambience(bus)
+        left = _ids()
+        if left:
+            r.err(f"a mode that landed left {left!r} in the bar. The owner has "
+                  f"one ambience at a time, so the picture changing means they "
+                  f"are not waiting for any earlier one either")
+
+    # 4. AND THE DRAIN IS ACTUALLY CALLED. A pump that never reads the file is
+    #    the same built-and-unreached shape as the raise-only bar.
+    rt = _ast.parse((REPO / "tools" / "ops" / "vesper_runtime.py")
+                    .read_text(encoding="utf-8"))
+    called = [n for n in _ast.walk(rt) if isinstance(n, _ast.Call)
+              and isinstance(n.func, _ast.Name) and n.func.id == "_drain_ambience"]
+    if not called:
+        r.err("`_drain_ambience` is defined and called by nothing, so the home "
+              "appends reports to a file the runtime never opens")
+
+    r.note("every refusal in setMode carries a sentence, the home reports both "
+           "outcomes and only on a transition, the runtime drains the file into "
+           "the bar, and a mode that lands retires every ambience flag")
+    return r
+
+
 def check_a_window_is_claimed_only_by_the_app_that_opened_it() -> Result:
     """VESPER may stamp a window as its own only if it can prove it opened it.
 
@@ -23330,6 +24078,11 @@ CHECK_FNS = {
     "the-ground-gives-a-taken-desktop-back": check_the_ground_gives_a_taken_desktop_back,
     "a-window-is-claimed-only-by-the-app-that-opened-it": check_a_window_is_claimed_only_by_the_app_that_opened_it,
     "every-flag-reaches-one-bar": check_every_flag_reaches_one_bar,
+    "a-flag-is-retracted-when-its-condition-clears":
+        check_a_flag_is_retracted_when_its_condition_clears,
+    "vesper-answers-in-the-owners-words": check_vesper_answers_in_the_owners_words,
+    "a-mode-that-does-not-land-reaches-the-bar":
+        check_a_mode_that_does_not_land_reaches_the_bar,
     "a-restored-stamp-is-corroborated": check_a_restored_stamp_is_corroborated,
     "the-window-log-records-and-never-reopens": check_the_window_log_records_and_never_reopens,
     "the-shipped-runtime-can-reach-what-it-needs": check_the_shipped_runtime_can_reach_what_it_needs,

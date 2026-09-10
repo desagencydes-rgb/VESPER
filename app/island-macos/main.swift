@@ -2476,6 +2476,20 @@ if args.contains("--home") {
         // for the real ground. Closed on whichever branch ends the poll.
         let anchor = SpaceWatch.Anchor()
         var announced = false
+        // A MODE ASKED FOR DURING THE WAIT MUST STILL BE ANSWERED FOR.
+        //
+        // The mode watcher belongs to `Home`, which does not exist until the
+        // ground is planted -- and on a machine in use, waiting is the NORMAL
+        // state. Driven 2026-09-10 with every Desktop occupied: the owner asked
+        // for rest mode, `mode.set` resolved it, wrote `ambience: Rest`, replied
+        // "rest mode -- ...", and nothing painted. Nothing reported it either,
+        // because the only reporter had not been constructed. That is the
+        // asked-for-and-silently-dropped failure this channel exists to close,
+        // occurring in the one state the channel could not see.
+        //
+        // ONCE PER AMBIENCE, not once per tick: this timer fires twice a second
+        // and the wait can last as long as the owner keeps their Desktops busy.
+        var reportedWant: String?
         var t: Timer?
         t = Timer(timeInterval: 0.5, repeats: true) { timer in
             let fp = SpaceWatch.fingerprint()
@@ -2483,6 +2497,15 @@ if args.contains("--home") {
                 if !announced {
                     print("      here now: \(fp.count) foreign window(s) — not VESPER's Desktop.")
                     announced = true
+                }
+                if let want = AmbienceReport.wanted(), want != reportedWant {
+                    reportedWant = want
+                    AmbienceReport.append(
+                        want, ok: false,
+                        why: "vesper has no desktop of its own yet: \(fp.count) of "
+                           + "your windows are on the one showing, and it will not "
+                           + "take a desktop you are working on. switch to an empty "
+                           + "desktop and it will set up there and apply \(want)")
                 }
                 return
             }

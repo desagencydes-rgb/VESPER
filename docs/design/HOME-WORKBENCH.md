@@ -1483,7 +1483,7 @@ been driven against the running surface.**
 | 13 | **Active-Space reading from a background process** (§9f) | fix implemented and owner-verified (§9p) — `SpaceWatch.Anchor`, confirmed `0`/`0` with Desktop 1 populated and Desktop 2 genuinely empty. The batched rebuild it was waiting on happened 2026-09-08 with §9t, and `--spaces` from a freshly launched background process correctly enumerated the active Desktop and refused it (`2 foreign window(s)`, ChatGPT) — so the anchor works off the login path too. **The LOGIN-ITEM path itself is still unconfirmed:** `ai.vesper.island` is not bootstrapped in the `gui/501` domain (only `.wake`, `.fnwatch`, `.agenda`, `.arm` are), so `launchctl kickstart` cannot reach it and a real login is needed. Not a prediction — a named, outstanding step |
 | — | **The home's four model rows** (§9t) | ✅ DONE 2026-09-08 — `the-model-rows-read-a-real-completion`, 8 red runs. They had NEVER worked: no producer, and a comment claiming one. Live: `thinking = yes, 15 tok`, `context = 349`, `tokens = 466.4`. Found and fixed a pre-existing leak of menu rows into the HOST card in the same pass |
 | 14 | **`f5-acceptance` flakes under load** (§9i, §11.0) | ✅ DONE 2026-09-08 — the gate compared a live in-memory counter against the durable store and reported its own sampling as a defect. Both negative controls driven RED. §9i's recorded cause was wrong twice over; §11.0 supersedes it |
-| 15 | **Window management** (§11.1) | 🟡 IN PROGRESS 2026-09-09 — vocabulary, ownership rule, native bridge and capability ladder landed and DRIVEN LIVE. `a-window-belongs-to-someone`, 7 red runs. `window.open` drove live and its provenance stamp is real. **Driving it found a forgery path** (§11.1c): `reopen` claimed any newly-seen window, and returned one of the owner's Safari windows from `window.open("TextEdit")` — fixed by requiring the launched pid and a cross-Desktop frontier. **Owed:** placement verification (§11.1c), a check for the forgery fix, and rung 3, which has never executed |
+| 15 | **Window management** (§11.1) | 🟡 IN PROGRESS 2026-09-09 — vocabulary, ownership rule, native bridge and capability ladder landed and DRIVEN LIVE. `a-window-belongs-to-someone`, 7 red runs. `window.open` drove live and its provenance stamp is real. **Driving it found a forgery path** (§11.1c): `reopen` claimed any newly-seen window, and returned one of the owner's Safari windows from `window.open("TextEdit")` — fixed by requiring the launched pid and a cross-Desktop frontier. **Owed:** placement verification (§11.1c) and rung 3, which has never executed. The forgery check DID land -- `a-window-is-claimed-only-by-the-app-that-opened-it`, 8 self-test cases, counting claim sites rather than looking for a name -- and this row went on saying it was owed until 2026-09-10 |
 | 15a | **Placement is verified, not predicted** (§11.1c) | 🟡 PART DONE 2026-09-09 — `window_open` now READS BACK where the window landed and reports `degraded` with a flag instead of `ok: true`; the two false comments are corrected. Also fixed: vesper claimed TextEdit's **Open dialog** as a window it opened, so the launch rung now requires a close button. **Owed:** the close-and-reopen rebuild, which needs a bridge that can reach a window on another Desktop — every act matches through `SpaceWatch.onScreen()`, one Desktop only |
 | 15b | **Window memory across a restart** (§11.8) | ✅ DONE 2026-09-09 — **authority:** boot-keyed, corroborated against the live window, fail-closed on every unreadable state; `CI-138`, 7 red runs; driven across processes (one interpreter opened window 33429, a second read it back as vesper's). **history:** `core/window_log.py` — appends what vesper touched, an absent title carries a code (`no_file`, `no_file_model`, `unreadable`), old weeks compress in place and read back through the same call, the current week stays near, and **nothing in it can open a window**; `CI-139`, 5 red runs. `gated-subsystems-are-reachable` caught the module unwired the moment it landed |
 | 15c | **The flag bar** (§11.9) | ✅ DONE 2026-09-09 — small bar above the main menu, hidden when empty, buttons revealing the flag on hover. Published from the EXECUTOR (the one point every result passes through), deduped by CONDITION not execution, written to `home.json`, rendered as text. `CI-137`, 8 red runs, driven end to end with a real degraded relocation |
@@ -2630,3 +2630,167 @@ Three ways to settle it, for the owner to choose:
 
 Until then the sentence no longer names a remedy that does nothing: it says
 *"Switch to my desktop and I will open it there"*, which is true and works.
+
+---
+
+## 15 THE MORNING OF 2026-09-10 — THE BAR COULD NOT PUT ANYTHING DOWN
+
+Three defects, one shape: **a surface that can only accumulate.** Each was
+built, each passed its own gate, and each was reached by nothing that could
+undo it.
+
+### 15.1 `clear_flag` had one caller and it was the check for `clear_flag`
+
+`core/home_state.clear_flag` worked. Its only caller in the tree was
+`every-flag-reaches-one-bar`, which called it directly and then asserted the row
+had gone — so `CI-137` proved the mechanism and **nothing in production ever
+retracted a flag.** The check's own comment reads *"or the bar reports a problem
+that is over"*: it describes the live defect rather than guarding against it.
+That is `MEMORY.md`'s "checks can be alive and useless" in its purest form —
+**the probe supplied the behaviour it was testing for.**
+
+What it costs the owner is a false alarm with no expiry. `CLAUDE.md` records
+that **every rebuild revokes accessibility**, so the ordinary sequence is:
+rebuild, an act fails, `host.accessibility` is flagged, the owner grants it,
+vesper works again — and the bar goes on telling them to grant it for as long as
+the process lives. The mode watcher made it routine rather than rare: the
+2026-09-10 fix made it **retry**, so *fail → flag → retry → succeed* is now the
+normal path.
+
+**Landed:** `flag.cleared` published from the executor's choke point — the same
+one `flag.raised` uses — on a result that is not `degraded` and not
+`ok: False`; `flag_id_for()` extracted so raise and retract cannot derive
+different names; the runtime subscribes and calls `clear_flag`.
+`a-flag-is-retracted-when-its-condition-clears`, **8 red runs**.
+
+**Two things were deliberately NOT retracted.** A **refusal** ("that window is
+not yours") says nothing about whether an earlier failure is over. And a
+**degraded success** — `window.relocate` returns `ok: True, degraded: True` when
+it rebuilt a window instead of moving it — must not cancel the flag the same
+result just raised. Both are driven controls.
+
+**And the rung came out of the flag id.** It was in the derivation, so
+`window.relocate`'s four named failure rungs each got their own row for one
+unresolvable situation, *and* a relocation that failed at `cannot_degrade` and
+later succeeded derived two different names — so no retraction could ever match.
+A rung is which ATTEMPT failed, which is the execution detail the id's own
+comment says it is not about.
+
+**Who may resolve what.** The derived id covers "same capability, same target,
+did not fail this time" — no inference, the same condition re-measured. A
+capability that has read the world may name more, in `resolved`: a window act
+that SUCCEEDS is direct evidence accessibility is granted, and `window.list` is
+the only thing that can retire `window.landed_elsewhere` — whose own words are
+*"it is yours to close"*, so the condition ends with an act by the OWNER that no
+capability is running for.
+
+### 15.2 A mode that did not land now reaches the bar — §14's owed item, closed
+
+§14 recorded this as **structural, not an oversight**, and the structure was a
+channel. `mode.set` resolves the pairing, writes `ambience` into `home.json` and
+returns `ok`; the **paint happens in another process** up to half a second
+later, where the usual answer is a refusal. By then the result that could have
+carried a flag is already spoken.
+
+**Not by blocking `mode.set` until the paint is judged**, which was the other
+option §14 named and is worse in the case that occurs: the refusal is
+**transient** — the owner switches Desktop and it lands — and can last minutes,
+so a blocking call would hang the turn rather than answer it.
+
+`ambience.jsonl` + `ambience.offset`, the shape `heard.jsonl` already has.
+`setMode` now records a **sentence** on each of its three ways of answering no;
+the watcher appends on the transition, not the tick. `a-mode-that-does-not-land-
+reaches-the-bar`, **10 red runs**.
+
+**AND DRIVING IT FOUND THE STATE THE CHANNEL COULD NOT SEE.** The mode watcher
+belongs to `Home`, which **does not exist until the ground is planted** —
+`--on-empty-desktop` refuses to plant it where the owner has windows, and on a
+machine in use **that wait is the normal state**. Driven with four of the owner's
+windows on the Desktop showing: they asked for rest mode, `mode.set` resolved it,
+wrote `ambience: Rest`, answered *"rest mode -- Nothing asked. VESPER is present
+and doing nothing"*, and nothing painted or reported. The channel was complete
+and blind in the one state it most needed to see. So the **wait reports too**,
+through a shared `AmbienceReport` rather than a second copy of the append.
+
+**Live, in the running app, for the first time:**
+
+> vesper has no desktop of its own yet: 4 of your windows are on the one
+> showing, and it will not take a desktop you are working on. switch to an empty
+> desktop and it will set up there and apply Rest
+
+### 15.3 Vesper answered the owner in this system's own vocabulary
+
+Fixing "vesper denies what it can do" (§14) introduced this on the same night,
+and **nothing gated either half**. `capability_statement()` ended every line with
+the internal id — `(shell.run)`, `(mode.set)`. Driven: the owner typed *"switch
+to focus mode"*; the **proposer correctly returned no action**, because its own
+prompt lists the six real modes and says "do not invent one"; and the answerer
+replied **`mode.set: focus mode.`** Four words, none of them an answer, one of
+them a name the owner has never seen.
+
+**And the answer they needed was a list.** `modes.select` writes exactly the
+right refusal — *"there is no mode called 'focus mode'. The ones that exist
+are…"* — and it is unreachable for a mode that does not exist, because nothing
+ever calls `mode.set` with it. The only party that could answer was the
+answerer, and it knew a mode could be entered without knowing which ones there
+were. The statement now names them, **read from the contract**.
+
+**ASKING THE MODEL WAS NOT ENOUGH, AND IT FED ITSELF.** With the ids removed
+*and* an explicit instruction added, the leak continued — because the answerer is
+given the conversation so far, the bad reply was in it, and the model copied the
+shape of its own previous answer. **That loop does not decay: each new reply
+renews it.** Measured over three turns. So `strip_internal_prefix()` is applied
+to the reply **and to the rendered examples**, from one function — an instruction
+is a self-report, and this corpus does not accept those as evidence anywhere
+else. `last_action`'s `f"{capability_id}: {said}"` format, which seeded it, is
+gone; its own comment already said the id added nothing.
+
+**Live, after:** *"focus – unknown. Available modes: explain, idle, research,
+rest, show, work."*
+
+`vesper-answers-in-the-owners-words`, **10 red runs**. It also found a second
+`answer()` call site — the agenda's phrasing pass — which must **not** get the
+capability list: its prompt says "Do not add anything that is not here".
+
+### 15.4 Four of my own negative controls passed under violation
+
+Same §4 defect as 2026-09-09, four more times, and each one is worth naming
+because the failure mode is not "I forgot" — it is that **a presence test is
+satisfied by whichever copy of the thing still exists.**
+
+| The vacuous assertion | Why it could not fail | What replaced it |
+|---|---|---|
+| `count("lastModeReason=") < count("returnfalse")` in `setMode` | 3 reasons against 2 refusals — one of the three ways it answers no **falls through to `return ok`** rather than returning false. The totals carried a spare | split on the refusals and require each segment, tail included, to carry its own sentence |
+| `"AmbienceReport.append(" in main_src` | appending `, false` to the guard leaves the string exactly where it was | read the condition between the opener and its brace and require it to be `want != reportedWant` alone |
+| `"reportedWant" in main_src` | deleting the clause that USES it leaves the declaration | as above, plus the assignment must be inside the block |
+| `flag_id_for` reads no rung, tested as a substring | the word `rung` is in that function's **own docstring explaining why it is absent** | walk the AST with the docstring stripped, over names, subscripts and call arguments |
+
+**And one assertion went red on correct code**, which is the cheaper direction:
+the `flag.cleared` site was asked whether the shared derivation appeared **inside
+the publish call**, and it does not — the site publishes one event per resolved
+id, so the call is the enclosing loop's `iter`. Fixed by reading the loop.
+A second one compared AST nodes from **two separate parses** of the same file
+with `is`, which is never true; one tree, reused.
+
+### 15.5 Counts
+
+158 checks, 790 self-test cases. Three checks, **28 executed red runs**, four
+vacuous controls found and rewritten before landing.
+
+### 15.6 What this leaves for the owner
+
+- **Accessibility was revoked by tonight's rebuilds** — it is keyed to the
+  cdhash and `build.sh` re-signs every build. Grant it once
+  (System Settings → Privacy & Security → Accessibility) and the
+  `host.accessibility` flag will **retract itself** the first time vesper touches
+  a window, which is the new behaviour worth watching.
+- **VESPER has no Desktop right now** and is waiting: four of your windows are on
+  the one showing, and it refuses to take a Desktop you are working on. Switch to
+  an empty one and it will plant the ground, apply `Rest`, and the flag in the bar
+  will clear itself.
+- **1.7 GB of bus log** across three segments, dominated by
+  `autonomy.heartbeat` — 3607 of the last 5000 events. Not from tonight, and
+  worth a decision on a machine whose first goal is host lifetime.
+- Everything §14 lists as owed and owner-gated still is: the base wallpaper, the
+  `owner_requested` authority decision, `INV-HOME-8`, `_AXUIElementGetWindow`,
+  a Developer ID certificate, and `kill -9 62839`.

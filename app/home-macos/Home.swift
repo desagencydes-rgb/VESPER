@@ -58,6 +58,15 @@ final class GroundWindow: NSWindow {
 final class HomeController: NSObject {
     private var modeWatch: Timer?
     private var lastAppliedAmbience: String = ""
+    /// Why the last ambience application failed, in the owner's words.
+    ///
+    /// A BOOL WAS ENOUGH TO RETRY AND NOT ENOUGH TO REPORT. `setMode` answers
+    /// yes or no and prints its reason to a log the owner does not read, so a
+    /// mode that silently would not apply was invisible to them -- which is
+    /// exactly what they hit on 2026-09-09. The flag bar needs the sentence, and
+    /// the sentence exists at the moment of failure and nowhere else.
+    private var lastModeReason: String = ""
+
     /// The ambience whose application FAILED, so the reason is printed once
     /// rather than twice a second while the condition persists.
     private var lastFailedAmbience: String = ""
@@ -826,11 +835,20 @@ final class HomeController: NSObject {
             if ok {
                 self.lastAppliedAmbience = want
                 self.lastFailedAmbience = ""
+                self.reportAmbience(want, ok: true, why: "")
             } else {
                 // PRINTED ONCE PER CONDITION. Without this the refusal would be
                 // logged twice a second for as long as the owner stayed on
                 // their own Desktop, which is a log nobody can read and a
                 // reason nobody would find in it.
+                //
+                // AND REPORTED ONCE PER CONDITION FOR THE SAME REASON. The
+                // append happens on the TRANSITION, not on the tick: this timer
+                // fires twice a second and the refusal it hits is one the owner
+                // may sit inside for minutes.
+                if self.lastFailedAmbience != want {
+                    self.reportAmbience(want, ok: false, why: self.lastModeReason)
+                }
                 self.lastFailedAmbience = want
             }
         }
@@ -838,9 +856,39 @@ final class HomeController: NSObject {
         modeWatch = t
     }
 
+    /// Tell the runtime how the last ambience application went.
+    ///
+    /// THE FAILURE HAPPENS AFTER THE ONLY THING THAT CAN RAISE A FLAG HAS
+    /// RETURNED, and that is why this file exists. `mode.set` resolves the
+    /// pairing, writes `ambience` into `home.json` and returns `ok` -- and the
+    /// paint happens here, in another process, up to half a second later. So
+    /// `executor.py`, which publishes every flag from the one point a capability
+    /// result passes through, has nothing left to publish about: by the time the
+    /// mode fails the result that would have carried the flag is already spoken.
+    /// Driven 2026-09-09, and the owner's report is the whole reason this chunk
+    /// happened: they asked for a mode, vesper said done, and the picture never
+    /// changed.
+    ///
+    /// APPEND-ONLY WITH AN OFFSET, WHICH IS THE SHAPE `heard.jsonl` ALREADY HAS.
+    /// The alternative was `mode.set` not returning until the paint is judged,
+    /// and that is worse in the case that actually occurs: the usual failure is
+    /// the owner looking at their own Desktop, which is TRANSIENT and may last
+    /// minutes, so a blocking `mode.set` would hang the turn rather than answer
+    /// it. A report the runtime drains lets the answer be "asked for, not yet
+    /// applied, and here is why" -- which is the true one.
+    ///
+    /// SUCCESS IS REPORTED TOO, because the retry above means fail-then-succeed
+    /// is the NORMAL sequence and not the exception. Without the success line
+    /// the bar would hold a flag about a mode that is now on screen.
+    private func reportAmbience(_ name: String, ok: Bool, why: String) {
+        AmbienceReport.append(name, ok: ok, why: why)
+    }
+
     func setMode(_ name: String, quiet: Bool = false) -> Bool {
         guard let m = Ambience.mode(named: name) else {
             if !quiet { print("  no mode named '\(name)'") }
+            lastModeReason = "there is no mode named '\(name)' in vesper's "
+                           + "wallpapers, so nothing could be applied"
             return false
         }
         // The face takes the mode's accent. It was derived from the light
@@ -878,9 +926,18 @@ final class HomeController: NSObject {
                       + "the desktop that is showing, and changing the picture "
                       + "here would change yours")
             }
+            lastModeReason = "vesper could not switch to \(m.name): its desktop is "
+                           + "not the one showing, and changing the picture from "
+                           + "here would change yours. it will apply the moment "
+                           + "you switch to vesper's desktop"
             return false
         }
         let ok = Ambience.apply(m, on: screen, quiet: quiet)
+        if !ok {
+            lastModeReason = "vesper set the \(m.name) picture and the desktop did "
+                           + "not take it -- the file may be missing from vesper's "
+                           + "wallpapers"
+        }
 
         // Paint it here too, so the icons and widgets underneath are covered.
         // If the file cannot be read the ground stays transparent and says so:
@@ -913,5 +970,56 @@ final class HomeController: NSObject {
                   : "  plate: backdrop UNSAMPLED — tier fill \(Self.dockFill), unadapted")
         }
         return ok
+    }
+}
+
+
+/// The one place a "how did the mode go" line is written.
+///
+/// SHARED BECAUSE THERE ARE TWO REPORTERS AND ONLY ONE WAS OBVIOUS. `Home` has
+/// the mode watcher, and it does not exist yet while VESPER is waiting for a
+/// free Desktop -- `--on-empty-desktop` refuses to plant the ground where the
+/// owner has windows, and on a machine in use that wait is the NORMAL state, not
+/// an edge. Driven 2026-09-10: with every Desktop occupied, the owner asked for
+/// rest mode; `mode.set` resolved the pairing, wrote `ambience: Rest`, answered
+/// "rest mode -- Nothing asked. VESPER is present and doing nothing", and
+/// nothing painted anything. No watcher, so no report, so no flag: the exact
+/// asked-for-and-silently-dropped shape this channel was built to close, in the
+/// one state the channel could not see.
+///
+/// SO THE WAIT REPORTS TOO, and both go through here rather than through two
+/// copies of an append -- a second copy is one place the format drifts.
+enum AmbienceReport {
+    static let url = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/VESPER/ambience.jsonl")
+
+    static func append(_ name: String, ok: Bool, why: String) {
+        let row: [String: Any] = ["ambience": name, "ok": ok, "reason": why,
+                                  "at_ms": Int(Date().timeIntervalSince1970 * 1000)]
+        guard let data = try? JSONSerialization.data(withJSONObject: row),
+              var line = String(data: data, encoding: .utf8) else { return }
+        line += "\n"
+        guard let bytes = line.data(using: .utf8) else { return }
+        if let h = try? FileHandle(forWritingTo: url) {
+            defer { try? h.close() }
+            _ = try? h.seekToEnd()
+            try? h.write(contentsOf: bytes)
+        } else {
+            try? bytes.write(to: url)
+        }
+    }
+
+    /// The ambience the runtime has asked for, or nil if that cannot be read.
+    ///
+    /// READ FROM THE SAME FILE THE WATCHER READS, so the two reporters cannot
+    /// disagree about what was asked for. Returns nil rather than a guess: a
+    /// mode that cannot be read is not a mode that failed.
+    static func wanted() -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/VESPER/home.json")
+        guard let d = try? Data(contentsOf: home),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let want = o["ambience"] as? String, !want.isEmpty else { return nil }
+        return want
     }
 }

@@ -6418,7 +6418,14 @@ CASES += [
      "produced at the one choke point that sees results and read by nothing"),
 
     ("every-flag-reaches-one-bar", EXECUTOR_PY,
-     _sub('            flag_id = str(result.get("flag_id") or "").strip() or ":".join(', '            flag_id = f"{capability_id}:{key}" or ":".join(', 1),
+     # RE-ANCHORED 2026-09-10: the derivation moved out of `execute` into
+     # `flag_id_for`, so retraction could not derive a different name from the
+     # raise. The old mutation stopped applying and the harness said so -- "the
+     # artifact has changed shape and this self-test is no longer testing
+     # anything" -- which is exactly why it re-runs the mutation rather than
+     # trusting that it once worked.
+     _sub('    named = str((result or {}).get("flag_id") or "").strip()',
+          '    import uuid as _u\n    named = f"{capability_id}:{_u.uuid4()}"', 1),
      "the flag id goes back to carrying a per-execution uuid, so the same "
      "failure asked twice fills the bar it exists to be seen in"),
 
@@ -6719,6 +6726,216 @@ CASES += [
           '    if not kind:\n        return True, ""\n    if False:\n        return False, (f"I do not know what kind of window {label or bundle!r} "', 1),
      "an application no kind claims is waved through, which makes may_open "
      "advisory -- and that is how a reservation becomes a suggestion"),
+]
+
+
+# --------------------------------------------------------------------------
+# THE FLAG BAR COULD NOT RETRACT, AND ITS OWN CHECK SUPPLIED THE BEHAVIOUR.
+#
+# `clear_flag` worked and had one caller: `every-flag-reaches-one-bar`, which
+# called it itself and asserted the row vanished. Every case below is a way the
+# bar goes back to being a list of things that were once wrong.
+# --------------------------------------------------------------------------
+
+CASES += [
+    ("a-flag-is-retracted-when-its-condition-clears", EXEC_PY,
+     _sub("            for fid in _resolved_ids(capability_id, result, args, target):",
+          "            for fid in []:", 1),
+     "nothing is ever retracted, so the bar keeps calling for action on a "
+     "condition that is over -- which is what it did in production for a day "
+     "while its own check proved clear_flag worked"),
+
+    ("a-flag-is-retracted-when-its-condition-clears", EXEC_PY,
+     _sub("                    (capability_id, (args or {}).get(\"window_id\") or target) if x)",
+          "                    (capability_id, (result or {}).get(\"rung\") or \"\",\n                     (args or {}).get(\"window_id\") or target) if x)", 1),
+     "the rung goes back into the id, so one unresolvable situation gets a row "
+     "per attempt AND the working rung derives a different name from the "
+     "failing one, which makes every retraction miss"),
+
+    ("a-flag-is-retracted-when-its-condition-clears", EXEC_PY,
+     _sub("        elif isinstance(result, dict) and result.get(\"ok\") is not False:",
+          "        elif isinstance(result, dict):", 1),
+     "a refusal retracts a flag, so being told a window is not vesper's is "
+     "treated as evidence that an earlier failure is over"),
+
+    ("a-flag-is-retracted-when-its-condition-clears", EXEC_PY,
+     _sub("        if isinstance(result, dict) and (result.get(\"flag\") or result.get(\"degraded\")):",
+          "        if isinstance(result, dict) and result.get(\"flag\") and not result.get(\"ok\"):", 1),
+     "a result that is `ok` and `degraded` falls into the retracting branch, so "
+     "window.relocate's rebuilt-rather-than-moved answer cancels the flag it "
+     "just raised"),
+
+    ("a-flag-is-retracted-when-its-condition-clears", EXEC_PY,
+     _sub("    named = (result or {}).get(\"resolved\")",
+          "    named = None", 1),
+     "a capability can no longer name a condition it did not itself raise, so "
+     "host.accessibility survives every act that proves it is granted"),
+
+    ("a-flag-is-retracted-when-its-condition-clears", CAPS_PY,
+     _sub("        out.setdefault(\"resolved\", [\"host.accessibility\",",
+          "        _unused = ([\"host.accessibility\",", 1),
+     "a window act that worked stops being evidence that accessibility is "
+     "granted, so the flag the owner meets after every rebuild stays up after "
+     "they have granted it"),
+
+    ("a-flag-is-retracted-when-its-condition-clears", CAPS_PY,
+     _sub("            \"resolved\": resolved,\n", "", 1),
+     "the one capability that re-reads the world stops reporting what the world "
+     "no longer supports, so a flag about a window the owner has since closed "
+     "can never be retired by anything"),
+
+    ("a-flag-is-retracted-when-its-condition-clears", RUNTIME_PY,
+     _sub("    bus.subscribe(\"flag.cleared\", _off_flag, name=\"home-flags-cleared\",",
+          "    bus.subscribe(\"flag.clearedX\", _off_flag, name=\"home-flags-cleared\",", 1),
+     "the retraction is published and consumed by nothing, which is the exact "
+     "built-and-unreached shape that left a working clear_flag with no caller"),
+]
+
+
+# --------------------------------------------------------------------------
+# THE ANSWERER WAS GIVEN THE CAPABILITY LIST AND READ IT ALOUD.
+#
+# Fixing "vesper denies what it can do" introduced "vesper answers in capability
+# ids" on the same night, and nothing gated either half. Both directions below.
+# --------------------------------------------------------------------------
+
+CASES += [
+    ("vesper-answers-in-the-owners-words", INTENT_PY,
+     _sub('    doing = "\\n".join(f"  - {CAN_DO[c]}" for c in KNOWN)',
+          '    doing = "\\n".join(f"  - {CAN_DO[c]}  ({c})" for c in KNOWN)', 1),
+     "the internal capability id goes back on every line, which is how the "
+     "owner asking for focus mode got back `mode.set: focus mode.` instead of "
+     "an answer"),
+
+    ("vesper-answers-in-the-owners-words", INTENT_PY,
+     _sub('        _names = ", ".join(sorted(_M.pairings()))',
+          '        _names = "idle, work"', 1),
+     "the modes are copied here instead of read from the contract, so the "
+     "answerer names a stale list and the four it does not name cannot be "
+     "offered to an owner who asked for a mode that does not exist"),
+
+    ("vesper-answers-in-the-owners-words", INTENT_PY,
+     _sub('    modes = (f"\\n\\nTHE MODES THAT EXIST are: {_names}. There are no others. If "',
+          '    modes = ("" or f"THE MODES THAT EXIST are: . There are no others. If "', 1),
+     "the answerer is told a mode can be entered and never which ones exist, "
+     "which is the state it was in when it invented one"),
+
+    ("vesper-answers-in-the-owners-words", INTENT_PY,
+     _sub('    "mode.set":        "enter a named mode, which sets both what you are doing "',
+          '    "mode.set":        "use mode.set to enter a named mode, which sets what you are doing "', 1),
+     "one description carries its own internal name, which puts the id back "
+     "into the statement a line at a time and passes any test that only looks "
+     "at the format string"),
+
+    ("vesper-answers-in-the-owners-words", RUNTIME_PY,
+     _sub("                               can_do=capability_statement(),\n", "", 1),
+     "the answerer stops being told what vesper can do, and goes back to "
+     "denying capabilities it has just used"),
+
+    ("vesper-answers-in-the-owners-words", RUNTIME_PY,
+     _sub("                               recent=transcript))", "                               )", 1),
+     "the answerer stops being told what vesper just said, so it asks the "
+     "owner what they are referring to"),
+]
+
+
+# --------------------------------------------------------------------------
+# THE MODE FAILED IN ANOTHER PROCESS, AFTER THE RESULT WAS ALREADY SPOKEN.
+#
+# §14 recorded this as structural rather than an oversight, and the structure is
+# a channel. Every case below puts the failure back where the owner cannot see it.
+# --------------------------------------------------------------------------
+
+CASES += [
+    ("a-mode-that-does-not-land-reaches-the-bar", HOME_SWIFT,
+     _sub("                    self.reportAmbience(want, ok: false, why: self.lastModeReason)",
+          "                    _ = self.lastModeReason", 1),
+     "a mode that did not land is reported nowhere, which is the state the "
+     "owner found: they asked for a mode, vesper said done, and the picture "
+     "never changed"),
+
+    ("a-mode-that-does-not-land-reaches-the-bar", HOME_SWIFT,
+     _sub("                self.reportAmbience(want, ok: true, why: \"\")", "", 1),
+     "a mode that LANDED is not reported, so the flag raised while it was "
+     "failing outlives the failure -- and the retry makes fail-then-succeed the "
+     "normal sequence rather than the exception"),
+
+    ("a-mode-that-does-not-land-reaches-the-bar", HOME_SWIFT,
+     _sub("                if self.lastFailedAmbience != want {\n                    self.reportAmbience(want, ok: false, why: self.lastModeReason)\n                }",
+          "                self.reportAmbience(want, ok: false, why: self.lastModeReason)", 1),
+     "the failure is appended twice a second for as long as the owner stays on "
+     "their own Desktop, so the file grows without bound and says nothing new"),
+
+    ("a-mode-that-does-not-land-reaches-the-bar", HOME_SWIFT,
+     _sub("            lastModeReason = \"vesper could not switch to \\(m.name): its desktop is \"",
+          "            _ = \"vesper could not switch to \\(m.name): its desktop is \"", 1),
+     "the commonest refusal loses its sentence, so the bar says a mode failed "
+     "without saying the one thing the owner can act on -- that switching to "
+     "vesper's desktop applies it"),
+
+    ("a-mode-that-does-not-land-reaches-the-bar", RUNTIME_PY,
+     _sub("    _drain_ambience(bus)\n", "", 1),
+     "the home appends its reports to a file the runtime never opens"),
+
+    ("a-mode-that-does-not-land-reaches-the-bar", RUNTIME_PY,
+     _sub("                for stale in sorted(_AMBIENCE_FLAGGED | {fid}):",
+          "                for stale in sorted({fid}):", 1),
+     "only the ambience that just succeeded is retired, so a complaint about "
+     "the mode the owner has since moved on from stays in the bar forever"),
+
+    ("a-mode-that-does-not-land-reaches-the-bar", RUNTIME_PY,
+     _sub("            if row.get(\"ok\"):", "            if False:", 1),
+     "a mode that landed raises a flag instead of clearing one, which turns the "
+     "bar into a log of every mode ever set"),
+
+    ("a-mode-that-does-not-land-reaches-the-bar", RUNTIME_PY,
+     _sub("        seen = f.tell()\n    _tmp = AMBIENCE_OFFSET.with_name(",
+          "        seen = 0\n    _tmp = AMBIENCE_OFFSET.with_name(", 1),
+     "the offset never advances, so every pass rebuilds the bar from the whole "
+     "history of every mode change since the process started"),
+]
+
+CASES += [
+    ("vesper-answers-in-the-owners-words", INTENT_PY,
+     _sub("            if head.startswith(cid + sep):\n                return head[len(cid) + len(sep):].lstrip()",
+          "            if head.startswith(cid + sep) and False:\n                return head[len(cid) + len(sep):].lstrip()", 1),
+     "the strip stops stripping, so nothing but a prompt sentence keeps an "
+     "internal name out of the owner's transcript -- and that sentence was "
+     "measured failing three turns running"),
+
+    ("vesper-answers-in-the-owners-words", INTENT_PY,
+     _sub("    s = str(text or \"\")\n    head = s.lstrip()",
+          "    s = str(text or \"\")\n    head = s.lstrip()\n    s = s.split(':')[-1].strip()", 1),
+     "an ordinary sentence containing a colon is cut at it, so `I did not: that "
+     "window is not mine` loses the half that says vesper chose not to"),
+
+    ("vesper-answers-in-the-owners-words", RUNTIME_PY,
+     _sub("        lines.append(f\"  {who}: {strip_internal_prefix(text)[:400]}\")",
+          "        lines.append(f\"  {who}: {text[:400]}\")", 1),
+     "the answerer's own examples stop being cleaned, so every leaked reply "
+     "already in the transcript goes on teaching the shape to the next turn -- "
+     "a loop that renews itself rather than decaying"),
+
+    ("vesper-answers-in-the-owners-words", RUNTIME_PY,
+     _sub("                    reply = strip_internal_prefix(\n                        answer(gw, router, persona, intake.history[-1],",
+          "                    reply = (\n                        answer(gw, router, persona, intake.history[-1],", 1),
+     "what the model wrote reaches the owner unchanged, which is how "
+     "`mode.set: focus mode.` became an answer they were given"),
+]
+
+CASES += [
+    ("a-mode-that-does-not-land-reaches-the-bar", ISLAND_SWIFT,
+     _sub("                if let want = AmbienceReport.wanted(), want != reportedWant {",
+          "                if let want = AmbienceReport.wanted(), want != reportedWant, false {", 1),
+     "a mode asked for while vesper is still waiting for a free desktop is "
+     "accepted, answered as though it happened, and dropped -- the original "
+     "complaint, in the state that occurs most on a machine in use"),
+
+    ("a-mode-that-does-not-land-reaches-the-bar", ISLAND_SWIFT,
+     _sub("                if let want = AmbienceReport.wanted(), want != reportedWant {",
+          "                if let want = AmbienceReport.wanted() {", 1),
+     "the wait appends a report twice a second for as long as the owner keeps "
+     "their desktops busy, so the file grows without bound and repeats itself"),
 ]
 
 

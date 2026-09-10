@@ -916,12 +916,40 @@ def _forget_opened(window_id: str) -> None:
 
 
 def window_list(args: dict) -> dict:
-    """Inventory. Reads no titles -- that is content and a separate decision."""
+    """Inventory. Reads no titles -- that is content and a separate decision.
+
+    AND IT IS THE ONE CAPABILITY THAT CAN RETIRE A FLAG NOTHING ELSE CAN.
+
+    Two window conditions name a window id, and neither is resolvable by the
+    capability that raised it. `window.landed_elsewhere:<id>` says vesper opened
+    a window onto the owner's Desktop and cannot reach it -- the flag's own words
+    are "it is yours to close", so the condition ends when the owner closes it,
+    which is an event no capability is running for. `window.unreachable:<id>`
+    ends when that window comes to the Desktop that is showing, which the owner
+    does by switching Space.
+
+    So the resolution is read off the world by whatever looks at it next, and
+    this is what looks. Naming an id that was never raised costs nothing --
+    `clear_flag` on an unraised id is a no-op -- so this does not need to know
+    what the bar holds, which is the coupling that would otherwise be required.
+    """
     from core import windows as W
 
     wins, desktop = _inventory()
     parts = W.partition(wins, vespers_desktop=desktop)
+    live = {w.window_id for w in wins}
+    resolved = [f"window.unreachable:{w.window_id}" for w in wins
+                if w.meta.get("on_active_desktop")]
+    # GONE, READ FROM THE RECORD OF WHAT VESPER OPENED. The stranded window's id
+    # is not in the live list any more -- that is the whole signal -- so the only
+    # place it can be recovered from is vesper's own record of having opened it.
+    for row in _load_opened():
+        wid = str(row.get("window_id") or "")
+        if wid and wid not in live:
+            resolved.append(f"window.landed_elsewhere:{wid}")
+            resolved.append(f"window.unreachable:{wid}")
     return {"desktop_id": desktop,
+            "resolved": resolved,
             "count": len(wins),
             "may_arrange": len(parts["free"]),
             "needs_a_request": len(parts["on_request"]),
@@ -1031,6 +1059,28 @@ def _act(effect: str, args: dict, *argv: str) -> dict:
                        "means macos accessibility is not granted to this build. "
                        "grant it in system settings > privacy & security > "
                        "accessibility. every rebuild of vesper revokes it.")
+    # AND AN ACT THAT WORKED IS THE EVIDENCE THAT BOTH CONDITIONS ARE OVER.
+    #
+    # The same reasoning as the diagnosis above, run the other way. Accessibility
+    # is not diagnosed from its own report because `AXIsProcessTrusted()` answers
+    # for the responsible process; it is diagnosed from what happened. So it is
+    # also UNDIAGNOSED from what happened: an act that reached this window
+    # through the accessibility tree could not have completed without the grant,
+    # and the flag saying it is missing is now false.
+    #
+    # THAT FLAG IS THE ONE THE OWNER WILL ACTUALLY MEET. `CLAUDE.md` records that
+    # every rebuild revokes accessibility, so the sequence is: rebuild, act
+    # fails, flag, owner grants it in System Settings, act works. Without this
+    # line the bar goes on telling them to grant a permission they have already
+    # granted, for as long as the process lives -- and a bar that shows a
+    # resolved problem teaches the owner to stop reading it.
+    #
+    # `window.unreachable` IS SPECIFIC TO THIS WINDOW and is resolved the same
+    # way: it says the window is on another Desktop and macOS will not let vesper
+    # touch it. An act that just touched it says otherwise.
+    if out.get("ok"):
+        out.setdefault("resolved", ["host.accessibility",
+                                    f"window.unreachable:{wid}"])
     return out
 
 

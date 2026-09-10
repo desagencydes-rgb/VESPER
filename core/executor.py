@@ -47,6 +47,78 @@ from .checkpoint import CheckpointUnavailable
 OUTCOMES = ("VERIFIED", "FAILED", "OUTCOME_UNKNOWN", "COMPENSATED", "REFUSED")
 
 
+def flag_id_for(capability_id: str, result: dict, args: dict, target: Any) -> str:
+    """The name of the CONDITION a flag is about. One derivation, two callers.
+
+    THE ID NAMES THE CONDITION, NOT THE EXECUTION. It keyed on the idempotency
+    key once, which carries a per-execution uuid -- so every retry of the same
+    failure produced a NEW flag and the dedupe in `HomeState.raise_flag` could
+    never fire. Driven 2026-09-09: asking twice for the same impossible
+    relocation put two identical flags in the bar, which is exactly the "a
+    repeating failure fills the bar it is trying to be visible in" case the
+    dedupe was written for.
+
+    AND THE RUNG IS NOT PART OF IT, which was the second half of the same
+    mistake. `window.relocate` fails at four named rungs -- `cannot_degrade`,
+    `refused_unsaved`, `rebuild_failed`, and after a retry -- and putting the
+    rung in the id made each attempt at ONE unresolvable situation its own row.
+    Worse, it made retraction impossible: a relocation that fails at
+    `cannot_degrade` and later succeeds derives two different ids, so the
+    success could never cancel the failure. A rung is which ATTEMPT failed,
+    which is exactly the execution detail the first sentence rules out. The
+    owner sees one row per capability per window, carrying the latest reason.
+
+    A capability may still name its own condition, and the ones that do are the
+    ones whose condition is not "this capability on this target": `_act` names
+    `host.accessibility`, which is about the machine.
+
+    THIS FUNCTION IS THE ONLY DERIVATION so that raise and retract cannot drift
+    apart. Two copies of this expression is a bar that raises under one name and
+    clears under another, and the symptom would be a flag that will not go away
+    -- indistinguishable from the defect this replaced.
+    """
+    named = str((result or {}).get("flag_id") or "").strip()
+    if named:
+        return named
+    return ":".join(str(x) for x in
+                    (capability_id, (args or {}).get("window_id") or target) if x)
+
+
+def _resolved_ids(capability_id: str, result: dict, args: dict,
+                  target: Any) -> list:
+    """Which flag conditions this clean result has just contradicted.
+
+    TWO SOURCES, AND THE SECOND IS WHY THIS IS NOT ONE LINE.
+
+    The derived id covers the ordinary case: the same capability on the same
+    target, which failed before and did not fail now. That is sound without any
+    inference -- it is the same condition, re-measured.
+
+    `resolved` covers what a result knows and the derivation cannot: a window
+    act that SUCCEEDS is direct evidence that accessibility is granted to this
+    build, and `host.accessibility` is not keyed on any window. A capability
+    that has read the world names what the world no longer supports, in the same
+    result, rather than leaving a stale row to be noticed. Unknown ids are
+    harmless: `clear_flag` for a flag that is not raised does nothing.
+
+    NOTHING HERE INFERS FROM ABSENCE. A capability that says nothing resolves
+    nothing but its own condition, which is the fail-closed direction for a
+    surface whose job is to keep calling for action until someone acts.
+    """
+    out = [flag_id_for(capability_id, {}, args, target)]
+    named = (result or {}).get("resolved")
+    if isinstance(named, str):
+        named = [named]
+    if isinstance(named, (list, tuple, set)):
+        out.extend(str(n).strip() for n in named if str(n).strip())
+    seen, uniq = set(), []
+    for fid in out:
+        if fid and fid not in seen:
+            seen.add(fid)
+            uniq.append(fid)
+    return uniq
+
+
 class NotAuthorized(Exception):
     """Execution refused. Carries the DF-AUTHORIZE decision."""
 
@@ -316,24 +388,47 @@ class Executor:
             if not text:
                 text = (f"{capability_id} completed in a degraded way and said "
                         "nothing about how")
-            # THE ID NAMES THE CONDITION, NOT THE EXECUTION.
-            #
-            # This keyed on the idempotency key, which carries a per-execution
-            # uuid -- so every retry of the same failure produced a NEW flag and
-            # the dedupe in `HomeState.raise_flag` could never fire. Driven
-            # 2026-09-09: asking twice for the same impossible relocation put
-            # two identical flags in the bar, which is exactly the "a repeating
-            # failure fills the bar it is trying to be visible in" case the
-            # dedupe was written for. A capability may name its own condition;
-            # otherwise it is the capability plus what it was acting on.
-            flag_id = str(result.get("flag_id") or "").strip() or ":".join(
-                str(x) for x in (capability_id, result.get("rung") or "",
-                                 args.get("window_id") or target) if x)
             self._bus.publish("flag.raised", subject=task_id or subject,
-                              payload={"id": flag_id[:160],
+                              payload={"id": flag_id_for(capability_id, result,
+                                                         args, target)[:160],
                                        "capability_id": capability_id,
                                        "text": text[:400]},
                               component="executor")
+        # AND A CLEAN RESULT RETRACTS WHAT ITS OWN FAILURE RAISED.
+        #
+        # THE BAR WAS RAISE-ONLY IN PRODUCTION. `HomeState.clear_flag` existed,
+        # worked, and had exactly ONE caller in the whole tree: the check for
+        # this feature, which called it itself and then asserted the flag was
+        # gone. So `CI-137` proved the mechanism while nothing reached it --
+        # the built-and-reached-by-nothing shape, with the check's own comment
+        # ("or the bar reports a problem that is over") describing the live
+        # defect rather than guarding against it.
+        #
+        # WHAT THAT COSTS THE OWNER IS A FALSE ALARM THAT NEVER GOES AWAY. A
+        # rebuild revokes accessibility, `_act` flags `host.accessibility`, the
+        # owner grants it in System Settings, vesper starts working -- and the
+        # bar keeps telling them it is not granted until the process restarts.
+        # The mode watcher makes it worse: it retries, so the sequence
+        # fail -> flag -> retry -> succeed is the NORMAL one, and a bar that
+        # cannot retract turns every recovered failure into a permanent row.
+        #
+        # `degraded` IS THE DISCRIMINATOR, NOT `ok`. `window.relocate` returns
+        # `ok: True` with `degraded: True` when it rebuilt a window instead of
+        # moving it -- a success that is still worth flagging -- so retracting
+        # on `ok` alone would clear a flag the same result just raised.
+        # `ok is not False` RATHER THAN `ok`, because a clean result is not
+        # obliged to say so. `window.list` is a read: it returns the inventory
+        # and no `ok` key at all, and it is the one capability whose whole job is
+        # re-reading the world -- exactly the result that should be allowed to
+        # retract. What must NOT retract is a refusal, and a refusal says
+        # `ok: False` explicitly. The branch above has already taken everything
+        # carrying a flag or `degraded`, so what reaches here reported no problem.
+        elif isinstance(result, dict) and result.get("ok") is not False:
+            for fid in _resolved_ids(capability_id, result, args, target):
+                self._bus.publish("flag.cleared", subject=task_id or subject,
+                                  payload={"id": fid[:160],
+                                           "capability_id": capability_id},
+                                  component="executor")
         return ex
 
     def _handle_failure(self, eid: str, cap, subject: str, args: dict,
