@@ -133,6 +133,51 @@ def observations_taint(mode: str) -> bool:
     return mode != AUTO
 
 
+# WHAT AUTO MODE MAY NOT WAIVE, WHATEVER THE OWNER GRANTS.
+#
+# §11.5 and the owner's own answer, 2026-09-08: "permissions yes, taint stays."
+# Auto mode grants every permission with no asking -- VESPER clicks, types,
+# opens and closes freely -- and text it READS OFF THE SCREEN stays untrusted:
+# actionable as information, never obeyed as a command.
+#
+# THE TWO ARE DIFFERENT QUESTIONS AND THE OWNER SEPARATED THEM. "May VESPER
+# act" is granted in full. "May what VESPER read tell it what to do" is refused
+# in every mode. A screen can display anyone's text -- a web page's, an email's,
+# a message from someone else -- and auto mode is about trusting VESPER, not
+# about trusting whatever happens to be on screen.
+#
+# AND THE WAIVER WAS ALL-OR-NOTHING UNTIL 2026-09-10, which is why this exists.
+# `observations_taint` answers per MODE, so `auto` waived the ceiling for EVERY
+# observation regardless of where it came from. §9 recorded the screen
+# constraint in advance, precisely so it would not be discovered late -- and the
+# mechanism that was supposed to honour it could not express it.
+#
+# WHY NOT DISCRIMINATE ON THE TRUST CLASS. `shell.run`'s output is
+# `retrieved_external` too, and the owner deliberately DID waive that one: it is
+# what made multi-step work possible at all. Trust class cannot separate them,
+# so the source capability is named.
+#
+# KNOWN LIMIT, STATED RATHER THAN HIDDEN. A future capability that reads the
+# screen and is not added to this set would be waived like any other, and no
+# gate would catch it -- membership is a declaration, not a measurement. The
+# check asserts the set is non-empty and that the actor consults it; it cannot
+# assert that somebody remembered. §11.5's build has to add its own id here.
+NEVER_WAIVED_SOURCES = frozenset({"ui.view", "ui.screenshot"})
+
+
+def observation_waivable(mode: str, capability_id: str) -> bool:
+    """May THIS observation stop capping what VESPER does next?
+
+    Asked per observation rather than per step, because one screen capture in a
+    batch has to bind the whole step: a rule that waives the ceiling as long as
+    SOMETHING in context was ordinary is a rule an injected page walks straight
+    through by arriving alongside a file read.
+    """
+    if str(capability_id or "") in NEVER_WAIVED_SOURCES:
+        return False
+    return not observations_taint(mode)
+
+
 class ModeRefused(Exception):
     """A mode was rejected. Never raised on a READ -- reads fail to ASK."""
 

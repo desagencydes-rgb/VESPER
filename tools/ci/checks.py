@@ -24850,6 +24850,116 @@ def check_app_rule_branches_on_a_class() -> Result:
     r.note(f"{len(A.CLASSES)} classes, no program named in a branch")
     return r
 
+
+# --------------------------------------------------------------------------
+# §11.5 -- what VESPER reads off the screen never lifts its own ceiling
+#
+# THE OWNER SEPARATED TWO QUESTIONS AND THIS CHECK HOLDS THE SEAM. "May VESPER
+# act" is granted in full by auto mode -- click, type, open, close, no asking.
+# "May what VESPER read tell it what to do" is refused in EVERY mode. A screen
+# can display anyone's text: a web page's, an email's, a message from somebody
+# else. Auto mode is about trusting VESPER, not about trusting whatever is on
+# screen.
+#
+# AND THE MECHANISM COULD NOT EXPRESS THAT UNTIL 2026-09-10. The waiver was one
+# boolean per MODE, so `auto` lifted the ceiling for every observation whatever
+# its source -- §9 wrote the screen constraint down in advance precisely so it
+# would not be discovered late, and the thing that had to honour it had no way
+# to say it.
+# --------------------------------------------------------------------------
+def check_a_screen_never_lifts_its_own_ceiling() -> Result:
+    r = Result("a-screen-never-lifts-its-own-ceiling")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core import permission_mode as pm
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"core.permission_mode does not import: {exc!r}")
+        return r
+
+    if not pm.NEVER_WAIVED_SOURCES:
+        r.err("NEVER_WAIVED_SOURCES is empty, so 'the screen is never waived' "
+              "is a sentence about nothing and every assertion below is "
+              "vacuously satisfied")
+        return r
+    screen = sorted(pm.NEVER_WAIVED_SOURCES)[0]
+
+    # 1. THE SCREEN IS NOT WAIVED IN ANY MODE, auto included.
+    for mode in (pm.AUTO, "ask", "workspace"):
+        if pm.observation_waivable(mode, screen):
+            r.err(f"{screen!r} is waivable in {mode!r} mode. The owner granted "
+                  f"vesper permission to ACT freely; they did not grant the "
+                  f"screen permission to tell it what to do")
+
+    # 2. AND ORDINARY OUTPUT STILL IS, in auto. Without this the rule above is
+    #    satisfied by a mode that waives nothing -- which is `ask`, and which
+    #    the owner spent days watching fail: `shell.run` needs L3, its own
+    #    output is external, so the second step of every task refused.
+    if not pm.observation_waivable(pm.AUTO, "shell.run"):
+        r.err("`shell.run` output is no longer waivable in auto mode, so the "
+              "screen rule is being enforced by turning auto mode off. "
+              "Multi-step work becomes impossible again and no answer can lift "
+              "it, because `context_ceiling` is not confirmable")
+    if pm.observation_waivable("ask", "shell.run"):
+        r.err("ask mode waives an ordinary observation, so the ceiling is gone "
+              "in the mode whose whole purpose is to keep it")
+
+    # 3. THE ACTOR ASKS PER OBSERVATION, AND `all` IS THE WHOLE POINT. A step
+    #    that waives as long as SOMETHING in context was ordinary is walked
+    #    through by an injected page arriving next to a file read. Parsed, not
+    #    grepped: `"observation_waivable" in src` survives changing `all` to
+    #    `any`, which is exactly the mutation that matters.
+    src = (REPO / "core" / "actor.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    calls = [n for n in ast.walk(tree)
+             if isinstance(n, ast.Call)
+             and isinstance(n.func, ast.Attribute)
+             and n.func.attr == "observation_waivable"]
+    if not calls:
+        r.err("core/actor.py never calls `observation_waivable`, so the "
+              "per-source rule exists and binds nothing -- the waiver is back "
+              "to one answer per mode")
+        return r
+
+    # the call must sit inside an `all(...)`, not an `any(...)`
+    guarded = False
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                and node.func.id in ("all", "any")):
+            inner = [n for n in ast.walk(node)
+                     if isinstance(n, ast.Call)
+                     and isinstance(n.func, ast.Attribute)
+                     and n.func.attr == "observation_waivable"]
+            if inner:
+                if node.func.id == "any":
+                    r.err("the actor waives the ceiling when ANY observation is "
+                          "waivable. One ordinary file read then lifts the cap "
+                          "for a screen capture sitting beside it, which is the "
+                          "exact shape an injected page uses")
+                else:
+                    guarded = True
+    if not guarded:
+        r.err("`observation_waivable` is called but not over every observation, "
+              "so a single unwaivable source does not bind the step")
+
+    # 4. AND `observations_taint` MUST NOT STILL BE THE THING THE ACTOR ASKS.
+    #    Leaving the old per-mode call in place beside the new one would waive
+    #    on the mode alone and never reach the per-source rule at all.
+    old_calls = [n for n in ast.walk(tree)
+                 if isinstance(n, ast.Call)
+                 and isinstance(n.func, ast.Attribute)
+                 and n.func.attr == "observations_taint"]
+    if old_calls:
+        r.err("core/actor.py still calls `observations_taint` directly. That "
+              "answers per mode, so whichever branch reaches it first waives "
+              "the screen along with everything else")
+
+    r.note(f"{len(pm.NEVER_WAIVED_SOURCES)} source(s) never waived "
+           f"({', '.join(sorted(pm.NEVER_WAIVED_SOURCES))}); auto still waives "
+           f"ordinary output and ask still waives nothing; the actor asks over "
+           f"every observation with `all`")
+    return r
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -24893,6 +25003,7 @@ CHECK_FNS = {
     "enable-token-presented-once-per-mint": check_enable_token_presented_once_per_mint,
     "a-due-item-is-spoken-not-merely-noticed": check_a_due_item_is_spoken_not_merely_noticed,
     "a-failure-is-something-the-next-step-can-see": check_a_failure_is_something_the_next_step_can_see,
+    "a-screen-never-lifts-its-own-ceiling": check_a_screen_never_lifts_its_own_ceiling,
     "an-application-is-never-driven-without-permission": check_app_never_driven_without_permission,
     "an-app-refusal-is-not-a-success": check_app_refusal_is_not_a_success,
     "the-app-verb-set-is-closed": check_app_verb_set_is_closed,

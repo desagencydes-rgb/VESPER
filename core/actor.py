@@ -912,7 +912,21 @@ class Actor:
         # PUBLISHED, NOT SILENT. A protection that is off and unrecorded is the
         # one nobody remembers is off; this way every waiver is in the log with
         # the mode that caused it.
-        if observations and not permission_mode.observations_taint(mode):
+        # ASKED PER OBSERVATION, AND `all` IS THE ASSERTION. The waiver used to
+        # be `not observations_taint(mode)` -- one answer for the whole step,
+        # derived from the mode alone -- so auto mode lifted the ceiling for
+        # every observation whatever its source. §9 recorded the screen
+        # constraint in advance so it would not be found late, and the mechanism
+        # that had to honour it could not express it.
+        #
+        # ONE UNWAIVABLE OBSERVATION BINDS THE STEP. Waiving as long as
+        # SOMETHING in context was ordinary is a rule an injected page walks
+        # through by arriving next to a file read.
+        waivable = bool(observations) and all(
+            permission_mode.observation_waivable(
+                mode, str((o or {}).get("capability") or ""))
+            for o in observations if isinstance(o, dict))
+        if waivable:
             self._bus.publish(
                 "authz.observation_taint_waived", subject=self._subject,
                 payload={"capability_id": p.capability_id, "mode": mode,

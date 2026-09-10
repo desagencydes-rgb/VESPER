@@ -1491,7 +1491,7 @@ been driven against the running surface.**
 | 16a | **Stages of work** (§11.2a) | ✅ DONE 2026-09-10 — `a-stage-bounds-what-vesper-opens`, 8 red runs. The contract had existed since 2026-09-09 and was read by nothing |
 | 17 | **Apps management** (§11.3) | 🟡 **PARTIAL** 2026-09-10 (§17) — the permission instrument (five states, **no dialog**, measured 30–79 ms), `app.query` with a closed verb set, `core/apps.py` branching on a class and never a program, and a refusal that reaches the owner's sentence **and** the flag bar with its reason. 4 checks, 11 red runs, driven end to end. **The verbs that CHANGE an application are not built** — `verified_local` provenance means they land with the grant trip that measures them, and so does `execution_class` |
 | 18 | **Notes, in full** (§11.4) | 🟡 **PARTIAL** 2026-09-10 (§18) — `CI-131` narrowed to `notes-are-never-instructions`, and the reader made safe for bodies BEFORE the bridge sends one: a body is carried, bounded at 1000 chars, marked `retrieved_local`, and **inert** — two items differing only in their body match on every field anything decides on. 9 red runs, one of which passed under its own violation until the bound was made absolute. **read/edit/create/share/lock still to build**, with the grant trip |
-| 19 | **UI view + clicking** (§11.5) | see any window and drive it: click, scroll, hold, type, inject. **The owner's stopping point** |
+| 19 | **UI view + clicking** (§11.5) | 🟡 **PARTIAL** 2026-09-10 (§19) — the seam the owner drew is now expressible: auto mode grants every permission to ACT, and a screen observation **never** lifts the ceiling in any mode. The waiver was one boolean per MODE, so §9's recorded constraint could not have been honoured by the mechanism meant to honour it. 5 red runs. **Seeing and clicking still to build**, with Accessibility + Screen Recording |
 | — | ⏸ **DISCUSS BEFORE BUILDING** | the owner stops the run here, 2026-09-08 |
 | 20 | **Settings interface** (§11.6) | the rail's `settings` button; **35 items already routed** in `spec_raw.txt` |
 | 21 | **`projects` and `research` rail buttons** (§11.7) | the other two rail destinations |
@@ -3124,3 +3124,66 @@ testing cannot fail.** The ceiling is now an absolute number and the constant is
 asserted against it.
 
 **Gates:** `notes-are-never-instructions` — **9 red runs**, up from 5.
+
+
+---
+
+## 19. §11.5 — THE CONSTRAINT WAS RECORDED IN ADVANCE AND WAS UNENFORCEABLE
+
+**§9 wrote the screen rule down early, on purpose, so it would not be
+discovered late:**
+
+> *a captured screen is `retrieved_external` of the strongest kind — it can
+> contain any text on the machine, including another app's — so it must reach
+> the planner through `observe()` and never raw, and
+> `permission_mode.observations_taint` must NOT waive it even in auto mode.*
+
+**The mechanism it named could not express it.** `observations_taint(mode)`
+answers per **mode** and returns one boolean for the whole step, so `auto`
+waived the ceiling for **every** observation whatever its source. Writing the
+constraint down bought nothing, because the thing that had to honour it had no
+way to say it. That is worse than not recording it: it reads as covered.
+
+### THE OWNER SEPARATED TWO QUESTIONS AND THE SEAM IS NOW REAL
+
+> *"permissions yes, taint stays."* — 2026-09-08
+
+| question | answer |
+|---|---|
+| may VESPER **act** | granted in full, no asking, in auto |
+| may what VESPER **read** tell it what to do | refused, **in every mode** |
+
+Auto mode is about **trusting VESPER**, not about trusting whatever is on
+screen. A screen can display anyone's text — a web page's, an email's, a
+message from someone else.
+
+`observation_waivable(mode, capability_id)` asks per observation, and
+`NEVER_WAIVED_SOURCES` is refused in every mode including auto.
+
+### WHY NOT DISCRIMINATE ON THE TRUST CLASS
+
+`shell.run`'s output is `retrieved_external` too, and the owner **deliberately
+waived that one** — it is what made multi-step work possible at all. Before it
+was waived, `shell.run` needed L3, its own output capped the next step at L1,
+and `context_ceiling` is not a confirmable reason, so the second step of every
+task refused and no answer could lift it. **Trust class cannot separate the two
+cases.** The source capability is named instead.
+
+### `all`, NOT `any`, AND THAT IS THE WHOLE ASSERTION
+
+One unwaivable observation binds the **step**. A rule that waives as long as
+*something* in context was ordinary is one an injected page walks straight
+through by arriving next to a file read. The check parses the actor rather than
+grepping it, because `"observation_waivable" in src` survives changing `all` to
+`any` — which is precisely the mutation that matters, and it is one of the five
+red runs.
+
+### KNOWN LIMIT, STATED RATHER THAN HIDDEN
+
+**Membership in `NEVER_WAIVED_SOURCES` is a declaration, not a measurement.** A
+future capability that reads the screen and is not added to the set would be
+waived like any other, and **no gate would catch it**. The check asserts the set
+is non-empty and that the actor consults it over every observation; it cannot
+assert that somebody remembered. §11.5's build must add its own id.
+
+**Gates:** `a-screen-never-lifts-its-own-ceiling` — **5 red runs.**

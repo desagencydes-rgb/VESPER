@@ -7111,6 +7111,46 @@ CASES += [
 ]
 
 
+PERMMODE_PY = "core/permission_mode.py"
+
+CASES += [
+    ("a-screen-never-lifts-its-own-ceiling", PERMMODE_PY,
+     _sub('NEVER_WAIVED_SOURCES = frozenset({"ui.view", "ui.screenshot"})',
+          "NEVER_WAIVED_SOURCES = frozenset()", 1),
+     "the never-waived set empties, so 'the screen is never waived' becomes a "
+     "sentence about nothing and auto mode lifts the ceiling for a screen "
+     "capture like any other observation"),
+
+    ("a-screen-never-lifts-its-own-ceiling", PERMMODE_PY,
+     _sub('    if str(capability_id or "") in NEVER_WAIVED_SOURCES:\n'
+          "        return False\n", "", 1),
+     "the per-source rule stops being consulted, so the waiver is back to one "
+     "answer per mode -- which is the state §9 wrote its constraint down to "
+     "prevent and the mechanism could not express"),
+
+    ("a-screen-never-lifts-its-own-ceiling", PERMMODE_PY,
+     _sub("    return not observations_taint(mode)", "    return False", 1),
+     "the screen rule is enforced by waiving nothing at all, so auto mode is "
+     "off in everything but name and multi-step work becomes impossible again "
+     "-- the failure the owner watched for days"),
+
+    ("a-screen-never-lifts-its-own-ceiling", ACTOR_PY,
+     _sub("        waivable = bool(observations) and all(",
+          "        waivable = bool(observations) and any(", 1),
+     "one ordinary file read lifts the cap for a screen capture sitting beside "
+     "it in the same step, which is exactly how an injected page would arrive"),
+
+    ("a-screen-never-lifts-its-own-ceiling", ACTOR_PY,
+     _sub("        waivable = bool(observations) and all(\n"
+          "            permission_mode.observation_waivable(\n"
+          '                mode, str((o or {}).get("capability") or ""))\n'
+          "            for o in observations if isinstance(o, dict))",
+          "        waivable = bool(observations) and not permission_mode.observations_taint(mode)", 1),
+     "the actor asks the per-mode question again and never reaches the "
+     "per-source rule, so the screen is waived along with everything else"),
+]
+
+
 APPS_SWIFT = "app/home-macos/AppsBridge.swift"
 APPS_PY = "core/apps.py"
 
