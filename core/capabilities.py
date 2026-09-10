@@ -1150,10 +1150,22 @@ def mode_set(args: dict) -> dict:
     # the same fact `_inventory` already documents and the same one the Swift
     # residency guard tests. So the pending case is knowable here.
     #
+    # AND WHAT IS PENDING IS THE LOOKING, NOT THE PAINTING -- WHICH CHANGED
+    # UNDER THIS SENTENCE ON THE SAME DAY IT WAS WRITTEN.
+    #
+    # It first read "the picture will not change until you come to my desktop",
+    # and that was true while vesper set the SYSTEM picture, which it could only
+    # do for the Space showing. Vesper now paints its own ground layer, and that
+    # happens immediately whichever Desktop the owner is on. So the mode is fully
+    # applied and the only thing outstanding is that they cannot see it from
+    # where they are standing. Saying "will not change" would now be false in the
+    # cautious direction -- still a wrong claim about the machine's state, which
+    # is the class of error this whole line exists to remove.
+    #
     # A HINT, NOT THE AUTHORITY. The owner can switch Desktop between this
-    # sentence and the paint, so a "will not change yet" that turns out wrong is
-    # a stale hint and self-correcting; the FLAG BAR carries what actually
-    # happened, published from the home once it knows.
+    # sentence and the paint, so a hint that turns out stale is self-correcting;
+    # the FLAG BAR carries what actually happened, published from the home once
+    # it knows.
     #
     # AND DELIBERATELY NOT `degraded`. The mode IS set -- the pairing is
     # recorded and the watcher will apply it. Marking it degraded would make the
@@ -1162,8 +1174,8 @@ def mode_set(args: dict) -> dict:
     # thing in the surface whose whole job is to stay readable.
     try:
         if not _inventory()[1]:
-            line += (" — set, though the picture will not change until you come "
-                     "to my desktop: yours is the one showing")
+            line += (" — set; my desktop is wearing it now, and you will see it "
+                     "when you come over: yours is the one showing")
     except Exception:                                     # noqa: BLE001
         # AN UNREADABLE WORLD ADDS NOTHING. Saying the paint is pending when
         # that could not be established would be the same invention in the

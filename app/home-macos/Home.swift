@@ -938,6 +938,16 @@ final class HomeController: NSObject {
         // on a timer is the same class of mistake as reading a desktop picture
         // back in the same breath as setting it: it reports on a clock instead
         // of on the world.
+        // SAID OUT LOUD, BECAUSE OTHERWISE IT IS UNFALSIFIABLE.
+        //
+        // The animation shipped gated and driven, and when the owner asked "is
+        // it done" the only honest answer was that nobody had ever seen it run
+        // -- and grepping the log for it proved nothing, because there was
+        // nothing in the log to find. A feature whose only evidence is a check
+        // asserting the code exists is exactly what this corpus calls
+        // built-and-unreached. One line makes it a fact anyone can check.
+        print("  animation: \(url.lastPathComponent) — playing once, "
+              + "then holding the still frame")
         videoEnd = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: player.currentItem, queue: .main) { [weak self] _ in
@@ -948,6 +958,9 @@ final class HomeController: NSObject {
 
     /// Take the video layer down and leave the still frame showing.
     func stopAnimation() {
+        if videoLayer != nil {
+            print("  animation: finished — still frame is what remains")
+        }
         if let o = videoEnd { NotificationCenter.default.removeObserver(o) }
         videoEnd = nil
         videoPlayer?.pause()
