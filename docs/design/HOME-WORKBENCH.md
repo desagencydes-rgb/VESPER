@@ -1487,8 +1487,8 @@ been driven against the running surface.**
 | 15a | **Placement is verified, not predicted** (§11.1c) | 🟡 PART DONE 2026-09-09 — `window_open` now READS BACK where the window landed and reports `degraded` with a flag instead of `ok: true`; the two false comments are corrected. Also fixed: vesper claimed TextEdit's **Open dialog** as a window it opened, so the launch rung now requires a close button. **Owed:** the close-and-reopen rebuild, which needs a bridge that can reach a window on another Desktop — every act matches through `SpaceWatch.onScreen()`, one Desktop only |
 | 15b | **Window memory across a restart** (§11.8) | ✅ DONE 2026-09-09 — **authority:** boot-keyed, corroborated against the live window, fail-closed on every unreadable state; `CI-138`, 7 red runs; driven across processes (one interpreter opened window 33429, a second read it back as vesper's). **history:** `core/window_log.py` — appends what vesper touched, an absent title carries a code (`no_file`, `no_file_model`, `unreadable`), old weeks compress in place and read back through the same call, the current week stays near, and **nothing in it can open a window**; `CI-139`, 5 red runs. `gated-subsystems-are-reachable` caught the module unwired the moment it landed |
 | 15c | **The flag bar** (§11.9) | ✅ DONE 2026-09-09 — small bar above the main menu, hidden when empty, buttons revealing the flag on hover. Published from the EXECUTOR (the one point every result passes through), deduped by CONDITION not execution, written to `home.json`, rendered as text. `CI-137`, 8 red runs, driven end to end with a real degraded relocation |
-| 16 | **Modes, end to end** (§11.2) | the eleven ambience modes and the stages, manual from the menu and automatic, with the wallpaper switch bounded to VESPER's Desktop |
-| 16a | **Stages of work** (§11.2a) | `research`, `work`, `explain`, `show` — each naming the windows its work may open, and closing them after. Owner's addition, 2026-09-09 |
+| 16 | **Modes, end to end** (§11.2) | ✅ DONE 2026-09-10 (§15.2, §16) — the eleven ambiences reachable and each with a wallpaper file; `research` given `Milestone`, which no pairing had ever reached; the three animated wallpapers played for the first time; a mode that does not land reaches the flag bar; and the wallpaper switch bounded to VESPER's Desktop **by construction** rather than by a guard — `HomeAmbience` writes the system picture zero times |
+| 16a | **Stages of work** (§11.2a) | ✅ DONE 2026-09-10 — `a-stage-bounds-what-vesper-opens`, 8 red runs. The contract had existed since 2026-09-09 and was read by nothing |
 | 17 | **Apps management** (§11.3) | drive macOS applications without clicking, where a real interface exists |
 | 18 | **Notes, in full** (§11.4) | read, edit, create, share, lock — replacing the titles-only integration `CI-131` gates |
 | 19 | **UI view + clicking** (§11.5) | see any window and drive it: click, scroll, hold, type, inject. **The owner's stopping point** |
@@ -2794,3 +2794,126 @@ vacuous controls found and rewritten before landing.
 - Everything §14 lists as owed and owner-gated still is: the base wallpaper, the
   `owner_requested` authority decision, `INV-HOME-8`, `_AXUIElementGetWindow`,
   a Developer ID certificate, and `kill -9 62839`.
+
+---
+
+## 16 THE WALLPAPERS, 2026-09-10 — TWO SYSTEMS THAT NEVER TOUCH
+
+**Owner:** *"i would like the default wallpaper from mac os that i will apply
+everywhere to be separate from vesper's wallpaper system, and viseversa, nothing
+touches the other's"*, and *"i want all wallpaper from vesper to be attached to
+their modes and actually working end to end, not just some of them, with the
+animation thing"*.
+
+### 16.1 The measurement that decided the architecture
+
+Read from macOS's own wallpaper store
+(`~/Library/Application Support/com.apple.wallpaper/Store/Index.plist`, macOS
+26.5), cross-referenced against the live Space list:
+
+| | |
+|---|---|
+| **All three** live Desktops | showing a VESPER image |
+| 37 of 42 store entries | ours, including Spaces that no longer exist |
+| The owner's own picture | surviving in exactly **one** |
+| `savedOriginalPath` | **EMPTY** — vesper could not have put any of it back |
+
+**And that was measured WITH the residency guard in place.**
+`setDesktopImageURL` has no Space argument; it repaints whichever Space is
+showing. A guard in front of it is only as good as the instant it is asked in,
+and vesper has run across many Space arrangements. **The fix could not be a
+better guard.**
+
+### 16.2 What replaced it
+
+Vesper's ground is already a full-screen layer at `normal - 1` — below every
+window of the owner's, above the desktop icons. Painting *that* is confined to
+vesper's own window **by construction**: it cannot reach another Space, cannot
+reach the lock screen, and when vesper is off the window does not exist, so
+there is nothing to undo. No guard can promise that; **the absence of the call
+is the promise**, and `HomeAmbience` now writes the system picture **zero
+times**.
+
+`apply` and `restore` are both gone, and `restore` is the more interesting one:
+it put the owner's picture back after vesper replaced it, vesper no longer
+replaces it, so the reversal had nothing to reverse — while still holding a live
+`setDesktopImageURL`. **One caller is one more than zero.**
+
+**AND IT IS THE ONLY ROUTE THE ANIMATIONS COULD EVER HAVE TAKEN.**
+`setDesktopImageURL` accepts a still image. Three of the eleven modes ship a
+`_animated.mp4` that nothing had ever opened. So the animation requirement was
+not an addition to the old approach — it was a **second independent reason** it
+had to go.
+
+### 16.3 `research` had no wallpaper of its own
+
+It paired to `Working`, the same as `work`, so asking for research changed the
+stage and left the room identical. `Milestone` was the eleventh ambience and
+**no pairing reached it** — authored, shipped, unreachable from anything the
+owner could say. Now `research → Milestone`.
+
+### 16.4 Armed when set, played when entered
+
+Those are different moments: vesper is usually told to change mode while the
+owner is somewhere else, and playing at `setMode` runs the whole thing at a
+Desktop nobody is looking at. So setting a mode **arms**; the ground becoming
+the Desktop showing **plays**, once per mode session, muted, torn down on
+`AVPlayerItemDidPlayToEndTime` rather than on a guessed duration. Arrival is
+read as an **edge** — a state test would restart it twice a second.
+
+### 16.5 Two instruments were lying, and both sent a reader the wrong way
+
+**`--wallpaper-status` counted the island as the ground.** The island is
+`.canJoinAllSpaces` — on every Desktop by design — so every Desktop read as
+vesper's. It printed *"3 of your window(s) here, 1 of vesper's"* on a Desktop
+whose only vesper window was the island, and **I repeated that to the owner**.
+The ground is the only window that cannot follow, so it is now identified by
+sitting **below layer 0** rather than by being present.
+
+**`com.apple.spaces.plist`'s `Current Space` is stale.** The first "never take
+Desktop 1" rule read it. Measured: the file sat unwritten for **4.5 minutes**
+across several live Desktop switches, so it answers **confidently and wrongly** —
+worse than not answering, because the fail-closed path never fires. Vesper
+planted on Desktop 1 with the guard in place and the guard reading "you are on
+the third".
+
+### 16.6 The SPI decision, and why it was put to the owner
+
+There is **no public API** for which Desktop a window is on. Probed on macOS
+26.5: `CGWindowListCopyWindowInfo` returns eleven keys and `kCGWindowWorkspace`
+is not among them. **The owner took the decision** to use `CGSGetActiveSpace`,
+loaded **by name at runtime** so a macOS release that drops it yields `nil` —
+which the rule already refuses on — rather than a process that will not launch.
+
+The file is still used for the half it can be trusted with: **which Spaces exist
+and in what order**. Only the volatile half comes from the private call. And a
+second clause the first version missed: `CGSGetActiveSpace` returned `54` while
+the owner's Desktops were `1, 6, 38` — a **fullscreen** Space. An id in no
+Desktop list resolves to "cannot tell" and refuses.
+
+### 16.7 What was never observed until it was made observable
+
+The animation shipped with a check carrying eight red runs, and **no evidence it
+had ever run**. Asked "is it done", I grepped the log and got zero — which
+proved nothing, because there was nothing in the log to find. **A check
+asserting the code exists is not a feature working.** Two print lines later:
+
+```
+animation: milestone_animated.mp4 — playing once, then holding the still frame
+animation: finished — still frame is what remains
+```
+
+### 16.8 Verified, after the owner reset their wallpaper
+
+**0** of 42 store entries hold a VESPER image, down from 37. All three live
+Desktops are theirs. Vesper applied `Milestone` after the reset and their
+picture survived it — the separation demonstrated rather than asserted.
+
+### 16.9 Gates
+
+160 checks. `vespers-wallpapers-never-touch-the-owners` (8 red runs) and
+`vesper-never-takes-the-owners-first-desktop` (4).
+`the-wallpaper-changes-only-on-vespers-desktop` was **rewritten**, not left
+passing: its subject was deleted, and all three of its cases had gone stale —
+which the harness reported as *"the artifact has changed shape and this
+self-test is no longer testing anything"*.
