@@ -7118,9 +7118,7 @@ CASES += [
 
     ("an-app-refusal-is-not-a-success", CAPS_PY,
      _sub('                "flag_id": f"app.not_permitted:{bundle}",\n'
-          '                "resolved": [f"app.not_permitted:{bundle}"],\n'
           '                "reason": why, "flag": why, "why": why}',
-          '                "resolved": [f"app.not_permitted:{bundle}"],\n'
           '                "reason": why, "flag": why, "why": why}', 1),
      "the refusal raises no flag, so nothing reaches the bar and the only trace "
      "of a capability that could not run is a log line nobody reads"),

@@ -316,6 +316,47 @@ now carries it. Check it before starting anything long.
 `caffeinate -dimsu` does not — `-d` and `-u` both hold the screen on and cost
 real power for nothing.
 
+### Apple Events permission is READABLE without prompting — measured 2026-09-10
+
+`AEDeterminePermissionToAutomateTarget(target, typeWildCard, typeWildCard,
+askUserIfNeeded: false)` **returns a status silently**. No dialog appeared, and
+the call returned in 30–79 ms — far too fast to be a human dismissing one.
+
+**`NotesBridge.swift`'s comment is wrong about this** and says so in writing:
+*"`AEDeterminePermissionToAutomateTarget` exists but reports on a target bundle
+id and still prompts"*. It does not prompt when told not to. That comment is why
+step 10 probed permission by sending a real one-property Apple Event instead,
+and it is why the per-app grant trip looked unmanageable: a feature whose
+permission can only be discovered by triggering it cannot tell the owner what it
+is about to ask for.
+
+| target | running | status | meaning |
+|---|---|---|---|
+| `com.apple.finder` | yes | `-1744` | `errAEEventWouldRequireUserConsent` |
+| `com.apple.Notes` | yes | `0` | granted |
+| `com.apple.Safari` | yes | `-1744` | undetermined |
+| `com.apple.TextEdit` | **no** | `-600` | `procNotFound` |
+| `com.nonexistent.fake` | n/a | `-600` | `procNotFound` |
+
+**THE VALUES ABOVE ARE THE SHELL'S, NOT VESPER'S**, and Notes reading `0` is the
+exact trap `CLAUDE.md` records: TCC attributes to the responsible process, so a
+probe run from a terminal reports the terminal's grants. Only the SHAPE
+generalises. VESPER's own status has to be read from inside the bundle.
+
+**AND `-600` DOES NOT MEAN "NOT RUNNING".** It came back identically for
+`com.apple.TextEdit`, which is installed, and for `com.nonexistent.fake`, which
+does not exist. The Apple Events layer cannot tell those apart. LaunchServices
+can — `urlForApplication(withBundleIdentifier:)` resolved TextEdit and Music to
+real paths and returned nil for the fake, also with no prompt.
+
+So the instrument reports **three** states and never collapses two of them: not
+installed, installed-but-not-running (**permission UNKNOWN**, which `INV-HW-2`
+makes UNAVAILABLE rather than denied), and running-with-a-real-status.
+
+**The grant trip therefore costs one LAUNCH per app as well as one prompt.** An
+app that is not running cannot have its permission read or granted.
+
+
 ## 2. Mistakes already made — do not remake them
 
 | # | The mistake | The correction |
@@ -1207,43 +1248,3 @@ make draft, small and standard unroutable at every context length.
 | Placement / survival | `core/placement.py`, `verification/run_f6_acceptance.py`, `verification/stress_placement.py` |
 | Alarm armed-state evidence | `docs/planning/spike-results/ALARM-0900-armed-verification-20260818.json` |
 | J3 browser capability probes | `docs/planning/spike-results/SPIKE-004-capability-probe-*.json` |
-
-### Apple Events permission is READABLE without prompting — measured 2026-09-10
-
-`AEDeterminePermissionToAutomateTarget(target, typeWildCard, typeWildCard,
-askUserIfNeeded: false)` **returns a status silently**. No dialog appeared, and
-the call returned in 30–79 ms — far too fast to be a human dismissing one.
-
-**`NotesBridge.swift`'s comment is wrong about this** and says so in writing:
-*"`AEDeterminePermissionToAutomateTarget` exists but reports on a target bundle
-id and still prompts"*. It does not prompt when told not to. That comment is why
-step 10 probed permission by sending a real one-property Apple Event instead,
-and it is why the per-app grant trip looked unmanageable: a feature whose
-permission can only be discovered by triggering it cannot tell the owner what it
-is about to ask for.
-
-| target | running | status | meaning |
-|---|---|---|---|
-| `com.apple.finder` | yes | `-1744` | `errAEEventWouldRequireUserConsent` |
-| `com.apple.Notes` | yes | `0` | granted |
-| `com.apple.Safari` | yes | `-1744` | undetermined |
-| `com.apple.TextEdit` | **no** | `-600` | `procNotFound` |
-| `com.nonexistent.fake` | n/a | `-600` | `procNotFound` |
-
-**THE VALUES ABOVE ARE THE SHELL'S, NOT VESPER'S**, and Notes reading `0` is the
-exact trap `CLAUDE.md` records: TCC attributes to the responsible process, so a
-probe run from a terminal reports the terminal's grants. Only the SHAPE
-generalises. VESPER's own status has to be read from inside the bundle.
-
-**AND `-600` DOES NOT MEAN "NOT RUNNING".** It came back identically for
-`com.apple.TextEdit`, which is installed, and for `com.nonexistent.fake`, which
-does not exist. The Apple Events layer cannot tell those apart. LaunchServices
-can — `urlForApplication(withBundleIdentifier:)` resolved TextEdit and Music to
-real paths and returned nil for the fake, also with no prompt.
-
-So the instrument reports **three** states and never collapses two of them: not
-installed, installed-but-not-running (**permission UNKNOWN**, which `INV-HW-2`
-makes UNAVAILABLE rather than denied), and running-with-a-real-status.
-
-**The grant trip therefore costs one LAUNCH per app as well as one prompt.** An
-app that is not running cannot have its permission read or granted.

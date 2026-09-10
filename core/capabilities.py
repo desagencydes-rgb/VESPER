@@ -1750,7 +1750,6 @@ def app_query(args: dict) -> dict:
         return {"ok": False, "degraded": True, "verb": verb,
                 "bundle_id": bundle, "state": state or "refused",
                 "flag_id": f"app.not_permitted:{bundle}",
-                "resolved": [f"app.not_permitted:{bundle}"],
                 "reason": why, "flag": why, "why": why}
 
     if not out.get("ok"):
@@ -1758,9 +1757,14 @@ def app_query(args: dict) -> dict:
         return {"ok": False, "degraded": True, "verb": verb,
                 "bundle_id": bundle, "state": state or "unknown",
                 "flag_id": f"app.not_permitted:{bundle}",
-                "resolved": [f"app.not_permitted:{bundle}"],
                 "reason": bridge_why, "flag": bridge_why, "why": bridge_why}
 
+    # ONLY THE SUCCESS RETRACTS, AND ONLY THE SUCCESS MAY. Both refusal
+    # branches used to carry this same id in `resolved` while raising it in
+    # `flag_id` -- a result withdrawing the warning it was raising. It was inert
+    # only because the executor's retraction is an `elif` that the raise branch
+    # reaches first, which is a collision waiting for whoever makes that an
+    # `if`. `66e57b5` fixed exactly this shape for stranded windows.
     return {"ok": True, "verb": verb, "bundle_id": bundle, "state": state,
             "items": list(out.get("items") or []),
             "count": int(out.get("count") or 0),
