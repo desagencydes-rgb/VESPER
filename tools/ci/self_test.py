@@ -6980,6 +6980,29 @@ CASES += [
 ]
 
 CASES += [
+    ("a-mode-that-does-not-land-reaches-the-bar", CAPS_PY,
+     _sub("        if not _inventory()[1]:\n            line += (\" — set, though the picture will not change until you come \"",
+          "        if False:\n            line += (\" — set, though the picture will not change until you come \"", 1),
+     "a mode answers identically whether or not vesper's desktop is showing, "
+     "which is the sentence the owner was given on two consecutive days while "
+     "the wallpaper did not move"),
+
+    ("a-mode-that-does-not-land-reaches-the-bar", CAPS_PY,
+     _sub("    except Exception:                                     # noqa: BLE001\n        # AN UNREADABLE WORLD ADDS NOTHING.",
+          "    except Exception:                                     # noqa: BLE001\n        line += \" — set, though the picture will not change until you come to my desktop\"\n        # AN UNREADABLE WORLD ADDS NOTHING.", 1),
+     "an unreadable inventory makes vesper claim the paint is pending on "
+     "evidence it does not have -- the same invention as the success-shaped "
+     "answer, pointing the other way"),
+
+    ("a-mode-that-does-not-land-reaches-the-bar", CAPS_PY,
+     _sub('    return {"ok": True, "mode": r["mode"], "stage": r["stage"],\n            "ambience": r["ambience"], "may_open": r.get("may_open") or [],\n            "line": line}',
+          '    return {"ok": True, "degraded": True, "mode": r["mode"], "stage": r["stage"],\n            "ambience": r["ambience"], "may_open": r.get("may_open") or [],\n            "line": line}', 1),
+     "mode.set marks itself degraded, so the executor raises a second flag "
+     "under a derived id for the condition the home already reports -- two rows "
+     "for one thing in the surface whose job is to stay readable"),
+]
+
+CASES += [
     ("vesper-never-takes-the-owners-first-desktop", WATCH_SWIFT,
      _sub("        case .none:\n            return \"vesper cannot tell which desktop this is, and you asked it \"",
           "        case .none:\n            return nil\n        case .some(false) where false:\n            return \"vesper cannot tell which desktop this is, and you asked it \"", 1),

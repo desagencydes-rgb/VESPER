@@ -23493,6 +23493,62 @@ def check_a_mode_that_does_not_land_reaches_the_bar() -> Result:
                   "it meets is one the owner may sit inside for minutes, so the "
                   "file grows without bound and says nothing new")
 
+    # 5. AND A MODE THAT WILL NOT PAINT YET SAYS SO IN THE SAME BREATH.
+    #
+    #    The owner asked for a mode twice, on consecutive days, and was answered
+    #    "work mode -- Doing a task while the owner watches" while the wallpaper
+    #    did not move. §14 called the honest answer "the state, not the room" --
+    #    right as far as it went, since the paint happens in another process.
+    #    But "I cannot see the room" and "I can see that the room is not mine"
+    #    are different claims, and the bridge answers the second before this
+    #    capability returns: `vespers_desktop` is null unless vesper's ground is
+    #    on the Space showing.
+    #
+    #    DRIVEN BOTH WAYS with the inventory stubbed, because the sentence that
+    #    matters is the one that appears only when vesper's Desktop is NOT
+    #    showing -- and a test that runs on this machine in whatever state it
+    #    happens to be in would check whichever branch today's Desktop gives it.
+    try:
+        from core import capabilities as _C
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"core.capabilities does not import: {exc!r}")
+        _C = None
+    if _C is not None:
+        _real = _C._inventory
+        try:
+            _C._inventory = lambda: ([], None)            # vesper's desktop NOT showing
+            pending = str(_C.mode_set({"mode": "work"}).get("line") or "")
+            _C._inventory = lambda: ([], "desktop-7")     # it IS showing
+            applied = str(_C.mode_set({"mode": "work"}).get("line") or "")
+
+            def _boom():
+                raise OSError("the bridge is not answering")
+
+            _C._inventory = _boom
+            unreadable = str(_C.mode_set({"mode": "work"}).get("line") or "")
+        finally:
+            _C._inventory = _real
+        if pending == applied:
+            r.err("`mode.set` answers identically whether or not vesper's "
+                  "desktop is the one showing. That is the sentence the owner "
+                  "was given on two consecutive days while the wallpaper did "
+                  "not move -- it reads as done and the room did not change")
+        if "desktop" not in pending.lower():
+            r.err(f"the pending answer {pending!r} does not tell the owner where "
+                  f"the mode will apply, so it reports a delay without the one "
+                  f"fact that ends it")
+        if applied != unreadable:
+            r.err("an unreadable inventory produces a DIFFERENT sentence from a "
+                  "desktop that is showing, so vesper claims the paint is "
+                  "pending on evidence it does not have -- the same invention "
+                  "as the success-shaped answer, pointing the other way")
+        if _C.mode_set({"mode": "work"}).get("degraded"):
+            r.err("`mode.set` marks itself degraded when the paint is pending. "
+                  "The mode IS set, and a degraded result makes the executor "
+                  "raise a second flag under a derived id for the condition the "
+                  "home already reports as `mode.ambience:<name>` -- two rows "
+                  "for one thing, in the surface whose job is to stay readable")
+
     # 2a. AND THE WAIT REPORTS, WHICH IS THE STATE THE WATCHER CANNOT SEE.
     #
     #     `Home` owns the mode watcher and does not exist until the ground is

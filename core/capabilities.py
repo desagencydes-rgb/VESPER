@@ -1132,9 +1132,46 @@ def mode_set(args: dict) -> dict:
         r = M.select(str(args.get("mode") or ""))
     except M.UnknownMode as exc:
         return {"ok": False, "reason": str(exc)}
+    line = f"{r['mode']} mode -- {r.get('description') or ''}".strip()
+    # AND WHETHER THE ROOM WILL ACTUALLY CHANGE, WHICH THIS CAN ASK BEFOREHAND.
+    #
+    # THE OWNER, 2026-09-09 AND AGAIN 2026-09-10: they asked for a mode, vesper
+    # answered "work mode -- Doing a task while the owner watches", and the
+    # wallpaper did not move. Both times the reason was the residency guard --
+    # vesper's ground is not on the Desktop that is showing, so painting here
+    # would repaint THEIRS -- and both times the sentence read like it had
+    # happened. §14 called the honest answer "the state, not the room", and that
+    # was right as far as it went: this capability sets the pairing, and the
+    # paint happens in another process. But "I cannot see the room" and "I can
+    # see that the room is not mine" are different claims, and the bridge answers
+    # the second one before this returns.
+    #
+    # `vespers_desktop` IS NULL UNLESS VESPER'S GROUND IS ON THE SPACE SHOWING --
+    # the same fact `_inventory` already documents and the same one the Swift
+    # residency guard tests. So the pending case is knowable here.
+    #
+    # A HINT, NOT THE AUTHORITY. The owner can switch Desktop between this
+    # sentence and the paint, so a "will not change yet" that turns out wrong is
+    # a stale hint and self-correcting; the FLAG BAR carries what actually
+    # happened, published from the home once it knows.
+    #
+    # AND DELIBERATELY NOT `degraded`. The mode IS set -- the pairing is
+    # recorded and the watcher will apply it. Marking it degraded would make the
+    # executor raise a second flag under a derived id for the condition the
+    # home already reports as `mode.ambience:<name>`, which is two rows for one
+    # thing in the surface whose whole job is to stay readable.
+    try:
+        if not _inventory()[1]:
+            line += (" — set, though the picture will not change until you come "
+                     "to my desktop: yours is the one showing")
+    except Exception:                                     # noqa: BLE001
+        # AN UNREADABLE WORLD ADDS NOTHING. Saying the paint is pending when
+        # that could not be established would be the same invention in the
+        # other direction.
+        pass
     return {"ok": True, "mode": r["mode"], "stage": r["stage"],
             "ambience": r["ambience"], "may_open": r.get("may_open") or [],
-            "line": f"{r['mode']} mode -- {r.get('description') or ''}".strip()}
+            "line": line}
 
 
 def window_open_level(args: dict) -> str:
