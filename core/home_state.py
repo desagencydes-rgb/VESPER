@@ -110,6 +110,7 @@ class HomeState:
         # is not the whole fix: forgetting a live problem loses the only notice
         # the owner gets, while keeping a dead one wastes a glance at the bar.
         self._flags: list = self._load_flags()
+        self._settings: list = []
         self._mode = ""
         self._stage = ""
         self._ambience = ""
@@ -350,6 +351,25 @@ class HomeState:
         except Exception:                                 # noqa: BLE001
             pass
 
+    def refresh_settings(self) -> int:
+        """Read the settings surface's values and put them on the surface.
+
+        CALLED RARELY AND DELIBERATELY SO. These are contracts on disk, not live
+        counters: they change when somebody edits a reviewed file, which is not
+        something that happens between two ticks of a poll. Re-reading ten TOML
+        files every second to watch them not change is the kind of work a machine
+        the owner is trying to keep alive for ten years should not be doing.
+        """
+        try:
+            from core import settings_surface as S
+            rows = S.rows()
+        except Exception:                                 # noqa: BLE001
+            return 0
+        with self._lock:
+            self._settings = rows
+        self.write()
+        return len(rows)
+
     def flag_history(self) -> list:
         """Every flag event, newest last, with what became of it.
 
@@ -525,6 +545,12 @@ class HomeState:
             # and a second one would be a second thing to keep in step. Bounded
             # to what a panel can show: the record on disk keeps more.
             existing["flag_history"] = self.flag_history()[-60:]
+            # WRITTEN ONLY ONCE IT HAS BEEN READ, so a tick before the first
+            # refresh does not overwrite yesterday's values with an empty list --
+            # which would make the surface read UNAVAILABLE for a reason that is
+            # not true of any setting.
+            if self._settings:
+                existing["settings"] = self._settings
             # ONLY WHEN A MODE HAS BEEN CHOSEN. Writing an empty ambience every
             # tick would tell the home to paint nothing, which is not the same
             # as leaving it alone.

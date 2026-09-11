@@ -772,6 +772,15 @@ def build(node: str = "vesper-runtime"):
 
     home.attach(bus)
     _mark_carried_flags()
+    # THE SETTINGS SURFACE'S VALUES, READ ONCE AT STARTUP (§11.6). The owner's
+    # note is that the card "stops reading UNAVAILABLE", and that only happens if
+    # something produces the readings -- a screen naming thirty-four settings and
+    # showing a value for none of them is the UNAVAILABLE card with more words.
+    try:
+        _n = home.refresh_settings()
+        print(f"settings surface: {_n} item(s) read", flush=True)
+    except Exception as exc:                              # noqa: BLE001
+        print(f"settings surface could not be read: {exc!r}", flush=True)
 
     triage = TriageQueue(path=STATE / "triage.json", bus=bus, clock=clock)
     triage.attach(bus)

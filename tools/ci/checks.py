@@ -26056,6 +26056,180 @@ def check_the_flag_bar_is_what_the_owner_asked_for() -> Result:
               "worse than a small one: it trains the eye to skip it")
     return r
 
+
+# --------------------------------------------------------------------------
+# §11.6 — THE SETTINGS SURFACE, AND THE ONE SENTENCE THAT IS ITS WHOLE DESIGN
+#
+# The owner's note: *"the card stops reading UNAVAILABLE and becomes the same card
+# at full screen, with a margin between it and the display edges."*
+#
+# A screen naming thirty-four settings and showing a value for none of them is the
+# UNAVAILABLE card again with more words in it. So each row either READS SOMETHING
+# REAL or says why it cannot, and a false zero counts as neither -- two of them
+# were caught the day this landed, where a wrong TOML key produced
+# "0 profile(s), 0 measured" for a contract holding thirteen.
+#
+# AND IT DOES NOT WRITE, WHICH IS A DECISION RATHER THAN AN OMISSION. Most of what
+# was routed here are governed contracts; `host_actions.toml` says enabling a row
+# is "a governed act, not a configuration tweak". A toggle beside `enabled = false`
+# would route around every review `governed_surfaces.toml` names, from a button,
+# and every gate would stay green because the file they read would have been
+# edited by something the owner approved once.
+# --------------------------------------------------------------------------
+def check_the_settings_surface_reads_and_explains() -> Result:
+    r = Result("the-settings-surface-reads-and-explains")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    from core import settings_surface as S
+
+    # 1. THE OWNER'S OWN LIST, and the one item that is not a row.
+    if len(S.ITEMS) != 34:
+        r.err(f"{len(S.ITEMS)} settings declared; the owner's routing export "
+              f"names 35, of which 'Explain this setting' is marked 'in each "
+              f"dialog, on hover' -- a property of every row, not a 35th peer")
+    ids = [i[0] for i in S.ITEMS]
+    if len(set(ids)) != len(ids):
+        r.err("two settings share an id, so one overwrites the other")
+    for _id, name, what in S.ITEMS:
+        if len(what) < 30:
+            r.err(f"{name!r} has no real explanation, and 'explain this setting' "
+                  f"is a property of every row")
+
+    # 2. A READING IS REAL OR ABSENT, NEVER A FALSE ZERO. Driven, and this is the
+    #    assertion that caught the wrong TOML keys: a row claiming a value must
+    #    carry a source, and a row whose value is only zeros is suspected rather
+    #    than believed.
+    rows = S.rows()
+    if len(rows) != len(S.ITEMS):
+        r.err(f"{len(rows)} rows produced from {len(S.ITEMS)} items")
+    known = [x for x in rows if x.get("status") == "available"]
+    if len(known) < 12:
+        r.err(f"only {len(known)} of {len(rows)} settings read anything real. The "
+              f"owner's note is that this card STOPS reading UNAVAILABLE")
+    for x in rows:
+        if x.get("status") == "available":
+            if not str(x.get("source") or "").strip():
+                r.err(f"{x['name']!r} reports a value with no source. A figure "
+                      f"without one is what MEMORY.md opens by refusing")
+            if not str(x.get("value") or "").strip():
+                r.err(f"{x['name']!r} is marked available with an empty value")
+    # A TRUE ZERO IS A READING; A ZERO FROM THE WRONG KEY IS NOT. The first
+    # version of this banned all-zero values outright and duly failed on
+    # "0 governed file(s) changed and uncommitted" -- which is TRUE, and the only
+    # honest thing to say when nothing is uncommitted. Banning the shape punishes
+    # the correct answer.
+    #
+    # SO THE PROPERTY IS ASKED OF THE PRODUCER INSTEAD: when the table it counts
+    # is ABSENT it must report UNAVAILABLE rather than zero. Driven by pointing it
+    # at a contract directory that does not exist, which is what a wrong key looks
+    # like from the outside.
+    import unittest.mock as _mock
+    real_repo = S.REPO
+    try:
+        S.REPO = REPO / "does-not-exist-for-this-check"
+        blind = {x["id"]: x for x in S.rows()}
+    finally:
+        S.REPO = real_repo
+    for item_id in ("capability-profiles", "latency-budgets", "host-actions",
+                    "trigger-registry", "network-fabric"):
+        row = blind.get(item_id) or {}
+        if row.get("status") == "available":
+            r.err(f"{item_id!r} reports {row.get('value')!r} when its contract "
+                  f"cannot be read at all. A zero from a missing table looks "
+                  f"measured and is not -- two rows did exactly this from a wrong "
+                  f"TOML key on 2026-09-11")
+    # AND THE TWO THAT WERE WRONG MUST STILL READ A REAL COUNT.
+    #
+    # NOT MERELY "NOT ZERO": the wrong key now yields UNAVAILABLE rather than a
+    # false zero, which is honest but is still the coverage going away -- and a
+    # check that accepts UNAVAILABLE here cannot tell the fix from its absence.
+    # Both contracts exist on this node and hold entries, so both must be read.
+    for item_id in ("capability-profiles", "latency-budgets"):
+        live = next((x for x in rows if x["id"] == item_id), {})
+        if live.get("status") != "available":
+            r.err(f"{item_id!r} reads nothing ({live.get('reason')!r}) although "
+                  f"its contract exists and holds entries -- the count is being "
+                  f"looked for under a key the file does not use")
+        elif re.match(r"^0\b", str(live.get("value") or "")):
+            r.err(f"{item_id!r} reads {live.get('value')!r} -- a false zero from "
+                  f"the wrong key, which looks measured and is not")
+        else:
+            if not str(x.get("reason") or "").strip():
+                r.err(f"{x['name']!r} is unavailable and says nothing about why")
+
+    # 3. GOVERNED ROWS SAY WHERE A CHANGE IS MADE, and preference rows are told
+    #    apart. Without the distinction a surface either offers to edit reviewed
+    #    contracts or looks broken for refusing to edit anything.
+    gov = [x for x in rows if x.get("governed")]
+    pref = [x for x in rows if not x.get("governed")]
+    if not pref:
+        r.err("no setting is the owner's own to set, so the surface is a report "
+              "rather than settings")
+    if not gov:
+        r.err("no setting is marked governed, so a reviewed contract is "
+              "indistinguishable from a preference")
+    for x in gov:
+        if not str(x.get("change_by") or "").strip():
+            r.err(f"{x['name']!r} is governed and does not say where it is changed")
+    # AND NOTHING HERE MAY WRITE. The producer is a reader; a write path would be
+    # the button that routes around the reviews.
+    prod = (REPO / "core" / "settings_surface.py").read_text(encoding="utf-8")
+    # A READER, NEVER A WRITER. Named individually rather than as a pattern, so
+    # the message can say which write path appeared.
+    for bad in ("write_text", "Path.write", "os.replace", "shutil.copy"):
+        if bad in prod:
+            r.err(f"core/settings_surface.py contains {bad!r}: the settings "
+                  f"producer must read, never write -- a write here is a button "
+                  f"that edits a reviewed contract without its review")
+
+    # 4. THE RENDERER, DRIVEN, because every visible requirement is a property of
+    #    what it produces rather than of its source.
+    import shutil as _sh
+    import subprocess as _sp
+    import tempfile as _tf
+    node = _sh.which("node")
+    dom = REPO / "tools" / "ci" / "js" / "settings_dom.js"
+    if node is None:
+        r.err("node is not on PATH, so the settings renderer cannot be driven. "
+              "Reported rather than skipped")
+        return r
+    if not dom.is_file():
+        r.err(f"{dom.name} is missing, so the renderer is asserted about rather "
+              f"than driven")
+        return r
+    with _tf.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+        json.dump(rows, fh)
+        rows_path = fh.name
+    out = _sp.run([node, str(dom),
+                   str(REPO / "app" / "home-macos" / "chrome" / "home.html"),
+                   rows_path],
+                  capture_output=True, text=True, cwd=str(REPO), timeout=60)
+    lines = (out.stdout or "").strip().splitlines()
+    if out.returncode != 0:
+        for line in lines or [(out.stderr or "")[:300]]:
+            r.err(f"settings: {line.strip()}")
+        return r
+    for line in lines[1:]:
+        r.note(line.strip())
+
+    # 5. AND THE OWNER'S GEOMETRY: the same card, full screen, with a margin.
+    page = (REPO / "app" / "home-macos" / "chrome" / "home.html").read_text(encoding="utf-8")
+    block = page[page.index(".settings{"):]
+    block = block[:block.index("}")]
+    if "position:fixed" not in block:
+        r.err("the settings card is not full screen")
+    m = re.search(r"inset:(\d+)px", block)
+    if m is None or int(m.group(1)) < 8:
+        r.err("the settings card has no margin between it and the display edges, "
+              "which is the geometry the owner gave")
+    if "--face-mono" not in block:
+        r.err("the settings card does not use VESPER's own type, so it is not the "
+              "SAME card at full screen")
+    r.note(f"{len(rows)} settings, {len(known)} reading something real, "
+           f"{len(gov)} governed with a route to change them, {len(pref)} the "
+           f"owner's own; the producer only reads")
+    return r
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -26099,6 +26273,7 @@ CHECK_FNS = {
     "enable-token-presented-once-per-mint": check_enable_token_presented_once_per_mint,
     "a-due-item-is-spoken-not-merely-noticed": check_a_due_item_is_spoken_not_merely_noticed,
     "a-failure-is-something-the-next-step-can-see": check_a_failure_is_something_the_next_step_can_see,
+    "the-settings-surface-reads-and-explains": check_the_settings_surface_reads_and_explains,
     "the-flag-bar-is-what-the-owner-asked-for": check_the_flag_bar_is_what_the_owner_asked_for,
     "an-interface-element-is-corroborated-before-it-is-touched": check_an_interface_element_is_corroborated_before_it_is_touched,
     "an-application-write-is-proved-and-undoable": check_an_application_write_is_proved_and_undoable,

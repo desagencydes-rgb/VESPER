@@ -1496,8 +1496,8 @@ been driven against the running surface.**
 | 19 | **UI view + clicking** (§11.5) | 🟡 **BUILT, AWAITING THE GRANT TO PROVE** 2026-09-11 (§19, §24) — `UIBridge` reads a window's elements and presses, focuses, types into and scrolls them. An element is **corroborated by role AND label**, not located by position, because interfaces relayout. A press is destructive and its compensator **refuses to pretend otherwise**; a scroll admits it is unverified; typing is read back. The taint seam holds by NAME (`ui.view`). **Refusal paths driven; the acts need Accessibility + Screen Recording.** Script injection deliberately NOT in scope — see §24. `an-interface-element-is-corroborated-before-it-is-touched`, 8 red runs |
 | 19a | **The flag bar, as the owner wants it** (§21) | ✅ **DONE** 2026-09-11 — wide (capped at the main menu's **measured** width, read from the menu's own rectangle), **titles not icons**, every live flag (the cap of 8 silently dropped the oldest), hover for the full text, VESPER's own type. Clicking opens the **history**: timestamps, three states (open / resolved / **carried-unproven**), and a button that **asks** rather than acts. Verified by DRIVING the real renderer in a DOM stub — 9 of 9 chips, width 742px, 3 states, 2 fix buttons. `the-flag-bar-is-what-the-owner-asked-for`, 7 red runs |
 | — | ⏸ **DISCUSS BEFORE BUILDING** | the owner stops the run here, 2026-09-08 |
-| 20 | **Settings interface** (§11.6) | the rail's `settings` button; **35 items already routed** in `spec_raw.txt` |
-| 21 | **`projects` and `research` rail buttons** (§11.7) | the other two rail destinations |
+| 20 | **Settings interface** (§11.6) | ✅ **DONE, READ-ONLY BY DESIGN** 2026-09-11 (§25) — the rail's `settings` button opens the **same card at full screen with a margin**, the owner's own geometry. All 34 items (the 35th, *Explain this setting*, is a property of every row and is the hover text). **19 read a real value with its source**; the other 15 say UNAVAILABLE **with a reason**. Governed rows say where a change is made instead of offering a toggle that routes around the review. Two FALSE ZEROS caught and fixed. `the-settings-surface-reads-and-explains`, 6 red runs |
+| 21 | **`projects` and `research` rail buttons** (§11.7) | 🟡 **NOT BUILT, AND THE REASON IS RECORDED** 2026-09-11 (§25) — `research` has a written specification (§7.1) and `projects` has **none**: `spec_raw.txt` routes 17 items to `history` and **zero** to a projects surface. §11.7's own text says the gap is what the discussion is for. Building a guess at seventeen features nobody asked for is worse than an admitted gap, so this is the one item deliberately left |
 | 22 | **Microphone sensitivity** (§9g) | owner-reported, queued last, MEASURE FIRST |
 | — | **TCC grants die on every build** (§9h) | found by the session, RAISED, awaiting a decision |
 
@@ -3634,3 +3634,68 @@ to a surface.
 `INV-COORD-4` refuses a sort keyed on wall time and `CI-005` enforces it. The
 history is ordered as rows were appended; `at_s` exists so the owner can read a
 time, which is **presentation** and belongs to whoever renders it.
+
+
+---
+
+## 25. SETTINGS (§11.6) BUILT READ-ONLY, AND WHY `projects` WAS NOT BUILT AT ALL
+
+### THE OWNER'S ONE SENTENCE IS THE WHOLE DESIGN
+
+> *"the card stops reading UNAVAILABLE and becomes the same card at full screen,
+> with a margin between it and the display edges."*
+
+**The same card** — same glass, same radius, same type — at `inset: 28px`, not a
+different surface that happens to open from the same button. And *stops reading
+UNAVAILABLE*, which is the part that required a producer rather than a layout: a
+screen naming thirty-four settings and showing a value for none of them is the
+UNAVAILABLE card again with more words in it.
+
+**19 of 34 read a real value, each with its source.** The other 15 say
+`UNAVAILABLE` **and why**. The header states the split, because a surface showing
+nineteen values and staying quiet about fifteen absences claims a completeness it
+does not have.
+
+### TWO FALSE ZEROS, CAUGHT BY DRIVING IT
+
+`capability_profiles.toml` keeps its entries under `capability`, not `profile`, and
+`latency_budgets.toml` under `profile`/`path`/`chain`, not `budget`. Both wrong
+guesses produced **`0 profile(s), 0 measured`** for contracts holding thirteen and
+four. **A false zero is worse than UNAVAILABLE because it looks measured** — so a
+missing table now returns unavailable with a reason, and the gate requires both
+rows to read a real count rather than merely "not zero", because the wrong key now
+yields UNAVAILABLE and a check that accepts that cannot tell the fix from its
+absence.
+
+### IT DOES NOT WRITE, AND THAT IS A DECISION
+
+Most of what the owner routed here are **governed contracts**.
+`host_actions.toml` says in its own header that enabling a row is *"a governed
+act, not a configuration tweak"*, and `governed_surfaces.toml` names who reviews
+each file.
+
+**A toggle beside `enabled = false` would route around every one of those reviews
+from a button** — and every gate would stay green, because the file they read
+would have been edited by something the owner approved once. So each governed row
+**says where it is changed**, and the seven rows that are genuinely the owner's own
+preference (voice, wake word, language, quiet hours, do-not-disturb, notification
+rules, endpoint selection) are marked `yours to set` and are the ones that can
+become editable.
+
+The gate asserts the producer contains **no write path at all**.
+
+### WHY `projects` WAS NOT BUILT
+
+§11.7 records the asymmetry and says plainly where the gap is:
+
+> `research` has a written specification already — §7.1. `projects` does not, and
+> `spec_raw.txt` routes **17 items** to `history` and **none** to a `projects`
+> surface. So of the two, **`projects` is the one with an actual gap**, and that is
+> what the discussion is for.
+
+The owner asked for everything finished. **Building a guess at seventeen features
+nobody specified is not finishing it** — it is inventing a surface and then owning
+the invention, which is the one kind of work this corpus refuses everywhere else.
+The rail button says the gap in one sentence instead. This is the single item left
+deliberately undone, and it needs one answer from the owner rather than a night of
+work.

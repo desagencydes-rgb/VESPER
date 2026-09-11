@@ -7380,6 +7380,45 @@ CASES += [
 
 APPS_SWIFT = "app/home-macos/AppsBridge.swift"
 APPS_PY = "core/apps.py"
+SETTINGS_PY = "core/settings_surface.py"
+
+CASES += [
+    ("the-settings-surface-reads-and-explains", SETTINGS_PY,
+     _sub('        caps = doc.get("capability") or {}', '        caps = doc.get("profile") or {}', 1),
+     "the capability profiles are counted under a key the contract does not use, "
+     "so the row reads a FALSE ZERO for a contract holding thirteen -- which looks "
+     "measured and is not"),
+
+
+    ("the-settings-surface-reads-and-explains", SETTINGS_PY,
+     _sub('        if row["governed"]:\n            row["change_by"] = ("a reviewed edit to the contract above; "\n                                "governed_surfaces.toml names the reviewer")\n', "", 1),
+     "a governed setting stops saying where it is changed, so a screen showing a "
+     "value with no way to edit it looks broken rather than reviewed"),
+
+    ("the-settings-surface-reads-and-explains", SETTINGS_PY,
+     _sub("OWNER_PREFERENCE = frozenset({",
+          "OWNER_PREFERENCE = frozenset(()) and frozenset({", 1),
+     "nothing is the owner's own to set, so every row is governed and the surface "
+     "is a report rather than settings"),
+
+    ("the-settings-surface-reads-and-explains", HOME_HTML,
+     _sub("        val.textContent = r.status === 'available' ? String(r.value) : 'UNAVAILABLE';",
+          "        val.textContent = String(r.value || '');", 1),
+     "a setting with no reading shows an empty cell instead of UNAVAILABLE, so an "
+     "absence reads as a value of nothing"),
+
+    ("the-settings-surface-reads-and-explains", HOME_HTML,
+     _sub("        what.textContent = String(r.what || '');", "        what.textContent = '';", 1),
+     "the rows lose their explanations, and 'explain this setting' is the one item "
+     "the owner marked as belonging to every row rather than being a row"),
+
+    ("the-settings-surface-reads-and-explains", HOME_HTML,
+     _sub("  .settings{position:fixed;inset:28px;", "  .settings{position:fixed;inset:0px;", 1),
+     "the settings card loses the margin between it and the display edges, which "
+     "is the geometry the owner gave"),
+]
+
+
 HOMESTATE_MOD = "core/home_state.py"
 
 CASES += [

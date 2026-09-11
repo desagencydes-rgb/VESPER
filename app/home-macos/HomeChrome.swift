@@ -366,6 +366,18 @@ final class HomeChrome {
         return String(data: out, encoding: .utf8) ?? "[]"
     }
 
+    /// The settings surface's rows (§11.6), read from the file the runtime writes.
+    static func settingsJSON() -> String {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/VESPER/home.json")
+        guard let d = try? Data(contentsOf: url),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let f = o["settings"],
+              let out = try? JSONSerialization.data(withJSONObject: f)
+        else { return "[]" }
+        return String(data: out, encoding: .utf8) ?? "[]"
+    }
+
     static func faceBehaviour() -> String {
         let url = FileManager.default
             .homeDirectoryForCurrentUser
@@ -857,6 +869,35 @@ final class HomeChrome {
             box-shadow:inset 0 0 0 1.5px rgba(206,120,84,.85)}
           /* THE HISTORY PANEL. Opened by clicking the bar, which is what the owner
              asked for, and closed by clicking away or pressing Escape. */
+          /* §11.6, THE OWNER'S GEOMETRY: "the card stops reading UNAVAILABLE and becomes
+             the same card at full screen, with a margin between it and the display
+             edges." The SAME card -- same glass, same type, same radius -- at full
+             screen, not a different surface that happens to open from the same button. */
+          .settings{position:fixed;inset:28px;z-index:8;overflow-y:auto;
+                   border-radius:18px;padding:20px 22px;
+                   background:rgba(18,15,13,.94);border:1px solid rgba(255,255,255,.10);
+                   backdrop-filter:blur(20px) saturate(1.1);
+                   font-family:var(--face-mono);font-size:11.5px;
+                   color:rgba(244,214,178,.88)}
+          .settings[hidden]{display:none!important}
+          .settings h3{margin:0 0 4px;font-size:12px;letter-spacing:.10em;
+                   text-transform:uppercase;color:rgba(244,214,178,.62)}
+          .settings .st-sub{margin:0 0 14px;color:rgba(244,214,178,.45);font-size:10.5px}
+          .st-row{display:grid;grid-template-columns:1fr auto;gap:10px;
+                   padding:9px 0;border-top:1px solid rgba(255,255,255,.06)}
+          .st-name{font-size:11.5px;color:rgba(244,214,178,.92)}
+          /* "EXPLAIN THIS SETTING" IS A PROPERTY OF EVERY ITEM, not a thirty-fifth peer
+             -- the owner's routing export marks it "in each dialog, on hover", and §11.6
+             says so explicitly. So it is the row's own hover text rather than a row. */
+          .st-what{font-size:10.5px;color:rgba(244,214,178,.50);line-height:1.4;
+                   max-height:0;overflow:hidden;transition:max-height .18s ease}
+          .st-row:hover .st-what,.st-row:focus-within .st-what{max-height:120px}
+          .st-value{text-align:right;font-size:11px;white-space:nowrap;
+                   color:rgba(206,180,140,.95)}
+          .st-row[data-available="false"] .st-value{color:rgba(206,120,84,.9)}
+          .st-source{font-size:9.5px;color:rgba(244,214,178,.38);text-align:right}
+          .st-gov{font-size:9px;letter-spacing:.06em;text-transform:uppercase;
+                   color:rgba(244,214,178,.35)}
           .flaghist{position:absolute;left:50%;transform:translateX(-50%);
                    bottom:124px;width:min(var(--flagbar-max,560px),92vw);
                    max-height:46vh;overflow-y:auto;z-index:6;pointer-events:auto;
@@ -1362,6 +1403,7 @@ final class HomeChrome {
 
         <!-- THE FLAG BAR sits above the menu and is deliberately OUTSIDE the codex
              markers below, so the two can be edited without colliding. -->
+        <div class="settings" id="settings" role="dialog" aria-label="Settings" hidden></div>
         <div class="flaghist" id="flaghist" role="dialog" aria-label="Flag history" hidden></div>
         <div class="flagbar" id="flagbar" hidden>
           <div class="flags" id="flags" role="group" aria-label="Flags vesper is raising">
@@ -1451,6 +1493,23 @@ final class HomeChrome {
            tooltip.style.left=Math.max(12,Math.min(r.left+r.width/2-tooltip.offsetWidth/2,window.innerWidth-tooltip.offsetWidth-12))+'px';
            tooltip.style.top=Math.max(12,r.top-tooltip.offsetHeight-12)+'px';
           }
+          // §11.6 AND §11.7: THE RAIL'S OWN DESTINATIONS.
+          //
+          // `settings` opens the full-screen card. `research` and `projects` are Work-room
+          // cards rather than whole spaces -- HOME-ARCHITECTURE §14.2 records that
+          // asymmetry as the thing to discuss -- and `projects` has NO SPECIFICATION:
+          // `spec_raw.txt` routes 17 items to `history` and NONE to a projects surface.
+          // So `projects` says that, in one sentence, rather than showing an invented
+          // surface. A screen that guesses at seventeen features nobody asked for is
+          // worse than one that admits the gap, and §11.7 says the gap is what the
+          // discussion is for.
+          triggers.forEach(function(b){
+           var view=b.dataset.menuView;
+           if(view==='settings'){
+            b.addEventListener('click',function(ev){ev.preventDefault();ev.stopPropagation();
+             if(window.__vesperSettings)window.__vesperSettings();});
+           }
+          });
           triggers.forEach(function(b){var item=catalogue.get(b.dataset.menuView);if(!item)return;
            b.setAttribute('aria-description',item.what);
            b.addEventListener('pointerenter',function(){showTooltip(b,item);});
@@ -2409,6 +2468,88 @@ final class HomeChrome {
               host.onclick = function () { window.__vesperFlagHistory(); };
             };
 
+            // ---- settings (§11.6) -------------------------------------------------
+            //
+            // READ-ONLY, AND THAT IS A DESIGN DECISION RATHER THAN AN UNFINISHED ONE.
+            // Most of what the owner routed here are GOVERNED CONTRACTS:
+            // `host_actions.toml` says in its own header that enabling a row is "a
+            // governed act, not a configuration tweak", and `governed_surfaces.toml`
+            // names who reviews each file. A toggle next to `enabled = false` would route
+            // around every one of those reviews from a button -- and the gates would stay
+            // green, because the file they read would have been edited by something the
+            // owner approved once.
+            //
+            // So each governed row says WHERE it is changed. The rows that are genuinely
+            // the owner's own preference are marked `governed: false` by the producer and
+            // are the ones that can become editable.
+            window.__vesperSettings = function (json) {
+              var panel = document.getElementById('settings');
+              if (!panel) return;
+              if (json !== undefined) { window.__vesperSettingsData = json; return; }
+              if (!panel.hidden) { panel.hidden = true; return; }
+              var list;
+              try { list = JSON.parse(window.__vesperSettingsData || '[]'); } catch (e) { list = []; }
+              if (!Array.isArray(list)) list = [];
+              while (panel.firstChild) panel.removeChild(panel.firstChild);
+              var h = document.createElement('h3');
+              h.textContent = 'settings';
+              panel.appendChild(h);
+              var sub = document.createElement('p');
+              sub.className = 'st-sub';
+              var known = list.filter(function (r) { return r && r.status === 'available'; }).length;
+              // THE COUNT IS STATED, INCLUDING THE PART THAT IS NOT READ. A surface that
+              // shows nineteen values and stays quiet about fifteen absences is claiming
+              // completeness it does not have.
+              sub.textContent = list.length
+                ? known + ' of ' + list.length + ' read a real value \\u2014 hover any row for what it is'
+                : 'nothing has been read yet';
+              panel.appendChild(sub);
+              list.forEach(function (r) {
+                if (!r || typeof r.name !== 'string') return;
+                var row = document.createElement('div');
+                row.className = 'st-row';
+                row.tabIndex = 0;
+                row.setAttribute('data-available', String(r.status === 'available'));
+                var left = document.createElement('div');
+                var nm = document.createElement('div');
+                nm.className = 'st-name';
+                nm.textContent = r.name;
+                var what = document.createElement('div');
+                what.className = 'st-what';
+                what.textContent = String(r.what || '');
+                if (r.status !== 'available' && r.reason) {
+                  what.textContent += '  \\u2014 ' + r.reason;
+                } else if (r.governed && r.change_by) {
+                  what.textContent += '  \\u2014 changed by ' + r.change_by;
+                }
+                left.appendChild(nm); left.appendChild(what);
+                var right = document.createElement('div');
+                var val = document.createElement('div');
+                val.className = 'st-value';
+                val.textContent = r.status === 'available' ? String(r.value) : 'UNAVAILABLE';
+                right.appendChild(val);
+                if (r.status === 'available' && r.source) {
+                  var srcEl = document.createElement('div');
+                  srcEl.className = 'st-source';
+                  srcEl.textContent = String(r.source);
+                  right.appendChild(srcEl);
+                }
+                var gov = document.createElement('div');
+                gov.className = 'st-gov';
+                gov.textContent = r.governed ? 'governed' : 'yours to set';
+                right.appendChild(gov);
+                row.appendChild(left); row.appendChild(right);
+                panel.appendChild(row);
+              });
+              panel.hidden = false;
+              var esc = function (ev) {
+                if (ev.key !== 'Escape') return;
+                panel.hidden = true;
+                document.removeEventListener('keydown', esc, true);
+              };
+              document.addEventListener('keydown', esc, true);
+            };
+
             // ---- the flag history -------------------------------------------------
             //
             // THREE STATES, NOT A BOOLEAN, and the third is the one with a choice in it.
@@ -3122,7 +3263,7 @@ final class HomeChrome {
           // worked and rendered nothing -- §9r's whole failure in one line.
           var recv = ['__vesperStage','__vesperHistory','__vesperWork',
                       '__vesperChanges','__vesperMetrics','__vesperFlags',
-                      '__vesperFlagHistory']
+                      '__vesperFlagHistory','__vesperSettings']
                      .map(function(n){ return n.replace('__vesper','')
                         + ':' + (typeof window[n] === 'function' ? 'fn' : 'MISSING'); })
                      .join(',');
@@ -3194,6 +3335,10 @@ final class HomeChrome {
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "`", with: "\\`")
                 .replacingOccurrences(of: "$", with: "\\$")
+            let setSafe = Self.settingsJSON()
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "`", with: "\\`")
+                .replacingOccurrences(of: "$", with: "\\$")
             let histSafe = Self.historyJSON()
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "`", with: "\\`")
@@ -3234,6 +3379,7 @@ final class HomeChrome {
               // the bar, so a poll every second does not rebuild a panel nobody
               // opened -- and does not close one they are reading.
               step('flaghist', function(){ if (window.__vesperFlagHistory) window.__vesperFlagHistory(`\(flagHistSafe)`); });
+              step('settings', function(){ if (window.__vesperSettings) window.__vesperSettings(`\(setSafe)`); });
             })();
             """
             // REPORT WHAT THE PUSH DID. `completionHandler: nil` swallowed
