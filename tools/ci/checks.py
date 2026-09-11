@@ -25208,9 +25208,19 @@ def check_a_flag_outlives_the_process_that_raised_it() -> Result:
         if "PAUSED_NOT_BLOCKED" not in body:
             r.err("`execute` never consults PAUSED_NOT_BLOCKED, so the "
                   "separation exists and binds nothing")
-        if "unimplemented:" not in body:
-            r.err("a capability with no implementation bound reports nothing to "
-                  "the bar -- the plainest 'could not achieve' there is")
+        # ASKED BY THE NAME IT CALLS, NOT BY THE LITERAL IT USED TO CONTAIN.
+        # This read `"unimplemented:" not in body` and went red the moment the id
+        # moved into a named derivation -- which was itself a fix demanded by
+        # another gate. An assertion pinned to a string literal fails on correct
+        # code the first time that literal is factored out, which is the mirror
+        # image of a substring assertion that keeps passing after the code is
+        # gone: both stop being about the behaviour.
+        for fn_name, what in (("unimplemented_flag_id",
+                               "a capability with no implementation bound"),
+                              ("blocked_flag_id", "a refusal that ends the attempt")):
+            if fn_name not in body:
+                r.err(f"{what} reports nothing to the bar -- `execute` never "
+                      f"calls `{fn_name}`")
 
     # 6. THE SURFACE SHOWS BOTH KINDS AND TELLS THEM APART.
     page = (REPO / "app" / "home-macos" / "chrome" / "home.html").read_text(encoding="utf-8")

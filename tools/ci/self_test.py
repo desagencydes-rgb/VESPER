@@ -7167,10 +7167,11 @@ CASES += [
      "stops meaning anything"),
 
     ("a-flag-outlives-the-process-that-raised-it", EXECUTOR_PY,
-     _sub('                payload={"id": f"unimplemented:{capability_id}"[:160],',
-          '                payload={"id": f"nope:{capability_id}"[:160],', 1),
-     "a capability with nothing bound to carry it out stops being reported under "
-     "a name anything recognises"),
+     _sub('                             {"flag_id": unimplemented_flag_id(capability_id)},',
+          '                             {"flag_id": blocked_flag_id(capability_id)},', 1),
+     "a capability with nothing bound to carry it out is reported as a refusal "
+     "instead, so the two conditions collapse into one row and 'not allowed' "
+     "cannot be told from 'nothing there to do it'"),
 
     ("a-flag-outlives-the-process-that-raised-it", HOME_HTML,
      _sub("        var words = f.carried\n", "        var words = false\n", 1),
