@@ -10084,8 +10084,20 @@ def check_documented_counts_match_commands() -> Result:
     patterns = (
         (r"tools/ci/checks\.py all\s*#\s*(\d+)\s*checks", runnable, "runnable checks"),
         (r"tools/ci/self_test\.py\s*#\s*red-then-green,\s*(\d+)\s*cases", cases, "self-test cases"),
-        (r"tools/ci/checks\.py all\s+PASS\s+(\d+)/\d+\s+runnable checks", runnable, "runnable checks"),
-        (r"tools/ci/self_test\.py\s+PASS\s+(\d+)/\d+", cases, "self-test cases"),
+        # THE STATUS WORD IS AN ALTERNATION, AND HARDCODING `PASS` WAS A REAL
+        # DEFECT IN THIS CHECK. Both of these read `\s+PASS\s+`, and this check
+        # separately refuses any figure in the document that no pattern covers.
+        # So the row could say "PASS 834/834" or be rejected -- there was NO WAY
+        # to write "834 declared, not yet verified" and stay green. Measured
+        # 2026-09-11: the full suite had not run in six sessions, the row said
+        # PASS anyway, an attempt to say so honestly turned this gate red, and
+        # the PASS went back in with a commit message admitting it was unproven.
+        # A gate built to stop numbers going stale was forcing the one word that
+        # could not be honest about an unrun suite.
+        (r"tools/ci/checks\.py all\s+(?:PASS|STALE|PENDING)\s+(\d+)/\d+\s+runnable checks",
+         runnable, "runnable checks"),
+        (r"tools/ci/self_test\.py\s+(?:PASS|STALE|PENDING)\s+(\d+)/\d+",
+         cases, "self-test cases"),
         (r"tools/ci/checks\.py status\s+(\d+)/(\d+) check IDs implemented, (\d+) PENDING",
          (len(implemented), len(registry), pending),
          "registry implemented/total/pending"),
@@ -10116,6 +10128,37 @@ def check_documented_counts_match_commands() -> Result:
                           "command wins -- this is the eighth time this pair "
                           "has drifted, and the first time anything could fail "
                           "because of it.")
+
+    # THE DOCUMENT MUST BE ABLE TO SAY "NOT VERIFIED", asserted against the
+    # pattern itself rather than against the document. Narrowing the alternation
+    # back to a bare `PASS` is not visible in any document that currently says
+    # PASS -- it only bites the day somebody tries to be honest about an unrun
+    # suite, which is the day it did bite. So the capability is tested directly:
+    # a STALE row must match the same pattern a PASS row does, or the only legal
+    # way to report an unverified figure is to claim a pass.
+    for word in ("PASS", "STALE", "PENDING"):
+        probe = f"tools/ci/self_test.py    {word}   {cases}/{cases} red-then-green"
+        if not any(re.search(pat, probe) for pat, _, what in patterns
+                   if what == "self-test cases"):
+            r.err(f"a {word!r} row does not match any anchored pattern, so the "
+                  f"status table cannot report a figure it has not verified -- "
+                  f"it must either claim a pass or leave the number uncovered, "
+                  f"and this check refuses both")
+
+    # A `PASS` MUST NAME THE DAY IT PASSED. Without a date the word is a
+    # standing claim: true when written, indistinguishable from true now, and
+    # ageing with nothing to age against. `STALE` and `PENDING` need no date --
+    # they assert nothing about a run.
+    status_doc = REPO / "VESPER_ENGINEERING_STATUS.md"
+    if status_doc.exists():
+        for line in status_doc.read_text(encoding="utf-8").splitlines():
+            if not re.search(r"tools/(ci/checks\.py all|ci/self_test\.py)\s+PASS", line):
+                continue
+            if not re.search(r"\b20\d\d-\d\d-\d\d\b", line):
+                r.err(f"a PASS with no date: {line.strip()[:90]!r}. The word "
+                      f"claims a run happened; without the day it happened the "
+                      f"claim cannot go stale visibly, which is how this pair "
+                      f"went six sessions without one")
 
     # EVERY PATTERN MUST FIND SOMETHING -- but that alone is not enough, and
     # working out why took two attempts. A total-count threshold was too weak
@@ -25018,6 +25061,179 @@ def check_a_screen_never_lifts_its_own_ceiling() -> Result:
            f"is driven rather than read")
     return r
 
+
+# --------------------------------------------------------------------------
+# THE FLAG BAR HELD TWO KINDS OF SILENCE, BOTH REPORTED BY THE OWNER 2026-09-11
+#
+# 1. "the rebuild or rerun should not stop it or lose them if they're still
+#    live" -- flags lived in memory only, and `build.sh` restarts the runtime on
+#    every build, so the bar came back empty whether or not the problems were
+#    over. A real warning about a missing grant was raised at 19:09 and gone by
+#    19:30 with the grant still missing.
+#
+# 2. "flags contain everything that should be flagged, even stuff vesper got
+#    blocked on or couldn't achieve" -- `flag.raised` was published from exactly
+#    ONE place: the branch where a capability SUCCEEDED but degraded. Three
+#    `tool.refused` sites and two `tool.failed` sites published events the bar
+#    does not subscribe to. The surface whose stated job is "one destination for
+#    every flag VESPER raises" showed a narrow slice and looked complete.
+# --------------------------------------------------------------------------
+def check_a_flag_outlives_the_process_that_raised_it() -> Result:
+    r = Result("a-flag-outlives-the-process-that-raised-it")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.home_state import HomeState
+        from core import executor as EX
+    except Exception as exc:                        # noqa: BLE001
+        r.err(f"the flag machinery does not import: {exc!r}")
+        return r
+    import json as _j, tempfile as _t, pathlib as _pl
+
+    # A TEMP PATH, ALWAYS. `HomeState` writes the owner's live surface file by
+    # default, and `self_test` disables the write guard -- a check that took the
+    # default here would overwrite the running bar to test it.
+    with _t.TemporaryDirectory() as d:
+        hp = _pl.Path(d) / "home.json"
+
+        # 1. RAISED, THEN INHERITED BY A NEW PROCESS.
+        a = HomeState(path=hp)
+        a.raise_flag("app.not_permitted:com.example", "no grant for that app",
+                     recheck={"capability_id": "app.query",
+                              "args": {"verb": "permission",
+                                       "bundle_id": "com.example"}})
+        b = HomeState(path=hp)                       # the restart
+        got = _j.loads(hp.read_text(encoding="utf-8")).get("flags") or []
+        carried = b.carried_flags()
+        if not got:
+            r.err("a raised flag is not written to the surface file at all")
+        if len(carried) != 1:
+            r.err(f"a new process inherited {len(carried)} flag(s), not 1. A "
+                  f"restart empties the bar while the problem it named is still "
+                  f"live -- and every build restarts the runtime")
+            return r
+        if carried[0].get("id") != "app.not_permitted:com.example":
+            r.err("the inherited flag lost its id, so nothing can retract it")
+        if not (carried[0].get("recheck") or {}).get("capability_id"):
+            r.err("the inherited flag carries no way to be re-proved, so it can "
+                  "never be retired except by whatever raised it running again")
+
+        # 2. INHERITED IS NOT THE SAME AS CURRENT, and the distinction has to
+        #    survive into the file the surface reads.
+        b.mark_verified("app.not_permitted:com.example")
+        if b.carried_flags():
+            r.err("a flag re-proved against the world is still marked inherited")
+        after = _j.loads(hp.read_text(encoding="utf-8")).get("flags") or []
+        if after and after[0].get("carried"):
+            r.err("the surface file still calls a verified flag inherited")
+
+        # 3. AND IT STILL LEAVES THE BAR WHEN IT IS OVER. Without this every
+        #    assertion above is satisfied by a bar that never forgets anything,
+        #    which is the stale-flag defect pointing the other way.
+        b.clear_flag("app.not_permitted:com.example")
+        if _j.loads(hp.read_text(encoding="utf-8")).get("flags"):
+            r.err("a cleared flag survives in the file, so the bar reports a "
+                  "problem that is over")
+
+        # 4. AN UNREADABLE OR SHAPELESS FILE YIELDS NO FLAGS rather than junk
+        #    rows the surface cannot render.
+        hp.write_text("{not json", encoding="utf-8")
+        if HomeState(path=hp).carried_flags():
+            r.err("an unparseable surface file produced flags")
+        hp.write_text(_j.dumps({"flags": ["a string", {}, {"id": "x"},
+                                          {"text": "y"}]}), encoding="utf-8")
+        if HomeState(path=hp).carried_flags():
+            r.err("rows with no id or no text were loaded as flags; a flag with "
+                  "no words reveals nothing and one with no id cannot be retracted")
+
+    # 5. BEING BLOCKED REACHES THE BAR. Asserted on the SOURCE because the
+    #    executor's refusal path raises, and the assertion is about which
+    #    outcomes publish a flag rather than about one execution.
+    src = (REPO / "core" / "executor.py").read_text(encoding="utf-8")
+    raised = src.count('"flag.raised"')
+    if raised < 3:
+        r.err(f"`flag.raised` is published from {raised} place(s). It was ONE -- "
+              f"the branch where a capability succeeded but degraded -- so "
+              f"nothing vesper was refused or could not carry out ever reached "
+              f"the bar")
+    if not hasattr(EX, "PAUSED_NOT_BLOCKED"):
+        r.err("the executor does not separate paused from blocked, so either "
+              "every permission prompt raises a flag or no refusal does")
+    else:
+        for reason in EX.PAUSED_NOT_BLOCKED:
+            if reason not in ("grant_expired", "pdp_unavailable"):
+                r.err(f"{reason!r} is treated as merely paused; only an expired "
+                      f"grant and an unreachable decision point are")
+        if not EX.PAUSED_NOT_BLOCKED:
+            r.err("PAUSED_NOT_BLOCKED is empty, so a task waiting for the "
+                  "owner's approval raises a flag about being blocked")
+    tree = ast.parse(src)
+    fn = next((n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)
+               and n.name == "execute"), None)
+    if fn is None:
+        r.err("Executor.execute is gone")
+    else:
+        body = ast.get_source_segment(src, fn) or ""
+        if "PAUSED_NOT_BLOCKED" not in body:
+            r.err("`execute` never consults PAUSED_NOT_BLOCKED, so the "
+                  "separation exists and binds nothing")
+        if "unimplemented:" not in body:
+            r.err("a capability with no implementation bound reports nothing to "
+                  "the bar -- the plainest 'could not achieve' there is")
+
+    # 6. THE SURFACE SHOWS BOTH KINDS AND TELLS THEM APART.
+    page = (REPO / "app" / "home-macos" / "chrome" / "home.html").read_text(encoding="utf-8")
+    # ASKED OF THE STATEMENT THAT DOES THE WORK, NOT OF THE WHOLE FILE.
+    # `"f.carried" not in page` was the first version and it PASSED UNDER ITS
+    # OWN VIOLATION: the identifier appears three times -- the render signature,
+    # the wording branch and the button class -- so blanking the wording branch
+    # left the substring sitting in the other two. A substring assertion goes
+    # vacuous the moment the name it looks for appears in a second place, which
+    # is the fourth time this corpus has been bitten by exactly that.
+    # SCOPED TO THE RENDERER, AND THE FIRST TWO ATTEMPTS BOTH MISSED.
+    # `"f.carried" not in page` passed under its own violation, because the name
+    # appears three times and blanking one left the other two. Narrowing to
+    # `var words = ...` then matched a DIFFERENT statement of that name
+    # elsewhere in the page and failed on correct code. A pattern is only an
+    # assertion about the code you meant if it can only match that code.
+    import re as _re
+    try:
+        fnbody = page[page.index("window.__vesperFlags"):
+                      page.index("window.__vesperChanges")]
+    except ValueError:
+        r.err("the flag renderer is gone from the page, so nothing draws the bar")
+        fnbody = ""
+    if fnbody:
+        # THE CONDITION TOKEN, WHICH IS THE ONE THING A BREAK HAS TO CHANGE.
+        # Capturing a REGION and searching it for `f.carried` failed twice: the
+        # first window matched a `var words` statement elsewhere in the page, and
+        # the second reached past the assignment into the next statement, which
+        # also names `f.carried` -- so blanking the condition left the name
+        # inside the capture and the negative control passed under its own
+        # violation. Reading the single token after `=` cannot be satisfied by an
+        # occurrence somewhere else, which is the property the other two lacked.
+        m = _re.search(r"var words = (\S+)", fnbody)
+        if m is None:
+            r.err("the renderer no longer decides what wording a flag gets, so "
+                  "an inherited flag cannot be distinguished from a current one")
+        elif m.group(1) != "f.carried":
+            r.err(f"the flag's wording is chosen by {m.group(1)!r} rather than "
+                  f"by whether the flag was inherited, so a warning raised by a "
+                  f"process that no longer exists reads as current")
+        if "not re-checked since" not in fnbody:
+            r.err("an inherited flag does not say it has not been re-checked")
+    if "f.carried ? 1 : 0" not in page:
+        r.err("the render signature ignores `carried`, so a flag that becomes "
+              "re-proved never re-renders and the bar keeps the stale wording")
+    if "classList.add('carried')" not in page:
+        r.err("an inherited flag is drawn identically to a current one")
+    r.note("a flag survives a restart, says it has not been re-checked since, "
+           "stops saying so once re-proved, and still leaves the bar when "
+           "cleared; a shapeless file yields none; blocked and unimplemented "
+           f"both reach the bar ({raised} publish sites, was 1) while a task "
+           "merely waiting for approval does not")
+    return r
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -25061,6 +25277,7 @@ CHECK_FNS = {
     "enable-token-presented-once-per-mint": check_enable_token_presented_once_per_mint,
     "a-due-item-is-spoken-not-merely-noticed": check_a_due_item_is_spoken_not_merely_noticed,
     "a-failure-is-something-the-next-step-can-see": check_a_failure_is_something_the_next_step_can_see,
+    "a-flag-outlives-the-process-that-raised-it": check_a_flag_outlives_the_process_that_raised_it,
     "a-screen-never-lifts-its-own-ceiling": check_a_screen_never_lifts_its_own_ceiling,
     "an-application-is-never-driven-without-permission": check_app_never_driven_without_permission,
     "an-app-refusal-is-not-a-success": check_app_refusal_is_not_a_success,

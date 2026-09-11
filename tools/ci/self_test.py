@@ -7113,7 +7113,72 @@ CASES += [
 ]
 
 
+EXECUTOR_PY = "core/executor.py"
+HOME_HTML = "app/home-macos/chrome/home.html"
+
+CASES += [
+    ("a-flag-outlives-the-process-that-raised-it", HOMESTATE_PY,
+     _sub("        self._flags: list = self._load_flags()",
+          "        self._flags: list = []", 1),
+     "flags go back to living in memory only, so every build empties the bar "
+     "whether or not the problems are over -- a real warning about a missing "
+     "grant was raised at 19:09 and gone by 19:30 with the grant still missing"),
+
+    ("a-flag-outlives-the-process-that-raised-it", HOMESTATE_PY,
+     _sub('            row = {"id": fid, "text": text[:400], "carried": True}',
+          '            row = {"id": fid, "text": text[:400]}', 1),
+     "an inherited flag is indistinguishable from one just raised, so a warning "
+     "from a process that no longer exists reads as current"),
+
+    ("a-flag-outlives-the-process-that-raised-it", HOMESTATE_PY,
+     _sub('            if not fid or not text:\n                continue\n', "", 1),
+     "rows with no id or no text load as flags: one cannot be retracted and the "
+     "other reveals nothing, and both end up on the bar"),
+
+    ("a-flag-outlives-the-process-that-raised-it", HOMESTATE_PY,
+     _sub('            if isinstance(recheck, dict) and recheck.get("capability_id"):',
+          "            if False:", 1),
+     "a flag stops carrying how to re-prove it, so one that survives a restart "
+     "can never be retired except by whatever raised it happening to run again"),
+
+    ("a-flag-outlives-the-process-that-raised-it", EXECUTOR_PY,
+     _sub("            elif d.reason not in PAUSED_NOT_BLOCKED:\n", "            elif False:\n", 1),
+     "being refused reaches nothing again: vesper is blocked, says so once in a "
+     "log, and the bar stays empty -- which is the state the owner described"),
+
+    ("a-flag-outlives-the-process-that-raised-it", EXECUTOR_PY,
+     _sub('PAUSED_NOT_BLOCKED = ("grant_expired", "pdp_unavailable")',
+          "PAUSED_NOT_BLOCKED = ()", 1),
+     "a task merely waiting for the owner's approval raises a flag about being "
+     "blocked, so every permission prompt puts a row on the bar and the bar "
+     "stops meaning anything"),
+
+    ("a-flag-outlives-the-process-that-raised-it", EXECUTOR_PY,
+     _sub('                payload={"id": f"unimplemented:{capability_id}"[:160],',
+          '                payload={"id": f"nope:{capability_id}"[:160],', 1),
+     "a capability with nothing bound to carry it out stops being reported under "
+     "a name anything recognises"),
+
+    ("a-flag-outlives-the-process-that-raised-it", HOME_HTML,
+     _sub("        var words = f.carried\n", "        var words = false\n", 1),
+     "the page stops telling an inherited flag apart from a current one, so the "
+     "owner cannot tell a live problem from a leftover"),
+]
+
+
 CHECKS_PY_SELF = "tools/ci/checks.py"
+STATUS_MD = "VESPER_ENGINEERING_STATUS.md"
+
+CASES += [
+    ("documented-counts-match-commands", STATUS_MD,
+     _sub(" red-then-green, ran 2026-09-11", " red-then-green", 1),
+     "a PASS loses the day it passed, so the word claims a run with nothing to "
+     "age against -- which is how this pair sat six sessions stale while the "
+     "table said the suite was green"),
+
+]
+
+
 
 CASES += [
     ("the-shipped-runtime-can-reach-what-it-needs", CHECKS_PY_SELF,

@@ -47,6 +47,21 @@ from .checkpoint import CheckpointUnavailable
 OUTCOMES = ("VERIFIED", "FAILED", "OUTCOME_UNKNOWN", "COMPENSATED", "REFUSED")
 
 
+# WAITING FOR AN ANSWER IS NOT BEING BLOCKED, and this is the only
+# distinction the bar needs to get right. A refusal that PAUSES for the owner's
+# approval is already visible -- they are being asked. A refusal that ENDS the
+# attempt is the owner's word for blocked, and until 2026-09-11 it reached
+# nothing: `flag.raised` was published from exactly ONE place, the branch where
+# a capability SUCCEEDED but degraded. Three `tool.refused` sites and two
+# `tool.failed` sites published events the bar does not subscribe to, so the
+# surface whose stated job is "one destination for every flag VESPER raises"
+# showed a narrow slice of them and looked complete.
+#
+# Owner, 2026-09-11: "flags contain everything that should be flagged, even
+# stuff vesper got blocked on or couldn't achieve".
+PAUSED_NOT_BLOCKED = ("grant_expired", "pdp_unavailable")
+
+
 def flag_id_for(capability_id: str, result: dict, args: dict, target: Any) -> str:
     """The name of the CONDITION a flag is about. One derivation, two callers.
 
@@ -224,6 +239,21 @@ class Executor:
                                       "without authority, and not FAILED, which "
                                       "would discard work that is merely paused")},
                     component="executor")
+            elif d.reason not in PAUSED_NOT_BLOCKED:
+                # BLOCKED, AND THE OWNER HEARS ABOUT IT. Keyed on the
+                # capability and the reason rather than on the execution, so a
+                # capability refused forty times is one row: the condition is
+                # "this is not permitted", not "it was attempted again".
+                self._bus.publish(
+                    "flag.raised", subject=task_id or subject,
+                    payload={"id": f"refused:{capability_id}:{d.reason}"[:160],
+                             "capability_id": capability_id,
+                             "text": (f"vesper was not allowed to "
+                                      f"{capability_id}: {d.detail}"
+                                      or d.reason)[:400],
+                             "recheck": {"capability_id": capability_id,
+                                         "args": dict(args or {})}},
+                    component="executor")
             raise NotAuthorized(d)
 
         # Idempotency at the executor, not only at the outbox: a replayed plan
@@ -243,6 +273,13 @@ class Executor:
                            error="no implementation bound", idempotency_key=key)
             self._bus.publish("tool.failed", subject=task_id or subject,
                               payload=ex.to_dict(), component="executor")
+            self._bus.publish(
+                "flag.raised", subject=task_id or subject,
+                payload={"id": f"unimplemented:{capability_id}"[:160],
+                         "capability_id": capability_id,
+                         "text": (f"vesper can name {capability_id} and has "
+                                  f"nothing bound to carry it out")[:400]},
+                component="executor")
             return ex
 
         # THE OUTBOX RECORD IS WRITTEN BEFORE THE EFFECT, and "before" is the

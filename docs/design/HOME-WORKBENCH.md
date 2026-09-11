@@ -1486,7 +1486,8 @@ been driven against the running surface.**
 | 15 | **Window management** (§11.1) | 🟡 IN PROGRESS 2026-09-09 — vocabulary, ownership rule, native bridge and capability ladder landed and DRIVEN LIVE. `a-window-belongs-to-someone`, 7 red runs. `window.open` drove live and its provenance stamp is real. **Driving it found a forgery path** (§11.1c): `reopen` claimed any newly-seen window, and returned one of the owner's Safari windows from `window.open("TextEdit")` — fixed by requiring the launched pid and a cross-Desktop frontier. **Owed:** placement verification (§11.1c) and rung 3, which has never executed. The forgery check DID land -- `a-window-is-claimed-only-by-the-app-that-opened-it`, 8 self-test cases, counting claim sites rather than looking for a name -- and this row went on saying it was owed until 2026-09-10 |
 | 15a | **Placement is verified, not predicted** (§11.1c) | 🟡 PART DONE 2026-09-09 — `window_open` now READS BACK where the window landed and reports `degraded` with a flag instead of `ok: true`; the two false comments are corrected. Also fixed: vesper claimed TextEdit's **Open dialog** as a window it opened, so the launch rung now requires a close button. **Owed:** the close-and-reopen rebuild, which needs a bridge that can reach a window on another Desktop — every act matches through `SpaceWatch.onScreen()`, one Desktop only |
 | 15b | **Window memory across a restart** (§11.8) | ✅ DONE 2026-09-09 — **authority:** boot-keyed, corroborated against the live window, fail-closed on every unreadable state; `CI-138`, 7 red runs; driven across processes (one interpreter opened window 33429, a second read it back as vesper's). **history:** `core/window_log.py` — appends what vesper touched, an absent title carries a code (`no_file`, `no_file_model`, `unreadable`), old weeks compress in place and read back through the same call, the current week stays near, and **nothing in it can open a window**; `CI-139`, 5 red runs. `gated-subsystems-are-reachable` caught the module unwired the moment it landed |
-| 15c | **The flag bar** (§11.9) | ✅ DONE 2026-09-09 — small bar above the main menu, hidden when empty, buttons revealing the flag on hover. Published from the EXECUTOR (the one point every result passes through), deduped by CONDITION not execution, written to `home.json`, rendered as text. `CI-137`, 8 red runs, driven end to end with a real degraded relocation |
+| 15c | **The flag bar** (§11.9) | ✅ DONE 2026-09-09 — small bar above the main menu, hidden when empty, buttons revealing the flag on hover. Published from the EXECUTOR (the one point every result passes through), deduped by CONDITION not execution, written to `home.json`, rendered as text. `CI-137`, 8 red runs, driven end to end with a real degraded relocation|
+| — | **The flag bar showed one kind of trouble** (§20) | ✅ DONE 2026-09-11, owner-reported — it lost every flag on restart, and **`flag.raised` was published from exactly ONE place**: the branch where a capability SUCCEEDED but degraded. Nothing vesper was refused or could not carry out ever reached it. Now 3 publish sites, flags persist and say when they have not been re-checked, and a task merely waiting for approval still raises nothing. `a-flag-outlives-the-process-that-raised-it`, 8 red runs |
 | 16 | **Modes, end to end** (§11.2) | ✅ DONE 2026-09-10 (§15.2, §16) — the eleven ambiences reachable and each with a wallpaper file; `research` given `Milestone`, which no pairing had ever reached; the three animated wallpapers played for the first time; a mode that does not land reaches the flag bar; and the wallpaper switch bounded to VESPER's Desktop **by construction** rather than by a guard — `HomeAmbience` writes the system picture zero times |
 | 16a | **Stages of work** (§11.2a) | ✅ DONE 2026-09-10 — `a-stage-bounds-what-vesper-opens`, 8 red runs. The contract had existed since 2026-09-09 and was read by nothing |
 | 17 | **Apps management** (§11.3) | 🟡 **PARTIAL** 2026-09-10 (§17) — the permission instrument (five states, **no dialog**, measured 30–79 ms), `app.query` with a closed verb set, `core/apps.py` branching on a class and never a program, and a refusal that reaches the owner's sentence **and** the flag bar with its reason. 4 checks, 11 red runs, driven end to end. **The verbs that CHANGE an application are not built** — `verified_local` provenance means they land with the grant trip that measures them, and so does `execution_class` |
@@ -3187,3 +3188,84 @@ is non-empty and that the actor consults it over every observation; it cannot
 assert that somebody remembered. §11.5's build must add its own id.
 
 **Gates:** `a-screen-never-lifts-its-own-ceiling` — **5 red runs.**
+
+
+---
+
+## 20. THE FLAG BAR WAS SHOWING ONE KIND OF TROUBLE OUT OF THREE
+
+**Owner, 2026-09-11:** *"the rebuild or rerun should not stop it or lose them if
+they're still live, flags contain everything that should be flagged, even stuff
+vesper got blocked on or couldn't achieve."*
+
+Two faults, and the second is bigger than the one that prompted the report.
+
+### FAULT 1 — EVERY FLAG DIED WITH THE PROCESS
+
+`HomeState._flags` started as `[]` and was never read back from the file, while
+`write()` set `existing["flags"]` unconditionally. So the first write after any
+restart **erased the bar**, and `build.sh` restarts the runtime on every build.
+
+Measured the same evening: a real warning that VESPER had no Automation grant for
+an application was raised at **19:09** and gone by **19:33**, with the grant
+still missing. Nothing re-raised it, because nothing re-ran that query.
+
+**Flags are now loaded back, and carried as UNPROVEN rather than asserted.** A
+restored flag is marked `carried` and the bar draws it hollow instead of filled,
+with *"raised before the last restart; not re-checked since"* in its tooltip. It
+leaves the bar the one way flags already leave it: the next time that condition
+is genuinely exercised and succeeds, `flag.cleared` retracts it.
+
+### WHAT THIS DELIBERATELY DOES NOT DO
+
+**The first implementation re-ran each flag's capability at startup to see
+whether it was still true.** That invents an execution path with no
+authorization, no taint handling and no record, at process start, for capabilities
+the ladder governs everywhere else — and it called into a module the runtime does
+not even import, so it would have raised at startup. *A boundary one code path
+steps around is not a boundary, and "it was only a read" is the argument every
+such step-around makes.*
+
+So a carried flag is held as unproven. **The cost is that a problem the owner
+fixes may show for a while after they fix it** — the right direction to be wrong
+in: forgetting a live problem loses the only notice they get, while keeping a
+resolved one costs a glance, and the row says it has not been re-checked so the
+glance is informed.
+
+### FAULT 2 — BEING BLOCKED REACHED NOTHING
+
+**`flag.raised` was published from exactly one place in the entire system:** the
+branch where a capability **succeeded** but reported itself degraded.
+
+| outcome | published | reached the bar |
+|---|---|---|
+| succeeded, degraded | `flag.raised` | ✅ |
+| **refused** (3 sites) | `tool.refused` | ❌ |
+| **failed** (2 sites) | `tool.failed` | ❌ |
+
+So the surface whose stated job is *"one destination for every flag VESPER
+raises"* was showing a narrow slice of them **and looking complete**. Everything
+VESPER was blocked on, or simply had nothing bound to carry out, was visible only
+in a log nobody reads.
+
+**Both now reach it, and the one distinction that matters is preserved.** A
+refusal that **pauses for the owner's approval** is not being blocked — they are
+being asked, and that is already visible. `PAUSED_NOT_BLOCKED` names the two
+reasons that mean "waiting", and everything else raises a flag keyed on the
+capability and the reason rather than on the attempt, so a capability refused
+forty times is one row.
+
+### AND THE FIX BROKE VESPER FOR TWO BUILDS
+
+The startup notice called `log(...)`. **There is no `log` in that module.** The
+`NameError` killed the runtime at startup — VESPER was simply **down** — and
+every gate stayed green, because no gate starts the process. Driving it end to
+end is what found it, and it is the fourth time tonight that a green suite and a
+working system turned out to be different claims.
+
+**Gates:** `a-flag-outlives-the-process-that-raised-it` — **8 red runs**, two of
+which passed under their own violation first: a substring assertion that stayed
+satisfied because `f.carried` appears three times in the page, and its
+replacement, which captured a region wide enough to include one of the others.
+The assertion now reads the single token after `var words =`, which cannot be
+satisfied by an occurrence somewhere else.

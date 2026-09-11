@@ -706,7 +706,11 @@ def build(node: str = "vesper-runtime"):
     # the built-and-unreached shape this tree keeps finding.
     def _on_flag(e) -> None:
         pay = e.payload or {}
-        home.raise_flag(str(pay.get("id") or "flag"), str(pay.get("text") or ""))
+        # THE RE-PROOF TRAVELS WITH THE FLAG, so a flag that outlives this
+        # process can be retired by evidence rather than by whatever happened to
+        # raise it running again. See HomeState.raise_flag.
+        home.raise_flag(str(pay.get("id") or "flag"), str(pay.get("text") or ""),
+                        recheck=pay.get("recheck"))
 
     # `event_id` IS THE KEY, and INV-COORD-5 asks for it to be said. A flag is
     # raised by one execution; a redelivery of that event re-raises the same
@@ -729,7 +733,45 @@ def build(node: str = "vesper-runtime"):
 
     bus.subscribe("flag.cleared", _off_flag, name="home-flags-cleared",
                   idempotency_key=lambda e: e.event_id)
+    # FLAGS INHERITED FROM THE LAST PROCESS ARE KEPT, AND MARKED AS INHERITED.
+    #
+    # `build.sh` restarts this runtime on every build, and until 2026-09-11 that
+    # emptied the bar whether or not the problems were over -- the owner's
+    # complaint, and the reason a real warning about a missing grant vanished
+    # twenty minutes after it was raised. `HomeState` now loads them back.
+    #
+    # WHAT THIS DELIBERATELY DOES NOT DO IS RE-RUN THEM. The first version did:
+    # it looked up each flag's capability implementation and called it. That
+    # invents an execution path with no authorization, no taint handling and no
+    # record, at process start, for a capability the ladder governs everywhere
+    # else -- and it referenced a module this file does not even import, so it
+    # would have raised at startup. A boundary that one code path steps around
+    # is not a boundary, and "it was only a read" is the argument every such
+    # step-around makes.
+    #
+    # SO A CARRIED FLAG IS HELD AS UNPROVEN RATHER THAN ASSERTED AS TRUE, and it
+    # leaves the bar the one way flags already leave it: the next time that
+    # condition is genuinely exercised and succeeds, `flag.cleared` retracts it.
+    # The cost is that a problem the owner fixes may show for a while after they
+    # fix it. That is the direction to be wrong in -- forgetting a live problem
+    # loses the only notice they get; keeping a resolved one costs a glance, and
+    # the row says it has not been re-checked so the glance is informed.
+    def _mark_carried_flags() -> None:
+        # `print`, BECAUSE THIS MODULE HAS NO `log`. The first version called
+        # one, there is no such function here, and the NameError killed the
+        # runtime AT STARTUP -- vesper was simply down, and the gates were all
+        # green because none of them start the process. Driving it end to end is
+        # what found it, which is the whole argument for doing that.
+        carried = home.carried_flags()
+        for f in carried:
+            print(f"flag carried across restart, not yet re-checked: "
+                  f"{f.get('id')} — {str(f.get('text'))[:80]}", flush=True)
+        if carried:
+            print(f"{len(carried)} flag(s) survived the restart; each retracts "
+                  f"when its condition is next exercised and clears", flush=True)
+
     home.attach(bus)
+    _mark_carried_flags()
 
     triage = TriageQueue(path=STATE / "triage.json", bus=bus, clock=clock)
     triage.attach(bus)

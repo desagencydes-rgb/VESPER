@@ -84,7 +84,22 @@ class HomeState:
         self._since = time.time()
         self._reason = "no activity yet"
         self._workbench: dict = {}
-        self._flags: list = []
+        # LOADED FROM THE FILE, NOT STARTED EMPTY, AND THE OWNER FOUND THIS.
+        # Every flag lived in memory only, so a restart -- and `build.sh`
+        # restarts the runtime on every build -- wiped the bar clean whether or
+        # not the problems were over. A flag whose condition nothing re-checks
+        # on a timer simply vanished: raised at 19:09, gone at 19:30, never
+        # re-raised, with the grant it was complaining about still missing.
+        # Owner, 2026-09-11: "the rebuild or rerun should not stop it or lose
+        # them if they're still live".
+        #
+        # AND A LOADED FLAG IS NOT TRUSTED TO STILL BE TRUE. It is carried
+        # forward UNVERIFIED and each one names how to re-prove it; the runtime
+        # re-checks them at startup and drops the ones that are resolved. The
+        # two failure directions are not symmetric, which is why loading alone
+        # is not the whole fix: forgetting a live problem loses the only notice
+        # the owner gets, while keeping a dead one wastes a glance at the bar.
+        self._flags: list = self._load_flags()
         self._mode = ""
         self._stage = ""
         self._ambience = ""
@@ -267,7 +282,46 @@ class HomeState:
             self._changes = dict(state or {})
         self.write()
 
-    def raise_flag(self, flag_id: str, text: str) -> None:
+    def _load_flags(self) -> list:
+        """The previous process's flags, shape-checked rather than trusted.
+
+        A file this cannot parse yields no flags, which is the one case where
+        losing them is correct: an unreadable bar is not evidence of anything.
+        """
+        try:
+            raw = json.loads(self._path.read_text(encoding="utf-8"))
+        except Exception:                                 # noqa: BLE001
+            return []
+        out = []
+        for f in (raw.get("flags") or []):
+            if not isinstance(f, dict):
+                continue
+            fid, text = str(f.get("id") or ""), str(f.get("text") or "")
+            if not fid or not text:
+                continue
+            row = {"id": fid, "text": text[:400], "carried": True}
+            rc = f.get("recheck")
+            if isinstance(rc, dict) and rc.get("capability_id"):
+                row["recheck"] = {"capability_id": str(rc["capability_id"]),
+                                 "args": dict(rc.get("args") or {})}
+            out.append(row)
+        return out[-8:]
+
+    def carried_flags(self) -> list:
+        """Flags inherited from the last process and not yet re-proved."""
+        with self._lock:
+            return [dict(f) for f in self._flags if f.get("carried")]
+
+    def mark_verified(self, flag_id: str) -> None:
+        """This flag has been re-proved against the world; it is not a leftover."""
+        with self._lock:
+            for f in self._flags:
+                if f.get("id") == flag_id:
+                    f.pop("carried", None)
+        self.write()
+
+    def raise_flag(self, flag_id: str, text: str,
+                   recheck: dict | None = None) -> None:
         """Record a flag for the bar above the main menu.
 
         NEWEST LAST, DEDUPED BY ID, AND BOUNDED. The same flag raised twice --
@@ -281,7 +335,17 @@ class HomeState:
             return                    # a flag with no words reveals nothing
         with self._lock:
             self._flags = [f for f in self._flags if f.get("id") != flag_id]
-            self._flags.append({"id": str(flag_id), "text": text[:400]})
+            row: dict = {"id": str(flag_id), "text": text[:400]}
+            # HOW TO PROVE THIS IS OVER, carried with the flag itself. Without
+            # it a flag that survives a restart has no way to be retired except
+            # by whatever happened to raise it running again -- so the owner
+            # grants the permission, the condition is gone, and the bar keeps
+            # saying it is not.
+            if isinstance(recheck, dict) and recheck.get("capability_id"):
+                row["recheck"] = {
+                    "capability_id": str(recheck["capability_id"]),
+                    "args": dict(recheck.get("args") or {})}
+            self._flags.append(row)
             del self._flags[:-8]
         self.write()
 
