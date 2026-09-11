@@ -1019,16 +1019,55 @@ def _act(effect: str, args: dict, *argv: str) -> dict:
     # all three were reported to them as "done". The failure is not a defect to
     # be fixed here, it is a platform limit, and the owner is owed the sentence
     # rather than the symptom.
-    if target.meta.get("on_active_desktop") is False:
+    # AND ON 2026-09-11 THE OWNER ASKED FOR THE CASE THIS REFUSED.
+    #
+    # "vesper should be able to open and fully manage all windows in any other
+    # desktop if it was requested to do it." The platform limit above is real and
+    # was re-measured that day -- the accessibility tree reached 2 windows on the
+    # showing Desktop and 0 of 69 on the others -- so the limit is not in doubt.
+    # What changed is that MOVING does not need the tree: `CGSMoveWindow` is the
+    # window server's own call and does not care which Desktop a window is on.
+    #
+    # SO THE REFUSAL NARROWS TO THE EFFECTS THAT GENUINELY CANNOT BE SERVED.
+    # A move off-Desktop goes through to the bridge, which takes the window-server
+    # route and reports which route it took. A resize does not: there is no
+    # `CGSSetWindowBounds` on this node, and an application owns its own size.
+    #
+    # NOT AN AUTHORITY CHANGE. `W.may_act` has already decided whether THIS
+    # window may be touched, above, and `owner_requested` is what lifts a
+    # window the owner opened. This only stops refusing on the MECHANISM once a
+    # mechanism exists -- and a resize still refuses, because none does.
+    _off_desktop = target.meta.get("on_active_desktop") is False
+    _move_only = effect == W.MOVE
+    if _off_desktop and _move_only:
+        out = _window_bridge(*argv, "--window-id", wid,
+                             "--window-pid", str(target.pid))
+        out.setdefault("window", W.describe(target, vespers_desktop=desktop))
+        if out.get("ok"):
+            # SAID OUT LOUD, because the two routes are not equivalent: this one
+            # reaches past the application to the window server, so the app does
+            # not know its window moved. An owner told only "done" could not
+            # explain a window that redraws oddly afterwards.
+            out.setdefault("note", "moved from the window server rather than "
+                                   "through the application, because that window "
+                                   "is on another desktop")
+        else:
+            out.setdefault("degraded", True)
+            out.setdefault("flag_id", f"window.unreachable:{wid}")
+        _log_touch(effect, target, out, args)
+        return out
+
+    if _off_desktop:
         return {"ok": False, "refused_by": "unreachable",
                 "degraded": True, "flag_id": f"window.unreachable:{wid}",
                 "flag": f"vesper cannot act on the {target.app_label} window: it "
                         "is on another desktop, and macos only lets vesper touch "
                         "windows on the desktop that is showing.",
                 "reason": f"the {target.app_label} window is on another desktop. "
-                          "macos only allows acting on windows that are on the "
-                          "desktop currently showing, so bring it here (or come "
-                          "to it) and ask again",
+                          f"vesper can MOVE a window there, but {effect} goes "
+                          "through the application and an application only "
+                          "answers for the desktop that is showing -- bring it "
+                          "here (or come to it) and ask again",
                 "window": W.describe(target, vespers_desktop=desktop)}
     out = _window_bridge(*argv, "--window-id", wid, "--window-pid", str(target.pid))
     out.setdefault("window", W.describe(target, vespers_desktop=desktop))

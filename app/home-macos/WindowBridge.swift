@@ -313,7 +313,52 @@ enum WindowBridge {
                   + "`open -n app/VESPER.app --args --accessibility-consent`."]
         }
         guard let el = element(forPID: pid, windowId: windowId) else {
-            return ["ok": false, "reason": noHandleReason(pid: pid, windowId: windowId)]
+            // THE WINDOW IS NOT ON THE SHOWING DESKTOP, AND THE OWNER ASKED FOR
+            // THAT CASE. "vesper should be able to open and fully manage all
+            // windows in any other desktop if it was requested to do it"
+            // (2026-09-11). The accessibility tree cannot serve it: MEASURED the
+            // same day, it reached 2 windows on the showing Desktop and 0 of 69
+            // on the others.
+            //
+            // SO POSITION FALLS BACK TO THE WINDOW SERVER, AND SIZE DOES NOT.
+            // `CGSMoveWindow` moves a window on any Desktop; there is no
+            // `CGSSetWindowBounds` on this node, and an application owns its own
+            // size, so a resize genuinely cannot be served this way. Reporting a
+            // move as though it had resized would be the success-shaped answer
+            // this tree keeps finding, so the two are answered separately.
+            //
+            // AND THIS IS NOT AN AUTHORITY SHORTCUT. `core/windows.py` decides
+            // WHICH windows may be touched and has already said yes before this
+            // runs; what changes here is only the mechanism, not the permission.
+            // The alternative -- relocating the window onto the showing Desktop
+            // to make the tree answer -- is the move that file refuses outright:
+            // "a rule that can be escaped by relocating the evidence is not a
+            // rule."
+            guard let wid = Int(windowId) else {
+                return ["ok": false, "reason": noHandleReason(pid: pid, windowId: windowId)]
+            }
+            if w != nil || h != nil {
+                return ["ok": false, "off_desktop": true,
+                        "reason": "that window is on another desktop. vesper can "
+                                + "MOVE it there, but resizing goes through the "
+                                + "application and the application only answers "
+                                + "for the desktop that is showing -- bring it "
+                                + "over, or switch to that desktop, and it will "
+                                + "resize"]
+            }
+            guard let x, let y else {
+                return ["ok": false, "reason": noHandleReason(pid: pid, windowId: windowId)]
+            }
+            var out = SpacesHatch.moveWindow(windowId: wid,
+                                            to: CGPoint(x: CGFloat(x), y: CGFloat(y)))
+            out["off_desktop"] = true
+            // THE ROUTE IS REPORTED, because the two paths are not equivalent:
+            // the accessibility path goes THROUGH the application, so the app
+            // knows its window moved; this one reaches past it to the window
+            // server. A caller that cannot tell which happened cannot explain
+            // the difference to the owner when an app redraws oddly.
+            out["route"] = "window-server"
+            return out
         }
         let before = SpaceWatch.onScreen().first { String($0.number) == windowId }
         var codes: [String] = []

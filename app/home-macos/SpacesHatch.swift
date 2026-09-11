@@ -51,13 +51,31 @@ enum SpacesHatch {
     // statement about ONE call, and concluding the whole capability is gone
     // from one experiment is the reasoning this session has already been wrong
     // with twice.
+    // MOVING A WINDOW'S POSITION WITHOUT THE ACCESSIBILITY TREE.
+    //
+    // MEASURED 2026-09-11, and it is the finding that shapes cross-Desktop work:
+    // the accessibility tree reached 2 windows on the showing Desktop and 0 of 69
+    // on the others. So the tree cannot move a window that is not on screen, and
+    // the owner has asked for exactly that -- "vesper should be able to open and
+    // fully manage all windows in any other desktop if it was requested to do
+    // it."
+    //
+    // `CGSMoveWindow` takes a window id and a point. It is the window server's
+    // own call, so it does not care which Space the window is on and nothing has
+    // to be brought over to be touched. `CGSSetWindowBounds` is NOT on this node
+    // (probed the same day), which is why this buys POSITION and not size.
+    private typealias MoveWindow = @convention(c) (Int32, Int32, UnsafePointer<CGPoint>) -> Int32
     private typealias AddWindowsToSpaces = @convention(c) (Int32, CFArray, CFArray) -> Void
     private typealias RemoveWindowsFromSpaces = @convention(c) (Int32, CFArray, CFArray) -> Void
 
     /// Every symbol the hatch needs, named so the alarm can say which is gone.
     static let required = ["CGSMainConnectionID", "CGSCopySpacesForWindows",
                            "CGSMoveWindowsToManagedSpace",
-                           "CGSCopyManagedDisplaySpaces"]
+                           "CGSCopyManagedDisplaySpaces",
+                           // Added 2026-09-11. Not optional: without it a window
+                           // on another Desktop cannot be moved at all, which is
+                           // the thing the owner asked for.
+                           "CGSMoveWindow"]
 
     private static var handles: [UnsafeMutableRawPointer] = {
         frameworks.compactMap { dlopen($0, RTLD_LAZY) }
@@ -246,6 +264,59 @@ enum SpacesHatch {
     /// window is and compare. A move that quietly did nothing and a move that
     /// worked are otherwise indistinguishable -- and after a macOS update the
     /// first becomes the normal case.
+    /// Move a window to a point, on whatever Desktop it is on.
+    ///
+    /// RE-READ, ALWAYS, like `relocate` below and for the same reason: the call
+    /// returns a status about the REQUEST, and "the symbol resolved and the call
+    /// did nothing" has already happened twice in this file's history. The bounds
+    /// are read back afterwards and the caller is told what actually moved.
+    ///
+    /// NOT A SUBSTITUTE FOR THE ACCESSIBILITY PATH ON THE SHOWING DESKTOP. That
+    /// one goes through the application, so the app knows its window moved and
+    /// can lay out accordingly. This reaches past the app to the window server,
+    /// which is why it is the FALLBACK and not the default -- it is the only
+    /// thing that works when the tree cannot see the window at all.
+    static func moveWindow(windowId: Int, to point: CGPoint) -> [String: Any] {
+        guard let cidSym = symbol("CGSMainConnectionID"),
+              let moveSym = symbol("CGSMoveWindow") else {
+            return ["ok": false,
+                    "reason": "this node has no CGSMoveWindow, so a window on "
+                            + "another desktop cannot be moved at all"]
+        }
+        let before = bounds(of: windowId)
+        let cid = unsafeBitCast(cidSym, to: MainConnectionID.self)()
+        let move = unsafeBitCast(moveSym, to: MoveWindow.self)
+        var p = point
+        let err = withUnsafePointer(to: &p) { move(cid, Int32(windowId), $0) }
+        // SETTLE, THEN READ. The window server answers asynchronously; reading
+        // immediately reports the old rectangle and looks like a silent failure.
+        usleep(120_000)
+        let after = bounds(of: windowId)
+        let moved = after != nil && after != before
+        var out: [String: Any] = ["ok": moved, "cgs_error": Int(err)]
+        if let b = after {
+            out["x"] = Int(b.origin.x); out["y"] = Int(b.origin.y)
+            out["w"] = Int(b.size.width); out["h"] = Int(b.size.height)
+        }
+        if !moved {
+            out["reason"] = "CGSMoveWindow returned \(err) and the window's "
+                          + "rectangle did not change"
+        }
+        return out
+    }
+
+    /// Where the window server says a window is. Works off the showing Desktop.
+    static func bounds(of windowId: Int) -> CGRect? {
+        guard let info = CGWindowListCopyWindowInfo(
+                [.optionIncludingWindow], CGWindowID(windowId)) as? [[String: Any]],
+              let first = info.first,
+              let d = first["kCGWindowBounds"] as? [String: Any],
+              let x = d["X"] as? CGFloat, let y = d["Y"] as? CGFloat,
+              let w = d["Width"] as? CGFloat, let h = d["Height"] as? CGFloat
+        else { return nil }
+        return CGRect(x: x, y: y, width: w, height: h)
+    }
+
     static func relocate(windowId: Int, to space: UInt64,
                          probing: Bool = false) -> [String: Any] {
         // THE PROBE MUST NOT ASK THE ALARM THAT CALLS THE PROBE. `effective()`

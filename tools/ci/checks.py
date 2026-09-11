@@ -25386,6 +25386,158 @@ def check_a_permission_reader_never_asks() -> Result:
            f"warning is present")
     return r
 
+
+# --------------------------------------------------------------------------
+# A WINDOW ON ANOTHER DESKTOP — WHAT CAN BE SERVED, AND WHAT MUST STILL REFUSE
+#
+# Owner, 2026-09-11: "vesper should be able to open and fully manage all windows
+# in any other desktop if it was requested to do it."
+#
+# MEASURED THE SAME DAY, from inside the bundle with the grant present: the
+# accessibility tree reached 2 windows on the showing Desktop and 0 of 69 on the
+# others. The limit is real. What is NOT limited is position -- `CGSMoveWindow`
+# is the window server's own call and does not care which Desktop a window is on.
+#
+# SO THE EFFECTS SPLIT, AND THE SPLIT IS THE ASSERTION. Move goes through; resize
+# refuses because `CGSSetWindowBounds` is absent from this node and an application
+# owns its own size. A check that let resize through would be asserting a
+# capability the platform does not have, and the owner would be told "done".
+# --------------------------------------------------------------------------
+def check_a_window_elsewhere_is_moved_not_resized() -> Result:
+    r = Result("a-window-elsewhere-is-moved-not-resized")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    from core import capabilities as C, windows as W
+
+    hatch = REPO / "app" / "home-macos" / "SpacesHatch.swift"
+    bridge = REPO / "app" / "home-macos" / "WindowBridge.swift"
+    for f in (hatch, bridge):
+        if not f.is_file():
+            r.err(f"{f.name} is missing")
+            return r
+    hsrc, bsrc = hatch.read_text(encoding="utf-8"), bridge.read_text(encoding="utf-8")
+
+    # 1. THE SYMBOL IS REQUIRED, NOT OPTIONAL. Without it a window on another
+    #    Desktop cannot be moved at all, and the alarm has to say which symbol
+    #    is gone rather than reporting a generic failure.
+    # THE EXACT TOKEN, WITH ITS QUOTES. `"CGSMoveWindow" in hsrc` passed under
+    # its own violation because `"CGSMoveWindowsToManagedSpace"` -- a different
+    # symbol that has been in this file for days -- CONTAINS it. A substring test
+    # for one identifier is satisfied by any longer identifier that starts with
+    # it, which is the sixth variation of this trap in one session.
+    import re as _re
+    if not _re.search(r'"CGSMoveWindow"', hsrc):
+        r.err("SpacesHatch has no CGSMoveWindow, so nothing can move a window "
+              "that is not on the showing desktop")
+    m = _re.search(r"static let required = \[(.*?)\]", hsrc, _re.S)
+    if m is None or not _re.search(r'"CGSMoveWindow"', m.group(1)):
+        r.err("CGSMoveWindow is not in the hatch's `required` list, so the alarm "
+              "stays green on a node that cannot serve the owner's request")
+
+    # 2. IT RE-READS RATHER THAN TRUSTING THE RETURN. This file's own history has
+    #    "the symbol resolved and the call did nothing" twice over.
+    mv = hsrc[hsrc.index("static func moveWindow("):] if "static func moveWindow(" in hsrc else ""
+    if not mv:
+        r.err("SpacesHatch.moveWindow is gone")
+    else:
+        mv = mv[:mv.index("\n    static func ", 1)] if "\n    static func " in mv[1:] else mv
+        if "bounds(of: windowId)" not in mv:
+            r.err("moveWindow does not read the window's rectangle back, so a "
+                  "call that returned success and moved nothing reports success")
+        if "usleep" not in mv:
+            r.err("moveWindow reads the rectangle without letting the window "
+                  "server settle, so it reports the OLD rectangle and a real "
+                  "move looks like a silent failure")
+
+    # 3. THE BRIDGE SERVES A MOVE OFF-DESKTOP AND REFUSES A RESIZE.
+    if "off_desktop" not in bsrc:
+        r.err("WindowBridge never distinguishes an off-desktop window, so it "
+              "either refuses every one or attempts every one")
+    if '"route"' not in bsrc:
+        r.err("the bridge does not report WHICH route it took. The window-server "
+              "path reaches past the application, so the app does not know its "
+              "window moved -- an owner told only 'done' cannot explain a window "
+              "that redraws oddly")
+    geo = bsrc[bsrc.index("static func geometry("):]
+    geo = geo[:geo.index("\n    static func ", 1)]
+    if "w != nil || h != nil" not in geo:
+        r.err("the bridge does not separate a resize from a move on a window it "
+              "cannot reach, so it claims a resize the platform cannot perform")
+
+    # 4. AND THE PYTHON SIDE AGREES, DRIVEN RATHER THAN READ.
+    #
+    #    THE INVENTORY IS SUBSTITUTED TOO, AND THE FIRST VERSION FORGOT IT: the
+    #    act path looks the window up and raised "window 77 does not exist on any
+    #    desktop", so the drive was skipped and this check fell back to reading
+    #    source. It said so in a note rather than hiding it -- but a check that
+    #    reports its own subject as unreachable is a grep with a disclaimer, and
+    #    the whole point here is that the MOVE branch executes and the RESIZE
+    #    branch does not.
+    calls = []
+    real_bridge, real_inv, real_log = C._window_bridge, C._inventory, C._log_touch
+    elsewhere = W.Window(window_id="77", pid=4242, app_label="Example",
+                         desktop_id="desktop-elsewhere",
+                         provenance=W.VESPER_OPENED, title="",
+                         meta={"on_active_desktop": False})
+    try:
+        C._window_bridge = lambda *a, **k: (calls.append(a) or
+                                            {"ok": True, "x": 10, "y": 20,
+                                             "route": "window-server"})
+        C._inventory = lambda: ([elsewhere], "desktop-vespers")
+        C._log_touch = lambda *a, **k: None
+
+        calls.clear()
+        moved = C._act(W.MOVE, {"window_id": "77", "x": 10, "y": 20},
+                       "--window-act", "move")
+        move_reached = bool(calls)
+
+        calls.clear()
+        resized = C._act(W.RESIZE, {"window_id": "77", "w": 10, "h": 20},
+                         "--window-act", "resize")
+        resize_reached = bool(calls)
+    finally:
+        C._window_bridge, C._inventory, C._log_touch = real_bridge, real_inv, real_log
+
+    if not move_reached:
+        r.err("a MOVE on a window on another desktop never reaches the bridge, "
+              "so the owner's request -- 'fully manage all windows in any other "
+              "desktop' -- is refused on a mechanism that exists")
+    if not moved.get("ok"):
+        r.err(f"an off-desktop move is reported as a failure: {moved.get('reason')!r}")
+    if "another desktop" not in str(moved.get("note") or ""):
+        r.err("an off-desktop move does not say it went through the window "
+              "server rather than the application")
+    if resize_reached:
+        r.err("a RESIZE on a window on another desktop is attempted. There is no "
+              "CGSSetWindowBounds on this node and an application owns its own "
+              "size, so this reports done for something that cannot happen -- "
+              "exactly what the owner was told on 2026-09-09")
+    if resized.get("ok"):
+        r.err("an off-desktop resize is reported as a success")
+    if "MOVE" not in str(resized.get("reason") or "").upper():
+        r.err("the resize refusal does not tell the owner that a move WOULD "
+              "work, which is the one thing they can act on")
+
+    src = (REPO / "core" / "capabilities.py").read_text(encoding="utf-8")
+    act = src[src.index("def _act("):]
+    act = act[:act.index("\ndef ", 1)]
+    if "_move_only" not in act:
+        r.err("core/capabilities._act no longer separates a move from the other "
+              "effects on an off-desktop window, so either every effect is "
+              "attempted or the owner's request is refused entirely")
+    if "W.MOVE" not in act:
+        r.err("the off-desktop branch is not keyed on the MOVE effect")
+    # THE REFUSAL MUST STILL EXIST. Without this the assertions above are
+    # satisfied by a build that attempts everything and reports success.
+    if "refused_by" not in act or "unreachable" not in act:
+        r.err("the off-desktop refusal is gone entirely: a resize on a window "
+              "the platform cannot reach would be attempted and reported done, "
+              "which is what the owner was told on 2026-09-09")
+    r.note("CGSMoveWindow is required and re-read after a settle; the bridge "
+           "separates move from resize off-desktop and names the route; the act "
+           "path keys the exception on MOVE and still refuses the rest")
+    return r
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -25429,6 +25581,7 @@ CHECK_FNS = {
     "enable-token-presented-once-per-mint": check_enable_token_presented_once_per_mint,
     "a-due-item-is-spoken-not-merely-noticed": check_a_due_item_is_spoken_not_merely_noticed,
     "a-failure-is-something-the-next-step-can-see": check_a_failure_is_something_the_next_step_can_see,
+    "a-window-elsewhere-is-moved-not-resized": check_a_window_elsewhere_is_moved_not_resized,
     "a-permission-reader-never-asks": check_a_permission_reader_never_asks,
     "a-flag-outlives-the-process-that-raised-it": check_a_flag_outlives_the_process_that_raised_it,
     "a-screen-never-lifts-its-own-ceiling": check_a_screen_never_lifts_its_own_ceiling,

@@ -7113,6 +7113,46 @@ CASES += [
 ]
 
 
+HATCH_SWIFT = "app/home-macos/SpacesHatch.swift"
+WBRIDGE_SWIFT = "app/home-macos/WindowBridge.swift"
+
+CASES += [
+    ("a-window-elsewhere-is-moved-not-resized", CAPS_PY,
+     _sub("    if _off_desktop and _move_only:", "    if False:", 1),
+     "a window on another desktop is refused again for every effect, including "
+     "the move the window server can serve -- the owner asked for exactly this "
+     "case and CGSMoveWindow does not care which desktop a window is on"),
+
+    ("a-window-elsewhere-is-moved-not-resized", CAPS_PY,
+     _sub("    _move_only = effect == W.MOVE", "    _move_only = True", 1),
+     "a RESIZE on a window vesper cannot reach is attempted and reported done: "
+     "there is no CGSSetWindowBounds on this node and an application owns its "
+     "own size, so this is the success-shaped answer the owner got on 2026-09-09"),
+
+    ("a-window-elsewhere-is-moved-not-resized", CAPS_PY,
+     _sub('            out.setdefault("note", "moved from the window server rather than "',
+          '            out.setdefault("_note", "moved from the window server rather than "', 1),
+     "an off-desktop move stops saying it reached past the application, so an "
+     "owner whose window redraws oddly afterwards has no way to know why"),
+
+    ("a-window-elsewhere-is-moved-not-resized", HATCH_SWIFT,
+     _sub("        usleep(120_000)\n        let after = bounds(of: windowId)",
+          "        let after = bounds(of: windowId)", 1),
+     "moveWindow reads the rectangle before the window server has settled, so it "
+     "reports the OLD one and every real move looks like a silent failure"),
+
+    ("a-window-elsewhere-is-moved-not-resized", HATCH_SWIFT,
+     _sub('                           "CGSMoveWindow"]', "                           ]", 1),
+     "CGSMoveWindow leaves the required list, so the hatch's alarm stays green "
+     "on a node that cannot serve the owner's request at all"),
+
+    ("a-window-elsewhere-is-moved-not-resized", WBRIDGE_SWIFT,
+     _sub("            if w != nil || h != nil {", "            if false {", 1),
+     "the bridge stops separating a resize from a move on a window it cannot "
+     "reach, so it claims a resize the platform cannot perform"),
+]
+
+
 GRANTS_SWIFT = "app/home-macos/Grants.swift"
 
 CASES += [
