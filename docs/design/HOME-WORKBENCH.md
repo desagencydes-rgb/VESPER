@@ -4121,9 +4121,35 @@ Two honest options:
    moves rungs, THAT is what should be narrated, and the announcer should
    subscribe to it instead.
 
-Option 2 is better if the event exists. **Whether it exists has not been checked**,
-and writing this down without checking is how the first version of this fix would
-have gone wrong.
+**CHECKED, 2026-09-11, AND THE FIRST ANSWER WAS WRONG.** `core/router.py:556`
+publishes `route.selected`, which looks exactly like the descent event this wants.
+IT IS NOT. Its payload carries `profile_id`, `tier` and `difficulty` -- that is the
+LOCAL MODEL PROFILE ladder from SPIKE-001, a different ladder with the same shape.
+The cloud provider ladder in `core/gateway.py` publishes `gateway.attempt`,
+`gateway.unrouted`, `gateway.no_provider_for_profile`, `gateway.redacted` and
+`gateway.provider_availability_changed` -- **and nothing at all when it moves from
+one rung to the next.**
+
+So option 2 is unavailable today, and the reason is worth keeping: two ladders in
+one system, one of which narrates its descent and one of which does not, and the
+one with the event is not the one being narrated. Reaching for `route.selected`
+here would have produced a sentence about a local tier while a cloud rung failed.
+
+**BUT THE DESCENT POINT EXISTS IN THE CODE.** `gateway.py:984` is
+`for p in providers:` with `for i in range(max_attempts_per_provider):` inside it.
+When the inner loop gives up, the outer loop moves on -- that IS the descent, it
+simply says nothing.
+
+**AND THE EVENT MUST BE PUBLISHED ON ARRIVAL, NOT ON DEPARTURE.** The tempting
+place is where a provider is abandoned, naming the next entry in `providers`. That
+would be wrong for the same reason the constant is wrong: the next entry has its
+own skip filters (three `continue`s at 991, 1030, 1041 -- cost class, availability,
+credentials) and may never be called at all. A rung named at departure is a
+PREDICTION.
+
+So: publish at the top of the successor's iteration, AFTER its skips pass,
+carrying `from_provider` and `to_provider`. That is a fact about something that
+already happened, which is the only kind of thing narration may state.
 
 ### AN OWNER DECISION IS INSIDE THIS ONE
 
