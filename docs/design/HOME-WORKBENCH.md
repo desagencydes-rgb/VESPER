@@ -1494,7 +1494,7 @@ been driven against the running surface.**
 | 17 | **Apps management** (§11.3) | 🟡 **PARTIAL** 2026-09-10 (§17) — the permission instrument (five states, **no dialog**, measured 30–79 ms), `app.query` with a closed verb set, `core/apps.py` branching on a class and never a program, and a refusal that reaches the owner's sentence **and** the flag bar with its reason. 4 checks, 11 red runs, driven end to end. **The verbs that CHANGE an application are not built** — `verified_local` provenance means they land with the grant trip that measures them, and so does `execution_class` |
 | 18 | **Notes, in full** (§11.4) | 🟡 **READ AND WRITE DONE** 2026-09-11 (§18, §23) — bodies read as PLAIN TEXT and inert (`CI-131` narrowed); create, rewrite and remove all DRIVEN against real Notes and **proved by re-reading the world**, because the first versions returned success having destroyed the note and having left it in place. A rewrite keeps the title; removal needs vesper's own record; the undo is lossless. **Share across accounts and lock/unlock still owed.** `an-application-write-is-proved-and-undoable`, 8 red runs |
 | 19 | **UI view + clicking** (§11.5) | 🟡 **BUILT, AWAITING THE GRANT TO PROVE** 2026-09-11 (§19, §24) — `UIBridge` reads a window's elements and presses, focuses, types into and scrolls them. An element is **corroborated by role AND label**, not located by position, because interfaces relayout. A press is destructive and its compensator **refuses to pretend otherwise**; a scroll admits it is unverified; typing is read back. The taint seam holds by NAME (`ui.view`). **Refusal paths driven; the acts need Accessibility + Screen Recording.** Script injection deliberately NOT in scope — see §24. `an-interface-element-is-corroborated-before-it-is-touched`, 8 red runs |
-| 19a | **The flag bar, as the owner wants it** (§21) | 🔜 **QUEUED LAST** 2026-09-11, owner-specified — wide (up to the main menu's width, never past it), **titles not icons**, every live flag shown, hover for the full text, VESPER's own type. Clicking opens the **history**: timestamps, fixed or not, and a way to ask VESPER to fix one that is real. **Do this after everything above is finished** |
+| 19a | **The flag bar, as the owner wants it** (§21) | ✅ **DONE** 2026-09-11 — wide (capped at the main menu's **measured** width, read from the menu's own rectangle), **titles not icons**, every live flag (the cap of 8 silently dropped the oldest), hover for the full text, VESPER's own type. Clicking opens the **history**: timestamps, three states (open / resolved / **carried-unproven**), and a button that **asks** rather than acts. Verified by DRIVING the real renderer in a DOM stub — 9 of 9 chips, width 742px, 3 states, 2 fix buttons. `the-flag-bar-is-what-the-owner-asked-for`, 7 red runs |
 | — | ⏸ **DISCUSS BEFORE BUILDING** | the owner stops the run here, 2026-09-08 |
 | 20 | **Settings interface** (§11.6) | the rail's `settings` button; **35 items already routed** in `spec_raw.txt` |
 | 21 | **`projects` and `research` rail buttons** (§11.7) | the other two rail destinations |
@@ -3564,3 +3564,73 @@ grant is even consulted** — so the closed set holds on a granted machine too.
 **Not proved:** the acts themselves. They need Accessibility, and **every build
 revokes it** — measured again 2026-09-11, only the Apple Events grant survives a
 rebuild. The verification is one command after the last build.
+
+
+---
+
+## 21a. THE FLAG BAR AS BUILT — AND HOW IT WAS PROVED WITHOUT A BROWSER
+
+Every item in §21 landed. The interesting part is the **verification**, because
+each requirement is a property of what the renderer *produces*, and reading the
+source for those is the substring assertion that went vacuous nine separate times
+in this one session.
+
+### THE PREVIEW PANE REFUSES SCRIPTS, SO THE RENDERER IS DRIVEN IN A DOM STUB
+
+`file://` pages load in the pane as static snapshots under a CSP that blocks
+scripts, so the bar could not be *looked at*. `MEMORY.md` already records the
+answer for that class of problem — verify web instruments with a Node DOM stub —
+and `tools/ci/js/flagbar_dom.js` pulls `__vesperFlags` and `__vesperFlagHistory`
+**out of the real page** and executes them.
+
+The stub is deliberately minimal so a renderer reaching for something it does not
+implement **fails loudly** rather than being quietly satisfied. It caught its own
+first version immediately: the stub started the history panel visible while the
+real markup carries `hidden`, so the first click *toggled it closed* and every
+assertion measured an empty panel. The page was right; the stub was modelling a
+state the page never has.
+
+### WHAT THE DRIVE MEASURES
+
+| requirement | measured |
+|---|---|
+| all live flags | **9 of 9 chips** — the old cap of 8 dropped the ninth |
+| titles, no icons | every chip carries trimmed text |
+| not wider than the main menu | `--flagbar-max` = **742px**, read from `.dockrow`'s own rectangle |
+| full flag on hover | the tooltip carries the whole sentence |
+| click for history | 3 rows, each with a timestamp |
+| fixed or not | **three** states: `open`, `resolved`, `carried` |
+| ask vesper to fix it | **2** buttons (never on a resolved row), posting a turn |
+
+### THE WIDTH IS MEASURED, NOT COPIED
+
+`.dockrow` is `left:0;right:0` and centres its content, so the main menu's width
+is a **layout fact** and not a number in a stylesheet. Copying a figure by eye is
+the defect `MEMORY.md` opens by warning about — the island's "320k assertions"
+column was wrong for weeks because a number travelled without its source. So the
+bar reads the menu's rectangle every render, and **disbelieves a measurement below
+120px**, because a menu that has not laid out yet measures 0 and capping the bar
+at 0 would hide every flag while reporting none of that.
+
+### "ASK VESPER TO FIX IT" SENDS A QUESTION, NOT A COMMAND
+
+The button posts a **turn** through `vesperSay` — the same channel a typed message
+uses — so the request climbs the authorization ladder like anything else. A button
+that dispatched the fix directly would be a path where **text VESPER read off a
+failing thing reaches an action with no ladder in front of it**, and flag text is
+written by whatever failed: an application, a web page, a document name. One of
+the seven red runs is exactly that mutation.
+
+### THE THIRD STATE IS THE ONE WITH A CHOICE IN IT
+
+`open` is live. `resolved` stopped being true and the row says when. **`carried` /
+`unproven`** was raised by a process that no longer exists and has **not been
+re-proved** — neither fixed nor confirmed broken. Collapsing it into either answer
+would assert something no measurement supports, which is `INV-HW-2`'s rule applied
+to a surface.
+
+### ORDERED BY SEQUENCE, PRINTED BY CLOCK
+
+`INV-COORD-4` refuses a sort keyed on wall time and `CI-005` enforces it. The
+history is ordered as rows were appended; `at_s` exists so the owner can read a
+time, which is **presentation** and belongs to whoever renders it.

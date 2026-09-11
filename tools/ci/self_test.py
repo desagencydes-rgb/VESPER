@@ -7380,6 +7380,55 @@ CASES += [
 
 APPS_SWIFT = "app/home-macos/AppsBridge.swift"
 APPS_PY = "core/apps.py"
+HOMESTATE_MOD = "core/home_state.py"
+
+CASES += [
+    ("the-flag-bar-is-what-the-owner-asked-for", HOME_HTML,
+     _sub("           max-width:var(--flagbar-max,560px);\n", "", 1),
+     "the bar loses its width cap entirely, so 'it can be very big, just not "
+     "bigger than the main menu' is unenforced and a long flag list runs past the "
+     "menu it sits above"),
+
+    ("the-flag-bar-is-what-the-owner-asked-for", HOME_HTML,
+     _sub("        if (w > 120) document.documentElement.style.setProperty('--flagbar-max', w + 'px');",
+          "        if (false) document.documentElement.style.setProperty('--flagbar-max', w + 'px');", 1),
+     "the width stops being measured from the main menu and falls back to a "
+     "number in the stylesheet -- a figure copied by eye rather than read from "
+     "where the menu reads it"),
+
+    ("the-flag-bar-is-what-the-owner-asked-for", HOME_HTML,
+     _sub("        b.textContent = String(f.title || f.text).split(/[:.\\u2014]/)[0].trim().slice(0, 48);\n", "", 1),
+     "the chips lose their titles and go back to being anonymous squares: the "
+     "owner asked for titles, no icons, and a square says something is wrong "
+     "without saying which thing"),
+
+    ("the-flag-bar-is-what-the-owner-asked-for", HOME_HTML,
+     _sub("      host.onclick = function () { window.__vesperFlagHistory(); };\n", "", 1),
+     "clicking the bar no longer opens the history, so the timestamps, the "
+     "fixed-or-not state and the way to ask vesper to fix something are all "
+     "unreachable"),
+
+    ("the-flag-bar-is-what-the-owner-asked-for", HOME_HTML,
+     _sub("        if (row.state !== 'resolved') {", "        if (false) {", 1),
+     "no row offers to ask vesper to fix it, so the owner can read that something "
+     "is wrong and has no way to act on it from where they read it"),
+
+    ("the-flag-bar-is-what-the-owner-asked-for", HOME_HTML,
+     _sub("""              window.webkit.messageHandlers.vesperSay.postMessage(
+                'about this flag, is it a real problem and can you fix it: ' + row.text);""",
+          """              window.__vesperFixNow && window.__vesperFixNow(row.id);""", 1),
+     "the fix button stops sending a TURN and calls something directly, which is "
+     "a path where text vesper read off a failing thing reaches an action with no "
+     "authorization ladder in front of it"),
+
+    ("the-flag-bar-is-what-the-owner-asked-for", HOMESTATE_MOD,
+     _sub("HISTORY_BAR_CAP = 64", "HISTORY_BAR_CAP = 8", 1),
+     "the bar goes back to holding eight flags and silently dropping the oldest, "
+     "which is a surface whose job is to keep calling for action quietly "
+     "forgetting the earliest call"),
+]
+
+
 UI_SWIFT = "app/home-macos/UIBridge.swift"
 
 CASES += [

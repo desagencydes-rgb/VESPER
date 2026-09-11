@@ -25953,6 +25953,109 @@ def check_an_interface_element_is_corroborated_before_it_is_touched() -> Result:
            f"{lv['type']}/{lv['press']} split by what can be undone")
     return r
 
+
+# --------------------------------------------------------------------------
+# §21 — THE FLAG BAR THE OWNER ASKED FOR, DRIVEN RATHER THAN READ
+#
+# Owner, 2026-09-11, verbatim: "i want the width to be bigger, it can be very
+# big, just not bigger than the main menu, and make sure it can show all live
+# flags there, titles no icons, on hover shows the actual full flag, with our
+# fonts, and when i click the bar, i can see the full history with timestamps,
+# and whether it's fixed or not, and to ask vesper to fix it if it's a real issue
+# that needs fixing."
+#
+# EVERY ONE OF THOSE IS A PROPERTY OF WHAT THE RENDERER PRODUCES, not of what its
+# source contains -- nine flags shown rather than eight, a chip that carries
+# words, a width taken from the menu's own rectangle, three states, a button that
+# ASKS. Reading the source for them is the substring assertion that has gone
+# vacuous a dozen times in this tree tonight alone. So the real functions are
+# pulled out of the real page and executed against a DOM stub.
+# --------------------------------------------------------------------------
+FLAGBAR_DOM = REPO / "tools" / "ci" / "js" / "flagbar_dom.js"
+
+
+def check_the_flag_bar_is_what_the_owner_asked_for() -> Result:
+    r = Result("the-flag-bar-is-what-the-owner-asked-for")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    page = REPO / "app" / "home-macos" / "chrome" / "home.html"
+    if not page.is_file():
+        r.err("the home page is missing")
+        return r
+    if not FLAGBAR_DOM.is_file():
+        r.err(f"{FLAGBAR_DOM.relative_to(REPO).as_posix()} is missing, so the "
+              f"renderer is asserted about rather than driven")
+        return r
+
+    import shutil as _sh
+    import subprocess as _sp
+    node = _sh.which("node")
+    if node is None:
+        # ERRORED, NOT SKIPPED. A check that quietly passes when its instrument is
+        # absent is the "alive and useless" shape `MEMORY.md` records six ways of.
+        r.err("node is not on PATH, so the flag bar's renderer cannot be driven. "
+              "This is reported rather than skipped: a green check whose "
+              "instrument did not run is worse than a red one")
+        return r
+    out = _sp.run([node, str(FLAGBAR_DOM), str(page)],
+                  capture_output=True, text=True, cwd=str(REPO), timeout=60)
+    tail = (out.stdout or "").strip().splitlines()
+    if out.returncode != 0:
+        for line in tail or [(out.stderr or "").strip()[:400]]:
+            r.err(f"flag bar: {line.strip()}")
+        return r
+    for line in tail[1:]:
+        r.note(line.strip())
+
+    # AND THE BAR MUST ACTUALLY HOLD THEM ALL, which the renderer cannot show
+    # because it draws whatever it is handed. The cap that dropped the oldest
+    # lives in `HomeState`, so it is driven there: the owner asked to "show all
+    # live flags", and a surface whose job is to keep calling for action, quietly
+    # forgetting the earliest call, is worse than one that scrolls.
+    import tempfile as _tf
+    from core.home_state import HomeState
+    with _tf.TemporaryDirectory() as _d:
+        hs = HomeState(path=Path(_d) / "home.json")
+        for i in range(12):
+            hs.raise_flag(f"probe:{i}", f"problem number {i}")
+        held = json.loads((Path(_d) / "home.json").read_text(encoding="utf-8")).get("flags") or []
+        if len(held) < 12:
+            r.err(f"the bar holds {len(held)} of 12 raised flags and silently "
+                  f"dropped the rest. The owner asked for ALL live flags, and the "
+                  f"ones it forgets are the OLDEST -- the calls for action that "
+                  f"have been waiting longest")
+        hist = hs.flag_history()
+        if len(hist) < 12:
+            r.err(f"the history kept {len(hist)} of 12, so 'the full history' is "
+                  f"not full")
+
+    # AND THE OWNER'S TWO NON-BEHAVIOURAL REQUIREMENTS, which a DOM stub cannot
+    # see because they are about how it LOOKS rather than what it produces.
+    css = page.read_text(encoding="utf-8")
+    if "--flagbar-max" not in css:
+        r.err("the bar has no width cap at all, so 'not bigger than the main "
+              "menu' is unenforced")
+    if "max-width:var(--flagbar-max" not in css.replace(" ", ""):
+        r.err("the measured cap is not applied as the bar's max-width")
+    # OUR FONTS, NOT THE BROWSER'S. `--face-mono` is the face the commands and
+    # changes cards already use, so the bar reads as part of the surface.
+    bar_css = css[css.index(".flagbar button{"):]
+    bar_css = bar_css[:bar_css.index("}")]
+    if "--face-mono" not in bar_css:
+        r.err("the flag chips do not use VESPER's own type, so the bar renders in "
+              "whatever the webview defaults to")
+    hist_css = css[css.index(".flaghist{"):]
+    hist_css = hist_css[:hist_css.index("}")]
+    if "--face-mono" not in hist_css:
+        r.err("the history panel does not use VESPER's own type")
+    # AND IT MUST STILL HIDE WHEN THERE IS NOTHING TO SAY. A permanent strip
+    # trains the eye to skip the place a flag appears -- the reason the bar was
+    # built hidden in the first place, and widening it makes that worse not better.
+    if "bar.hidden = true" not in css:
+        r.err("the bar no longer hides when empty, and a wide empty strip is "
+              "worse than a small one: it trains the eye to skip it")
+    return r
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -25996,6 +26099,7 @@ CHECK_FNS = {
     "enable-token-presented-once-per-mint": check_enable_token_presented_once_per_mint,
     "a-due-item-is-spoken-not-merely-noticed": check_a_due_item_is_spoken_not_merely_noticed,
     "a-failure-is-something-the-next-step-can-see": check_a_failure_is_something_the_next_step_can_see,
+    "the-flag-bar-is-what-the-owner-asked-for": check_the_flag_bar_is_what_the_owner_asked_for,
     "an-interface-element-is-corroborated-before-it-is-touched": check_an_interface_element_is_corroborated_before_it_is_touched,
     "an-application-write-is-proved-and-undoable": check_an_application_write_is_proved_and_undoable,
     "a-new-window-is-located-before-it-is-judged": check_a_new_window_is_located_before_it_is_judged,

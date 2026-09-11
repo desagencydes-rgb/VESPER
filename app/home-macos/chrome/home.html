@@ -336,19 +336,70 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
      an indicator, not a panel, and it is HIDDEN ENTIRELY when there is nothing
      to say -- a permanent empty strip trains the eye to skip the place a flag
      will appear. */
+  /* §21, THE OWNER'S OWN SPECIFICATION, 2026-09-11: "i want the width to be
+     bigger, it can be very big, just not bigger than the main menu ... titles no
+     icons, on hover shows the actual full flag, with our fonts, and when i click
+     the bar, i can see the full history with timestamps".
+
+     THE WIDTH CAP IS MEASURED FROM THE MENU AND NOT WRITTEN HERE. `.dockrow` is
+     `left:0;right:0` and centres its content, so the main menu's real width is a
+     LAYOUT FACT, not a number in a stylesheet. `--flagbar-max` is set at runtime
+     from the menu's own rectangle -- reading it from where the menu reads it,
+     rather than copying a figure by eye, which is the defect `MEMORY.md` opens by
+     warning about. The fallback stands in only before the first measurement. */
   .flagbar{position:absolute;left:0;right:0;bottom:92px;display:flex;
            justify-content:center;pointer-events:none;z-index:3}
-  .flagbar .flags{display:flex;align-items:center;gap:6px;padding:5px 9px;
-           border-radius:12px;pointer-events:auto;
+  .flagbar .flags{display:flex;align-items:center;gap:7px;padding:6px 10px;
+           border-radius:13px;pointer-events:auto;cursor:pointer;
+           max-width:var(--flagbar-max,560px);
+           overflow-x:auto;scrollbar-width:none;
            background:rgba(22,19,17,.62);border:1px solid rgba(255,255,255,.08);
            backdrop-filter:blur(14px) saturate(1.1)}
-  .flagbar button{width:16px;height:16px;padding:0;border:0;border-radius:5px;
-           background:rgba(185,102,69,.9);cursor:pointer;flex:0 0 auto}
+  .flagbar .flags::-webkit-scrollbar{display:none}
+  /* TITLES, NOT ICONS. A 16px square told the owner something was wrong and
+     nothing about what; a title says which thing without a hover. VESPER's own
+     type -- `--face-mono` is the same face the commands and changes cards use,
+     so the bar reads as part of the surface rather than as a browser default. */
+  .flagbar button{padding:3px 9px;border:0;border-radius:8px;flex:0 0 auto;
+           font-family:var(--face-mono);font-size:10.5px;letter-spacing:.02em;
+           max-width:220px;overflow:hidden;text-overflow:ellipsis;
+           white-space:nowrap;
+           background:rgba(185,102,69,.9);color:rgba(28,22,19,.96);
+           cursor:pointer}
   .flagbar button:hover,.flagbar button:focus-visible{background:rgba(206,120,84,1)}
   /* CARRIED, NOT CURRENT: hollow rather than filled, so the bar distinguishes
      a problem something just hit from one inherited from a dead process. */
-  .flagbar button.carried{background:transparent;
+  .flagbar button.carried{background:transparent;color:rgba(206,120,84,.95);
     box-shadow:inset 0 0 0 1.5px rgba(206,120,84,.85)}
+  /* THE HISTORY PANEL. Opened by clicking the bar, which is what the owner
+     asked for, and closed by clicking away or pressing Escape. */
+  .flaghist{position:absolute;left:50%;transform:translateX(-50%);
+           bottom:124px;width:min(var(--flagbar-max,560px),92vw);
+           max-height:46vh;overflow-y:auto;z-index:6;pointer-events:auto;
+           border-radius:14px;padding:10px 12px;
+           background:rgba(18,15,13,.92);border:1px solid rgba(255,255,255,.10);
+           backdrop-filter:blur(18px) saturate(1.1);
+           font-family:var(--face-mono);font-size:11px;
+           color:rgba(244,214,178,.86)}
+  .flaghist[hidden]{display:none!important}
+  .flaghist h4{margin:0 0 8px;font-size:10.5px;letter-spacing:.10em;
+           text-transform:uppercase;color:rgba(244,214,178,.55)}
+  .fh-row{display:grid;grid-template-columns:64px 1fr auto;gap:8px;
+           align-items:start;padding:6px 0;
+           border-top:1px solid rgba(255,255,255,.06)}
+  .fh-when{color:rgba(244,214,178,.45);font-size:10px;white-space:nowrap}
+  .fh-what{min-width:0;word-break:break-word;line-height:1.35}
+  .fh-state{font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;
+           padding:2px 6px;border-radius:6px;white-space:nowrap}
+  .fh-open{background:rgba(185,102,69,.85);color:rgba(28,22,19,.96)}
+  .fh-resolved{background:rgba(120,160,120,.35);color:rgba(230,244,225,.9)}
+  .fh-carried,.fh-unproven{background:transparent;
+           box-shadow:inset 0 0 0 1px rgba(206,120,84,.7);
+           color:rgba(206,120,84,.95)}
+  .fh-fix{margin-top:5px;padding:3px 8px;border:0;border-radius:7px;
+           font-family:var(--face-mono);font-size:10px;cursor:pointer;
+           background:rgba(255,255,255,.10);color:rgba(244,214,178,.85)}
+  .fh-fix:hover{background:rgba(255,255,255,.16)}
   .flag-tip{position:absolute;bottom:calc(100% + 8px);left:50%;
            transform:translateX(-50%);max-width:min(46ch,80vw);
            padding:8px 11px;border-radius:10px;font-size:12px;line-height:1.45;
@@ -827,6 +878,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
 
 <!-- THE FLAG BAR sits above the menu and is deliberately OUTSIDE the codex
      markers below, so the two can be edited without colliding. -->
+<div class="flaghist" id="flaghist" role="dialog" aria-label="Flag history" hidden></div>
 <div class="flagbar" id="flagbar" hidden>
   <div class="flags" id="flags" role="group" aria-label="Flags vesper is raising">
     <div class="flag-tip" id="flag-tip" role="tooltip" hidden></div>
@@ -1826,6 +1878,21 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
       while (host.firstChild && host.firstChild !== tip) host.removeChild(host.firstChild);
       if (!rows.length) { bar.hidden = true; tip.hidden = true; return; }
       bar.hidden = false;
+      // THE WIDTH IS MEASURED FROM THE MAIN MENU, EVERY RENDER.
+      //
+      // The owner's constraint is "not bigger than the main menu", and the menu's
+      // width is its CONTENT's width -- `.dockrow` is left:0;right:0 and centres
+      // what it holds. So it is read from the menu's own rectangle rather than
+      // copied as a number, and re-read each time because the menu's width
+      // changes with the icons in it and with the display.
+      var dock = document.querySelector('.dockrow');
+      if (dock) {
+        var w = Math.round(dock.getBoundingClientRect().width);
+        // A MENU THAT HAS NOT LAID OUT YET MEASURES 0, and capping the bar at 0
+        // would hide every flag while reporting none of that. Below a floor the
+        // measurement is not believed and the fallback stands.
+        if (w > 120) document.documentElement.style.setProperty('--flagbar-max', w + 'px');
+      }
       rows.forEach(function (f) {
         var b = document.createElement('button');
         b.type = 'button';
@@ -1838,6 +1905,11 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
           : f.text;
         if (f.carried) b.classList.add('carried');
         b.setAttribute('aria-label', words);
+        // THE TITLE IS THE FLAG'S OWN FIRST CLAUSE, not a category name. Flag
+        // text is written as a sentence about what is wrong, so its opening reads
+        // as a title already -- inventing a separate short name would be a second
+        // string to keep true.
+        b.textContent = String(f.title || f.text).split(/[:.\u2014]/)[0].trim().slice(0, 48);
         var show = function () { tip.textContent = words; tip.hidden = false; };
         var hide = function () { tip.hidden = true; };
         b.addEventListener('pointerenter', show);
@@ -1846,6 +1918,102 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
         b.addEventListener('blur', hide);
         host.insertBefore(b, tip);
       });
+      // CLICKING THE BAR OPENS THE HISTORY, which is what the owner asked for.
+      // Bound on the CONTAINER rather than on each chip, so a click anywhere on
+      // the bar opens it -- including the gaps, which is where a pointer lands
+      // when the chips are narrow.
+      host.onclick = function () { window.__vesperFlagHistory(); };
+    };
+
+    // ---- the flag history -------------------------------------------------
+    //
+    // THREE STATES, NOT A BOOLEAN, and the third is the one with a choice in it.
+    // `open` is live, `resolved` stopped being true and says when, and
+    // `carried`/`unproven` was raised by a process that is gone and has NOT been
+    // re-proved -- neither fixed nor confirmed broken. Collapsing that into
+    // either answer would assert something no measurement supports.
+    //
+    // "ASK VESPER TO FIX IT" IS A REQUEST, NEVER AN EXECUTION. The button sends a
+    // TURN through the same channel a typed message uses, so the request climbs
+    // the authorization ladder like anything else. A button that dispatched the
+    // fix directly would be a path where text vesper READ off a failing thing
+    // reaches an action with no ladder in front of it -- and flag text is written
+    // by whatever failed, including applications and web pages.
+    window.__vesperFlagHistory = function (json) {
+      var panel = document.getElementById('flaghist');
+      if (!panel) return;
+      if (json !== undefined) { window.__vesperFlagHistData = json; return; }
+      if (!panel.hidden) { panel.hidden = true; return; }
+      var list;
+      try { list = JSON.parse(window.__vesperFlagHistData || '[]'); } catch (e) { list = []; }
+      if (!Array.isArray(list)) list = [];
+      while (panel.firstChild) panel.removeChild(panel.firstChild);
+      var h = document.createElement('h4');
+      h.textContent = list.length ? 'flags — newest last' : 'no flags recorded yet';
+      panel.appendChild(h);
+      list.forEach(function (row) {
+        if (!row || typeof row.text !== 'string') return;
+        var wrap = document.createElement('div');
+        wrap.className = 'fh-row';
+        var when = document.createElement('div');
+        when.className = 'fh-when';
+        // THE CLOCK IS PRESENTATION. The rows are ordered as they were appended;
+        // INV-COORD-4 refuses a sort keyed on wall time, and this only PRINTS it.
+        var t = Number(row.resolved_at_s || row.last_at_s || row.at_s || 0);
+        when.textContent = t ? new Date(t * 1000).toLocaleTimeString([], {
+          hour: '2-digit', minute: '2-digit'}) : '--:--';
+        var what = document.createElement('div');
+        what.className = 'fh-what';
+        var line = document.createElement('div');
+        line.textContent = row.text;
+        what.appendChild(line);
+        if (Number(row.seen || 1) > 1) {
+          var again = document.createElement('div');
+          again.className = 'fh-when';
+          again.textContent = 'seen ' + row.seen + ' times';
+          what.appendChild(again);
+        }
+        if (row.state !== 'resolved') {
+          var fix = document.createElement('button');
+          fix.type = 'button';
+          fix.className = 'fh-fix';
+          fix.textContent = 'ask vesper to fix this';
+          fix.onclick = function (ev) {
+            ev.stopPropagation();
+            try {
+              window.webkit.messageHandlers.vesperSay.postMessage(
+                'about this flag, is it a real problem and can you fix it: ' + row.text);
+              fix.textContent = 'asked';
+              fix.disabled = true;
+            } catch (e) { fix.textContent = 'could not ask'; }
+          };
+          what.appendChild(fix);
+        }
+        var st = document.createElement('div');
+        st.className = 'fh-state fh-' + (row.state || 'open');
+        st.textContent = row.state || 'open';
+        wrap.appendChild(when); wrap.appendChild(what); wrap.appendChild(st);
+        panel.appendChild(wrap);
+      });
+      panel.hidden = false;
+      // CLOSABLE BY ESCAPE AND BY CLICKING AWAY. A panel that only closes by
+      // clicking the thing that opened it is a panel the owner has to remember
+      // how to dismiss, and this one covers the surface it sits on.
+      var away = function (ev) {
+        if (panel.hidden) return;
+        if (panel.contains(ev.target)) return;
+        var bar = document.getElementById('flags');
+        if (bar && bar.contains(ev.target)) return;   // the bar toggles itself
+        panel.hidden = true;
+        document.removeEventListener('pointerdown', away, true);
+      };
+      document.addEventListener('pointerdown', away, true);
+      var esc = function (ev) {
+        if (ev.key !== 'Escape') return;
+        panel.hidden = true;
+        document.removeEventListener('keydown', esc, true);
+      };
+      document.addEventListener('keydown', esc, true);
     };
 
     window.__vesperChanges = function (json) {

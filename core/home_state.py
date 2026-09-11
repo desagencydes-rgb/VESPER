@@ -42,6 +42,16 @@ from pathlib import Path
 from typing import Any
 
 STATE_DIR = Path.home() / "Library" / "Application Support" / "VESPER"
+# HOW MANY FLAGS THE BAR HOLDS.
+#
+# Owner, 2026-09-11: "make sure it can show all live flags there." It was capped
+# at 8, which silently dropped the oldest -- and a surface whose job is to keep
+# calling for action, quietly forgetting the earliest call, is worse than one that
+# scrolls. The cap is now a bound on unbounded growth rather than a display
+# choice: at 64 the bar is a wall of text and something is wrong with the machine,
+# not with the bar.
+HISTORY_BAR_CAP = 64
+
 HOME_JSON = STATE_DIR / "home.json"
 
 # The subset of Behaviour.swift's fourteen that real activity can justify.
@@ -282,6 +292,90 @@ class HomeState:
             self._changes = dict(state or {})
         self.write()
 
+    # THE HISTORY, WHICH IS THE NEW SUBSYSTEM AND NOT THE WIDTH.
+    #
+    # Owner, 2026-09-11: "when i click the bar, i can see the full history with
+    # timestamps, and whether it's fixed or not, and to ask vesper to fix it if
+    # it's a real issue that needs fixing."
+    #
+    # §20 gave flags a life beyond one process. It did not give them a PAST: a
+    # flag that was raised and cleared left nothing behind, so "whether it's
+    # fixed" had no record to answer from.
+    #
+    # ORDERED BY SEQUENCE, DISPLAYED BY CLOCK. `INV-COORD-4` refuses a sort keyed
+    # on wall time and `CI-005` enforces it. The row carries `at_s` because the
+    # owner wants to read a time, and that is PRESENTATION -- the order is the
+    # order rows were appended, which is the only thing that orders them.
+    HISTORY_CAP = 200
+
+    def _history_path(self) -> Path:
+        return self._path.with_name("flag_history.json")
+
+    def _load_history(self) -> list:
+        try:
+            rows = json.loads(self._history_path().read_text(encoding="utf-8"))
+            return [r for r in rows if isinstance(r, dict) and r.get("id")]
+        except Exception:                                 # noqa: BLE001
+            return []
+
+    def _append_history(self, row: dict) -> None:
+        """Add one event, collapsing a repeat of the same open condition.
+
+        WHY COLLAPSED: a condition that fails every ten seconds would otherwise
+        fill the history it is trying to be visible in -- the same argument the
+        bar's own dedup makes, one layer down. A RAISE that repeats an id already
+        open updates its text and its count rather than appending; a RESOLVE
+        always appends, because when something stopped being wrong is the fact
+        the owner is looking for.
+        """
+        rows = self._load_history()
+        if row.get("event") == "raised":
+            for r in reversed(rows):
+                if r.get("id") == row.get("id"):
+                    if r.get("event") == "raised" and not r.get("resolved_at_s"):
+                        r["text"] = row.get("text") or r.get("text")
+                        r["seen"] = int(r.get("seen") or 1) + 1
+                        r["last_at_s"] = row.get("at_s")
+                        self._write_history(rows)
+                        return
+                    break
+        rows.append(row)
+        self._write_history(rows)
+
+    def _write_history(self, rows: list) -> None:
+        try:
+            self._history_path().parent.mkdir(parents=True, exist_ok=True)
+            self._history_path().write_text(
+                json.dumps(rows[-self.HISTORY_CAP:], indent=1), encoding="utf-8")
+        except Exception:                                 # noqa: BLE001
+            pass
+
+    def flag_history(self) -> list:
+        """Every flag event, newest last, with what became of it.
+
+        THREE STATES AND NOT A BOOLEAN. `open` is live. `resolved` stopped being
+        true and the row says when. `carried` was inherited across a restart and
+        has NOT been re-proved -- neither fixed nor confirmed broken. Collapsing
+        that third one into either answer would assert something no measurement
+        supports, which is `INV-HW-2`'s rule applied to a surface.
+        """
+        with self._lock:
+            live = {f.get("id"): f for f in self._flags}
+        out = []
+        for row in self._load_history():
+            fid = row.get("id")
+            if row.get("resolved_at_s"):
+                state = "resolved"
+            elif fid in live:
+                state = "carried" if live[fid].get("carried") else "open"
+            else:
+                # RAISED, NOT RESOLVED, AND NOT ON THE BAR. The process that
+                # raised it is gone and nothing re-raised it, so whether it is
+                # over is unknown -- said rather than guessed either way.
+                state = "unproven"
+            out.append({**row, "state": state})
+        return out
+
     def _load_flags(self) -> list:
         """The previous process's flags, shape-checked rather than trusted.
 
@@ -305,7 +399,7 @@ class HomeState:
                 row["recheck"] = {"capability_id": str(rc["capability_id"]),
                                  "args": dict(rc.get("args") or {})}
             out.append(row)
-        return out[-8:]
+        return out[-HISTORY_BAR_CAP:]
 
     def carried_flags(self) -> list:
         """Flags inherited from the last process and not yet re-proved."""
@@ -346,7 +440,10 @@ class HomeState:
                     "capability_id": str(recheck["capability_id"]),
                     "args": dict(recheck.get("args") or {})}
             self._flags.append(row)
-            del self._flags[:-8]
+            del self._flags[:-HISTORY_BAR_CAP]
+        self._append_history({"id": str(flag_id), "event": "raised",
+                              "text": text[:400], "at_s": int(time.time()),
+                              "seen": 1})
         self.write()
 
     def clear_flag(self, flag_id: str) -> None:
@@ -356,6 +453,16 @@ class HomeState:
             self._flags = [f for f in self._flags if f.get("id") != flag_id]
             changed = len(self._flags) != before
         if changed:
+            # STAMPED ON THE ROW IT RESOLVES, not appended as a second event,
+            # because the owner's question is "is this fixed" about ONE thing --
+            # two rows for one condition is the shape the bar's dedup already
+            # refuses.
+            rows = self._load_history()
+            for row in reversed(rows):
+                if row.get("id") == flag_id and not row.get("resolved_at_s"):
+                    row["resolved_at_s"] = int(time.time())
+                    break
+            self._write_history(rows)
             self.write()
 
     def set_mode(self, mode: str, stage: str, ambience: str) -> None:
@@ -414,6 +521,10 @@ class HomeState:
             # problem that is over, which is the same defect as a face stuck on
             # `thinking` -- and worse here, because a flag is a call to act.
             existing["flags"] = self._flags
+            # THE HISTORY RIDES THE SAME FILE, because the surface polls one file
+            # and a second one would be a second thing to keep in step. Bounded
+            # to what a panel can show: the record on disk keeps more.
+            existing["flag_history"] = self.flag_history()[-60:]
             # ONLY WHEN A MODE HAS BEEN CHOSEN. Writing an empty ambience every
             # tick would tell the home to paint nothing, which is not the same
             # as leaving it alone.
