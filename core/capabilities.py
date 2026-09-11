@@ -1272,6 +1272,50 @@ def window_close_level(args: dict) -> str:
     return "L4" if args.get("provenance") == W.VESPER_OPENED else "L5"
 
 
+def placement_from_where(new_id: str, where: dict) -> dict | None:
+    """What a cross-desktop lookup says about a window vesper just opened.
+
+    `None` means "genuinely on another desktop" -- the only case the stranded
+    warning describes, and the only one it should ever have described.
+
+    EXTRACTED SO IT CAN BE DRIVEN. The verdict used to be three branches inside
+    `window_open`, which reaches the bridge four times before it gets there, so
+    the only way to test it was to read the source. A branch nobody can execute
+    is a branch nobody has checked, and this one was WRONG in front of the owner:
+    it reported a window as unreachable while they were looking at it on vesper's
+    own desktop (2026-09-11, "no it opened in your desktop not another one").
+
+    THE THREE CASES, AND WHY ONE ABSENCE COULD NOT TELL THEM APART. The inventory
+    is `SpaceWatch.onScreen()`, the showing Desktop only. So "not in the list"
+    meant: it exists here and is not listed YET (a cold application appears later
+    than the poll allows), or it exists on another Desktop, or it was never
+    created. All three produced the same sentence.
+    """
+    from core import windows as W       # imported here, like every other user of
+                                       # it in this module, to keep import order
+                                       # the same whichever entry point runs.
+    if not isinstance(where, dict):
+        return None                      # nothing measured; keep the old verdict
+    if where.get("exists") is False:
+        return {"ok": False, "window_id": new_id,
+                "reason": "the application did not put a window on any desktop, "
+                          "so there is nothing to place or claim"}
+    if where.get("exists") and where.get("on_vespers_desktop") is True:
+        return {"ok": True, "window_id": new_id,
+                "provenance": W.classify_opened(by_vesper=True),
+                "landed": "on_vespers_desktop",
+                "line": "opened on my desktop",
+                "app": str(where.get("app") or "an application"),
+                # THE LAG IS NAMED, not hidden. The window is real and correctly
+                # placed; the only thing that was late is the window LIST.
+                "note": "the window server had it before the window list did"}
+    # `on_vespers_desktop` may be absent -- vesper has no ground, or a Space id
+    # could not be read. THAT IS NOT EVIDENCE THE WINDOW IS ELSEWHERE, and
+    # answering as though it were would be the same confident wrong answer in a
+    # new place. Absent means undecided, and undecided keeps the cautious verdict.
+    return None
+
+
 def window_open(args: dict) -> dict:
     """Open something as a window VESPER OWNS.
 
@@ -1454,6 +1498,37 @@ def window_open(args: dict) -> dict:
         _remember_opened(new_id, made.pid, made.app_label,
                          owner_keeps=_keeps)
     if made is None:
+        # BEFORE CONCLUDING ANYTHING: ASK WHERE IT IS, ACROSS EVERY DESKTOP.
+        #
+        # THE OWNER CAUGHT THIS SAYING THE WRONG THING, 2026-09-11. VESPER
+        # reported "the system placed it on another desktop, where vesper cannot
+        # reach it" and they answered "no it opened in your desktop not another
+        # one". They were right, and the bug is that ONE ABSENCE MEANT THREE
+        # THINGS: the inventory is `SpaceWatch.onScreen()`, the showing Desktop
+        # only, so a window that exists on VESPER's own Desktop but is not LISTED
+        # yet -- a cold application takes longer than the poll allows -- was
+        # indistinguishable from one that genuinely landed elsewhere and from one
+        # that was never created.
+        #
+        # The first case is the one that reads as a confident lie: the owner is
+        # looking straight at the window while being told it is unreachable.
+        # `--window-where` answers off the showing Desktop (`CGWindowList`
+        # without the on-screen option, plus `CGSCopySpacesForWindows`), so the
+        # three cases separate.
+        where = {}
+        try:
+            where = _window_bridge("--window-where", "--window-id", str(new_id))
+        except Exception:                                 # noqa: BLE001
+            where = {}
+        verdict = placement_from_where(new_id, where)
+        if verdict is not None:
+            if verdict.get("ok"):
+                # RECORDED, because a window vesper opened is one it may later
+                # arrange without asking, and that authority comes from the
+                # record rather than from anything the window itself carries.
+                _remember_opened(new_id, 0, str(verdict.get("app") or ""),
+                                 owner_keeps=_keeps)
+            return verdict
         # THE WINDOW OPENED AND IT IS NOT HERE, AND THAT IS NOT A SUCCESS.
         #
         # This returned `ok: True` with an empty line whenever the window could
@@ -1724,6 +1799,13 @@ def app_query_level(args: dict) -> str:
         return "L1"
     if verb == "documents":
         return "L2"
+    # A BODY IS MORE THAN A NAME, AND THE LADDER SHOULD SAY SO. A document name
+    # is a subject line; a body is what the owner actually wrote, and step 10
+    # refused to read one at all. L3 is where the owner's own files sit
+    # (`fs_read_level`'s owner-file rung), and a note body is the same kind of
+    # thing arriving through a different door.
+    if verb == "document_body":
+        return "L3"
     return "L5"
 
 
@@ -1752,7 +1834,15 @@ def app_query(args: dict) -> dict:
         return {"ok": False, "verb": verb,
                 "why": "no application was named"}
 
-    out = _window_bridge("--apps-run", "--verb", verb, "--bundle", bundle)
+    argv = ["--apps-run", "--verb", verb, "--bundle", bundle]
+    name = str((args or {}).get("name") or "").strip()
+    if name:
+        # PASSED AS ONE ARGV ELEMENT, never spliced into a command string. The
+        # bridge then builds an AppleScript STRING LITERAL from it rather than
+        # interpolating it into a query -- see AppsBridge.quoted, driven against
+        # a name carrying `do shell script` on 2026-09-11 and treated as data.
+        argv += ["--name", name]
+    out = _window_bridge(*argv)
     state = str(out.get("state") or "")
 
     # THE RULE MODULE IS ASKED WITH WHAT THE PLATFORM ACTUALLY REPORTED, and it
@@ -1793,6 +1883,24 @@ def app_query(args: dict) -> dict:
 
     if not out.get("ok"):
         bridge_why = str(out.get("why") or "the application could not be read")
+        # A DOCUMENT THAT IS NOT THERE IS AN ANSWER, NOT A FAULT, and filing it
+        # under `app.not_permitted` was wrong in the way that matters: the bar
+        # would have read "vesper has not been granted control of Notes" because
+        # the owner asked about a note that does not exist. A flag names a
+        # CONDITION someone can act on, and "that note is not there" is already
+        # the whole reply.
+        #
+        # NOT DEGRADED EITHER. The capability did exactly what was asked and
+        # found nothing; marking it degraded would put a row on a surface whose
+        # job is to stay readable, for a question that was answered.
+        if out.get("found") is False:
+            return {"ok": False, "verb": verb, "bundle_id": bundle,
+                    "state": state, "found": False,
+                    "reason": bridge_why, "why": bridge_why,
+                    # THE SUCCESSFUL LOOKUP STILL CONTRADICTS "not permitted":
+                    # reaching the application well enough to learn a document is
+                    # absent is proof the grant is there.
+                    "resolved": [f"app.not_permitted:{bundle}"]}
         return {"ok": False, "degraded": True, "verb": verb,
                 "bundle_id": bundle, "state": state or "unknown",
                 "flag_id": f"app.not_permitted:{bundle}",
@@ -1804,10 +1912,20 @@ def app_query(args: dict) -> dict:
     # only because the executor's retraction is an `elif` that the raise branch
     # reaches first, which is a collision waiting for whoever makes that an
     # `if`. `66e57b5` fixed exactly this shape for stranded windows.
-    return {"ok": True, "verb": verb, "bundle_id": bundle, "state": state,
-            "items": list(out.get("items") or []),
-            "count": int(out.get("count") or 0),
-            "resolved": [f"app.not_permitted:{bundle}"]}
+    res = {"ok": True, "verb": verb, "bundle_id": bundle, "state": state,
+           "resolved": [f"app.not_permitted:{bundle}"]}
+    if verb == "document_body":
+        # NOT FOUND IS NOT EMPTY. The bridge separates them and so does this: a
+        # document that does not exist and one that exists with nothing in it are
+        # different facts, and reporting the first as an empty body would tell
+        # the owner their note is blank when vesper could not find it.
+        res["found"] = bool(out.get("found"))
+        res["body"] = str(out.get("body") or "")
+        res["truncated"] = bool(out.get("truncated"))
+        return res
+    res["items"] = list(out.get("items") or [])
+    res["count"] = int(out.get("count") or 0)
+    return res
 
 
 def window_level(args: dict) -> str:
@@ -2538,6 +2656,23 @@ def observe(capability_id: str, args: dict, result: dict) -> dict:
             out["items"] = [str(x)[:OBS_MAX_LINE_CHARS]
                             for x in items[:OBS_MAX_LINES]]
             out["count"] = int(result.get("count") or len(items))
+        # THE BODY CROSSES, BOUNDED, AND §11.4 REQUIRES THAT IT DOES. "body text
+        # reaches the planner as an OBSERVATION through `observe()`, never as
+        # instruction" -- and until this line the capability returned a body that
+        # this function dropped, so the owner could ask what a note said and the
+        # next step would have been formed knowing nothing. A feature whose
+        # result reaches nothing is the built-and-unreached shape again.
+        #
+        # BOUNDED BY LINES AND BY LINE LENGTH, like every other branch here, and
+        # `observation_trust` marks the whole capability `retrieved_external`, so
+        # the context ceiling caps whatever the next step tries to do. A note
+        # reading "delete the archive" arrives as something VESPER can tell the
+        # owner about; it is not an order.
+        if isinstance(result.get("body"), str):
+            out["found"] = bool(result.get("found"))
+            out["body"] = lines(result["body"])
+            if result.get("truncated"):
+                out["truncated"] = True
         # A REFUSAL IS PART OF THE OBSERVATION, not an absence of one. The next
         # step needs to know it was refused and why, or it plans as though the
         # application had simply nothing open.
@@ -2762,6 +2897,11 @@ def build_registry() -> CapabilityRegistry:
         LevelRule("what it has open", "L2",
                   {"verb": "documents", "bundle_id": "com.example.app"},
                   refutes=({"verb": "permission", "bundle_id": "com.example.app"},)),
+        LevelRule("what the owner wrote in one", "L3",
+                  {"verb": "document_body", "bundle_id": "com.example.app",
+                   "name": "a note"},
+                  refutes=({"verb": "documents", "bundle_id": "com.example.app"},
+                           {"verb": "permission", "bundle_id": "com.example.app"})),
         LevelRule("a verb nobody declared", "L5",
                   {"verb": "zzz-not-a-verb", "bundle_id": "com.example.app"}),
     ], reversibility="reversible")

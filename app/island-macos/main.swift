@@ -2297,6 +2297,23 @@ if args.contains("--spaces-verify") {
     exit(v.usable ? 0 : 1)
 }
 
+if args.contains("--window-where") {
+    // WHERE A WINDOW IS, ACROSS EVERY DESKTOP. See WindowBridge.whereIs: the
+    // owner caught vesper reporting a window as unreachable while they were
+    // looking at it, because one absence from the on-screen list meant three
+    // different things.
+    func arg(_ n: String) -> String? {
+        guard let i = args.firstIndex(of: n), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+    guard let wid = arg("--window-id").flatMap(Int.init) else {
+        WindowBridge.emit(["exists": false, "why": "--window-id is required"])
+        exit(2)
+    }
+    WindowBridge.emit(WindowBridge.whereIs(windowId: wid))
+    exit(0)
+}
+
 if args.contains("--grants") {
     // ONE PASS, NO PROMPTS. See Grants.swift for why this is not five flags.
     func arg(_ n: String) -> String? {
@@ -2326,7 +2343,8 @@ if args.contains("--apps-run") {
         exit(2)
     }
     let verb = arg("--verb") ?? "permission"
-    let out = AppsBridge.run(verb: verb, bundleId: bundle)
+    let out = AppsBridge.run(verb: verb, bundleId: bundle,
+                             argument: arg("--name"))
     AppsBridge.emit(out)
     exit((out["ok"] as? Bool) == true ? 0 : 1)
 }

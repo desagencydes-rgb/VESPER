@@ -143,6 +143,72 @@ enum WindowBridge {
         return present ? desktopId() : nil
     }
 
+    /// Where a window is, answered for EVERY Desktop rather than the showing one.
+    ///
+    /// WHY THIS EXISTS: THE OWNER CAUGHT A WRONG ANSWER, 2026-09-11. VESPER
+    /// opened a window, reported "the system placed it on another desktop, where
+    /// vesper cannot reach it", and the owner replied "no it opened in your
+    /// desktop not another one". They were right.
+    ///
+    /// THE CAUSE IS THAT ONE ABSENCE MEANT THREE DIFFERENT THINGS.
+    /// `window_open` looks its new window up in the inventory, and the inventory
+    /// is `SpaceWatch.onScreen()` -- the showing Desktop only. So "not in the
+    /// list" collapsed:
+    ///
+    ///   1. the window exists on VESPER's Desktop and is not LISTED yet (a cold
+    ///      application takes longer to appear than the poll allowed),
+    ///   2. the window exists on another Desktop (the only case the message
+    ///      described),
+    ///   3. the application never made one.
+    ///
+    /// All three produced the same sentence, and the first is the one that reads
+    /// as a confident lie: the owner is looking straight at the window while
+    /// being told it is somewhere unreachable.
+    ///
+    /// SO EXISTENCE AND MEMBERSHIP ARE ASKED SEPARATELY, and neither goes through
+    /// the accessibility tree. `CGWindowListCopyWindowInfo` without
+    /// `.optionOnScreenOnly` sees every Space; `CGSCopySpacesForWindows` says
+    /// which Space a window belongs to and answers off the showing Desktop --
+    /// both verified on this node.
+    static func whereIs(windowId: Int) -> [String: Any] {
+        let all = (CGWindowListCopyWindowInfo([.excludeDesktopElements],
+                                              kCGNullWindowID)
+                   as? [[String: Any]]) ?? []
+        let row = all.first { ($0["kCGWindowNumber"] as? Int) == windowId }
+        guard let row else {
+            return ["exists": false,
+                    "why": "no window with that id on any desktop"]
+        }
+        // VESPER'S GROUND, FOUND ACROSS EVERY SPACE. `vespersDesktop()` uses the
+        // on-screen list and therefore cannot answer while VESPER's Desktop is
+        // not showing -- which is exactly the situation this function is for.
+        let me = ProcessInfo.processInfo.processIdentifier
+        let name = ProcessInfo.processInfo.processName
+        let ground = all.first {
+            ($0["kCGWindowOwnerName"] as? String) == name
+                && ($0["kCGWindowOwnerPID"] as? pid_t) != me
+                && ($0["kCGWindowLayer"] as? Int ?? 0) < 0
+        }
+        var out: [String: Any] = ["exists": true]
+        out["app"] = (row["kCGWindowOwnerName"] as? String) ?? ""
+        let ids = [windowId] + (ground.flatMap { $0["kCGWindowNumber"] as? Int }
+                                      .map { [$0] } ?? [])
+        let spaces = SpacesHatch.spaces(of: ids)
+        if let mine = spaces[windowId] { out["space"] = String(mine) }
+        if let g = ground?["kCGWindowNumber"] as? Int, let gs = spaces[g] {
+            out["vespers_space"] = String(gs)
+            // THE COMPARISON IS THE ANSWER, and it is `nil` rather than `false`
+            // when either side is unknown: a missing Space id is not evidence the
+            // window is somewhere else, and saying so would be the same confident
+            // wrong answer in a new place.
+            if let mine = spaces[windowId] { out["on_vespers_desktop"] = (mine == gs) }
+        } else {
+            out["why"] = "vesper has no ground on any desktop, so there is no "
+                       + "desktop of its own to compare against"
+        }
+        return out
+    }
+
     static func desktopId(_ fp: Set<Int> = SpaceWatch.fingerprint()) -> String {
         fp.isEmpty ? "desktop-empty"
                    : "desktop-" + String(fp.sorted().map(String.init).joined(separator: "-").hashValue,

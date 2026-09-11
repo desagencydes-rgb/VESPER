@@ -25538,6 +25538,124 @@ def check_a_window_elsewhere_is_moved_not_resized() -> Result:
            "path keys the exception on MOVE and still refuses the rest")
     return r
 
+
+# --------------------------------------------------------------------------
+# ONE ABSENCE MEANT THREE THINGS, AND THE OWNER CAUGHT THE WRONG ANSWER
+#
+# 2026-09-11. VESPER: "vesper opened a window and the system placed it on
+# another desktop, where vesper cannot reach it to move or close it. it is
+# yours to close." Owner: "no it opened in your desktop not another one."
+#
+# They were right. `window_open` looks its new window up in the inventory, and
+# the inventory is `SpaceWatch.onScreen()` -- the showing Desktop only. So
+# "not in the list" collapsed three different situations into the one sentence
+# that describes only the second:
+#
+#   1. it exists on VESPER's Desktop and is not LISTED yet (a cold application
+#      appears later than the 2-second poll allows),
+#   2. it exists on another Desktop,
+#   3. the application never created one.
+#
+# The first reads as a confident lie: the owner is looking straight at the
+# window while being told it is unreachable. The third reads as a trespass that
+# never happened.
+# --------------------------------------------------------------------------
+def check_a_new_window_is_located_before_it_is_judged() -> Result:
+    r = Result("a-new-window-is-located-before-it-is-judged")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    from core.capabilities import placement_from_where as verdict
+    from core import windows as W
+
+    # 1. THE THREE CASES SEPARATE, DRIVEN. This is a function rather than three
+    #    branches inside `window_open` precisely so this can execute: that
+    #    function reaches the bridge four times before it decides, so the only
+    #    way to check the decision used to be to read it.
+    ok = verdict("9", {"exists": True, "on_vespers_desktop": True, "app": "TextEdit"})
+    if ok is None or not ok.get("ok"):
+        r.err("a window found on vesper's own desktop is still not reported as "
+              "placed, which is the wrong answer the owner corrected")
+    else:
+        if ok.get("landed") != "on_vespers_desktop":
+            r.err(f"a window on vesper's desktop reports landed={ok.get('landed')!r}")
+        if ok.get("degraded"):
+            r.err("a correctly placed window is marked degraded, so a flag lands "
+                  "on the bar about a window sitting exactly where it belongs")
+        if ok.get("flag_id") or ok.get("flag"):
+            r.err("a correctly placed window still raises a flag")
+        if ok.get("provenance") != W.VESPER_OPENED:
+            r.err("a window vesper opened is not stamped as vesper's, so vesper "
+                  "cannot later arrange the window it just created")
+
+    none_made = verdict("9", {"exists": False})
+    if none_made is None or none_made.get("ok"):
+        r.err("an application that created no window at all is reported as a "
+              "success or as a stranded window -- it is neither")
+    elif "any desktop" not in str(none_made.get("reason") or ""):
+        r.err("the no-window-created case does not say so")
+
+    # 2. AND ABSENCE OF EVIDENCE KEEPS THE CAUTIOUS VERDICT. `None` means the
+    #    caller falls through to the stranded warning. Reporting "placed" on a
+    #    reading that could not be taken would be the same confident wrong
+    #    answer pointing the other way.
+    for where, what in (({"exists": True, "on_vespers_desktop": False}, "genuinely elsewhere"),
+                        ({"exists": True}, "no ground to compare against"),
+                        ({}, "nothing measured"),
+                        (None, "the lookup itself failed")):
+        if verdict("9", where) is not None:
+            r.err(f"a window {what} is reported as placed on vesper's desktop; "
+                  f"an unreadable measurement is not evidence of anything")
+
+    # 3. THE LOOKUP MUST NOT GO THROUGH THE ON-SCREEN LIST, or it answers the
+    #    same wrong question the inventory did.
+    bridge = REPO / "app" / "home-macos" / "WindowBridge.swift"
+    src = bridge.read_text(encoding="utf-8")
+    if "static func whereIs(" not in src:
+        r.err("WindowBridge.whereIs is gone, so nothing can locate a window "
+              "that is not on the showing desktop")
+        return r
+    # COMMENTS STRIPPED, because this function's own prose NAMES the calls it
+    # refuses to make -- and the first version of this check duly failed on
+    # correct code, reporting that `whereIs` uses `vespersDesktop()` when the
+    # only mention is the comment explaining why it must not. A file that cannot
+    # explain its own reasoning without tripping its gate is a file that will
+    # have the reasoning deleted.
+    body = _swift_code(src[src.index("static func whereIs("):])
+    body = body[:body.index("\n    static func ", 1)]
+    if "optionOnScreenOnly" in body:
+        r.err("whereIs asks the ON-SCREEN list, which is the showing desktop "
+              "only -- the exact question that produced the wrong answer")
+    if "CGWindowListCopyWindowInfo" not in body:
+        r.err("whereIs does not consult the window server's list at all")
+    if "SpacesHatch.spaces(of:" not in body:
+        r.err("whereIs never asks which Space the window is on, so it cannot "
+              "tell vesper's desktop from another one")
+    # THE GROUND MUST BE FOUND ACROSS SPACES TOO. `vespersDesktop()` uses the
+    # on-screen list and cannot answer while vesper's Desktop is not showing --
+    # which is the situation this function exists for.
+    if "vespersDesktop()" in body:
+        r.err("whereIs uses vespersDesktop(), which reads the on-screen list and "
+              "therefore cannot answer while vesper's desktop is not showing")
+
+    # 4. AND `window_open` MUST ASK BEFORE IT CONCLUDES.
+    caps = (REPO / "core" / "capabilities.py").read_text(encoding="utf-8")
+    fn = caps[caps.index("def window_open(args: dict)"):]
+    fn = fn[:fn.index("\ndef ", 1)]
+    wi, land = fn.find("--window-where"), fn.find("window.landed_elsewhere")
+    if wi < 0:
+        r.err("window_open never locates the window it just opened, so it "
+              "concludes from an absence again")
+    elif land >= 0 and wi > land:
+        r.err("window_open raises the stranded flag before it looks for the "
+              "window, so the lookup cannot change the verdict")
+    if "placement_from_where" not in fn:
+        r.err("window_open does not use the drivable verdict, so the decision "
+              "is back inside a function no test can reach")
+    r.note("the three cases separate under a real drive; an unreadable lookup "
+           "keeps the cautious verdict; whereIs avoids the on-screen list and "
+           "finds the ground across spaces; window_open locates before it judges")
+    return r
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -25581,6 +25699,7 @@ CHECK_FNS = {
     "enable-token-presented-once-per-mint": check_enable_token_presented_once_per_mint,
     "a-due-item-is-spoken-not-merely-noticed": check_a_due_item_is_spoken_not_merely_noticed,
     "a-failure-is-something-the-next-step-can-see": check_a_failure_is_something_the_next_step_can_see,
+    "a-new-window-is-located-before-it-is-judged": check_a_new_window_is_located_before_it_is_judged,
     "a-window-elsewhere-is-moved-not-resized": check_a_window_elsewhere_is_moved_not_resized,
     "a-permission-reader-never-asks": check_a_permission_reader_never_asks,
     "a-flag-outlives-the-process-that-raised-it": check_a_flag_outlives_the_process_that_raised_it,

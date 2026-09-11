@@ -7115,6 +7115,44 @@ CASES += [
 
 HATCH_SWIFT = "app/home-macos/SpacesHatch.swift"
 WBRIDGE_SWIFT = "app/home-macos/WindowBridge.swift"
+CASES += [
+    ("a-new-window-is-located-before-it-is-judged", CAPS_PY,
+     _sub('    if where.get("exists") and where.get("on_vespers_desktop") is True:',
+          "    if False:", 1),
+     "a window found on vesper's own desktop is reported as stranded again -- the "
+     "wrong answer the owner corrected while looking straight at the window"),
+
+    ("a-new-window-is-located-before-it-is-judged", CAPS_PY,
+     _sub('    if where.get("exists") is False:\n', "    if False:\n", 1),
+     "an application that created no window at all is reported as a stranded "
+     "window on the owner's desktop: a trespass that never happened"),
+
+    ("a-new-window-is-located-before-it-is-judged", CAPS_PY,
+     _sub("    # `on_vespers_desktop` may be absent", "    return {'ok': True, 'window_id': new_id, 'landed': 'on_vespers_desktop'}\n    # `on_vespers_desktop` may be absent", 1),
+     "a lookup that could not read a Space id reports the window as correctly "
+     "placed, so an unreadable measurement becomes evidence -- the same "
+     "confident wrong answer pointing the other way"),
+
+    ("a-new-window-is-located-before-it-is-judged", CAPS_PY,
+     _sub("        verdict = placement_from_where(new_id, where)",
+          "        verdict = None", 1),
+     "window_open stops using the drivable verdict, so the decision goes back "
+     "inside a function no test can reach and the owner's correction is undone"),
+
+    ("a-new-window-is-located-before-it-is-judged", WBRIDGE_SWIFT,
+     _sub("        let all = (CGWindowListCopyWindowInfo([.excludeDesktopElements],",
+          "        let all = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],", 1),
+     "whereIs asks the ON-SCREEN list, which is the showing desktop only -- the "
+     "exact question whose answer was wrong"),
+
+    ("a-new-window-is-located-before-it-is-judged", WBRIDGE_SWIFT,
+     _sub("        let spaces = SpacesHatch.spaces(of: ids)",
+          "        let spaces: [Int: UInt64] = [:]", 1),
+     "whereIs stops asking which Space the window is on, so it can never tell "
+     "vesper's desktop from another one and every window reads as undecided"),
+]
+
+
 
 CASES += [
     ("a-window-elsewhere-is-moved-not-resized", CAPS_PY,

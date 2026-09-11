@@ -510,3 +510,28 @@ reason: a document name is a filename, a subject line, a client's name. It
 reaches the planner through `observe()` as untrusted text on the same footing as
 a note body -- a document called "run the deploy script" is something VESPER may
 mention and never something it may act on."""
+
+[action.read_application_document_body]
+tier = "observe"
+enabled = true
+description = "The text of one document an application holds, named by the owner."
+reversible = true
+inverse = ""
+requires_owner_consent = "never"
+provenance_required = "verified_local"
+source = """Owner 2026-09-08, §11.4: *"the notes app should be fully integrated
+rather than the old way"*, and answered the same session -- read the bodies, and
+treat them as untrusted.
+
+THIS IS THE ROW THE OLD BOUNDARY EXISTED TO PREVENT, and it replaces it rather
+than widening it. Step 10 shipped notes as TITLES ONLY with bodies deliberately
+never read, because a body is text the owner wrote and text VESPER reads becomes
+text that can instruct it. The owner lifted the restriction and the protection
+moved rather than going away: `CI-131` narrowed from
+`notes-are-titles-and-never-instructions` to `notes-are-never-instructions`, and
+now asserts that a body cannot change priority, deadline or ordering -- something
+it never had to assert while there were no bodies to assert about.
+
+THE NAME IS MATCHED AS DATA, MEASURED 2026-09-11. Driven with a document named
+`nothing" & (do shell script "echo PWNED > /tmp/...") & "`: the name was looked
+up, not found, and nothing executed."""

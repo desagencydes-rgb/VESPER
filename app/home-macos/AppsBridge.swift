@@ -126,14 +126,15 @@ enum AppsBridge {
     // rule in `core/apps.py`, and a MEASURED drive against a real application
     // -- `action_provenance_required = "verified_local"` is not satisfied by
     // knowing that AppleScript has a `documents` element.
-    static let VERBS = ["permission", "documents"]
+    static let VERBS = ["permission", "documents", "document_body"]
 
     /// The compiled script for a verb. Returns nil for anything not in `VERBS`.
     ///
     /// A `switch` over a closed set rather than a dictionary lookup, so that
     /// adding a case without adding it to `VERBS` is visible, and so that
     /// nothing here can be reached with a string assembled elsewhere.
-    private static func script(_ verb: String, appName: String) -> String? {
+    private static func script(_ verb: String, appName: String,
+                               argument: String? = nil) -> String? {
         switch verb {
         case "documents":
             // NAMES ONLY, AND THE NAMES ARE CONTENT. `host_actions.toml`'s
@@ -142,20 +143,91 @@ enum AppsBridge {
             // the runtime's `observe()` as untrusted text, exactly like a note
             // body -- a document called "run the deploy script" is something
             // VESPER can mention and never something it may act on.
+            // THE NOUN IS THE TARGET'S, NOT A GUESS, AND THIS WAS A REAL BUG.
+            // Written as `documents`, this verb returned ZERO for Notes -- whose
+            // AppleScript element is `note` -- and the `try` block swallowed the
+            // error, so an application vesper could not enumerate at all was
+            // indistinguishable from one with nothing open. Driven against the
+            // real app 2026-09-11: `count 0` while five notes sat there.
+            //
+            // AND THE `try` IS GONE. A swallowed error here is the exact shape
+            // this tree keeps finding: the failure reports as an empty result,
+            // the owner is told "nothing open", and nothing anywhere says the
+            // verb does not work against that application. The error now reaches
+            // `run`, which reports it as a failure with its number.
             return """
             tell application "\(appName)"
                 set out to ""
-                try
-                    repeat with d in documents
-                        set out to out & (name of d) & linefeed
-                    end repeat
-                end try
+                repeat with d in every \(itemWord(appName))
+                    set out to out & (name of d) & linefeed
+                end repeat
                 return out
+            end tell
+            """
+        case "document_body":
+            // THE TEXT OF ONE DOCUMENT, NAMED BY THE OWNER.
+            //
+            // §11.4, answered by the owner 2026-09-08: "read the bodies, and
+            // treat them as untrusted." This is the verb that makes the
+            // narrowing of `CI-131` mean something -- the check now asserts a
+            // body cannot become an instruction, and until this existed there
+            // were no bodies for it to assert about.
+            //
+            // THE NAME IS MATCHED, NOT INTERPOLATED INTO A QUERY. `whose name
+            // is` with the name passed as an AppleScript string keeps the
+            // owner's text as DATA: a document called `" & (do shell script
+            // "rm -rf ~") & "` is looked up and not found, rather than becoming
+            // part of the script. This is the one place in this file where
+            // outside text reaches a compiled verb, and it is why the verb takes
+            // a name rather than a query.
+            guard let name = argument else { return nil }
+            return """
+            tell application "\(appName)"
+                set hits to (every \(itemWord(appName)) whose name is \(quoted(name)))
+                if (count of hits) is 0 then return "NONE"
+                return \(textProperty(appName)) of item 1 of hits
             end tell
             """
         default:
             return nil
         }
+    }
+
+    /// What an application calls the thing that holds text.
+    ///
+    /// DECLARED PER APPLICATION, and that is a real limit rather than a gap to
+    /// be papered over: `documents` is the AppleScript noun for most editors and
+    /// `notes` is the one Notes uses. An abstract verb still has to speak the
+    /// target's own vocabulary somewhere, and the honest place for that is a
+    /// table the reader can see -- not a guess that silently returns nothing.
+    private static func itemWord(_ appName: String) -> String {
+        appName == "Notes" ? "note" : "document"
+    }
+
+    /// Which property holds the TEXT, as opposed to the markup.
+    ///
+    /// MEASURED 2026-09-11: `body of note` returns HTML -- a real note came back
+    /// as `<div>i just looked at the background images...`. That markup then
+    /// travels into `observe()` and reaches the planner, where every tag is noise
+    /// competing with the owner's actual words, and a body full of attributes is
+    /// a body whose meaning is harder to read rather than easier.
+    ///
+    /// Notes exposes `plaintext` alongside `body` for exactly this. An
+    /// application without the distinction gets `body`, which is then its text.
+    private static func textProperty(_ appName: String) -> String {
+        appName == "Notes" ? "plaintext" : "body"
+    }
+
+    /// AppleScript string quoting, so the owner's text stays data.
+    ///
+    /// A LITERAL IS BUILT, NOT INTERPOLATED. Doubling the quote character is the
+    /// whole mechanism: AppleScript has no escape for `"` inside a string, so a
+    /// name containing one is expressed by closing the literal, concatenating
+    /// `quote`, and reopening. Anything else lets a quote in a filename end the
+    /// string and start being code.
+    private static func quoted(_ raw: String) -> String {
+        let parts = raw.components(separatedBy: "\"")
+        return parts.map { "\"\($0)\"" }.joined(separator: " & quote & ")
     }
 
     /// Run one verb against one application, or explain why not.
@@ -164,7 +236,8 @@ enum AppsBridge {
     /// Sending the event first and handling the failure afterwards is the
     /// design that puts a dialog on the owner's screen at 3am. Everything that
     /// is not `granted` returns here, before an Apple Event exists.
-    static func run(verb: String, bundleId: String) -> [String: Any] {
+    static func run(verb: String, bundleId: String,
+                    argument: String? = nil) -> [String: Any] {
         guard VERBS.contains(verb) else {
             return ["ok": false, "verb": verb, "bundle_id": bundleId,
                     "state": "refused",
@@ -188,7 +261,7 @@ enum AppsBridge {
         guard let name = NSWorkspace.shared
                 .urlForApplication(withBundleIdentifier: bundleId)?
                 .deletingPathExtension().lastPathComponent,
-              let src = script(verb, appName: name) else {
+              let src = script(verb, appName: name, argument: argument) else {
             return ["ok": false, "verb": verb, "bundle_id": bundleId,
                     "state": UNKNOWN, "why": "no script for that verb"]
         }
@@ -203,8 +276,23 @@ enum AppsBridge {
                     "state": n == -1743 ? DENIED : UNKNOWN,
                     "why": "the \(verb) script failed (\(n))", "code": n]
         }
-        let lines = (res?.stringValue ?? "")
-            .split(separator: "\n").map(String.init)
+        let raw = res?.stringValue ?? ""
+        if verb == "document_body" {
+            // "NONE" IS NOT AN EMPTY BODY. A document that does not exist and one
+            // that exists and is empty are different facts, and collapsing them
+            // would tell the owner their note is blank when vesper simply could
+            // not find it -- INV-HW-2's rule applied to a lookup.
+            if raw == "NONE" {
+                return ["ok": false, "verb": verb, "bundle_id": bundleId,
+                        "state": GRANTED, "found": false,
+                        "why": "no document of that name in \(bundleId)"]
+            }
+            return ["ok": true, "verb": verb, "bundle_id": bundleId,
+                    "state": GRANTED, "found": true,
+                    "body": String(raw.prefix(20_000)),
+                    "truncated": raw.count > 20_000]
+        }
+        let lines = raw.split(separator: "\n").map(String.init)
             .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         return ["ok": true, "verb": verb, "bundle_id": bundleId,
                 "state": GRANTED, "items": lines, "count": lines.count]
