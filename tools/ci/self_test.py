@@ -7380,6 +7380,62 @@ CASES += [
 
 APPS_SWIFT = "app/home-macos/AppsBridge.swift"
 APPS_PY = "core/apps.py"
+UI_SWIFT = "app/home-macos/UIBridge.swift"
+
+CASES += [
+    ("an-interface-element-is-corroborated-before-it-is-touched", UI_SWIFT,
+     _sub("        if !expectRole.isEmpty && role != expectRole {",
+          "        if false {", 1),
+     "an element's ROLE is no longer checked against what was read, so a "
+     "relayout goes unnoticed and vesper presses whatever moved into the "
+     "position it meant -- and a press cannot be undone"),
+
+    ("an-interface-element-is-corroborated-before-it-is-touched", UI_SWIFT,
+     _sub("        if !expectLabel.isEmpty && now != expectLabel {",
+          "        if false {", 1),
+     "an element's LABEL is no longer checked, so the button that says Delete "
+     "where Save used to be is pressed without hesitation"),
+
+    ("an-interface-element-is-corroborated-before-it-is-touched", UI_SWIFT,
+     _sub("        guard ACTIONS.contains(action) else {\n", "        if false {\n", 1),
+     "the action set stops being a boundary, so a string assembled anywhere "
+     "reaches the accessibility interface"),
+
+    ("an-interface-element-is-corroborated-before-it-is-touched", UI_SWIFT,
+     _sub('            return ["ok": true, "action": action, "verified": false,',
+          '            return ["ok": true, "action": action, "verified": true,', 1),
+     "a scroll claims it was verified. Nothing acknowledges a scroll, so this is "
+     "the success-shaped answer that has cost this tree a day at a time"),
+
+    ("an-interface-element-is-corroborated-before-it-is-touched", UI_SWIFT,
+     _sub('            let now = str(el, kAXValueAttribute as String)\n'
+          '            return ["ok": now == text,',
+          '            let now = text\n'
+          '            return ["ok": now == text,', 1),
+     "typing compares the text to ITSELF instead of to the field, so a field "
+     "that took the assignment and holds something else reports success"),
+
+    ("an-interface-element-is-corroborated-before-it-is-touched", PERMMODE_PY,
+     _sub('NEVER_WAIVED_SOURCES = frozenset({"ui.view", "ui.screenshot"})',
+          'NEVER_WAIVED_SOURCES = frozenset({"ui.screenshot"})', 1),
+     "`ui.view` leaves the never-waived set, so in auto mode a window label "
+     "lifts vesper's ceiling -- the exact thing §9 wrote down before the feature "
+     "existed and the owner ratified as 'permissions yes, taint stays'"),
+
+    ("an-interface-element-is-corroborated-before-it-is-touched", CAPS_PY,
+     _sub('    if action == "press":\n        return "L4"',
+          '    if action == "press":\n        return "L3"', 1),
+     "pressing levels the same as typing, so the ladder cannot tell an act "
+     "nothing undoes from one that keeps the field's previous value"),
+
+    ("an-interface-element-is-corroborated-before-it-is-touched", CAPS_PY,
+     _sub('    return {"ok": False, "reason": "a press cannot be undone by vesper.',
+          '    return {"ok": True, "reason": "a press cannot be undone by vesper.', 1),
+     "the compensator claims a press is undoable, so a plan is formed assuming "
+     "recovery exists for an act that may already have sent a message"),
+]
+
+
 CASES += [
     ("an-application-write-is-proved-and-undoable", APPS_SWIFT,
      _sub("            let wantPresent = (verb != \"document_delete\")",

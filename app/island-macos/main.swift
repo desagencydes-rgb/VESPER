@@ -2297,6 +2297,34 @@ if args.contains("--spaces-verify") {
     exit(v.usable ? 0 : 1)
 }
 
+if args.contains("--ui-view") || args.contains("--ui-act") {
+    // §11.5. What this reads is the strongest untrusted content in the system --
+    // see UIBridge's header -- and the taint rule that governs it lives in
+    // core/permission_mode.py, not here.
+    func arg(_ n: String) -> String? {
+        guard let i = args.firstIndex(of: n), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+    guard let wid = arg("--window-id"),
+          let pid = arg("--window-pid").flatMap(Int.init) else {
+        UIBridge.emit(["ok": false, "reason": "--window-id and --window-pid are required"])
+        exit(2)
+    }
+    let out: [String: Any]
+    if args.contains("--ui-view") {
+        out = UIBridge.view(pid: pid, windowId: wid)
+    } else {
+        out = UIBridge.act(pid: pid, windowId: wid,
+                           path: arg("--path") ?? "",
+                           action: arg("--ui-act") ?? "",
+                           expectRole: arg("--role") ?? "",
+                           expectLabel: arg("--label") ?? "",
+                           text: arg("--text"))
+    }
+    UIBridge.emit(out)
+    exit((out["ok"] as? Bool) == true ? 0 : 1)
+}
+
 if args.contains("--window-where") {
     // WHERE A WINDOW IS, ACROSS EVERY DESKTOP. See WindowBridge.whereIs: the
     // owner caught vesper reporting a window as unreachable while they were

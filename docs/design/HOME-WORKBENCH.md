@@ -1493,7 +1493,7 @@ been driven against the running surface.**
 | 16a | **Stages of work** (§11.2a) | ✅ DONE 2026-09-10 — `a-stage-bounds-what-vesper-opens`, 8 red runs. The contract had existed since 2026-09-09 and was read by nothing |
 | 17 | **Apps management** (§11.3) | 🟡 **PARTIAL** 2026-09-10 (§17) — the permission instrument (five states, **no dialog**, measured 30–79 ms), `app.query` with a closed verb set, `core/apps.py` branching on a class and never a program, and a refusal that reaches the owner's sentence **and** the flag bar with its reason. 4 checks, 11 red runs, driven end to end. **The verbs that CHANGE an application are not built** — `verified_local` provenance means they land with the grant trip that measures them, and so does `execution_class` |
 | 18 | **Notes, in full** (§11.4) | 🟡 **READ AND WRITE DONE** 2026-09-11 (§18, §23) — bodies read as PLAIN TEXT and inert (`CI-131` narrowed); create, rewrite and remove all DRIVEN against real Notes and **proved by re-reading the world**, because the first versions returned success having destroyed the note and having left it in place. A rewrite keeps the title; removal needs vesper's own record; the undo is lossless. **Share across accounts and lock/unlock still owed.** `an-application-write-is-proved-and-undoable`, 8 red runs |
-| 19 | **UI view + clicking** (§11.5) | 🟡 **PARTIAL** 2026-09-10 (§19) — the seam the owner drew is now expressible: auto mode grants every permission to ACT, and a screen observation **never** lifts the ceiling in any mode. The waiver was one boolean per MODE, so §9's recorded constraint could not have been honoured by the mechanism meant to honour it. 5 red runs. **Seeing and clicking still to build**, with Accessibility + Screen Recording |
+| 19 | **UI view + clicking** (§11.5) | 🟡 **BUILT, AWAITING THE GRANT TO PROVE** 2026-09-11 (§19, §24) — `UIBridge` reads a window's elements and presses, focuses, types into and scrolls them. An element is **corroborated by role AND label**, not located by position, because interfaces relayout. A press is destructive and its compensator **refuses to pretend otherwise**; a scroll admits it is unverified; typing is read back. The taint seam holds by NAME (`ui.view`). **Refusal paths driven; the acts need Accessibility + Screen Recording.** Script injection deliberately NOT in scope — see §24. `an-interface-element-is-corroborated-before-it-is-touched`, 8 red runs |
 | 19a | **The flag bar, as the owner wants it** (§21) | 🔜 **QUEUED LAST** 2026-09-11, owner-specified — wide (up to the main menu's width, never past it), **titles not icons**, every live flag shown, hover for the full text, VESPER's own type. Clicking opens the **history**: timestamps, fixed or not, and a way to ask VESPER to fix one that is real. **Do this after everything above is finished** |
 | — | ⏸ **DISCUSS BEFORE BUILDING** | the owner stops the run here, 2026-09-08 |
 | 20 | **Settings interface** (§11.6) | the rail's `settings` button; **35 items already routed** in `spec_raw.txt` |
@@ -3492,3 +3492,75 @@ literal**, never interpolated into a query.
 **locking** means handling the note password — a credential, which `MEMORY.md`
 says must be rotated rather than erased and must never reach a bus payload, a
 checkpoint or a log receipt. Neither is started.
+
+
+---
+
+## 24. DRIVING THE OWNER'S INTERFACE — AND THE ONE ITEM HELD BACK
+
+§11.5's list is *"clicking, scrolling, holding, typing, injecting scripts"*.
+**Four of those five landed. The fifth is held back deliberately, and this is the
+reason rather than an omission.**
+
+### WHY SCRIPT INJECTION IS NOT IN THE AUTHORISATION
+
+Every other verb in this tree that reaches an application is a **name the compiler
+knew**. `AppsBridge` refuses a script argument outright, and its header says why:
+
+> *If the runtime could hand this code an AppleScript string, then every gate
+> above it — the action vocabulary, `core/apps.py`, the authorisation ladder —
+> would be reasoning about a verb name while something else entirely reached the
+> app.*
+
+**Script injection is exactly that, by definition.** And the planner that would
+compose the script is the same one this chunk feeds window labels to — text §9
+calls *"`retrieved_external` of the strongest kind"*. Handing arbitrary execution
+to a planner reading untrusted screen text is the one combination the whole taint
+rule exists to prevent.
+
+So it is recorded as needing **its own decision** rather than arriving inside a
+list of clicks. The rest of §11.5 is not blocked by it.
+
+### AN ELEMENT IS CORROBORATED, NOT LOCATED
+
+`AXUIElement` cannot be serialised, so a click has to find its target again. A
+bare index path is **not enough**:
+
+> pressing "whatever is now at 3.1.4" is how an automation presses **Delete**
+> because a row appeared above the one it meant.
+
+`ui.view` returns the path **and** the role **and** the label; `ui.act` re-resolves
+the path and **refuses** when either has changed. Three refusals in `resolve()` —
+nothing at that position, wrong role, wrong label — and the gate counts them.
+
+### WHAT EACH ACT WILL AND WILL NOT CLAIM
+
+| act | level | claims |
+|---|---|---|
+| `press` | **L4** | destructive, irreversible — the compensator **refuses to pretend** |
+| `type` | L3 | field **read back**; previous value kept so it can be put back |
+| `scroll` | L3 | `verified: false` — **nothing acknowledges a scroll** |
+| `focus` | L3 | — |
+
+**A press is L4 and nothing undoes it**, because a button may have sent a message,
+emptied a trash or confirmed a purchase, and the accessibility interface does not
+say which. `host_actions.toml` files it destructive for that reason, and in auto
+mode its per-instance consent is **minted rather than requested** — `core/actor.py`
+answers a level-shaped refusal with a grant bound to one command id.
+
+### THE TAINT SEAM IS THE CAPABILITY'S NAME
+
+`permission_mode.NEVER_WAIVED_SOURCES` names **`ui.view`** as a string. Renaming
+the capability silently removes the protection, and
+`a-screen-never-lifts-its-own-ceiling` already records that membership is a
+declaration no gate can verify. Both checks now assert the name.
+
+### WHAT IS PROVED TONIGHT AND WHAT IS NOT
+
+**Driven with no grant, and correct:** an interface read refuses with its reason,
+an act refuses with its reason, and an undeclared action is refused **before the
+grant is even consulted** — so the closed set holds on a granted machine too.
+
+**Not proved:** the acts themselves. They need Accessibility, and **every build
+revokes it** — measured again 2026-09-11, only the Apple Events grant survives a
+rebuild. The verification is one command after the last build.

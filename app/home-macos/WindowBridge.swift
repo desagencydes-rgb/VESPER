@@ -233,6 +233,13 @@ enum WindowBridge {
     /// is a different thing from asking for it.
     static func accessible() -> Bool { AXIsProcessTrusted() }
 
+    /// The matcher, reachable by `UIBridge` so there is ONE window-id-to-element
+    /// mapping in the tree. A second one would drift from this, and this is the
+    /// one that already refuses an ambiguous match rather than guessing.
+    static func elementForAct(pid: Int, windowId: String) -> AXUIElement? {
+        element(forPID: pid, windowId: windowId)
+    }
+
     private static func element(forPID pid: Int, windowId: String) -> AXUIElement? {
         let app = AXUIElementCreateApplication(pid_t(pid))
         var value: CFTypeRef?

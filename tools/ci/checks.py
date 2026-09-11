@@ -25827,6 +25827,132 @@ def check_an_application_write_is_proved_and_undoable() -> Result:
            f"the planner")
     return r
 
+
+# --------------------------------------------------------------------------
+# §11.5 — DRIVING AN INTERFACE, AND THE TWO WAYS IT GOES WRONG QUIETLY
+#
+# 1. PRESSING THE WRONG THING. An `AXUIElement` cannot be serialised, so a click
+#    has to find its target again. A bare index path is not enough: interfaces
+#    relayout, and pressing "whatever is now at 3.1.4" is how an automation
+#    presses Delete because a row appeared above the one it meant.
+#
+# 2. BELIEVING WHAT IT READ. A window label can be any text on the machine --
+#    another application's, an email's, a web page's. §9 wrote that down before
+#    any of this existed and the owner ratified it: "permissions yes, taint
+#    stays". The capability id `ui.view` is the mechanism, by NAME, in
+#    `permission_mode.NEVER_WAIVED_SOURCES`.
+# --------------------------------------------------------------------------
+def check_an_interface_element_is_corroborated_before_it_is_touched() -> Result:
+    r = Result("an-interface-element-is-corroborated-before-it-is-touched")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    from core import capabilities as C, permission_mode as pm
+
+    src_path = REPO / "app" / "home-macos" / "UIBridge.swift"
+    if not src_path.is_file():
+        r.err("app/home-macos/UIBridge.swift is missing")
+        return r
+    code = _swift_code(src_path.read_text(encoding="utf-8"))
+
+    # 1. THE TARGET IS CORROBORATED, not merely located.
+    if "expectRole" not in code or "expectLabel" not in code:
+        r.err("an element is identified by position alone. Interfaces relayout, "
+              "so pressing a path is pressing whatever moved into it -- and a "
+              "press cannot be undone")
+    for guard, what in (('role != expectRole', "role"),
+                        ('now != expectLabel', "label")):
+        if guard not in code:
+            r.err(f"the {what} read at view time is not checked against the "
+                  f"{what} at act time, so a relayout goes unnoticed")
+    # AND THE MISMATCH MUST REFUSE, not warn. Counted: two corroboration guards,
+    # each returning nil rather than falling through to the act.
+    resolve = code[code.index("private static func resolve("):]
+    resolve = resolve[:resolve.index("\n    static func ", 1)]
+    if resolve.count("return (nil,") < 3:
+        r.err(f"resolve() has {resolve.count('return (nil,')} refusal(s); it needs "
+              f"one for a missing position and one for each of role and label, or "
+              f"a changed interface is driven anyway")
+
+    # 2. THE ACTION SET IS CLOSED AND CHECKED BEFORE THE GRANT.
+    m = re.search(r"static let ACTIONS = \[([^\]]*)\]", code)
+    if m is None:
+        r.err("UIBridge declares no ACTIONS set, so nothing bounds what may be "
+              "done to an element")
+    else:
+        acts = set(re.findall(r'"([^"]+)"', m.group(1)))
+        for a in ("press", "type", "scroll_up", "scroll_down"):
+            if a not in acts:
+                r.err(f"{a!r} is not in the action set, so §11.5's own list is "
+                      f"not served")
+        # THE REFUSAL COMES FIRST. An undeclared action must be refused whether or
+        # not the grant is present -- otherwise the closed set only holds on a
+        # machine that happens to be ungranted.
+        body = code[code.index("static func act("):]
+        body = body[:body.index("\n    static func ", 1)]
+        i_set = body.find("ACTIONS.contains(action)")
+        i_grant = body.find("accessible()")
+        if i_set < 0 or (i_grant >= 0 and i_set > i_grant):
+            r.err("the closed action set is checked after the grant, so on a "
+                  "granted machine an undeclared action reaches the interface")
+
+    # 3. A SCROLL DOES NOT CLAIM A RESULT IT CANNOT READ.
+    if '"verified": false' not in code:
+        r.err("a scroll reports itself verified. The accessibility interface "
+              "gives no acknowledgement for one, so claiming it is the "
+              "success-shaped answer this tree keeps finding")
+
+    # 4. TYPING IS READ BACK.
+    # THE READ ITSELF, NOT THE SENTENCE ABOUT IT. Asserting the message was
+    # satisfied by a mutation that kept the message and compared the text to
+    # ITSELF -- the check would have passed on code that verifies nothing, which
+    # is the failure mode it was written to catch.
+    if "let now = str(el, kAXValueAttribute as String)" not in code:
+        r.err("typing does not re-read the field from the element, so a field "
+              "that accepts the assignment and holds something else reports "
+              "success -- an instrument's self-report is not evidence")
+
+    # 5. THE TAINT SEAM, BY NAME. This is the assertion §9 asked for in advance.
+    if "ui.view" not in pm.NEVER_WAIVED_SOURCES:
+        r.err("`ui.view` is not in NEVER_WAIVED_SOURCES, so auto mode lets a "
+              "window label lift vesper's ceiling -- the exact thing §9 wrote "
+              "down before this existed and the owner ratified as 'taint stays'")
+    if pm.observation_waivable(pm.AUTO, "ui.view"):
+        r.err("an interface read is waivable in auto mode")
+    if C.observation_trust("ui.view") != "retrieved_external":
+        r.err("what is read off a window is not marked external")
+
+    # 6. THE LADDER SEPARATES A PRESS FROM A REWRITE-ABLE ACT, driven.
+    lv = {a: C.ui_act_level({"action": a})
+          for a in ("press", "type", "scroll_up", "zzz")}
+    if lv["press"] == lv["type"]:
+        r.err("pressing levels the same as typing. Nothing undoes a press -- it "
+              "may have sent a message -- and a field keeps its previous value")
+    if lv["zzz"] != "L5":
+        r.err(f"an undeclared action levels {lv['zzz']}, not L5")
+    if "L5" in (lv["press"], lv["type"], lv["scroll_up"]):
+        r.err("a declared action sits at L5, so the ladder cannot tell it from "
+              "one nobody described")
+
+    # 7. AND THE COMPENSATOR REFUSES TO PRETEND A PRESS IS UNDOABLE.
+    if C.ui_act_compensate({"action": "press"}, {"ok": True}).get("ok"):
+        r.err("the compensator claims a press can be undone. It may have sent a "
+              "message; host_actions.toml files it irreversible")
+    if C.ui_act_compensate({"action": "type"}, {"ok": True}).get("ok"):
+        r.err("the compensator 'restores' typing with no previous value, "
+              "overwriting whatever is there with a guess")
+
+    # 8. `previous` NEVER REACHES THE PLANNER.
+    obs = C.observe("ui.act", {}, {"ok": True, "action": "type", "window_id": "1",
+                                   "previous": "THE OWNERS OLD TEXT"})
+    if "previous" in obs or "OWNERS OLD TEXT" in str(obs):
+        r.err("the field's previous value reaches the planner")
+    r.note(f"an element is corroborated by role AND label with "
+           f"{resolve.count('return (nil,')} refusals; the action set is closed "
+           f"and checked before the grant; a scroll admits it is unverified and "
+           f"typing is read back; `ui.view` is never waived; levels "
+           f"{lv['type']}/{lv['press']} split by what can be undone")
+    return r
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -25870,6 +25996,7 @@ CHECK_FNS = {
     "enable-token-presented-once-per-mint": check_enable_token_presented_once_per_mint,
     "a-due-item-is-spoken-not-merely-noticed": check_a_due_item_is_spoken_not_merely_noticed,
     "a-failure-is-something-the-next-step-can-see": check_a_failure_is_something_the_next_step_can_see,
+    "an-interface-element-is-corroborated-before-it-is-touched": check_an_interface_element_is_corroborated_before_it_is_touched,
     "an-application-write-is-proved-and-undoable": check_an_application_write_is_proved_and_undoable,
     "a-new-window-is-located-before-it-is-judged": check_a_new_window_is_located_before_it_is_judged,
     "a-window-elsewhere-is-moved-not-resized": check_a_window_elsewhere_is_moved_not_resized,

@@ -608,3 +608,117 @@ a verb nobody asked for to describe the same effect. What makes it truly
 reversible is that the capability READS THE OLD TEXT FIRST and carries it for the
 compensator -- the same thing `fs.write` does with `previous`, and for the same
 reason: an undo that has to reconstruct what was there is not an undo."""
+
+##############################################################################
+# THE OWNER'S INTERFACE (§11.5)
+#
+# Owner 2026-09-08: *"it should be able to view the UI and manage it by clicking,
+# scrolling, holding, typing"*, and on permissions, three times, *"on auto mode,
+# all permissions granted by default"* -- answered the same session as
+# **"permissions yes, taint stays"**.
+#
+# WHAT THAT SPLIT MEANS FOR THESE ROWS. The authorisation below is real and
+# covers every one of them; what it does NOT cover is letting the text VESPER
+# READS off the screen decide what VESPER does next. That half lives in
+# `core/permission_mode.NEVER_WAIVED_SOURCES`, which refuses to waive `ui.view`
+# in any mode including auto, and it is not a policy this file can soften.
+#
+# AND `per_instance` CONSENT IS NOT A PROMPT IN AUTO MODE. `core/actor.py`'s
+# elevation answers a level-shaped refusal with a grant bound to one command id,
+# non-delegable and consumed by use -- `INV-AUTH-2` used rather than bent. So
+# "the owner is asked every time" and "auto mode does not ask" are both true:
+# the per-instance grant is minted per action instead of being requested.
+##############################################################################
+
+[authorization.OWNER-2026-09-08-INTERFACE]
+date = "2026-09-08"
+scope = "reading a window's interface, and pressing, typing into and scrolling its elements"
+quote = """it should be able to view the UI and manage it by clicking, scrolling,
+holding, typing, injecting scripts ... on auto mode, all permissions granted by
+default ... permissions yes, taint stays"""
+note = """INJECTING SCRIPTS IS DELIBERATELY NOT IN SCOPE HERE and is not enabled by
+this authorisation. It is the one item in the owner's sentence that hands ARBITRARY
+execution to whatever composes the script -- and the planner that would compose it
+reads window labels, which this same chunk classifies as the strongest untrusted
+content in the system. `AppsBridge` refuses a script argument for exactly that
+reason. It needs its own decision, recorded separately, rather than arriving inside
+a list of clicks."""
+
+[action.read_window_interface]
+tier = "observe"
+enabled = true
+description = "The elements of a window that is showing: role, label, position, and what each can do."
+reversible = true
+inverse = ""
+requires_owner_consent = "never"
+provenance_required = "verified_local"
+source = """Owner 2026-09-08, §11.5, "view the UI". CONTENT OF THE STRONGEST KIND,
+and the observe tier's header demanded a separate decision for exactly this: a
+window label can be any text on the machine, including another application's, an
+email's, a web page's. It reaches the planner through `observe()` and it never
+lifts the ceiling -- `permission_mode.NEVER_WAIVED_SOURCES` names `ui.view`."""
+
+[action.press_interface_element]
+tier = "destructive"
+enabled = true
+authorized_by = "OWNER-2026-09-08-INTERFACE"
+description = "Press one element of a window that is showing, identified by position and corroborated by role and label."
+reversible = false
+inverse = ""
+requires_owner_consent = "per_instance"
+provenance_required = "verified_local"
+max_targets_per_window = 30
+window_seconds = 300
+execution_class = "interactive"
+source = """FILED DESTRUCTIVE BECAUSE A BUTTON'S BLAST RADIUS IS UNKNOWN, and
+that is the honest classification rather than a cautious one. Pressing an element
+can send a message, empty a trash, confirm a purchase or delete an account; the
+accessibility interface does not say which, and nothing VESPER can read
+beforehand tells it. `CI-056`'s rule applies exactly as written -- irreversibility
+IS the destructive tier -- and filing it lower would let it inherit a weaker
+consent rule than an act nothing can undo deserves.
+
+THE TARGET IS CORROBORATED, WHICH IS WHERE THE REAL SAFETY IS. A position alone
+is not an element: interfaces relayout, and pressing "whatever is now third" is
+how an automation presses Delete because a row appeared above it. The role and
+label read at view time must still match at press time or the act refuses."""
+
+[action.type_into_interface_element]
+tier = "adjust_reversible"
+enabled = true
+authorized_by = "OWNER-2026-09-08-INTERFACE"
+description = "Put text into one field of a window that is showing, keeping what was there."
+reversible = true
+inverse = "type_into_interface_element"
+requires_owner_consent = "per_rule"
+provenance_required = "verified_local"
+max_targets_per_window = 30
+window_seconds = 300
+execution_class = "interactive"
+restores_baseline = true
+source = """Owner 2026-09-08, §11.5, "typing". ITS OWN INVERSE, for the reason
+`replace_application_document_text` is: putting the previous value back IS another
+write of the same kind, and naming a separate row would invent a verb to describe
+the same effect. What makes it reversible is that the field is READ before it is
+written."""
+
+[action.scroll_interface]
+tier = "adjust_reversible"
+enabled = true
+authorized_by = "OWNER-2026-09-08-INTERFACE"
+description = "Scroll a window that is showing, up or down."
+reversible = true
+inverse = "scroll_interface"
+requires_owner_consent = "per_rule"
+provenance_required = "verified_local"
+max_targets_per_window = 60
+window_seconds = 300
+execution_class = "interactive"
+restores_baseline = true
+source = """Owner 2026-09-08, §11.5, "scrolling". Scrolling back is the same verb
+in the other direction, so it is its own inverse.
+
+AND IT IS THE ONE ROW WHOSE EFFECT CANNOT BE READ BACK. A scroll is posted as an
+event and the accessibility interface reports no acknowledgement for it, so the
+capability returns `verified = false` and says so rather than claiming a position
+it did not confirm."""
