@@ -812,6 +812,10 @@ final class HomeChrome {
           .flagbar button{width:16px;height:16px;padding:0;border:0;border-radius:5px;
                    background:rgba(185,102,69,.9);cursor:pointer;flex:0 0 auto}
           .flagbar button:hover,.flagbar button:focus-visible{background:rgba(206,120,84,1)}
+          /* CARRIED, NOT CURRENT: hollow rather than filled, so the bar distinguishes
+             a problem something just hit from one inherited from a dead process. */
+          .flagbar button.carried{background:transparent;
+            box-shadow:inset 0 0 0 1.5px rgba(206,120,84,.85)}
           .flag-tip{position:absolute;bottom:calc(100% + 8px);left:50%;
                    transform:translateX(-50%);max-width:min(46ch,80vw);
                    padding:8px 11px;border-radius:10px;font-size:12px;line-height:1.45;
@@ -2281,7 +2285,9 @@ final class HomeChrome {
               var rows = list.filter(function (f) {
                 return f && typeof f.text === 'string' && f.text.length > 0;
               });
-              var sig = JSON.stringify(rows.map(function (f) { return [f.id, f.text]; }));
+              var sig = JSON.stringify(rows.map(function (f) {
+                return [f.id, f.text, f.carried ? 1 : 0];
+              }));
               if (sig === window.__vesperFlagSig) return;
               window.__vesperFlagSig = sig;
               while (host.firstChild && host.firstChild !== tip) host.removeChild(host.firstChild);
@@ -2290,8 +2296,16 @@ final class HomeChrome {
               rows.forEach(function (f) {
                 var b = document.createElement('button');
                 b.type = 'button';
-                b.setAttribute('aria-label', f.text);
-                var show = function () { tip.textContent = f.text; tip.hidden = false; };
+                // A FLAG CARRIED ACROSS A RESTART SAYS SO. It was raised by a process
+                // that is gone, and nothing has re-proved it since -- which is not the
+                // same as a flag raised by something that just happened. Both are shown;
+                // only one of them can claim to be current.
+                var words = f.carried
+                  ? f.text + '  (raised before the last restart; not re-checked since)'
+                  : f.text;
+                if (f.carried) b.classList.add('carried');
+                b.setAttribute('aria-label', words);
+                var show = function () { tip.textContent = words; tip.hidden = false; };
                 var hide = function () { tip.hidden = true; };
                 b.addEventListener('pointerenter', show);
                 b.addEventListener('focus', show);

@@ -23232,6 +23232,37 @@ def check_a_flag_is_retracted_when_its_condition_clears() -> Result:
                   f"overwrite each other, and the next open that works retracts "
                   f"a window still stranded on the owner's desktop")
 
+    # AND A SUCCESS MUST CONTRADICT THE TWO CONDITIONS A REFUSAL CAN RAISE.
+    #
+    # These became raisable on 2026-09-11 -- before that, being blocked reached
+    # the bar from nowhere at all -- and nothing retracted them. A capability
+    # refused once would have carried a permanent row, STILL THERE after the
+    # owner granted the permission it was complaining about, which is the
+    # stale-flag defect this check's own subject line is about.
+    #
+    # DRIVEN, not read: the ids are computed and compared, so an id built with
+    # anything the retraction cannot reproduce fails here rather than at 3am on
+    # the owner's bar.
+    from core.executor import (_resolved_ids, blocked_flag_id,
+                               unimplemented_flag_id)
+    cid, args, target = "app.query", {"bundle_id": "com.example"}, "com.example"
+    resolved = _resolved_ids(cid, {"ok": True}, args, target)
+    for fid, what in ((blocked_flag_id(cid), "being refused"),
+                      (unimplemented_flag_id(cid), "having nothing bound")):
+        if fid not in resolved:
+            r.err(f"a clean result does not contradict {what!r} ({fid!r}), so "
+                  f"that flag can never leave the bar -- it outlives the owner "
+                  f"fixing the thing it reports")
+    # REPRODUCIBLE FROM THE CAPABILITY ALONE. An id carrying anything the
+    # retraction cannot recompute -- a reason, a timestamp, an object identity --
+    # means raise and retract derive different names and the row is permanent.
+    if blocked_flag_id(cid) != blocked_flag_id(cid):
+        r.err("blocked_flag_id is not stable across calls")
+    for fid in (blocked_flag_id(cid), unimplemented_flag_id(cid)):
+        if cid not in fid or any(ch.isdigit() for ch in fid.replace(cid, "")):
+            r.err(f"{fid!r} carries something beyond the capability, so the "
+                  f"retraction cannot reproduce it from a later success")
+
     r.note("a clean result retracts the flag its own failure raised; a refusal "
            "and a degraded success do not; the rung is out of the derivation so "
            "raise and retract agree; a read with no `ok` key may resolve "

@@ -7141,6 +7141,19 @@ CASES += [
      "a flag stops carrying how to re-prove it, so one that survives a restart "
      "can never be retired except by whatever raised it happening to run again"),
 
+    ("a-flag-is-retracted-when-its-condition-clears", EXECUTOR_PY,
+     _sub("           blocked_flag_id(capability_id),\n", "", 1),
+     "a success stops contradicting 'vesper is not allowed to do this', so a "
+     "capability refused once carries a permanent row -- still there after the "
+     "owner grants the permission it was complaining about"),
+
+    ("a-flag-is-retracted-when-its-condition-clears", EXECUTOR_PY,
+     _sub('    return f"refused:{capability_id}"',
+          '    return f"refused:{capability_id}:{id(capability_id)}"', 1),
+     "the blocked condition gets an id the retraction cannot reproduce, so raise "
+     "and retract derive different names and the flag can never be cleared -- "
+     "the drift this check exists to refuse"),
+
     ("a-flag-outlives-the-process-that-raised-it", EXECUTOR_PY,
      _sub("            elif d.reason not in PAUSED_NOT_BLOCKED:\n", "            elif False:\n", 1),
      "being refused reaches nothing again: vesper is blocked, says so once in a "

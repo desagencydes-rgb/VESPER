@@ -62,6 +62,25 @@ OUTCOMES = ("VERIFIED", "FAILED", "OUTCOME_UNKNOWN", "COMPENSATED", "REFUSED")
 PAUSED_NOT_BLOCKED = ("grant_expired", "pdp_unavailable")
 
 
+def blocked_flag_id(capability_id: str) -> str:
+    """The condition "vesper is not allowed to do this", once per capability.
+
+    THE REASON IS IN THE TEXT AND NOT IN THE ID, and that is the whole point.
+    Keyed on the reason as well, this flag could never be retracted: a later
+    SUCCESS knows the capability and the target but cannot know which refusal
+    reason it has just contradicted, so `_resolved_ids` could not name the row
+    to clear and every refusal would have been permanent. `CI-137`'s check
+    caught it by refusing a raise site that builds its own id -- two copies of
+    an id expression drift, and the drift shows up as a flag nothing can clear.
+    """
+    return f"refused:{capability_id}"
+
+
+def unimplemented_flag_id(capability_id: str) -> str:
+    """The condition "vesper can name this and has nothing bound to do it"."""
+    return f"unimplemented:{capability_id}"
+
+
 def flag_id_for(capability_id: str, result: dict, args: dict, target: Any) -> str:
     """The name of the CONDITION a flag is about. One derivation, two callers.
 
@@ -120,7 +139,13 @@ def _resolved_ids(capability_id: str, result: dict, args: dict,
     nothing but its own condition, which is the fail-closed direction for a
     surface whose job is to keep calling for action until someone acts.
     """
-    out = [flag_id_for(capability_id, {}, args, target)]
+    # A SUCCESS CONTRADICTS "NOT ALLOWED" AND "NOTHING BOUND" DIRECTLY, and
+    # these were missing until 2026-09-11 -- the two conditions were newly
+    # raisable and nothing could retract them, so a capability refused once
+    # carried a permanent row on the bar even after the owner granted it.
+    out = [flag_id_for(capability_id, {}, args, target),
+           blocked_flag_id(capability_id),
+           unimplemented_flag_id(capability_id)]
     named = (result or {}).get("resolved")
     if isinstance(named, str):
         named = [named]
@@ -246,7 +271,10 @@ class Executor:
                 # "this is not permitted", not "it was attempted again".
                 self._bus.publish(
                     "flag.raised", subject=task_id or subject,
-                    payload={"id": f"refused:{capability_id}:{d.reason}"[:160],
+                    payload={"id": flag_id_for(
+                                 capability_id,
+                                 {"flag_id": blocked_flag_id(capability_id)},
+                                 args, target)[:160],
                              "capability_id": capability_id,
                              "text": (f"vesper was not allowed to "
                                       f"{capability_id}: {d.detail}"
@@ -275,7 +303,10 @@ class Executor:
                               payload=ex.to_dict(), component="executor")
             self._bus.publish(
                 "flag.raised", subject=task_id or subject,
-                payload={"id": f"unimplemented:{capability_id}"[:160],
+                payload={"id": flag_id_for(
+                             capability_id,
+                             {"flag_id": unimplemented_flag_id(capability_id)},
+                             args, target)[:160],
                          "capability_id": capability_id,
                          "text": (f"vesper can name {capability_id} and has "
                                   f"nothing bound to carry it out")[:400]},
