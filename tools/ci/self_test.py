@@ -6610,7 +6610,8 @@ CASES += [
      "as a move and the flag the ladder raised says nothing to anyone"),
 
     ("a-refusal-is-never-reported-as-done", CAPS_PY,
-     _sub('    if target.meta.get("on_active_desktop") is False:', '    if False:', 1),
+     _sub('    _off_desktop = target.meta.get("on_active_desktop") is False',
+          "    _off_desktop = False", 1),
      "_act stops checking whether the window is on the desktop that is showing, "
      "so an unreachable window fails with an empty accessibility tree and the "
      "owner gets the symptom instead of the sentence"),
@@ -7380,6 +7381,27 @@ CASES += [
 
 APPS_SWIFT = "app/home-macos/AppsBridge.swift"
 APPS_PY = "core/apps.py"
+CASES += [
+    ("a-refusal-is-never-reported-as-done", ACTOR_PY,
+     _sub("    said = str(result.get(\"line\") or \"\").strip()\n    if said:\n        return said\n", "", 1),
+     "a capability that says what it did is ignored and falls through to a bare "
+     "'done' -- the defect this check's docstring records, arriving again on the "
+     "success side with five new capabilities"),
+
+    ("a-refusal-is-never-reported-as-done", ACTOR_PY,
+     _sub('    if cid == "app.query":\n        verb = str(result.get("verb") or "")',
+          '    if False:\n        verb = str(result.get("verb") or "")', 1),
+     "a READ answers 'done' instead of answering the question: the owner asks what "
+     "notes they have and is told a thing was completed"),
+
+    ("the-flag-bar-is-what-the-owner-asked-for", HOMESTATE_PY,
+     _sub("        self._backfill_history()\n", "", 1),
+     "a flag on the bar with no history row is a hole in 'the full history': three "
+     "flags showed with one row, because the carried ones predate the record and "
+     "nothing ever appended them"),
+]
+
+
 SETTINGS_PY = "core/settings_surface.py"
 
 CASES += [

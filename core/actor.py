@@ -1296,6 +1296,24 @@ def _describe(proposal: Any, result: dict) -> str:
         return f"that did not go through: {why}" if why else (
             "that did not go through, and it gave no reason")
 
+    # A CAPABILITY MAY SUPPLY ITS OWN SENTENCE, AND THIS IS THE GENERAL FIX FOR
+    # A DEFECT THIS FUNCTION HAS NOW HAD TWICE.
+    #
+    # The comment further down records the first time: everything not named below
+    # fell through to a bare "done", and the owner reported being told "done" for
+    # work that had not happened. Five capabilities landed on 2026-09-11 --
+    # `app.query`, `app.edit`, `ui.view`, `ui.act` -- and every one of them fell
+    # through the same hole again. Measured: "list my notes" answered "done".
+    #
+    # NAMING EACH NEW CAPABILITY HERE WOULD FIX IT ONCE MORE AND LEAVE THE HOLE.
+    # A capability knows what it did better than this function can infer, so one
+    # that says so is believed -- and the next capability to land cannot fall
+    # through, because the fall-through is no longer the default for anything
+    # that bothers to speak.
+    said = str(result.get("line") or "").strip()
+    if said:
+        return said
+
     if cid == "mode.set":
         # "done" IS WHAT THIS SAID, AND IT WAS THE WRONG WORD TWICE OVER.
         #
@@ -1377,4 +1395,38 @@ def _describe(proposal: Any, result: dict) -> str:
             return (f"done -- it is now {after.get('width')}x{after.get('height')} "
                     f"at ({after.get('x')},{after.get('y')})")
         return "done"
+
+    # THE READS, WHICH HAVE NOTHING TO REPORT HAVING DONE AND SO CANNOT CARRY A
+    # `line`. What they have is an ANSWER, and the owner asked a question.
+    if cid == "app.query":
+        verb = str(result.get("verb") or "")
+        if verb == "permission":
+            state = str(result.get("state") or "")
+            plain = {"granted": "yes, I can drive that app",
+                     "denied": "no -- you have refused me that app",
+                     "needs_consent": "not yet: that one needs you at the keyboard",
+                     "unknown": "I cannot tell until it is running",
+                     "no_such_app": "there is no such app on this machine"}
+            return plain.get(state, f"permission reads {state}")
+        if verb == "documents":
+            items = [str(x) for x in (result.get("items") or [])]
+            n = int(result.get("count") or len(items))
+            if not n:
+                return "that app has nothing open"
+            head = "; ".join(i[:60] for i in items[:5])
+            return (f"{n}: {head}" + (", and more" if n > 5 else ""))
+        if verb == "document_body":
+            if result.get("found") is False:
+                return "there is nothing by that name"
+            body = str(result.get("body") or "")
+            return (body[:400] + " ...") if len(body) > 400 else (body or "it is empty")
+
+    if cid == "ui.view":
+        n = int(result.get("count") or 0)
+        rows = result.get("elements") or []
+        can = [r for r in rows if isinstance(r, dict) and (r.get("can") or [])]
+        if not n:
+            return "I can see that window and nothing on it is usable"
+        return (f"{n} element(s) on it, {len(can)} I can use -- "
+                + "; ".join(str(r.get("label") or r.get("role"))[:40] for r in can[:4]))
     return "done"

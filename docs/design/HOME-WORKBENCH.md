@@ -3699,3 +3699,93 @@ the invention, which is the one kind of work this corpus refuses everywhere else
 The rail button says the gap in one sentence instead. This is the single item left
 deliberately undone, and it needs one answer from the owner rather than a night of
 work.
+
+---
+
+# MORNING HANDOFF — 2026-09-11, written overnight
+
+**Everything below was driven on this machine, not reasoned about.** Where
+something is unproven it says so and says why.
+
+## WHAT YOU HAVE TO DO FIRST, AND IT IS FIVE CLICKS
+
+The last build re-signed the app, which **revokes every TCC grant** — measured
+again overnight, and only **Apple Events survives** a rebuild:
+
+```
+System Settings > Privacy & Security >
+  Accessibility                    > add VESPER    windows, UI driving
+  Screen & System Audio Recording  > add VESPER    UI view, window titles
+  Microphone                       > add VESPER    wake word
+  Calendars                        > add VESPER    agenda
+```
+
+Speech asks on first request: `open -n app/VESPER.app --args --speech-consent`
+
+Then read the real state back — this **asks for nothing**, every probe is the
+non-prompting variant:
+
+```
+open -n /Users/macbook/Projects/VESPER/app/VESPER.app --args --grants --out /tmp/vesper-grants.txt
+```
+
+**Apple Events for Notes is already granted and stays granted.**
+
+## WHAT IS DONE AND PROVED END TO END
+
+| step | state |
+|---|---|
+| 16 Modes | ✅ eleven ambiences, animations, wallpapers separated from yours |
+| 17 Apps | ✅ permission instrument + read verbs + **write verbs driven against real Notes** |
+| 18 Notes | ✅ read / create / rewrite / remove, each **proved by re-reading the world** |
+| 19 UI view + clicking | 🟡 **built, refusals driven; the acts need the grant** |
+| 19a Flag bar | ✅ rebuilt to your spec, **verified by driving the renderer** |
+| 20 Settings | ✅ 34 items, 19 reading real values with sources, read-only by design |
+| 15d Cross-desktop | ✅ **move** works; resize/close refuse and say a move would work |
+
+## THE ONE THING I DID NOT BUILD, AND WHY
+
+**`projects` has no specification.** `spec_raw.txt` routes 17 items to `history`
+and **zero** to a projects surface, and §11.7's own text says the gap is what the
+discussion is for. Building a guess at seventeen features nobody specified is not
+finishing it — it is inventing a surface and then owning the invention. **One
+answer from you replaces a night of work: what belongs on `projects`?**
+
+## STILL OWED, NAMED RATHER THAN QUIET
+
+- **Notes sharing across accounts** — CloudKit sharing, not a file operation.
+- **Notes lock / unlock** — handles a note password, which is a credential that
+  must never reach a bus payload, a checkpoint or a log receipt.
+- **Script injection** (§11.5's fifth item) — deliberately **not** authorised.
+  It hands arbitrary execution to whatever composes the script, and the planner
+  that would compose it reads window labels. It needs its own decision.
+- **Microphone sensitivity** (step 22) — needs the mic grant, measure first.
+- **Window rung 3** — has never executed; needs Accessibility.
+- **Developer ID certificate** — would stop every build revoking your grants.
+  Third time this has cost a grant trip.
+
+## HOW TO TEST IT YOURSELF
+
+```
+# does it answer, and with real content?
+#   type into the home, or append to say.jsonl:
+list my notes
+what windows do i have open
+make me a note called Test with the text hello
+
+# the flag bar: click it. Every live flag is a titled chip; the panel shows
+# timestamps, three states (open / resolved / carried) and a button that ASKS
+# vesper to fix something rather than doing it silently.
+
+# settings: the rail's settings button, full screen with a margin.
+#   19 of 34 rows carry a real value AND its source. The rest say UNAVAILABLE
+#   and why. Governed rows say where a change is made instead of offering a
+#   toggle that would route around the review.
+```
+
+## WHAT I WOULD NOT TRUST YET
+
+**Anything requiring Accessibility or Screen Recording has only its refusal path
+driven.** The refusals are correct and were measured — an undeclared UI action is
+refused *before* the grant is even consulted, so the closed set holds on a granted
+machine too. But pressing a real button has not happened on this machine.

@@ -22364,6 +22364,53 @@ def check_a_refusal_is_never_reported_as_done() -> Result:
               "every other window fails with an empty tree -- and the owner is "
               "owed the sentence rather than the symptom")
 
+    # AND A SUCCESS MUST NOT FALL THROUGH TO "done" EITHER, which is the same
+    # defect on the other side of `ok` and it recurred on 2026-09-11.
+    #
+    # Five capabilities landed that day and every one of them fell through the
+    # hole this check's own docstring describes: "list my notes" was answered
+    # "done" -- true, and it tells the owner nothing they asked for. Naming each
+    # new capability in `_describe` would fix it a third time and leave the hole
+    # open for the sixth.
+    #
+    # SO THE PROPERTY IS THAT A CAPABILITY MAY SPEAK FOR ITSELF. A result
+    # carrying `line` is believed, and `_describe` prefers it over any inference
+    # -- which means the fall-through stops being the default for anything that
+    # bothers to say what it did. Driven, not read.
+    for cid, res, want in (
+        ("app.edit", {"ok": True, "line": "made \u201cthing\u201d"}, "made"),
+        ("ui.act", {"ok": True, "line": "pressed it"}, "pressed"),
+        ("mode.set", {"ok": True, "line": "work mode \u2014 set"}, "work mode"),
+    ):
+        got = str(_describe(_P(cid), res))
+        if want not in got:
+            r.err(f"{cid} supplies its own sentence {res['line']!r} and the owner "
+                  f"is told {got!r} instead. A capability knows what it did "
+                  f"better than a describer can infer")
+        if got.strip().lower() == "done":
+            r.err(f"{cid} falls through to a bare 'done' although it said what it "
+                  f"did -- the defect this check's own docstring records, on the "
+                  f"success side")
+
+    # THE READS MUST ANSWER THE QUESTION, not report completion. A read has
+    # nothing to report having DONE, so it cannot carry a `line`; what it has is
+    # the answer the owner asked for.
+    for cid, res, want in (
+        ("app.query", {"ok": True, "verb": "documents", "count": 3,
+                       "items": ["a", "b", "c"]}, "3"),
+        ("app.query", {"ok": True, "verb": "permission", "state": "granted"}, "can"),
+        ("ui.view", {"ok": True, "count": 2,
+                     "elements": [{"label": "Send", "can": ["press"]}]}, "Send"),
+    ):
+        got = str(_describe(_P(cid), res))
+        if got.strip().lower() == "done":
+            r.err(f"{cid} ({res.get('verb','')}) answers a question with 'done'. "
+                  f"The owner asked what is there; 'done' reports completion of "
+                  f"something they did not ask about")
+        elif want not in got:
+            r.err(f"{cid} ({res.get('verb','')}) answered {got!r}, which does not "
+                  f"carry the answer ({want!r})")
+
     r.note("no capability reports success for ok=false and none drops the "
            "reason; an ownership refusal reads as a choice; a degraded result "
            "says so; a real success still reads as one; and an unreachable "
@@ -26028,6 +26075,29 @@ def check_the_flag_bar_is_what_the_owner_asked_for() -> Result:
         if len(hist) < 12:
             r.err(f"the history kept {len(hist)} of 12, so 'the full history' is "
                   f"not full")
+        # EVERY FLAG ON THE BAR MUST BE ACCOUNTABLE IN THE HISTORY, including one
+        # inherited from a process that predates the record. Measured 2026-09-11:
+        # three flags on the bar, ONE row in the history -- the surface
+        # disagreeing with itself, and the owner asked to click the bar and see
+        # the FULL history.
+        import json as _j
+        carried_file = Path(_d) / "carried.json"
+        carried_file.write_text(_j.dumps({"flags": [
+            {"id": "old:1", "text": "raised before the history existed"},
+            {"id": "old:2", "text": "and another"}]}), encoding="utf-8")
+        inherited = HomeState(path=carried_file)
+        bar = {f["id"] for f in inherited.carried_flags()}
+        recorded = {h["id"] for h in inherited.flag_history()}
+        missing = bar - recorded
+        if missing:
+            r.err(f"{sorted(missing)} sit on the bar with no history row, so "
+                  f"clicking the bar shows fewer problems than the bar does")
+        for h in inherited.flag_history():
+            if h.get("id") in bar and h.get("at_s"):
+                r.err(f"{h['id']!r} was backfilled with a timestamp nobody "
+                      f"measured. When it was first raised is unknown, and a "
+                      f"plausible clock reading is the same false-measurement "
+                      f"defect as a zero from a missing table")
 
     # AND THE OWNER'S TWO NON-BEHAVIOURAL REQUIREMENTS, which a DOM stub cannot
     # see because they are about how it LOOKS rather than what it produces.

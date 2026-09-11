@@ -111,6 +111,19 @@ class HomeState:
         # the owner gets, while keeping a dead one wastes a glance at the bar.
         self._flags: list = self._load_flags()
         self._settings: list = []
+        # A FLAG ON THE BAR WITH NO HISTORY ROW IS A HOLE IN "THE FULL HISTORY".
+        #
+        # Measured 2026-09-11: three flags on the bar, ONE row in the history --
+        # because the two carried ones were raised by a process that predates the
+        # history file, so nothing ever appended them. The owner asked to click the
+        # bar and see the full history; a bar row the panel cannot account for is
+        # the surface disagreeing with itself.
+        #
+        # BACKFILLED WITHOUT INVENTING A TIME. The row is written with no `at_s`,
+        # so the panel shows `--:--` rather than a plausible clock reading -- when
+        # it was first raised is genuinely unknown, and guessing it would be the
+        # same false-measurement defect as a zero from a missing table.
+        self._backfill_history()
         self._mode = ""
         self._stage = ""
         self._ambience = ""
@@ -311,6 +324,25 @@ class HomeState:
 
     def _history_path(self) -> Path:
         return self._path.with_name("flag_history.json")
+
+    def _backfill_history(self) -> None:
+        """Give every carried flag a history row, if it has none."""
+        try:
+            rows = self._load_history()
+            have = {r.get("id") for r in rows
+                    if not r.get("resolved_at_s")}
+            added = 0
+            for f in self._flags:
+                fid = f.get("id")
+                if fid and fid not in have:
+                    rows.append({"id": fid, "event": "raised",
+                                 "text": str(f.get("text") or ""),
+                                 "seen": 1, "carried_in": True})
+                    added += 1
+            if added:
+                self._write_history(rows)
+        except Exception:                                 # noqa: BLE001
+            pass
 
     def _load_history(self) -> list:
         try:
