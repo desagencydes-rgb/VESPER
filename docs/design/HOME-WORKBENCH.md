@@ -3789,3 +3789,150 @@ make me a note called Test with the text hello
 driven.** The refusals are correct and were measured — an undeclared UI action is
 refused *before* the grant is even consulted, so the closed set holds on a granted
 machine too. But pressing a real button has not happened on this machine.
+
+---
+
+# 26. OPEN ITEMS FROM THE OWNER, 2026-09-11 — RECORDED, NOT YET TACKLED
+
+**The owner said: append these so they are not forgotten, and they will say when to
+tackle them.** Nothing in this section is fixed. Two items have a patch staged and
+unapplied, and they say so.
+
+## 26.1 THE TRANSCRIPT THIS CAME FROM, VERBATIM
+
+```
+YOU     i am on the keyboard now
+VESPER  work.
+YOU     so can you do it now?
+VESPER  Yes, now that you've got the keyboard, I can control Safari.
+YOU     open a new safari tab
+VESPER  Safari on vesper's desktop — vesper opened it
+YOU     nice, now could you search on safari what exactly quantum computing is?
+VESPER  That needs your go-ahead before I enter search query in Safari, and I have
+        put the question aside for when you are free.
+YOU     go ahead
+VESPER  it failed (exit 1): _LSOpenURLsWithCompletionHandler() failed for the
+        application /System/Volumes/Preboot/Cryptexes/App/System/Applications/
+        Safari.app with error -54 for the URL
+        https://www.google.com/search?q=quantum+computing.
+        it failed (exit 1): _LSOpenURLsWithCompletionHandler() failed for the
+        application ... (the SAME failure, printed a second time)
+```
+
+**Read it as evidence rather than as an anecdote.** Three things in it work and
+four are broken, and telling them apart is the point.
+
+**What works, and should not be broken while fixing the rest:** the follow-up
+resolved against VESPER's own earlier sentence (*"now that you've got the
+keyboard"*), the window open reported truthfully and named whose Desktop it
+landed on, and the confirmation ladder stopped before entering a search query and
+asked.
+
+## 26.2 A STATEMENT GOT THE WORD `work.`
+
+> `i am on the keyboard now` → **`work.`**
+
+A claim the owner made about the world was answered with one word that reads like
+a mode name. Not a refusal, not an acknowledgement, not an answer — and a reply
+that means nothing is worse than no reply, because it ends the exchange.
+
+**Where to look:** the answer path, not the actor — this turn proposed no action.
+`work` is the current mode's name, so the suspicion is a mode or persona field
+leaking into the reply where the answerer's sentence should be. Being a leak
+rather than a truncation is a guess, and it is the first thing to check rather
+than to believe.
+
+## 26.3 THE SAME FAILURE WAS PRINTED TWICE
+
+One `shell.run` failed once and the owner was told twice. Two rows for one event
+is the defect the flag bar's dedup exists to refuse, arriving in the transcript
+instead of on the bar.
+
+**Where to look:** whether the reply is appended once by the actor and again by
+the answerer, or whether one failed step is being described per retry rung. The
+action log shows `groq-strong — rate_limited` then a descent, so a per-rung
+description is the stronger suspicion.
+
+## 26.4 A WEB SEARCH WENT THROUGH THE SANDBOX AND WAS REFUSED BY IT
+
+```
+argv    open -a Safari 'https://www.google.com/search?q=quantum+computing'
+stderr  _LSOpenURLsWithCompletionHandler() failed ... error -54
+```
+
+**The sandbox was right and the choice was wrong.** `shell.run` executes under a
+seatbelt profile with `(deny default)`, so LaunchServices is denied by design.
+`ui.open` runs `/usr/bin/open` **deliberately outside** the seatbelt, accepts a
+URL, and would have worked. The capability existed and the phrasing did not reach
+it.
+
+**PATCH STAGED, NOT APPLIED** — the prompt gains: any web search or URL is
+`ui.open`, never `shell.run`, with this measurement as the reason.
+
+## 26.5 THE ACTING HALF OF VESPER GETS ONLY THE OWNER'S LINES
+
+`pump()` receives the full both-sides `transcript` and hands it to the **answerer**
+(line ~2432). Twenty lines earlier it builds a **separate** owner-only list from
+`intake.history` for the **actor**. So the half that decides whether to ACT cannot
+see what VESPER said.
+
+It did not bite in the transcript above because *"open a new safari tab"* is
+self-contained. It is **latent, not theoretical**: any instruction whose antecedent
+lives in VESPER's own reply will resolve to nothing.
+
+**PATCH STAGED, NOT APPLIED** — both sides to the actor, with VESPER's lines
+labelled `vesper (said)` and finished work still labelled `vesper (did)`. The
+original comment's worry (the assistant's prose talks a proposer into re-proposing
+finished work) is real and is answered by **labelling rather than deleting**, which
+is what the first version did.
+
+## 26.6 THE MEMORY SYSTEM IS WRITE-ONLY — THE LARGEST ITEM HERE
+
+**Every module exists. Nothing reads any of them during a turn.** Measured
+2026-09-11 by listing the calls inside `pump()`, the function that runs a live
+turn:
+
+| piece | built | called in a turn | actually wired to |
+|---|---|---|---|
+| L2 store `memory.py` (19 KB) | ✅ | ❌ | a **drift sensor**, every 10 min |
+| compaction `compactor.py` (14 KB) | ✅ | ❌ | the same drift sensor |
+| contradictions `arbiter.py` | ✅ | ❌ | a trigger predicate |
+| graph `knowledge_map.py` (15 KB) | ✅ | ❌ | **imported, never called** |
+| context assembly `context.py` | ✅ | ❌ | **imported, never called** |
+| context control `context_control.py` | ✅ | ❌ | **imported, never called** |
+| cache `cache.py` (13 KB) | ✅ | ❌ | **imported by nothing at all** |
+| L1 in-prompt `blocks.py` | ✅ | ❌ | builds a **menu card**, not a prompt |
+| baseline | ✅ | ✅ | `record()` ×2 — **write-only, never read back** |
+
+**The only memory call in a live turn is `baseline.record()`.** So there is no L1
+assembly, no escalation from L1 to L2 to the graph when L1 is thin, no cache hit,
+and nothing that lets "I told you this yesterday" work. The layers are code the
+turn never asks anything.
+
+**TWO THINGS ARE GENUINELY LIVE and must not be lost in the rework:** credential
+**redaction** runs on every egress — `gateway.py` redacts prompt, system *and*
+history before a provider sees them — and `rung_credentials.py` is wired into
+speech. An earlier pass of this very audit reported redaction as unwired because
+the grep missed a relative import; it was checked before being written down, and
+that correction is the reason it is named here.
+
+### WHY THIS WAS MISSED, WRITTEN DOWN BECAUSE IT IS THE USEFUL PART
+
+`MEMORY.md` has recorded for weeks that these modules are *"BUILT … reached by
+NOTHING"*. Every one passes a check. **The checks test them in isolation**, so a
+green suite and a connected subsystem were treated as the same claim — which is
+the substitution this corpus exists to refuse, made by the session that spent the
+night refusing it everywhere else.
+
+### THE ORDER THAT MATTERS
+
+1. **Retrieval into the turn.** Assemble L1 before the proposer and the answerer
+   run. Without this, nothing below changes anything the owner can see.
+2. **Escalation.** L1 thin → L2 → graph. Every module for this exists.
+3. **The cache on that path**, since it is currently reachable from nothing.
+4. **Read the baseline back**, so a turn can see what earlier turns established.
+
+**Open question for the owner, because it is theirs and not a detail:** what
+should L1 hold? It is the memory that is always in the prompt, so its size is a
+standing cost on every single turn, and what earns a place there is a judgement
+about what VESPER should never have to look up.
