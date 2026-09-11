@@ -3792,7 +3792,7 @@ machine too. But pressing a real button has not happened on this machine.
 
 ---
 
-# 26. OPEN ITEMS FROM THE OWNER, 2026-09-11 — 26.4 AND 26.5 FIXED, FIVE OPEN
+# 26. OPEN ITEMS FROM THE OWNER, 2026-09-11 — 26.4 AND 26.5 FIXED, SIX OPEN
 
 **The owner said: append these so they are not forgotten, and they will say when to
 tackle them.** Nothing in this section is fixed. Two items have a patch staged and
@@ -4077,3 +4077,80 @@ session replay. **The stage is not built**; the rail card is the way into it.
 A **`projects` mode** would be its counterpart pointed at building rather than
 reading: the stage shows the active step, what is in flight, and what is blocked.
 Offered for the owner's decision, not taken.
+
+## 26.8 "NO ROUTE TO THAT PROVIDER, MOVING TO A LOCAL MODEL" — A TRUE EVENT DESCRIBED BY A FALSE SENTENCE
+
+**Owner, 2026-09-11:** *"why do i keep hearing 'no route to that provider, moving
+to a local model'?"* — and then, reasonably: *"ah it was because there was no
+internet right?"*
+
+**Partly. The trigger is real; the sentence is wrong whatever the trigger.**
+
+### THE DESTINATION IS A HARDCODED CONSTANT
+
+```python
+announcer.attach(bus, interruption_class="active_user_task",
+                 next_rung="a local model")
+```
+
+`next_rung` is handed in **once, at startup**, and never changes. It is not the
+rung the router chose. `provider_class="a provider"` is a second constant in the
+same call.
+
+**AND THE CONSTANT IS FALSE ON THIS MACHINE.** `MEMORY.md`: *no local models on
+the MacBook — they heat it in a minute and eat tens of % battery in five.* The
+router's local rung, `ollama-strong`, is precisely the one that cannot run here.
+So VESPER announces a fallback to the one destination it is forbidden to use.
+
+### THE OBVIOUS FIX IS ALSO WRONG, WHICH IS WHY THIS IS RECORDED RATHER THAN PATCHED
+
+"Read the next rung from the event" does not work. `gateway.attempt` carries
+`provider_id`, `cost_class`, `outcome`, `classification`, the retry fields,
+`attempt` and `max_attempts` — **it names the rung that FAILED.** There is no
+successor in it and there cannot be: at the moment of a failed attempt the router
+has not necessarily chosen one, and attempt 2 of 10 may retry the SAME rung rather
+than descend.
+
+**So naming any specific destination from this event would be the same defect as
+the constant — a claim about something not yet decided, just harder to spot.**
+Two honest options:
+
+1. **Say less.** *"That provider did not answer — trying another."* True, and
+   claims nothing about where.
+2. **Find a real descent event.** If the router publishes one when it actually
+   moves rungs, THAT is what should be narrated, and the announcer should
+   subscribe to it instead.
+
+Option 2 is better if the event exists. **Whether it exists has not been checked**,
+and writing this down without checking is how the first version of this fix would
+have gone wrong.
+
+### AN OWNER DECISION IS INSIDE THIS ONE
+
+`provider_class="a provider"` may be **deliberate rather than lazy**. `INV-HW-1`
+forbids product names in routing and policy paths, and `core/windows.py` states
+the doctrine plainly: *"a rule that special-cases one program is a rule the next
+node cannot honour."* Speaking a provider id aloud is the same shape.
+
+**So: may VESPER say "groq did not answer", or must it say "a provider did not
+answer"?** `CI-007` will not catch it either way — `PRODUCT_NAMES` is
+hardware-only — so this is doctrine, and the owner's call.
+
+### AND THE REPETITION IS A SECOND, SEPARATE DEFECT
+
+The subscription fires on **every** `gateway.attempt` whose outcome is not `ok`,
+including each retry of one request. One outage therefore narrates up to
+`max_attempts` times. `contracts/policy/interruption_budget.toml` exists and this
+path does not consult it.
+
+**Fixing the false destination still leaves the owner hearing it ten times per
+outage.** Worth its own item.
+
+### A CORRECTION, RECORDED BECAUSE IT WAS SAID OUT LOUD FIRST
+
+This section originally offered the chain *"`groq-strong` → rate-limited →
+`claude-advisor`"* as the example descent. **The timestamps say otherwise:**
+`claude-advisor` answered at `…669483` and `groq-strong` was rate-limited at
+`…677969`, 8.5 seconds LATER. The chain was read off the ORDER OF A PRINTED LIST
+and asserted as causation. What actually holds is only that a rate-limited rung
+produces the same burst of narration as an offline one.
