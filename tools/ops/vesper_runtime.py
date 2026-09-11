@@ -2338,8 +2338,42 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                         # nothing else -- so a follow-up to a request it had
                         # just satisfied came back "none" and the owner was
                         # told VESPER could not do it.
-                        recent = [{"who": "owner", "text": u.text}
-                                  for u in intake.history[-6:] if u.final]
+                        # BOTH SIDES, AND THE OWNER FOUND THIS THE HARD WAY.
+                        #
+                        # This built the acting context from `intake.history`,
+                        # which holds the OWNER'S utterances only. So the half of
+                        # vesper that decides whether to ACT never saw its own
+                        # replies -- while the half that TALKS was handed the full
+                        # `transcript` twenty lines below, in this same function,
+                        # with a comment saying "vesper's own last sentence IS the
+                        # antecedent".
+                        #
+                        # MEASURED 2026-09-11, and it is the owner's own example:
+                        # "can you control safari?" -> "not yet: that one needs you
+                        # at the keyboard" -> "i am on the keyboard now". The word
+                        # `keyboard` appears ONLY in vesper's reply, so the proposer
+                        # had no antecedent and the follow-up resolved to nothing.
+                        # Vesper could discuss context it could not act on.
+                        #
+                        # THE ORIGINAL WORRY WAS REAL AND IS ANSWERED BY LABELLING
+                        # RATHER THAN BY DELETING. `_render_recent`'s comment warns
+                        # that the assistant's prose is what talks a proposer into
+                        # re-proposing finished work -- so vesper's lines are marked
+                        # as SAID, `last_action` still marks what was DONE, and the
+                        # actor's own no-progress guard still refuses an immediate
+                        # repeat. Removing the antecedent was too blunt a fix for a
+                        # problem that labelling solves.
+                        recent = []
+                        for row in (transcript or [])[-8:]:
+                            if not isinstance(row, dict):
+                                continue
+                            who = str(row.get("who") or "owner")
+                            said = str(row.get("text") or "").strip()
+                            if not said:
+                                continue
+                            recent.append({
+                                "who": "owner" if who == "owner" else "vesper (said)",
+                                "text": said})
                         if last_action is not None:
                             recent.append({"who": "vesper (did)",
                                            "text": last_action})

@@ -1497,7 +1497,7 @@ been driven against the running surface.**
 | 19a | **The flag bar, as the owner wants it** (§21) | ✅ **DONE** 2026-09-11 — wide (capped at the main menu's **measured** width, read from the menu's own rectangle), **titles not icons**, every live flag (the cap of 8 silently dropped the oldest), hover for the full text, VESPER's own type. Clicking opens the **history**: timestamps, three states (open / resolved / **carried-unproven**), and a button that **asks** rather than acts. Verified by DRIVING the real renderer in a DOM stub — 9 of 9 chips, width 742px, 3 states, 2 fix buttons. `the-flag-bar-is-what-the-owner-asked-for`, 7 red runs |
 | — | ⏸ **DISCUSS BEFORE BUILDING** | the owner stops the run here, 2026-09-08 |
 | 20 | **Settings interface** (§11.6) | ✅ **DONE, READ-ONLY BY DESIGN** 2026-09-11 (§25) — the rail's `settings` button opens the **same card at full screen with a margin**, the owner's own geometry. All 34 items (the 35th, *Explain this setting*, is a property of every row and is the hover text). **19 read a real value with its source**; the other 15 say UNAVAILABLE **with a reason**. Governed rows say where a change is made instead of offering a toggle that routes around the review. Two FALSE ZEROS caught and fixed. `the-settings-surface-reads-and-explains`, 6 red runs |
-| 21 | **`projects` and `research` rail buttons** (§11.7) | 🟡 **NOT BUILT, AND THE REASON IS RECORDED** 2026-09-11 (§25) — `research` has a written specification (§7.1) and `projects` has **none**: `spec_raw.txt` routes 17 items to `history` and **zero** to a projects surface. §11.7's own text says the gap is what the discussion is for. Building a guess at seventeen features nobody asked for is worse than an admitted gap, so this is the one item deliberately left |
+| 21 | **`projects` and `research` rail buttons** (§11.7) | ✅ **DONE** 2026-09-11 (§27) — both are Work-room cards per HOME-ARCHITECTURE §14.2, so they are the WAY IN rather than the stage. `projects` reads the **build order** (33 steps, state, what each waits on); `research` reads the **spike index** (15 questions settled by measurement). Both read the file that is their authority and neither invents a row. The research STAGE (§7.1 — subject right, canvas left, face dispersed) is still to build |
 | 22 | **Microphone sensitivity** (§9g) | owner-reported, queued last, MEASURE FIRST |
 | — | **TCC grants die on every build** (§9h) | found by the session, RAISED, awaiting a decision |
 
@@ -3792,7 +3792,7 @@ machine too. But pressing a real button has not happened on this machine.
 
 ---
 
-# 26. OPEN ITEMS FROM THE OWNER, 2026-09-11 — RECORDED, NOT YET TACKLED
+# 26. OPEN ITEMS FROM THE OWNER, 2026-09-11 — 26.4 AND 26.5 FIXED, FIVE OPEN
 
 **The owner said: append these so they are not forgotten, and they will say when to
 tackle them.** Nothing in this section is fixed. Two items have a patch staged and
@@ -3866,8 +3866,12 @@ seatbelt profile with `(deny default)`, so LaunchServices is denied by design.
 URL, and would have worked. The capability existed and the phrasing did not reach
 it.
 
-**PATCH STAGED, NOT APPLIED** — the prompt gains: any web search or URL is
-`ui.open`, never `shell.run`, with this measurement as the reason.
+**FIXED AND DRIVEN 2026-09-11.** The prompt now says any web search or URL is
+`ui.open`, never `shell.run`, with this measurement as the reason. Re-driven with
+the owner's own sentence — *"search on safari what exactly quantum computing is"* —
+and the action log reads `ui.open -> https://www.google.com/search?q=quantum+computing`,
+`state: done`. **Proof is the machine, not the log:** Safari's front document is
+that URL.
 
 ## 26.5 THE ACTING HALF OF VESPER GETS ONLY THE OWNER'S LINES
 
@@ -3880,11 +3884,19 @@ It did not bite in the transcript above because *"open a new safari tab"* is
 self-contained. It is **latent, not theoretical**: any instruction whose antecedent
 lives in VESPER's own reply will resolve to nothing.
 
-**PATCH STAGED, NOT APPLIED** — both sides to the actor, with VESPER's lines
-labelled `vesper (said)` and finished work still labelled `vesper (did)`. The
-original comment's worry (the assistant's prose talks a proposer into re-proposing
-finished work) is real and is answered by **labelling rather than deleting**, which
-is what the first version did.
+**FIXED 2026-09-11.** Both sides now reach the actor, with VESPER's lines labelled
+`vesper (said)` and finished work still labelled `vesper (did)`. The original
+comment's worry — that the assistant's prose talks a proposer into re-proposing
+finished work — is real and is answered by **labelling rather than deleting**,
+which is what the first version did. The prompt header now tells the proposer
+which is which, and to act when the owner's newest line answers an objection it
+raised.
+
+**STILL UNPROVEN:** no turn has yet been found whose antecedent lives ONLY in
+VESPER's reply AND which requires an action. The one that would have — "i am on
+the keyboard now" — is answered by the talking half, not the acting half. So this
+is fixed by construction and not yet by measurement, and that distinction is the
+whole point of writing it down.
 
 ## 26.6 THE MEMORY SYSTEM IS WRITE-ONLY — THE LARGEST ITEM HERE
 
@@ -3936,3 +3948,132 @@ night refusing it everywhere else.
 should L1 hold? It is the memory that is always in the prompt, so its size is a
 standing cost on every single turn, and what earns a place there is a judgement
 about what VESPER should never have to look up.
+
+## 26.7 WHAT VESPER OPENS SHOULD APPEAR WHERE THE OWNER IS
+
+**Owner, 2026-09-11, after the search finally worked:**
+
+> *"it did work, but i have previously closed the open safari window to let vesper
+> take place in desktop 3, so it did it, but in the safari window that's in full
+> screen, i was in vesper's desktop … when i ask for something like that, anything
+> related to apps or windows it should pop up where i am so i can see it directly
+> not switch desktops then see."*
+
+**So the rule is: the owner asked for it, therefore it belongs where the owner is.**
+Not where the application last had a window, and not on VESPER's Desktop.
+
+### WHY IT LANDED SOMEWHERE ELSE, WHICH IS NOT A BUG IN THE SEARCH
+
+Two separate mechanisms both point away from the owner:
+
+1. **`ui.open` hands the target to the system and owns nothing.** Its whole
+   definition is the opposite of `window.open`: *"leaves the window theirs"*. So
+   LaunchServices decides, and LaunchServices reuses the application's existing
+   window.
+2. **An application puts its window where it last had one.** Measured 2026-09-09
+   and written into `window_open`: TextEdit with zero windows open, launched while
+   a different Desktop was active, put its window on Desktop 1 where it had last
+   been used. Safari had a full-screen window on another Desktop, so the search
+   went into it.
+
+**Neither is wrong on its own.** Together they mean a thing the owner asked to SEE
+appears somewhere they are not.
+
+### WHAT THIS NEEDS, AND THE PART THAT IS ALREADY MEASURED
+
+The mechanism exists and is verified: `SpacesHatch` can move a window to a named
+Space (`CGSMoveWindowsToManagedSpace`, driven), and `whereIs` can say which Space a
+window is on **without** the accessibility tree (driven 2026-09-11). So after
+opening, VESPER can read where the window landed and bring it to the Space that is
+showing.
+
+**THREE THINGS TO SETTLE BEFORE BUILDING IT, because each is a judgement:**
+
+- **A full-screen window is its own Space**, not a window on a Desktop. Moving it
+  is not the same operation, and the measurement for that case has not been taken.
+  Safari's window in this very report was full screen.
+- **`core/windows.py` governs relocation deliberately.** `RELOCATE_OFF` is a
+  distinct effect and is `ON_REQUEST` for anything the owner opened, precisely so
+  authority cannot be escaped by moving the evidence. The owner asking *"open this
+  here"* IS the request, so this is allowed — but it has to travel as
+  `owner_requested` rather than be assumed, or the rule is bypassed for a good
+  reason today and for a bad one tomorrow.
+- **Whose window is it afterwards?** A window VESPER opened is VESPER's to
+  rearrange; a window it merely *showed the owner* is theirs. If the search reuses
+  Safari's EXISTING window, VESPER has not opened anything and must not claim it.
+
+**Not started. Recorded so it is not re-derived.**
+
+
+---
+
+## 27. THE RAIL'S FOUR DESTINATIONS — WHAT THE OWNER SAW, AND WHAT EACH SHOWS NOW
+
+**Owner, 2026-09-11, with a screenshot:** the settings card rendered *and* a small
+`UNAVAILABLE — This destination has no collection or save operation connected to
+this surface` panel sat on top of it; `projects` and `research` showed nothing;
+and *"the history button doesn't show latest history"*.
+
+**Three separate defects, and the third had the simplest cause of the session.**
+
+### THE SETTINGS CARD RENDERED TWICE
+
+`show(view)` falls through to an UNAVAILABLE message for any view it has no
+branch for — and settings had none, because the full-screen card was bolted on as
+a SEPARATE element with its own click handler. So the rail opened both at once.
+
+**One panel system, one place.** Settings is a branch of `show()` now, and
+`.menu-panel[data-view="settings"]` carries §11.6's geometry: `inset: 28px`, the
+same card at full screen with a margin. Bolting a second surface beside an
+existing one is how a surface ends up disagreeing with itself.
+
+### HISTORY SHOWED THE OLDEST SIXTY OF TWO HUNDRED
+
+```
+history = parsed.slice(0, MAX_MENU_HISTORY)      // the FIRST sixty
+```
+
+The transcript holds 200 entries and the panel showed entries 1–60. It takes the
+**last** sixty now, rendered **newest first** — scrolling to the bottom of sixty
+rows to find what just happened is the same defect with better manners.
+
+### `projects` AND `research` WERE NOT BUILT, AND NOW READ WHAT ALREADY EXISTS
+
+§11.7 recorded the gap honestly rather than inventing seventeen features. What
+resolved it is `HOME-ARCHITECTURE` §14.2: `history` and `settings` are whole
+SPACES, while these two are **Work-room cards** — so the button is the way IN,
+and what a way in should show is what is already there.
+
+| button | shows | authority |
+|---|---|---|
+| `projects` | the build order — 33 steps, state, what each waits on | the plan document itself |
+| `research` | 15 spikes, each with its status | `docs/spikes/INDEX.toml`, which `CLAUDE.md` calls *the status authority* |
+
+**Neither invents a row.** A file that cannot be read produces a row saying so
+with its reason, never an empty list and never a zero.
+
+### TWO FALSE READINGS CAUGHT WHILE BUILDING THEM
+
+**An unmarked step is not an unstarted one.** The first parser reported steps 1–4
+as `not started`; every one is built and gated — the plan doc's ✅ convention
+simply began at step 10. They are `unmarked` now. What a document does not say is
+unknown, and unknown is its own answer.
+
+**And both surfaces returned ONE row on the machine while returning 33 and 15 in
+the repo.** The runtime runs from inside the bundle, where
+`Path(__file__).parents[1]` is `Resources/runtime` and `docs/` does not exist — so
+both producers correctly reported *"could not be read"* and the owner would have
+seen UNAVAILABLE twice more. `build.sh` ships both documents now. **This is the
+same shape as `_find_vesper_bin`**, which worked only from the repo for exactly
+this reason, and it is worth naming a third time: anything a producer reads must
+be asked for from where the RUNTIME lives, not from where the repository does.
+
+### THE MODES, SUGGESTED RATHER THAN DECIDED
+
+`research` mode exists and §7.1 specifies the stage in full — subject right,
+freeform canvas left, face **dispersed** (§8), ambience `Working`, exit saved as a
+session replay. **The stage is not built**; the rail card is the way into it.
+
+A **`projects` mode** would be its counterpart pointed at building rather than
+reading: the stage shows the active step, what is in flight, and what is blocked.
+Offered for the owner's decision, not taken.

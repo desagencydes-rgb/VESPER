@@ -99,6 +99,22 @@ cp "$REPO/tools/menu_snapshot.py" "$REPO/tools/menu_catalogue.json" \
 # skipped as UNAVAILABLE and the app answers "no route" to everything, while
 # looking perfectly healthy. The table says who exists; the probe says who was
 # measured to answer, and the runtime needs both.
+# THE TWO DOCUMENTS THE RAIL'S OWN SURFACES READ (§11.7).
+#
+# `projects` reads the build order and `research` reads the spike index, and both
+# are repository documents. The runtime runs from INSIDE the bundle, where
+# `Path(__file__).parents[1]` is Resources/runtime and not the repo -- so without
+# these the producers correctly reported "could not be read" and the owner saw
+# UNAVAILABLE on both buttons. Measured 2026-09-11: 33 and 15 rows from the repo,
+# 1 apiece from the bundle. Same shape as `_find_vesper_bin`, which worked only
+# from the repo for the same reason.
+mkdir -p "$APP/Contents/Resources/runtime/docs/design"
+cp "$REPO/docs/design/HOME-WORKBENCH.md" \
+   "$APP/Contents/Resources/runtime/docs/design/" 2>/dev/null || true
+mkdir -p "$APP/Contents/Resources/runtime/docs/spikes"
+cp "$REPO/docs/spikes/INDEX.toml" \
+   "$APP/Contents/Resources/runtime/docs/spikes/" 2>/dev/null || true
+
 mkdir -p "$APP/Contents/Resources/runtime/docs/planning/spike-results"
 cp "$REPO"/docs/planning/spike-results/REMOTE-SUPPLY-*.json \
    "$APP/Contents/Resources/runtime/docs/planning/spike-results/" 2>/dev/null || \

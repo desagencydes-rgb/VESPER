@@ -378,6 +378,18 @@ final class HomeChrome {
         return String(data: out, encoding: .utf8) ?? "[]"
     }
 
+    /// The rail's two Work-room cards (§11.7), from the file the runtime writes.
+    static func railJSON(_ key: String) -> String {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/VESPER/home.json")
+        guard let d = try? Data(contentsOf: url),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let f = o[key],
+              let out = try? JSONSerialization.data(withJSONObject: f)
+        else { return "[]" }
+        return String(data: out, encoding: .utf8) ?? "[]"
+    }
+
     static func faceBehaviour() -> String {
         let url = FileManager.default
             .homeDirectoryForCurrentUser
@@ -873,6 +885,31 @@ final class HomeChrome {
              the same card at full screen, with a margin between it and the display
              edges." The SAME card -- same glass, same type, same radius -- at full
              screen, not a different surface that happens to open from the same button. */
+          /* §11.6's geometry, applied to the ONE panel rather than to a second card:
+             the same card at full screen with a margin between it and the display. */
+          .menu-panel[data-view="settings"],
+          .menu-panel[data-view="projects"],
+          .menu-panel[data-view="research"]{
+            inset:28px;right:28px;bottom:28px;width:auto;max-width:none;max-height:none}
+          .rail-list{display:flex;flex-direction:column;gap:0}
+          .rail-row{display:grid;grid-template-columns:1fr auto;gap:12px;padding:9px 0;
+            border-top:1px solid rgba(255,255,255,.06);align-items:start}
+          .rail-name{font-size:11.5px;color:rgba(244,214,178,.92)}
+          .rail-detail{font-size:10.5px;color:rgba(244,214,178,.48);line-height:1.4;
+            margin-top:2px}
+          .rail-waiting{font-size:10px;color:rgba(206,120,84,.9);margin-top:3px}
+          .rail-where,.rail-value{font-size:10px;color:rgba(244,214,178,.42);
+            text-align:right;white-space:nowrap}
+          .rail-value{font-size:11px;color:rgba(206,180,140,.95)}
+          .rail-state{display:inline-block;font-size:9.5px;letter-spacing:.06em;
+            text-transform:uppercase;padding:2px 6px;border-radius:6px;white-space:nowrap;
+            background:rgba(255,255,255,.08);color:rgba(244,214,178,.7)}
+          .rs-done{background:rgba(120,160,120,.32);color:rgba(230,244,225,.92)}
+          .rs-partial,.rs-running{background:rgba(185,102,69,.85);color:rgba(28,22,19,.96)}
+          .rs-unmarked,.rs-notstarted,.rs-not_started{background:transparent;
+            box-shadow:inset 0 0 0 1px rgba(244,214,178,.28)}
+          .rs-unreadable{background:transparent;
+            box-shadow:inset 0 0 0 1px rgba(206,120,84,.8);color:rgba(206,120,84,.95)}
           .settings{position:fixed;inset:28px;z-index:8;overflow-y:auto;
                    border-radius:18px;padding:20px 22px;
                    background:rgba(18,15,13,.94);border:1px solid rgba(255,255,255,.10);
@@ -1503,13 +1540,6 @@ final class HomeChrome {
           // surface. A screen that guesses at seventeen features nobody asked for is
           // worse than one that admits the gap, and §11.7 says the gap is what the
           // discussion is for.
-          triggers.forEach(function(b){
-           var view=b.dataset.menuView;
-           if(view==='settings'){
-            b.addEventListener('click',function(ev){ev.preventDefault();ev.stopPropagation();
-             if(window.__vesperSettings)window.__vesperSettings();});
-           }
-          });
           triggers.forEach(function(b){var item=catalogue.get(b.dataset.menuView);if(!item)return;
            b.setAttribute('aria-description',item.what);
            b.addEventListener('pointerenter',function(){showTooltip(b,item);});
@@ -1560,12 +1590,110 @@ final class HomeChrome {
            var n=CATALOGUE.filter(function(i){return i.area==='instruments'&&fresh(rows.get(i.id));}).length;
            intro.textContent=n+' current readings · '+(MAX_MENU_READINGS-n)+' unavailable. Open a row for evidence, limits, or the reason.';
           }
+          // ---- the rail's own destinations (§11.6, §11.7) -------------------------
+          //
+          // ONE PANEL SYSTEM, ONE PLACE. Settings first rendered as a SEPARATE
+          // full-screen card while `show()` still fell through to its UNAVAILABLE
+          // message -- so the owner saw both at once, which is what they reported.
+          // These are branches of `show()` now; the panel is styled full-screen for the
+          // settings view alone, which is the geometry §11.6 asked for.
+          var railData = {projects: null, research: null};
+          window.__vesperRail = function (which, json) {
+            try { railData[which] = JSON.parse(json); } catch (e) { railData[which] = null; }
+            if (active === which) show(which, opener);
+          };
+          function stateChip(state){
+            var el = node('span', 'rail-state ' + 'rs-' + String(state || 'unknown').replace(/[^a-z_]/g,''));
+            el.textContent = String(state || 'unknown').replace(/_/g, ' ');
+            return el;
+          }
+          function railList(rows, emptyWhy){
+            if (!Array.isArray(rows) || !rows.length){
+              content.append(node('span','menu-status','UNAVAILABLE'),
+                             node('p','menu-note', emptyWhy));
+              return;
+            }
+            // AN UNAVAILABLE ROW IS A ROW, NOT AN EMPTY LIST. A producer that could not
+            // read its file says so in a row with its reason, and that must reach the
+            // owner rather than being rendered as nothing.
+            var counts = {};
+            rows.forEach(function(r){ var k = r.status === 'available' ? (r.state||'unknown') : 'unreadable';
+                                      counts[k] = (counts[k]||0)+1; });
+            var summary = Object.keys(counts).sort().map(function(k){ return counts[k]+' '+k.replace(/_/g,' '); }).join(' · ');
+            content.append(node('p','menu-note', rows.length + ' — ' + summary));
+            var list = node('div','rail-list');
+            rows.forEach(function(r){
+              var row = node('div','rail-row');
+              var left = node('div');
+              left.append(node('div','rail-name', r.name || r.id || 'untitled'));
+              if (r.status !== 'available'){
+                left.append(node('div','rail-detail', r.reason || 'no reason given'));
+              } else {
+                if (r.detail) left.append(node('div','rail-detail', r.detail));
+                if (r.waiting) left.append(node('div','rail-waiting', 'waiting on: ' + r.waiting));
+              }
+              var right = node('div');
+              right.append(stateChip(r.status === 'available' ? r.state : 'unreadable'));
+              if (r.where) right.append(node('div','rail-where', r.where));
+              row.append(left, right);
+              list.append(row);
+            });
+            content.append(list);
+          }
+          function renderProjects(){
+            intro.textContent = 'The build, read from the plan document that is its authority. '
+              + 'A step with no marker is UNMARKED, not unstarted — the convention began at step 10.';
+            railList(railData.projects,
+                     'The build order has not arrived on this surface yet.');
+          }
+          function renderResearch(){
+            intro.textContent = 'Every question settled by measurement, with the status the '
+              + 'spike index gives it — never a document\\'s own header, which is the thing '
+              + 'that has been wrong before.';
+            railList(railData.research,
+                     'The spike index has not arrived on this surface yet.');
+          }
+          function renderSettings(){
+            var rows = [];
+            try { rows = JSON.parse(window.__vesperSettingsData || '[]'); } catch (e) { rows = []; }
+            if (!Array.isArray(rows) || !rows.length){
+              content.append(node('span','menu-status','UNAVAILABLE'),
+                             node('p','menu-note','The settings producer has not run yet.'));
+              return;
+            }
+            var known = rows.filter(function(r){ return r && r.status === 'available'; }).length;
+            intro.textContent = known + ' of ' + rows.length + ' read a real value. '
+              + 'Governed rows say where they are changed rather than offering a toggle '
+              + 'that would skip the review that governs them.';
+            var list = node('div','rail-list');
+            rows.forEach(function(r){
+              if (!r || typeof r.name !== 'string') return;
+              var row = node('div','rail-row');
+              var left = node('div');
+              left.append(node('div','rail-name', r.name));
+              var why = String(r.what || '');
+              if (r.status !== 'available' && r.reason) why += '  — ' + r.reason;
+              else if (r.governed && r.change_by) why += '  — changed by ' + r.change_by;
+              left.append(node('div','rail-detail', why));
+              var right = node('div');
+              right.append(node('div','rail-value',
+                                r.status === 'available' ? String(r.value) : 'UNAVAILABLE'));
+              if (r.status === 'available' && r.source) right.append(node('div','rail-where', String(r.source)));
+              right.append(stateChip(r.governed ? 'governed' : 'yours to set'));
+              row.append(left, right);
+              list.append(row);
+            });
+            content.append(list);
+          }
           function renderHistory(){
            if(!historyNodes)return;var list=historyNodes.list;list.textContent='';
            if(history===null){historyNodes.note.textContent='UNAVAILABLE — conversation history has not arrived.';return;}
            var shown=history.filter(function(r){return (r.who+' '+r.text).toLowerCase().includes(historyQuery.toLowerCase());});
-           historyNodes.note.textContent=shown.length+' of '+history.length+' supplied entries'+(historyTruncated?' · bounded tail.':'.');
-           shown.forEach(function(r){var el=node('li');el.append(node('strong','',r.who),node('p','',r.text));list.append(el);});
+           historyNodes.note.textContent=shown.length+' of '+history.length+' supplied entries'+(historyTruncated?' · newest '+MAX_MENU_HISTORY+', older ones are in the log.':'.');
+           // NEWEST FIRST. The owner opens this to see what just happened, and scrolling
+           // to the bottom of sixty entries to find it is the same defect as showing the
+           // oldest sixty -- which is what `slice(0, ...)` did until 2026-09-11.
+           shown.slice().reverse().forEach(function(r){var el=node('li');el.append(node('strong','',r.who),node('p','',r.text));list.append(el);});
           }
           function palette(){
            intro.textContent='Search all 68 surfaces by name or description. Opening a surface does not execute its action.';
@@ -1633,6 +1761,9 @@ final class HomeChrome {
            else if(view==='before-after')beforeAfter();
            else if(view==='onboarding-wizard'||view==='enrollment')onboarding();
            else if(item){content.append(reading(item,true));}
+           else if(view==='settings'){renderSettings();}
+           else if(view==='projects'){renderProjects();}
+           else if(view==='research'){renderResearch();}
            else if(view==='history'){
             intro.textContent='Conversation entries in their supplied order. This is not the full action log.';
             var search=node('input','menu-search');search.type='search';search.maxLength=MAX_SEARCH;search.placeholder='Find in conversation';search.setAttribute('aria-label','Find in conversation');search.value=historyQuery;
@@ -1680,7 +1811,7 @@ final class HomeChrome {
           window.__vesperHistory=function(json){
            if(json!==lastHistory){lastHistory=json;history=null;historyTruncated=false;
             try{var parsed=JSON.parse(json);if(Array.isArray(parsed)){historyTruncated=parsed.length>MAX_MENU_HISTORY;
-             history=parsed.slice(0,MAX_MENU_HISTORY).filter(function(r){return r&&typeof r.text==='string';}).map(function(r){return {who:r.who==='owner'?'you':bounded(r.who)||'unknown',text:bounded(r.text)};});
+             history=parsed.slice(-MAX_MENU_HISTORY).filter(function(r){return r&&typeof r.text==='string';}).map(function(r){return {who:r.who==='owner'?'you':bounded(r.who)||'unknown',text:bounded(r.text)};});
             }}catch(e){}if(active==='history')renderHistory();
            }if(typeof previousHistory==='function')previousHistory(json);
           };
@@ -3263,7 +3394,7 @@ final class HomeChrome {
           // worked and rendered nothing -- §9r's whole failure in one line.
           var recv = ['__vesperStage','__vesperHistory','__vesperWork',
                       '__vesperChanges','__vesperMetrics','__vesperFlags',
-                      '__vesperFlagHistory','__vesperSettings']
+                      '__vesperFlagHistory','__vesperSettings','__vesperRail']
                      .map(function(n){ return n.replace('__vesper','')
                         + ':' + (typeof window[n] === 'function' ? 'fn' : 'MISSING'); })
                      .join(',');
@@ -3335,6 +3466,13 @@ final class HomeChrome {
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "`", with: "\\`")
                 .replacingOccurrences(of: "$", with: "\\$")
+            func esc(_ v: String) -> String {
+                v.replacingOccurrences(of: "\\", with: "\\\\")
+                 .replacingOccurrences(of: "`", with: "\\`")
+                 .replacingOccurrences(of: "$", with: "\\$")
+            }
+            let projSafe = esc(Self.railJSON("projects"))
+            let resSafe = esc(Self.railJSON("research"))
             let setSafe = Self.settingsJSON()
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "`", with: "\\`")
@@ -3380,6 +3518,8 @@ final class HomeChrome {
               // opened -- and does not close one they are reading.
               step('flaghist', function(){ if (window.__vesperFlagHistory) window.__vesperFlagHistory(`\(flagHistSafe)`); });
               step('settings', function(){ if (window.__vesperSettings) window.__vesperSettings(`\(setSafe)`); });
+              step('projects', function(){ if (window.__vesperRail) window.__vesperRail('projects', `\(projSafe)`); });
+              step('research', function(){ if (window.__vesperRail) window.__vesperRail('research', `\(resSafe)`); });
             })();
             """
             // REPORT WHAT THE PUSH DID. `completionHandler: nil` swallowed

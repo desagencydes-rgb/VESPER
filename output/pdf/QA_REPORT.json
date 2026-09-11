@@ -1,0 +1,65 @@
+{
+  "snapshot": "7cddca1 / 2026-09-11",
+  "checks": {
+    "one_a2_page": true,
+    "all_font_resources_embedded": true,
+    "original_icon_unchanged": true,
+    "no_jpeg_compression": true,
+    "text_inside_35pt_safety": true,
+    "preview_300dpi": true,
+    "all_paragraphs_fit": true,
+    "current_experimental_planned_present": true,
+    "formula_matches_current_source": true
+  },
+  "fonts": [
+    {
+      "name": "/AAAAAA+SourceCodePro-Regular",
+      "embedded": true
+    },
+    {
+      "name": "/AAAAAA+Georgia",
+      "embedded": true
+    },
+    {
+      "name": "/AAAAAA+LiberationSans",
+      "embedded": true
+    },
+    {
+      "name": "/AAAAAA+Georgia-Italic",
+      "embedded": true
+    },
+    {
+      "name": "/AAAAAA+LiberationSans-Bold",
+      "embedded": true
+    },
+    {
+      "name": "/AAAAAA+LiberationSans-Italic",
+      "embedded": true
+    }
+  ],
+  "images": [
+    {
+      "size": [
+        1024,
+        1024
+      ],
+      "filter": "['/ASCII85Decode', '/FlateDecode']",
+      "identical_to_original_rgb": true
+    }
+  ],
+  "text_bounds_pt": {
+    "left": 57.0,
+    "top": 60.0,
+    "right": 1133.5512000000003,
+    "bottom": 1646.62547
+  },
+  "word_count": 1137,
+  "icon_ppi": 304.6611570247934,
+  "preview_pixels": [
+    4961,
+    7016
+  ],
+  "pdf_sha256": "1880bd0769a9ee0475dc2856c3dc893dfdbfc8390858f3aaf2f0223d7cbdd841",
+  "visual_review": "Rendered whole page and inspected hero, architecture and lower-field crops; no overlap or clipping observed.",
+  "scope": "Artifact QA and source audit; not a new full application gate run."
+}

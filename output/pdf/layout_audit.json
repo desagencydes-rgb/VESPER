@@ -1,0 +1,266 @@
+[
+  {
+    "text": "A personal assistant being engineered around durable state, evidence, bounded agency and continuity across replaceable models and devices. This plate maps the current source; deployment and hardware validation remain separate claims.",
+    "x": 57,
+    "y": 253,
+    "w": 610,
+    "h": 28,
+    "size": 10.4
+  },
+  {
+    "text": "CURRENT = implemented source. EXPERIMENTAL = measurement in progress. PLANNED = specified or proposed, not established in operation.",
+    "x": 711,
+    "y": 271,
+    "w": 420,
+    "h": 23.6,
+    "size": 8.8
+  },
+  {
+    "text": "Difficulty chooses a profile; interactive turns prefer measured latency.",
+    "x": 83,
+    "y": 438,
+    "w": 264,
+    "h": 25.2,
+    "size": 10
+  },
+  {
+    "text": "Persona, recent dialogue, live mode and selected facts beside the question.",
+    "x": 83,
+    "y": 522,
+    "w": 264,
+    "h": 25.2,
+    "size": 10
+  },
+  {
+    "text": "Privacy, credential redaction and cost rules precede provider attempts.",
+    "x": 83,
+    "y": 606,
+    "w": 264,
+    "h": 25.2,
+    "size": 10
+  },
+  {
+    "text": "Reply to the owner; capture utterances asynchronously and record misses.",
+    "x": 83,
+    "y": 690,
+    "w": 264,
+    "h": 25.2,
+    "size": 10
+  },
+  {
+    "text": "A model names a known capability and arguments; the proposal grants no authority.",
+    "x": 843,
+    "y": 438,
+    "w": 264,
+    "h": 25.2,
+    "size": 10
+  },
+  {
+    "text": "Evaluate scoped grants, argument-sensitive levels and ceilings; ask when required.",
+    "x": 843,
+    "y": 522,
+    "w": 264,
+    "h": 25.2,
+    "size": 10
+  },
+  {
+    "text": "Re-check authority; checkpoint file changes and record external effects before acting.",
+    "x": 843,
+    "y": 606,
+    "w": 264,
+    "h": 25.2,
+    "size": 10
+  },
+  {
+    "text": "Feed observations to the next step. Check effects where an independent verifier exists.",
+    "x": 843,
+    "y": 690,
+    "w": 264,
+    "h": 25.2,
+    "size": 10
+  },
+  {
+    "text": "A replaceable inference service. It generates answers or proposes steps; its output is not permission.",
+    "x": 57.0,
+    "y": 871,
+    "w": 134.79302587176605,
+    "h": 50.0,
+    "size": 9.7
+  },
+  {
+    "text": "Stored facts and their provenance. The log preserves history; the graph makes it selectable.",
+    "x": 210.79302587176605,
+    "y": 871,
+    "w": 134.79302587176605,
+    "h": 50.0,
+    "size": 9.7
+  },
+  {
+    "text": "The bounded material supplied now: rules, evidence, recent dialogue and the current request.",
+    "x": 364.5860517435321,
+    "y": 871,
+    "w": 134.79302587176605,
+    "h": 50.0,
+    "size": 9.7
+  },
+  {
+    "text": "Concrete adapters that read or change the world. Arguments determine their required authority.",
+    "x": 518.3790776152981,
+    "y": 871,
+    "w": 134.79302587176605,
+    "h": 50.0,
+    "size": 9.7
+  },
+  {
+    "text": "A bounded task process with a purpose and tool scope. Advice returns with external-content taint.",
+    "x": 672.1721034870642,
+    "y": 871,
+    "w": 134.79302587176605,
+    "h": 50.0,
+    "size": 9.7
+  },
+  {
+    "text": "The native island and home, speech and typed scenes. They expose state and receive the owner.",
+    "x": 825.9651293588303,
+    "y": 871,
+    "w": 134.79302587176605,
+    "h": 50.0,
+    "size": 9.7
+  },
+  {
+    "text": "The runtime joins intake, models, memory and actions, while a separate loop evaluates world state.",
+    "x": 979.7581552305962,
+    "y": 871,
+    "w": 134.79302587176605,
+    "h": 50.0,
+    "size": 9.7
+  },
+  {
+    "text": "<b>L3</b> is the append-only event log. A fact is written there first; its returned sequence becomes the provenance pointer in <b>L2</b>, a SQLite graph of entities, facts and edges. <b>L1</b> is the context rendered for a turn.",
+    "x": 57,
+    "y": 1007,
+    "w": 338,
+    "h": 41.400000000000006,
+    "size": 10.3
+  },
+  {
+    "text": "Selection uses <b>FTS5 + a graph walk bounded at depth 3</b>, then authority and recency. Block A carries a stable persona and index; block B places up to five relevant facts next to the question. Budget cuts and unresolved source pointers are reported.",
+    "x": 57,
+    "y": 1128,
+    "w": 338,
+    "h": 55.2,
+    "size": 10.3
+  },
+  {
+    "text": "The knowledge map navigates to hash-checked source spans; a map summary is not evidence. Compaction reprojects from L3. Erasing L2 does not destroy L3 history. No embedding store is used.",
+    "x": 57,
+    "y": 1208,
+    "w": 338,
+    "h": 40.8,
+    "size": 10.1
+  },
+  {
+    "text": "A capability name is insufficient: the same command tool can inspect a directory or destroy it. VESPER resolves authority from the actual arguments and the source of the instruction.",
+    "x": 426,
+    "y": 1007,
+    "w": 338,
+    "h": 41.400000000000006,
+    "size": 10.3
+  },
+  {
+    "text": "<b>E</b>: effective level. <b>G</b>: grant maximum. <b>D</b>: declared argument level. <b>C</b>: context-trust ceiling. <b>M</b>: owner-mode ceiling. <b>A</b>: authorization-strength ceiling. Levels are ordered L0 through L5.",
+    "x": 426,
+    "y": 1122,
+    "w": 338,
+    "h": 40.8,
+    "size": 10.1
+  },
+  {
+    "text": "This is an upper bound, not the whole permit: expiry, target scope, lease epoch, required level and further boundary checks still apply. Retrieved content stays tainted through summaries and caches. An advisor may add STOP; it cannot manufacture consent.",
+    "x": 426,
+    "y": 1184,
+    "w": 338,
+    "h": 55.2,
+    "size": 10.3
+  },
+  {
+    "text": "Host probes and agenda bridges supply observations. Facts expire to <b>UNKNOWN</b>; stale values do not masquerade as current ones. The deterministic trigger evaluator cannot call a model. Models can help carry out a decision after it fires.",
+    "x": 795,
+    "y": 1007,
+    "w": 338,
+    "h": 55.2,
+    "size": 10.3
+  },
+  {
+    "text": "Live wiring includes fact expiry, memory drift, contradiction handling, map staleness and due agenda items. Interruption budgets decide when to surface non-alarm work. A fresh external enable token gates autonomous actuation.",
+    "x": 795,
+    "y": 1119,
+    "w": 338,
+    "h": 55.2,
+    "size": 10.3
+  },
+  {
+    "text": "Events use <b>HLC = (physical_ms, logical, node_id)</b>, ordered lexicographically: physical time, then a logical counter, then a node tie-breaker. Wall-clock arrival order cannot supersede a fact. Consumers must declare idempotency keys.",
+    "x": 795,
+    "y": 1197,
+    "w": 338,
+    "h": 54.4,
+    "size": 10.1
+  },
+  {
+    "text": "<b>CURRENT</b>  Typed input, on-device English recognition, a local wake-word listener and Fn activation. Darija transcription uses permitted remote suppliers; speech uses provider routing or local synthesis, with degradations reported.",
+    "x": 57,
+    "y": 1343,
+    "w": 338,
+    "h": 54.0,
+    "size": 10.1
+  },
+  {
+    "text": "Application and window adapters read, write, move and inspect. Accessibility actions re-resolve an element and check its role and label before touching it. UI-tree access is limited to the showing Desktop. Camera identity remains <b>PLANNED</b>.",
+    "x": 57,
+    "y": 1420,
+    "w": 338,
+    "h": 54.0,
+    "size": 10.1
+  },
+  {
+    "text": "<b>CURRENT</b>  Python core; SQLite persistence; Swift/AppKit host; Metal face and ambience beneath WebKit HTML/CSS/JS. The app launches its bundled runtime. Five physical stores separate log, audit, tombstones, state and workspace.",
+    "x": 426,
+    "y": 1343,
+    "w": 338,
+    "h": 54.0,
+    "size": 10.1
+  },
+  {
+    "text": "Supply contracts name Cloudflare, Groq, Gemini, Ollama and Mistral routes, plus purpose-specific voice and agent suppliers. These are configured candidates, not guaranteed availability. A bounded stdio MCP client is built; live server wiring is not established here.",
+    "x": 426,
+    "y": 1420,
+    "w": 338,
+    "h": 54.0,
+    "size": 10.1
+  },
+  {
+    "text": "<b>CURRENT</b>  Placement and survival decisions use measured capability profiles and trust constraints. Network trust can only weaken node trust. The dedicated segment remains <b>unattested</b>; deployment is not a demonstrated roaming fabric.",
+    "x": 795,
+    "y": 1343,
+    "w": 338,
+    "h": 54.0,
+    "size": 10.1
+  },
+  {
+    "text": "<b>EXPERIMENTAL</b>  Local inference is profiled with llama.cpp. The recorded node-1 Qwen3-8B Q4_K_M run sustained <b>45.8 tok/s</b> (b10405-e79e4bf66, Vulkan; median of 3 x 10-minute runs, 2026-08-17). This is throughput, not conversational latency.",
+    "x": 795,
+    "y": 1420,
+    "w": 338,
+    "h": 54.0,
+    "size": 10.1
+  },
+  {
+    "text": "<b>PLANNED / OPEN</b>  Camera identity; cross-site connectivity; remote wake and service dormancy; multi-model residency; system widgets. SPIKE-002 still owes the full voice-latency chain. SPIKE-013 is measuring home-composite cost.",
+    "x": 800,
+    "y": 1529,
+    "w": 322,
+    "h": 51.2,
+    "size": 9.6
+  }
+]

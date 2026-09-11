@@ -111,6 +111,8 @@ class HomeState:
         # the owner gets, while keeping a dead one wastes a glance at the bar.
         self._flags: list = self._load_flags()
         self._settings: list = []
+        self._projects: list = []
+        self._research: list = []
         # A FLAG ON THE BAR WITH NO HISTORY ROW IS A HOLE IN "THE FULL HISTORY".
         #
         # Measured 2026-09-11: three flags on the bar, ONE row in the history --
@@ -392,15 +394,29 @@ class HomeState:
         files every second to watch them not change is the kind of work a machine
         the owner is trying to keep alive for ten years should not be doing.
         """
+        n = 0
         try:
             from core import settings_surface as S
-            rows = S.rows()
+            with self._lock:
+                self._settings = S.rows()
+            n += len(self._settings)
         except Exception:                                 # noqa: BLE001
-            return 0
-        with self._lock:
-            self._settings = rows
+            pass
+        # THE RAIL'S OWN TWO DESTINATIONS (§11.7), read from the same files that
+        # are the authority for them: the build order for `projects`, the spike
+        # index for `research`. Read here rather than in the page, because the
+        # page must never parse a repository document -- what a surface shows has
+        # to come through a producer that can say UNAVAILABLE with a reason.
+        try:
+            from core import rail_surfaces as RS
+            with self._lock:
+                self._projects = RS.project_rows()
+                self._research = RS.research_rows()
+            n += len(self._projects) + len(self._research)
+        except Exception:                                 # noqa: BLE001
+            pass
         self.write()
-        return len(rows)
+        return n
 
     def flag_history(self) -> list:
         """Every flag event, newest last, with what became of it.
@@ -583,6 +599,10 @@ class HomeState:
             # not true of any setting.
             if self._settings:
                 existing["settings"] = self._settings
+            if self._projects:
+                existing["projects"] = self._projects
+            if self._research:
+                existing["research"] = self._research
             # ONLY WHEN A MODE HAS BEEN CHOSEN. Writing an empty ambience every
             # tick would tell the home to paint nothing, which is not the same
             # as leaving it alone.

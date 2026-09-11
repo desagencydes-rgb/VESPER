@@ -83,6 +83,12 @@ The only capabilities that exist are:
               a link. "open the picture in Downloads", "show me that file",
               "open the site" are all ui.open.
               NOT fs.read -- reading a PNG's bytes shows the owner nothing.
+              AND ANY WEB SEARCH OR URL IS THIS, NEVER shell.run. "search X on
+              safari", "look Y up", "open google and find Z" are ui.open with a
+              search URL as the path. Measured 2026-09-11: a search issued as
+              `shell.run open -a Safari https://...` failed with LaunchServices
+              error -54, because shell.run runs inside a sandbox that denies it
+              by design and ui.open deliberately does not.
 
   fs.read     args: {"path": "<path>"}
               For reading a file's contents, when YOU need to look INSIDE it.
@@ -546,11 +552,24 @@ class IntentProposer:
 
 
 def _render_recent(recent: list) -> str:
-    """The last few turns, as context for a pronoun.
+    """The last few turns, BOTH SIDES, as context for a pronoun.
 
-    OWNER LINES AND WHAT WAS DONE, nothing else. A proposal needs to resolve
-    "it" and "that file"; it does not need the assistant's prose, which is the
-    part most likely to talk it into re-proposing something already finished.
+    IT SAID "OWNER LINES AND WHAT WAS DONE, NOTHING ELSE" UNTIL 2026-09-11, and
+    the reasoning was half right. The assistant's prose IS the part most likely to
+    talk a proposer into re-proposing finished work -- but it is also where the
+    antecedent lives, and dropping it made a whole class of follow-up
+    unanswerable.
+
+    THE OWNER'S OWN EXAMPLE: "can you control safari?" -> "not yet: that one needs
+    you at the keyboard" -> "i am on the keyboard now". The word `keyboard` appears
+    only in VESPER's reply. With that line removed the proposer had nothing to
+    resolve the follow-up against, so vesper could DISCUSS context it could not ACT
+    on -- the answerer was handed both sides all along.
+
+    SO THE LINES ARE LABELLED RATHER THAN REMOVED. `vesper (said)` is context;
+    `vesper (did)` is finished work. Labelling keeps the antecedent and still tells
+    the proposer which of the two it is looking at, and the actor's own no-progress
+    guard remains the thing that refuses an immediate repeat.
     """
     lines = []
     for item in recent[-6:]:
@@ -563,8 +582,15 @@ def _render_recent(recent: list) -> str:
             lines.append(f"  {who}: {what[:220]}")
     if not lines:
         return ""
-    return "Earlier in this conversation (for resolving what 'it' refers to):\n" \
-        + "\n".join(lines)
+    # THE HEADER TELLS THE PROPOSER WHAT TO DO WITH VESPER'S OWN LINES, because
+    # they are the antecedent AND the thing most likely to re-propose finished
+    # work. Saying which is which is cheaper than removing them.
+    return ("Earlier in this conversation (for resolving what 'it' refers to). "
+            "Lines marked `vesper (said)` are what YOU replied -- use them to "
+            "resolve what the owner is referring to, and treat a line marked "
+            "`vesper (did)` as ALREADY DONE rather than as something to repeat. "
+            "If the owner's newest line answers an objection you raised, act on "
+            "it now:\n" + "\n".join(lines))
 
 
 def _render_observations(observations: list) -> str:
