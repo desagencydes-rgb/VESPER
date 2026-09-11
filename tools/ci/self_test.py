@@ -6458,7 +6458,8 @@ CASES += [
      "failure asked twice fills the bar it exists to be seen in"),
 
     ("every-flag-reaches-one-bar", HOMESTATE_PY,
-     _sub('            self._flags = [f for f in self._flags if f.get("id") != flag_id]\n            self._flags.append(', '            self._flags.append(', 1),
+     _sub('            self._flags = [f for f in self._flags if f.get("id") != flag_id]\n            row: dict = {"id"',
+          '            row: dict = {"id"', 1),
      "raise_flag stops replacing a flag with the same id, so one condition "
      "reported repeatedly becomes many rows"),
 
@@ -6473,7 +6474,7 @@ CASES += [
      "reveals nothing on hover"),
 
     ("every-flag-reaches-one-bar", CHROME_TPL,
-     _sub("        b.setAttribute('aria-label', f.text);", '        b.innerHTML = f.text;', 1),
+     _sub("        b.setAttribute('aria-label', words);", '        b.innerHTML = words;', 1),
      "the flags renderer assigns innerHTML, and a flag carries a window title "
      "and an application's own error text -- none of it written by vesper"),
 
@@ -6558,7 +6559,7 @@ CASES += [
      "answer where the compactor insists on re-deriving from the log"),
 
     ("the-window-log-records-and-never-reopens", CAPS_PY,
-     _sub('    _log_touch(effect, target, out, args)\n', "", 1),
+     _sub("_log_touch(effect, target, out, args)", "pass  # recorded nowhere", 2),
      "_act stops recording, so the window log is written by nothing -- the "
      "built-and-unreached shape this tree keeps finding"),
 ]
@@ -7625,7 +7626,7 @@ CASES += [
      _sub('        return {"ok": False, "degraded": True, "verb": verb,\n'
           '                "bundle_id": bundle, "state": state or "refused",',
           '        return {"ok": True, "degraded": True, "verb": verb,\n'
-          '                "bundle_id": bundle, "state": state or "refused",', 1),
+          '                "bundle_id": bundle, "state": state or "refused",', 2),
      "a refused automation is reported as a success again. the owner asks what "
      "a locked app has open, vesper reads nothing, and answers as though the "
      "app had nothing open"),
@@ -7638,8 +7639,13 @@ CASES += [
      "of a capability that could not run is a log line nobody reads"),
 
     ("an-app-refusal-is-not-a-success", CAPS_PY,
+     # BOTH SITES, BECAUSE `app.edit`'s REFUSAL IS NOW BYTE-IDENTICAL AND COMES
+     # FIRST. Written with count=1 this mutated app_edit while the check drives
+     # app_query, so the negative control passed under its own violation -- the
+     # same shape as every other substring that went vacuous once a second copy
+     # appeared. Refusing to explain itself is a defect in either one.
      _sub('                "reason": why, "flag": why, "why": why}',
-          '                "why": why}', 1),
+          '                "why": why}', 2),
      "the refusal explains itself under a key neither reader reads, so the "
      "owner is told 'that did not go through, and it gave no reason' and the "
      "bar says 'said nothing about how' -- while the reason sits in the result"),
