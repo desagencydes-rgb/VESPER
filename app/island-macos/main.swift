@@ -2297,6 +2297,21 @@ if args.contains("--spaces-verify") {
     exit(v.usable ? 0 : 1)
 }
 
+if args.contains("--grants") {
+    // ONE PASS, NO PROMPTS. See Grants.swift for why this is not five flags.
+    func arg(_ n: String) -> String? {
+        guard let i = args.firstIndex(of: n), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+    if let out = arg("--out") {
+        Grants.report(to: out)
+    } else {
+        Grants.report()
+        Grants.windowReach()
+    }
+    exit(0)
+}
+
 if args.contains("--apps-run") {
     // ONE ENTRY POINT FOR THE WHOLE APP VOCABULARY, and the verb is a name the
     // binary already knows. Nothing here accepts a script: see AppsBridge's

@@ -7113,6 +7113,42 @@ CASES += [
 ]
 
 
+GRANTS_SWIFT = "app/home-macos/Grants.swift"
+
+CASES += [
+    ("a-permission-reader-never-asks", GRANTS_SWIFT,
+     _sub("        let ok = AXIsProcessTrusted()",
+          "        let ok = AXIsProcessTrustedWithOptions(nil)", 1),
+     "the accessibility probe switches to the variant that can prompt, so the "
+     "reader whose job is to say what the owner is about to be asked for becomes "
+     "the asking -- unattended, a modal box with nobody there"),
+
+    ("a-permission-reader-never-asks", GRANTS_SWIFT,
+     _sub("                                                      typeWildCard, false)",
+          "                                                      typeWildCard, true)", 1),
+     "the apple events probe asks rather than reads: one character, and every "
+     "ungranted app in the list raises a consent dialog the moment the report "
+     "is generated"),
+
+    ("a-permission-reader-never-asks", GRANTS_SWIFT,
+     _sub("        guard AXIsProcessTrusted() else {\n", "        if false {\n", 1),
+     "the reach measurement stops refusing when accessibility is absent, so a "
+     "missing GRANT is reported as other desktops being unreachable -- a "
+     "platform conclusion drawn from a permission"),
+
+    ("a-permission-reader-never-asks", GRANTS_SWIFT,
+     _sub('    static let TARGETS = ["com.apple.Notes"]',
+          "    static let TARGETS: [String] = []", 1),
+     "the per-application list empties, so the one grant that MULTIPLIES -- one "
+     "dialog per app -- is reported for no app at all"),
+
+    ("a-permission-reader-never-asks", GRANTS_SWIFT,
+     _sub('            print("REBUILDING VESPER REVOKES ALL OF THESE. Grants are keyed to "',
+          '            print("all set. Grants are keyed to "', 1),
+     "the report stops warning that a rebuild revokes everything, which is the "
+     "one fact that makes an owner walk the whole trip twice"),
+]
+
 EXECUTOR_PY = "core/executor.py"
 HOME_HTML = "app/home-macos/chrome/home.html"
 

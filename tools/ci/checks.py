@@ -25275,6 +25275,117 @@ def check_a_flag_outlives_the_process_that_raised_it() -> Result:
            "merely waiting for approval does not")
     return r
 
+
+# --------------------------------------------------------------------------
+# A PERMISSION READER THAT ASKS FOR PERMISSION IS NOT A READER
+#
+# The whole point of `Grants` is to tell the owner what they are about to be
+# asked for BEFORE any dialog appears. Every probe in it has a prompting twin
+# one identifier away -- `AXIsProcessTrustedWithOptions([prompt: true])`,
+# `CGRequestScreenCaptureAccess()`, `requestAccess(to:)`,
+# `askUserIfNeeded: true` -- and reaching for the wrong one turns the reader
+# into the trip. On an unattended run it puts a modal box on the owner's screen
+# with nobody there, which is the failure §17 was built to remove.
+# --------------------------------------------------------------------------
+def check_a_permission_reader_never_asks() -> Result:
+    r = Result("a-permission-reader-never-asks")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    src_path = REPO / "app" / "home-macos" / "Grants.swift"
+    if not src_path.is_file():
+        r.err("app/home-macos/Grants.swift is missing, so nothing can tell the "
+              "owner what they are about to be asked for")
+        return r
+    src = src_path.read_text(encoding="utf-8")
+    code = _swift_code(src)          # comments stripped: the prose may NAME them
+
+    # 1. NOT ONE PROMPTING CALL, and the comments are stripped first so the file
+    #    can still explain which calls it is refusing to make.
+    PROMPTING = ("AXIsProcessTrustedWithOptions", "CGRequestScreenCaptureAccess",
+                 "requestAccess", "requestAuthorization",
+                 "requestAccessForMediaType", "askUserIfNeeded: true")
+    for bad in PROMPTING:
+        if bad in code:
+            r.err(f"Grants.swift calls {bad!r}, which ASKS. A reader that "
+                  f"prompts cannot be run to find out what to ask for -- it "
+                  f"becomes the asking, and unattended it puts a dialog on the "
+                  f"owner's screen with nobody there to answer it")
+
+    # 2. AND THE NON-ASKING VARIANTS MUST ACTUALLY BE THERE. Without this the
+    #    rule above is satisfied by a file that probes nothing at all.
+    for good, what in (("AXIsProcessTrusted(", "Accessibility"),
+                       ("CGPreflightScreenCaptureAccess(", "Screen Recording"),
+                       ("authorizationStatus(", "microphone/speech/calendar"),
+                       ("AEDeterminePermissionToAutomateTarget(", "Apple Events")):
+        if good not in code:
+            r.err(f"Grants.swift never reads {what} through its non-asking "
+                  f"probe ({good}), so the report is silent about it rather "
+                  f"than reporting it")
+
+    # AND THE APPLE EVENTS PROBE'S LAST ARGUMENT IS THE WHOLE QUESTION. It is
+    # POSITIONAL -- `(..., typeWildCard, typeWildCard, false)` -- so there is no
+    # `askUserIfNeeded:` label to look for, and an assertion written against a
+    # label that does not exist fails on correct code. `true` there is the
+    # prompting variant of the same call, one character from the safe one.
+    import re as _re2
+    for m2 in _re2.finditer(r"AEDeterminePermissionToAutomateTarget\(([^)]*)\)", code):
+        last = m2.group(1).split(",")[-1].strip()
+        if last != "false":
+            r.err(f"the Apple Events probe passes {last!r} as askUserIfNeeded. "
+                  f"`true` is the prompting variant of the same call, and it "
+                  f"would raise a consent dialog from a status reader")
+
+    # 3. A MISSING GRANT MUST SAY HOW TO GIVE IT. A report that lists what is
+    #    absent and not where to fix it makes the owner search System Settings
+    #    for a pane name that is not what the API is called.
+    if "howToGrant" not in code:
+        r.err("rows carry no route to granting them")
+    if code.count("howToGrant:") < 6:
+        r.err(f"only {code.count('howToGrant:')} rows name a route; every "
+              f"permission the reader reports needs one")
+
+    # 4. IT MUST REFUSE TO GUESS THE REACH MEASUREMENT. Without Accessibility the
+    #    accessibility tree answers nothing, and "no windows reachable" would
+    #    then read as a platform limit rather than as a missing grant -- a
+    #    confident wrong answer, which INV-HW-2 refuses.
+    if "guard AXIsProcessTrusted()" not in code:
+        r.err("the reach measurement does not refuse when Accessibility is "
+              "absent, so a missing grant reads as 'other Desktops are "
+              "unreachable' -- a platform conclusion drawn from a permission")
+
+    # 5. AND IT MUST SAY THAT A REBUILD REVOKES EVERYTHING. This is the fact that
+    #    wastes the trip, and MEMORY.md records it costing one already.
+    # ASKED OF THE CODE, NOT THE FILE. Written against `src`, this passed under
+    # its own violation: deleting the warning from the printed output left the
+    # word sitting in this file's own doc comment, which explains the same fact.
+    # A substring assertion goes vacuous the moment the name it looks for appears
+    # in a second place -- the fifth time that shape has bitten in one session,
+    # and the reason the comment-stripped text is the right subject here.
+    if "REVOKES" not in code.upper():
+        r.err("the report does not PRINT the warning that rebuilding revokes "
+              "every grant -- the one fact that makes an owner do the whole "
+              "trip twice. Explaining it in a comment reaches nobody")
+
+    # 6. THE TARGET LIST IS BOUNDED AND NON-EMPTY.
+    import re as _re
+    m = _re.search(r"static let TARGETS = \[([^\]]*)\]", code)
+    if m is None:
+        r.err("no TARGETS list, so no per-application grant is reported at all")
+    else:
+        targets = _re.findall(r'"([^"]+)"', m.group(1))
+        if not targets:
+            r.err("TARGETS is empty: Apple Events is per-application, so an "
+                  "empty list reports none of the grants that multiply")
+        if len(targets) > 12:
+            r.err(f"{len(targets)} target applications would turn the trip into "
+                  f"a chore and teach the owner to click through without reading")
+    r.note(f"no prompting call in {src_path.name}; five non-asking probes plus "
+           f"{len(_re.findall(r'\"([^\"]+)\"', m.group(1))) if m else 0} "
+           f"per-application row(s); every missing grant names its route; the "
+           f"reach measurement refuses without Accessibility; the rebuild "
+           f"warning is present")
+    return r
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -25318,6 +25429,7 @@ CHECK_FNS = {
     "enable-token-presented-once-per-mint": check_enable_token_presented_once_per_mint,
     "a-due-item-is-spoken-not-merely-noticed": check_a_due_item_is_spoken_not_merely_noticed,
     "a-failure-is-something-the-next-step-can-see": check_a_failure_is_something_the_next_step_can_see,
+    "a-permission-reader-never-asks": check_a_permission_reader_never_asks,
     "a-flag-outlives-the-process-that-raised-it": check_a_flag_outlives_the_process_that_raised_it,
     "a-screen-never-lifts-its-own-ceiling": check_a_screen_never_lifts_its_own_ceiling,
     "an-application-is-never-driven-without-permission": check_app_never_driven_without_permission,

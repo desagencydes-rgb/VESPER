@@ -1484,7 +1484,8 @@ been driven against the running surface.**
 | — | **The home's four model rows** (§9t) | ✅ DONE 2026-09-08 — `the-model-rows-read-a-real-completion`, 8 red runs. They had NEVER worked: no producer, and a comment claiming one. Live: `thinking = yes, 15 tok`, `context = 349`, `tokens = 466.4`. Found and fixed a pre-existing leak of menu rows into the HOST card in the same pass |
 | 14 | **`f5-acceptance` flakes under load** (§9i, §11.0) | ✅ DONE 2026-09-08 — the gate compared a live in-memory counter against the durable store and reported its own sampling as a defect. Both negative controls driven RED. §9i's recorded cause was wrong twice over; §11.0 supersedes it |
 | 15 | **Window management** (§11.1) | 🟡 IN PROGRESS 2026-09-09 — vocabulary, ownership rule, native bridge and capability ladder landed and DRIVEN LIVE. `a-window-belongs-to-someone`, 7 red runs. `window.open` drove live and its provenance stamp is real. **Driving it found a forgery path** (§11.1c): `reopen` claimed any newly-seen window, and returned one of the owner's Safari windows from `window.open("TextEdit")` — fixed by requiring the launched pid and a cross-Desktop frontier. **Owed:** placement verification (§11.1c) and rung 3, which has never executed. The forgery check DID land -- `a-window-is-claimed-only-by-the-app-that-opened-it`, 8 self-test cases, counting claim sites rather than looking for a name -- and this row went on saying it was owed until 2026-09-10 |
-| 15a | **Placement is verified, not predicted** (§11.1c) | 🟡 PART DONE 2026-09-09 — `window_open` now READS BACK where the window landed and reports `degraded` with a flag instead of `ok: true`; the two false comments are corrected. Also fixed: vesper claimed TextEdit's **Open dialog** as a window it opened, so the launch rung now requires a close button. **Owed:** the close-and-reopen rebuild, which needs a bridge that can reach a window on another Desktop — every act matches through `SpaceWatch.onScreen()`, one Desktop only |
+| 15a | **Placement is verified, not predicted** (§11.1c) | 🟡 PART DONE 2026-09-09 — `window_open` now READS BACK where the window landed and reports `degraded` with a flag instead of `ok: true`; the two false comments are corrected. Also fixed: vesper claimed TextEdit's **Open dialog** as a window it opened, so the launch rung now requires a close button. **Owed:** the close-and-reopen rebuild, which needs a bridge that can reach a window on another Desktop — every act matches through `SpaceWatch.onScreen()`, one Desktop only|
+| 15d | **Cross-desktop window management** (§22) | 🟡 **IN PROGRESS** 2026-09-11 — owner settled the authority: *"vesper should be able to open and fully manage all windows in any other desktop if it was requested to do it"*, so `owner_requested` lifts it and the unprompted rule stands. Measured: `CGSMoveWindow` and `_AXUIElementGetWindow` resolve, **`CGSSetWindowBounds` does not** — so move needs no accessibility, resize and close do. `--grants` takes the reach measurement and **refuses to guess without the grant**. `a-permission-reader-never-asks`, 5 red runs |
 | 15b | **Window memory across a restart** (§11.8) | ✅ DONE 2026-09-09 — **authority:** boot-keyed, corroborated against the live window, fail-closed on every unreadable state; `CI-138`, 7 red runs; driven across processes (one interpreter opened window 33429, a second read it back as vesper's). **history:** `core/window_log.py` — appends what vesper touched, an absent title carries a code (`no_file`, `no_file_model`, `unreadable`), old weeks compress in place and read back through the same call, the current week stays near, and **nothing in it can open a window**; `CI-139`, 5 red runs. `gated-subsystems-are-reachable` caught the module unwired the moment it landed |
 | 15c | **The flag bar** (§11.9) | ✅ DONE 2026-09-09 — small bar above the main menu, hidden when empty, buttons revealing the flag on hover. Published from the EXECUTOR (the one point every result passes through), deduped by CONDITION not execution, written to `home.json`, rendered as text. `CI-137`, 8 red runs, driven end to end with a real degraded relocation|
 | — | **The flag bar showed one kind of trouble** (§20) | ✅ DONE 2026-09-11, owner-reported — it lost every flag on restart, and **`flag.raised` was published from exactly ONE place**: the branch where a capability SUCCEEDED but degraded. Nothing vesper was refused or could not carry out ever reached it. Now 3 publish sites, flags persist and say when they have not been re-checked, and a task merely waiting for approval still raises nothing. `a-flag-outlives-the-process-that-raised-it`, 8 red runs |
@@ -1493,6 +1494,7 @@ been driven against the running surface.**
 | 17 | **Apps management** (§11.3) | 🟡 **PARTIAL** 2026-09-10 (§17) — the permission instrument (five states, **no dialog**, measured 30–79 ms), `app.query` with a closed verb set, `core/apps.py` branching on a class and never a program, and a refusal that reaches the owner's sentence **and** the flag bar with its reason. 4 checks, 11 red runs, driven end to end. **The verbs that CHANGE an application are not built** — `verified_local` provenance means they land with the grant trip that measures them, and so does `execution_class` |
 | 18 | **Notes, in full** (§11.4) | 🟡 **PARTIAL** 2026-09-10 (§18) — `CI-131` narrowed to `notes-are-never-instructions`, and the reader made safe for bodies BEFORE the bridge sends one: a body is carried, bounded at 1000 chars, marked `retrieved_local`, and **inert** — two items differing only in their body match on every field anything decides on. 9 red runs, one of which passed under its own violation until the bound was made absolute. **read/edit/create/share/lock still to build**, with the grant trip |
 | 19 | **UI view + clicking** (§11.5) | 🟡 **PARTIAL** 2026-09-10 (§19) — the seam the owner drew is now expressible: auto mode grants every permission to ACT, and a screen observation **never** lifts the ceiling in any mode. The waiver was one boolean per MODE, so §9's recorded constraint could not have been honoured by the mechanism meant to honour it. 5 red runs. **Seeing and clicking still to build**, with Accessibility + Screen Recording |
+| 19a | **The flag bar, as the owner wants it** (§21) | 🔜 **QUEUED LAST** 2026-09-11, owner-specified — wide (up to the main menu's width, never past it), **titles not icons**, every live flag shown, hover for the full text, VESPER's own type. Clicking opens the **history**: timestamps, fixed or not, and a way to ask VESPER to fix one that is real. **Do this after everything above is finished** |
 | — | ⏸ **DISCUSS BEFORE BUILDING** | the owner stops the run here, 2026-09-08 |
 | 20 | **Settings interface** (§11.6) | the rail's `settings` button; **35 items already routed** in `spec_raw.txt` |
 | 21 | **`projects` and `research` rail buttons** (§11.7) | the other two rail destinations |
@@ -3269,3 +3271,153 @@ satisfied because `f.carried` appears three times in the page, and its
 replacement, which captured a region wide enough to include one of the others.
 The assertion now reads the single token after `var words =`, which cannot be
 satisfied by an occurrence somewhere else.
+
+
+---
+
+## 21. THE FLAG BAR, AS THE OWNER WANTS IT — QUEUED LAST
+
+**Owner, 2026-09-11, verbatim:**
+
+> *"the flags bar has a very small width, i want the width to be bigger, it can
+> be very big, just not bigger than the main menu, and make sure it can show all
+> live flags there, titles no icons, on hover shows the actual full flag, with
+> our fonts, and when i click the bar, i can see the full history with
+> timestamps, and whether it's fixed or not, and to ask vesper to fix it if it's
+> a real issue that needs fixing"*
+
+**ORDERING IS PART OF THE INSTRUCTION.** The owner placed this *after* everything
+else that needs finishing and *before* the untouched steps, so it is queued
+behind §17–§19's remainders and §15/§15a's owed work. It is not a bug fix
+competing with those; it is the bar's real design, and §20 shipped only the
+mechanism that makes it possible.
+
+### WHAT CHANGES
+
+| today | wanted |
+|---|---|
+| 16×16 square buttons, no words | **titles**, readable without hovering |
+| a strip only as wide as its buttons | **wide** — up to the main menu's width, never past it |
+| capped at 8 rows | **every live flag** |
+| hover shows the text | hover still shows the **full** text |
+| system font metrics | **VESPER's own type** |
+| no history at all | **click the bar** → the full record |
+
+### THE HISTORY IS THE NEW SUBSYSTEM, NOT THE WIDTH
+
+Everything above the last row is presentation. The history is not: it needs a
+**durable record of every flag ever raised**, each with when it was raised, when
+it cleared, and whether it cleared at all — and today nothing keeps that. §20
+gave flags a life beyond one process, which is the precondition; it did not give
+them a past.
+
+**FOUR THINGS IT HAS TO GET RIGHT, and three of them are already settled
+doctrine elsewhere in this tree:**
+
+1. **A TIMESTAMP THAT ORDERS IS AN HLC, NOT A CLOCK READING.** `INV-COORD-4`
+   refuses a sort keyed on wall time, and `CI-005` enforces it. The bar may
+   *display* a wall-clock time — that is presentation, and presentation belongs
+   to whoever renders it — but the record's order comes from the HLC the bus
+   already stamps on every event.
+2. **"FIXED OR NOT" IS A THIRD STATE, NOT A BOOLEAN.** A flag that was retracted
+   is *resolved*. One still live is *open*. One inherited across a restart and
+   never re-proved is **neither** — §20's `carried`, and collapsing it into
+   "fixed" or "not fixed" would assert something no measurement supports. That
+   is `INV-HW-2`'s rule applied to a surface: UNKNOWN is its own answer.
+3. **"ASK VESPER TO FIX IT" IS A REQUEST, NEVER AN INSTRUCTION THE BAR CAN
+   EXECUTE.** A flag's text is written by whatever failed — and some of that text
+   carries content from outside: an application's document name, a window title,
+   a note body. Clicking *fix this* must send a turn through the same channel a
+   typed request uses, with the flag as an **observation**, so it climbs the
+   authorization ladder like anything else. A button that dispatched the fix
+   directly would be a path where untrusted text reaches an action with no
+   ladder in front of it — the exact shape §11.5's taint rule and `core/apps.py`
+   both exist to refuse.
+4. **A HISTORY THAT GROWS WITHOUT BOUND IS A LOG, AND THE OWNER ASKED FOR A
+   SURFACE.** Retention has to be decided rather than discovered: the window log
+   (§11.8) already compresses old weeks in place and reads them back through the
+   same call, and that is the pattern to follow rather than reinvent.
+
+### THE ONE THING TO MEASURE BEFORE BUILDING IT
+
+**How wide is the main menu, actually?** The constraint is "never wider than the
+main menu", and the menu's width is set in `HomeChrome`'s dock row rather than
+declared anywhere a surface can read. A number copied by eye from a screenshot is
+the defect `MEMORY.md` opens by warning about — the island's "320k assertions"
+column was wrong for weeks because a figure travelled without its source. Read
+it from the same place the menu reads it.
+
+
+---
+
+## 22. CROSS-DESKTOP WINDOW MANAGEMENT — THE OWNER SETTLED THE AUTHORITY, AND THE MECHANISM IS A SEPARATE QUESTION
+
+**Owner, 2026-09-11:** *"vesper should be able to open and fully manage all
+windows in any other desktop if it was requested to do it."*
+
+**THAT ANSWERS A QUESTION THE SESSION HAD JUST RAISED AND COULD NOT ANSWER
+ITSELF.** `core/windows.py` refuses one specific move: relocating a window in
+order to acquire authority over it — *"a rule that can be escaped by relocating
+the evidence is not a rule, and the escape is available in both directions."* The
+obvious implementation of cross-Desktop management is exactly that escape: bring
+the window to the Desktop that is showing, act on it there, put it back.
+
+**The owner's clause makes it legitimate, and the clause is `if it was
+requested`.** `may_act(..., owner_requested=True)` already exists and already
+lifts `ON_REQUEST`. So the rule is unchanged: **unprompted**, VESPER still may not
+reach across a Desktop boundary to gain authority. **Asked**, it may.
+
+### WHAT THE PLATFORM ACTUALLY ALLOWS — MEASURED 2026-09-11
+
+| symbol | resolves | what it buys |
+|---|---|---|
+| `CGSMoveWindow` | ✅ | move a window by id, **no accessibility tree** |
+| `CGSGetWindowBounds` | ✅ | read where it is |
+| `CGSMoveWindowsToManagedSpace` | ✅ | already used by `window.relocate` |
+| `CGSSetWindowBounds` | ❌ **absent** | — |
+| `_AXUIElementGetWindow` | ✅ | map an AX element to a CGWindowID **exactly** |
+
+**So the three effects split, and they do not split evenly:**
+
+- **MOVE** needs no accessibility at all. `CGSMoveWindow` takes a window id, so a
+  window on another Desktop can be moved without bringing it over and without the
+  tree answering for it.
+- **RESIZE** has no window-server equivalent — `CGSSetWindowBounds` is **not on
+  this node**. An application owns its own size, so resize is accessibility or an
+  Apple Event, and both need the window reachable.
+- **CLOSE** is accessibility (press the button) or an Apple Event to the app.
+
+### `_AXUIElementGetWindow` RESOLVES, AND THAT RETIRES A NAMED WEAKNESS
+
+`WindowBridge.element(forPID:windowId:)` identifies its target **by matching
+geometry**, and says so plainly: *"two windows of one process at identical size
+and position are indistinguishable here, and the match is refused rather than
+guessed."* With this symbol the AX element carries its own CGWindowID, so the
+match is exact and the refusal disappears. It was on the owner's open-decision
+list; the measurement is now in hand.
+
+### THE ONE MEASUREMENT STILL MISSING, AND WHY IT CANNOT BE TAKEN FROM A SHELL
+
+`element(forPID:windowId:)` carries a note from 2026-09-09: *the accessibility
+tree answers only for the Desktop that is showing.* **The whole one-Desktop limit
+rests on that sentence, and it is worth re-taking** — the session that wrote it
+was simultaneously fighting a different bug in the same function (Safari answers
+the window query with an empty list on the first attempt and its real windows a
+moment later), and a conclusion drawn while that was biting could have mistaken
+*asked too early* for *another Desktop is unreachable*.
+
+`--grants` now takes that measurement: it compares every window the window server
+reports against every window the accessibility tree will hand over, matched by
+CGWindowID. **It refuses to answer without the Accessibility grant**, because
+"no windows reachable" would otherwise read as a platform limit when it is a
+missing permission — a platform conclusion drawn from a permission, which
+`INV-HW-2` refuses.
+
+**And it has to be run AS VESPER.** TCC attributes to the responsible process, so
+run from a terminal it reports the terminal's grants. Measured from a shell
+2026-09-11: Accessibility absent there, so the reach question came back *cannot
+tell* — correctly.
+
+**Gates:** `a-permission-reader-never-asks` — **5 red runs.** Every probe in
+`Grants.swift` has a prompting twin one identifier away, and reaching for the
+wrong one turns the reader that exists to preview the trip into the trip itself.
