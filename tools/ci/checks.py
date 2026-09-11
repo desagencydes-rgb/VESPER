@@ -24868,16 +24868,34 @@ def check_app_verb_set_is_closed() -> Result:
               "is the boundary; unenforced, it is a comment")
 
     # AND THE LADDER MUST NOT LEVEL AN UNKNOWN VERB DOWN TO A KNOWN ONE.
+    #
+    # THE VERB SET SPANS TWO CAPABILITIES AND THIS CHECK USED TO ASSUME ONE.
+    # Reads go through `app.query` and writes through `app.edit`, so levelling
+    # every verb with `app_query_level` sent the write verbs down its default
+    # branch -- L5, the same as an undeclared verb -- and the collision assertion
+    # fired on correct code. Each verb is levelled by the capability that OWNS it,
+    # and a verb no capability claims is the real defect.
     from core import capabilities as C
-    known = {C.app_query_level({"verb": v}) for v in sorted(verbs)}
-    unknown = C.app_query_level({"verb": "zzz-not-a-verb"})
-    if unknown != "L5":
-        r.err(f"app_query_level puts an undeclared verb at {unknown}, not L5. "
-              f"Nobody has described what it would do, so approving it "
-              f"approves an unnamed act at the price of a named one")
-    if unknown in known:
-        r.err("an undeclared verb levels the same as a declared one, so the "
-              "ladder cannot tell them apart")
+    READ_VERBS = {"permission", "documents", "document_body"}
+    WRITE_VERBS = {"document_create", "document_replace", "document_delete"}
+    unclaimed = verbs - READ_VERBS - WRITE_VERBS
+    if unclaimed:
+        r.err(f"{sorted(unclaimed)} is advertised by the bridge and levelled by "
+              f"no capability, so it is reachable and unladdered")
+    known = ({C.app_query_level({"verb": v}) for v in verbs & READ_VERBS}
+             | {C.app_edit_level({"verb": v}) for v in verbs & WRITE_VERBS})
+    for fn, label in ((C.app_query_level, "app_query_level"),
+                      (C.app_edit_level, "app_edit_level")):
+        unknown = fn({"verb": "zzz-not-a-verb"})
+        if unknown != "L5":
+            r.err(f"{label} puts an undeclared verb at {unknown}, not L5. Nobody "
+                  f"has described what it would do, so approving it approves an "
+                  f"unnamed act at the price of a named one")
+    # A DECLARED VERB MUST NOT SIT AT L5 EITHER, or it is indistinguishable from
+    # one nobody declared and the ladder has nothing to tell apart.
+    if "L5" in known:
+        r.err("a declared verb levels L5, the level reserved for verbs nobody has "
+              "described, so the ladder cannot tell a known act from an unknown one")
     r.note(f"verbs {sorted(verbs)}; scripts {sorted(cases)}; "
            f"declared levels {sorted(known)}, undeclared {unknown}")
     return r
@@ -25656,6 +25674,159 @@ def check_a_new_window_is_located_before_it_is_judged() -> Result:
            "finds the ground across spaces; window_open locates before it judges")
     return r
 
+
+# --------------------------------------------------------------------------
+# WRITING INTO AN APPLICATION — FOUR THINGS THAT WERE WRONG WHEN DRIVEN
+#
+# Every one of these was found by driving the verb against a real application on
+# 2026-09-11, and not one of them would have been found by reading the code:
+#
+#   1. `document_replace` returned "DONE" HAVING DESTROYED THE NOTE. Notes' title
+#      is its first line, so rewriting the body renamed the note; it came back
+#      unfindable under the name it was asked about, reporting `ok: true`.
+#   2. `document_delete` returned "GONE" with the note still in place, because
+#      Notes MOVES a delete to "Recently Deleted" and `every note` still matches
+#      it there. Three clean cycles reported failure for work they had done.
+#   3. The compensator RESTORED THE DOCUMENT WRONG -- `previous` held the title
+#      line, the write re-added it, and the undo produced "title / title body".
+#      It was making the damage worse while reporting success.
+#   4. The owner's own notes were deletable until provenance was required.
+# --------------------------------------------------------------------------
+def check_an_application_write_is_proved_and_undoable() -> Result:
+    r = Result("an-application-write-is-proved-and-undoable")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    from core import capabilities as C, apps as A
+
+    bridge = REPO / "app" / "home-macos" / "AppsBridge.swift"
+    if not bridge.is_file():
+        r.err("AppsBridge.swift is missing")
+        return r
+    code = _swift_code(bridge.read_text(encoding="utf-8"))
+
+    # 1. THE WRITE IS PROVED BY A SEPARATE READ, not by the script's own word.
+    if "private static func exists(" not in code:
+        r.err("nothing re-reads the application after a write, so a script that "
+              "returned success having done nothing is reported as success -- "
+              "measured twice on 2026-09-11")
+    # ASSERTED AS EXPRESSIONS, NOT AS IDENTIFIERS, and the first version of each
+    # of these passed under its own violation because the mutation KEPT the name
+    # while changing what it was bound to. `"wantPresent" in code` is satisfied by
+    # `wantPresent = true`, which is precisely the defect.
+    if 'wantPresent = (verb != "document_delete")' not in code:
+        r.err("the proof does not distinguish a write from a delete by the verb: "
+              "one is proved by the document being there and the other by its "
+              "absence, and binding both to the same answer makes every correct "
+              "delete report failure")
+    # BOTH CALL SITES, COUNTED. The proof reads once and then again inside the
+    # poll loop, and scoping only one of them leaves the loop asking the unscoped
+    # question -- so the first read is right and every retry is wrong. Asserting
+    # presence passed under violation for exactly that reason.
+    scoped = code.count("inContainer: homeContainer")
+    if scoped < 2:
+        r.err(f"only {scoped} of the proof's reads are scoped to the folder the "
+              f"document was in. A deleted note still answers an unscoped query "
+              f"from the trash it now sits in, so a correct delete reports "
+              f"failure -- three clean cycles did exactly this on 2026-09-11")
+    if "usleep" not in code or "while stillThere != wantPresent" not in code:
+        r.err("the proof does not POLL. A single settle reported a delete as "
+              "failed that the next attempt performed with nothing changed")
+
+    # 2. A REWRITE MUST NOT RENAME. Notes' title is the first line.
+    # COUNTED, BECAUSE THE CREATE BRANCH USES THE SAME EXPRESSION. Asserting the
+    # string is present passed under violation: deleting it from the REWRITE left
+    # the identical line in the CREATE, and a rewrite that renames the document is
+    # exactly the bug the owner would hit.
+    titled = code.count("htmlDiv(name) + htmlDiv(text)")
+    if titled < 2:
+        r.err(f"only {titled} write(s) put the title back. Notes' title IS the "
+              f"first line, so a body written without it RENAMES the document -- "
+              f"the owner cannot find the note they asked vesper to edit")
+    # AND THE TEXT MUST BE ESCAPED, or the owner's own `<` truncates their note.
+    if "&amp;" not in code or "&lt;" not in code:
+        r.err("text is written into an HTML body without escaping, so a document "
+              "containing `a < b` silently loses everything after the `<`")
+    amp, lt = code.find('"&amp;"'), code.find('"&lt;"')
+    if amp >= 0 and lt >= 0 and amp > lt:
+        r.err("`<` is escaped before `&`, so the `&` of `&lt;` is escaped again "
+              "and the owner sees `&amp;lt;` instead of their own character")
+
+    # 3. PROVENANCE DECIDES A REMOVAL, driven.
+    for origin, allowed in ((A.VESPER_CREATED, True), (A.OWNER_CREATED, False),
+                            (A.UNKNOWN_ORIGIN, False)):
+        got, why = A.may_reach(A.UNCLASSIFIED, A.REMOVE, permission="granted",
+                              origin=origin)
+        if got != allowed:
+            r.err(f"a document of origin {origin!r} is {'refused' if allowed else 'removable'}; "
+                  f"§11.4 asks for create and write, never for deleting the "
+                  f"owner's documents, and UNKNOWN is the owner's")
+    try:
+        A.may_reach(A.UNCLASSIFIED, A.REMOVE, permission="granted",
+                    origin="not-an-origin")
+    except A.AppRuleViolation:
+        pass
+    else:
+        r.err("an unrecognised provenance is accepted rather than raising, which "
+              "is the direction that lets vesper delete what it never made")
+
+    # 3b. AND THE UNDO MUST HAND BACK TEXT IN THE SHAPE A WRITE ACCEPTS.
+    #     A read returns the title line; a write re-adds it. Handing one straight
+    #     to the other produced "title / title body" -- the compensator corrupting
+    #     the document it was restoring, and reporting success.
+    caps_src = (REPO / "core" / "capabilities.py").read_text(encoding="utf-8")
+    fn = caps_src[caps_src.index("def app_edit(args: dict)"):]
+    fn = fn[:fn.index("\ndef ", 1)]
+    if "previous[len(name) + 1:]" not in fn:
+        r.err("the previous text keeps its title line, so restoring a rewrite "
+              "writes the title twice -- an undo that corrupts what it restores")
+    if "previous" not in fn or "document_body" not in fn:
+        r.err("a rewrite does not read the old text first, so it cannot be undone "
+              "at all -- and host_actions.toml calls it reversible")
+
+    # 4. THE LEVELS SPLIT BY WHAT CAN BE PUT BACK.
+    lv = {v: C.app_edit_level({"verb": v})
+          for v in ("document_create", "document_replace", "document_delete", "zz")}
+    if lv["document_delete"] == lv["document_replace"]:
+        r.err("removing a document levels the same as rewriting one, so the "
+              "ladder cannot tell an act that can be undone from one that cannot")
+    if lv["zz"] != "L5":
+        r.err(f"an undeclared verb levels {lv['zz']}, not L5")
+
+    # 5. THE COMPENSATOR IS HONEST ABOUT WHAT IT CANNOT UNDO.
+    cant = C.app_edit_compensate({"verb": "document_delete", "bundle_id": "b",
+                                  "name": "n"}, {"ok": True})
+    if cant.get("ok"):
+        r.err("the compensator claims it can undo a deletion. "
+              "host_actions.toml files it irreversible and destructive, and a "
+              "compensator that promises recovery produces a plan that assumes it")
+    no_prev = C.app_edit_compensate({"verb": "document_replace", "bundle_id": "b",
+                                     "name": "n"}, {"ok": True})
+    if no_prev.get("ok"):
+        r.err("the compensator 'restores' a rewrite with no previous text, so it "
+              "overwrites the owner's words with a guess")
+
+    # 6. AND `previous` NEVER REACHES THE PLANNER.
+    obs = C.observe("app.edit", {}, {"ok": True, "verb": "document_replace",
+                                     "name": "n", "verified": True,
+                                     "previous": "THE OWNERS OLD TEXT"})
+    if "previous" in obs or "OWNERS OLD TEXT" in str(obs):
+        r.err("the previous text reaches the planner. It exists for the "
+              "compensator; `fs.write` withholds its own for the same reason")
+    if C.observation_trust("app.edit") != "retrieved_external":
+        r.err("what an application returns is not marked external, so a document "
+              "body could be treated as trusted")
+
+    # 7. THE STORE IS NOT THE REPO, and a check must never write the real one.
+    if "created_documents.json" not in (REPO / "core" / "capabilities.py").read_text(encoding="utf-8"):
+        r.err("there is no record of what vesper created, so provenance is a "
+              "guess and the rule above has nothing to read")
+    r.note(f"writes proved by a scoped, polled re-read; a rewrite keeps the "
+           f"title and escapes markup; removal requires vesper's own record "
+           f"(levels {lv['document_replace']}/{lv['document_delete']}); the "
+           f"compensator refuses what it cannot undo; `previous` stays out of "
+           f"the planner")
+    return r
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -25699,6 +25870,7 @@ CHECK_FNS = {
     "enable-token-presented-once-per-mint": check_enable_token_presented_once_per_mint,
     "a-due-item-is-spoken-not-merely-noticed": check_a_due_item_is_spoken_not_merely_noticed,
     "a-failure-is-something-the-next-step-can-see": check_a_failure_is_something_the_next_step_can_see,
+    "an-application-write-is-proved-and-undoable": check_an_application_write_is_proved_and_undoable,
     "a-new-window-is-located-before-it-is-judged": check_a_new_window_is_located_before_it_is_judged,
     "a-window-elsewhere-is-moved-not-resized": check_a_window_elsewhere_is_moved_not_resized,
     "a-permission-reader-never-asks": check_a_permission_reader_never_asks,

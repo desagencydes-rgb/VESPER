@@ -1492,7 +1492,7 @@ been driven against the running surface.**
 | 16 | **Modes, end to end** (§11.2) | ✅ DONE 2026-09-10 (§15.2, §16) — the eleven ambiences reachable and each with a wallpaper file; `research` given `Milestone`, which no pairing had ever reached; the three animated wallpapers played for the first time; a mode that does not land reaches the flag bar; and the wallpaper switch bounded to VESPER's Desktop **by construction** rather than by a guard — `HomeAmbience` writes the system picture zero times |
 | 16a | **Stages of work** (§11.2a) | ✅ DONE 2026-09-10 — `a-stage-bounds-what-vesper-opens`, 8 red runs. The contract had existed since 2026-09-09 and was read by nothing |
 | 17 | **Apps management** (§11.3) | 🟡 **PARTIAL** 2026-09-10 (§17) — the permission instrument (five states, **no dialog**, measured 30–79 ms), `app.query` with a closed verb set, `core/apps.py` branching on a class and never a program, and a refusal that reaches the owner's sentence **and** the flag bar with its reason. 4 checks, 11 red runs, driven end to end. **The verbs that CHANGE an application are not built** — `verified_local` provenance means they land with the grant trip that measures them, and so does `execution_class` |
-| 18 | **Notes, in full** (§11.4) | 🟡 **PARTIAL** 2026-09-10 (§18) — `CI-131` narrowed to `notes-are-never-instructions`, and the reader made safe for bodies BEFORE the bridge sends one: a body is carried, bounded at 1000 chars, marked `retrieved_local`, and **inert** — two items differing only in their body match on every field anything decides on. 9 red runs, one of which passed under its own violation until the bound was made absolute. **read/edit/create/share/lock still to build**, with the grant trip |
+| 18 | **Notes, in full** (§11.4) | 🟡 **READ AND WRITE DONE** 2026-09-11 (§18, §23) — bodies read as PLAIN TEXT and inert (`CI-131` narrowed); create, rewrite and remove all DRIVEN against real Notes and **proved by re-reading the world**, because the first versions returned success having destroyed the note and having left it in place. A rewrite keeps the title; removal needs vesper's own record; the undo is lossless. **Share across accounts and lock/unlock still owed.** `an-application-write-is-proved-and-undoable`, 8 red runs |
 | 19 | **UI view + clicking** (§11.5) | 🟡 **PARTIAL** 2026-09-10 (§19) — the seam the owner drew is now expressible: auto mode grants every permission to ACT, and a screen observation **never** lifts the ceiling in any mode. The waiver was one boolean per MODE, so §9's recorded constraint could not have been honoured by the mechanism meant to honour it. 5 red runs. **Seeing and clicking still to build**, with Accessibility + Screen Recording |
 | 19a | **The flag bar, as the owner wants it** (§21) | 🔜 **QUEUED LAST** 2026-09-11, owner-specified — wide (up to the main menu's width, never past it), **titles not icons**, every live flag shown, hover for the full text, VESPER's own type. Clicking opens the **history**: timestamps, fixed or not, and a way to ask VESPER to fix one that is real. **Do this after everything above is finished** |
 | — | ⏸ **DISCUSS BEFORE BUILDING** | the owner stops the run here, 2026-09-08 |
@@ -3421,3 +3421,74 @@ tell* — correctly.
 **Gates:** `a-permission-reader-never-asks` — **5 red runs.** Every probe in
 `Grants.swift` has a prompting twin one identifier away, and reaching for the
 wrong one turns the reader that exists to preview the trip into the trip itself.
+
+
+---
+
+## 23. WRITING INTO AN APPLICATION — FOUR BUGS THAT ONLY DRIVING FOUND
+
+§11.3's changing verbs and §11.4's "create and write" are the same three verbs, so
+they landed together: `document_create`, `document_replace`, `document_delete`,
+with `app.edit` above them and `core/apps.py` deciding what may be touched.
+
+**Every one of the four defects below reported `ok: true`, and not one would have
+been found by reading the code.** They were found by doing the thing and then
+looking at the world.
+
+### 1. A REWRITE DESTROYED THE NOTE IT WAS REWRITING
+
+Notes' title **is** its first line. Setting `body` replaced the whole thing, so a
+note called `VESPER check 1789098528` asked to hold `rewritten: 5 < 6` came back
+**named** `rewritten: 5 < 6`, its body unreadable, unfindable under the name the
+owner had used — reporting `ok: true, done: true`.
+
+The title line is written back now. **Rewriting a document's text is not a request
+to rename it**, and a verb that silently does both has an effect the owner cannot
+predict.
+
+### 2. A DELETE REPORTED SUCCESS WITH THE NOTE STILL THERE — AND THEN REPORTED FAILURE FOR WORK IT HAD DONE
+
+`delete` in Notes **moves** a note to `Recently Deleted`, exactly like the
+interface, and `every note` still matches it there. So the first proof — "does a
+document of this name exist?" — answered *yes* about a note that had been deleted
+correctly, and three clean cycles in a row reported failure.
+
+The proof now asks **whether it is still in the folder it was in**, by container
+**id** rather than folder name, because `Recently Deleted` is localised and a
+proof that depends on the machine's language fails on another machine. And
+`container of note` / `folder of note` **both fail with `-1728`** on this version,
+so the script walks the folders to find it.
+
+### 3. THE UNDO CORRUPTED WHAT IT RESTORED
+
+A read returns the title line; a write re-adds it. Handing one straight to the
+other produced `title / title body`. **The compensator was making the damage worse
+while reporting success.** `previous` is now stored in the shape a caller passes,
+and the round trip is byte-identical.
+
+### 4. THE OWNER'S OWN NOTES WERE DELETABLE
+
+§11.4 asks for *"read, edit on demand, create and write"*. It does not ask for
+deleting the owner's documents. `REMOVE` is its own effect, it requires
+`VESPER_CREATED` provenance from VESPER's own durable record, and **`UNKNOWN` is
+the owner's** — the same rule `core/windows.py` applies to windows, for the same
+reason: every property a guess could use is one the owner can produce by accident.
+
+### THE ONE THAT COULD HAVE BEEN QUIET
+
+**Text is escaped before it is wrapped in HTML.** A note containing `a < b` would
+otherwise lose everything after the `<` — the owner's own data destroyed by the
+write that was supposed to store it. `&` is escaped **first**, or the `&` of
+`&lt;` gets escaped again and they see `&amp;lt;`.
+
+And **injection was driven, not reasoned about**: a document named
+`nothing" & (do shell script "echo PWNED > /tmp/...") & "` was looked up, not
+found, and nothing executed. The name is built into an AppleScript **string
+literal**, never interpolated into a query.
+
+### WHAT IS STILL OWED ON §11.4
+
+**Sharing across accounts** is CloudKit sharing, not a file operation, and
+**locking** means handling the note password — a credential, which `MEMORY.md`
+says must be rotated rather than erased and must never reach a bus payload, a
+checkpoint or a log receipt. Neither is started.

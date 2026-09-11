@@ -2344,7 +2344,8 @@ if args.contains("--apps-run") {
     }
     let verb = arg("--verb") ?? "permission"
     let out = AppsBridge.run(verb: verb, bundleId: bundle,
-                             argument: arg("--name"))
+                             argument: arg("--name"),
+                             argument2: arg("--text"))
     AppsBridge.emit(out)
     exit((out["ok"] as? Bool) == true ? 0 : 1)
 }

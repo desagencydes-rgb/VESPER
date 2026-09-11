@@ -56,7 +56,23 @@ CLASSES = (ORDINARY, SHELL_HOST, AUTOMATION_HOST, CREDENTIAL_STORE,
 # until they do.
 READ = "read"
 CHANGE = "change"
-EFFECTS = (READ, CHANGE)
+# REMOVING IS ITS OWN EFFECT, for `core/windows.py`'s reason: `RELOCATE_OFF` is
+# separate there because the effect whose whole subject is leaving the place that
+# authorises it cannot be judged by the same rule as the others. Here the
+# distinction is provenance -- a rewrite touches a document that already exists
+# and can be put back, a removal ends one -- and folding them together would let
+# a `change` grant carry a deletion with it.
+REMOVE = "remove"
+EFFECTS = (READ, CHANGE, REMOVE)
+
+# WHO MADE THE DOCUMENT. Mirrors `core/windows.PROVENANCES` exactly, including the
+# part that matters: UNKNOWN is not a state to be resolved later, it is the answer
+# whenever VESPER cannot show it created the thing, and it is treated as the
+# owner's. Anything VESPER has forgotten about is something VESPER may not delete.
+VESPER_CREATED = "vesper_created"
+OWNER_CREATED = "owner_created"
+UNKNOWN_ORIGIN = "unknown"
+ORIGINS = (VESPER_CREATED, OWNER_CREATED, UNKNOWN_ORIGIN)
 
 FREE = "free"
 REFUSED = "refused"
@@ -71,7 +87,7 @@ class AppRuleViolation(Exception):
 
 
 def may_reach(target_class: str, effect: str, *,
-              permission: str) -> tuple[bool, str]:
+              permission: str, origin: str = UNKNOWN_ORIGIN) -> tuple[bool, str]:
     """May VESPER perform `effect` on an application of `target_class`?
 
     `permission` is what the platform says about the automation grant, and it is
@@ -89,6 +105,11 @@ def may_reach(target_class: str, effect: str, *,
         raise AppRuleViolation(
             f"{effect!r} is not one of {EFFECTS}. The set is closed: an effect "
             f"that is not named is refused rather than approximated.")
+    if origin not in ORIGINS:
+        raise AppRuleViolation(
+            f"{origin!r} is not one of {ORIGINS}. An unrecognised provenance is "
+            f"not silently treated as vesper's own -- that is the direction that "
+            f"lets vesper delete something it never made.")
     if target_class not in CLASSES:
         raise AppRuleViolation(
             f"{target_class!r} is not one of {CLASSES}. An unrecognised class "
@@ -118,15 +139,32 @@ def may_reach(target_class: str, effect: str, *,
         # stronger and more legible allowlist than one this file could hold.
         return True, "vesper reads freely where the owner has granted it"
 
-    # EVERY CHANGE IS REFUSED TODAY AND THE REASON IS NOT CAUTION. There is no
-    # application-changing row in `host_actions.toml`, so there is nothing to
-    # authorise: `action_provenance_required = "verified_local"` means a verb
-    # lands once its effect has been driven against a real application on this
-    # node, and that cannot happen before the grant trip. Returning False here
-    # is the vocabulary's answer restated, not a second opinion about it.
+    # THE CLASSES THAT LAUNDER AUTHORITY ARE REFUSED FOR EVERY CHANGE, and this
+    # is the rule this module exists for. An application that can be told to run
+    # a command or to click an element is a way to perform an act VESPER is
+    # separately gated on, arriving with none of that gating attached.
     if target_class in (SHELL_HOST, AUTOMATION_HOST, CREDENTIAL_STORE):
         return False, ("driving that application would reach past a gate that "
                        "governs the same act directly, so it is refused here "
                        "rather than granted by the back door")
-    return False, ("vesper has no verb that changes an application yet -- the "
-                   "changing verbs land with the grant trip that measures them")
+
+    if effect == REMOVE:
+        # ONLY WHAT VESPER MADE, AND `UNKNOWN` IS THE OWNER'S.
+        #
+        # §11.4 asks for "read, edit on demand, create and write" -- it does not
+        # ask for deleting the owner's documents, and this refuses to. The row in
+        # `host_actions.toml` is `delete_own_document_in_application` for the same
+        # reason `close_own_window` is separate from `close_window`: the narrow
+        # verb is the one the owner agreed to.
+        #
+        # A DELETION EXISTS ONLY AS THE UNDO FOR A CREATION. `CI-056` refuses a
+        # reversible row whose named inverse is absent from the vocabulary, so
+        # `create_document_in_application` could not have landed without this --
+        # and a create VESPER cannot undo leaves the owner cleaning up after it.
+        if origin != VESPER_CREATED:
+            return False, ("vesper only removes a document it created itself, "
+                           "and it has no record of creating that one")
+        return True, "vesper made this one, so vesper may remove it"
+
+    return True, ("the owner has granted vesper control of that application, and "
+                  "this changes a document rather than reaching past a gate")

@@ -535,3 +535,76 @@ it never had to assert while there were no bodies to assert about.
 THE NAME IS MATCHED AS DATA, MEASURED 2026-09-11. Driven with a document named
 `nothing" & (do shell script "echo PWNED > /tmp/...") & "`: the name was looked
 up, not found, and nothing executed."""
+
+[authorization.OWNER-2026-09-11-APPS]
+date = "2026-09-11"
+scope = "creating, rewriting and deleting documents inside an application VESPER has been granted control of"
+quote = """vesper should now be able to fully manage all MacOS apps, and all apps
+that are better managed without UI clicking ... the notes app should be fully
+integrated rather than the old way ... read, edit on demand, create and write"""
+note = """The owner also set the shape of the trip in the same session: "i need
+everything finished, ready, end to end, no left bugs or problems". These rows are
+enabled because their effects were DRIVEN against a real application on this node
+before they landed -- `action_provenance_required = "verified_local"` is not
+satisfied by knowing AppleScript has a `make new` command. What VESPER may drive
+is still bounded by the Apple Events grant, which the owner gives one application
+at a time and can revoke."""
+
+[action.create_document_in_application]
+tier = "adjust_reversible"
+enabled = true
+authorized_by = "OWNER-2026-09-11-APPS"
+description = "Make a new document in an application, with text VESPER supplies."
+reversible = true
+inverse = "delete_own_document_in_application"
+requires_owner_consent = "per_rule"
+provenance_required = "verified_local"
+max_targets_per_window = 12
+window_seconds = 300
+execution_class = "interactive"
+source = """Owner 2026-09-08, §11.4: "create and write". THE INVERSE IS WHY THE
+NEXT ROW EXISTS AT ALL -- `CI-056` refuses a reversible row that names an undo
+which is not in the vocabulary, and it is right to: a claimed undo that does not
+exist is worse than an admitted one-way action. VESPER creating a document it
+then cannot remove would leave the owner to clean up after it."""
+
+[action.delete_own_document_in_application]
+tier = "destructive"
+enabled = true
+authorized_by = "OWNER-2026-09-11-APPS"
+description = "Remove a document VESPER itself created, and only one it created."
+reversible = false
+inverse = ""
+requires_owner_consent = "per_instance"
+provenance_required = "verified_local"
+max_targets_per_window = 12
+window_seconds = 300
+execution_class = "interactive"
+restores_baseline = true
+source = """THE UNDO FOR THE ROW ABOVE, AND DELIBERATELY NARROWER THAN IT.
+§11.4's list does not include deleting the owner's notes and this row does not
+grant it: the capability refuses any document VESPER has no record of creating,
+the same way `close_own_window` is separate from `close_window`. Irreversible, so
+`per_instance` consent -- nothing can undo it, so nothing may pre-authorise it."""
+
+[action.replace_application_document_text]
+tier = "adjust_reversible"
+enabled = true
+authorized_by = "OWNER-2026-09-11-APPS"
+description = "Rewrite the text of an existing document, keeping the previous text so it can be put back."
+reversible = true
+inverse = "replace_application_document_text"
+requires_owner_consent = "per_rule"
+provenance_required = "verified_local"
+max_targets_per_window = 24
+window_seconds = 300
+execution_class = "interactive"
+restores_baseline = true
+source = """Owner 2026-09-08, §11.4: "edit on demand".
+
+ITS OWN INVERSE, AND THAT IS THE HONEST ANSWER RATHER THAN A LOOPHOLE. Putting
+the previous text back IS another replace, so naming a separate row would invent
+a verb nobody asked for to describe the same effect. What makes it truly
+reversible is that the capability READS THE OLD TEXT FIRST and carries it for the
+compensator -- the same thing `fs.write` does with `previous`, and for the same
+reason: an undo that has to reconstruct what was there is not an undo."""

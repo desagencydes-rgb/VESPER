@@ -7380,6 +7380,59 @@ CASES += [
 
 APPS_SWIFT = "app/home-macos/AppsBridge.swift"
 APPS_PY = "core/apps.py"
+CASES += [
+    ("an-application-write-is-proved-and-undoable", APPS_SWIFT,
+     _sub("            let wantPresent = (verb != \"document_delete\")",
+          "            let wantPresent = true", 1),
+     "a delete is proved by the document being PRESENT, so every correct delete "
+     "reports failure and the owner is told vesper could not remove a note it "
+     "removed"),
+
+    ("an-application-write-is-proved-and-undoable", APPS_SWIFT,
+     _sub("                                   inContainer: homeContainer)",
+          "                                   inContainer: \"\")", 1),
+     "the delete proof stops being scoped to the folder the document was in, so "
+     "a note sitting in Recently Deleted still answers yes and a correct delete "
+     "reports failure -- three clean cycles did exactly this"),
+
+    ("an-application-write-is-proved-and-undoable", APPS_SWIFT,
+     _sub("            while stillThere != wantPresent && waited < 3_000_000 {",
+          "            while false {", 1),
+     "the proof stops polling, so a delete the application performs a moment "
+     "later is reported as having failed"),
+
+    ("an-application-write-is-proved-and-undoable", APPS_SWIFT,
+     _sub("                    set body of item 1 of hits to \\(quoted(htmlDiv(name) + htmlDiv(text)))",
+          "                    set body of item 1 of hits to \\(quoted(htmlDiv(text)))", 1),
+     "a rewrite stops writing the title back, so it RENAMES the note it was "
+     "asked to rewrite -- the note becomes unfindable under the name the owner "
+     "used, while the verb reports success"),
+
+    ("an-application-write-is-proved-and-undoable", APPS_SWIFT,
+     _sub('            .replacingOccurrences(of: "&", with: "&amp;")\n', "", 1),
+     "the ampersand stops being escaped, so `a & b` in the owner's own words "
+     "becomes broken markup inside their document"),
+
+    ("an-application-write-is-proved-and-undoable", CAPS_PY,
+     _sub("        if previous.startswith(name + \"\\n\"):\n"
+          "            previous = previous[len(name) + 1:]\n", "", 1),
+     "the undo hands the title line back to a write that re-adds it, so "
+     "restoring a document produces 'title / title body' -- the compensator "
+     "making the damage worse while reporting success"),
+
+    ("an-application-write-is-proved-and-undoable", CAPS_PY,
+     _sub("    if verb == \"document_delete\":\n        return \"L4\"",
+          "    if verb == \"document_delete\":\n        return \"L3\"", 1),
+     "removing a document levels the same as rewriting one, so the ladder cannot "
+     "tell an act nothing can undo from one that keeps its old text"),
+
+    ("an-application-write-is-proved-and-undoable", APPS_PY,
+     _sub("        if origin != VESPER_CREATED:\n", "        if False:\n", 1),
+     "vesper will delete a document it never made: every note the owner wrote is "
+     "removable, which §11.4 never asked for"),
+]
+
+
 
 CASES += [
     ("an-application-is-never-driven-without-permission", APPS_SWIFT,
@@ -7426,8 +7479,8 @@ CASES += [
      "bar says 'said nothing about how' -- while the reason sits in the result"),
 
     ("the-app-verb-set-is-closed", APPS_SWIFT,
-     _sub('    static let VERBS = ["permission", "documents"]',
-          '    static let VERBS = ["permission", "documents", "rename"]', 1),
+     _sub('                        "document_delete"]',
+          '                        "document_delete", "rename"]', 1),
      "a verb is advertised with no script behind it, so asking for it is "
      "accepted, does nothing, and returns as though it had worked"),
 
@@ -7438,10 +7491,10 @@ CASES += [
      "reaches an application is a name the compiler knew"),
 
     ("the-app-verb-set-is-closed", CAPS_PY,
-     _sub('    if verb == "documents":\n        return "L2"\n    return "L5"',
-          '    return "L2"', 1),
-     "an undeclared verb levels the same as a declared one, so approving a "
-     "named act silently approves an unnamed one"),
+     _sub('    if verb == "document_delete":\n        return "L4"',
+          '    if verb == "document_delete":\n        return "L5"', 1),
+     "a DECLARED verb sits at L5, the level reserved for verbs nobody has "
+     "described, so the ladder cannot tell a known act from an unknown one"),
 
     ("an-application-rule-branches-on-a-class-not-a-program", APPS_PY,
      _sub("    if target_class == VESPER_ITSELF:\n",

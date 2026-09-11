@@ -121,6 +121,15 @@ The only capabilities that exist are:
   window.close args: {"window_id": "<id>"}
               Close a window. Never for tidying -- only when the owner asks.
 
+  app.edit    args: {"verb": "<document_create|document_replace|document_delete>",
+                     "bundle_id": "<id>", "name": "<document name>",
+                     "text": "<the text, for create and replace>"}
+              Write into an application. "document_create" makes a new one,
+              "document_replace" rewrites the text of one that exists and keeps
+              the old text so it can be put back, "document_delete" removes one
+              -- and ONLY one vesper created itself. For the notes app the id is
+              com.apple.Notes. Rewriting does not rename: the title stays.
+
   app.query   args: {"verb": "<permission|documents|document_body>",
                      "bundle_id": "<id>", "name": "<document name, body only>"}
               Ask about an application. "permission" says whether the owner has
@@ -169,7 +178,12 @@ KNOWN = ("shell.run", "ui.open", "fs.read", "fs.write", "fs.edit",
          # APPLICATIONS (§11.3). Reads only: the verbs that CHANGE another
          # application are not in the vocabulary yet, so proposing one is not
          # something the parser should learn to do before it can be honoured.
-         "app.query")
+         "app.query",
+         # WRITING INTO AN APPLICATION (§11.3, §11.4). Registered, bound, and
+         # proposable -- the window block above records what happens when the
+         # first two land without the third: the capability exists and nothing
+         # the owner can say reaches it.
+         "app.edit")
 
 
 # CAPABILITIES WHOSE CORRECT ARGUMENTS ARE EMPTY.
@@ -235,6 +249,8 @@ CAN_DO: dict[str, str] = {
     "app.query":       "ask whether i may drive an application, what it has "
                        "open, or read one document's text -- reading only, "
                        "never changing it",
+    "app.edit":        "make a new document in an application, rewrite one, or "
+                       "remove one i made myself",
 }
 
 _undescribed = set(KNOWN) - set(CAN_DO)

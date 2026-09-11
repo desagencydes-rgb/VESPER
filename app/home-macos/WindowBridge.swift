@@ -167,9 +167,16 @@ enum WindowBridge {
     ///
     /// SO EXISTENCE AND MEMBERSHIP ARE ASKED SEPARATELY, and neither goes through
     /// the accessibility tree. `CGWindowListCopyWindowInfo` without
-    /// `.optionOnScreenOnly` sees every Space; `CGSCopySpacesForWindows` says
+    /// `.optionOnScreenOnly` sees every Space, and `SpacesHatch.spaces(of:)` says
     /// which Space a window belongs to and answers off the showing Desktop --
     /// both verified on this node.
+    ///
+    /// THE PRIVATE SYMBOL IS NOT NAMED HERE, DELIBERATELY. `spaces-hatch-contained`
+    /// scans every Swift file for the raw symbol names and cannot tell a comment
+    /// from a call, so naming one in prose reads as a second reach. The right fix
+    /// is to name the HATCH's function -- which is also what this code actually
+    /// calls -- rather than to mark this file as a second reviewed home, which is
+    /// the thing that gate exists to prevent.
     static func whereIs(windowId: Int) -> [String: Any] {
         let all = (CGWindowListCopyWindowInfo([.excludeDesktopElements],
                                               kCGNullWindowID)
