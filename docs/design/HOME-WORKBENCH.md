@@ -4687,3 +4687,41 @@ battery.
 **BUT THAT IS REASONING, NOT A READING, AND `INV-HW-2` DOES NOT ACCEPT REASONING.**
 It is recorded here as the expectation to be tested, not as a result. The
 measurement is cheap and comes before anything depends on it.
+
+---
+
+# 39. "LOOK AT ANYTHING, AND MANAGE IT, IN MY DESKTOP" — THE TWO HALVES COMPOSE
+
+**Owner, 2026-09-12:** *"vesper should be able to look at anything even if it's
+not showing on desktop, and fully manage it as well, in my desktop since that's
+what we agreed on and it's easier."*
+
+**THIS RESOLVES §22/15d RATHER THAN RE-OPENING IT, AND THE LAST CLAUSE IS THE
+WHOLE ANSWER.** Two facts have been measured on this machine and both stand:
+
+| Measured | Result |
+|---|---|
+| Accessibility across Desktops | **Answers ONLY for the showing Desktop.** Re-measured 2026-09-12 with every grant present: 1 window reachable on the showing Desktop, **0 of 60** elsewhere |
+| `CGSMoveWindow` across Desktops | **Works.** Window-server level, any Desktop, no Accessibility needed |
+
+The session had been treating these as a limitation to work around. **They
+compose.** Accessibility cannot reach another Desktop — so do not ask it to.
+**Move the window to the owner's Desktop first, then look at it and act on it
+there**, which is exactly where the owner wants it to end up anyway.
+
+    move (window server, any Desktop)  →  now showing  →  view + act (accessibility)
+
+**So "fully manage anything, anywhere" is available today from two mechanisms
+that already work**, without `CGSSetWindowBounds` (absent) and without reaching
+accessibility across a Desktop boundary (measured impossible).
+
+**AND IT MAKES §26.7 AND THIS ONE THE SAME BUILD.** Step 23 says a thing the owner
+asked for belongs where the owner is; this says the way to reach a thing is to
+bring it where the owner is. One rule, one implementation: **resolve the owner's
+current Desktop, move the target there, then operate.**
+
+**WHAT STILL DOES NOT FOLLOW, stated so it is not assumed away:** RESIZE remains
+refused — an application owns its own size and the window-server call that would
+override it is absent. Moving a window does not change that. What moving buys is
+**view, press, focus, type and scroll** on anything, anywhere — which is what
+"manage" meant in the owner's sentence.
