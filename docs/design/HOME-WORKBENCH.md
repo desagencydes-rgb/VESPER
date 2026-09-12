@@ -4725,3 +4725,65 @@ refused — an application owns its own size and the window-server call that wou
 override it is absent. Moving a window does not change that. What moving buys is
 **view, press, focus, type and scroll** on anything, anywhere — which is what
 "manage" meant in the owner's sentence.
+
+---
+
+# 40. §39 WAS WRONG, AND THE HALF THAT SURVIVES IS THE HALF THE OWNER ASKED FOR
+
+**Corrected 2026-09-12, before anything was built on it.**
+
+§39 claimed that "look at anything, anywhere" falls out of composing two measured
+facts: accessibility answers only for the showing Desktop, and `CGSMoveWindow`
+works on any Desktop — so move the window to the owner's Desktop and then read it.
+
+**THE SECOND FACT DOES NOT APPLY TO THE CASE THAT MATTERS, AND THE MEASUREMENT
+WAS ALREADY IN THIS TREE.** `core/capabilities.window_relocate` carries it:
+
+> *"MEASURED 2026-09-08, THE BOUNDARY IS OWNERSHIP OF THE CONNECTION, NOT THE
+> SYMBOL. VESPER's own probe window relocates correctly — 'was unknown, asked for
+> 3, is 3' — while a foreign application's window does not move for
+> `CGSMoveWindowsToManagedSpace` OR for the older add/remove pair."*
+
+**TWO DIFFERENT CALLS WERE BEING TREATED AS ONE.**
+
+| Call | What it moves | Works on a foreign window? |
+|---|---|---|
+| `CGSMoveWindow` | the window's POSITION on its own Desktop | **yes** — this is what 15d shipped |
+| `CGSMoveWindowsToManagedSpace` | the window to ANOTHER DESKTOP | **no** — measured, twice, both routes |
+
+So §39's chain breaks at its first link for exactly the window the owner cares
+about: theirs. And the documented fallback does not rescue it either — the same
+docstring records that a reconstructed window **cannot be made to land on a chosen
+Desktop**: *"a window created here never appeared on the active Desktop… nothing
+may be inferred from it either way."*
+
+## WHAT SURVIVES, AND IT IS THE ORIGINAL COMPLAINT
+
+**§26.7 was never about reaching an existing foreign window.** The owner's actual
+report was about a window **VESPER ITSELF OPENED**:
+
+> *"i have previously closed the open safari window to let vesper take place in
+> desktop 3, so it did it, but in the safari window that's in full screen…"*
+
+A window VESPER opens is **VESPER-created**, which is precisely the class the
+2026-09-08 measurement says **does** relocate. So step 23 stands, scoped to what
+was actually asked:
+
+- **What VESPER OPENS appears where the owner is.** Solvable today — the window
+  is VESPER's own, relocation works for exactly that class, and the placement is
+  read back rather than predicted (15a already refuses to predict).
+- **Reaching an existing window of the OWNER'S on another Desktop** is NOT
+  solvable by moving, and saying so now is cheaper than discovering it mid-build.
+
+**THE HONEST ANSWER TO "look at anything even if it's not showing" IS THEREFORE
+STILL OPEN**, and the next mechanism to try is not another move: it is whether
+screen recording can capture a window off the showing Desktop when accessibility
+cannot read it. **That is a MEASUREMENT, not a plan**, and it is unmade.
+
+## THE LESSON, WHICH IS THIS CORPUS'S OWN
+
+Two measured facts were composed without checking that the second one's
+measurement covered the case the first one raised. **The tree already held the
+refutation, in the docstring of the function the plan depended on.** `MEMORY.md`'s
+opening rule applies to designs as much as to counts: read the record before
+reasoning, because the answer is usually already measured.
