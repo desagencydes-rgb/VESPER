@@ -4151,23 +4151,50 @@ So: publish at the top of the successor's iteration, AFTER its skips pass,
 carrying `from_provider` and `to_provider`. That is a fact about something that
 already happened, which is the only kind of thing narration may state.
 
-### AN OWNER DECISION IS INSIDE THIS ONE
+### THERE IS NO OWNER DECISION HERE AFTER ALL — THE CONTRACT ALREADY MADE IT
 
-`provider_class="a provider"` may be **deliberate rather than lazy**. `INV-HW-1`
-forbids product names in routing and policy paths, and `core/windows.py` states
-the doctrine plainly: *"a rule that special-cases one program is a rule the next
-node cannot honour."* Speaking a provider id aloud is the same shape.
+This section first said that whether VESPER may speak a provider id was doctrine
+and the owner's call. **`contracts/policy/narration.toml` had already decided it,
+in its own header:** *"INV-HW-1 APPLIES TO EVERY LINE HERE, and CI-007 scans this
+file. 'Moving to the desktop' is a violation; 'moving to a local model' is the
+profile talking. **The user hears a capability, never an inventory.**"*
 
-**So: may VESPER say "groq did not answer", or must it say "a provider did not
-answer"?** `CI-007` will not catch it either way — `PRODUCT_NAMES` is
-hardware-only — so this is doctrine, and the owner's call.
+So `provider_class="a provider"` is not laziness and never was — it is the rule
+being followed. And "a local model" was written as PROFILE-TALK for exactly the
+same reason: the phrasing is INV-HW-1-correct. **What is wrong with it is not the
+doctrine but the FACT** — this node has no local rung to descend to, so a
+correctly-phrased sentence describes something that cannot happen.
+
+That distinction matters for the fix. Nothing here needs a naming decision; it
+needs the destination clause to stop asserting a descent that was not chosen.
+
+### AND THE FIX IS A REVIEWED ACT, NOT AN EDIT
+
+The same header: *"THIS IS A GOVERNED SURFACE. The runtime may PROPOSE a line and
+may never apply one — a system that can rewrite its own script can stop reporting
+the thing it is failing at."* So the templates change through review, which is
+another reason this is recorded rather than patched on sight.
 
 ### AND THE REPETITION IS A SECOND, SEPARATE DEFECT
 
 The subscription fires on **every** `gateway.attempt` whose outcome is not `ok`,
 including each retry of one request. One outage therefore narrates up to
-`max_attempts` times. `contracts/policy/interruption_budget.toml` exists and this
-path does not consult it.
+`max_attempts` times.
+
+**A FIRST DRAFT OF THIS SAID THE PATH "DOES NOT CONSULT" THE INTERRUPTION BUDGET.
+THAT IS TOO STRONG, AND THE PRECISE VERSION IS THE USEFUL ONE.** `announce()` DOES
+consult it — `may_speak = interruption_class in self._speak_when`, loaded from
+`contracts/policy/interruption_budget.toml`. What it consults is the LATTICE:
+*may this class speak at all.*
+
+**What it never reads is the RATE.** That contract declares
+`max_contacts_per_hour = 2` and `max_cost_per_hour = 8` for a focused session, and
+`narration.py` reads only `speak_when` — a membership test. So a permitted class is
+permitted EVERY time, and a declared limit of two contacts an hour sat there while
+the owner heard the same sentence over and over.
+
+**The budget is half-wired, which is worse than unwired: the half that is read
+makes it look consulted.**
 
 **Fixing the false destination still leaves the owner hearing it ten times per
 outage.** Worth its own item.
