@@ -26300,6 +26300,133 @@ def check_the_settings_surface_reads_and_explains() -> Result:
            f"owner's own; the producer only reads")
     return r
 
+def check_the_loop_can_see_what_it_just_did() -> Result:
+    """An observation the planner cannot read is a step the loop cannot take.
+
+    THE DEFECT THIS WAS WRITTEN FOR, measured 2026-09-12. `_render_observations`
+    was written for the shell and file capabilities -- `cmd`, `exit_code`,
+    `stdout_lines` -- and never extended when windows, interfaces and
+    applications landed. Those families carry their whole answer in a LIST
+    (`windows`, `elements`, `items`) and their address in a scalar
+    (`window_id`), and the renderer named none of them. A `window.list`
+    observation holding three windows rendered to exactly `1. window.list`.
+
+    SO THE SECOND STEP OF THE LOOP COULD NOT BE FORMED. `ui.view`'s own
+    instruction is "List windows first to learn ids", and the ids never arrived.
+    Driven against the real ladder with the old renderer, the proposer answered
+    `{"window_id": "<id from previous window.list>"}` -- a PLACEHOLDER, because
+    it knew what it needed and had not been shown it. The owner asked what was
+    on a window and got the window list back instead, twice, and the prompt
+    wording was corrected twice for what was never a wording problem.
+
+    THE ASSERTION IS DERIVED, NOT LITERAL. The tokens demanded of the render are
+    read out of what `capabilities.observe` actually produced, so a field the
+    observer stops carrying fails here rather than passing vacuously, and a
+    family whose rows are dropped fails on its own row count rather than on a
+    string somebody remembered to add.
+    """
+    r = Result("the-loop-can-see-what-it-just-did")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    from core import capabilities as C
+    from core import intent as I
+
+    # NEUTRAL LABELS. `core/windows.py`: an application's name may travel as an
+    # opaque label for the owner to read, never as a thing a rule branches on --
+    # and a fixture that hardcodes one teaches the wrong shape.
+    RESULTS = {
+        "window.list": {
+            "ok": True, "count": 3,
+            "windows": [
+                {"window_id": "w-101", "app_label": "a browser",
+                 "provenance": "owner_created", "on_active_desktop": True,
+                 "x": 0, "y": 0, "width": 1440, "height": 900},
+                {"window_id": "w-102", "app_label": "a note taker",
+                 "provenance": "owner_created", "on_active_desktop": True,
+                 "x": 20, "y": 40, "width": 800, "height": 600},
+                {"window_id": "w-103", "app_label": "a terminal",
+                 "provenance": "owner_created", "on_active_desktop": False,
+                 "x": 5, "y": 5, "width": 700, "height": 500},
+            ]},
+        "ui.view": {
+            "ok": True, "window_id": "w-101", "count": 2, "truncated": False,
+            "elements": [
+                {"path": "0/1/2", "role": "AXButton", "label": "Reload",
+                 "can": ["press"]},
+                {"path": "0/1/3", "role": "AXTextField", "label": "Address",
+                 "can": ["type", "focus"]},
+            ]},
+        "app.query": {
+            "ok": True, "verb": "documents", "state": "granted",
+            "bundle_id": "an.application", "count": 2,
+            "items": ["a first document", "a second document"]},
+    }
+
+    # WHAT A NEXT STEP MUST BE ABLE TO ADDRESS THE THING BY. Not a wish list:
+    # each of these is an argument some capability declares as required.
+    ADDRESSED_BY = {
+        "window.list": ("windows", "window_id"),
+        "ui.view": ("elements", "path"),
+        "app.query": ("items", None),
+    }
+
+    for cap, result in RESULTS.items():
+        obs = C.observe(cap, {}, result)
+        text = I._render_observations([obs])
+
+        rows_key, id_field = ADDRESSED_BY[cap]
+        rows = obs.get(rows_key)
+        if not isinstance(rows, list) or not rows:
+            r.err(f"observe({cap!r}) carried no {rows_key!r}, so this check "
+                  f"cannot see whether the renderer drops them -- the fixture "
+                  f"or the observer changed")
+            continue
+
+        # EVERY ROW REACHES THE PLANNER, not just the first. A renderer showing
+        # one row and dropping the rest is the same defect one line smaller.
+        for row in rows:
+            token = str(row.get(id_field)) if id_field else str(row)
+            if token not in text:
+                r.err(f"a {cap} observation names {token!r} and the planner is "
+                      f"not shown it. The loop cannot address what it cannot "
+                      f"read, and this is the step that could not be formed. "
+                      f"Rendered: {text!r}")
+
+        # AND THE ADDRESS ITSELF, for the families that carry one. `ui.view`
+        # returns its window_id so the ACT that follows lands on the same
+        # window; dropping it turns a verified target back into a guess.
+        wid = obs.get("window_id")
+        if wid and str(wid) not in text:
+            r.err(f"a {cap} observation is addressed to {wid!r} and the planner "
+                  f"is not shown which window it looked at")
+
+        # A COUNT IS HOW AN EMPTY LIST IS TOLD FROM AN UNRENDERED ONE. Without
+        # it, "nothing found" and "nothing shown" are the same text -- and one
+        # of those is a finding while the other is this defect.
+        if obs.get("count") is not None and f"count={obs['count']!r}" not in text:
+            r.err(f"a {cap} observation counted {obs['count']!r} and the planner "
+                  f"is not shown it, so an empty result and a dropped one read "
+                  f"identically")
+
+    # THE SHELL FAMILY MUST NOT HAVE REGRESSED. It was the only one that worked,
+    # and a rewrite fixing three families by breaking the fourth is not a fix.
+    # `stdout`, NOT `stdout_lines`: observe() splits the raw text itself, and a
+    # fixture handing it a pre-split list gets an empty one back -- which is how
+    # the first version of this assertion failed against a working renderer.
+    sh = C.observe("shell.run", {"cmd": "a command"},
+                   {"ok": True, "exit_code": 0, "stdout": "a line of output"})
+    sh_text = I._render_observations([sh])
+    if "a line of output" not in sh_text or "exit_code" not in sh_text:
+        r.err("the shell observation stopped reaching the planner; it was the "
+              "one family this renderer was originally written for")
+
+    if not r.errors:
+        r.note(f"{len(RESULTS)} capability families driven through observe() and "
+               f"rendered; every row's address, every window_id and every count "
+               f"reaches the planner, and the shell family still does")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -26476,6 +26603,7 @@ CHECK_FNS = {
     "the-window-log-records-and-never-reopens": check_the_window_log_records_and_never_reopens,
     "the-shipped-runtime-can-reach-what-it-needs": check_the_shipped_runtime_can_reach_what_it_needs,
     "a-refusal-is-never-reported-as-done": check_a_refusal_is_never_reported_as_done,
+    "the-loop-can-see-what-it-just-did": check_the_loop_can_see_what_it_just_did,
     "the-wallpaper-changes-only-on-vespers-desktop": check_the_wallpaper_changes_only_on_vespers_desktop,
     "a-mode-is-a-pairing-of-two-axes": check_a_mode_is_a_pairing_of_two_axes,
     "a-stage-bounds-what-vesper-opens": check_a_stage_bounds_what_vesper_opens,

@@ -7683,5 +7683,52 @@ CASES += [
      "ordinary path, which is the direction that grants authority by accident"),
 ]
 
+
+# ---------------------------------------------------------------------------
+# the-loop-can-see-what-it-just-did -- the renderer that made the loop blind
+# ---------------------------------------------------------------------------
+CASES += [
+    ("the-loop-can-see-what-it-just-did", INTENT_PY,
+     _sub("""        wins = o.get("windows")
+        if isinstance(wins, list) and wins:
+            out.extend(_render_rows(
+                "windows", wins,
+                ("window_id", "app", "on_active_desktop", "provenance")))
+""", "", 1),
+     "the window rows stop reaching the planner, which is the original defect: a "
+     "window.list holding three windows renders to its own NAME, and ui.view's "
+     "'list windows first to learn ids' becomes unfollowable"),
+
+    ("the-loop-can-see-what-it-just-did", INTENT_PY,
+     _sub("""        els = o.get("elements")
+        if isinstance(els, list) and els:
+            out.extend(_render_rows(
+                "elements", els, ("path", "role", "label", "can")))
+""", "", 1),
+     "the interface elements stop reaching the planner, so ui.act can never be "
+     "given a path and the clicking half of the loop cannot be addressed"),
+
+    ("the-loop-can-see-what-it-just-did", INTENT_PY,
+     _sub("""        items = o.get("items")
+        if isinstance(items, list) and items:
+            out.append("     items:")
+            out.extend("       " + str(x) for x in items)
+""", "", 1),
+     "the documents an application reported stop reaching the planner, so a "
+     "second step naming one of them cannot be formed"),
+
+    ("the-loop-can-see-what-it-just-did", INTENT_PY,
+     _sub('                    "window_id", "count", "verb", "state", "bundle_id"):',
+          "                    ):", 1),
+     "the scalars go: window_id is the address a following ui.act lands on, and "
+     "count is the only thing telling an EMPTY list from an unrendered one"),
+
+    ("the-loop-can-see-what-it-just-did", INTENT_PY,
+     _sub("    out = [f\"     {label}:\"]\n    for row in rows:",
+          "    out = [f\"     {label}:\"]\n    for row in rows[:1]:", 1),
+     "only the first row is rendered -- the same defect one line smaller, and the "
+     "window the owner meant is as likely to be the last as the first"),
+]
+
 if __name__ == "__main__":
     sys.exit(main())
