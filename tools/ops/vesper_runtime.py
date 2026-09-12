@@ -2368,12 +2368,23 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                             if not isinstance(row, dict):
                                 continue
                             who = str(row.get("who") or "owner")
-                            said = str(row.get("text") or "").strip()
-                            if not said:
+                            # `line_text`, NOT `said`. This loop variable was
+                            # called `said` and the enclosing function already
+                            # has a `said` -- the LIST of this batch's utterances,
+                            # built at the top of the pump and appended to again
+                            # at the bottom. Binding a string to that name here
+                            # destroyed the list for the rest of the turn, and
+                            # every turn died at `said.append(...)` with
+                            # "'str' object has no attribute 'append'". Vesper
+                            # answered nothing at all and the face sat at
+                            # `thinking`; the pump caught it and continued, so
+                            # the process stayed up while doing none of its job.
+                            line_text = str(row.get("text") or "").strip()
+                            if not line_text:
                                 continue
                             recent.append({
                                 "who": "owner" if who == "owner" else "vesper (said)",
-                                "text": said})
+                                "text": line_text})
                         if last_action is not None:
                             recent.append({"who": "vesper (did)",
                                            "text": last_action})
