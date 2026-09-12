@@ -7723,6 +7723,21 @@ CASES += [
      "the scalars go: window_id is the address a following ui.act lands on, and "
      "count is the only thing telling an EMPTY list from an unrendered one"),
 
+    # window_id NEEDS ITS OWN CONTROL AND THE CASE ABOVE IS NOT IT. That one
+    # drops five keys at once, so it goes red on `count` whether or not the
+    # window_id assertion exists at all -- the line could be deleted and the
+    # suite would stay green, which is the vacuity this check's own docstring
+    # claims to have avoided. This drops window_id ALONE. Only ui.view carries a
+    # top-level one, and `w-101` appears nowhere else in its render (the element
+    # rows carry path, role, label and can), so a red here is that assertion and
+    # nothing else.
+    ("the-loop-can-see-what-it-just-did", INTENT_PY,
+     _sub('                    "window_id", "count", "verb", "state", "bundle_id"):',
+          '                    "count", "verb", "state", "bundle_id"):', 1),
+     "a ui.view observation stops saying WHICH window it looked at, so the ui.act "
+     "that follows has a path and a role with no window to land them on -- a "
+     "verified target turned back into a guess"),
+
     ("the-loop-can-see-what-it-just-did", INTENT_PY,
      _sub("    out = [f\"     {label}:\"]\n    for row in rows:",
           "    out = [f\"     {label}:\"]\n    for row in rows[:1]:", 1),
