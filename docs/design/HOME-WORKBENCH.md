@@ -1500,8 +1500,19 @@ been driven against the running surface.**
 | 21 | **`projects` and `research` rail buttons** (§11.7) | ✅ **DONE** 2026-09-11 (§27) — both are Work-room cards per HOME-ARCHITECTURE §14.2, so they are the WAY IN rather than the stage. `projects` reads the **build order** (33 steps, state, what each waits on); `research` reads the **spike index** (15 questions settled by measurement). Both read the file that is their authority and neither invents a row. The research STAGE (§7.1 — subject right, canvas left, face dispersed) is still to build |
 | 22 | **Microphone sensitivity** (§9g) | owner-reported, queued last, MEASURE FIRST |
 | — | **TCC grants die on every build** (§9h) | found by the session, RAISED, awaiting a decision |
+| 23 | **Things open where the OWNER is** (§26.7) | 🔜 **FIRST — owner put it at the head of the queue 2026-09-12.** Owner-reported: a search worked but opened on VESPER's Desktop while the owner was elsewhere, so they had to switch Desktops to see their own result. The rule is *the owner asked for it, therefore it belongs where the owner is* — not where the application last had a window and not on VESPER's Desktop. **Blocks §28's dashboard**: a dashboard that 'pops up' inherits this bug and pops up where the owner cannot see it |
+| 24 | **Projects dashboard** (§28) | 🔜 SPECIFIED 2026-09-12 — side button opens a DASHBOARD, not a card. Engineering-general phases (software, hardware, any discipline), declared in a contract and extensible per project. Three DISTINCT top switches: project phase (corrective — re-settable without orphaning work), engineering mode (practices vs work), engineering phase. Controls plans, code, designs, roadmap, practices, documents, terminal, commands, history. **REUSES the existing cards — a second terminal would be a second thing to keep correct and `CI-126` guards one.** Also: a projects button inside it, per-project session history, and dashboard view control |
+| 25 | **Research mode** (§29) | 🔜 SPECIFIED 2026-09-12 — **opens NO window and NO dashboard**; it populates the room already there. Two tiers: what appears, and what is available on demand. **An old session reopens with the same cards and windows; a new one opens at the default step** — durable layout state, reusing 15b's boot-keyed corroborated restore rather than a parallel one. Control card sits immediately above the history card, bottom left, driven by the owner AND vesper, and holds EVERY card including the normal-state ones, pullable by either |
+| 26 | **Permissions in projects and research** (§30) | 🔜 SPECIFIED 2026-09-12 — **the SURFACE is ungated in every mode** (open the dashboard, show a card, arrange a window, pull a card up, switch phase). **The WORK is unchanged** — auto grants, other modes keep their policies, the ladder and `host_actions.toml` apply exactly as outside. Reading this as 'projects mode bypasses the ladder' would let a surface grant authority, the walk-around `core/apps.py` exists to refuse. The taint seam is unchanged too |
+| 27 | **Camera — seeing, and who is there** (§31) | 🔜 SPECIFIED 2026-09-12 — **the design already exists: `docs/design/VISION-IDENTITY.md`, the owner's own, 2026-08-31, and must not be re-derived.** Two models (face auth; body/movement when no face), STANDALONE on the device holding the camera, presence as a memory FLAG not a per-turn check, never device-bound, people learned by introduction. NEW today: activities, living things, general recognition. **Cost is a hard constraint with a measurement behind it** — a local model heats this host in a minute and eats tens of % battery in five; `INV-HW-2` governs, UNKNOWN means UNAVAILABLE |
+| 28 | **The J3 node — vesper's body** (§32) | 🔜 SPECIFIED 2026-09-12 — face, speaker, microphone, a showing surface, and the hologram. **The first node vesper IS rather than runs on**, and `INV-PLACE-3` still holds. **SPIKE-004 is already RUNNING on the hologram question** and the owner is building the rig today, so brightness, viewing angle, sustained output without thermal throttle and legibility at distance are MEASURED before anything depends on them. Carries vesper's SIM, which connects it to §33. Enrolls via `profile_node.py` like any node |
+| 29 | **Messaging and calling** (§33) | 🔜 SPECIFIED 2026-09-12 — first concrete use is already decided in `VISION-IDENTITY.md` and it is a SAFETY one: not-the-owner-at-the-machine warns on the phone or calls from J3's SIM. **Gated on SPIKE-005, NOT_STARTED**, whose title names the hard part — call origination **without deceptive impersonation**, a constraint on version one rather than a later refinement. `INV-ACT-6` governs the mechanics: both a message and a call are irreversible AND non-idempotent |
+| 30 | **Memory: stress it, and prove the fixes** (§34) | 🔜 SPECIFIED 2026-09-12 — §26.6 stands: every module built, none read in a turn. Two halves: **re-drive every previously-reported defect against the BUNDLE, not the repo** (a fix the owner does not run is a fix they do not have — caught today for `core/intent.py`), and **give memory the property-based stress placement and fabric already have** (160k and 180k assertions; memory has NO equivalent, so it has only the cases somebody thought of). A stress run that cannot make it fail indicts the harness first |
+| 31 | **The phone app** (§35) | ⏸ **LAST, BY THE OWNER'S INSTRUCTION** 2026-09-12 — nothing above waits on it and it does not start while anything above is open. It is a NODE, not a remote control: `availability_class = foreground_only` is the phrase to write, never the device's name. **SPIKE-007 (foreground-only survival envelope) and SPIKE-014 (a widget extension without Xcode, and its real refresh budget) are both NOT_STARTED**, and there is no Xcode on this Mac |
 
 Steps 2, 3 and 4 are what the owner named as the starting point.
+
+**Step 23 is the head of the queue by the owner's instruction, 2026-09-12.**
 
 ---
 
@@ -4207,3 +4218,472 @@ This section originally offered the chain *"`groq-strong` → rate-limited →
 `…677969`, 8.5 seconds LATER. The chain was read off the ORDER OF A PRINTED LIST
 and asserted as causation. What actually holds is only that a rate-limited rung
 produces the same burst of narration as an offline one.
+
+---
+
+# 28. PROJECTS — THE DASHBOARD, ITS PHASES, AND ITS ENGINEERING MODES
+
+**Owner, 2026-09-12.** This supersedes §11.7's `projects` row, which was
+deliberately minimal because no specification existed. It exists now.
+
+## 28.1 WHAT IT IS
+
+`projects` is a **side button that opens a DASHBOARD** — a full surface, not a
+card. §11.7 built the rail button as a *way in* (it reads the build order and
+lists the steps); that reading stays as the entry, and this is what the entry
+opens into.
+
+## 28.2 PHASES, AND WHY THEY ARE NOT A SOFTWARE LIST
+
+**The owner's words: "has phases, basically all phases in engineering software,
+hardware, any type of engineering."**
+
+So the phase vocabulary is **engineering-general, not software-specific**. A
+hardware project has phases a software one does not, and a dashboard that only
+knows `design → build → test → ship` cannot hold the hologram rig the owner is
+building today. The phase set must be declared in a contract and be extensible
+per project, not hardcoded in the view.
+
+**INV-HW-1 APPLIES HERE IN ITS ORIGINAL SENSE.** A phase is a *class of work*,
+never a named tool or product. "Fabrication" is a phase; the name of a printer
+is not.
+
+## 28.3 THE TOP BAR — THREE SWITCHES, AND THEY ARE DIFFERENT THINGS
+
+The owner named three controls at the top, and they are **not** three names for
+one thing. Writing them as one control is the first way this gets built wrong.
+
+| Switch | What it changes |
+|---|---|
+| **Phase** | Which phase this project is IN — *"switch between phases if they were not chosen well"*, so it is CORRECTIVE. A phase can be set wrongly and must be re-settable without losing the work filed under it |
+| **Engineering mode** | *"engineering practices and engineering"* — the PRACTICE layer versus the WORK layer. Two different bodies of material about the same project |
+| **Engineering phase** | The phase within the engineering discipline itself, distinct from the project's own phase above |
+
+**That a phase is re-choosable is a REQUIREMENT, not a convenience.** It means
+phase is a mutable attribute with history, never a directory a file was filed
+into — moving a project between phases must not orphan anything.
+
+## 28.4 WHAT THE DASHBOARD CONTROLS
+
+The owner's list, verbatim in substance: **plans, code, designs, roadmap,
+practices, documents, terminal, commands, history — "and anything helpful
+there."**
+
+Several of these ALREADY EXIST as cards and must be REUSED rather than rebuilt:
+the commands card (§3, step 2), the explanations card (§4, step 3), the changes
+card (§5, step 4), the terminal (§6, step 6), and history. **A second terminal
+implementation inside the dashboard would be a second thing to keep correct,
+and `CI-126` guards exactly one of them.** The dashboard composes the existing
+cards; it does not fork them.
+
+New surfaces with no existing card: **plans, designs, roadmap, practices,
+documents.**
+
+## 28.5 ALSO REQUIRED, AND EASY TO DROP
+
+The owner named three more, and they are the ones a first build forgets:
+
+- **A projects button INSIDE the dashboard** — to move between projects without
+  leaving it.
+- **Per-project session history** — *"history of session in each project"*. Not
+  one global history: history scoped to the project, so returning to a project
+  returns to its own thread of work.
+- **Dashboard view control and management** — the owner arranges the dashboard
+  itself, and that arrangement is a thing to keep.
+
+---
+
+# 29. RESEARCH MODE — NOT A DASHBOARD, A ROOM THAT REMEMBERS
+
+**Owner, 2026-09-12.** This is the §7.1 research STAGE that §11.7 left owed,
+specified.
+
+## 29.1 THE SHAPE, AND HOW IT DIFFERS FROM PROJECTS
+
+**It opens NO new window and NO dashboard.** *"it just puts there all the cards
+and windows necessary."* Projects opens a surface; research **populates the one
+already there**. Building research as a second dashboard is the single most
+likely way to get this wrong.
+
+## 29.2 MORE THAN THE DEFAULT, AVAILABLE ON DEMAND
+
+*"has more than the windows and cards that show up when just active on a new
+session, that can be used on demand."* So there are two tiers: what appears, and
+what is AVAILABLE. The second tier is reachable without leaving research.
+
+## 29.3 SESSIONS RESTORE — THIS IS THE LOAD-BEARING REQUIREMENT
+
+- **An OLD research session reopens with the same windows and cards it had.**
+- **A NEW session opens at the default step.**
+
+So a research session has **durable layout state**: which cards, which windows,
+where. This is the same class of problem step 15b solved for windows across a
+restart (`CI-138`, boot-keyed, corroborated, fail-closed) and it should reuse
+that machinery rather than invent a parallel one. **A restored card that no
+longer corresponds to anything must fail closed and say so, not silently vanish
+— an empty room that claims to be last week's room is a false reading.**
+
+## 29.4 THE CONTROL CARD
+
+*"vesper and i can control all of those windows and cards just from a pop up card
+right above the history card that is at the bottom left."*
+
+- **Position is specified:** immediately above the history card, bottom left.
+- **Both parties drive it** — the owner AND VESPER. It is not a human-only
+  widget; VESPER arranging the room is an ordinary act through it.
+- *"the other cards that exist on vesper's normal state should remain in the
+  control card and can be pulled up by me or vesper."* So the control card is
+  the **inventory of every card**, not only the research ones. Nothing is lost by
+  entering research; it is parked and pullable.
+
+---
+
+# 30. PERMISSIONS INSIDE PROJECTS AND RESEARCH — A SURFACE IS NOT AN ACT
+
+**Owner, 2026-09-12:** *"there are no permission limitations in both of those 2,
+all permissions are granted by default to vesper on all permission modes, except
+the work that vesper actually does in them, it remains same, all grants on auto
+mode, and other modes have their policies so no blockings here."*
+
+**THIS SENTENCE HAS TWO HALVES AND COLLAPSING THEM WOULD OPEN A REAL HOLE.**
+
+| | Rule |
+|---|---|
+| **The SURFACE** — opening the dashboard, showing a card, arranging a window, pulling a card up from the control card, switching phase | **Ungated in every permission mode.** These are not acts on the world; refusing them is what made the room feel blocked, and the owner is removing that |
+| **The WORK** — `shell.run`, an edit, an application write, a UI press, egress | **Unchanged.** Auto mode grants; the other modes apply their existing policies. The capability ladder, the taint ceiling and `host_actions.toml` all still apply exactly as they do outside |
+
+**So "no permission limitations" means the ROOM is free, never that the acts
+inside it are.** A build that reads this as "projects mode bypasses the ladder"
+would let a surface grant authority — which is precisely the walk-around
+`core/apps.py` exists to refuse: *"a gate that can be walked around is not a
+gate."*
+
+**AND THE OBSERVATION SEAM IS UNCHANGED TOO.** Card contents, document text and
+UI labels stay `retrieved_external` and keep capping the next act at L1.
+Entering research does not launder what is read there.
+
+---
+
+# 31. CAMERA — SEEING, AND WHO IS THERE
+
+**Owner, 2026-09-12:** *"we still got camera, vesper should be able to see around
+it, identify me via face authentication, and identify activities, living things,
+and anything via recognition, we just need strong models for those, but they
+should not take all of cpu like the local llm we had for vesper, and also not
+drain the battery fast."*
+
+## 31.1 THE DESIGN ALREADY EXISTS — DO NOT RE-DERIVE IT
+
+**`docs/design/VISION-IDENTITY.md`, the owner's own design, 2026-08-31.** It is
+recorded as DESIGN ONLY, hardware-blocked, and explicitly kept so it would not be
+re-derived badly. Its load-bearing parts, which this section builds toward rather
+than replaces:
+
+- **Two models, not one** — face authentication, and body/movement
+  identification for when no face is available. Merging them makes the cheap one
+  as expensive as the dear one.
+- **Standalone, on whatever device holds the camera**, talking to VESPER rather
+  than living inside it. **This is what keeps the host light — and it is the
+  direct answer to the owner's CPU and battery constraint below.**
+- **Presence is a FLAG in memory set on first sight**, not a check per turn:
+  present · absent · present-with-unknown-people · someone-else-at-the-machine.
+- **Not bound to a device.** A camera merely happens to sit on some machine.
+- People are learned by **introduction** — name plus profile — never
+  configuration.
+
+## 31.2 WHAT TODAY'S MESSAGE ADDS
+
+Recognition beyond identity: **activities, living things, "anything via
+recognition."** That is a third capability alongside the two identity models and
+it is the one with no design yet.
+
+## 31.3 THE COST CONSTRAINT IS A HARD ONE AND IT IS ALREADY MEASURED
+
+*"not take all of cpu like the local llm we had, and also not drain the battery
+fast."* `MEMORY.md` records the measurement behind that instruction: **a local
+model heats this machine in a minute and eats tens of percent of battery in
+five.** The owner is not asking for a preference; they are naming a failure they
+have already watched.
+
+**`INV-HW-2` GOVERNS THIS ENTIRELY: throughput and cost are MEASURED at
+enrollment, never declared.** A vision model ships only with its measured cost on
+the node that will run it, and `UNKNOWN` means `UNAVAILABLE`, fail-closed. **No
+model is chosen from a benchmark someone published.**
+
+The architectural answer is already in §31.1: the models are **standalone on the
+device holding the camera**, so the question "does this fit on the host" is
+mostly answered by not putting it there. Where a node cannot carry the model, the
+honest outcome is that the node has no vision — not that the host absorbs it.
+
+---
+
+# 32. THE J3 NODE — VESPER'S BODY
+
+**Owner, 2026-09-12:** *"j3 node set up and build, vesper's face, speaker,
+microphone, showing stuff, hologram. i will build the hologram hardware right
+now."*
+
+**This is the first node that is not a computer VESPER runs on — it is a node
+VESPER IS.** `INV-PLACE-3` still holds: it joins the fabric and wins placement on
+merit; it does not become the machine VESPER lives on.
+
+## 32.1 WHAT IT CARRIES
+
+| Part | Notes |
+|---|---|
+| **Face** | The island/home face rendered on the J3 display. The face already exists on this host; this is a second surface for it, not a second face |
+| **Speaker** | Output. `narration.toml` already refuses to generate spoken lines with a model — that holds here |
+| **Microphone** | Input. The wake word and listening; `speech-in-declares-language-and-measures-confidence` already gates the language and confidence |
+| **Showing stuff** | A display surface for cards — the same content, a smaller room |
+| **Hologram** | The Pepper's-ghost output. **SPIKE-004 is already RUNNING on exactly this question** — "Pepper's-ghost volumetric output on an ordinary phone screen" |
+
+## 32.2 THE HARDWARE IS BEING BUILT TODAY, SO THE MEASUREMENT COMES FIRST
+
+SPIKE-004 exists because this is a question to be **settled by measurement**, and
+the owner is building the rig now. What the spike must produce before any build
+depends on it:
+
+- **Usable brightness and viewing angle** with the room's actual light.
+- **What the phone-class display can sustain** without thermal throttle — the
+  same constraint as §31.3, and `INV-HW-2` applies identically.
+- **Whether the face is legible at the intended distance**, which decides how
+  much of the existing face design survives the transfer.
+
+**The J3 also carries VESPER's SIM** — `VISION-IDENTITY.md` already assigns it
+the calling role when the owner is not at the machine. That connects this
+directly to §33.
+
+## 32.3 SETUP IS ENROLLMENT, NOT CONFIGURATION
+
+`profile_node.py` is stdlib-only **specifically so it runs unmodified on a new
+node with no setup step**, and it has no write path into
+`capability_profiles.toml` — promotion is a separate reviewed act. J3 enrolls the
+same way every other node does, and its throughput is measured there rather than
+assumed from the handset it is.
+
+---
+
+# 33. MESSAGING AND CALLING
+
+**Owner, 2026-09-12:** *"about messaging and calling, we should tackle it."*
+
+**PARTS OF THIS ARE ALREADY DECIDED AND MUST NOT BE RE-OPENED CASUALLY:**
+
+- **`VISION-IDENTITY.md`** already routes a not-the-owner-at-the-machine event to
+  a warning on the phone **or a call from J3's SIM**. So calling has a first
+  concrete use, and it is a SAFETY one.
+- **SPIKE-005** — *"Delegated presence: programmatic call origination without
+  deceptive impersonation"* — is **NOT_STARTED** and is the gate on this.
+
+**THE HARD PART IS NAMED IN THE SPIKE TITLE AND IT IS NOT TECHNICAL.** A call
+placed by VESPER must never be mistakable for the owner placing it. That is a
+design constraint on the first version, not a later refinement.
+
+`INV-ACT-6` already governs the mechanics: an irreversible external effect writes
+an outbox record with an idempotency key **before** the effect, and a
+non-idempotent action is never retried on an UNKNOWN outcome. **A sent message
+and a placed call are both irreversible and both non-idempotent.**
+
+---
+
+# 34. THE MEMORY SYSTEM — STRESS IT, AND PROVE THE FIXES
+
+**Owner, 2026-09-12:** *"the memory problem, we should stress test it and identify
+if there are more errors, and make sure we have actually fixed the previously
+showed ones."*
+
+**§26.6 is the finding this follows: every module exists and nothing reads any of
+them during a turn.** That is still open.
+
+**THE OWNER'S SECOND CLAUSE IS THE SHARPER ONE — "make sure we have actually
+fixed the previously showed ones."** This corpus has a specific failure here
+worth naming: a fix that lands in `core/` and never reaches the bundle the owner
+runs. `the-shipped-runtime-can-reach-what-it-needs` caught exactly that today for
+`core/intent.py`, and it once compared 3 files of 92 while claiming the whole
+copy matched.
+
+So the verification is:
+
+1. **Re-drive each previously-reported memory defect against the BUNDLE**, not
+   the repo — a fix the owner does not run is a fix they do not have.
+2. **Stress it the way placement and fabric are stressed** —
+   `stress_placement.py` runs 160k property assertions and `stress_fabric.py`
+   180k. **Memory has no equivalent.** That absence is the gap: a subsystem with
+   no property-based stress has only the cases somebody thought of.
+3. **A negative control that passes is a defect** — if a stress run cannot make
+   memory fail, the first suspicion is the harness, not the subsystem.
+
+---
+
+# 35. THE PHONE APP — LAST, BY THE OWNER'S INSTRUCTION
+
+**Owner, 2026-09-12:** *"for the app on the iphone, we'll put it last in the plan
+doc, do that."*
+
+**Deliberately last. Nothing above it should wait on it, and it should not start
+while anything above it is open.**
+
+Recorded so the shape is not re-derived when it comes up:
+
+- **It is a NODE, not a remote control.** `INV-PLACE-3`: it joins the fabric and
+  wins placement on merit. `availability_class = foreground_only` is the profile
+  language for what a phone actually is — **and that is the phrase to write, not
+  the device's name** (`INV-HW-1`, `CI-007` scans code and config).
+- **SPIKE-007** — *"Foreground-only survival envelope"* — is **NOT_STARTED** and
+  governs what such a node can be trusted to finish.
+- **SPIKE-014** — *"A WidgetKit extension without Xcode, and its real refresh
+  budget"* — is **NOT_STARTED**, and `MEMORY.md` records there is **no Xcode on
+  this Mac**, which is a real constraint on how this can be built at all.
+
+---
+
+# 36. THE DRIFT GATE COVERS THE CODE AND NOT THE DOCUMENTS THE SURFACES READ
+
+**Found 2026-09-12 while adding §28–§35.**
+
+`the-shipped-runtime-can-reach-what-it-needs` compares **94 core modules**
+byte-for-byte between the repo and the bundle, and its refusal is exactly right:
+*"the owner runs the bundle, so a fix that lands only in the repo is a fix they
+never get."* It caught `core/intent.py` today.
+
+**IT COMPARES CODE ONLY.** §11.7 made two SURFACES read documents as their
+authority — `projects` reads this file's build order, `research` reads
+`docs/spikes/INDEX.toml` — and `build.sh` ships both **precisely because they
+were returning one row from the bundle before it did.**
+
+So the moment §28–§35 were appended, the running app's `projects` rail went
+stale: the repo's table has 41 rows and the shipped copy has 33, **and no gate
+says so.** The rail does not fail — it confidently shows an old answer, which is
+the worse outcome and the one `INV-HW-2` keeps refusing in other places: a false
+reading looks measured and is not.
+
+**THE FIX IS TO WIDEN THE EXISTING GATE, NOT TO ADD ONE.** The list of shipped
+paths is already in `build.sh`; the drift check should compare **everything
+`build.sh` copies**, derived from the copy list rather than re-listed beside it
+— a second list is the thing that drifted eight times and got `CI-089` built.
+
+**Until then the rule is:** the repo document is the authority, and a rail
+reading is only as fresh as the last build.
+
+---
+
+# 37. OWNER DECISIONS, 2026-09-12 — FOUR ANSWERS THAT CHANGE SCOPE
+
+## 37.1 CROSS-DESKTOP RESIZE AND CLOSE ARE DEFERRED; THE PHONE IS THE REAL ASK
+
+The session raised that §22/15d delivers MOVE across Desktops and **refuses
+RESIZE and CLOSE by measurement** — `CGSSetWindowBounds` is absent and an
+application owns its own size — against the owner's earlier *"fully manage all
+windows in any other desktop"*.
+
+**Owner: "no i would like just full management from iphone on macbook for now,
+the rest will come later."**
+
+So the refusal **stands and is not a blocker**. What "full management" means is
+**the phone driving the MacBook**, and the cross-Desktop resize/close question is
+explicitly deferred.
+
+**AND THAT PUTS A TENSION ON THE RECORD RATHER THAN RESOLVING IT SILENTLY:**
+§35 places the phone app **last** by the owner's own instruction in the same
+conversation, and this says the phone is what they want *"for now"*. Those cannot
+both be true about sequence. **Read here as scope, not resequencing** — the phone
+app stays last, and when it is built, *full management of the MacBook from it* is
+what it must deliver rather than a status readout. If the owner meant to move it
+earlier, that is one word from them and this paragraph is why it was not assumed.
+
+## 37.2 NO PAID CERTIFICATE — SO GRANTS KEEP DYING, AND REBUILDS GET BATCHED
+
+**Owner, on the TCC/signing decision (§9h): "if it needs money, no, if no money,
+yes."**
+
+**It needs money.** A Developer ID certificate requires Apple Developer Program
+membership, which is a yearly fee. **So the answer is NO**, and §9h is decided
+rather than open.
+
+**WHAT THAT COMMITS US TO, stated plainly so nobody re-litigates it at 3 a.m.:**
+the app stays ad-hoc signed, every build re-signs it, every re-sign is a new
+identity to TCC, and **every grant except Apple Events dies on every build.**
+Measured repeatedly; Notes automation has survived 10+ builds while Accessibility
+and Screen Recording died every time.
+
+**The operational rule is therefore permanent, not a workaround:** batch builds,
+and **grant after the LAST build of a session**, never before it.
+
+**ONE FREE PATH IS UNMEASURED AND SHOULD NOT BE PROMISED.** A *self-signed*
+certificate (made locally, no fee) can give a build a stable signing identity
+rather than a fresh ad-hoc cdhash. **Whether TCC honours it across rebuilds has
+NOT been measured on this machine**, and `INV-HW-2` forbids answering it from
+general knowledge: it is cheap to test and it is a measurement, not a plan. If it
+works the grant problem ends for free; if it does not, nothing is lost.
+
+## 37.3 THE J3 MICROPHONE IS A CAPTURE DEVICE, NOT A LISTENING NODE
+
+**Owner: "if j3 is using microphone, it will directly send the audio to mac, not
+take care of it itself, and that is rare, can be activated on remote surfaces
+inside the main menu."**
+
+This **simplifies §32 considerably** and should be written down before anyone
+designs the harder thing:
+
+- **J3 does no recognition.** It captures and streams. No model, no wake word
+  logic, no language detection on the handset.
+- **It keeps J3 light**, which is the same principle §31 uses for the camera
+  models — except inverted: there the model sits with the sensor, here it
+  deliberately does not, because the Mac is present and the J3 is not the host.
+- **It is RARE**, so it is not a always-on stream to be budgeted for.
+- **It is activated from "remote surfaces" in the main menu** — an owner-facing
+  control, not an automatic behaviour.
+
+**THE PRIVACY POINT MOVES BUT DOES NOT DISAPPEAR.** Audio arriving from J3 is
+still recognised somewhere, and on this Mac only `en-US` is on-device: `ar-MA`,
+`ar-SA` and `fr-FR` route to Apple's servers, which is egress **outside**
+`ModelGateway` and therefore outside the redactor. Streaming to the Mac moves the
+processing, not the exposure.
+
+## 37.4 WHAT WAS EXPLAINED BADLY, AND THE RULE THAT COVERS IT
+
+The owner's reply to the same list was *"what's on me? what even is it?"* and
+*"what the hell is that, i didn't understand anything here."* Both were answers to
+items this session raised as `§26.7`, "the login-item path" and "SPIKE-001
+throughput" — **identifiers, with the thing itself left unsaid.**
+
+`MEMORY.md` already carries the rule and it was not followed: *lay out records
+before working on them; naming an ID is not laying out a decision.* An item put
+to the owner states **what it is, what happens if it is wrong, and what it costs
+them** — the reference is a footnote, never the sentence.
+
+---
+
+# 38. THREE SMALL RESOLUTIONS, 2026-09-12
+
+## 38.1 THE LOGIN-ITEM PATH WORKS — OWNER-CONFIRMED, TEST LAST
+
+The session flagged that VESPER's automatic start at login had never been
+confirmed (step 13 carried it as *"a named, outstanding step"*). **Owner: "i
+actually seen it when i restarted the mac, it works."**
+
+So it is **confirmed by observation** rather than by a run. A deliberate test is
+still worth doing — it is the difference between *it came back once* and *it comes
+back* — but the owner placed it **last**, and that is right: the failure it guards
+against has already not happened.
+
+## 38.2 THE SELF-SIGNED CERTIFICATE IS AUTHORISED
+
+**Owner: "okay, you can do it."** §37.2 recorded that a free, locally-made
+certificate might give the app a stable identity so TCC grants survive a rebuild,
+and that **whether macOS honours it is unmeasured.** It is now authorised to
+measure. If it holds, the grant-loss tax on every build ends at no cost; if it
+does not, nothing is lost and §37.2's operational rule stands unchanged.
+
+## 38.3 VISION MODELS ARE NOT THE LOCAL-LLM PROBLEM, AND THAT IS A JUDGEMENT
+
+**Owner asked whether a recognition model is the same problem as the local text
+model that was dropped.** The engineering answer is **no, different class** — a
+text model of that size does sustained generation on CPU/GPU, while face and
+object recognition are small models doing short bursts, and on this hardware they
+target the Neural Engine rather than the CPU, which is the part that drained the
+battery.
+
+**BUT THAT IS REASONING, NOT A READING, AND `INV-HW-2` DOES NOT ACCEPT REASONING.**
+It is recorded here as the expectation to be tested, not as a result. The
+measurement is cheap and comes before anything depends on it.

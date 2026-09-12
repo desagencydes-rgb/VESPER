@@ -160,6 +160,22 @@ def _renumber(prefix: str, new: str):
     return apply
 
 
+def _undate(prefix: str):
+    """Remove the ISO date that follows a fixed prefix, whatever the date is.
+
+    `_renumber`'s argument, applied to a DATE instead of a count. The case that
+    uses this encoded "ran 2026-09-11" as a literal and stopped applying the
+    first day the suite was re-run and the line was updated -- reporting "the
+    artifact changed shape" rather than anything about the check. That is the
+    documented-counts drift arriving INSIDE the case written to catch it, which
+    is exactly what `_renumber`'s own docstring says happened three times before.
+    """
+    pat = re.compile(re.escape(prefix) + r", ran \d{4}-\d{2}-\d{2}")
+    def apply(text: str) -> str:
+        return pat.sub(prefix, text, count=1)
+    return apply
+
+
 # (check-name, file, mutation, what the mutation represents)
 CASES: list[tuple[str, str, object, str]] = [
     # ---------------------------------------------------------------- CI-026
@@ -7301,7 +7317,7 @@ STATUS_MD = "VESPER_ENGINEERING_STATUS.md"
 
 CASES += [
     ("documented-counts-match-commands", STATUS_MD,
-     _sub(" red-then-green, ran 2026-09-11", " red-then-green", 1),
+     _undate(" red-then-green"),
      "a PASS loses the day it passed, so the word claims a run with nothing to "
      "age against -- which is how this pair sat six sessions stale while the "
      "table said the suite was green"),
