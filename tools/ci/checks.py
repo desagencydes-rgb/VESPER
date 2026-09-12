@@ -26427,6 +26427,118 @@ def check_the_loop_can_see_what_it_just_did() -> Result:
     return r
 
 
+def check_an_accumulator_is_not_also_a_string() -> Result:
+    """A name bound to a list and to a string inside one function.
+
+    THE LIVE DEFECT, 2026-09-12. `pump()` builds `said = []` -- the list of a
+    batch's utterances -- and appends vesper's reply to it at the end of every
+    turn. Between them, the block rendering recent context ran
+    `said = str(row.get("text") or "").strip()`, binding a STRING to the same
+    name. Every turn then died on `said.append(...)` with "'str' object has no
+    attribute 'append'", the pump caught it and continued, and **vesper answered
+    nothing at all while its process stayed up and every gate stayed green.**
+
+    174 checks and 900 self-test cases passed throughout, because no gate starts
+    the process and runs a turn. `MEMORY.md` already records the same hole from a
+    NameError that took vesper down for two builds. This does not close that hole
+    -- a turn-driving gate still should -- but it closes the SHAPE, and the shape
+    is this corpus's most repeated defect: a name that is fine until it appears in
+    a second place, recorded twelve-plus times in assertions and now once in live
+    code where it cost far more.
+
+    THE FIRST VERSION OF THIS CHECK REPORTED CLEAN ON THE FILE THAT HAD THE BUG.
+    It matched only a bare `str(...)` call, and the real assignment was
+    `str(...).strip()` -- whose OUTERMOST node is the attribute call, not `str`.
+    A negative control passing under its own violation is a defect, so the
+    unwrapping below exists and the red run is against the ACTUAL pre-fix file
+    rather than a synthetic one.
+    """
+    r = Result("an-accumulator-is-not-also-a-string")
+
+    def unwrap(node):
+        # Follow `.strip()`, `.lower()`, `.format()` back to what the chain
+        # STARTED from. This is the line that makes the check able to see the
+        # defect it was written for.
+        while isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            node = node.func.value
+        return node
+
+    def is_list(n):
+        return isinstance(n, (ast.List, ast.ListComp))
+
+    def is_stringy(n):
+        n = unwrap(n)
+        if isinstance(n, ast.Constant) and isinstance(n.value, str):
+            return True
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "str":
+            return True
+        if isinstance(n, ast.JoinedStr):
+            return True
+        if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Mod):
+            return is_stringy(n.left)
+        return False
+
+    def collisions(text):
+        tree = ast.parse(text)
+        found = []
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            # A NESTED FUNCTION IS ITS OWN SCOPE. Counting its assignments here
+            # would report a collision between two names that never coexist.
+            nested = {id(x) for d in ast.walk(fn)
+                      if isinstance(d, (ast.FunctionDef, ast.AsyncFunctionDef)) and d is not fn
+                      for x in ast.walk(d)}
+            lists, strs = {}, {}
+            for n in ast.walk(fn):
+                if id(n) in nested:
+                    continue
+                if (isinstance(n, ast.Assign) and len(n.targets) == 1
+                        and isinstance(n.targets[0], ast.Name)):
+                    nm = n.targets[0].id
+                    if is_list(n.value):
+                        lists.setdefault(nm, n.lineno)
+                    elif is_stringy(n.value):
+                        strs.setdefault(nm, n.lineno)
+            for nm in sorted(set(lists) & set(strs)):
+                found.append((fn.name, nm, lists[nm], strs[nm]))
+        return found
+
+    targets = [REPO / "tools" / "ops" / "vesper_runtime.py"]
+    targets += sorted((REPO / "core").glob("*.py"))
+    scanned = 0
+    for f in targets:
+        if not f.is_file():
+            continue
+        scanned += 1
+        for fn, nm, l_line, s_line in collisions(f.read_text(encoding="utf-8")):
+            r.err(f"{f.relative_to(REPO).as_posix()}: {nm!r} is a list at line "
+                  f"{l_line} and a string at line {s_line}, both inside {fn}(). "
+                  f"Whichever runs second wins, and the other use fails at "
+                  f"runtime with every gate still green")
+
+    # THE CHECK MUST BE ABLE TO SEE THE DEFECT IT WAS WRITTEN FOR. Asserted
+    # against a fixture carrying the real shape, because a scanner that has
+    # nothing to find is indistinguishable from one that cannot find anything.
+    fixture = (
+        "def pump():\n"
+        "    said = []\n"
+        "    for row in rows:\n"
+        "        said = str(row.get('text') or '').strip()\n"
+        "    said.append(1)\n")
+    if not collisions(fixture):
+        r.err("the scanner does not detect the shape it exists for -- the first "
+              "version of it matched a bare str() call and reported CLEAN on the "
+              "file that carried the live defect, because the assignment was "
+              "str(...).strip()")
+
+    if not r.errors:
+        r.note(f"{scanned} modules scanned; no name is bound to both a list and "
+               f"a string inside one function, and the scanner is proven against "
+               f"the real pre-fix shape")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -26604,6 +26716,7 @@ CHECK_FNS = {
     "the-shipped-runtime-can-reach-what-it-needs": check_the_shipped_runtime_can_reach_what_it_needs,
     "a-refusal-is-never-reported-as-done": check_a_refusal_is_never_reported_as_done,
     "the-loop-can-see-what-it-just-did": check_the_loop_can_see_what_it_just_did,
+    "an-accumulator-is-not-also-a-string": check_an_accumulator_is_not_also_a_string,
     "the-wallpaper-changes-only-on-vespers-desktop": check_the_wallpaper_changes_only_on_vespers_desktop,
     "a-mode-is-a-pairing-of-two-axes": check_a_mode_is_a_pairing_of_two_axes,
     "a-stage-bounds-what-vesper-opens": check_a_stage_bounds_what_vesper_opens,

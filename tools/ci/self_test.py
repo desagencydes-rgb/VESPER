@@ -143,6 +143,22 @@ def _sub(old: str, new: str, count: int = 0):
     return apply
 
 
+def _renumber_line(prefix: str, new: str):
+    """Rewrite the first number on the line that STARTS with `prefix`.
+
+    `_renumber` pins the text between the label and the number -- for the status
+    table that text is the VERDICT WORD, so the case pinned `PASS`. That made the
+    word structurally unchangeable: writing the honest `STALE` broke the
+    mutation, and the only shape the suite accepted was the one claiming a pass.
+    A self-test that can only be satisfied by a claim is pressure toward making
+    it, which is the opposite of what CI-089 exists for.
+    """
+    pat = re.compile(r"^(" + re.escape(prefix) + r"[^\n]*?)(\d+)", re.M)
+    def apply(text: str) -> str:
+        return pat.sub(lambda m: m.group(1) + new, text, count=1)
+    return apply
+
+
 def _renumber(prefix: str, new: str):
     """Mutate the NUMBER that follows a fixed prefix, whatever it currently is.
 
@@ -3103,7 +3119,7 @@ CASES += [
      "first one a gate can see"),
 
     ("documented-counts-match-commands", "VESPER_ENGINEERING_STATUS.md",
-     _renumber("tools/ci/self_test.py                         PASS   ", "295"),
+     _renumber_line("tools/ci/self_test.py", "295"),
      "the status table's self-test count goes stale: it had been four sessions "
      "wrong before this gate existed"),
 
@@ -7759,6 +7775,29 @@ CASES += [
           "    out = [f\"     {label}:\"]\n    for row in rows[:1]:", 1),
      "only the first row is rendered -- the same defect one line smaller, and the "
      "window the owner meant is as likely to be the last as the first"),
+]
+
+
+# ---------------------------------------------------------------------------
+# an-accumulator-is-not-also-a-string -- the shape that took vesper down
+# ---------------------------------------------------------------------------
+CASES += [
+    # THE REAL DEFECT, RESTORED. Not a synthetic shape: this is the exact line
+    # that was live on 2026-09-12, and putting it back is the red run.
+    ("an-accumulator-is-not-also-a-string", "tools/ops/vesper_runtime.py",
+     _sub('                            line_text = str(row.get("text") or "").strip()',
+          '                            said = str(row.get("text") or "").strip()', 1),
+     "the loop variable takes the name of the list every turn appends its reply "
+     "to, which is what made vesper answer nothing at all while its process "
+     "stayed up and all 174 checks stayed green"),
+
+    ("an-accumulator-is-not-also-a-string", CHECKS_PY,
+     _sub("        while isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):\n"
+          "            node = node.func.value\n", "", 1),
+     "the scanner stops following `.strip()` back to what the chain started "
+     "from, which is exactly how its first version reported CLEAN on the file "
+     "carrying the live defect -- a negative control passing under its own "
+     "violation"),
 ]
 
 if __name__ == "__main__":
