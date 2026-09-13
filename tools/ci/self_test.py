@@ -7815,5 +7815,41 @@ CASES += [
      "renderer, so it reaches the planner's data and never its prompt"),
 ]
 
+PLACES_PY = "core/places.py"
+
+CASES += [
+    ("vesper-knows-where-it-is", "app/island-macos/build.sh",
+     _sub('printf \'project_root = "%s"\\n\' "$REPO" > "$APP/Contents/Resources/runtime/place.toml"', "", 1),
+     "the build stops recording where it built from, so the shipped copy is "
+     "never told where the project is -- and a copy cannot work that out by "
+     "looking at itself, which is the whole defect"),
+
+    ("vesper-knows-where-it-is", PLACES_PY,
+     _sub("    missing = [m for m in _PROJECT_MARKERS if not (p / m).exists()]\n"
+          "    if missing:\n"
+          "        return None, (f\"{root!r} exists but does not carry {missing} -- it is \"\n"
+          "                      f\"not the project, whatever the record says\")\n", "", 1),
+     "any directory that merely EXISTS is accepted as the project, so a stale "
+     "record pointing at some other folder is used instead of refused"),
+
+    ("vesper-knows-where-it-is", PLACES_PY,
+     _sub('_PROJECT_MARKERS = ("core", "CLAUDE.md")',
+          '_PROJECT_MARKERS = ("core",)', 1),
+     "one marker instead of two, which any directory that happens to have a "
+     "core/ satisfies -- the check that looks like verification and is not"),
+
+    ("vesper-knows-where-it-is", PLACES_PY,
+     _sub('    if not p.is_dir():\n'
+          '        return None, (f"the build recorded {root!r} and nothing is there now -- "\n'
+          '                      f"reported as absent rather than used and found wrong")\n', "", 1),
+     "a recorded path that no longer exists is handed out anyway, so vesper "
+     "reports a place it cannot reach as the project"),
+
+    ("vesper-knows-where-it-is", INTENT_PY,
+     _sub("            from core.places import render as _render_places", "            _render_places = None", 1),
+     "the places are built and the planner reads them through nothing, which is "
+     "this tree's most repeated shape and the reason the wiring is asserted"),
+]
+
 if __name__ == "__main__":
     sys.exit(main())

@@ -23,6 +23,7 @@ import argparse
 import json
 import re
 import ast
+import pathlib
 import subprocess
 import sys
 import tomllib
@@ -26552,6 +26553,111 @@ def check_an_accumulator_is_not_also_a_string() -> Result:
     return r
 
 
+def check_vesper_knows_where_it_is() -> Result:
+    """The places are named and told, never derived from where the code sits.
+
+    THE DEFECT, 2026-09-13. `REPO = Path(__file__).resolve().parents[1]` is right
+    in the repo and, in the shipped copy, resolves to the bundle. The owner runs
+    the bundle. Asked to list the project root, vesper answered with the five
+    directories `build.sh` copies -- a wrong answer with no error and no flag,
+    because nothing in the reply named the directory it had actually read.
+
+    A COPY CANNOT WORK OUT THAT IT IS A COPY BY LOOKING AT ITSELF. So the build
+    records where it built from and this reads it back, and an unverifiable
+    record is DROPPED WITH ITS REASON rather than offered -- `INV-HW-2` applied
+    to paths: UNKNOWN means UNAVAILABLE.
+    """
+    r = Result("vesper-knows-where-it-is")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import importlib
+    from core import places as P
+    importlib.reload(P)
+
+    # 1. THE BUILD MUST RECORD IT, or the bundle is never told and every place
+    #    question falls back to the guess this check exists to end.
+    build = (REPO / "app" / "island-macos" / "build.sh").read_text(encoding="utf-8")
+    if "place.toml" not in build or "project_root" not in build:
+        r.err("build.sh does not record the project root beside the shipped "
+              "runtime, so the copy is never told where the project is and "
+              "cannot do anything but guess")
+
+    # 2. A RECORDED PATH THAT IS NOT THE PROJECT IS REFUSED. Driven three ways,
+    #    because "it exists" is the assertion that lets a wrong directory pass.
+    import tempfile
+    real = P._RECORD
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            d = pathlib.Path(d)
+            P._RECORD = d / "place.toml"
+
+            P._RECORD.write_text(f'project_root = "{d / "nothing-here"}"\n', encoding="utf-8")
+            root, why = P._recorded_project_root()
+            if root is not None:
+                r.err("a recorded root that does not exist was accepted")
+            elif "nothing is there" not in why:
+                r.err(f"an absent root is refused without saying so: {why!r}")
+
+            bare = d / "bare"
+            bare.mkdir()
+            P._RECORD.write_text(f'project_root = "{bare}"\n', encoding="utf-8")
+            root, why = P._recorded_project_root()
+            if root is not None:
+                r.err("a directory carrying none of the project's markers was "
+                      "accepted as the project -- 'it exists' is not 'it is the "
+                      "project'")
+
+            half = d / "half"
+            (half / "core").mkdir(parents=True)
+            P._RECORD.write_text(f'project_root = "{half}"\n', encoding="utf-8")
+            root, why = P._recorded_project_root()
+            if root is not None:
+                r.err("a directory with only ONE marker was accepted; a single "
+                      "marker is satisfied by any directory that happens to "
+                      "have a core/")
+
+            good = d / "good"
+            (good / "core").mkdir(parents=True)
+            (good / "CLAUDE.md").write_text("x", encoding="utf-8")
+            P._RECORD.write_text(f'project_root = "{good}"\n', encoding="utf-8")
+            root, why = P._recorded_project_root()
+            if root is None:
+                r.err(f"a directory carrying every marker was REFUSED: {why!r}. "
+                      f"A check that refuses everything proves nothing")
+
+            # 3. AND THE ABSENT CASE IS NAMED, not silently empty.
+            P._RECORD = d / "no-such-record.toml"
+            rows = P.places()
+            proj = next((x for x in rows if x["name"] == "the project"), None)
+            if proj is None:
+                r.err("the project is not named at all when unrecorded")
+            elif not str(proj.get("what", "")).startswith("UNAVAILABLE"):
+                r.err("an unrecorded project reads as available")
+            elif proj.get("path"):
+                r.err("an unrecorded project still carries a path, which is a "
+                      "guess wearing the shape of a reading")
+    finally:
+        P._RECORD = real
+
+    # 4. THE PLANNER IS ACTUALLY TOLD. Built and unreached is this tree's most
+    #    repeated shape; the wiring is asserted, not assumed.
+    src = (REPO / "core" / "intent.py").read_text(encoding="utf-8")
+    if "from core.places import render" not in src:
+        r.err("core/intent.py never reads the places, so they are built and "
+              "reach the planner through nothing")
+    text = P.render([{"name": "the project", "path": "/a/place",
+                      "what": "the owner's tree"}])
+    if "/a/place" not in text or "the project" not in text:
+        r.err("the rendered places do not carry the path or the name")
+
+    if not r.errors:
+        r.note("the build records the root; an absent, marker-less or "
+               "half-marked directory is refused with its reason while a real "
+               "one is accepted; an unrecorded project reads UNAVAILABLE with no "
+               "path; and the planner is wired to read it")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -26730,6 +26836,7 @@ CHECK_FNS = {
     "a-refusal-is-never-reported-as-done": check_a_refusal_is_never_reported_as_done,
     "the-loop-can-see-what-it-just-did": check_the_loop_can_see_what_it_just_did,
     "an-accumulator-is-not-also-a-string": check_an_accumulator_is_not_also_a_string,
+    "vesper-knows-where-it-is": check_vesper_knows_where_it_is,
     "the-wallpaper-changes-only-on-vespers-desktop": check_the_wallpaper_changes_only_on_vespers_desktop,
     "a-mode-is-a-pairing-of-two-axes": check_a_mode_is_a_pairing_of_two_axes,
     "a-stage-bounds-what-vesper-opens": check_a_stage_bounds_what_vesper_opens,

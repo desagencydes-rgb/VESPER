@@ -541,6 +541,21 @@ class IntentProposer:
             text = _render_recent(recent) + "\n\n" + text
         if observations:
             text = text + "\n\n" + _render_observations(observations)
+        # WHERE THINGS ARE, nearest the question. The owner asked for the places
+        # to be put in front of vesper so it can choose by context rather than
+        # having one meaning of "here" hardcoded -- and the hardcoded one was
+        # wrong, because it resolved to whichever copy the process ran from.
+        try:
+            from core.places import render as _render_places
+            _where = _render_places()
+        except Exception:                              # noqa: BLE001
+            # A PLANNER THAT CANNOT READ THE PLACES STILL PLANS. It plans
+            # without them, which is what it did before this existed; taking the
+            # turn down over a context block would be worse than the confusion
+            # the block removes.
+            _where = ""
+        if _where:
+            text = text + "\n\n" + _where
         try:
             out = self._gw.complete(
                 text, task_id="intent", system=SYSTEM,
