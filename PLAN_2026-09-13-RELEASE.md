@@ -752,3 +752,132 @@ That line keeps what the microphone hears off Apple's servers.
 > Read `PLAN_2026-09-13-RELEASE.md` and its §9 ledger. Continue from the first
 > item not marked done. Any FABLE-ONLY item left undone is yours now: do it at
 > xhigh, following its "must not" and "done when" exactly.
+
+---
+
+## 14. ONE SESSION RUNS EVERYTHING: THE STOP-AND-SWITCH PROTOCOL (added ~18:45)
+
+**This section replaces §4's timeline and tripwire, and §13's prompts.**
+
+- **Everything runs on this one account. There is no account switch.** Its
+  subscription usage comes first (about half was left at ~18:45), and Fable runs
+  on the $100 of credits.
+- The owner wants **one session** that does everything and tells them when to
+  switch.
+- **If the usage limit cuts a reply off mid-item,** the owner switches to Fable ·
+  xhigh and types "continue". The session runs `git status` first, then finishes
+  or discards the interrupted item using the ledger.
+
+### The rule
+
+At every ⏸ in the table below:
+
+1. Finish and commit the current item, or leave the tree clean and say where it
+   stopped.
+2. Append the ledger row (§9).
+3. End the reply with **exactly one line**, in one of these two forms:
+   - `⏸ SWITCH → <model> · <effort>, then type "continue"`
+   - `⏸ YOUR TURN → <the one thing to do>`
+4. Do nothing more until the owner replies.
+
+A model switch only applies from the owner's next message, so never start work
+that depends on the switch in the same reply. Keep context lean (§3's rules): a
+model switch re-reads the whole conversation uncached.
+
+### The order (the owner's answers applied, ~19:00)
+
+**D5 resolves to b.** The credits are untouched, and Fable's estimated spend for
+everything below is $60–80. If the owner reports the balance below $40 at any stop,
+the remaining work switches to **a**: Opus 5 · high on usage.
+
+**Estimated finish: about 23:00, not 21:00.** The owner's answers put three pieces of
+work before the build (F6, D2 and D3). D7 asks the owner whether that is OK.
+
+| # | model · effort | work | ends with |
+|---|---|---|---|
+| 0 | **Sonnet 5 · medium** (usage) | Copy the answers table below into the ledger. If D7 is blank: ⏸ YOUR TURN → answer D7. Then A1, the preflight. | ⏸ SWITCH → Fable · xhigh |
+| 1 | **Fable · xhigh** (credits) | **F1**, time-boxed to 15 min. **F2**, folding in §26.3: ⏸ YOUR TURN → approve the exact narration sentences. **F6** (D6), VESPER's own place (below). | ⏸ SWITCH → Fable · high |
+| 2 | **Fable · high** | **D2**, the menu proposal (below). | — |
+| 3 | same | **D3**, ratification (below). ⏸ YOUR TURN → skim the list of new rule sentences, one line each, and say ok. Then register them and run the gates. | — |
+| 4 | same | The freeze commit, R1 build, R2 gates, and R3 `self_test` in a worktree (worktree-safe per the ledger). | ⏸ YOUR TURN → the grant trip (§11) |
+| 5 | same | Read `/tmp/vesper-grants.txt`. R5: drive items 1–15, one ⏸ YOUR TURN per item, logging each answer. | ⏸ YOUR TURN → the microphone (§12) |
+| 6 | same | R6: read each microphone file and say what it means, one ⏸ YOUR TURN per step. | — |
+| 7 | same | R7 wrap-up; poll `self_test` to its completion line; F5's sign-off lists; the final `git bundle`; **push `feat/macos-host-profile` to origin (D1): never `main`, never forced.** | ⏸ YOUR TURN → the optional restart test (R8), then done |
+
+**A4, A2, A3, A6, and A5 unless F2 absorbed it,** go to Opus on usage after the
+release, with the same protocol.
+
+### F6: VESPER's own place (D6) · Fable · xhigh · before the freeze
+
+The owner, 2026-09-13: *"change to its own place, create then change then verify and
+test."*
+
+1. **Read** what `5f95c1b` changed (`place.toml`, `core/capabilities.py`'s `REPO`,
+   `shell_run`'s `base_cwd`) and write it in the ledger.
+2. **Create** VESPER's own working directory.
+   - It must be **outside the owner's repo AND outside the app bundle**, because
+     `build.sh` rewrites the bundle and deletes whatever is inside it.
+   - It must survive rebuilds.
+3. **Change** where VESPER's commands run, and where its relative paths and writes
+   land, to that directory.
+   - **Keep read-only access** to what the surfaces need from the real project:
+     `projects` and `research` read the build order and the spike index, and must
+     not go blank.
+   - The seatbelt, `host_actions.toml` and the taint seam are unchanged.
+4. **Verify and test.** Add a gate whose red run is "a command lands in the owner's
+   repo, or in the bundle". Drive it live after R1, as part of drive item 1: ask
+   VESPER *"list the files in your project root"* and *"where are you working?"*.
+
+### D2: the menu proposal · Fable · high · before the freeze
+
+The owner: *"verify, if it adds value (features, fixes), verify working then add; if
+bullshit, throw."*
+
+Read `git log -p main..codex/menus-v2` (2 commits, 5 files). **Value** means a
+feature or fix the build does not already have.
+
+- **If it has value:** cherry-pick it onto the feature branch. Run its test
+  (`verification/test_menu_receiver.js`, in the Node DOM stub) plus the menu and
+  dashboard checks, and keep it only if they pass. Drive item 15 then shows it to
+  the owner.
+- **If not:** record why in the ledger, then run
+  `git worktree remove /Users/macbook/VESPER-codex-menus` and
+  `git branch -D codex/menus-v2`. The 17:58 backup bundle still holds a copy.
+
+### D3: ratification · Fable · high · right before the build
+
+The owner said yes, and placed it right before the final build.
+
+1. Start from `docs/planning/UNRATIFIED_CHECKS_2026-09-03.md` §Recommendation (3 new
+   invariants and 4 fold-ins), then write the rest.
+2. Each check needs:
+   - an invariant sentence in `INVARIANTS.toml`;
+   - a `CHECKS.toml` entry naming it;
+   - an SR that names the check, or `TR-067` fails.
+3. Before writing any of it into the registries, show the owner every new rule as
+   one line (⏸ YOUR TURN). Promotion into a contract is a reviewed act, and that list
+   is the review.
+4. **Done when** `checks.py ci-registry`, `traceability_lint.py` and
+   `documented-counts-match-commands` all pass, and the note about runnable checks
+   in no registry entry reads 0 (or names each exception and why).
+
+This touches `spec/` and `verification/`, which the bundle does not carry. It changes
+the counts, not the build.
+
+**Credits:** the owner watches the balance. If they say it is below $15, finish the
+item in hand and stop; the next session resumes from the ledger.
+
+**After tonight:** work the §8 queue with the same protocol, and only when the owner
+says to go on.
+
+### The owner's answers (2026-09-13, ~18:55)
+
+| # | question | answer |
+|---|---|---|
+| D1 | Push tonight's work to GitHub (feature branch only, never `main`)? | **Yes.** At R7, after the final bundle. |
+| D2 | The other agent's expandable-menu proposal? | **Verify it.** If it adds value (features, fixes), check that it works, then add it. If not, throw it away. |
+| D3 | Write and register the rules for the 78 uncounted checks? | **Yes, right before the final production build and finalization.** |
+| D4 | Fix the "moving to a local model" narration? | **Yes.** The owner sees the exact sentences first. |
+| D5 | When does Fable take over? | **b if it fits, otherwise a.** It fits (see "The order"). |
+| D6 | VESPER working in the real project folder? | **Change it to its own place: create it, change to it, then verify and test.** That is F6. |
+| D7 | These answers move the finish to about 23:00. OK, or which of D2 / D3 / F6 moves to after the release? | *(If blank, step 0 asks.)* |
