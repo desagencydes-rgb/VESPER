@@ -3139,8 +3139,22 @@ def observe(capability_id: str, args: dict, result: dict) -> dict:
         return out
 
     if capability_id == "shell.run":
+        # `cwd` CROSSES, AND IT IS NOT A DETAIL. Without it the planner is told
+        # WHAT ran and never WHERE, so an answer about the directory cannot name
+        # the directory. Measured 2026-09-13: asked to list the project root,
+        # vesper answered "contracts core docs routing tools" -- the five
+        # directories `build.sh` copies into the bundle -- because `REPO`
+        # resolves to the shipped copy when the runtime runs from it, and
+        # nothing in the observation could have told the answer otherwise.
+        #
+        # A WRONG ANSWER THAT LOOKS RIGHT IS WORSE THAN A REFUSAL, which is the
+        # rule `a-refusal-is-never-reported-as-done` states for the other half
+        # of this. Carrying the directory is what lets a reply say which one it
+        # is about instead of letting "the project root" quietly mean whichever
+        # copy the process happens to be running from.
         return {"capability": capability_id,
                 "cmd": str(args.get("cmd") or "")[:OBS_MAX_LINE_CHARS],
+                "cwd": str(result.get("cwd") or "")[:OBS_MAX_LINE_CHARS],
                 "exit_code": result.get("exit_code"),
                 "stdout_lines": lines(result.get("stdout")),
                 "stderr_lines": lines(result.get("stderr"))}

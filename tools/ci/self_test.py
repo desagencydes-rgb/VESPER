@@ -7800,5 +7800,20 @@ CASES += [
      "violation"),
 ]
 
+CASES += [
+    ("the-loop-can-see-what-it-just-did", "core/capabilities.py",
+     _sub('                "cwd": str(result.get("cwd") or "")[:OBS_MAX_LINE_CHARS],\n', "", 1),
+     "the shell observation stops carrying WHERE the command ran, which is how "
+     "vesper answered 'the vesper project root' with the five directories "
+     "build.sh copies into the bundle -- a wrong answer with no error, no flag "
+     "and nothing in the reply naming the directory it was actually about"),
+
+    ("the-loop-can-see-what-it-just-did", INTENT_PY,
+     _sub('for key in ("cmd", "cwd", "path", "exit_code", "bytes", "truncated",',
+          'for key in ("cmd", "path", "exit_code", "bytes", "truncated",', 1),
+     "the directory is carried into the observation and then dropped by the "
+     "renderer, so it reaches the planner's data and never its prompt"),
+]
+
 if __name__ == "__main__":
     sys.exit(main())

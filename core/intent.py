@@ -661,7 +661,7 @@ def _render_observations(observations: list) -> str:
         o = o if isinstance(o, dict) else {}
         cap = o.get("capability", "?")
         bits = [f"{i}. {cap}"]
-        for key in ("cmd", "path", "exit_code", "bytes", "truncated",
+        for key in ("cmd", "cwd", "path", "exit_code", "bytes", "truncated",
                     "replaced_existing", "outcome", "refused_because",
                     # THE NEWER FAMILIES' SCALARS. `window_id` is the one that
                     # makes a second step addressable at all; `count` is how the

@@ -26414,11 +26414,24 @@ def check_the_loop_can_see_what_it_just_did() -> Result:
     # fixture handing it a pre-split list gets an empty one back -- which is how
     # the first version of this assertion failed against a working renderer.
     sh = C.observe("shell.run", {"cmd": "a command"},
-                   {"ok": True, "exit_code": 0, "stdout": "a line of output"})
+                   {"ok": True, "exit_code": 0, "stdout": "a line of output",
+                    "cwd": "/a/particular/directory"})
     sh_text = I._render_observations([sh])
     if "a line of output" not in sh_text or "exit_code" not in sh_text:
         r.err("the shell observation stopped reaching the planner; it was the "
               "one family this renderer was originally written for")
+    # WHERE IT RAN, NOT ONLY WHAT RAN. Measured 2026-09-13: the observation
+    # carried `cmd` and not `cwd`, so the planner knew the command and never the
+    # directory -- and vesper answered "list the files in the project root" with
+    # the five directories build.sh copies into the BUNDLE, because `REPO`
+    # resolves to the shipped copy when the runtime runs from it. A wrong answer
+    # that looks right is worse than a refusal; this is what lets a reply name
+    # the directory it is actually about.
+    if "/a/particular/directory" not in sh_text:
+        r.err("a shell observation does not tell the planner WHERE the command "
+              "ran, so an answer about a directory cannot name which one -- and "
+              "'the project root' silently means whichever copy the process "
+              "happens to be running from")
 
     if not r.errors:
         r.note(f"{len(RESULTS)} capability families driven through observe() and "
