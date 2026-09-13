@@ -5006,3 +5006,65 @@ subsystem the owner has twice called the largest item.
 
 **§34's stress pass should come after these, not before.** Stressing a store that
 returns the right rows for the wrong reason measures the wrong property.
+
+---
+
+# 45. §44 OVERSTATED THE MEMORY DEFECT. THE MEASUREMENTS WERE TRUNCATED.
+
+**Corrected 2026-09-13, within the hour, before anything was built on it.**
+
+§44 said the fact extractor *"fires about three percent of the time"* and that
+97% of memory was *"a searchable transcript wearing the shape of knowledge."*
+**Both figures came from a truncated query and both are wrong.**
+
+## WHAT THE QUERY DID WRONG
+
+It read the **last 3000 rows per table** of the event store and counted what it
+found: `extract.read` once, `updater.stored` once. The events are spread across
+many store files and tables, so a recent-rows window saw almost none of them.
+Counted without a limit:
+
+| | truncated read | actual |
+|---|---|---|
+| `updater.stored` | 1 | **68** — exactly the number of verbatim facts |
+| `extract.read` | 1 | **52** |
+
+**THE SAME MISTAKE THREE TIMES IN ONE SESSION.** A registry read for cameras, a
+registry read for the J3, and now an event store read with a row cap — each
+answered a *different question* than the one being asked, and each time the
+answer looked like an absence. `INV-HW-2` says UNKNOWN means UNAVAILABLE; **it
+does not say a truncated read means zero**, and a query with a `LIMIT` in it is a
+measurement of the limit unless the limit is justified.
+
+## WHAT IS ACTUALLY HAPPENING, AND IT IS CORRECT
+
+`extract.read` payloads read `{"explicit": false, "readings": 0}`. §44 took that
+as the extractor failing. **`explicit` does not gate extraction.** `core/extract.py`
+says what it is for: *"An explicit instruction to remember. When one of these is
+present the utterance is a MEMORY WRITE and not conversation, and an empty
+extraction is a FAILURE rather than the usual correct answer."*
+
+So extraction runs on **every** utterance and returns nothing for conversation —
+because *"wa fin a vesper, kidayr?"* contains no fact. **That is the right
+answer.** And when the owner did state one, it worked: both rank-5 facts
+(`school_day`, `location`) are real extractions of things actually said.
+
+**So the memory system is working roughly as designed.** It holds little because
+little has been stated to it, not because it fails to learn.
+
+## WHAT SURVIVES FROM §44, MEASURED AND UNCHANGED
+
+1. **The graph has ZERO edges.** `relate()` exists and nothing calls it, so
+   §26.6's "bounded graph traversal" traverses nothing. This is a real
+   built-and-unreached and it stands.
+2. **L1 is unobservable.** Nothing publishes what a turn retrieved, so a turn
+   that used memory and one that did not are indistinguishable in the record —
+   which is the exact condition `vesper_runtime.py` publishes
+   `memory.unavailable` to avoid, applied to the successful path.
+3. **§26.6's "nothing reads it during a turn" is still false.** L1 is wired and
+   retrieves; that correction from §44 holds.
+
+**AND THE HONEST HEADLINE CHANGES.** Memory is not the largest defect in the
+build. It is a working subsystem with an unreached graph and no observability,
+which is a much smaller job than §26.6 or §44 described — and worth knowing
+before a deadline rather than after spending the night on it.
