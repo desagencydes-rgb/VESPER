@@ -715,6 +715,27 @@ def _find_vesper_bin() -> pathlib.Path:
 
 
 VESPER_BIN = _find_vesper_bin()
+# THE BUNDLE, for `open -n`. A TCC request is attributed to the RESPONSIBLE
+# process, so asking must go through the app and never through the binary
+# this runtime would otherwise spawn itself.
+VESPER_APP = VESPER_BIN.parents[2]
+
+
+def _ask_for_grant() -> None:
+    """Raise the system dialogs for whatever permission is still missing.
+
+    FIRE AND FORGET, AND NEVER FATAL. The act that triggered this has already
+    failed; a failure to ASK must not turn that into an exception. The dialog
+    either appears for the owner or it does not, and the turn parks on the
+    grant's own condition either way -- which re-reads the permission rather
+    than trusting that the asking worked.
+    """
+    try:
+        subprocess.Popen(["/usr/bin/open", "-n", str(VESPER_APP),
+                          "--args", "--request-grants"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:                                  # noqa: BLE001
+        pass
 
 
 def _window_bridge(*argv: str) -> dict:
@@ -1105,8 +1126,21 @@ def _act(effect: str, args: dict, *argv: str) -> dict:
                        "vesper cannot act on windows: the accessibility tree "
                        "came back empty for a window that is on screen, which "
                        "means macos accessibility is not granted to this build. "
-                       "grant it in system settings > privacy & security > "
-                       "accessibility. every rebuild of vesper revokes it.")
+                       "accessibility is not granted to this build. I have "
+                       "asked for it -- grant the dialog and I will carry on. "
+                       "every rebuild of vesper revokes it.")
+        # ASK FOR IT NOW, AND WAIT FOR IT. The owner, 2026-09-13: "if it was a
+        # dialog, vesper should immediately raise it while working, and whenever
+        # i see it, i grant it, so vesper's work works automatically, then
+        # vesper gets the return and keeps going."
+        #
+        # THE ASK GOES THROUGH THE BUNDLE, never from here: TCC attributes a
+        # request to the RESPONSIBLE process, and a request made by the runtime
+        # asks on behalf of the runtime. `Grants.request()` only asks for what
+        # is missing, so this cannot spam a dialog for something already given.
+        _ask_for_grant()
+        out.setdefault("wait_for", {"condition": "grant_present",
+                                    "args": {"which": "accessibility"}})
     # AND AN ACT THAT WORKED IS THE EVIDENCE THAT BOTH CONDITIONS ARE OVER.
     #
     # The same reasoning as the diagnosis above, run the other way. Accessibility
