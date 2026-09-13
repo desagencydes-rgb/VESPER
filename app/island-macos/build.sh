@@ -204,6 +204,10 @@ PLIST
 # a pair spanning a <string> would have deleted a launch argument silently,
 # which is precisely the failure that comment was written to prevent. Quote
 # with single quotes here.
+# VESPER'S OWN PLACE MUST EXIST BEFORE LAUNCHD SPAWNS INTO IT (D6, 2026-09-13).
+# Every agent below works there rather than in the repo or the bundle; a
+# WorkingDirectory that is missing at spawn is a spawn failure, not a warning.
+mkdir -p "$HOME/Library/Application Support/VESPER/workspace"
 cat > "$APP/Contents/Library/LaunchAgents/$ID.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -227,9 +231,16 @@ cat > "$APP/Contents/Library/LaunchAgents/$ID.plist" <<PLIST
     <string>--mode</string><string>Home</string>
     <string>--chrome</string>
   </array>
-  <key>WorkingDirectory</key><string>$REPO</string>
+  <key>WorkingDirectory</key><string>$HOME/Library/Application Support/VESPER/workspace</string>
   <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
+  <!-- RESPAWN A CRASH, NOT A CLEAN EXIT. Measured 2026-09-13: with KeepAlive
+       true and a home already started by hand, launchd spawned a second
+       instance every 10 s for two hours (runs = 694); each hit the
+       single-instance guard, wrote the summons and exited 0, and launchd's
+       throttle brought the next one. A non-zero exit or a signal still
+       restarts; a deliberate stop is still `bootout` (main.swift, "Stop VESPER
+       for real"). -->
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
   <key>ProcessType</key><string>Interactive</string>
   <key>StandardOutPath</key><string>$HOME/Library/Application Support/VESPER/island.out</string>
   <key>StandardErrorPath</key><string>$HOME/Library/Application Support/VESPER/island.err</string>
@@ -256,7 +267,7 @@ cat > "$APP/Contents/Library/LaunchAgents/$ID.wake.plist" <<PLIST
     <string>$APP/Contents/MacOS/VESPER</string>
     <string>--wake</string>
   </array>
-  <key>WorkingDirectory</key><string>$REPO</string>
+  <key>WorkingDirectory</key><string>$HOME/Library/Application Support/VESPER/workspace</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <!-- Interactive, like the others: it opens the microphone and talks to the
@@ -296,7 +307,7 @@ cat > "$APP/Contents/Library/LaunchAgents/$ID.agenda.plist" <<PLIST
          be a second thing to notice when one of them stops. -->
     <string>--notes-dump</string>
   </array>
-  <key>WorkingDirectory</key><string>$REPO</string>
+  <key>WorkingDirectory</key><string>$HOME/Library/Application Support/VESPER/workspace</string>
   <key>RunAtLoad</key><true/>
   <key>StartInterval</key><integer>600</integer>
   <!-- Background is correct HERE and wrong for the other three: this opens no
@@ -343,7 +354,7 @@ cat > "$APP/Contents/Library/LaunchAgents/$ID.arm.plist" <<PLIST
          points at the token rather than at the launcher. -->
     <string>--run</string>
   </array>
-  <key>WorkingDirectory</key><string>$REPO</string>
+  <key>WorkingDirectory</key><string>$HOME/Library/Application Support/VESPER/workspace</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <key>ProcessType</key><string>Background</string>
@@ -365,7 +376,7 @@ cat > "$APP/Contents/Library/LaunchAgents/$ID.fnwatch.plist" <<PLIST
     <string>$APP/Contents/MacOS/VESPER</string>
     <string>--fn-watch</string>
   </array>
-  <key>WorkingDirectory</key><string>$REPO</string>
+  <key>WorkingDirectory</key><string>$HOME/Library/Application Support/VESPER/workspace</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
   <!-- Interactive, NOT Background, and the difference is whether it runs at

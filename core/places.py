@@ -46,6 +46,25 @@ _PROJECT_MARKERS = ("core", "CLAUDE.md")
 # read without a TOML parser so this module stays importable anywhere.
 _RECORD = _HERE / "place.toml"
 
+# VESPER'S OWN PLACE. Owner, 2026-09-13 (D6): "change to its own place, create
+# then change then verify and test." Until tonight VESPER's commands ran in the
+# owner's repo when launched by hand and INSIDE THE BUNDLE when launched by the
+# app, and its relative writes landed in whichever of those the process had --
+# the first is the owner's work, the second is deleted by every build. This is
+# neither: it lives beside VESPER's state, which survives a rebuild, and is not
+# the project, so a command that lands here can wreck nothing the owner keeps.
+# `core/capabilities.WORKSPACE` is this same path, imported from here so there is
+# exactly one definition of where VESPER works.
+OWN_PLACE = (pathlib.Path.home() / "Library" / "Application Support" / "VESPER"
+             / "workspace")
+
+
+def ensure_own_place() -> pathlib.Path:
+    """The place, created if it is not there yet. Idempotent; never touches the
+    project or the bundle."""
+    OWN_PLACE.mkdir(parents=True, exist_ok=True)
+    return OWN_PLACE
+
 
 def _recorded_project_root() -> tuple[pathlib.Path | None, str]:
     """What the build recorded, or nothing and the reason why."""
@@ -98,6 +117,16 @@ def places() -> list:
     than the runtime copy is.
     """
     out: list = []
+    # FIRST, BECAUSE IT IS THE DEFAULT. A command with no place named runs here
+    # and a relative path with no prefix lands here; the project is what the
+    # owner means by "the project", never what VESPER means by "here".
+    out.append({
+        "name": "your own place",
+        "path": str(OWN_PLACE),
+        "what": ("VESPER's own working directory: where your commands run and "
+                 "your files land unless a place is named. Not the owner's "
+                 "project -- read the project when asked about it, work here"),
+    })
     root, why = _recorded_project_root()
     if root is not None:
         out.append({
@@ -118,7 +147,7 @@ def places() -> list:
     # two places and pick the wrong one -- which is the confusion this module
     # exists to remove, reintroduced by the module itself.
     if root is not None and str(root) == str(_HERE):
-        out[0]["what"] += " -- and this process is running from it, not a copy"
+        out[1]["what"] += " -- and this process is running from it, not a copy"
         return out
     out.append({
         "name": "the running copy",
@@ -135,8 +164,8 @@ def render(rows: list | None = None) -> str:
     rows = places() if rows is None else rows
     if not rows:
         return ""
-    out = ["WHERE THINGS ARE. Name the one you mean; do not assume the command "
-           "runs in the project."]
+    out = ["WHERE THINGS ARE. Name the one you mean; a command with no place "
+           "named runs in your own place, never in the project."]
     for r in rows:
         r = r if isinstance(r, dict) else {}
         path = str(r.get("path") or "")

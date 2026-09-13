@@ -72,8 +72,11 @@ REPO = pathlib.Path(__file__).resolve().parents[1]
 #
 # VESPER's own writable space therefore lives beside its state, not beside its
 # code, because state survives a rebuild and code is replaced by one.
-WORKSPACE = (pathlib.Path.home() / "Library" / "Application Support" /
-             "VESPER" / "workspace")
+#
+# AND SINCE 2026-09-13 (D6) IT IS ALSO WHERE COMMANDS RUN. One definition, in
+# `core/places.py`, so the place the planner is told about, the place a command
+# runs in and the place a relative write lands are the same directory.
+from core.places import OWN_PLACE as WORKSPACE, ensure_own_place  # noqa: E402
 
 
 def resolve(path: str) -> pathlib.Path:
@@ -114,8 +117,13 @@ def resolve(path: str) -> pathlib.Path:
             # belongs where it always went. `~/...` still reaches home for
             # creating something there, which is what the proposer is told to
             # write.
+            #
+            # "WHERE IT ALWAYS WENT" IS NOW VESPER'S OWN PLACE, NOT THE REPO
+            # (D6, 2026-09-13). A new relative file is VESPER's own work and
+            # lands beside its state; the owner's project is reached by naming
+            # it, which `core/places.py` tells the planner to do.
             home_p = pathlib.Path.home() / p
-            p = home_p if home_p.exists() else (REPO / p)
+            p = home_p if home_p.exists() else (WORKSPACE / p)
     return pathlib.Path(os.path.normpath(str(p))).resolve()
 
 
@@ -145,9 +153,9 @@ def _escapes(raw: str, resolved: pathlib.Path) -> bool:
         return False
     if raw.startswith("~"):
         return False
-    parts = pathlib.PurePosixPath(raw.replace("\\", "/")).parts
-    claimed = WORKSPACE if (parts and parts[0] == "workspace") else REPO
-    return not _under(resolved, claimed)
+    # EVERY RELATIVE PREFIX CLAIMS VESPER'S OWN PLACE NOW (D6): `workspace/x`
+    # and a bare `x` both resolve there, so both are judged against it.
+    return not _under(resolved, WORKSPACE)
 
 # ---------------------------------------------------------------- shell.run
 
@@ -197,7 +205,7 @@ def _session_cwd(args: dict) -> str:
     """
     sid = args.get("session")
     carried = _SHELL_SESSIONS.get(str(sid)) if sid else None
-    base = (carried or {}).get("cwd") or str(REPO)
+    base = (carried or {}).get("cwd") or str(ensure_own_place())
     try:
         return _resolve_cwd(args.get("cwd"), base)
     except Exception:                                  # noqa: BLE001
@@ -382,7 +390,7 @@ def shell_run(args: dict) -> dict:
     # THE SAME ANSWER THE CLASSIFIER USED, from the same function -- but
     # re-resolved rather than reused, so an out-of-scope cwd still RAISES here
     # instead of silently falling back the way the level computation must.
-    base_cwd = ((carried or {}).get("cwd") or str(REPO))
+    base_cwd = ((carried or {}).get("cwd") or str(ensure_own_place()))
     run_cwd = _resolve_cwd(args.get("cwd"), base_cwd)
 
     if not os.path.exists(SEATBELT):
@@ -3517,7 +3525,16 @@ def build_registry() -> CapabilityRegistry:
                       {"path": "~/.config/vesper/secrets.env"},
                   )),
         LevelRule("governed", "L5", {"path": "contracts/policy/cost_policy.toml"}),
-        LevelRule("ordinary", "L3", {"path": "documents/note.txt"}),
+        # A BARE RELATIVE PATH IS VESPER'S OWN PLACE (D6, 2026-09-13), and the
+        # registry's own consistency check is what said so: this rule's
+        # example used to be `documents/note.txt`, declared L3, and the day the
+        # default working place moved it resolved L2 -- correctly. The example
+        # now names the owner's space, and the own-place case has its own rule
+        # with the owner's space as its refutation, so the two levels stay
+        # distinguished by the registry rather than by a reader.
+        LevelRule("own place", "L2", {"path": "note.txt"},
+                  refutes=({"path": "~/Documents/vesper-example-note.txt"},)),
+        LevelRule("ordinary", "L3", {"path": "~/Documents/vesper-example-note.txt"}),
     ], reversibility="compensatable")
 
     reg.register("fs.edit", fs_edit_level, [
@@ -3526,8 +3543,10 @@ def build_registry() -> CapabilityRegistry:
         LevelRule("governed", "L5",
                   {"path": "contracts/policy/cost_policy.toml",
                    "old": "a", "new": "b"}),
+        LevelRule("own place", "L2",
+                  {"path": "note.txt", "old": "a", "new": "b"}),
         LevelRule("ordinary", "L3",
-                  {"path": "documents/note.txt", "old": "a", "new": "b"}),
+                  {"path": "~/Documents/vesper-example-note.txt", "old": "a", "new": "b"}),
     ], reversibility="compensatable")
     return reg
 

@@ -86,7 +86,15 @@ final class RuntimeHost {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: py)
         p.arguments = [path]
-        p.currentDirectoryURL = URL(fileURLWithPath: root)
+        // THE RUNTIME WORKS IN VESPER'S OWN PLACE, NOT WHERE ITS CODE IS (D6,
+        // 2026-09-13). `root` is the bundle's runtime directory, which every
+        // build deletes and rewrites; a relative path from a process working
+        // there is a file the next build removes. Imports still come from
+        // `root` through PYTHONPATH below, so nothing here depends on cwd.
+        let work = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/VESPER/workspace")
+        try? FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        p.currentDirectoryURL = work
         var env = ProcessInfo.processInfo.environment
         // The runtime imports `core` and `routing` relative to its root.
         env["PYTHONPATH"] = root

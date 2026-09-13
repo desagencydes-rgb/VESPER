@@ -4195,6 +4195,129 @@ def check_claude_backs_every_ladder() -> Result:
     return r
 
 
+def check_vesper_works_in_its_own_place() -> Result:
+    """A command with no place named runs in VESPER's own place; a relative file
+    lands there; the planner is told so; and no agent is spawned into the repo.
+
+    OWNER, 2026-09-13 (D6): "change to its own place, create then change then
+    verify and test." Measured the same evening (F1-7): every command on the
+    board ran with cwd inside the bundle and targeted the owner's repo, and all
+    five LaunchAgents had WorkingDirectory = the repo. RUNTIME FIXTURE where it
+    can be: `pwd` is actually run through shell.run and read back.
+    """
+    r = Result("vesper-works-in-its-own-place")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core import capabilities as caps
+        from core import places as PL
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"capabilities or places did not import: {exc!r}")
+        return r
+
+    own = PL.ensure_own_place()
+    here = PL._HERE
+    bundle_runtime = REPO / "app" / "VESPER.app" / "Contents" / "Resources" / "runtime"
+
+    def _under(child: Path, parent: Path) -> bool:
+        try:
+            Path(child).resolve().relative_to(Path(parent).resolve())
+            return True
+        except (ValueError, OSError):
+            return False
+
+    # 1. THE PLACE EXISTS, AND IS NEITHER THE PROJECT NOR THE BUNDLE.
+    if not own.is_dir():
+        r.err(f"{own} does not exist after ensure_own_place()")
+    if _under(own, REPO) or _under(own, here) or _under(own, bundle_runtime):
+        r.err(f"VESPER's own place {own} is inside the repo or the bundle; a "
+              "build deletes one and the owner keeps the other")
+    if caps.WORKSPACE != PL.OWN_PLACE:
+        r.err("capabilities.WORKSPACE and places.OWN_PLACE differ: two "
+              "definitions of where VESPER works is how they drift apart")
+
+    # 2. THE PLANNER IS TOLD, FIRST.
+    rows = PL.places()
+    if not rows or rows[0].get("name") != "your own place" or rows[0].get("path") != str(own):
+        r.err(f"places()[0] = {rows[:1]!r}; expected VESPER's own place first, "
+              "at its real path -- the default has to be the first thing named")
+    if not any(row.get("name") == "the project" for row in rows):
+        r.err("the project vanished from places(): read access to the owner's "
+              "tree is kept, only the default working place changed")
+    if "own place" not in PL.render(rows):
+        r.err("render() does not tell the planner that an unnamed place means "
+              "VESPER's own")
+
+    # 3. A NEW RELATIVE FILE LANDS IN THE OWN PLACE, NOT THE REPO.
+    fresh = "ci-f6-never-created-8f1c.txt"
+    got = caps.resolve(fresh)
+    if not _under(got, own) or _under(got, REPO):
+        r.err(f"resolve({fresh!r}) = {got}; a new relative file must land in "
+              "VESPER's own place, never in the repo or the bundle")
+    if not _under(caps.resolve("workspace/x.txt"), own):
+        r.err("resolve('workspace/x.txt') left the own place")
+    if not caps._escapes("../escape.txt", caps.resolve("../escape.txt")):
+        r.err("a relative path climbing out of the own place was not flagged as "
+              "an escape")
+
+    # 4. THE COMMAND ACTUALLY RUNS THERE. `pwd`, contained, read back.
+    try:
+        res = caps.shell_run({"cmd": "pwd", "level": "L2"})
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"shell_run(pwd) raised {exc!r}")
+        res = {}
+    said = str(res.get("stdout") or "").strip()
+    if res and (Path(said).resolve() != own.resolve() or
+                Path(str(res.get("cwd") or "")).resolve() != own.resolve()):
+        r.err(f"pwd printed {said!r} and shell_run recorded cwd="
+              f"{res.get('cwd')!r}; expected {own}. A command with no place "
+              "named ran somewhere else")
+    if res and (_under(Path(said), REPO) or _under(Path(said), bundle_runtime)):
+        r.err("the command landed in the owner's repo or in the bundle")
+
+    # 5. NO AGENT IS SPAWNED INTO THE REPO, AND THE HOME DOES NOT RESPAWN ON A
+    #    CLEAN EXIT. Read from the generator, which is the one list.
+    sh = (REPO / "app" / "island-macos" / "build.sh").read_text(encoding="utf-8")
+    wds = re.findall(r"<key>WorkingDirectory</key><string>([^<]*)</string>", sh)
+    if len(wds) < 5:
+        r.err(f"build.sh declares {len(wds)} WorkingDirectory value(s); five "
+              "agents are generated there")
+    for wd in wds:
+        if "$REPO" in wd or wd.rstrip("/") == str(REPO):
+            r.err(f"build.sh spawns an agent with WorkingDirectory={wd!r}: the "
+                  "owner's repo")
+        if not wd.endswith("VESPER/workspace"):
+            r.err(f"build.sh spawns an agent with WorkingDirectory={wd!r}, not "
+                  "VESPER's own place")
+    if 'mkdir -p "$HOME/Library/Application Support/VESPER/workspace"' not in sh:
+        r.err("build.sh does not create the own place before writing the plists; "
+              "a WorkingDirectory missing at spawn is a spawn failure")
+    m = re.search(r'LaunchAgents/\$ID\.plist" <<PLIST\n(.*?)\nPLIST', sh, re.S)
+    if not m:
+        r.err("could not find the ai.vesper.island plist heredoc in build.sh")
+    elif "<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>" not in m.group(1):
+        r.err("the home agent's KeepAlive respawns a clean exit: a second launch "
+              "hits the single-instance guard, exits 0, and launchd brings the "
+              "next one every 10 s (runs = 694 in two hours, 2026-09-13)")
+
+    # 6. THE RUNTIME CHILD WORKS THERE TOO, not in the bundle's runtime dir.
+    host = (REPO / "app" / "home-macos" / "RuntimeHost.swift").read_text(encoding="utf-8")
+    m2 = re.search(r"p\.currentDirectoryURL = (.+)", host)
+    if not m2 or "work" not in m2.group(1) or "root" in m2.group(1):
+        r.err(f"RuntimeHost starts the runtime with cwd {m2.group(1) if m2 else None!r}; "
+              "the bundle's runtime directory is rewritten by every build")
+    if 'appendingPathComponent("Library/Application Support/VESPER/workspace")' not in host:
+        r.err("RuntimeHost does not name VESPER's own place as the runtime's cwd")
+
+    if r.ok:
+        r.note(f"own place {own} exists outside repo and bundle; places() names "
+               f"it first and keeps the project; a new relative file resolves "
+               f"into it; `pwd` through shell.run printed it; {len(wds)} "
+               "LaunchAgents spawn into it; the home does not respawn a clean "
+               "exit; the runtime child starts there")
+    return r
+
+
 def check_chain_budget() -> Result:
     r = Result("chain-budget-bounded")
     if str(REPO) not in sys.path:
@@ -12605,7 +12728,9 @@ def check_capabilities_registered_and_levelled_by_argument() -> Result:
               "directory the command will run in, so a session that carries a "
               "cwd is levelled against one tree and executed against another -- "
               "and the level rules are entirely relative prefixes")
-    if not str(caps.resolve("README.md")).startswith(str(REPO)):
+    # THE ROOT THE LEVEL RULES REASON ABOUT IS VESPER'S OWN PLACE since D6
+    # (2026-09-13): a bare relative path is VESPER's own file, not the repo's.
+    if not str(caps.resolve("README.md")).startswith(str(caps.WORKSPACE)):
         r.err("a relative path resolves outside the root the level rules reason "
               "about")
     # AND VESPER'S OWN WRITABLE SPACE SURVIVES A BUILD. The bundle carries a COPY
@@ -18536,7 +18661,11 @@ def check_a_shell_session_carries_context_not_a_shell() -> Result:
         return r
 
     base = shell_run({"cmd": "pwd", "session": "chk"})["stdout"].strip()
-    moved = shell_run({"cmd": "pwd", "session": "chk", "cwd": "core"})["stdout"].strip()
+    # NAMED, NOT RELATIVE. A relative cwd is relative to VESPER's own place
+    # since D6 (2026-09-13); the project is entered by naming it, which is what
+    # the planner is told to do. The repo is still a root a session may run in.
+    moved = shell_run({"cmd": "pwd", "session": "chk",
+                       "cwd": str(REPO / "core")})["stdout"].strip()
     if moved == base or not moved.endswith("core"):
         r.err(f"a session could not change directory: {base!r} -> {moved!r}")
     again = shell_run({"cmd": "pwd", "session": "chk"})["stdout"].strip()
@@ -28146,6 +28275,7 @@ CHECK_FNS = {
     "narration-complete": check_narration_complete,
     "narration-follows-the-ladder": check_narration_follows_the_ladder,
     "claude-backs-every-ladder": check_claude_backs_every_ladder,
+    "vesper-works-in-its-own-place": check_vesper_works_in_its_own_place,
     "triage-excludes-quota": check_triage_excludes_quota,
     "shared-pool-is-shared": check_shared_pool_is_shared,
     "intake-is-modality-neutral": check_intake_is_modality_neutral,

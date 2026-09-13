@@ -1129,6 +1129,9 @@ NARRATION = "core/narration.py"
 NARRATION_TOML = "contracts/policy/narration.toml"
 BUDGET_TOML = "contracts/policy/interruption_budget.toml"
 QUOTA_LEDGER_PY = "core/quota.py"
+F6_PLACES = "core/places.py"
+F6_BUILD_SH = "app/island-macos/build.sh"
+F6_RUNTIME_HOST = "app/home-macos/RuntimeHost.swift"
 CHROME_TPL = "app/home-macos/chrome/home.html"
 CHROME_SW = "app/home-macos/HomeChrome.swift"
 HOME_STATE = "core/home_state.py"
@@ -2063,6 +2066,43 @@ CASES += [
      "borrowing removed: a spent ladder with a same-tier rung full of headroom "
      "next to it raises AllProvidersExhausted and checkpoints the owner's "
      "question"),
+
+    ("vesper-works-in-its-own-place", CAPS_PY,
+     _sub("    base_cwd = ((carried or {}).get(\"cwd\") or str(ensure_own_place()))",
+          "    base_cwd = ((carried or {}).get(\"cwd\") or str(REPO))", 1),
+     "a command with no place named runs in the code's root again -- the "
+     "owner's repo by hand, the bundle from the app, and `pwd` says so"),
+
+    ("vesper-works-in-its-own-place", CAPS_PY,
+     _sub("            p = home_p if home_p.exists() else (WORKSPACE / p)",
+          "            p = home_p if home_p.exists() else (REPO / p)", 1),
+     "a new relative file lands in the repo (or, shipped, inside the bundle "
+     "the next build deletes) instead of VESPER's own place"),
+
+    ("vesper-works-in-its-own-place", F6_PLACES,
+     _sub('        "name": "your own place",',
+          '        "name": "your own place_DISABLED",', 1),
+     "the planner is no longer told VESPER has a place of its own, so 'here' "
+     "goes back to meaning whatever directory the process happens to have"),
+
+    ("vesper-works-in-its-own-place", F6_BUILD_SH,
+     _sub("  <key>WorkingDirectory</key><string>$HOME/Library/Application Support/VESPER/workspace</string>",
+          "  <key>WorkingDirectory</key><string>$REPO</string>", 1),
+     "one LaunchAgent spawned with the owner's repo as its working directory "
+     "again -- the build generator is the second list this must not become"),
+
+    ("vesper-works-in-its-own-place", F6_BUILD_SH,
+     _sub("  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>",
+          "  <key>KeepAlive</key><true/>", 1),
+     "the home agent respawns on a clean exit again: a second launch hits the "
+     "single-instance guard, exits 0, and launchd brings the next one every "
+     "10 s (694 runs in two hours, measured 2026-09-13)"),
+
+    ("vesper-works-in-its-own-place", F6_RUNTIME_HOST,
+     _sub("        p.currentDirectoryURL = work",
+          "        p.currentDirectoryURL = URL(fileURLWithPath: root)", 1),
+     "the runtime child works inside the bundle's runtime directory, which "
+     "every build rewrites -- its relative files are doomed on arrival"),
 
     ("chain-budget-bounded", GATEWAY,
      _sub("    MAX_ATTEMPTS_PER_REQUEST = 10", "    MAX_ATTEMPTS_PER_REQUEST = 100", 1),
