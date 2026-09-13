@@ -622,7 +622,8 @@ def _render_recent(recent: list) -> str:
             "it now:\n" + "\n".join(lines))
 
 
-def _render_rows(label: str, rows: list, fields: tuple) -> list:
+def _render_rows(label: str, rows: list, fields: tuple,
+                 always: tuple = ()) -> list:
     """One line per row, naming only the fields a next step plans on.
 
     THE ROWS ARE ALREADY BOUNDED when they get here -- `capabilities.observe`
@@ -638,6 +639,16 @@ def _render_rows(label: str, rows: list, fields: tuple) -> list:
         for f in fields:
             v = row.get(f)
             if v is None or v == "" or v == []:
+                # AN ABSENCE MUST BE STATED, NOT OMITTED, AND THE DIFFERENCE IS
+                # WHETHER VESPER INVENTS. Measured 2026-09-13: a window's
+                # actionable controls came back with 5 of 16 carrying a label,
+                # the unnamed ones rendered with no `label` field at all, and
+                # the answerer -- asked what buttons were on the window --
+                # supplied sixteen plausible names of which exactly ONE was
+                # real. A missing field reads as a gap to fill; "(unnamed)"
+                # reads as a fact about the world.
+                if f in always:
+                    bits.append(f"{f}=(unnamed)")
                 continue
             if isinstance(v, list):
                 v = "/".join(str(x) for x in v)
@@ -705,7 +716,8 @@ def _render_observations(observations: list) -> str:
         els = o.get("elements")
         if isinstance(els, list) and els:
             out.extend(_render_rows(
-                "elements", els, ("path", "role", "label", "can")))
+                "elements", els, ("path", "role", "label", "can"),
+                always=("label",)))
         items = o.get("items")
         if isinstance(items, list) and items:
             out.append("     items:")
@@ -718,6 +730,21 @@ def _render_observations(observations: list) -> str:
     # result, and judged the request satisfied. The ids WERE there; what was
     # missing was anything saying they are the ADDRESS and not the ANSWER.
     # That is the second half of the same defect as the renderer dropping them.
+    # AND A CONTROL WITH NO NAME MUST NOT ACQUIRE ONE. Measured 2026-09-13:
+    # asked what buttons were on a window whose controls were 5-of-16 labelled,
+    # vesper answered with sixteen names -- "Close, Minimize, Zoom, Back,
+    # Preferences, Apply, Cancel, Done, Add, Remove, New, Delete, Update,
+    # Reboot, Apply & Reboot, Go" -- of which exactly ONE, Back, existed. The
+    # rest were invented, fluently, from a list that showed buttons and no
+    # names. That is worse than the role codes it replaced: an owner can hear
+    # "AXButton" and know something is wrong, and cannot hear "Preferences" and
+    # know it is not there.
+    if any(isinstance(o, dict) and o.get("elements") for o in observations):
+        out.append("A CONTROL SHOWN AS label=(unnamed) HAS NO NAME. Say so, or "
+                   "count it -- never supply a name for it. The owner may act "
+                   "on what you call these, and a plausible invented name is "
+                   "indistinguishable from a real one until they click it.")
+        out.append("")
     if any(isinstance(o, dict) and o.get("windows") for o in observations):
         out.append("A LIST OF WINDOWS IS NOT THE CONTENTS OF ONE. If the request "
                    "asks what is ON, IN or CLICKABLE IN a window, you now have "
