@@ -1067,7 +1067,16 @@ def _act(effect: str, args: dict, *argv: str) -> dict:
                           f"vesper can MOVE a window there, but {effect} goes "
                           "through the application and an application only "
                           "answers for the desktop that is showing -- bring it "
-                          "here (or come to it) and ask again",
+                          "here, or come to it, and I will carry on",
+                # THE CONDITION THAT WOULD CLEAR THIS, so the turn can WAIT for
+                # it rather than telling the owner to ask again. The owner,
+                # 2026-09-13: "whenever it asks for something, anything, the
+                # time i do it, it should keep going... i should never tell it i
+                # did it, only i do it, and it keeps going." `core/waiting.py`
+                # re-reads the live window list; nothing here is remembered as
+                # a promise.
+                "wait_for": {"condition": "window_on_showing_desktop",
+                             "args": {"window_id": wid}},
                 "window": W.describe(target, vespers_desktop=desktop)}
     out = _window_bridge(*argv, "--window-id", wid, "--window-pid", str(target.pid))
     out.setdefault("window", W.describe(target, vespers_desktop=desktop))
@@ -2016,6 +2025,22 @@ def ui_act_level(args: dict) -> str:
     return "L5"
 
 
+def _refusal(why: Any) -> dict:
+    """A refusal, carrying the condition that would clear it when there is one.
+
+    `_ui_target` returns either a sentence or a dict with a `wait_for` in it,
+    because some refusals name something the OWNER can change -- and a turn that
+    knows what it is waiting for can wait, instead of ending and making the
+    owner say "done". See `core/waiting.py`.
+    """
+    if isinstance(why, dict):
+        out = {"ok": False, "reason": str(why.get("reason") or "")}
+        if why.get("wait_for"):
+            out["wait_for"] = why["wait_for"]
+        return out
+    return {"ok": False, "reason": why}
+
+
 def _ui_target(args: dict) -> tuple:
     """The window this request names, as a record, or a refusal.
 
@@ -2030,9 +2055,19 @@ def _ui_target(args: dict) -> tuple:
     wins, desktop = _inventory()
     target = next((w for w in wins if w.window_id == wid), None)
     if target is None:
-        return None, desktop, (f"window {wid} is not on the desktop that is "
-                               "showing, and the accessibility interface only "
-                               "answers for the one that is")
+        # THE REFUSAL NAMES WHAT WOULD FIX IT, so the turn can WAIT for it
+        # instead of ending. The owner, 2026-09-13: "whenever it asks for
+        # something, anything, the time i do it, it should keep going, not wait
+        # for me to respond or tell it i did it." `core/waiting.py` checks this
+        # condition against the live window list; nothing here remembers a
+        # promise.
+        return None, desktop, {
+            "reason": (f"window {wid} is not on the desktop that is showing, "
+                       f"and the accessibility interface only answers for the "
+                       f"one that is"),
+            "wait_for": {"condition": "window_on_showing_desktop",
+                         "args": {"window_id": wid}},
+        }
     return target, desktop, ""
 
 
@@ -2046,7 +2081,7 @@ def ui_view(args: dict) -> dict:
     """
     target, desktop, why = _ui_target(args)
     if target is None:
-        return {"ok": False, "reason": why}
+        return _refusal(why)
     out = _window_bridge("--ui-view", "--window-id", target.window_id,
                          "--window-pid", str(target.pid))
     if not out.get("ok"):
@@ -2080,7 +2115,7 @@ def ui_act(args: dict) -> dict:
                           "interface. The set is closed."}
     target, desktop, why = _ui_target(args)
     if target is None:
-        return {"ok": False, "reason": why}
+        return _refusal(why)
 
     allowed, rule_why = W.may_act(
         target, W.MOVE, vespers_desktop=desktop,

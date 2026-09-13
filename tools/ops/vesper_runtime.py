@@ -840,6 +840,11 @@ def build(node: str = "vesper-runtime"):
     # a board somebody has to remember to update is accurate until the first
     # time somebody forgets.
     bench = Workbench()
+    # WHAT VESPER IS WAITING FOR THE OWNER TO DO. Not answers -- CONDITIONS.
+    # See core/waiting.py: the owner asked that doing the thing be enough, and
+    # that they never have to say they did it.
+    from core.waiting import Waiting as _Waiting
+    waiting = _Waiting()
     bench.attach(bus)
     # THE BOARD SURVIVES A RESTART. Without this, every rebuild and every login
     # blanked the commands and explanations panes -- which the owner saw and
@@ -1430,7 +1435,7 @@ def build(node: str = "vesper-runtime"):
             renderer, updater, misses, chooser, world, sensors, autonomy,
             devices, repairer, presence, context_cmds, verifier, speech,
             transcriber, actor, floor, baseline, interlock, jobs, store,
-            changes)
+            changes, waiting)
 
 
 def _render_mode_now(state: dict) -> str:
@@ -1538,6 +1543,41 @@ def _what_was_tried(steps: list, final: str) -> str:
     # version of this read `st["args"]`, found nothing on every step, and
     # produced a summary naming nothing; it was written against the shape of a
     # PROPOSAL rather than the shape of a STEP, and the two differ.
+    # DESCRIBE THE ACT, NEVER THE RESULT. The first version fell back to the
+    # step's `said`, which is its OUTCOME sentence -- so a turn that listed
+    # windows and then failed to read one reported "I tried 2 things: 27
+    # window(s) open. None are mine, so I will not rearrange them on my o; that
+    # did not go through: that window is not on the desktop that is sho." Two
+    # results, stitched together and cut mid-word. The owner saw it and said so.
+    #
+    # A SHORT PHRASE PER CAPABILITY, and never a sentence from somewhere else.
+    def _phrase(cid: str, res: dict) -> str:
+        argv = res.get("argv")
+        if cid == "shell.run" and isinstance(argv, list) and argv:
+            return " ".join(str(a) for a in argv)
+        if cid == "window.list":
+            return "listed your windows"
+        if cid == "ui.view":
+            wid = res.get("window_id") or ""
+            return f"looked inside window {wid}".strip()
+        if cid == "ui.act":
+            return f"tried to {res.get('action') or 'use'} an element"
+        if cid in ("fs.read", "fs.write", "fs.edit") and res.get("path"):
+            return f"{cid.split('.')[-1]} {res['path']}"
+        if cid == "window.open":
+            return "opened a window"
+        if cid == "app.query":
+            return f"asked the application ({res.get('verb') or 'something'})"
+        return cid or "a step"
+
+    def _clip(t: str, n: int = 58) -> str:
+        """Cut at a word, never through one. Mid-word truncation looks broken."""
+        t = " ".join(str(t).split())
+        if len(t) <= n:
+            return t
+        cut = t[:n].rsplit(" ", 1)[0]
+        return (cut or t[:n]) + "..."
+
     tried: list = []
     for st in steps:
         if not isinstance(st, dict):
@@ -1545,17 +1585,9 @@ def _what_was_tried(steps: list, final: str) -> str:
         cid = str(st.get("capability_id") or "")
         det = st.get("detail") if isinstance(st.get("detail"), dict) else {}
         res = det.get("result") if isinstance(det.get("result"), dict) else {}
-        argv = res.get("argv")
-        if isinstance(argv, list) and argv:
-            what = " ".join(str(a) for a in argv)
-        elif res.get("path"):
-            what = f"{cid.split('.')[-1]} {res['path']}"
-        elif st.get("said"):
-            what = str(st["said"])
-        else:
-            what = cid
+        what = _phrase(cid, res)
         if what:
-            tried.append(what.strip()[:70])
+            tried.append(_clip(what))
     if len(tried) < 2:
         return final
     shown = "; ".join(tried[:4])
@@ -1570,7 +1602,7 @@ def _what_was_tried(steps: list, final: str) -> str:
 def answer(gw, router, persona, utterance, renderer=None,
            updater=None, misses=None, chooser=None,
            context_cmds=None, can_do=None, recent=None, state=None,
-           flags=None) -> str:
+           flags=None, acted_this_turn=None) -> str:
     """One request across the ladder. Difficulty routes it; the ladder serves it.
 
     `privacy_class` IS NOT PASSED, and that is the point of the default. Anything
@@ -1671,6 +1703,26 @@ def answer(gw, router, persona, utterance, renderer=None,
     # wrong was written to by the executor and consulted by nobody who could act
     # on it, so vesper answered "checkpointed and queued" while the reason sat
     # on screen next to it.
+    # WHAT VESPER DID THIS TURN, STATED, SO IT CANNOT INVENT ONE.
+    #
+    # Measured 2026-09-13: told "i am on the keyboard now" -- a statement asking
+    # for nothing -- vesper replied "Opened System Settings as a new window.
+    # Bring it to the current desktop, then I'll list the buttons." The intent
+    # for that turn was `none`, no window was opened, and no System Settings
+    # process existed. It invented an action, in the past tense, from earlier
+    # conversation about that window.
+    #
+    # THIS IS THE FABRICATED BUTTON NAMES ONE STEP WORSE. A wrong name is a
+    # wrong description of the world; a claimed ACTION is a wrong description of
+    # what VESPER itself has done, and the owner has no way to check it short of
+    # going to look. The answerer runs only when the actor took no action, so at
+    # this point "nothing was done" is a FACT this code holds and never said.
+    if acted_this_turn is None:
+        request = ("YOU HAVE TAKEN NO ACTION THIS TURN. You have not opened, "
+                   "run, written, changed, moved or created anything. Do not "
+                   "say that you have. If the owner's words call for an action "
+                   "you did not take, say what you would do and ask, or simply "
+                   "answer them.\n\n") + request
     if flags:
         try:
             from core.intent import render_flags
@@ -1974,8 +2026,53 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
          triage=None, repairer=None, presence=None,
          context_cmds=None, speech=None, transcriber=None, actor=None,
          floor=None, baseline=None, interlock=None, jobs=None,
-         store=None) -> int:
+         store=None, waiting=None) -> int:
     """Read new lines, answer them, publish the transcript. Offset-tracked."""
+    # ANYTHING THE OWNER HAS NOW DONE, PICKED UP WITHOUT BEING TOLD.
+    #
+    # The owner, 2026-09-13: "the time i do it, it should keep going, not wait
+    # for me to respond or tell it i did it... i should never tell it i did it,
+    # only i do it, and it keeps going."
+    #
+    # RE-ASKED THROUGH THE ORDINARY PATH rather than resumed mid-turn: the
+    # request goes back on the queue exactly as the owner first said it, so it
+    # runs through intent, authorization, the ladder and the flag bar like any
+    # other. A resume that skipped those would be a second path into acting,
+    # which INV-AUTH-1 refuses.
+    if waiting is not None:
+        try:
+            for _item in waiting.ready():
+                _txt = str((_item.get("payload") or {}).get("text") or "")
+                if not _txt:
+                    continue
+                # OUTBOX, not SAY. `the-runtime-resolves-every-name-it-uses`
+                # caught this before it ever ran: a NameError inside the
+                # broad except below would have left the watcher silently
+                # dead while reporting a handled failure.
+                with OUTBOX.open("a", encoding="utf-8") as _fh:
+                    _fh.write(json.dumps(
+                        {"text": _txt, "source": "typed",
+                         # MARKED, SO IT CANNOT PARK AGAIN. Without this, a
+                         # request that still fails the same way would re-park
+                         # and re-inject forever -- a loop the owner would
+                         # experience as vesper talking to itself.
+                         "resumed": True,
+                         "at_ms": int(time.time() * 1000)}) + "\n")
+                bus.publish("act.resumed_by_condition", subject=str(_item.get("key")),
+                            payload={"condition": _item.get("condition"),
+                                     "args": _item.get("args")},
+                            component="runtime")
+            for _item in waiting.expired():
+                bus.publish("act.wait_expired", subject=str(_item.get("key")),
+                            payload={"condition": _item.get("condition"),
+                                     "note": ("waited and the world did not "
+                                              "change; dropped rather than "
+                                              "left silent")},
+                            component="runtime")
+        except Exception as _exc:                      # noqa: BLE001
+            # A WATCHER THAT FAILS MUST NOT STOP THE PUMP. Answering is the job.
+            bus.publish("act.wait_failed", subject="waiting",
+                        payload={"error": repr(_exc)}, component="runtime")
     # The last thing VESPER actually did, so the next turn's "it" resolves.
     last_action = None
     # WHEN THE OWNER WAS LAST DEMONSTRABLY HERE. Survives across pump
@@ -2245,6 +2342,11 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             text = (obj.get("text") or "").strip()
             if not text:
                 continue
+            # A LINE THAT IS ITSELF A RESUME MAY NOT PARK AGAIN. The watcher
+            # re-injects the owner's original words when the world satisfies a
+            # condition; if that attempt still fails the same way, parking it a
+            # second time would re-inject forever.
+            _is_resumed = bool(obj.get("resumed"))
             # SPOKEN AND TYPED TAKE DIFFERENT DOORS, and `Intake` has had both
             # since it was written -- `spoken()` exists precisely so that voice
             # arriving later is a SOURCE and not a rewrite. Until now nothing
@@ -2576,6 +2678,32 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                     bus.publish("act.outcome", subject=did.capability_id,
                                 payload=did.to_dict(), component="runtime")
                     reply = did.said
+                    # IF THE REFUSAL NAMES SOMETHING THE OWNER CAN CHANGE, WAIT
+                    # FOR IT. The turn does not end here: the request is parked
+                    # against a live condition and re-asked the moment the world
+                    # satisfies it, so the owner does the thing and vesper
+                    # carries on without being told.
+                    _res = (did.detail or {}).get("result") \
+                        if isinstance(did.detail, dict) else None
+                    _wf = (_res or {}).get("wait_for") if isinstance(_res, dict) else None
+                    if _wf and isinstance(_wf, dict) and not _is_resumed:
+                        try:
+                            _key = (str(getattr(intake.history[-1], "hlc", "")
+                                        or "turn") + ":"
+                                    + str(_wf.get("condition")))
+                            waiting.park(_key,
+                                         str(_wf.get("condition")),
+                                         dict(_wf.get("args") or {}),
+                                         {"text": text})
+                            reply = (f"{reply} I will carry on by myself the "
+                                     f"moment that is done -- you do not need "
+                                     f"to tell me.")
+                        except Exception as exc:       # noqa: BLE001
+                            # A CONDITION NOTHING CAN CHECK IS NOT A WAIT. Said
+                            # plainly rather than parked into silence.
+                            bus.publish("act.wait_refused", subject=_key,
+                                        payload={"error": repr(exc)},
+                                        component="runtime")
                     # A TURN THAT TRIED FOUR THINGS MUST NOT REPORT ONLY THE
                     # FOURTH. `steps` is attached only when a turn took more
                     # than one, so a single-step turn is untouched.
@@ -2612,6 +2740,11 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                     # evidence anywhere else either.
                     reply = strip_internal_prefix(
                         answer(gw, router, persona, intake.history[-1],
+                               # EXPLICIT, THOUGH THIS BRANCH ONLY RUNS WHEN
+                               # `did` IS None. Relying on the default would
+                               # make the guard depend on a call site rather
+                               # than on the fact, and the fact is what it is.
+                               acted_this_turn=did,
                                flags=(home.open_flags() if home is not None else None),
                                renderer=renderer, updater=updater,
                                misses=misses, chooser=chooser,
@@ -2857,7 +2990,7 @@ def main() -> int:
      renderer, updater, misses, chooser, world, sensors,
      autonomy, devices, repairer, presence, context_cmds, verifier,
      speech, transcriber, actor, floor, baseline, interlock,
-     jobs, store, changes) = build()
+     jobs, store, changes, waiting) = build()
     # WHAT WAS SAID, BY WHOM. Held here rather than in Intake because the two
     # are different records: Intake is the inbound channel and this is the
     # conversation.
@@ -2918,7 +3051,7 @@ def main() -> int:
         n = pump(bus, gw, router, persona, bench, home, intake, transcript,
                  floor=floor, baseline=baseline, interlock=interlock,
                  jobs=jobs, store=store,
-                 once=True, renderer=renderer, updater=updater,
+                 once=True, waiting=waiting, renderer=renderer, updater=updater,
                  misses=misses, chooser=chooser, sensors=sensors,
                  autonomy=autonomy, triage=triage, repairer=repairer,
                  presence=presence, context_cmds=context_cmds,
@@ -2968,7 +3101,7 @@ def main() -> int:
             pump(bus, gw, router, persona, bench, home, intake, transcript,
                  changes=changes,
                  floor=floor, baseline=baseline, interlock=interlock,
-                 jobs=jobs, store=store,
+                 jobs=jobs, store=store, waiting=waiting,
                  renderer=renderer, updater=updater, misses=misses,
                  chooser=chooser, sensors=sensors, autonomy=autonomy,
                  triage=triage, repairer=repairer, presence=presence,
