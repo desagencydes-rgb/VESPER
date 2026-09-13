@@ -21,10 +21,25 @@ can happen tonight.
 
 | # | constraint | value, and where it came from |
 |---|---|---|
-| 1 | **Battery** | `pmset -g batt` at 17:58: **26%, discharging, "2:46 remaining", no charger.** Unplugged, the Mac stops around 20:44, sooner under build load, which is **before the deadline**. **Charger first, before any work.** |
+| 1 | **Battery** | `pmset -g batt` at 17:58: 26%, "2:46 remaining". **Re-read at 18:19: 22%, discharging, "1:53 remaining", still no charger. The Mac stops around 20:12**, before the acceptance drive and the microphone, and sooner under build load. **Charger first, before any work.** |
 | 2 | **Deadline** | Sunset **19:48** (local time), computed for 2026-09-13. The owner stretched it: **hard stop 21:00.** |
 | 3 | **Subscription usage** | This account (Sonnet 5, Opus 5) is near its limit. It is used **first**. |
 | 4 | **$100 of credits** | The other account (Fable). Used when the subscription runs out, **or at the 18:50 tripwire** (§4, D5). If the credits end, **Opus 5** continues from the ledger. |
+
+**§4's timeline assumes the charger is in. If it is not, the order inverts.** Only
+the acceptance drive and the microphone reading need both a live machine and a live
+owner. `self_test` needs neither, and can be recorded as `STALE` (`CI-089` accepts
+that word). So, without a charger:
+
+1. Freeze as soon as F1 is done. Do F2 only if it fits.
+2. Run R1 (the build), then R4 (the grant trip), then R5 (the acceptance drive),
+   then R6 (the microphone).
+3. Run R2's gates, then R3's `self_test`, **only if power remains.** Never spend
+   the last 40 minutes of battery on a test suite before the owner has spoken into
+   the microphone.
+4. Commit and append a ledger row after **every** step, because the machine may
+   stop mid-sequence. The final `git bundle` goes before the battery drops below
+   10%.
 
 ---
 
@@ -537,6 +552,11 @@ session and VESPER. Restart the Mac, then confirm VESPER comes back on its own.
 |---|---|---|---|---|---|
 | 17:58 | Opus 5 · max | local backup | — | `vesper-20260913-175811-91c3ca9.bundle`; `git bundle verify` okay, 25 refs | ✅ |
 | ~18:10 | Opus 5 · max | this plan, the `CLAUDE.md` pointer, `HOME-WORKBENCH.md` §49 | the commit that adds this file | `documented-counts-match-commands` and `reference_lint.py`, run before the commit | ✅ |
+| 18:19 | Opus 5 · max | plan committed | `64fb89b` | `the-projects-dashboard-is-what-the-owner-asked-for` PASS; documented counts PASS (7 figures); reference lint PASS (190 files) | ✅ |
+| 18:19 | — | battery re-read | — | `pmset`: 22%, discharging, "1:53 remaining", so about 20:12 unplugged; §0 corrected | ⚠️ |
+| ~18:25 | owner | charger | — | **The owner plugs in at 20%.** §4's timeline stands; §0's no-charger order is only the fallback | ✅ decided |
+| ~18:25 | Opus 5 · max | A1, worktree question only | the commit that adds this row | `grep -rn "/Users/macbook/Projects/VESPER" --include='*.py' verification core tools`: the only hits are two fixture strings in `tools/ci/checks.py` (lines 13978 and 13981). `self_test.py:51` and `checks.py:32` both derive `REPO` from `__file__`. Positive control: a grep for `REPO` in `tools/ci` found 2 files. **So R3 may run in a worktree.** Caveats still apply: a worktree lacks ignored files, and test cases share `~/Library/Application Support/VESPER` with the live app. The first attempt printed a false 0, because zsh expanded the unquoted `*.py` and grep never ran | ✅ |
+| — | — | A1, the rest | — | still owed by the Sonnet session: which accounts VESPER's `claude` rungs use; why `.agenda` exited 78; that `pmset` shows AC power | open |
 
 ### F1 findings
 
