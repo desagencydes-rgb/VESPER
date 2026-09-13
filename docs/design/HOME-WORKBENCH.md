@@ -1480,7 +1480,7 @@ been driven against the running surface.**
 | 11 | **Provider-failure routing** (§9d) | ✅ DONE 2026-09-07 — `CI-132` (5 red runs), `CI-133` (10 red runs). Live: real advisor limit read as `rate_limited` with the 15-min floor carried; board surfacing fired; fix-and-resend driven through the real gateway loop, 4096→2048→answered, one repair and never a loop |
 | 12 | **Island integration** (§9e) | ✅ DONE 2026-09-07 — `CI-134`, 5 red runs. Live: Mode `auto`, Ran 5, Changed 4 beside the machine's rows |
 | — | **Main menu + expandable menu** (§9k) | ✅ MERGED, REVERTED, CAUSE FOUND, RE-MERGED 2026-09-08 (§9r, §9s). The first merge killed all five stack cards; the cause was a token named inside a JS comment, latent for weeks and fired by the row count going 1 → 69. Now live alongside every card. 17-icon bar — **owner approved the 17 on 2026-09-08**, the brief's 8 is retired. 68 catalogue items, 32 carrying live readings |
-| 13 | **Active-Space reading from a background process** (§9f) | fix implemented and owner-verified (§9p) — `SpaceWatch.Anchor`, confirmed `0`/`0` with Desktop 1 populated and Desktop 2 genuinely empty. The batched rebuild it was waiting on happened 2026-09-08 with §9t, and `--spaces` from a freshly launched background process correctly enumerated the active Desktop and refused it (`2 foreign window(s)`, ChatGPT) — so the anchor works off the login path too. **The LOGIN-ITEM path itself is still unconfirmed:** `ai.vesper.island` is not bootstrapped in the `gui/501` domain (only `.wake`, `.fnwatch`, `.agenda`, `.arm` are), so `launchctl kickstart` cannot reach it and a real login is needed. Not a prediction — a named, outstanding step |
+| 13 | **Active-Space reading from a background process** (§9f) | ✅ **DONE** — the login-item path was the last open piece and the OWNER CONFIRMED it 2026-09-13: *"i actually seen it when i restarted the mac, it works"*. A deliberate test is still worth doing and is queued last, because the failure it guards against has already not happened. Fix implemented and owner-verified (§9p) — `SpaceWatch.Anchor`, confirmed `0`/`0` with Desktop 1 populated and Desktop 2 genuinely empty. The batched rebuild it was waiting on happened 2026-09-08 with §9t, and `--spaces` from a freshly launched background process correctly enumerated the active Desktop and refused it (`2 foreign window(s)`, ChatGPT) — so the anchor works off the login path too. **The LOGIN-ITEM path itself is still unconfirmed:** `ai.vesper.island` is not bootstrapped in the `gui/501` domain (only `.wake`, `.fnwatch`, `.agenda`, `.arm` are), so `launchctl kickstart` cannot reach it and a real login is needed. Not a prediction — a named, outstanding step |
 | — | **The home's four model rows** (§9t) | ✅ DONE 2026-09-08 — `the-model-rows-read-a-real-completion`, 8 red runs. They had NEVER worked: no producer, and a comment claiming one. Live: `thinking = yes, 15 tok`, `context = 349`, `tokens = 466.4`. Found and fixed a pre-existing leak of menu rows into the HOST card in the same pass |
 | 14 | **`f5-acceptance` flakes under load** (§9i, §11.0) | ✅ DONE 2026-09-08 — the gate compared a live in-memory counter against the durable store and reported its own sampling as a defect. Both negative controls driven RED. §9i's recorded cause was wrong twice over; §11.0 supersedes it |
 | 15 | **Window management** (§11.1) | 🟡 IN PROGRESS 2026-09-09 — vocabulary, ownership rule, native bridge and capability ladder landed and DRIVEN LIVE. `a-window-belongs-to-someone`, 7 red runs. `window.open` drove live and its provenance stamp is real. **Driving it found a forgery path** (§11.1c): `reopen` claimed any newly-seen window, and returned one of the owner's Safari windows from `window.open("TextEdit")` — fixed by requiring the launched pid and a cross-Desktop frontier. **Owed:** placement verification (§11.1c) and rung 3, which has never executed. The forgery check DID land -- `a-window-is-claimed-only-by-the-app-that-opened-it`, 8 self-test cases, counting claim sites rather than looking for a name -- and this row went on saying it was owed until 2026-09-10 |
@@ -5068,3 +5068,38 @@ little has been stated to it, not because it fails to learn.
 build. It is a working subsystem with an unreached graph and no observability,
 which is a much smaller job than §26.6 or §44 described — and worth knowing
 before a deadline rather than after spending the night on it.
+
+---
+
+# 46. §42 WAS THE DIAGNOSTIC, NOT THE BOARD
+
+**Resolved 2026-09-13.** §42 recorded that a turn which really happened left
+`thoughts: 0, actions: 0, commands: 0` on the board, and reasoned about
+`bench.observe` not firing. **The board was being written correctly the whole
+time.**
+
+`home.json` is shared state and `HomeState.write()` published `workbench`
+unconditionally — deliberately, so a card empties when work stops. But **any**
+process that constructs a `HomeState` and writes has an empty `_workbench`,
+including a read-only diagnostic asking what the dashboard holds. This session
+ran exactly that, twice, while investigating — and each time published emptiness
+over the running runtime's live board. **The owner watched a card disappear and
+reported it, and the cause was the tool looking at it.**
+
+After the fix, the same live board reads **thoughts 4, actions 24, commands 2,
+explanations 1**, with no change to the recording path at all.
+
+**THE SHAPE IS WORTH KEEPING, because it is the third time tonight.** A registry
+read that answered "is it enrolled" and was reported as "does it exist"; an event
+query with a row cap that turned 68 events into 1; and a writer-shaped reader
+that destroyed what it was measuring. Each looked like a finding about VESPER and
+was a finding about the instrument. `MEMORY.md` already says *"an instrument's
+self-report is not evidence"* — this adds the sharper form: **an instrument that
+WRITES is not an observer, and the first question about any surprising measurement
+is what the measuring did.**
+
+`a-reader-cannot-empty-the-owners-board` gates both halves: a reader that never
+supplied a board leaves it alone, and the process that supplies one can still
+empty it — because a card that keeps its contents after work stops reports work
+that is not happening, which is the defect the unconditional write existed to
+prevent.
