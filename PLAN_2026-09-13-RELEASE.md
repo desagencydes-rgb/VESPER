@@ -557,6 +557,7 @@ session and VESPER. Restart the Mac, then confirm VESPER comes back on its own.
 | ~18:25 | owner | charger | — | **The owner plugs in at 20%.** §4's timeline stands; §0's no-charger order is only the fallback | ✅ decided |
 | ~18:25 | Opus 5 · max | A1, worktree question only | the commit that adds this row | `grep -rn "/Users/macbook/Projects/VESPER" --include='*.py' verification core tools`: the only hits are two fixture strings in `tools/ci/checks.py` (lines 13978 and 13981). `self_test.py:51` and `checks.py:32` both derive `REPO` from `__file__`. Positive control: a grep for `REPO` in `tools/ci` found 2 files. **So R3 may run in a worktree.** Caveats still apply: a worktree lacks ignored files, and test cases share `~/Library/Application Support/VESPER` with the live app. The first attempt printed a false 0, because zsh expanded the unquoted `*.py` and grep never ran | ✅ |
 | — | — | A1, the rest | — | still owed by the Sonnet session: which accounts VESPER's `claude` rungs use; why `.agenda` exited 78; that `pmset` shows AC power | open |
+| 19:05 | Sonnet 5 · medium | §14 step 0: owner's D1–D6 answers copied from §14 into this ledger (D1 yes/push at R7; D2 verify-then-decide; D3 yes, right before build; D4 yes, owner reviews sentences; D5 b-if-it-fits; D6 give VESPER its own place, F6). **D7 is blank in §14** | — | `git status`: clean, 42 ahead of `origin/feat/macos-host-profile` | ⏸ D7 open |
 
 ### F1 findings
 
