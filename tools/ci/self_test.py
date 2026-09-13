@@ -7890,5 +7890,43 @@ CASES += [
      "engineering' refuses"),
 ]
 
+DROP_GUARD = '        if live_windows is None or str(w.get("window_id")) in live:\n            kept.append(w)\n        else:\n            gone += 1'
+SAY_NOTHING = '    if gone:\n        out["why"] = (f"{gone} window(s) from that session are no longer open "\n                      f"and were dropped rather than shown as present")\n'
+TORN_OLD = '                      f"rather than as a room that may not be the right one")\n        out["restored"] = False'
+TORN_NEW = '                      f"rather than as a room that may not be the right one")\n        out["restored"] = True'
+ORDINARY_OLD = 'ORDINARY_CARDS = ("commands", "explanations", "changes", "terminal", "history",\n                  "metrics", "flags")'
+PULLABLE_OLD = '            "pullable_by": ["owner", "vesper"],'
+PULLABLE_NEW = '            "pullable_by": ["owner"],'
+
+ROOM_PY = "core/research_room.py"
+
+CASES += [
+    ("a-research-session-reopens-the-room-it-left", ROOM_PY,
+     _sub(DROP_GUARD, "        kept.append(w)", 1),
+     "a window that is no longer open comes back as present, so the owner works "
+     "in a room that is not there -- the false reading this surface exists to "
+     "refuse"),
+
+    ("a-research-session-reopens-the-room-it-left", ROOM_PY,
+     _sub(SAY_NOTHING, "", 1),
+     "the room comes back smaller in silence, so the owner discovers the loss "
+     "instead of being told about it"),
+
+    ("a-research-session-reopens-the-room-it-left", ROOM_PY,
+     _sub(TORN_OLD, TORN_NEW, 1),
+     "a torn layout is reported as a RESTORED session, so a room nothing could "
+     "vouch for is presented as last session's"),
+
+    ("a-research-session-reopens-the-room-it-left", ROOM_PY,
+     _sub(ORDINARY_OLD, "ORDINARY_CARDS = ()", 1),
+     "vesper's ordinary cards leave the control card, so entering research "
+     "loses them -- the owner asked for them to remain and be pullable"),
+
+    ("a-research-session-reopens-the-room-it-left", ROOM_PY,
+     _sub(PULLABLE_OLD, PULLABLE_NEW, 1),
+     "the control card becomes a human-only widget, and the owner said 'me or "
+     "vesper' -- arranging the room is an ordinary act for vesper too"),
+]
+
 if __name__ == "__main__":
     sys.exit(main())

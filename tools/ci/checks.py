@@ -26779,6 +26779,111 @@ def check_the_projects_dashboard_is_what_the_owner_asked_for() -> Result:
     return r
 
 
+def check_a_research_session_reopens_the_room_it_left() -> Result:
+    """§29, driven: the room remembers, and a room it cannot vouch for is refused.
+
+    THE OWNER'S SPECIFICATION: *"when i come back to an old research session the
+    same open windows and cards from last session should show up on that session,
+    on a new session, default step shows up"*, controlled from *"a pop up card
+    right above the history card"* which also holds *"the other cards that exist
+    on vesper's normal state"*.
+
+    THE LOAD-BEARING PART IS NOT THE REMEMBERING, IT IS THE CORROBORATION. Step
+    15b established the rule for windows across a restart and `CI-138` enforces
+    it: a restored thing is checked against the live world and fail-closed on
+    every unreadable state. **A room that claims to be last session's room and is
+    not is a false reading**, which is the thing this corpus refuses everywhere
+    else -- and it is worse here, because the owner would work in it believing
+    their sources were still open.
+    """
+    r = Result("a-research-session-reopens-the-room-it-left")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import importlib, tempfile, json as _json, pathlib as _pl
+    from core import research_room as RR
+    importlib.reload(RR)
+
+    real = RR.SESSIONS
+    try:
+        with tempfile.TemporaryDirectory() as d:
+            RR.SESSIONS = _pl.Path(d)
+
+            # 1. A NEW SESSION OPENS AT THE DEFAULT STEP, and says it is new.
+            fresh = RR.restore("never-seen")
+            if fresh.get("restored"):
+                r.err("a session that was never saved reports itself restored")
+            if fresh.get("step") != RR.DEFAULT_STEP:
+                r.err(f"a new session opens at {fresh.get('step')!r} rather than "
+                      f"the default step the owner asked for")
+
+            # 2. AN OLD SESSION BRINGS ITS ROOM BACK.
+            ok, why = RR.save("s1", {"step": "findings",
+                                     "shown": ["findings", "notes", "terminal"],
+                                     "windows": [{"window_id": "w-1"},
+                                                 {"window_id": "w-2"}]})
+            if not ok:
+                r.err(f"a layout could not be saved: {why}")
+            back = RR.restore("s1", live_windows=[{"window_id": "w-1"},
+                                                  {"window_id": "w-2"}])
+            if back.get("step") != "findings" or set(back.get("shown") or []) != {
+                    "findings", "notes", "terminal"}:
+                r.err(f"the room did not come back as it was left: {back}")
+            if len(back.get("windows") or []) != 2:
+                r.err("the session's windows did not come back")
+
+            # 3. A WINDOW THAT IS GONE IS DROPPED **AND SAID**. This is the
+            #    assertion the whole check exists for: showing it as present
+            #    would have the owner working in a room that is not there.
+            thin = RR.restore("s1", live_windows=[{"window_id": "w-1"}])
+            if len(thin.get("windows") or []) != 1:
+                r.err("a window that is no longer open was restored as present")
+            if not str(thin.get("why") or "").strip():
+                r.err("the room came back smaller and said nothing about it, so "
+                      "the owner discovers it rather than being told")
+
+            # 4. AN UNREADABLE LAYOUT OPENS AS NEW, NOT AS AN EMPTY ROOM.
+            (RR.SESSIONS / "torn.json").write_text("{not json", encoding="utf-8")
+            torn = RR.restore("torn")
+            if torn.get("restored"):
+                r.err("a torn layout was reported as a restored session")
+            if torn.get("step") != RR.DEFAULT_STEP or not torn.get("why"):
+                r.err("a torn layout does not fall back to a new session with a "
+                      "reason -- fail-closed means saying so, not being empty")
+            listed = {s["session_id"]: s for s in RR.sessions()}
+            if not listed.get("torn", {}).get("unreadable"):
+                r.err("a damaged session is not listed as unreadable, so it "
+                      "looks like one that never existed")
+
+            # 5. THE CONTROL CARD HOLDS EVERY CARD, ORDINARY ONES INCLUDED.
+            rows = RR.control_card(back)
+            if len(rows) != len(RR.ALL_CARDS):
+                r.err(f"the control card lists {len(rows)} of "
+                      f"{len(RR.ALL_CARDS)} cards")
+            if not any(x["kind"] == "ordinary" for x in rows):
+                r.err("vesper's ordinary cards are not in the control card, so "
+                      "entering research loses them -- the owner asked for them "
+                      "to remain and be pullable")
+            for x in rows:
+                if sorted(x.get("pullable_by") or []) != ["owner", "vesper"]:
+                    r.err(f"{x['id']!r} is not pullable by both; the owner said "
+                          f"'me or vesper' and a human-only control is a "
+                          f"different thing")
+            shown = {x["id"] for x in rows if x["shown"]}
+            if shown != set(back.get("shown") or []):
+                r.err("the control card disagrees with the room about what is "
+                      "on screen")
+    finally:
+        RR.SESSIONS = real
+
+    if not r.errors:
+        r.note("a new session opens at the default step; an old one returns its "
+               "step, cards and windows; a window that is gone is dropped AND "
+               "reported; a torn layout opens as new with its reason and is "
+               "listed as unreadable; and the control card carries every card, "
+               "vesper's ordinary ones included, each pullable by either party")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -26959,6 +27064,7 @@ CHECK_FNS = {
     "an-accumulator-is-not-also-a-string": check_an_accumulator_is_not_also_a_string,
     "vesper-knows-where-it-is": check_vesper_knows_where_it_is,
     "the-projects-dashboard-is-what-the-owner-asked-for": check_the_projects_dashboard_is_what_the_owner_asked_for,
+    "a-research-session-reopens-the-room-it-left": check_a_research_session_reopens_the_room_it_left,
     "the-wallpaper-changes-only-on-vespers-desktop": check_the_wallpaper_changes_only_on_vespers_desktop,
     "a-mode-is-a-pairing-of-two-axes": check_a_mode_is_a_pairing_of_two_axes,
     "a-stage-bounds-what-vesper-opens": check_a_stage_bounds_what_vesper_opens,
