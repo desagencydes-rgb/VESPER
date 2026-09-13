@@ -1427,6 +1427,27 @@ def _describe(proposal: Any, result: dict) -> str:
         can = [r for r in rows if isinstance(r, dict) and (r.get("can") or [])]
         if not n:
             return "I can see that window and nothing on it is usable"
-        return (f"{n} element(s) on it, {len(can)} I can use -- "
-                + "; ".join(str(r.get("label") or r.get("role"))[:40] for r in can[:4]))
+        # NEVER SPEAK A ROLE IDENTIFIER. `AXButton` is an accessibility CODE,
+        # not a name, and this line used to fall back to it whenever a control
+        # carried no label -- which is most icon buttons. The owner heard
+        # "AXButton; AXButton; AXButton; AXButton" read aloud and did not
+        # recognise it as English, because it is not. Measured 2026-09-13 on a
+        # real window: 43 of 54 elements had labels and NONE of the actionable
+        # ones did, so the fallback fired on every single item that mattered.
+        #
+        # SO A CONTROL WITHOUT A NAME IS COUNTED, NOT NAMED. Saying "four
+        # buttons I could not read the names of" is true and useful; reading an
+        # internal identifier out loud is neither.
+        named = [str(r.get("label")).strip() for r in can
+                 if str(r.get("label") or "").strip()]
+        unnamed = len(can) - len(named)
+        if named:
+            head = "; ".join(x[:40] for x in named[:4])
+            more = f", and {len(named) - 4} more" if len(named) > 4 else ""
+            tail = (f". {unnamed} more I can use but could not read a name for"
+                    if unnamed else "")
+            return f"{n} element(s) on it. I can use {head}{more}{tail}"
+        return (f"{n} element(s) on it and {len(can)} I can use, but none of "
+                f"them carry a name I can read, so I cannot tell you what they "
+                f"are without you pointing at one")
     return "done"

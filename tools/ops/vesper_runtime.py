@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import pathlib
 import sys
 import threading
@@ -659,6 +660,42 @@ def _publish_island(bench, changes, bus) -> None:
     tmp = path.with_name(f"island.{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(existing, indent=1), encoding="utf-8")
     tmp.replace(path)
+
+# ------------------------------------------------------------------ one only
+#
+# ONE RUNTIME, AND THE OWNER PAID TO LEARN WHY. Killing the home app does NOT
+# kill the python runtime it spawned: the child is reparented to launchd and
+# keeps running, so every restart stranded another one. Measured 2026-09-13 --
+# THREE runtimes alive at once, two of them orphans with ppid 1. Each reads
+# `say.jsonl`, each answers every utterance, and each speaks. The owner reported
+# "too many fucking voices at the same time, with lot of rate limit responses",
+# and that is what it was: one question answered three times, three times the
+# provider calls, three voices over each other.
+#
+# AN ADVISORY LOCK RATHER THAN A PID FILE. A pid file records an intention and
+# goes stale the moment a process dies badly; a flock is held by the KERNEL and
+# is released when the holder exits for any reason, including a kill -9. The
+# file is opened and deliberately never closed -- the handle must outlive this
+# function or the lock goes with it.
+_RUNTIME_LOCK = []
+
+
+def _only_one_runtime() -> None:
+    """Exit rather than become the second voice in the room."""
+    import fcntl
+    STATE.mkdir(parents=True, exist_ok=True)
+    fh = open(STATE / "runtime.lock", "w")
+    try:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print("another vesper runtime already holds the lock; this one exits "
+              "rather than answering every utterance a second time.",
+              flush=True)
+        raise SystemExit(0)
+    fh.write(str(os.getpid()))
+    fh.flush()
+    _RUNTIME_LOCK.append(fh)          # never closed: the lock lives with it
+
 
 def build(node: str = "vesper-runtime"):
     """Wire what already exists. Nothing here decides anything."""
@@ -2684,6 +2721,10 @@ def main() -> int:
     ap.add_argument("--permission-mode-status", action="store_true",
                     help="print the current permission mode and exit")
     args = ap.parse_args()
+
+    # BEFORE ANYTHING IS BUILT OR READ. A second runtime that gets as far as
+    # opening the stores has already begun competing for them.
+    _only_one_runtime()
 
     # BEFORE `build()`, AND THAT IS THE WHOLE REASON THESE TWO ARE HERE RATHER
     # THAN INSIDE THE PUMP. Reading or setting the mode must not require a

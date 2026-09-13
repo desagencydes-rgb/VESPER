@@ -64,7 +64,7 @@ renders it.
 had. Use `python3.13` (`~/.local/bin/python3.13`). Verified 2026-08-23.
 
 ```sh
-python3.13 tools/ci/checks.py all       # 179 checks
+python3.13 tools/ci/checks.py all       # 180 checks
 python3.13 tools/ci/self_test.py        # red-then-green, 921 cases
 python3.13 tools/traceability_lint.py
 python3.13 tools/reference_lint.py

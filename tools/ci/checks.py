@@ -26972,6 +26972,93 @@ def check_a_surface_is_not_an_act() -> Result:
     return r
 
 
+def check_the_speaking_rate_reaches_the_voice_that_speaks() -> Result:
+    """A rate setting that governs a synthesiser nobody hears is not a setting.
+
+    THE DEFECT, owner-reported 2026-09-13: *"vesper is again talking very fast."*
+    `voice.toml` declared `darija_local_rate = 210` and `english_rate = 0`, and
+    `_rate_for` returns 0 for any synthesiser that is not the LOCAL one. VESPER
+    speaks through the REMOTE voice. Measured across the event store: 133
+    utterances, every one `rate=0`, every one on the remote voice -- and the
+    remote request body carried only `text` and `model_id`, with no voice
+    settings at all. **There was no speed control on the path that makes sound**,
+    and the setting the owner would have reached for had been inert since it was
+    written.
+
+    THE SHAPE IS THE FAMILIAR ONE. A knob exists, a contract declares it, a
+    function reads it, and the consumer that matters never sees it -- the same
+    built-and-unreached this tree keeps finding, except here it is a SETTING
+    rather than a subsystem, so it fails by doing nothing rather than by
+    crashing. It took an owner's ear to find, twice.
+    """
+    r = Result("the-speaking-rate-reaches-the-voice-that-speaks")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tomllib as _t
+
+    doc = _t.loads((REPO / "contracts" / "policy" / "voice.toml")
+                   .read_text(encoding="utf-8"))
+    syn = doc.get("synthesis") or {}
+    if "remote_speed" not in syn:
+        r.err("the contract declares no remote_speed, so the voice the owner "
+              "actually hears has no rate control at all -- which is the state "
+              "that produced the report")
+    else:
+        try:
+            speed = float(syn["remote_speed"])
+        except (TypeError, ValueError):
+            speed = -1.0
+        if not (0.5 <= speed <= 2.0):
+            r.err(f"remote_speed is {syn['remote_speed']!r}, outside the range "
+                  f"the request will send; it would be dropped silently and the "
+                  f"owner would hear the default while the file said otherwise")
+
+    # THE REQUEST MUST CARRY IT. Asserted on the body that is BUILT, not on the
+    # presence of a string: the whole defect was a value that existed and never
+    # travelled.
+    src = (REPO / "core" / "speech.py").read_text(encoding="utf-8")
+    if "voice_settings" not in src:
+        r.err("the remote request carries no voice_settings, so remote_speed is "
+              "declared and never sent -- the exact shape of the original bug")
+
+    # AND A REFUSAL MUST NOT COST THE OWNER THEIR VOICE. Speed is comfort;
+    # speaking is the function.
+    if "speech.speed_refused" not in src:
+        r.err("nothing records a synthesiser refusing the speed field, so "
+              "'speed does nothing here' would be rediscovered by ear a third "
+              "time instead of being in the record")
+    if "fields.pop(\"voice_settings\", None)" not in src:
+        r.err("a refused speed field is not retried without it, so a provider "
+              "that will not take the setting costs the owner speech entirely")
+
+    # THE FALLBACK MUST NOT RAISE. It called a method this class does not have,
+    # which would have thrown inside the path that exists to rescue speech.
+    import ast as _ast
+    tree = _ast.parse(src)
+    cls = next((n for n in _ast.walk(tree)
+                if isinstance(n, _ast.ClassDef)
+                and any(isinstance(f, _ast.FunctionDef) and f.name == "_rate_for"
+                        for f in n.body)), None)
+    if cls is not None:
+        have = {f.name for f in cls.body if isinstance(f, _ast.FunctionDef)}
+        called = {n.func.attr for n in _ast.walk(cls)
+                  if isinstance(n, _ast.Call) and isinstance(n.func, _ast.Attribute)
+                  and isinstance(n.func.value, _ast.Name) and n.func.value.id == "self"}
+        missing = sorted(m for m in called - have
+                         if m.startswith("_") and not m.startswith("__"))
+        for m in missing:
+            r.err(f"self.{m}() is called on the synthesiser and the class does "
+                  f"not define it -- an AttributeError here would cost the owner "
+                  f"their voice inside the path that rescues it")
+
+    if not r.errors:
+        r.note("remote_speed is declared in the synthesis section, inside the "
+               "range the request sends; the request carries voice_settings; a "
+               "refusal is recorded and retried without the field rather than "
+               "going silent; and every self-method the synthesiser calls exists")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -27154,6 +27241,7 @@ CHECK_FNS = {
     "the-projects-dashboard-is-what-the-owner-asked-for": check_the_projects_dashboard_is_what_the_owner_asked_for,
     "a-research-session-reopens-the-room-it-left": check_a_research_session_reopens_the_room_it_left,
     "a-surface-is-not-an-act": check_a_surface_is_not_an_act,
+    "the-speaking-rate-reaches-the-voice-that-speaks": check_the_speaking_rate_reaches_the_voice_that_speaks,
     "the-wallpaper-changes-only-on-vespers-desktop": check_the_wallpaper_changes_only_on_vespers_desktop,
     "a-mode-is-a-pairing-of-two-axes": check_a_mode_is_a_pairing_of_two_axes,
     "a-stage-bounds-what-vesper-opens": check_a_stage_bounds_what_vesper_opens,

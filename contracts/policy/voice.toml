@@ -239,8 +239,10 @@ darija_local_is_msa = true
 # Words per minute. `say` quantises rate coarsely, so nearby numbers can render
 # byte-identical -- 175 (the default) measured 5.11 s on a nine-word line and
 # the owner called it too slow. Set by ear, like every other value here.
-darija_local_rate = 210
-english_rate = 0        # 0 = the voice's own default, which is what was picked
+darija_local_rate = 175   # was 210 -- measured fast by ear, 2026-09-13
+english_rate = 165      # was 0 (the macOS default, ~175 and brisk). The remote
+                        # voice is 401-dead, so the LOCAL voice is what the owner
+                        # actually hears and these are the rates that apply.
 
 # THE REMOTE VOICE HAD NO SPEED CONTROL AT ALL, and the two rates above are why
 # that went unnoticed: `_rate_for` returns 0 for any synthesiser that is not the

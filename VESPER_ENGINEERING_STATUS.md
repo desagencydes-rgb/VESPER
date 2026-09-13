@@ -96,7 +96,7 @@ tools/traceability_lint.py                    PASS   0 errors, 0 warnings, 0 inf
 tools/traceability_lint.py --profile release  FAIL   2 errors, DEPTH only (SR-017, SR-034)
 tools/reference_lint.py                       PASS   0 errors — 179 normative files scanned
 tools/reference_lint.py --self-test           PASS   6/6 red-then-green
-tools/ci/checks.py all                        PASS   179/179 runnable checks, ran 2026-09-13
+tools/ci/checks.py all                        PASS   180/180 runnable checks, ran 2026-09-13
 tools/ci/self_test.py                         STALE  921/921 red-then-green -- last FULL run 900/900 on 2026-09-12; the 21 added since were run on their own. The re-run started that night was killed by a machine restart, not completed
 tools/ci/checks.py status                            104/122 check IDs implemented, 18 PENDING
 tools/ci/checks.py ci-registry                       ENFORCED TODAY: 92/145 invariants

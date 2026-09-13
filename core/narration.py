@@ -30,6 +30,7 @@ and never claims the owner heard anything.
 
 from __future__ import annotations
 
+import time as _time
 import shutil
 import subprocess
 import threading
@@ -49,6 +50,15 @@ from .gateway import TERMINAL, TRANSIENT           # noqa: E402
 # classes: they are outcomes the gateway reaches by other paths.
 EXTRA = ("quota_unavailable_on_tier", "cost_policy", "exhausted_all",
          "greeting")
+
+
+# HOW LONG THE SAME FAILURE STAYS QUIET after it has been said once.
+# `interruption_budget.toml` declares max_contacts_per_hour = 2 for a focused
+# session and nothing read it: `announce` consults `speak_when` -- may this
+# CLASS speak at all -- and that is the only half anything consulted. So a
+# permitted class was permitted EVERY time, one outage narrated once per retry
+# per rung, and the owner reported hearing the same sentence over and over.
+REPEAT_SILENCE_S = 90.0
 
 
 class NarrationRefused(Exception):
@@ -80,6 +90,10 @@ class Announcer:
         sp = raw.get("speech") or {}
         self._speak_when = set(sp.get("speak_when") or ())
         self._log_only = set(sp.get("log_only_when") or ())
+        # WHEN EACH CLASSIFICATION WAS LAST SPOKEN. Keyed on the KIND of
+        # failure, so two different problems inside a minute are two things
+        # the owner hears, and one problem twelve times is one.
+        self._said_at: dict = {}
         self._lines: dict[str, str] = {}
         for row in raw.get("line") or []:
             self._lines[row["classification"]] = row["text"]
@@ -179,6 +193,34 @@ class Announcer:
                                  "note": "no narration line; CI-061 covers this"},
                         component="narration")
                 return
+            # THE BUDGET DECLARES A RATE AND NOTHING READ IT. `announce` checks
+            # `speak_when` -- may this CLASS speak at all -- and that is the only
+            # half of `interruption_budget.toml` anything consults. The contract
+            # also declares `max_contacts_per_hour = 2` for a focused session,
+            # and a permitted class was permitted EVERY time: one outage narrates
+            # once per retry per rung, so the owner hears the same sentence ten
+            # times and reports "i keep hearing rate limited shit again".
+            #
+            # SUPPRESSED PER CLASSIFICATION, NOT GLOBALLY. Two DIFFERENT problems
+            # inside a minute are two things worth hearing; the same one twelve
+            # times is one thing said twelve times.
+            #
+            # `time.monotonic`, AND INV-COORD-4 PERMITS IT. This orders nothing
+            # and supersedes nothing -- it asks "has an interval elapsed", which
+            # `CLAUDE.md` names explicitly as the case that is neither.
+            now = _time.monotonic()
+            last = self._said_at.get(cls, 0.0)
+            if last and (now - last) < REPEAT_SILENCE_S:
+                if self._bus is not None:
+                    self._bus.publish(
+                        "narration.suppressed", subject=cls,
+                        payload={"classification": cls,
+                                 "since_last_s": round(now - last, 1),
+                                 "note": ("the same failure was already spoken; "
+                                          "saying it again is noise, not status")},
+                        component="narration")
+                return
+            self._said_at[cls] = now
             ms = payload.get("retry_after_ms") or payload.get("server_retry_after_ms")
             self.announce(
                 cls, interruption_class=interruption_class,

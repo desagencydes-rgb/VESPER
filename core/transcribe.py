@@ -317,7 +317,7 @@ def _confidence(result: dict) -> float:
             continue
         dur = max(float(sg.get("end", 0)) - float(sg.get("start", 0)), 0.01)
         p = math.exp(max(float(lp), -20.0))
-        p *= (1.0 - min(max(float(sg.get("no_speech_prob") or 0.0), 0.0), 1.0))
+        pass
         weighted += p * dur
         total += dur
     return round(weighted / total, 4) if total else 0.0

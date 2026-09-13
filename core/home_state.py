@@ -94,6 +94,8 @@ class HomeState:
         self._since = time.time()
         self._reason = "no activity yet"
         self._workbench: dict = {}
+        # HAS THIS INSTANCE EVER SUPPLIED ONE? See `write`.
+        self._workbench_set = False
         # LOADED FROM THE FILE, NOT STARTED EMPTY, AND THE OWNER FOUND THIS.
         # Every flag lived in memory only, so a restart -- and `build.sh`
         # restarts the runtime on every build -- wiped the bar clean whether or
@@ -296,6 +298,7 @@ class HomeState:
         """
         with self._lock:
             self._workbench = dict(state or {})
+            self._workbench_set = True
         self.write()
 
     def set_changes(self, state: dict) -> None:
@@ -610,11 +613,27 @@ class HomeState:
                     existing = {}
             existing["face"] = self.state()
             existing["transcript"] = self._transcript
-            # A THIRD KEY, AND STILL ONE MERGE. Written unconditionally so the
-            # card empties when the workbench does -- a board that keeps its
-            # last contents when the source goes quiet reports work that is not
-            # happening, which is the same defect as a face stuck on `thinking`.
-            existing["workbench"] = self._workbench
+            # A THIRD KEY, AND STILL ONE MERGE. Written whenever this instance
+            # has SUPPLIED one, so the card still empties when the workbench
+            # does -- a board that keeps its last contents when the source goes
+            # quiet reports work that is not happening, which is the same defect
+            # as a face stuck on `thinking`.
+            #
+            # BUT NOT WHEN THIS INSTANCE NEVER HAD ONE, and that distinction was
+            # missing and cost the owner their board twice. This file is shared
+            # state: ANY process that builds a HomeState and calls write() --
+            # including a read-only diagnostic asking what the dashboard holds --
+            # had an empty `_workbench`, and an unconditional write published
+            # that emptiness over the running runtime's live board. The owner
+            # watched a card disappear and reported it, and the cause was a
+            # tool looking at it. Measured 2026-09-13.
+            #
+            # `set_workbench` is what the pump calls every pass, so the runtime
+            # still empties the card the moment its own board is empty. A
+            # process that never set one now leaves the field alone instead of
+            # asserting that nothing is happening.
+            if self._workbench_set:
+                existing["workbench"] = self._workbench
             # Written unconditionally, like the workbench above: a board
             # that keeps its last contents when the source goes quiet
             # reports work that is not happening.
