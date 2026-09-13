@@ -653,6 +653,33 @@ what happened; the session records it in the ledger.
 13. **The stop.** While VESPER is doing something, use its stop. The session looks
     up the exact control in `docs/runbooks/` and the arm agent before asking you.
     The work must stop.
+14. **Main menu.** Click each of the 17 icons, and say which ones do nothing or
+    open the wrong thing.
+15. **Expandable menu.** Open it, and say which items are missing, empty, or not
+    important to you. As of 2026-09-08 it had 68 catalogue items, 32 of them with
+    live readings. If D2 is yes, check it after that merge.
+
+### Your "not complete" list (written 2026-09-12): where each item is
+
+The drive above now visits every one of these. **For each, say in your own words
+what is still missing.** The session writes each answer as a ledger row. Anything
+that needs code joins the §8 queue after 21:00, with the model shown here.
+
+**Nothing is built during the drive:** a fix means a rebuild, and a rebuild costs
+another grant trip. Items 14 and 15 add about 5 minutes; the rest of the timeline
+is unchanged.
+
+| your item | already in the plan | in the drive | after 21:00, if it needs work |
+|---|---|---|---|
+| Settings | step 20: done, read-only by design, 15 of 34 rows UNAVAILABLE with a reason; Q22 | item 8 | Opus · high |
+| Research | step 25 done; Q11 (the research stage layout) | item 10 | Opus · high |
+| **Main menu** | **was not in the plan.** The 17 icons were approved on 2026-09-08; whether each one opens something is unverified | **item 14 (new)** | Opus · high |
+| Camera | step 27, Q12 | — (not built yet) | Fable xhigh → Opus, as Q12 |
+| Voice sensitivity | step 22, §12 (R6) | §12 | as §12 says |
+| Modes | step 16 done | item 6 | Opus · high |
+| Memory | F3, and Q1 (step 30) | — | Fable xhigh → Opus, as F3/Q1 |
+| **Expandable menu** | **only D2 was in the plan, not its contents:** 68 items, 32 with live readings | **item 15 (new)** | Opus · high |
+| UI driving + app management | step 19 (the acts need the grants) and step 17 (the app-changing verbs aren't built); Q6, Q7 | item 11 | Opus · xhigh, as Q7 |
 
 ---
 
