@@ -1461,6 +1461,63 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     ],missing:'Native enrollment transport and live registry are unavailable. This request changes no registry or policy.'});
    }),output);
   }
+  // THE CARDS BEHIND THE SEVENTEEN MAIN DESTINATIONS (core/menu_cards.py).
+  // Owner, 2026-09-13: "its buttons need to open cards where i can manage
+  // stuff". A card is rows with sources, settings rows borrowed from the
+  // settings producer (same control, same schema), and action buttons whose
+  // payload is a control -- posted through vesperControl and applied by the
+  // runtime or the host according to its kind. Nothing here is invented by the
+  // page: every row, control and action arrives from the producer.
+  var cardsData={};
+  window.__vesperCards=function(json){
+   try{cardsData=JSON.parse(json)||{};}catch(e){cardsData={};}
+   if(panel.open&&active&&cardsData[active])show(active,null,true);
+  };
+  function menuPost(action,args){
+   try{window.webkit.messageHandlers.vesperControl.postMessage(JSON.stringify({action:action,args:args||{}}));}
+   catch(e){(window.__vesperErrs=window.__vesperErrs||[]).push('control: '+(e&&e.message));}
+  }
+  function renderCard(card){
+   var wrap=node('div','menu-card');
+   if(card.summary)wrap.append(node('p','menu-note',card.summary));
+   var list=node('div','rail-list');
+   (card.rows||[]).forEach(function(r){
+    var row=node('div','rail-row');var left=node('div');left.append(node('div','rail-name',String(r.label)));
+    if(r.detail)left.append(node('div','rail-detail',String(r.detail)));
+    var right=node('div');right.append(node('div','rail-value',String(r.value)));
+    if(r.source)right.append(node('div','rail-where',String(r.source)));
+    row.append(left,right);list.append(row);
+   });
+   wrap.append(list);
+   var srows=[];try{srows=JSON.parse(window.__vesperSettingsData||'[]');}catch(e){srows=[];}
+   (card.settings||[]).forEach(function(id){
+    var r=(srows||[]).filter(function(x){return x&&x.id===id;})[0];if(!r)return;
+    var row=node('div','rail-row');var left=node('div');left.append(node('div','rail-name',r.name));
+    left.append(node('div','rail-detail',String(r.what||'')));
+    var right=node('div');right.append(node('div','rail-value',String(r.value)));
+    var c=window.__vesperSettingControls(r);if(c)right.append(c);
+    row.append(left,right);wrap.append(row);
+   });
+   if((card.controls||[]).length){
+    var c2=window.__vesperSettingControls({controls:card.controls});if(c2)wrap.append(c2);
+   }
+   if((card.actions||[]).length){
+    var bar=node('div','menu-actions');bar.style.cssText='display:flex;flex-wrap:wrap;gap:8px;margin-top:12px';
+    card.actions.forEach(function(a){
+     var b=node('button','menu-action',a.label);b.type='button';b.dataset.control=(a.control&&a.control.action)||'';
+     if(a.note)b.title=a.note;
+     if(a.danger)b.style.borderColor='rgba(255,120,120,.6)';
+     b.addEventListener('click',function(){
+      if(!a.control)return;menuPost(a.control.action,a.control.args||{});
+      b.disabled=true;var was=b.textContent;b.textContent=was+' — sent';
+      setTimeout(function(){b.disabled=false;b.textContent=was;},2500);
+     });
+     bar.append(b);
+    });
+    wrap.append(bar);
+   }
+   return wrap;
+  }
   function show(view,trigger,restoring){
    if(panel.open&&active!==view&&!restoring){trail.push({view:active,scroll:panel.scrollTop});if(trail.length>MAX_MENU_NAV)trail.shift();}
    if(!panel.open){trail=[];opener=trigger&&trigger.isConnected?trigger:tile;}
@@ -1473,6 +1530,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
    else if(view==='command-palette')focus=palette();
    else if(view==='before-after')beforeAfter();
    else if(view==='onboarding-wizard'||view==='enrollment')onboarding();
+   else if(item&&item.area==='main'&&cardsData[view]){content.append(renderCard(cardsData[view]));}
    else if(item){content.append(reading(item,true));}
    else if(view==='settings'){renderSettings();}
    else if(view==='projects'){renderProjects();}

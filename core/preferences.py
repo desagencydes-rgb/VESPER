@@ -59,6 +59,10 @@ SCHEMA: dict[str, tuple[str, Any, Any, str]] = {
     "microphone.gain_db": ("range", 0.0, (-20.0, 20.0, 1.0),
                            "Gain applied to what the microphone hears before "
                            "recognition. Set from a measured level, not a guess."),
+    "activity.granularity": ("choice", "actions", ("all", "actions", "turns"),
+                             "How fine the live activity stream is."),
+    "work_rate.window_hours": ("range", 24.0, (1.0, 168.0, 1.0),
+                               "The window the work-rate card counts over."),
     "windows.manage_others_on_demand": ("bool", True, None,
                                         "Owner's rule 31 (2026-09-13): windows "
                                         "that are not VESPER's are managed only "

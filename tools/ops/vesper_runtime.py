@@ -1973,7 +1973,7 @@ def _drain_control(bus, home, *, path=None, offset_path=None, outbox=None,
                         payload={**res, "args": obj.get("args"),
                                  "at_ms": obj.get("at_ms")},
                         component="runtime")
-            if res.get("ok") and res.get("kind") == C.PREFERENCE:
+            if res.get("ok") and res.get("kind") in (C.PREFERENCE, C.PERMISSION, C.HOST, C.EXPORT):
                 changed_pref = True
             done += 1
         seen = f.tell()

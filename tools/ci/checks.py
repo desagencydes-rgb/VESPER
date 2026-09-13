@@ -4478,6 +4478,153 @@ def check_settings_manage_not_only_show() -> Result:
     return r
 
 
+def check_main_menu_manages() -> Result:
+    """Every main-menu destination opens a card with real rows AND something to
+    do; every action names a control somebody applies; the stop never goes
+    through the runtime.
+
+    OWNER, 2026-09-13: "its buttons need to open cards where i can manage
+    stuff not just look at some json bullshit". Seventeen destinations, each
+    with rows that carry a source, and at least one action, control or borrowed
+    settings row. Actions are `core/controls.py` entries or `host.*` cases the
+    Swift host implements -- checked in both directions, so a card cannot name
+    a button nobody built and the host cannot carry a case no card reaches.
+    INV-STOP-2: `host.stop` is a host case and is NOT in the runtime's registry.
+    """
+    import sqlite3
+    import tempfile
+    from types import SimpleNamespace
+
+    r = Result("main-menu-manages")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core import controls as C
+        from core import menu_cards as MC
+        from core import settings_surface as SS
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"menu_cards, controls or settings did not import: {exc!r}")
+        return r
+
+    html = (REPO / "app" / "home-macos" / "chrome" / "home.html").read_text(encoding="utf-8")
+    swift = (REPO / "app" / "home-macos" / "HomeChrome.swift").read_text(encoding="utf-8")
+    m = re.search(r"var CATALOGUE = (\[.*?\]);\n", html, re.S)
+    if not m:
+        r.err("no CATALOGUE in home.html")
+        return r
+    main_ids = [e["id"] for e in json.loads(m.group(1)) if e.get("area") == "main"]
+    cards = MC.cards(None)
+
+    # 1. EVERY DESTINATION HAS A CARD, EVERY CARD MANAGES SOMETHING.
+    for cid in main_ids:
+        card = cards.get(cid)
+        if not card:
+            r.err(f"main destination {cid!r} has no card: it still opens a reading")
+            continue
+        if not card.get("rows"):
+            r.err(f"card {cid!r} has no rows")
+        for row in card.get("rows") or []:
+            if not all(k in row for k in ("label", "value", "source")) or not str(row["source"]).strip():
+                r.err(f"card {cid!r} row {row!r} lacks a label, value or source")
+        if not (card.get("actions") or card.get("controls") or card.get("settings")):
+            r.err(f"card {cid!r} shows and manages nothing: no action, control or settings row")
+    for cid in cards:
+        if cid not in main_ids:
+            r.err(f"a card {cid!r} exists for no main destination")
+
+    # 2. EVERY ACTION NAMES SOMETHING THAT EXISTS, IN BOTH DIRECTIONS.
+    host_cases = set(re.findall(r'case "(host\.[a-z_]+)":', swift))
+    used_host: set = set()
+    for cid, card in cards.items():
+        for a in card.get("actions") or []:
+            act = (a.get("control") or {}).get("action", "")
+            if act.startswith("host."):
+                used_host.add(act)
+                if act not in host_cases:
+                    r.err(f"card {cid!r} button {a.get('label')!r} names {act!r}, which the host does not implement")
+            elif act not in C.REGISTRY:
+                r.err(f"card {cid!r} button {a.get('label')!r} names {act!r}, which no control applies")
+        for sid in card.get("settings") or []:
+            if sid not in {i[0] for i in SS.ITEMS}:
+                r.err(f"card {cid!r} borrows settings row {sid!r}, which does not exist")
+        for c in card.get("controls") or []:
+            if c.get("key") not in __import__("core.preferences", fromlist=["SCHEMA"]).SCHEMA:
+                r.err(f"card {cid!r} carries a control for undeclared preference {c.get('key')!r}")
+    for hc in host_cases - used_host:
+        r.err(f"the host implements {hc!r} and no card reaches it: built and unreached")
+
+    # 3. THE STOP IS THE HOST'S, NEVER THE RUNTIME'S (INV-STOP-2).
+    if "host.stop" in C.REGISTRY or "host.panic_revoke" in C.REGISTRY:
+        r.err("the runtime's control registry can perform the stop: the stop path "
+              "traverses the control plane it exists to stop")
+    if 'if action.hasPrefix("host.")' not in swift:
+        r.err("the host does not intercept host.* actions; they would go to the runtime as requests")
+    stop_block = swift.split('case "host.stop":')[1].split('case "host.rearm":')[0] if 'case "host.stop":' in swift else ""
+    if not stop_block or "NSAlert" in stop_block:
+        r.err("host.stop is missing or asks first; a stop that asks is not a stop")
+    panic_block = swift.split('case "host.panic_revoke":')[1].split("default:")[0] if 'case "host.panic_revoke":' in swift else ""
+    # THE ANSWER MUST GATE THE RESET, not merely be asked. A first version
+    # looked for `NSAlert` and passed with the alert shown and its answer
+    # ignored (negative control, 2026-09-14).
+    if ("tccutil" not in panic_block
+            or "a.runModal() == .alertFirstButtonReturn" not in panic_block
+            or "cancelled by the owner" not in panic_block
+            or panic_block.index("alertFirstButtonReturn") > panic_block.index("tccutil")):
+        r.err("host.panic_revoke does not make the TCC reset depend on the owner's "
+              "answer to the alert")
+
+    # 4. THE CONTROLS THE CARDS USE, APPLIED ON TEMP PATHS.
+    with tempfile.TemporaryDirectory() as td:
+        T = Path(td)
+        bus = SimpleNamespace(events=[])
+        bus.publish = lambda t, **kw: bus.events.append((t, kw.get("payload") or {}))
+        ctx = {"bus": bus, "permission_path": T / "permission_mode.json",
+               "l2_path": T / "l2.db", "export_dir": T / "exports"}
+        res = C.apply({"action": "permission.set", "args": {"mode": "auto"}}, ctx=ctx)
+        if not res.get("ok") or '"mode": "auto"' not in (T / "permission_mode.json").read_text(encoding="utf-8"):
+            r.err(f"permission.set auto did not write the mode file: {res!r}")
+        res = C.apply({"action": "permission.set", "args": {"mode": "god"}}, ctx=ctx)
+        if res.get("ok"):
+            r.err("permission.set accepted an unknown mode")
+        res = C.apply({"action": "memory.export"}, ctx=ctx)
+        if res.get("ok"):
+            r.err("memory.export claimed success with no store to export")
+        con = sqlite3.connect(T / "l2.db")
+        con.executescript("CREATE TABLE entity(id TEXT, name TEXT); CREATE TABLE fact(id TEXT, text TEXT); "
+                          "CREATE TABLE edge(a TEXT, b TEXT); INSERT INTO entity VALUES('e1','x'); "
+                          "INSERT INTO fact VALUES('f1','y'); INSERT INTO fact VALUES('f2','z');")
+        con.commit(); con.close()
+        res = C.apply({"action": "memory.export"}, ctx=ctx)
+        out_files = list((T / "exports").glob("VESPER-memory-*.json"))
+        if not res.get("ok") or len(out_files) != 1 or res["result"]["counts"] != {"entity": 1, "fact": 2, "edge": 0}:
+            r.err(f"memory.export did not write the store's facts: {res!r}, files {out_files}")
+        res = C.apply({"action": "host.done", "args": {"what": "host.stop", "ok": True, "detail": "x"}}, ctx=ctx)
+        if not res.get("ok") or res.get("kind") != C.HOST:
+            r.err("host.done is not recorded as a host record")
+
+    # 5. THE PAGE RENDERS THE CARD AND THE HOST PUSHES IT.
+    if "window.__vesperCards=function" not in html.replace(" ", ""):
+        r.err("the chrome has no __vesperCards receiver")
+    if "item.area==='main'&&cardsData[view]" not in html.replace(" ", "") or "renderCard(cardsData[view])" not in html:
+        r.err("show() does not render a main destination's card")
+    if "function menuPost" not in html or html.count("vesperControl.postMessage") < 2:
+        r.err("the card's buttons do not post through vesperControl")
+    if "window.__vesperCards(`\\(cardsSafe)`)" not in swift or 'railJSON("menu_cards")' not in swift:
+        r.err("the host does not push menu_cards to the page")
+    if "import ServiceManagement" not in swift:
+        r.err("HomeChrome does not import ServiceManagement; the stop cannot unregister the arm")
+    if "existing[\"menu_cards\"] = self._menu_cards" not in (REPO / "core" / "home_state.py").read_text(encoding="utf-8"):
+        r.err("home_state never writes menu_cards into home.json")
+
+    if r.ok:
+        n_act = sum(len(c.get("actions") or []) for c in cards.values())
+        r.note(f"{len(main_ids)} destinations, {len(cards)} cards, {n_act} actions over "
+               f"{len(C.REGISTRY)} runtime controls and {len(host_cases)} host cases, each side "
+               "reaching the other; the stop is the host's and asks nothing; panic asks once and "
+               "resets TCC; permission.set, memory.export and host.done applied on temp paths")
+    return r
+
+
 def check_chain_budget() -> Result:
     r = Result("chain-budget-bounded")
     if str(REPO) not in sys.path:
@@ -28445,6 +28592,7 @@ CHECK_FNS = {
     "claude-backs-every-ladder": check_claude_backs_every_ladder,
     "vesper-works-in-its-own-place": check_vesper_works_in_its_own_place,
     "settings-manage-not-only-show": check_settings_manage_not_only_show,
+    "main-menu-manages": check_main_menu_manages,
     "triage-excludes-quota": check_triage_excludes_quota,
     "shared-pool-is-shared": check_shared_pool_is_shared,
     "intake-is-modality-neutral": check_intake_is_modality_neutral,

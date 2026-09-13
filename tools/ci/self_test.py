@@ -1136,6 +1136,8 @@ F7_RUNTIME = "tools/ops/vesper_runtime.py"
 F7_HOME_HTML = "app/home-macos/chrome/home.html"
 F7_HOMECHROME = "app/home-macos/HomeChrome.swift"
 F7_MAIN_SWIFT = "app/island-macos/main.swift"
+F8_CARDS = "core/menu_cards.py"
+F8_CONTROLS = "core/controls.py"
 F6_BUILD_SH = "app/island-macos/build.sh"
 F6_RUNTIME_HOST = "app/home-macos/RuntimeHost.swift"
 CHROME_TPL = "app/home-macos/chrome/home.html"
@@ -2148,6 +2150,45 @@ CASES += [
           "        controller?.retreat(visible)", 1),
      "the island ignores the owner's toggle: the preference is written, read and "
      "not obeyed"),
+
+    ("main-menu-manages", F8_CARDS,
+     _sub('    out["emergency-stop"] = {', '    out["emergency-stop_DISABLED"] = {', 1),
+     "the emergency-stop destination has no card again and opens a one-line "
+     "reading, with nothing to press"),
+
+    ("main-menu-manages", F8_CARDS,
+     _sub('        "actions": [_action(f"mode-{m}", f"Set {m}", "permission.set", {"mode": m}) for m in PM.MODES],',
+          '        "actions": [],', 1),
+     "the grant-templates card shows the permission mode and offers no way to "
+     "set it -- a card that manages nothing, which is where this started"),
+
+    ("main-menu-manages", F8_CONTROLS,
+     _sub('    "permission.set": (PERMISSION, _set_permission),', '', 1),
+     "three buttons name a control nobody applies: the card promises and the "
+     "runtime refuses every press"),
+
+    ("main-menu-manages", F7_HOMECHROME,
+     _sub('        if action.hasPrefix("host.") {', '        if false {', 1),
+     "host actions travel to the runtime as requests -- the stop would traverse "
+     "the control plane it exists to stop (INV-STOP-2)"),
+
+    ("main-menu-manages", F7_HOMECHROME,
+     _sub('            guard a.runModal() == .alertFirstButtonReturn else { return (false, "cancelled by the owner") }',
+          '            _ = a', 1),
+     "panic-revoke resets every grant without asking: one mis-click costs the "
+     "owner the whole grant trip"),
+
+    ("main-menu-manages", F7_HOME_HTML,
+     _sub("   else if(item&&item.area==='main'&&cardsData[view]){content.append(renderCard(cardsData[view]));}",
+          "   else if(false){content.append(renderCard(cardsData[view]));}", 1),
+     "the cards arrive and the page never renders them: every destination opens "
+     "the old reading"),
+
+    ("main-menu-manages", F7_HOMECHROME,
+     _sub("              step('cards',     function(){ if (window.__vesperCards) window.__vesperCards(`\\(cardsSafe)`); });",
+          "", 1),
+     "the host builds the cards JSON and never pushes it, so the receiver waits "
+     "forever with nothing to show"),
 
     ("chain-budget-bounded", GATEWAY,
      _sub("    MAX_ATTEMPTS_PER_REQUEST = 10", "    MAX_ATTEMPTS_PER_REQUEST = 100", 1),

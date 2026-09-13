@@ -80,10 +80,63 @@ def _act(args: dict, ctx: dict) -> dict:
     return {"queued": text}
 
 
+PERMISSION, EXPORT, HOST = "permission", "export", "host"
+
+
+def _set_permission(args: dict, ctx: dict) -> dict:
+    """The standing permission mode. A NAMED principal, and the click is one."""
+    from core import permission_mode as PM
+    mode = str(args.get("mode") or "")
+    try:
+        PM.write(mode, principal="owner", bus=ctx.get("bus"),
+                 now_ms=int(time.time() * 1000), path=ctx.get("permission_path"))
+    except PM.ModeRefused as exc:
+        raise ControlRefused(str(exc)) from None
+    return {"mode": mode}
+
+
+def _export_memory(args: dict, ctx: dict) -> dict:
+    """Facts and entities out of the L2 store, as JSON on the owner's Desktop.
+    Ids and facts, never the transcript (`map-navigates-and-never-carries-content`)."""
+    import pathlib
+    import sqlite3
+    src = pathlib.Path(ctx.get("l2_path") or (pathlib.Path.home() / "Library" / "Application Support" / "VESPER" / "l2.db"))
+    if not src.exists():
+        raise ControlRefused("there is no memory store to export yet")
+    dest_dir = pathlib.Path(ctx.get("export_dir") or (pathlib.Path.home() / "Desktop"))
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    out = {"exported_at_ms": int(time.time() * 1000), "tables": {}}
+    con = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
+    try:
+        for t in ("entity", "fact", "edge"):
+            try:
+                cur = con.execute(f"SELECT * FROM {t}")
+                cols = [c[0] for c in cur.description]
+                out["tables"][t] = [dict(zip(cols, r)) for r in cur.fetchall()]
+            except sqlite3.Error as exc:
+                out["tables"][t] = {"error": str(exc)}
+    finally:
+        con.close()
+    dest = dest_dir / time.strftime("VESPER-memory-%Y%m%d-%H%M%S.json")
+    dest.write_text(json.dumps(out, indent=1, default=str), encoding="utf-8")
+    return {"path": str(dest),
+            "counts": {t: (len(v) if isinstance(v, list) else 0) for t, v in out["tables"].items()}}
+
+
+def _host_done(args: dict, ctx: dict) -> dict:
+    """The host did something itself (a stop, a pane, a revoke) and says so here
+    so the record is on the bus with everything else. Nothing is applied."""
+    return {"what": str(args.get("what") or ""), "ok": bool(args.get("ok", True)),
+            "detail": str(args.get("detail") or "")[:300]}
+
+
 REGISTRY: dict[str, tuple[str, Callable[[dict, dict], dict]]] = {
     "preference.set": (PREFERENCE, _set_preference),
+    "permission.set": (PERMISSION, _set_permission),
     "governed.propose": (GOVERNED, _propose_governed),
+    "memory.export": (EXPORT, _export_memory),
     "act": (ACT, _act),
+    "host.done": (HOST, _host_done),
 }
 
 

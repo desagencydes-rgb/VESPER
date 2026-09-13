@@ -404,6 +404,17 @@ class HomeState:
             from core import settings_surface as S
             with self._lock:
                 self._settings = S.rows()
+            # THE MAIN MENU'S CARDS, on the same cadence and from the same
+            # producer pass: each destination's readings, borrowed settings rows
+            # and actions (`core/menu_cards.py`). A card that fails to build
+            # leaves the previous one standing rather than emptying the menu.
+            try:
+                from core import menu_cards as MC
+                with self._lock:
+                    self._menu_cards = MC.cards(self)
+                n += len(self._menu_cards)
+            except Exception:                             # noqa: BLE001
+                pass
             n += len(self._settings)
         except Exception:                                 # noqa: BLE001
             pass
@@ -671,6 +682,8 @@ class HomeState:
             # not true of any setting.
             if self._settings:
                 existing["settings"] = self._settings
+            if getattr(self, "_menu_cards", None):
+                existing["menu_cards"] = self._menu_cards
             if self._projects:
                 existing["projects"] = self._projects
             if self._dashboard:

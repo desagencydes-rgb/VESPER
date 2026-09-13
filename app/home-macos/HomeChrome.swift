@@ -30,6 +30,7 @@
 
 import AppKit
 import WebKit
+import ServiceManagement
 
 // MARK: - The two directions between the page and the runtime
 
@@ -170,6 +171,21 @@ final class ControlBridge: NSObject, WKScriptMessageHandler {
         else { return }
         o["at_ms"] = Int(Date().timeIntervalSince1970 * 1000)
         o["source"] = "home"
+        // THE HOST'S OWN ACTIONS. `host.*` never reaches the runtime as a
+        // request: the stop must not traverse the control plane it stops
+        // (INV-STOP-2), a System Settings pane is the host's to open, and a
+        // TCC reset is the owner's own machine speaking. Each is done here, on
+        // the click, and what happened is then appended as `host.done` so the
+        // runtime puts it on the bus beside everything else.
+        if action.hasPrefix("host.") {
+            let args = (o["args"] as? [String: Any]) ?? [:]
+            let (ok, detail) = HostActions.perform(action, args)
+            print("control: \(action) -> \(ok ? "ok" : "refused"): \(detail)")
+            o = ["action": "host.done",
+                 "args": ["what": action, "ok": ok, "detail": detail],
+                 "at_ms": Int(Date().timeIntervalSince1970 * 1000),
+                 "source": "host"]
+        }
         guard let data = try? JSONSerialization.data(withJSONObject: o),
               var line = String(data: data, encoding: .utf8) else { return }
         line += "\n"
@@ -184,6 +200,120 @@ final class ControlBridge: NSObject, WKScriptMessageHandler {
             try? Data(line.utf8).write(to: url)
         }
         print("control: \(action) queued")
+    }
+}
+
+
+/// The things only the host may do for a button: stop and re-arm autonomy,
+/// open a privacy pane, read the grants, request speech consent, run the
+/// gates, drop every grant. Each is a closed case; there is no generic "run".
+enum HostActions {
+    static let bundleID = Bundle.main.bundleIdentifier ?? "ai.vesper.island"
+    static let state = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/VESPER")
+    /// The panes a button may open. An allowlist, not a prefix match: a URL
+    /// the page invented resolves to nothing.
+    static let panes: Set<String> = [
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation",
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_SpeechRecognition",
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_Calendars",
+    ]
+
+    @discardableResult
+    static func run(_ argv: [String], cwd: String? = nil, wait: Bool = true,
+                    stdout: URL? = nil) -> (Int32, String) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: argv[0])
+        p.arguments = Array(argv.dropFirst())
+        if let cwd { p.currentDirectoryURL = URL(fileURLWithPath: cwd) }
+        var pipe: Pipe? = nil
+        if let stdout {
+            try? "".write(to: stdout, atomically: true, encoding: .utf8)
+            if let h = try? FileHandle(forWritingTo: stdout) { p.standardOutput = h; p.standardError = h }
+        } else {
+            pipe = Pipe(); p.standardOutput = pipe; p.standardError = pipe
+        }
+        do { try p.run() } catch { return (127, "\(error)") }
+        if !wait { return (0, "started, pid \(p.processIdentifier)") }
+        let out = pipe?.fileHandleForReading.readDataToEndOfFile() ?? Data()
+        p.waitUntilExit()
+        return (p.terminationStatus, String(data: out, encoding: .utf8) ?? "")
+    }
+
+    /// Where the project is, as the build recorded it (core/places.py reads the
+    /// same line). Empty when the record is missing.
+    static func projectRoot() -> String {
+        guard let res = Bundle.main.resourceURL,
+              let text = try? String(contentsOf: res.appendingPathComponent("runtime/place.toml"), encoding: .utf8)
+        else { return "" }
+        for line in text.split(separator: "\n") where line.hasPrefix("project_root") {
+            let v = line.split(separator: "=", maxSplits: 1).last.map(String.init) ?? ""
+            return v.trimmingCharacters(in: CharacterSet(charactersIn: " \"'"))
+        }
+        return ""
+    }
+
+    static func perform(_ action: String, _ args: [String: Any]) -> (Bool, String) {
+        switch action {
+        case "host.stop":
+            // THE STOP. Unregistering the arm agent stops the minter; the
+            // enable token expires within its TTL and autonomy halts
+            // (INV-STOP-3). No dialog: a stop that asks first is not a stop.
+            if #available(macOS 13.0, *) {
+                do { try SMAppService.agent(plistName: "ai.vesper.island.arm.plist").unregister() }
+                catch { return (false, "unregister failed: \(error)") }
+                return (true, "arm agent unregistered; token expires within its TTL")
+            }
+            return (false, "needs macOS 13")
+        case "host.rearm":
+            if #available(macOS 13.0, *) {
+                do { try SMAppService.agent(plistName: "ai.vesper.island.arm.plist").register() }
+                catch { return (false, "register failed: \(error)") }
+                return (true, "arm agent registered by the owner's click")
+            }
+            return (false, "needs macOS 13")
+        case "host.open_url":
+            guard let s = args["url"] as? String, panes.contains(s), let u = URL(string: s) else {
+                return (false, "not an allowed pane")
+            }
+            NSWorkspace.shared.open(u)
+            return (true, "opened \(s.split(separator: "?").last ?? "")")
+        case "host.speech_consent":
+            let (rc, out) = run(["/usr/bin/open", "-n", Bundle.main.bundlePath, "--args", "--speech-consent"])
+            return (rc == 0, rc == 0 ? "consent requested as \(bundleID)" : out)
+        case "host.read_grants":
+            let out = state.appendingPathComponent("grants.txt").path
+            let (rc, msg) = run(["/usr/bin/open", "-n", Bundle.main.bundlePath, "--args", "--grants", "--out", out])
+            return (rc == 0, rc == 0 ? "grants being written to \(out)" : msg)
+        case "host.run_gates":
+            let root = projectRoot()
+            guard !root.isEmpty else { return (false, "the build recorded no project root") }
+            let py = "/Users/macbook/.local/bin/python3.13"
+            let log = state.appendingPathComponent("gates.log")
+            let (_, msg) = run([py, "tools/ci/checks.py", "all"], cwd: root, wait: false, stdout: log)
+            return (true, "gates \(msg); output in gates.log")
+        case "host.panic_revoke":
+            // THE ONE HOST ACTION THAT ASKS, because it costs the owner a grant
+            // trip to undo. NSAlert, on the main thread where this handler runs.
+            let a = NSAlert()
+            a.messageText = "Revoke every grant?"
+            a.informativeText = "This resets Accessibility, Screen Recording, Microphone, Camera, Speech, Automation and Calendars for \(bundleID) and stops autonomy. VESPER keeps running. Re-granting takes the grant trip."
+            a.addButton(withTitle: "Revoke everything")
+            a.addButton(withTitle: "Cancel")
+            a.alertStyle = .critical
+            guard a.runModal() == .alertFirstButtonReturn else { return (false, "cancelled by the owner") }
+            let (rc, out) = run(["/usr/bin/tccutil", "reset", "All", bundleID])
+            if #available(macOS 13.0, *) {
+                try? SMAppService.agent(plistName: "ai.vesper.island.arm.plist").unregister()
+            }
+            return (rc == 0, rc == 0 ? "every TCC grant for \(bundleID) reset; arm agent unregistered" : out)
+        default:
+            return (false, "\(action) is not a host action")
+        }
     }
 }
 
@@ -2018,6 +2148,63 @@ final class HomeChrome {
             ],missing:'Native enrollment transport and live registry are unavailable. This request changes no registry or policy.'});
            }),output);
           }
+          // THE CARDS BEHIND THE SEVENTEEN MAIN DESTINATIONS (core/menu_cards.py).
+          // Owner, 2026-09-13: "its buttons need to open cards where i can manage
+          // stuff". A card is rows with sources, settings rows borrowed from the
+          // settings producer (same control, same schema), and action buttons whose
+          // payload is a control -- posted through vesperControl and applied by the
+          // runtime or the host according to its kind. Nothing here is invented by the
+          // page: every row, control and action arrives from the producer.
+          var cardsData={};
+          window.__vesperCards=function(json){
+           try{cardsData=JSON.parse(json)||{};}catch(e){cardsData={};}
+           if(panel.open&&active&&cardsData[active])show(active,null,true);
+          };
+          function menuPost(action,args){
+           try{window.webkit.messageHandlers.vesperControl.postMessage(JSON.stringify({action:action,args:args||{}}));}
+           catch(e){(window.__vesperErrs=window.__vesperErrs||[]).push('control: '+(e&&e.message));}
+          }
+          function renderCard(card){
+           var wrap=node('div','menu-card');
+           if(card.summary)wrap.append(node('p','menu-note',card.summary));
+           var list=node('div','rail-list');
+           (card.rows||[]).forEach(function(r){
+            var row=node('div','rail-row');var left=node('div');left.append(node('div','rail-name',String(r.label)));
+            if(r.detail)left.append(node('div','rail-detail',String(r.detail)));
+            var right=node('div');right.append(node('div','rail-value',String(r.value)));
+            if(r.source)right.append(node('div','rail-where',String(r.source)));
+            row.append(left,right);list.append(row);
+           });
+           wrap.append(list);
+           var srows=[];try{srows=JSON.parse(window.__vesperSettingsData||'[]');}catch(e){srows=[];}
+           (card.settings||[]).forEach(function(id){
+            var r=(srows||[]).filter(function(x){return x&&x.id===id;})[0];if(!r)return;
+            var row=node('div','rail-row');var left=node('div');left.append(node('div','rail-name',r.name));
+            left.append(node('div','rail-detail',String(r.what||'')));
+            var right=node('div');right.append(node('div','rail-value',String(r.value)));
+            var c=window.__vesperSettingControls(r);if(c)right.append(c);
+            row.append(left,right);wrap.append(row);
+           });
+           if((card.controls||[]).length){
+            var c2=window.__vesperSettingControls({controls:card.controls});if(c2)wrap.append(c2);
+           }
+           if((card.actions||[]).length){
+            var bar=node('div','menu-actions');bar.style.cssText='display:flex;flex-wrap:wrap;gap:8px;margin-top:12px';
+            card.actions.forEach(function(a){
+             var b=node('button','menu-action',a.label);b.type='button';b.dataset.control=(a.control&&a.control.action)||'';
+             if(a.note)b.title=a.note;
+             if(a.danger)b.style.borderColor='rgba(255,120,120,.6)';
+             b.addEventListener('click',function(){
+              if(!a.control)return;menuPost(a.control.action,a.control.args||{});
+              b.disabled=true;var was=b.textContent;b.textContent=was+' — sent';
+              setTimeout(function(){b.disabled=false;b.textContent=was;},2500);
+             });
+             bar.append(b);
+            });
+            wrap.append(bar);
+           }
+           return wrap;
+          }
           function show(view,trigger,restoring){
            if(panel.open&&active!==view&&!restoring){trail.push({view:active,scroll:panel.scrollTop});if(trail.length>MAX_MENU_NAV)trail.shift();}
            if(!panel.open){trail=[];opener=trigger&&trigger.isConnected?trigger:tile;}
@@ -2030,6 +2217,7 @@ final class HomeChrome {
            else if(view==='command-palette')focus=palette();
            else if(view==='before-after')beforeAfter();
            else if(view==='onboarding-wizard'||view==='enrollment')onboarding();
+           else if(item&&item.area==='main'&&cardsData[view]){content.append(renderCard(cardsData[view]));}
            else if(item){content.append(reading(item,true));}
            else if(view==='settings'){renderSettings();}
            else if(view==='projects'){renderProjects();}
@@ -3803,6 +3991,9 @@ final class HomeChrome {
             // serialises just as happily; the page reads `panels` off it and shows
             // UNAVAILABLE when the producer has not run.
             let dashSafe = esc(Self.railJSON("project_dashboard"))
+            // The main menu's seventeen cards (core/menu_cards.py): rows,
+            // borrowed settings rows and actions, keyed by destination id.
+            let cardsSafe = esc(Self.railJSON("menu_cards"))
             let setSafe = Self.settingsJSON()
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "`", with: "\\`")
@@ -3851,6 +4042,7 @@ final class HomeChrome {
               step('projects', function(){ if (window.__vesperRail) window.__vesperRail('projects', `\(projSafe)`); });
               step('research', function(){ if (window.__vesperRail) window.__vesperRail('research', `\(resSafe)`); });
               step('dashboard', function(){ if (window.__vesperRail) window.__vesperRail('dashboard', `\(dashSafe)`); });
+              step('cards',     function(){ if (window.__vesperCards) window.__vesperCards(`\(cardsSafe)`); });
             })();
             """
             // REPORT WHAT THE PUSH DID. `completionHandler: nil` swallowed
