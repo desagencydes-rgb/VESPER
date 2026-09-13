@@ -1513,9 +1513,27 @@ def _render_conversation(recent: list) -> str:
         lines.append(f"  {who}: {strip_internal_prefix(text)[:400]}")
     if not lines:
         return ""
+    # AND THEY ARE THE PAST, NOT AN ANSWER TO REUSE.
+    #
+    # The comment above records the copying problem and the fix that was made
+    # for it -- cleaning the TEXT of past replies so a leaked internal name
+    # stopped teaching the next turn. It did not stop whole replies being
+    # reused. Measured 2026-09-13: a sentence that exists nowhere in this
+    # codebase came back five times across a dozen restarts and every code
+    # change, because it was in the transcript and the answerer kept repeating
+    # it as though it were this turn's result. The owner saw it and said so.
+    #
+    # SO THE BLOCK SAYS WHAT IT IS FOR. It resolves pronouns. It is not a source
+    # of findings, and a past reply is not evidence about the present -- which
+    # is the same rule this corpus applies to an instrument's self-report.
     return ("The conversation so far, most recent last. When the owner says "
             "\"that\", \"it\" or \"what you just said\", this is what they "
-            "mean:\n" + "\n".join(lines))
+            "mean.\n"
+            "THESE ARE PAST TURNS, NOT RESULTS. Never repeat an earlier reply "
+            "as your answer to a new question, and never state something as "
+            "having just happened because a past reply says it did -- report "
+            "only what THIS turn found or did.\n"
+            + "\n".join(lines))
 
 
 def _what_was_tried(steps: list, final: str) -> str:

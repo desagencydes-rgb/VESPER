@@ -27532,7 +27532,12 @@ def check_a_failure_reaches_the_bar_and_the_next_turn() -> Result:
     if "cf-strong" not in bar:
         r.err("the flag renderer drops the flag text, so a turn shown the bar "
               "learns nothing from it")
-    if "NEVER INSTRUCTIONS" not in bar.upper() and "RECORDS" not in bar.upper():
+    # BOTH WORDS, NOT EITHER. This read `A not in ... and B not in ...`, so
+    # deleting one left the other and the deliberate violation came back GREEN.
+    # The marking is "records, never instructions" and half of it is not the
+    # rule: "records" alone does not say they must not be obeyed.
+    _up = bar.upper()
+    if "RECORDS" not in _up or "INSTRUCTIONS" not in _up:
         r.err("flag text reaches the planner without being marked as a record. "
               "It quotes provider messages and command output, which is the "
               "world talking, and INV-ACT-3 governs that")
@@ -27558,6 +27563,32 @@ def check_a_failure_reaches_the_bar_and_the_next_turn() -> Result:
     if "No such file or directory" not in after_fail:
         r.err("the stderr does not reach the planner, so there is nothing to "
               "diagnose FROM and the instruction to diagnose is empty advice")
+
+    # 4. CONTEXT IS CONTEXT, NOT A VERDICT AND NOT A RESULT. Both blocks that
+    #    reach the answerer were measured causing the failure they now warn
+    #    about, within an hour of each other.
+    bar_txt = render_flags([{"text": "that window is not on the desktop showing"}])
+    up = bar_txt.upper()
+    if "NEVER REFUSE" not in up or "HISTORY" not in up:
+        r.err("the flag block does not tell the planner that a flag is HISTORY. "
+              "Measured: shown a flag saying something failed before, vesper "
+              "proposed nothing and answered by paraphrasing the flag -- a "
+              "record of a past failure became a standing refusal")
+
+    import re as _re2
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    conv = _re2.search(r"def _render_conversation.*?\n\n\n", rt, _re2.S)
+    if not conv:
+        r.err("_render_conversation is gone, so this check cannot see what the "
+              "answerer is told about past turns")
+    else:
+        body = conv.group(0).upper()
+        if "PAST TURNS, NOT RESULTS" not in body:
+            r.err("past turns are handed to the answerer without being marked "
+                  "as past. Measured: a sentence that exists NOWHERE in this "
+                  "codebase came back five times across a dozen restarts, "
+                  "because it was in the transcript and the answerer repeated "
+                  "it as this turn's result")
 
     if not r.errors:
         r.note("a ladder that answers nothing raises a flag naming the rung and "
