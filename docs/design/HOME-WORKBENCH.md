@@ -5103,3 +5103,58 @@ supplied a board leaves it alone, and the process that supplies one can still
 empty it — because a card that keeps its contents after work stops reports work
 that is not happening, which is the defect the unconditional write existed to
 prevent.
+
+---
+
+# 47. THE ELEVENLABS DIAGNOSIS WAS WRONG TWICE, AND SPEECH WAS NEVER BROKEN
+
+**Corrected 2026-09-13 before anything shipped on it.** The owner asked *"what
+elevenlabs key are you talking about?? what the hell happened there???"* — a fair
+question, because two things this session told them were untrue.
+
+**FIRST CLAIM: "your key is dead, replace it."** It is not dead. Measured against
+the account endpoint, all six keys authenticate:
+
+| key | state |
+|---|---|
+| `ELEVENLABS_API_KEY` | **10000/10000 used** — spent, which is what the 401 means |
+| `_2` | 4,847 characters left |
+| `_3` | 9,994 left |
+| `_4` `_5` `_6` | 10,000 each |
+
+A free tier that refuses at its ceiling answers 401, not 429. Nothing was revoked
+and nothing needs replacing.
+
+**SECOND CLAIM: "only one key is wired, so speech falls back to the local
+voice."** `core/speech.speech_rows()` **already expands the numbered keys** —
+`elevenlabs-speech#2` through `#6` are on the ladder and always were. Five
+duplicate rungs were written into `provider_supply.toml` on the strength of that
+belief and reverted; leaving them would have made VESPER retry spent keys before
+reaching working ones.
+
+**AND SPEECH WAS WORKING THE WHOLE TIME.** Every `speech.attempted` event in the
+store: **141 attempts, HTTP 200, played = true, without exception.** The 49 rung
+failures are key 1 being spent, and the ladder advanced past them exactly as it
+was built to.
+
+## SO WHAT WAS THE OWNER HEARING
+
+**The remote voice, at the remote voice's own speed** — not the local
+synthesiser. Which means `darija_local_rate` and `english_rate` were never the
+lever, and `remote_speed` is: measured this session, the provider accepts
+`voice_settings: {"speed": 0.88}` and returns audio (HTTP 200, 24,703 bytes). The
+local rates were lowered anyway and that is harmless — they govern a fallback
+only reachable once all six accounts are spent — but they are not the fix and
+this section says so.
+
+## THE PATTERN, FOR THE FOURTH TIME TONIGHT
+
+A registry read that answered "is it enrolled" and was reported as "does it
+exist". An event query with a row cap that turned 68 events into 1. A
+writer-shaped reader that erased what it measured. And now a ladder read as
+one-rung when the loader expands it to six.
+
+**Every one of them concluded ABSENCE from a partial read**, and every one was
+reported to the owner as a finding about VESPER before it was checked. The rule
+that catches all four is the same: *before reporting that something is missing,
+ask what the thing doing the looking can see.*
