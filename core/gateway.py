@@ -192,6 +192,29 @@ class Provider:
         return (self.provider_id, self.model)
 
 
+_TIER_ORDER = {"standard": 0, "strong": 1}
+
+
+def _tier_of(profile_id: str | None) -> str | None:
+    """The tier a profile id names, or None when it names none this knows.
+
+    Supply profiles read `remote-{tier}-{purpose}-rung{N}-{egress}`; the local
+    ones read `{tier}-accelerated-{variant}`. Anything else is unknown, and an
+    unknown tier lends nothing (fail-closed).
+    """
+    if not profile_id:
+        return None
+    parts = profile_id.split("-")
+    tier = parts[1] if parts[0] == "remote" and len(parts) > 1 else parts[0]
+    return tier if tier in _TIER_ORDER else None
+
+
+def _tier_at_least(have: str | None, want: str | None) -> bool:
+    if have is None or want is None:
+        return False
+    return _TIER_ORDER[have] >= _TIER_ORDER[want]
+
+
 LOCAL, REMOTE, UNKNOWN_LOCALITY = "local", "remote", "unknown"
 _LOOPBACK = ("localhost", "127.", "0.0.0.0", "[::1]", "::1")
 
@@ -966,9 +989,42 @@ class ModelGateway:
                 # not. The outcome field distinguishes them; the label should
                 # not need it to.
                 self._record(by_key[k], "skipped",
-                             f"quota_ledger_{self.quota.entry(*k).state}",
+                             f"quota_ledger_{self.quota.offered_state(self.quota.entry(*k))}",
                              None, 0.0)
         providers = [by_key[k] for k in ranked]
+
+        if profile_id is not None and not ranked:
+            # BORROW FROM A LADDER WITH HEADROOM. Owner, 2026-09-13: when a
+            # purpose's own rows are all spent -- keys, then Claude, then
+            # Codex -- the request goes to a rung that is unlikely to hit its
+            # limit, one key at a time. "Unlikely" is MEASURED: the ledger ranks
+            # every other profile's rows by headroom, most first, so the lender
+            # is whichever window has the most left, and if it fails the next
+            # one is tried. Never a lower tier: a standard rung answering a
+            # strong request would answer a different question, which is the
+            # objection `NoProviderForProfile` records and this does not lift.
+            # Egress and cost are still checked per rung in the loop below.
+            want = _tier_of(profile_id)
+            with self._lock:
+                everyone = list(self._providers)
+            lenders: dict[tuple[str, str], Provider] = {}
+            for p in everyone:
+                if (not p.available or p.profile_id == profile_id
+                        or not _tier_at_least(_tier_of(p.profile_id), want)):
+                    continue
+                lenders.setdefault(p.quota_key(), p)
+            borrowed = self.quota.rank(list(lenders))
+            if borrowed:
+                self._bus.publish(
+                    "gateway.borrowed", subject=task_id or "unassigned",
+                    payload={"task_id": task_id, "profile_id": profile_id,
+                             "lenders": [lenders[k].provider_id for k in borrowed],
+                             "note": ("every row of the routed profile is spent "
+                                      "or held back; lending rows of the same "
+                                      "or a stronger tier, ranked by measured "
+                                      "headroom")},
+                    component="gateway")
+                providers = [lenders[k] for k in borrowed]
 
         # THEN, IF THE CALLER IS WAITING, RE-ORDER ON OBSERVED SECONDS.
         #

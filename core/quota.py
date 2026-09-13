@@ -48,6 +48,7 @@ event ordering remains HLC's job everywhere else in the system.
 from __future__ import annotations
 
 import json
+import math
 import threading
 import time
 from dataclasses import dataclass, field, asdict
@@ -112,17 +113,49 @@ class Entry:
     # Provenance. A number whose origin is not recorded cannot be audited, and
     # this file's whole purpose is deciding what to trust.
     source: str = ""
+    # VESPER'S OWN CEILING, AS A SHARE OF THE PROVIDER'S. Owner, 2026-09-13: the
+    # account the agents share may use 70% of its window and the advisor's 40%,
+    # so that VESPER's own calls never spend what the owner needs. IT BINDS ONLY
+    # ON A MEASURED LIMIT: a share of an unknown number is an unknown number
+    # (INV-HW-2), so until the first refusal measures the window the cap is
+    # declared and does not bind, and says so.
+    soft_cap_ratio: float | None = None
+
+    def effective_limit(self) -> int | None:
+        """The ceiling this entry is actually allowed to reach, or None.
+
+        None when nothing measured the provider's ceiling, or no cap is
+        declared. Never below 1: a cap that rounds to zero would retire a rung
+        VESPER is permitted to use, which is the fail-closed reading applied to
+        the wrong quantity.
+        """
+        if (self.limit is None or not self.limit_is_measured
+                or self.soft_cap_ratio is None):
+            return None
+        return max(1, int(float(self.limit) * self.soft_cap_ratio))
+
+    def soft_capped(self) -> bool:
+        """VESPER has stopped itself here; the provider has not refused."""
+        eff = self.effective_limit()
+        return eff is not None and self.used >= eff
 
     def remaining(self) -> float | None:
-        """Headroom, or None when the ceiling was never measured."""
+        """Headroom, or None when the ceiling was never measured.
+
+        Against VESPER's own ceiling where one binds: headroom the cap forbids
+        spending is not headroom, and ranking on it would send the ladder
+        straight at the line the cap exists to hold.
+        """
         if self.limit is None:
             return None
-        return max(0.0, float(self.limit) - self.used)
+        ceiling = self.effective_limit()
+        return max(0.0, float(ceiling if ceiling is not None else self.limit) - self.used)
 
     def fraction_left(self) -> float | None:
         if self.limit is None or self.limit <= 0:
             return None
-        return self.remaining() / float(self.limit)
+        ceiling = self.effective_limit()
+        return self.remaining() / float(ceiling if ceiling is not None else self.limit)
 
 
 class QuotaLedger:
@@ -265,6 +298,7 @@ class QuotaLedger:
         """
         with self._lock:
             e = self.entry(provider_id, model)
+            was_capped = e.soft_capped()
             if amount is None:
                 e.used += 1.0
                 measured = False
@@ -282,6 +316,19 @@ class QuotaLedger:
                 e.unit = unit
             if source:
                 e.source = source
+            if e.soft_capped() and not was_capped:
+                # SAID ONCE, AT THE LINE. The state stays AVAILABLE because the
+                # provider refused nothing; `rank` and `usable` stop offering the
+                # entry, and this record is how the owner can tell "VESPER held
+                # back" from "the provider ran out" -- opposite facts under the
+                # same silence.
+                self._publish("quota.soft_capped", provider_id, {
+                    "provider_id": provider_id, "model": model,
+                    "used": e.used, "effective_limit": e.effective_limit(),
+                    "limit": e.limit, "soft_cap_ratio": e.soft_cap_ratio,
+                    "unit": e.unit,
+                    "note": ("VESPER's own ceiling, a declared share of a "
+                             "measured window; the provider has not refused")})
             self._persist()
 
     def record_refusal(self, provider_id: str, model: str, *,
@@ -303,6 +350,20 @@ class QuotaLedger:
             if limit is not None:
                 e.limit = int(limit)
                 e.limit_is_measured = True
+            elif e.limit is None and e.used > 0:
+                # THE REFUSAL MEASURES THE CEILING IN THIS LEDGER'S OWN UNITS.
+                # A subscription CLI says "limit reached" and never a number, so
+                # `limit` stayed None forever and no share of it could ever be
+                # taken. What IS known at this moment is how much this window
+                # spent before the door closed -- and that is a measurement of
+                # the door, in requests, taken by hitting it. A refusal on a
+                # window's FIRST call measures nothing (zero would read as a tier
+                # with no allowance) and is left unmeasured.
+                e.limit = int(math.ceil(e.used))
+                e.limit_is_measured = True
+                e.source = ((e.source + " | ") if e.source else "") + (
+                    f"ceiling measured at refusal: {e.used:g} {e.unit} spent "
+                    "in this window when the provider closed the door")
             if limit == 0:
                 e.state = UNAVAILABLE_ON_TIER
                 self._publish("quota.unavailable_on_tier", provider_id, {
@@ -337,12 +398,22 @@ class QuotaLedger:
         consumers of one budget both conclude they may proceed.
         """
         e = self.entry(provider_id, model)
-        if e.state != AVAILABLE:
+        if e.state != AVAILABLE or e.soft_capped():
             return False
         if not e.account:
             return True
         rem = self.spendable(e.account, e.purpose)
         return rem is None or rem > 0
+
+    def offered_state(self, e: Entry) -> str:
+        """What `rank` will say about this entry, for the record a skip carries.
+
+        `soft_capped` is not a state the window rolls -- the provider is
+        AVAILABLE and VESPER is the one holding back -- so it is reported here
+        rather than written into `state`, and a skip recorded from it reads
+        `quota_ledger_soft_capped` instead of an exhaustion that never happened.
+        """
+        return "soft_capped" if (e.state == AVAILABLE and e.soft_capped()) else e.state
 
     def headroom_fraction(self, e: Entry) -> float | None:
         """Headroom as a fraction, THE BINDING ONE when a pool applies.
@@ -384,7 +455,7 @@ class QuotaLedger:
             scored = []
             for i, (pid, model) in enumerate(candidates):
                 e = self.entry(pid, model)
-                if e.state != AVAILABLE:
+                if e.state != AVAILABLE or e.soft_capped():
                     continue
                 frac = self.headroom_fraction(e)
                 # -1.0 sorts unmeasured between "plenty left" and "nearly out".
@@ -401,6 +472,8 @@ class QuotaLedger:
                 d = asdict(e)
                 d["remaining"] = e.remaining()
                 d["fraction_left"] = e.fraction_left()
+                d["effective_limit"] = e.effective_limit()
+                d["soft_capped"] = e.soft_capped()
                 out.append(d)
             return out
 

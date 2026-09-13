@@ -309,6 +309,7 @@ setting can promote this row."""
 
 [[provider]]
 id = "claude-sub"
+soft_cap_ratio = 0.70
 tier = "strong"
 rung = 2
 egress_class = "E1_PRIVATE"
@@ -340,7 +341,7 @@ it. Every surface shares one pool."""
 [[provider]]
 id = "codex-sub"
 tier = "strong"
-rung = 2
+rung = 3
 egress_class = "E2_PUBLIC"
 cost_class = "free"
 credential_env = "VESPER_CODEX_HOME"
@@ -684,6 +685,7 @@ measured limit and this is opportunistic like Ollama."""
 
 [[provider]]
 id = "claude-advisor"
+soft_cap_ratio = 0.40
 tier = "strong"
 purpose = "advisor"
 rung = 1
@@ -720,6 +722,7 @@ content the strict class exists for."""
 
 [[provider]]
 id = "claude-arbiter"
+soft_cap_ratio = 0.70
 tier = "strong"
 purpose = "arbiter"
 rung = 1
@@ -762,6 +765,7 @@ measured limit and this is opportunistic like Ollama."""
 
 [[provider]]
 id = "claude-forgetter"
+soft_cap_ratio = 0.70
 tier = "strong"
 purpose = "forgetter"
 rung = 1
@@ -936,6 +940,7 @@ wire = "groq_whisper"
 # ======================================================================
 [[provider]]
 id = "claude-investigator"
+soft_cap_ratio = 0.70
 tier = "strong"
 purpose = "investigator"
 rung = 1
@@ -977,6 +982,7 @@ forgetter already follow. Does not enrol until the credential exists."""
 
 [[provider]]
 id = "claude-implementer"
+soft_cap_ratio = 0.70
 tier = "strong"
 purpose = "implementer"
 rung = 1
@@ -1022,6 +1028,7 @@ forgetter already follow. Does not enrol until the credential exists."""
 
 [[provider]]
 id = "claude-tester"
+soft_cap_ratio = 0.70
 tier = "strong"
 purpose = "tester"
 rung = 1
@@ -1065,7 +1072,7 @@ forgetter already follow. Does not enrol until the credential exists."""
 id = "codex-researcher"
 tier = "strong"
 purpose = "researcher"
-rung = 1
+rung = 2
 egress_class = "E1_PRIVATE"
 cost_class = "free"
 credential_env = "VESPER_CODEX_CONFIG_DIR"
@@ -1119,6 +1126,7 @@ forgetter already follow. Does not enrol until the credential exists."""
 
 [[provider]]
 id = "claude-navigator"
+soft_cap_ratio = 0.70
 tier = "strong"
 purpose = "navigator"
 rung = 1
@@ -1160,6 +1168,7 @@ forgetter already follow. Does not enrol until the credential exists."""
 
 [[provider]]
 id = "claude-auditor"
+soft_cap_ratio = 0.70
 tier = "strong"
 purpose = "auditor"
 rung = 1
@@ -1213,6 +1222,7 @@ forgetter already follow. Does not enrol until the credential exists."""
 
 [[provider]]
 id = "claude-drafter"
+soft_cap_ratio = 0.70
 tier = "strong"
 purpose = "drafter"
 rung = 1
@@ -1256,7 +1266,7 @@ forgetter already follow. Does not enrol until the credential exists."""
 id = "codex-briefer"
 tier = "strong"
 purpose = "briefer"
-rung = 1
+rung = 2
 egress_class = "E1_PRIVATE"
 cost_class = "free"
 credential_env = "VESPER_CODEX_CONFIG_DIR"
@@ -1328,3 +1338,126 @@ advisor that is merely absent must never make the system more permissive than on
 that never existed, so having fewer rungs is safe here in a way it would not be
 for an agent whose job is to produce work."""
 
+# --------------------------------------------------------------------------
+# CLAUDE BACKS EVERY LADDER. Owner, 2026-09-13: when a purpose's keyed rows are
+# all spent the request goes to Claude, then to Codex where one exists, on the
+# account the agents share. Six purposes had no Claude row until tonight --
+# chooser, updater, compactor, miss_recorder, briefer, researcher. Same shape
+# as claude-arbiter. The rung places each AFTER the keyed rows of its purpose,
+# so the subscription is the fallback and not the first call; where a Codex row
+# was first it moved to rung 2, because the owner's order is Claude, then Codex.
+# `soft_cap_ratio` is VESPER's own ceiling on that account: 70% of the window,
+# applied once a refusal has measured the window (`core/quota.py`).
+#
+# UNMEASURED UNTIL PROBED: `load_rows` skips a row the latest REMOTE-SUPPLY
+# measurement does not carry, so each of these becomes live only after
+# `tools/spike/probe_remote_supply.py --only <id> --merge` has seen it answer.
+# --------------------------------------------------------------------------
+
+[[provider]]
+id = "claude-chooser"
+purpose = "chooser"
+soft_cap_ratio = 0.70
+tier = "strong"
+rung = 5
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CLAUDE_CONFIG_DIR"
+endpoint = "claude"
+model = "subscription-default"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """The account the agents share, as the chooser's fallback after its keyed rows. Bound by CLAUDE_CONFIG_DIR through VESPER_CLAUDE_CONFIG_DIR; no failover edge to the owner's own account. The window is measured at the first refusal and VESPER stops itself at 70% of it from then on."""
+
+[[provider]]
+id = "claude-updater"
+purpose = "updater"
+soft_cap_ratio = 0.70
+tier = "strong"
+rung = 5
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CLAUDE_CONFIG_DIR"
+endpoint = "claude"
+model = "subscription-default"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """The account the agents share, as the updater's fallback after its keyed rows. Bound by CLAUDE_CONFIG_DIR through VESPER_CLAUDE_CONFIG_DIR; no failover edge to the owner's own account. The window is measured at the first refusal and VESPER stops itself at 70% of it from then on."""
+
+[[provider]]
+id = "claude-compactor"
+purpose = "compactor"
+soft_cap_ratio = 0.70
+tier = "strong"
+rung = 3
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CLAUDE_CONFIG_DIR"
+endpoint = "claude"
+model = "subscription-default"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """The account the agents share, as the compactor's fallback after its keyed rows. Bound by CLAUDE_CONFIG_DIR through VESPER_CLAUDE_CONFIG_DIR; no failover edge to the owner's own account. The window is measured at the first refusal and VESPER stops itself at 70% of it from then on."""
+
+[[provider]]
+id = "claude-missrecorder"
+purpose = "miss_recorder"
+soft_cap_ratio = 0.70
+tier = "strong"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CLAUDE_CONFIG_DIR"
+endpoint = "claude"
+model = "subscription-default"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """The account the agents share, as the miss_recorder's fallback after its keyed rows. Bound by CLAUDE_CONFIG_DIR through VESPER_CLAUDE_CONFIG_DIR; no failover edge to the owner's own account. The window is measured at the first refusal and VESPER stops itself at 70% of it from then on."""
+
+[[provider]]
+id = "claude-briefer"
+purpose = "briefer"
+soft_cap_ratio = 0.70
+tier = "strong"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CLAUDE_CONFIG_DIR"
+endpoint = "claude"
+model = "subscription-default"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """The account the agents share, as the briefer's fallback after its keyed rows. Bound by CLAUDE_CONFIG_DIR through VESPER_CLAUDE_CONFIG_DIR; no failover edge to the owner's own account. The window is measured at the first refusal and VESPER stops itself at 70% of it from then on."""
+
+[[provider]]
+id = "claude-researcher"
+purpose = "researcher"
+soft_cap_ratio = 0.70
+tier = "strong"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CLAUDE_CONFIG_DIR"
+endpoint = "claude"
+model = "subscription-default"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """The account the agents share, as the researcher's fallback after its keyed rows. Bound by CLAUDE_CONFIG_DIR through VESPER_CLAUDE_CONFIG_DIR; no failover edge to the owner's own account. The window is measured at the first refusal and VESPER stops itself at 70% of it from then on."""

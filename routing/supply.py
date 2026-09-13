@@ -270,6 +270,10 @@ class SupplyRow:
     # guide -- it makes the reader go and look up the thing the system already
     # knew. The variable NAME is not a secret; only its value is.
     credential_env: str = ""
+    # VESPER'S OWN SHARE OF THIS ROW'S WINDOW (owner, 2026-09-13: 70% on the
+    # account the agents share, 40% on the advisor's). Carried to the ledger,
+    # which applies it only once the window's ceiling has been measured.
+    soft_cap_ratio: float | None = None
 
 
 def load_rows(*, secrets: dict | None = None,
@@ -342,6 +346,14 @@ def load_rows(*, secrets: dict | None = None,
                                  "could not see throughput for this row"))
             continue
 
+        cap = r.get("soft_cap_ratio")
+        if cap is not None and not (isinstance(cap, (int, float)) and 0.0 < float(cap) <= 1.0):
+            # A CAP THAT IS NOT A SHARE IS A MISDECLARED ROW, and the row is
+            # skipped rather than registered uncapped: registering it would
+            # quietly remove the ceiling the owner declared.
+            skipped.append((pid, f"soft_cap_ratio {cap!r} is not a share in (0, 1]"))
+            continue
+
         published = r.get("quota_published") or 0
         rows.append(SupplyRow(
             provider_id=pid, rung=int(r["rung"]),
@@ -389,6 +401,7 @@ def load_rows(*, secrets: dict | None = None,
             purpose=r.get("purpose", "text"),
             tier=r.get("tier", "standard"),
             supports=tuple(r.get("supports") or ()),
+            soft_cap_ratio=(float(cap) if cap is not None else None),
         ))
     return rows, skipped
 
@@ -909,8 +922,16 @@ def register(gateway, cost, ledger: QuotaLedger, *,
             e.account = row.account
         e.purpose = row.purpose
         e.unit = row.quota_unit
-        e.limit = row.quota_limit
-        e.limit_is_measured = False        # published, not measured
+        e.soft_cap_ratio = row.soft_cap_ratio
+        # A MEASURED CEILING SURVIVES RE-REGISTRATION. The ledger may already
+        # hold a limit it measured at a refusal; the published figure (usually
+        # none, for a subscription) must not overwrite a number that was
+        # actually observed -- INV-HW-2 in the other direction.
+        if e.limit_is_measured and e.limit is not None:
+            pass
+        else:
+            e.limit = row.quota_limit
+            e.limit_is_measured = False        # published, not measured
         e.window_seconds = row.quota_window_seconds
         e.source = f"contracts/policy/provider_supply.toml:{row.provider_id} (published)"
         # SEED THE GATEWAY'S LATENCY VIEW TOO, for the same reason the router's

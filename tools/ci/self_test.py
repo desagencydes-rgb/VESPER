@@ -1128,6 +1128,7 @@ HTTP_COMPLETION = REPO / "routing" / "http_completion.py"
 NARRATION = "core/narration.py"
 NARRATION_TOML = "contracts/policy/narration.toml"
 BUDGET_TOML = "contracts/policy/interruption_budget.toml"
+QUOTA_LEDGER_PY = "core/quota.py"
 CHROME_TPL = "app/home-macos/chrome/home.html"
 CHROME_SW = "app/home-macos/HomeChrome.swift"
 HOME_STATE = "core/home_state.py"
@@ -2025,6 +2026,43 @@ CASES += [
      "speech permitted in the FOCUSED cell -- the contract says a focused owner "
      "is reached visually only, and a narrator that reads permitted_modalities "
      "must go quiet there; one that speaks anyway is not reading it"),
+
+    ("claude-backs-every-ladder", SUPPLY_TOML,
+     _sub('id = "claude-chooser"\npurpose = "chooser"',
+          'id = "claude-chooser"\npurpose = "chooser_DISABLED"', 1),
+     "the chooser's claude row moved to a purpose nothing routes to -- the "
+     "chooser ladder ends in silence again when its four keyed rows are spent"),
+
+    ("claude-backs-every-ladder", SUPPLY_TOML,
+     _sub('id = "claude-advisor"\nsoft_cap_ratio = 0.40',
+          'id = "claude-advisor"\nsoft_cap_ratio = 0.90', 1),
+     "the advisor's account allowed 90% instead of the 40% the owner set -- a "
+     "declared share silently widened"),
+
+    ("claude-backs-every-ladder", QUOTA_LEDGER_PY,
+     _sub("        return eff is not None and self.used >= eff",
+          "        return False", 1),
+     "a rung is never soft-capped: the owner's 70% is declared, carried and "
+     "never held, and VESPER spends the whole window"),
+
+    ("claude-backs-every-ladder", QUOTA_LEDGER_PY,
+     _sub("            elif e.limit is None and e.used > 0:",
+          "            elif False:", 1),
+     "a refusal without a number measures nothing -- the subscription's "
+     "ceiling stays unknown forever, so no share of it can ever bind"),
+
+    ("claude-backs-every-ladder", QUOTA_LEDGER_PY,
+     _sub("        if (self.limit is None or not self.limit_is_measured\n                or self.soft_cap_ratio is None):",
+          "        if (self.limit is None or self.soft_cap_ratio is None):", 1),
+     "the cap binds on a PUBLISHED, unmeasured ceiling -- 70% of a docs-page "
+     "number, which is the declared-capacity error INV-HW-2 refuses"),
+
+    ("claude-backs-every-ladder", GATEWAY,
+     _sub("        if profile_id is not None and not ranked:",
+          "        if False:", 1),
+     "borrowing removed: a spent ladder with a same-tier rung full of headroom "
+     "next to it raises AllProvidersExhausted and checkpoints the owner's "
+     "question"),
 
     ("chain-budget-bounded", GATEWAY,
      _sub("    MAX_ATTEMPTS_PER_REQUEST = 10", "    MAX_ATTEMPTS_PER_REQUEST = 100", 1),

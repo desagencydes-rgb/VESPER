@@ -4027,6 +4027,174 @@ def check_narration_follows_the_ladder() -> Result:
     return r
 
 
+def check_claude_backs_every_ladder() -> Result:
+    """Every text-shaped ladder ends in Claude (then Codex); Claude is capped at
+    the owner's share of a MEASURED window; a spent ladder borrows by headroom.
+
+    OWNER, 2026-09-13: "claude must be in all rungs"; "a default limit of ours:
+    the agents' account up to 70%, the advisor's 40%"; and when that is spent
+    too, "send it to another rung that is unlikely to hit that limit". Three
+    facts, each with a red run. The cap is the one that needed a measurement:
+    a subscription CLI says "limit reached" and never a number, so the ledger
+    now measures the ceiling at the refusal, and 70% of nothing-yet-measured is
+    correctly nothing (INV-HW-2).
+    """
+    r = Result("claude-backs-every-ladder")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.gateway import AllProvidersExhausted, Provider
+        from core.quota import AVAILABLE, EXHAUSTED, QuotaLedger
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the gateway or the ledger did not import: {exc!r}")
+        return r
+
+    # 1. THE CONTRACT. Every purpose that is text-shaped has a claude row, and
+    #    where a codex row exists it comes AFTER the claude row.
+    table = tomllib.loads((REPO / "contracts" / "policy" / "provider_supply.toml")
+                          .read_text(encoding="utf-8"))
+    rows = table.get("provider") or []
+    non_text = {"image", "speech", "transcribe"}
+    by: dict = {}
+    for row in rows:
+        by.setdefault(row.get("purpose", "text"), []).append(row)
+    for purpose, prs in sorted(by.items()):
+        if purpose in non_text:
+            continue
+        claude = [p for p in prs if p["id"].startswith("claude-")]
+        codex = [p for p in prs if p["id"].startswith("codex-")]
+        if not claude:
+            r.err(f"purpose {purpose!r} has no claude-* row: when its keyed rows "
+                  "are spent the ladder ends in silence instead of the "
+                  "subscription the owner said must back every rung")
+        elif codex and min(c["rung"] for c in codex) <= min(c["rung"] for c in claude):
+            r.err(f"purpose {purpose!r}: a codex row sits at or before the claude "
+                  "row; the owner's order is Claude, then Codex")
+    n_claude = 0
+    for row in rows:
+        if not row["id"].startswith("claude-"):
+            continue
+        n_claude += 1
+        want = 0.40 if row["id"] == "claude-advisor" else 0.70
+        cap = row.get("soft_cap_ratio")
+        if cap is None:
+            r.err(f"{row['id']} declares no soft_cap_ratio; the owner set a "
+                  "default share for every Claude account")
+        elif abs(float(cap) - want) > 1e-9:
+            r.err(f"{row['id']} soft_cap_ratio = {cap}; the owner set {want} "
+                  f"({'the advisor' if want == 0.40 else 'the agents'}' account)")
+
+    # 2. THE LEDGER. A share of an UNMEASURED ceiling binds nothing.
+    bus = _StubBus()
+    led = QuotaLedger(bus=bus)
+    e = led.entry("pub", "m")
+    e.soft_cap_ratio = 0.7
+    e.limit, e.limit_is_measured = 100, False
+    for _ in range(80):
+        led.record_success("pub", "m", amount=None, measured=False)
+    if e.soft_capped() or not led.usable("pub", "m") or led.rank([("pub", "m")]) != [("pub", "m")]:
+        r.err("a 70% cap bound on a PUBLISHED, unmeasured ceiling. A share of a "
+              "number nobody measured is not a number (INV-HW-2); until a "
+              "refusal measures the window the cap is declared and does not bind")
+
+    # 3. THE REFUSAL MEASURES THE CEILING, and the next window is capped.
+    e2 = led.entry("cli", "m")
+    e2.soft_cap_ratio, e2.unit = 0.7, "requests"
+    for _ in range(10):
+        led.record_success("cli", "m", amount=None, measured=False)
+    led.record_refusal("cli", "m", limit=None)
+    if e2.limit != 10 or not e2.limit_is_measured or e2.state != EXHAUSTED:
+        r.err(f"a refusal after 10 requests left limit={e2.limit!r}, "
+              f"measured={e2.limit_is_measured}, state={e2.state!r}; the refusal "
+              "IS the measurement of the window, in requests, and it was not taken")
+    e2.window_started_at -= (e2.window_seconds + 1)
+    e2 = led.entry("cli", "m")
+    if e2.used != 0.0 or e2.state != AVAILABLE:
+        r.err("the measured window did not roll into a fresh one")
+    before = [k for k, _ in bus.events].count("quota.soft_capped")
+    for _ in range(7):
+        led.record_success("cli", "m", amount=None, measured=False)
+    if e2.effective_limit() != 7:
+        r.err(f"effective_limit = {e2.effective_limit()!r} for limit 10 at 70%; "
+              "expected 7")
+    if not e2.soft_capped() or led.usable("cli", "m") or led.rank([("cli", "m")]) != []:
+        r.err("at 7 of a measured 10 (70%) the rung was still offered; VESPER's "
+              "own ceiling is declared and was not held")
+    if e2.state != AVAILABLE or led.offered_state(e2) != "soft_capped":
+        r.err(f"state={e2.state!r}, offered_state={led.offered_state(e2)!r}: a "
+              "soft cap must read as VESPER holding back, not as the provider "
+              "refusing -- opposite facts under the same silence")
+    if [k for k, _ in bus.events].count("quota.soft_capped") - before != 1:
+        r.err("quota.soft_capped was not published exactly once when the line "
+              "was reached; the owner cannot tell a held rung from a spent one")
+    led.record_refusal("fresh", "m", limit=None)
+    if led.entry("fresh", "m").limit is not None:
+        r.err("a refusal on a window's FIRST call measured a ceiling; zero spent "
+              "is not a measurement of the door, and booking it would read as a "
+              "tier with no allowance")
+
+    # 4. THE GATEWAY. The skip is labelled, and a spent ladder borrows a rung of
+    #    the same or stronger tier by measured headroom -- never a weaker one.
+    calls: list = []
+    bus2, cost, gw = _gateway(quota=led)
+    for pid in ("cli", "lend-strong", "lend-standard"):
+        cost.register_credential(pid, "free")
+    chooser = "remote-strong-chooser-rung5-e1_private"
+    gw.register(Provider("cli", chooser, _raiser("server_error", calls, "cli"), model="m"))
+    gw.register(Provider("lend-standard", "remote-standard-text-rung1-e1_private",
+                         lambda p, o: (calls.append("lend-standard"), {"text": "ok"})[1],
+                         model="s"))
+    gw.register(Provider("lend-strong", "remote-strong-text-rung1-e1_private",
+                         lambda p, o: (calls.append("lend-strong"), {"text": "ok"})[1],
+                         model="t"))
+    out: dict = {}
+    try:
+        out = gw.complete("q", task_id="borrow", profile_id=chooser)
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"a spent ladder with a same-tier lender available raised {exc!r}")
+    if out.get("provider_id") != "lend-strong":
+        r.err(f"the request was served by {out.get('provider_id')!r}; expected the "
+              "strong lender with headroom")
+    if "cli" in calls:
+        r.err("the soft-capped rung was CALLED; the cap is VESPER's own line and "
+              "it was crossed")
+    if "lend-standard" in calls:
+        r.err("a STANDARD rung answered a STRONG request; borrowing never lowers "
+              "the tier, because that answers a different question")
+    skips = [p for k, p in bus2.events
+             if k == "gateway.attempt" and p.get("provider_id") == "cli"]
+    if not skips or skips[0].get("classification") != "quota_ledger_soft_capped":
+        r.err(f"the capped rung's skip reads {skips[:1]!r}; expected "
+              "quota_ledger_soft_capped, so the record says who held back")
+    borrowed = [p for k, p in bus2.events if k == "gateway.borrowed"]
+    if len(borrowed) != 1 or borrowed[0].get("lenders") != ["lend-strong"]:
+        r.err(f"gateway.borrowed = {borrowed!r}; expected exactly one, naming "
+              "the strong lender only")
+    bus3, cost3, gw3 = _gateway(quota=led)
+    cost3.register_credential("cli", "free")
+    cost3.register_credential("weak", "free")
+    gw3.register(Provider("cli", chooser, _raiser("server_error", calls, "cli2"), model="m"))
+    gw3.register(Provider("weak", "remote-standard-text-rung1-e1_private",
+                          lambda p, o: {"text": "ok"}, model="w"))
+    try:
+        gw3.complete("q", task_id="noborrow", profile_id=chooser)
+        r.err("with only a WEAKER lender the strong request was answered anyway")
+    except AllProvidersExhausted:
+        pass
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"with no eligible lender the request raised {exc!r} rather than "
+              "AllProvidersExhausted")
+
+    if r.ok:
+        text_purposes = [p for p in by if p not in non_text]
+        r.note(f"{len(text_purposes)} text-shaped purposes each end in a claude "
+               f"row, codex after it; {n_claude} claude rows capped (0.70, advisor "
+               "0.40); the cap ignores an unmeasured ceiling, a refusal measures "
+               "it, the next window holds at the share and says so once; a spent "
+               "profile borrows the strong lender and refuses the weak one")
+    return r
+
+
 def check_chain_budget() -> Result:
     r = Result("chain-budget-bounded")
     if str(REPO) not in sys.path:
@@ -27977,6 +28145,7 @@ CHECK_FNS = {
     "chain-budget-bounded": check_chain_budget,
     "narration-complete": check_narration_complete,
     "narration-follows-the-ladder": check_narration_follows_the_ladder,
+    "claude-backs-every-ladder": check_claude_backs_every_ladder,
     "triage-excludes-quota": check_triage_excludes_quota,
     "shared-pool-is-shared": check_shared_pool_is_shared,
     "intake-is-modality-neutral": check_intake_is_modality_neutral,
