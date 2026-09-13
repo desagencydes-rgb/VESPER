@@ -1513,6 +1513,50 @@ def _render_conversation(recent: list) -> str:
             "mean:\n" + "\n".join(lines))
 
 
+def _what_was_tried(steps: list, final: str) -> str:
+    """One sentence for a turn that took several goes at something.
+
+    THE OWNER ASKED FOR DIAGNOSIS AND GOT IT, AND WAS TOLD ALMOST NONE OF IT.
+    Measured 2026-09-13: asked to cat a file that does not exist, vesper tried
+    `cat`, then `ls -l` the directory, then `find -name`, then `grep -R` -- four
+    genuinely different approaches, exactly what was asked for -- and answered
+    "it ran and came back with exit code 1, and said nothing on either output",
+    because the reply is `did.said` and `did` is the LAST step. It did the work
+    and reported the last line of it.
+
+    WHAT THE OWNER NEEDS IS WHAT WAS TRIED AND WHAT STOPPED IT, which is also
+    what lets them tell "it failed" from "it failed four different ways, so the
+    thing genuinely is not there".
+
+    THE COMMANDS THEMSELVES, ABBREVIATED, NEVER SUMMARISED BY A MODEL. A model
+    paraphrase of what was run is a claim about the past that nothing checks --
+    the same shape as the fabricated button names. These strings come from the
+    step records.
+    """
+    tried: list = []
+    for st in steps:
+        if not isinstance(st, dict):
+            continue
+        cid = str(st.get("capability_id") or "")
+        args = st.get("args") if isinstance(st.get("args"), dict) else {}
+        if cid == "shell.run":
+            what = str(args.get("cmd") or "").strip()
+        elif cid in ("fs.read", "fs.write", "fs.edit"):
+            what = f"{cid.split('.')[1]} {str(args.get('path') or '').strip()}"
+        elif cid:
+            what = cid
+        else:
+            continue
+        if what:
+            tried.append(what[:60])
+    if len(tried) < 2:
+        return final
+    shown = "; ".join(tried[:4])
+    more = f" (and {len(tried) - 4} more)" if len(tried) > 4 else ""
+    return (f"I tried {len(tried)} things and none of them worked: {shown}"
+            f"{more}. The last one: {final}")
+
+
 def answer(gw, router, persona, utterance, renderer=None,
            updater=None, misses=None, chooser=None,
            context_cmds=None, can_do=None, recent=None, state=None,
@@ -2522,6 +2566,14 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                     bus.publish("act.outcome", subject=did.capability_id,
                                 payload=did.to_dict(), component="runtime")
                     reply = did.said
+                    # A TURN THAT TRIED FOUR THINGS MUST NOT REPORT ONLY THE
+                    # FOURTH. `steps` is attached only when a turn took more
+                    # than one, so a single-step turn is untouched.
+                    _steps = (did.detail or {}).get("steps") \
+                        if isinstance(did.detail, dict) else None
+                    if isinstance(_steps, list) and len(_steps) > 1 \
+                            and did.kind in ("refused", "failed"):
+                        reply = _what_was_tried(_steps, str(reply or ""))
                 else:
                     # STRIPPED ON THE WAY OUT. The statement asks the answerer
                     # never to read an internal name aloud, and an instruction is

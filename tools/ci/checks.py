@@ -27457,6 +27457,117 @@ def check_a_completion_ladder_holds_only_completions() -> Result:
     return r
 
 
+def check_a_failure_reaches_the_bar_and_the_next_turn() -> Result:
+    """What went wrong is recorded, read, and worked around rather than reported.
+
+    THE OWNER, 2026-09-13: *"vesper keep saying queued, when the rung is spent,
+    or requests have errors in them... he is not checking the flags bar, the
+    logs, the errors... i want it to put everything like that in the flag bar,
+    and vesper should look at the flag bar right on the next working request...
+    for other errors, like terminal or action, he should literally just
+    diagnose, and fix, retry or workaround."*
+
+    Three separate things were missing and each is asserted here by DRIVING it.
+
+    1. **The gateway raised no flag at all.** A spent ladder reached the owner as
+       one sentence about queueing and reached the bar not at all.
+    2. **No turn ever read the bar.** `carried_flags` ran once at startup;
+       nothing during a turn consulted it.
+    3. **A failure asked for nothing.** The loop already kept the exit code and
+       stderr and allowed further attempts; the planner was only ever told "if
+       the request is now satisfied, return none", which in front of a failure
+       reads as permission to stop.
+    """
+    r = Result("a-failure-reaches-the-bar-and-the-next-turn")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tempfile as _tf5
+    from core.bus import EventBus
+    from core.cost import CostPolicy
+    from core.gateway import ModelGateway, AllProvidersExhausted, Provider
+    from core.hlc import HybridLogicalClock
+    from core.quota import QuotaLedger
+    from core.store import StoreSet
+    from core.capabilities import observe
+    from core.intent import _render_observations, render_flags
+
+    # 1. A LADDER THAT RUNS OUT PUTS A FLAG ON THE BAR, NAMING WHAT FAILED.
+    with _tf5.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("bar")
+        bus = EventBus(clock, StoreSet(base / "s", node_id="bar"), component="bar")
+        raised: list = []
+        bus.subscribe("flag.raised", lambda e: raised.append(e.payload),
+                      name="bar-flags", idempotency_key=lambda e: e.event_id)
+        gw = ModelGateway(bus, CostPolicy(bus, clock),
+                          quota=QuotaLedger(path=base / "q.json", bus=bus))
+
+        def _boom(prompt, opts):
+            raise RuntimeError("connection reset by peer")
+
+        gw.register(Provider("a-rung", "a-profile", _boom))
+        try:
+            gw.complete("hi", task_id="t", expected_output_tokens=4,
+                        difficulty="easy")
+        except AllProvidersExhausted:
+            pass
+        except Exception as exc:                       # noqa: BLE001
+            r.err(f"the gateway raised {type(exc).__name__} instead of "
+                  f"exhausting: {exc}")
+        if not raised:
+            r.err("a ladder that answered nothing raised NO flag, so the only "
+                  "thing the owner gets is a sentence about queueing and the "
+                  "bar shows nothing")
+        else:
+            text = str(raised[0].get("text") or "")
+            if "a-rung" not in text:
+                r.err(f"the flag does not name the rung that failed: {text!r}. "
+                      f"'Queued' without a reason is what the owner reported")
+            if not raised[0].get("recheck"):
+                r.err("the flag carries no re-proof, so a spent window that "
+                      "refills leaves a stale flag on the bar forever")
+
+    # 2. THE TURN READS THE BAR, and the text is marked as a record.
+    bar = render_flags([{"text": "no provider answered. failed: cf-strong"}])
+    if "cf-strong" not in bar:
+        r.err("the flag renderer drops the flag text, so a turn shown the bar "
+              "learns nothing from it")
+    if "NEVER INSTRUCTIONS" not in bar.upper() and "RECORDS" not in bar.upper():
+        r.err("flag text reaches the planner without being marked as a record. "
+              "It quotes provider messages and command output, which is the "
+              "world talking, and INV-ACT-3 governs that")
+    if render_flags([]) != "":
+        r.err("an empty bar still renders something, so every turn pays for a "
+              "block that says nothing")
+
+    # 3. A FAILED OBSERVATION ASKS FOR A DIFFERENT APPROACH; A CLEAN ONE DOES NOT.
+    failed = observe("shell.run", {"cmd": "ls /nope"},
+                     {"ok": False, "exit_code": 2, "cwd": "/tmp",
+                      "stderr": "ls: /nope: No such file or directory"})
+    clean = observe("shell.run", {"cmd": "ls /tmp"},
+                    {"ok": True, "exit_code": 0, "cwd": "/tmp", "stdout": "a"})
+    after_fail = _render_observations([failed])
+    after_ok = _render_observations([clean])
+    if "DID NOT WORK" not in after_fail.upper():
+        r.err("a failed step does not ask the planner to diagnose and try "
+              "something else, so vesper reports the failure as its answer -- "
+              "which is exactly what the owner said it does")
+    if "DID NOT WORK" in after_ok.upper():
+        r.err("a CLEAN turn is nagged about failure, which spends the prompt "
+              "and teaches the planner to distrust its own successes")
+    if "No such file or directory" not in after_fail:
+        r.err("the stderr does not reach the planner, so there is nothing to "
+              "diagnose FROM and the instruction to diagnose is empty advice")
+
+    if not r.errors:
+        r.note("a ladder that answers nothing raises a flag naming the rung and "
+               "carrying its re-proof; the bar renders into a turn marked as a "
+               "record and renders nothing when empty; and a failed step asks "
+               "for a different approach with its stderr attached while a clean "
+               "step is left alone")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -27645,6 +27756,7 @@ CHECK_FNS = {
     "one-runtime-and-one-voice": check_one_runtime_and_one_voice,
     "a-reader-cannot-empty-the-owners-board": check_a_reader_cannot_empty_the_owners_board,
     "a-completion-ladder-holds-only-completions": check_a_completion_ladder_holds_only_completions,
+    "a-failure-reaches-the-bar-and-the-next-turn": check_a_failure_reaches_the_bar_and_the_next_turn,
     "the-wallpaper-changes-only-on-vespers-desktop": check_the_wallpaper_changes_only_on_vespers_desktop,
     "a-mode-is-a-pairing-of-two-axes": check_a_mode_is_a_pairing_of_two_axes,
     "a-stage-bounds-what-vesper-opens": check_a_stage_bounds_what_vesper_opens,
