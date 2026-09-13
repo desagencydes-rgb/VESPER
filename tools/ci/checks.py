@@ -26735,7 +26735,7 @@ def check_the_projects_dashboard_is_what_the_owner_asked_for() -> Result:
     rows = PD.panels(REPO)
     ids = [x["id"] for x in rows]
     for want in ("plans", "code", "designs", "roadmap", "practices",
-                 "documents", "terminal", "commands", "history"):
+                 "contracts", "documents", "terminal", "commands", "history"):
         if want not in ids:
             r.err(f"the dashboard has no {want!r} panel and the owner named it")
     for x in rows:

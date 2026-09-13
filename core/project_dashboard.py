@@ -170,6 +170,21 @@ def panels(project_root: Path | None = None, mode: str = "work") -> list:
                  "the invariant registry could not be read on this node"),
           source="spec/invariants/INVARIANTS.toml")
 
+    # CONTRACTS ARE THEIR OWN PANEL, not a kind of document. The owner named
+    # them beside engineering and designing, and they are different in a way
+    # that matters here: a contract is GOVERNED -- `profile_node.py` has no
+    # write path into `capability_profiles.toml`, deliberately, and promotion
+    # into one is a separate reviewed act. A surface that filed them under
+    # "documents" would invite editing them like prose.
+    n_con = _count(root / "contracts", "**/*.toml")
+    panel("contracts", "Contracts",
+          "the governed files -- the rules the build is held to. Changing one is "
+          "a reviewed act, never an edit, which is why they are not documents",
+          status="available" if n_con > 0 else "unavailable",
+          value=(f"{n_con} contract(s)" if n_con > 0 else
+                 "no contracts/ directory here -- this may not be the project"),
+          source="contracts/**/*.toml")
+
     n_docs = _count(docs, "**/*.md")
     panel("documents", "Documents",
           "everything written down about this project",
