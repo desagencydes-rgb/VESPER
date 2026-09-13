@@ -4929,3 +4929,80 @@ and changes what may be promised.
 presence: programmatic call origination without deceptive impersonation"* — is
 `NOT_STARTED`, and its title names a constraint that must be satisfied in version
 one rather than added later. Messaging is not gated by it.
+
+---
+
+# 44. §26.6 WAS WRONG ABOUT MEMORY, AND THE TRUE DEFECT IS NARROWER AND WORSE
+
+**Measured 2026-09-13 against the live store.** §26.6 called memory *"write-only
+— every module exists, nothing reads any of them during a turn"*, and listed
+`context`, `knowledge_map` and `cache` as imported-never-called.
+
+## THE FIRST CORRECTION: L1 IS WIRED AND IT RETRIEVES
+
+The audit that produced §26.6 — and a second one this session — grepped for
+**module names** (`memory.`, `context.`) when the runtime calls them through
+**objects**. The turn path is:
+
+    pump  →  answer(...)  →  renderer.render(text, situation=...)
+                             ↳ block_a(situation)   the cached index
+                             ↳ block_b(...)         fresh facts
+
+`L1Renderer` is constructed at `vesper_runtime.py:1069` **with a real
+`ContextBudgetManager`**, passed into `answer()`, and called on every turn.
+`updater.capture` and `misses.repetition/record` are live too. **Retrieval works
+when driven against a copy of the owner's real store:** `select(["vesper"])`
+returns 5 facts, `select(["sami"])` returns 5.
+
+**So "nothing reads it" is false, and the grep that produced it was the same
+mistake as reading a registry and calling the world empty.**
+
+## THE SECOND CORRECTION: WHAT COMES BACK IS THE TRANSCRIPT
+
+The live store holds **70 facts**, and their shape is the defect:
+
+| | count |
+|---|---|
+| rank 4, attribute `said` — the owner's sentence, verbatim | **68** |
+| rank 5, real attributes (`school_day`, `location`) — extracted | **2** |
+| **edges in the graph** | **0** |
+
+`core/blocks.py`'s own comment describes this exact failure and claims it fixed:
+*"every fact landed as `owner/said` at rank 4 — the owner's sentence, verbatim,
+findable only by someone who already remembered the sentence… Told a fact about
+Sami on 2026-08-31 and asked to recall it, VESPER answered UNKNOWN: the words
+were in memory and the FACT was not."* The fix was `FactExtractor`, whose
+readings land at rank 5.
+
+**THE EXTRACTOR RUNS. IT HAS PRODUCED TWO FACTS OUT OF SIXTY-EIGHT UTTERANCES.**
+So the fix is not absent — it is **firing about three percent of the time**, and
+the remaining 97% of memory is a searchable transcript wearing the shape of
+knowledge. Retrieval then works perfectly and returns `owner said "wa fin a
+vesper, kidayr?"` — which is a true row and not an answer.
+
+**AND THE GRAPH IS EMPTY. ZERO EDGES.** `relate()` exists and nothing calls it,
+so §26.6's "bounded graph traversal" traverses nothing. That part of §26.6 stands.
+
+## WHY THIS IS WORSE THAN WRITE-ONLY, NOT BETTER
+
+A write-only memory is obviously broken and gets fixed. **This one answers.** It
+returns rows, the rows are real, the retrieval latency is real, and every
+instrument reports success — while the thing it hands the planner is the owner's
+own sentences rather than what was learned from them. It is the corpus's most
+familiar shape: *a wrong answer that looks right*, and here it is sitting in the
+subsystem the owner has twice called the largest item.
+
+**SO THE WORK IS NOT "WIRE MEMORY UP".** It is:
+
+1. **Find out why extraction fires 3% of the time** — measured, not guessed.
+   Whether it is refused, rate-limited, erroring silently, or simply never
+   proposed, is unknown and is one bus query away.
+2. **Call `relate()` from somewhere**, or delete the graph and say so. Zero edges
+   after 70 facts is built-and-unreached with a table behind it.
+3. **Make L1 observable.** Nothing publishes what a turn retrieved, so *"a turn
+   without memory is indistinguishable from one with it"* — which
+   `vesper_runtime.py` says in as many words about `memory.unavailable` and which
+   is equally true of a turn that retrieved only transcript lines.
+
+**§34's stress pass should come after these, not before.** Stressing a store that
+returns the right rows for the wrong reason measures the wrong property.
