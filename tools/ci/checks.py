@@ -26884,6 +26884,84 @@ def check_a_research_session_reopens_the_room_it_left() -> Result:
     return r
 
 
+def check_a_surface_is_not_an_act() -> Result:
+    """§30: showing something is ungated; doing something is not.
+
+    THE OWNER, 2026-09-12: *"there are no permission limitations in both of those
+    2, all permissions are granted by default to vesper on all permission modes,
+    except the work that vesper actually does in them, it remains same."*
+
+    THAT SENTENCE HAS TWO HALVES AND COLLAPSING THEM OPENS A REAL HOLE. Opening
+    the dashboard, showing a card, arranging a window, pulling a card up from the
+    control card, switching phase -- none of those reach the world, and gating
+    them is what made the room feel blocked. The WORK is untouched: `shell.run`,
+    an edit, an application write, a UI press and egress all keep their ladder,
+    their seatbelt and `host_actions.toml`.
+
+    **IT HOLDS BY CONSTRUCTION TODAY AND THAT IS EXACTLY WHY IT NEEDS A CHECK.**
+    Every registered capability is an ACT, and the chrome never consults the
+    permission mode to decide what to draw -- so nothing is gated that should not
+    be. A property nothing enforces is a property one plausible commit removes,
+    and the plausible commit here is "gate the dashboard behind a capability",
+    which reads like tightening security and is the walk-around `core/apps.py`
+    refuses: a surface that grants authority.
+    """
+    r = Result("a-surface-is-not-an-act")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import re as _re
+
+    src = (REPO / "core" / "capabilities.py").read_text(encoding="utf-8")
+    ids = sorted(set(_re.findall(r'reg\.register\("([a-z.]+)"', src)))
+    if not ids:
+        r.err("no capabilities were found at all, so this check is reading the "
+              "wrong thing rather than proving anything")
+
+    # 1. NO CAPABILITY GATES A SURFACE. The vocabulary is acts; a namespace that
+    #    means "show" would put a permission check in front of drawing a card.
+    SURFACE_NAMESPACES = ("card", "panel", "surface", "rail", "dashboard",
+                          "show", "render", "view.open", "menu")
+    for cid in ids:
+        head = cid.split(".")[0]
+        if head in SURFACE_NAMESPACES or cid in ("ui.show", "home.show"):
+            r.err(f"{cid!r} gates a SURFACE behind the capability ladder. The "
+                  f"owner asked for the room to be free in every mode; only the "
+                  f"work inside it is priced")
+
+    # 2. THE PAGE NEVER ASKS THE MODE WHAT TO DRAW. If it did, a stricter mode
+    #    would hide surfaces rather than refuse acts -- the collapse this guards.
+    page = (REPO / "app" / "home-macos" / "chrome" / "home.html").read_text(encoding="utf-8")
+    for token in ("permission_mode", "permissionMode", "__vesperPermissionMode"):
+        if token in page:
+            r.err(f"the page reads {token!r} -- a surface deciding what to show "
+                  f"from the permission mode is the room being gated, which is "
+                  f"what the owner removed")
+
+    # 3. AND THE ACTS ARE STILL PRICED. The other half of the sentence: this must
+    #    not become an argument for ungating the work. Driven against the
+    #    registry rather than asserted, because "the ladder still exists" is the
+    #    kind of claim that stays true in a comment long after it stops being
+    #    true in code.
+    from core import capabilities as C
+    reg = C.build_registry() if hasattr(C, "build_registry") else None
+    priced = 0
+    for cid in ids:
+        fn = getattr(C, cid.replace(".", "_") + "_level", None)
+        if callable(fn):
+            priced += 1
+    if priced < 5:
+        r.err(f"only {priced} capabilities carry a level function; the work "
+              f"inside these rooms is supposed to keep the ladder it has "
+              f"everywhere else")
+
+    if not r.errors:
+        r.note(f"{len(ids)} capabilities and every one of them is an ACT; the "
+               f"page never asks the permission mode what to draw; and "
+               f"{priced} capabilities still carry their level function, so the "
+               f"room is free and the work is not")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -27065,6 +27143,7 @@ CHECK_FNS = {
     "vesper-knows-where-it-is": check_vesper_knows_where_it_is,
     "the-projects-dashboard-is-what-the-owner-asked-for": check_the_projects_dashboard_is_what_the_owner_asked_for,
     "a-research-session-reopens-the-room-it-left": check_a_research_session_reopens_the_room_it_left,
+    "a-surface-is-not-an-act": check_a_surface_is_not_an_act,
     "the-wallpaper-changes-only-on-vespers-desktop": check_the_wallpaper_changes_only_on_vespers_desktop,
     "a-mode-is-a-pairing-of-two-axes": check_a_mode_is_a_pairing_of_two_axes,
     "a-stage-bounds-what-vesper-opens": check_a_stage_bounds_what_vesper_opens,

@@ -7928,5 +7928,24 @@ CASES += [
      "vesper' -- arranging the room is an ordinary act for vesper too"),
 ]
 
+REG_ANCHOR = '    reg.register("ui.view", ui_view_level, ['
+
+CAPS_PY = "core/capabilities.py"
+
+CASES += [
+    ("a-surface-is-not-an-act", CAPS_PY,
+     _sub(REG_ANCHOR, '    reg.register("dashboard.show", ui_view_level, [])\n' + REG_ANCHOR, 1),
+     "a capability is added that gates SHOWING the dashboard, so a stricter mode "
+     "hides the room instead of refusing the work -- and a surface that grants "
+     "or withholds authority is the walk-around core/apps.py refuses"),
+
+    ("a-surface-is-not-an-act", HOME_HTML,
+     _sub("  var railData = {projects: null, research: null, dashboard: null};",
+          "  var railData = {projects: null, research: null, dashboard: null};\n  var permissionMode = '';", 1),
+     "the page starts reading the permission mode, which is a surface deciding "
+     "what to draw from how much vesper is allowed to DO -- the collapse of the "
+     "owner's two halves into one"),
+]
+
 if __name__ == "__main__":
     sys.exit(main())
