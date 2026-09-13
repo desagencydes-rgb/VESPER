@@ -26658,6 +26658,127 @@ def check_vesper_knows_where_it_is() -> Result:
     return r
 
 
+def check_the_projects_dashboard_is_what_the_owner_asked_for() -> Result:
+    """§28, driven rather than read.
+
+    THE OWNER'S SPECIFICATION, 2026-09-12: a dashboard with phases at the top,
+    switches for the project's phase and for the engineering MODE, and control of
+    plans, code, designs, roadmap, practices, documents, terminal, commands and
+    history.
+
+    THREE SWITCHES ARE THREE CONTROLS. The project's phase is CORRECTIVE -- "if
+    they were not chosen well" -- and the engineering mode is a different axis
+    entirely. Rendering them as one row of tabs merges two questions with
+    different answers, which is the first way this gets built wrong.
+
+    AND THE PANELS THAT ALREADY EXIST ARE COMPOSED. `CI-126` guards exactly one
+    terminal; a second one inside the dashboard would be a second thing to keep
+    correct and the older would rot. Composed panels must be MARKED composed, so
+    the surface cannot quietly grow its own copy.
+
+    DRIVEN THROUGH THE REAL RENDERER. Every property here is about what the page
+    PRODUCES; reading its source for these strings is the substring assertion
+    this corpus has watched go vacuous twelve times.
+    """
+    r = Result("the-projects-dashboard-is-what-the-owner-asked-for")
+    import shutil as _sh
+    import subprocess as _sp
+    import tempfile as _tf
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    from core import project_dashboard as PD
+
+    ph, md = PD.phases(), PD.modes()
+    # NOT A COUNT. The first version of this asserted "at least ten phases",
+    # which is a magic number and duly passed when a phase was deleted and
+    # twelve remained -- a threshold nobody can justify is a threshold that
+    # cannot detect the thing it was written for.
+    #
+    # THE PROPERTY IS WHAT THE LIST COVERS. The owner asked for "all phases in
+    # engineering software, hardware, ANY TYPE of engineering", and what
+    # separates that from a software lifecycle is the phases software skips: a
+    # physical first article, the long life after handover, and the end of it.
+    # A list without those IS the software-shaped answer, whatever its length.
+    have = {x["id"] for x in ph}
+    for pid, why in (
+            ("prototype", "the first one built to be learned from rather than "
+                          "kept -- hardware has it and a software lifecycle "
+                          "usually does not"),
+            ("operation", "running and maintaining it, the longest phase in "
+                          "most engineering and the least planned for"),
+            ("retirement", "decommissioning and what happens to what it held, "
+                           "which only exists once a thing is physical or "
+                           "long-lived")):
+        if pid not in have:
+            r.err(f"no {pid!r} phase: {why}. Without it this is one "
+                  f"discipline's lifecycle rather than engineering's")
+    if [m["id"] for m in md] != ["work", "practice"]:
+        r.err(f"the engineering modes are {[m['id'] for m in md]}; the owner "
+              f"named engineering and engineering PRACTICES, which are two "
+              f"bodies of material about one project rather than two states")
+    for row in ph + md:
+        if len(str(row.get("what") or "")) < 20:
+            r.err(f"{row.get('id')!r} carries no explanation, so a chip cannot "
+                  f"say what choosing it means")
+
+    # THE PANELS READ THE PROJECT, WHICH IS TOLD RATHER THAN DERIVED.
+    rows = PD.panels(REPO)
+    ids = [x["id"] for x in rows]
+    for want in ("plans", "code", "designs", "roadmap", "practices",
+                 "documents", "terminal", "commands", "history"):
+        if want not in ids:
+            r.err(f"the dashboard has no {want!r} panel and the owner named it")
+    for x in rows:
+        if x["status"] == "available" and not str(x.get("source") or "").strip():
+            r.err(f"{x['id']!r} reports a reading with no source -- a figure "
+                  f"without one is what MEMORY.md opens by refusing")
+        if x["status"] == "unavailable" and not str(x.get("value") or "").strip():
+            r.err(f"{x['id']!r} is unavailable and says nothing about why, which "
+                  f"is a false zero wearing the shape of a reading")
+    if not any(x["status"] == "composed" for x in rows):
+        r.err("no panel is composed; the terminal, commands and history cards "
+              "already exist and must be reused rather than rebuilt")
+
+    # AND IT REFUSES TO GUESS WHICH DIRECTORY IT IS ABOUT.
+    blind = PD.panels(None)
+    if any(x["status"] == "available" for x in blind):
+        r.err("with no project directory the dashboard still reports readings, "
+              "so it is reading SOMETHING and calling it the project -- which is "
+              "the defect that had vesper list the bundle and call it the root")
+
+    node = _sh.which("node")
+    dom = REPO / "tools" / "ci" / "js" / "dashboard_dom.js"
+    if node is None:
+        r.err("node is not on PATH, so the dashboard renderer cannot be driven. "
+              "Reported rather than skipped")
+        return r
+    if not dom.is_file():
+        r.err(f"{dom.name} is missing, so the renderer is asserted about rather "
+              f"than driven")
+        return r
+    payload = {"phases": ph, "modes": md, "panels": rows,
+               "project_root": str(REPO)}
+    with _tf.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+        json.dump(payload, fh)
+        path = fh.name
+    out = _sp.run([node, str(dom),
+                   str(REPO / "app" / "home-macos" / "chrome" / "home.html"),
+                   path], capture_output=True, text=True, timeout=60)
+    if out.returncode != 0:
+        r.err("the dashboard renderer, DRIVEN: "
+              + (out.stdout or out.stderr or "no output").strip()[:900])
+    else:
+        r.note("renderer driven: " + (out.stdout or "").strip()[:200])
+
+    if not r.errors:
+        r.note(f"{len(ph)} engineering-general phases and {len(md)} modes from "
+               f"the contract; {len(rows)} panels, every reading with a source "
+               f"and every absence with a reason; composed panels marked; and "
+               f"with no project directory it reports nothing rather than "
+               f"reading whatever it is sitting in")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -26837,6 +26958,7 @@ CHECK_FNS = {
     "the-loop-can-see-what-it-just-did": check_the_loop_can_see_what_it_just_did,
     "an-accumulator-is-not-also-a-string": check_an_accumulator_is_not_also_a_string,
     "vesper-knows-where-it-is": check_vesper_knows_where_it_is,
+    "the-projects-dashboard-is-what-the-owner-asked-for": check_the_projects_dashboard_is_what_the_owner_asked_for,
     "the-wallpaper-changes-only-on-vespers-desktop": check_the_wallpaper_changes_only_on_vespers_desktop,
     "a-mode-is-a-pairing-of-two-axes": check_a_mode_is_a_pairing_of_two_axes,
     "a-stage-bounds-what-vesper-opens": check_a_stage_bounds_what_vesper_opens,

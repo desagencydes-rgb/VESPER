@@ -380,6 +380,25 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   /* §11.6's geometry, applied to the ONE panel rather than to a second card:
      the same card at full screen with a margin between it and the display. */
   .menu-panel[data-view="settings"],
+
+  .dash-top{display:flex;flex-direction:column;gap:10px;margin-bottom:14px}
+  .dash-switch{display:flex;flex-direction:column;gap:5px}
+  .dash-switch-label{font-size:11px;letter-spacing:.09em;text-transform:uppercase;opacity:.62}
+  .dash-switch-row{display:flex;flex-wrap:wrap;gap:6px}
+  .dash-chip{font:inherit;font-size:12px;padding:4px 11px;border-radius:999px;cursor:pointer;
+             border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.05);color:inherit}
+  .dash-chip:hover{background:rgba(255,255,255,.10)}
+  .dash-chip.is-on{background:rgba(255,255,255,.20);border-color:rgba(255,255,255,.38)}
+  .dash-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:10px}
+  .dash-panel{border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:11px 12px;
+              background:rgba(255,255,255,.035);display:flex;flex-direction:column;gap:5px}
+  /* DIMMED, NOT HIDDEN: switching mode reveals what was already there. */
+  .dash-panel.is-other-mode{opacity:.42}
+  .dash-panel-name{margin:0;font-size:13px;font-weight:600}
+  .dash-value{font-size:15px}
+  .dash-panel-what{margin:0;font-size:11.5px;opacity:.74;line-height:1.42}
+  .dash-source{margin:0;font-size:10.5px;opacity:.5}
+  .dash-tag{font-size:10px;letter-spacing:.08em;opacity:.62}
   .menu-panel[data-view="projects"],
   .menu-panel[data-view="research"]{
     inset:28px;right:28px;bottom:28px;width:auto;max-width:none;max-height:none}
@@ -1089,10 +1108,16 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   // message -- so the owner saw both at once, which is what they reported.
   // These are branches of `show()` now; the panel is styled full-screen for the
   // settings view alone, which is the geometry §11.6 asked for.
-  var railData = {projects: null, research: null};
+  var railData = {projects: null, research: null, dashboard: null};
   window.__vesperRail = function (which, json) {
     try { railData[which] = JSON.parse(json); } catch (e) { railData[which] = null; }
-    if (active === which) show(which, opener);
+    // THE DASHBOARD ARRIVES UNDER ITS OWN NAME AND IS SHOWN UNDER ANOTHER. The
+    // view is `projects`; the payload is `dashboard`. Comparing the two
+    // directly meant the data landed while the surface was open and nothing
+    // redrew -- the owner would be looking at UNAVAILABLE with the answer
+    // already in the page.
+    var showing = (which === 'dashboard') ? 'projects' : which;
+    if (active === showing) show(showing, opener);
   };
   function stateChip(state){
     var el = node('span', 'rail-state ' + 'rs-' + String(state || 'unknown').replace(/[^a-z_]/g,''));
@@ -1132,11 +1157,92 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     });
     content.append(list);
   }
+  // §28. THE DASHBOARD, NOT A LIST. The owner: "when i click the projects side
+  // button, its dashboard pops up, has at the top places where i can switch
+  // between phases ... or switch between engineering modes".
+  //
+  // THREE SWITCHES AND THEY ARE NOT ONE CONTROL. The project's own phase is
+  // CORRECTIVE -- "if they were not chosen well" -- so choosing it again must
+  // lose nothing; the engineering MODE is a different axis, practice against
+  // work. Rendering them as one row of tabs would merge two questions that have
+  // different answers.
+  var dashPhase = '', dashMode = 'work';
+
+  function dashSwitch(label, rows, current, onPick){
+    var wrap = node('div','dash-switch');
+    wrap.append(node('span','dash-switch-label', label));
+    var group = node('div','dash-switch-row');
+    group.setAttribute('role','group');
+    group.setAttribute('aria-label', label);
+    rows.forEach(function(r){
+      var b = node('button','dash-chip', r.name || r.id);
+      b.type = 'button';
+      b.dataset.id = r.id;
+      var on = (r.id === current);
+      b.setAttribute('aria-pressed', String(on));
+      if (on) b.classList.add('is-on');
+      // THE EXPLANATION IS THE CONTRACT'S OWN SENTENCE, never invented here.
+      if (r.what) b.title = r.what;
+      b.addEventListener('click', function(){ onPick(r.id); });
+      group.append(b);
+    });
+    wrap.append(group);
+    return wrap;
+  }
+
   function renderProjects(){
-    intro.textContent = 'The build, read from the plan document that is its authority. '
-      + 'A step with no marker is UNMARKED, not unstarted — the convention began at step 10.';
-    railList(railData.projects,
-             'The build order has not arrived on this surface yet.');
+    var d = railData.dashboard;
+    if (!d || !Array.isArray(d.panels) || !d.panels.length){
+      content.append(node('span','menu-status','UNAVAILABLE'),
+                     node('p','menu-note','The dashboard producer has not run yet.'));
+      return;
+    }
+    // WHICH PROJECT THIS IS ABOUT, SAID OUT LOUD. Vesper answered "the project
+    // root" with the bundle's contents once; a surface about a directory names
+    // the directory.
+    intro.textContent = d.project_root
+      ? ('The project at ' + d.project_root + '.')
+      : ('No project directory is known, so nothing below can be read. '
+         + 'The dashboard refuses to guess which directory it is about.');
+
+    var phases = Array.isArray(d.phases) ? d.phases : [];
+    var modes  = Array.isArray(d.modes)  ? d.modes  : [];
+    if (!dashPhase && phases.length) dashPhase = phases[0].id;
+
+    var top = node('div','dash-top');
+    top.append(dashSwitch('Phase', phases, dashPhase, function(id){
+      dashPhase = id; show('projects', opener);
+    }));
+    top.append(dashSwitch('Engineering', modes, dashMode, function(id){
+      dashMode = id; show('projects', opener);
+    }));
+    content.append(top);
+
+    var here = phases.filter(function(p){ return p.id === dashPhase; })[0];
+    if (here && here.what) content.append(node('p','menu-note', here.what));
+
+    var grid = node('div','dash-grid');
+    d.panels.forEach(function(p){
+      // A PANEL OF THE OTHER MODE IS SHOWN DIMMED, NOT DELETED, so switching
+      // reveals something the owner already knew was there.
+      var card = node('div','dash-panel');
+      if (p.mode && p.mode !== dashMode) card.classList.add('is-other-mode');
+      card.append(node('h4','dash-panel-name', p.name || p.id));
+      if (p.status === 'composed'){
+        card.append(node('span','dash-tag','COMPOSED'));
+        card.append(node('p','dash-panel-what', p.composes || p.what || ''));
+      } else if (p.status === 'available'){
+        card.append(node('span','dash-value', String(p.value || '')));
+        card.append(node('p','dash-panel-what', p.what || ''));
+        if (p.source) card.append(node('p','dash-source', 'read from ' + p.source));
+      } else {
+        // UNAVAILABLE CARRIES ITS REASON. A false zero looks measured and is not.
+        card.append(node('span','menu-status','UNAVAILABLE'));
+        card.append(node('p','dash-panel-what', p.value || p.what || ''));
+      }
+      grid.append(card);
+    });
+    content.append(grid);
   }
   function renderResearch(){
     intro.textContent = 'Every question settled by measurement, with the status the '

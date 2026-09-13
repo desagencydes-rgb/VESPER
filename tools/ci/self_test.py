@@ -7851,5 +7851,44 @@ CASES += [
      "this tree's most repeated shape and the reason the wiring is asserted"),
 ]
 
+DASH_PY = "core/project_dashboard.py"
+PHASES_TOML = "contracts/policy/project_phases.toml"
+
+CASES += [
+    ("the-projects-dashboard-is-what-the-owner-asked-for", HOME_HTML,
+     _sub("""    top.append(dashSwitch('Engineering', modes, dashMode, function(id){
+      dashMode = id; show('projects', opener);
+    }));
+""", "", 1),
+     "the phase switch and the engineering-mode switch collapse into one "
+     "control, merging two axes that have different answers -- the owner named "
+     "them separately and a single row of tabs is the first way this gets built "
+     "wrong"),
+
+    ("the-projects-dashboard-is-what-the-owner-asked-for", HOME_HTML,
+     _sub("        card.append(node('span','dash-tag','COMPOSED'));\n", "", 1),
+     "a composed panel stops saying it is composed, so the dashboard can quietly "
+     "grow its own terminal beside the one CI-126 guards"),
+
+    ("the-projects-dashboard-is-what-the-owner-asked-for", DASH_PY,
+     _sub('            panel(pid, name, why, status="unavailable")',
+          '            panel(pid, name, why, status="available", source="x", value="y")', 1),
+     "with no project directory the dashboard reports readings anyway, so it is "
+     "reading whatever it is sitting in and calling it the project -- which is "
+     "exactly how vesper listed the bundle and called it the root"),
+
+    ("the-projects-dashboard-is-what-the-owner-asked-for", DASH_PY,
+     _sub('          source="docs/design/*.md")', '          source="")', 1),
+     "a panel reports a figure with no source, which is the thing MEMORY.md "
+     "opens by refusing"),
+
+    ("the-projects-dashboard-is-what-the-owner-asked-for", PHASES_TOML,
+     _renumber_line("schema_version", "2") if False else
+     _sub('[[phases]]\nid = "prototype"', '[[phases_disabled]]\nid = "prototype"', 1),
+     "the phase list is cut down, and a list short enough to be one discipline's "
+     "lifecycle is the software-shaped answer the owner's 'any type of "
+     "engineering' refuses"),
+]
+
 if __name__ == "__main__":
     sys.exit(main())
