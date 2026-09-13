@@ -489,7 +489,8 @@ class Actor:
         signatures: list = list(st.get("signatures") or [])
         consecutive_refusals = int(st.get("consecutive_refusals") or 0)
 
-        for step in range(int(st.get("start_step") or 0), max(1, int(max_steps))):
+        first_step = int(st.get("start_step") or 0)
+        for step in range(first_step, max(1, int(max_steps))):
             # THE STOP, ASKED EVERY STEP -- AND IT WAS ASKED NOWHERE.
             #
             # The interlock was consulted in `AutonomyLoop.dispatch`, once,
@@ -542,6 +543,29 @@ class Actor:
                     component="actor")
                 break
             signatures.append(sig)
+
+            # §23 / §26.7. WHAT THE OWNER ASKS FOR BELONGS WHERE THE OWNER IS.
+            #
+            # `window_open` refuses unless vesper's own Desktop is showing --
+            # "switch to my desktop and I will open it there" -- and the owner
+            # reported the consequence: they asked for a search, it opened on
+            # vesper's Desktop while they were elsewhere, and they had to go
+            # find their own result. The lift the guard names is
+            # `args["owner_requested"]`, and `core/capabilities.py` records that
+            # NOTHING IN THE PRODUCTION PATH EVER SET IT.
+            #
+            # THE FIRST STEP ONLY, AND THAT IS THE WHOLE CARE IN THIS CHANGE.
+            # The same comment says why it was left: `permitted is None` marks a
+            # TURN as owner-originated, not each STEP, so lifting at turn level
+            # would let vesper put windows in the owner's workspace during the
+            # fifth step of an elaboration they never asked for. The first
+            # proposal of an owner-originated turn IS the owner's request; every
+            # step after it is vesper's own idea and gets nothing.
+            #
+            # An autonomous turn (`permitted` supplied) never lifts at all.
+            if step == first_step and permitted is None and isinstance(
+                    getattr(p, "args", None), dict):
+                p.args["owner_requested"] = True
 
             out = self._one_step(p, text, attention_state, period,
                                  fragments, observations)

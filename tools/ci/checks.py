@@ -27059,6 +27059,303 @@ def check_the_speaking_rate_reaches_the_voice_that_speaks() -> Result:
     return r
 
 
+def check_what_the_owner_asks_for_opens_where_they_are() -> Result:
+    """§23 / §26.7: the owner's own request lifts the workspace guard, once.
+
+    THE OWNER, 2026-09-11: *"when i ask for something like that, anything
+    related to apps or windows it should pop up where i am so i can see it
+    directly not switch desktops then see."* They asked for a search; it opened
+    on VESPER's Desktop while they were elsewhere.
+
+    `window_open` refuses unless VESPER's own Desktop is showing, and names the
+    lift: `args["owner_requested"]`. `core/capabilities.py` records that NOTHING
+    IN THE PRODUCTION PATH EVER SET IT -- `intent.py` does not emit it, the actor
+    did not inject it, and its only writers were a check and a self-test
+    asserting the guards consult it.
+
+    **THE CARE IS IN LIFTING IT ONCE.** The same comment says why it was left
+    unwired: `permitted is None` marks a TURN as owner-originated, not each STEP,
+    so lifting at turn level would let VESPER put windows in the owner's
+    workspace during the fifth step of an elaboration they never asked for --
+    the exact trespass the guard exists to refuse. The FIRST proposal of an
+    owner-originated turn is the owner's request; everything after it is VESPER's
+    own idea and gets nothing, and an autonomous turn never lifts at all.
+
+    DRIVEN THROUGH A REAL ACTOR over a real multi-step turn, because "the flag is
+    set" is satisfied by setting it everywhere, which is the failure.
+    """
+    r = Result("what-the-owner-asks-for-opens-where-they-are")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import json as _j, tempfile as _tf2
+    from core.actor import Actor
+    from core.bus import EventBus
+    from core.hlc import HybridLogicalClock
+    from core.store import StoreSet
+
+    class _GW:
+        def __init__(self): self.n = 0
+        def complete(self, *a, **k):
+            self.n += 1
+            if self.n == 1:
+                p = {"action": "fs.read", "args": {"path": "/etc/hosts"}, "why": "one"}
+            elif self.n == 2:
+                p = {"action": "fs.read", "args": {"path": "/etc/services"}, "why": "two"}
+            else:
+                p = {"action": "none"}
+            return {"result": {"text": _j.dumps(p)}}
+
+    def drive(permitted):
+        seen: list = []
+        with _tf2.TemporaryDirectory() as td:
+            base = Path(td)
+            bus = EventBus(HybridLogicalClock("t23"),
+                           StoreSet(base / "s", node_id="t23"), component="t23")
+            a = Actor(bus, _GW(), subject="t23", target="host",
+                      permission_mode_reader=lambda: "auto")
+            real = a._one_step
+            def spy(p, *args, **kw):
+                seen.append(dict(getattr(p, "args", {}) or {}))
+                return real(p, *args, **kw)
+            a._one_step = spy
+            a.maybe_act("read two files", permitted=permitted)
+        return seen
+
+    owner = drive(None)
+    auto = drive(lambda: True)
+
+    if len(owner) < 2:
+        r.err(f"the owner turn produced {len(owner)} step(s); this check needs a "
+              f"multi-step turn to tell the first step from the rest, so it is "
+              f"not testing what it claims")
+    else:
+        if owner[0].get("owner_requested") is not True:
+            r.err("the owner's OWN first request does not lift the workspace "
+                  "guard, so vesper still answers 'switch to my desktop and I "
+                  "will open it there' to a request the owner just made")
+        for i, st in enumerate(owner[1:], start=1):
+            if st.get("owner_requested"):
+                r.err(f"step {i} of the turn also carries owner_requested. Only "
+                      f"the FIRST proposal is the owner's request; the rest are "
+                      f"vesper's elaboration, and lifting there puts windows in "
+                      f"the owner's workspace during steps they never asked for")
+
+    for i, st in enumerate(auto):
+        if st.get("owner_requested"):
+            r.err(f"an AUTONOMOUS turn lifted the guard at step {i}. Nobody "
+                  f"asked for anything, so there is no request to honour")
+
+    # AND THE GUARD MUST STILL EXIST. A lift is only meaningful while there is
+    # something to lift; deleting the refusal would satisfy every assertion above.
+    caps = (REPO / "core" / "capabilities.py").read_text(encoding="utf-8")
+    if "owner_requested" not in caps or "refused_by" not in caps:
+        r.err("the workspace guard is gone from capabilities, so this check "
+              "passes over a rule that no longer exists")
+
+    if not r.errors:
+        r.note(f"driven over a real {len(owner)}-step owner turn: the first "
+               f"proposal lifts the guard and no later step does; an autonomous "
+               f"turn lifts nothing; and the guard it lifts is still there")
+    return r
+
+
+def check_vesper_never_speaks_an_internal_identifier() -> Result:
+    """What reaches the speaker is English, not an accessibility role code.
+
+    THE OWNER, 2026-09-13: *"i keep hearing axpatten, what the fuck is that,
+    it's not the jarvis english i know."* They were hearing `AXButton`, spoken.
+    The `ui.view` answer read `label or role`, and measured on a real window 43
+    of 54 elements carried a label while NONE of the actionable ones did -- so
+    the fallback fired on every item that mattered.
+
+    THIS SESSION HAD CALLED THAT STEP WORKING END TO END. The mechanism fired
+    and what came out of the speaker was never read. A capability that returns
+    the right data and says it wrongly has not worked; the owner judges by the
+    sentence, which is the only thing they can judge by.
+    """
+    r = Result("vesper-never-speaks-an-internal-identifier")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    from core.actor import _describe
+
+    class P:
+        capability_id = "ui.view"
+        args: dict = {}
+
+    CODES = ("AXButton", "AXStaticText", "AXWindow", "AXOutline", "AXTextField",
+             "AXLink", "AXGroup", "kAX")
+    cases = {
+        "every control unnamed": [{"role": "AXButton", "label": "", "can": ["press"]}] * 4
+                                 + [{"role": "AXStaticText", "label": "Wi-Fi", "can": []}],
+        "some named, some not": [{"role": "AXButton", "label": "Reload", "can": ["press"]},
+                                 {"role": "AXButton", "label": "", "can": ["press"]}],
+        "nothing usable": [{"role": "AXStaticText", "label": "hello", "can": []}],
+    }
+    for what, els in cases.items():
+        said = _describe(P(), {"ok": True, "count": len(els), "elements": els})
+        leaked = [c for c in CODES if c in said]
+        if leaked:
+            r.err(f"with {what}, the spoken line contains {leaked} -- an "
+                  f"accessibility identifier read aloud is not an answer: {said!r}")
+        if not str(said).strip():
+            r.err(f"with {what}, the spoken line is empty")
+
+    # AND AN UNNAMED CONTROL MUST BE COUNTED RATHER THAN DROPPED, or the owner
+    # is told a window has fewer controls than it has.
+    els = [{"role": "AXButton", "label": "", "can": ["press"]}] * 3
+    said = _describe(P(), {"ok": True, "count": 3, "elements": els})
+    if "3" not in said:
+        r.err(f"three unnamed controls are neither named nor counted: {said!r}")
+
+    if not r.errors:
+        r.note("no accessibility identifier reaches the spoken line in any of "
+               "the three shapes, and unnamed controls are counted rather than "
+               "dropped or read out as codes")
+    return r
+
+
+def check_one_runtime_and_one_voice() -> Result:
+    """One runtime answers, and one failure is announced once.
+
+    THE OWNER, 2026-09-13: *"too many fucking voices at the same time, with lot
+    of rate limit responses."* Two separate causes, both measured.
+
+    THREE RUNTIMES WERE ALIVE. Killing the home app does not kill the python
+    runtime it spawned -- the child is reparented to launchd and keeps reading
+    `say.jsonl` -- so every restart stranded another one, and each answered every
+    utterance and spoke. One question, three answers, three times the provider
+    calls.
+
+    AND ONE OUTAGE NARRATED PER RETRY. `announce` consults `speak_when` -- may
+    this CLASS speak -- which is the only half of `interruption_budget.toml`
+    anything read. The contract declares `max_contacts_per_hour = 2`, and a
+    permitted class was permitted every time.
+    """
+    r = Result("one-runtime-and-one-voice")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if "flock" not in rt or "_only_one_runtime" not in rt:
+        r.err("the runtime takes no exclusive lock, so a second one starts "
+              "beside the first and answers everything twice")
+    if "_only_one_runtime()" not in rt.split("def _only_one_runtime")[-1]:
+        r.err("_only_one_runtime is defined and never called, which is the "
+              "built-and-unreached shape this tree keeps finding")
+    # A PID FILE WOULD NOT DO. It records an intention and goes stale when a
+    # process dies badly; a flock is released by the kernel whatever happens.
+    if "LOCK_EX" not in rt or "LOCK_NB" not in rt:
+        r.err("the lock is not exclusive-and-non-blocking, so a second runtime "
+              "either shares it or waits forever instead of standing down")
+
+    from core.narration import Announcer, REPEAT_SILENCE_S
+    if not (10.0 <= float(REPEAT_SILENCE_S) <= 600.0):
+        r.err(f"REPEAT_SILENCE_S is {REPEAT_SILENCE_S}, which is not a silence "
+              f"an owner would recognise as one")
+
+    spoken: list = []
+
+    class _Bus:
+        def __init__(self): self.events: list = []
+        def publish(self, kind, **kw): self.events.append(kind)
+        def subscribe(self, kind, fn, **kw): self.fn = fn
+
+    bus = _Bus()
+    ann = Announcer(bus, speaker=lambda t: spoken.append(t))
+    ann.attach(bus, interruption_class="active_user_task", next_rung="another provider")
+
+    class _Ev:
+        pass
+
+    for i in range(6):
+        e = _Ev(); e.event_id = f"e{i}"
+        e.payload = {"classification": "rate_limited", "outcome": "error",
+                     "attempt": i + 1, "max_attempts": 10}
+        bus.fn(e)
+    if len(spoken) != 1:
+        r.err(f"six retries of ONE failure were announced {len(spoken)} times; "
+              f"the owner hears the same sentence over and over, which is what "
+              f"they reported")
+    if bus.events.count("narration.suppressed") != 5:
+        r.err("the suppressed repeats are not recorded, so a silence and a "
+              "failure to notice look identical in the log")
+
+    # A DIFFERENT FAILURE IS STILL WORTH HEARING. Suppressing globally would
+    # trade one noise defect for a silence defect.
+    e = _Ev(); e.event_id = "other"
+    e.payload = {"classification": "timeout", "outcome": "error",
+                 "attempt": 1, "max_attempts": 10}
+    bus.fn(e)
+    if len(spoken) != 2:
+        r.err("a DIFFERENT failure inside the window was suppressed too; two "
+              "problems in a minute are two things the owner needs to hear")
+
+    if not r.errors:
+        r.note("the runtime holds an exclusive non-blocking flock and calls for "
+               "it; six retries of one failure speak once and record five "
+               "suppressions; and a different failure is still heard")
+    return r
+
+
+def check_a_reader_cannot_empty_the_owners_board() -> Result:
+    """Looking at the board must not erase it.
+
+    MEASURED 2026-09-13, AND THE OWNER REPORTED IT TWICE AS A CARD DISAPPEARING.
+    `home.json` is shared state and `write()` published `workbench`
+    unconditionally -- deliberately, so the card empties when work stops. But
+    ANY process that builds a `HomeState` and writes has an empty `_workbench`,
+    including a read-only diagnostic asking what the dashboard holds. Such a tool
+    published that emptiness over the running runtime's live board.
+
+    THE INTENT SURVIVES. `set_workbench` is what the pump calls every pass, so
+    the runtime still empties the card the moment its own board is empty. A
+    process that never supplied one now leaves the field alone instead of
+    asserting that nothing is happening.
+    """
+    r = Result("a-reader-cannot-empty-the-owners-board")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import json as _j, tempfile as _tf3
+    import core.home_state as HS
+
+    real = HS.HOME_JSON
+    try:
+        with _tf3.TemporaryDirectory() as td:
+            path = Path(td) / "home.json"
+            HS.HOME_JSON = path
+            path.write_text(_j.dumps(
+                {"workbench": {"thoughts": ["a real thought"], "actions": [],
+                               "commands": [], "explanations": []},
+                 "transcript": [{"who": "owner", "text": "hello"}]}),
+                encoding="utf-8")
+
+            reader = HS.HomeState()
+            reader.write()                      # a read-only tool, writing
+            after = _j.loads(path.read_text(encoding="utf-8"))
+            if (after.get("workbench") or {}).get("thoughts") != ["a real thought"]:
+                r.err("a HomeState that never supplied a workbench erased the "
+                      "one on disk -- which is a tool looking at the board "
+                      "destroying it, reported twice by the owner")
+
+            # AND THE OWNER OF THE BOARD MUST STILL BE ABLE TO EMPTY IT.
+            owner = HS.HomeState()
+            owner.set_workbench({"thoughts": [], "actions": [],
+                                 "commands": [], "explanations": []})
+            owner.write()
+            after2 = _j.loads(path.read_text(encoding="utf-8"))
+            if (after2.get("workbench") or {}).get("thoughts") != []:
+                r.err("the process that OWNS the board can no longer empty it, "
+                      "so a card keeps its last contents after work stops and "
+                      "reports work that is not happening")
+    finally:
+        HS.HOME_JSON = real
+
+    if not r.errors:
+        r.note("a reader that never supplied a board leaves it alone; the "
+               "process that supplies one can still empty it")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -27242,6 +27539,10 @@ CHECK_FNS = {
     "a-research-session-reopens-the-room-it-left": check_a_research_session_reopens_the_room_it_left,
     "a-surface-is-not-an-act": check_a_surface_is_not_an_act,
     "the-speaking-rate-reaches-the-voice-that-speaks": check_the_speaking_rate_reaches_the_voice_that_speaks,
+    "what-the-owner-asks-for-opens-where-they-are": check_what_the_owner_asks_for_opens_where_they_are,
+    "vesper-never-speaks-an-internal-identifier": check_vesper_never_speaks_an_internal_identifier,
+    "one-runtime-and-one-voice": check_one_runtime_and_one_voice,
+    "a-reader-cannot-empty-the-owners-board": check_a_reader_cannot_empty_the_owners_board,
     "the-wallpaper-changes-only-on-vespers-desktop": check_the_wallpaper_changes_only_on_vespers_desktop,
     "a-mode-is-a-pairing-of-two-axes": check_a_mode_is_a_pairing_of_two_axes,
     "a-stage-bounds-what-vesper-opens": check_a_stage_bounds_what_vesper_opens,

@@ -7947,5 +7947,65 @@ CASES += [
      "owner's two halves into one"),
 ]
 
+LIFT_REAL = '            if step == first_step and permitted is None and isinstance(\n                    getattr(p, "args", None), dict):\n                p.args["owner_requested"] = True\n'
+LIFT_EVERY = '            if permitted is None and isinstance(\n                    getattr(p, "args", None), dict):\n                p.args["owner_requested"] = True\n'
+LIFT_AUTO = '            if step == first_step and isinstance(\n                    getattr(p, "args", None), dict):\n                p.args["owner_requested"] = True\n'
+
+ACTOR_PY = "core/actor.py"
+
+CASES += [
+    ("what-the-owner-asks-for-opens-where-they-are", ACTOR_PY,
+     _sub(LIFT_REAL, "", 1),
+     "the owner's own request stops lifting the workspace guard, so vesper "
+     "answers 'switch to my desktop and I will open it there' to a request the "
+     "owner just made -- the defect 26.7 reported"),
+
+    ("what-the-owner-asks-for-opens-where-they-are", ACTOR_PY,
+     _sub(LIFT_REAL, LIFT_EVERY, 1),
+     "every step of the turn lifts the guard, not just the owner's own first "
+     "request, so vesper puts windows in the owner's workspace during the fifth "
+     "step of an elaboration nobody asked for"),
+
+    ("what-the-owner-asks-for-opens-where-they-are", ACTOR_PY,
+     _sub(LIFT_REAL, LIFT_AUTO, 1),
+     "an autonomous turn lifts the guard too, so vesper opens into the owner's "
+     "workspace when nobody asked for anything at all"),
+]
+
+NAMED_REAL = '        named = [str(r.get("label")).strip() for r in can\n                 if str(r.get("label") or "").strip()]'
+ROLEBACK_BAD = '        named = [str(r.get("label") or r.get("role")).strip() for r in can]'
+THROTTLE_REAL = '            if last and (now - last) < REPEAT_SILENCE_S:'
+THROTTLE_BAD = '            if False:'
+LOCK_REAL = '    _only_one_runtime()'
+BOARD_REAL = '            if self._workbench_set:\n                existing["workbench"] = self._workbench'
+BOARD_BAD_S = '            existing["workbench"] = self._workbench'
+
+NARR_PY = "core/narration.py"
+RUNTIME_PY = "tools/ops/vesper_runtime.py"
+HOMEST_PY = "core/home_state.py"
+
+CASES += [
+    ("vesper-never-speaks-an-internal-identifier", ACTOR_PY,
+     _sub(NAMED_REAL, ROLEBACK_BAD, 1),
+     "an unnamed control falls back to its accessibility ROLE, so vesper reads "
+     "'AXButton' aloud -- which the owner heard and did not recognise as "
+     "English, because it is not"),
+
+    ("one-runtime-and-one-voice", RUNTIME_PY,
+     _sub(LOCK_REAL, "", 1),
+     "the runtime stops taking its lock, so a second one starts beside the "
+     "first and every utterance is answered and spoken twice"),
+
+    ("one-runtime-and-one-voice", NARR_PY,
+     _sub(THROTTLE_REAL, THROTTLE_BAD, 1),
+     "the same failure is announced on every retry again, so one outage is "
+     "spoken ten times and spends an hour's interruption budget in seconds"),
+
+    ("a-reader-cannot-empty-the-owners-board", HOMEST_PY,
+     _sub(BOARD_REAL, BOARD_BAD_S, 1),
+     "the board is published unconditionally again, so any tool that merely "
+     "READS home.json erases the card the owner is looking at"),
+]
+
 if __name__ == "__main__":
     sys.exit(main())
