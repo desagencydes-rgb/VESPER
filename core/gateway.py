@@ -803,6 +803,7 @@ class ModelGateway:
                 component="gateway")
 
         options = options or {}
+        self._last_attempts = []          # this request's attempts, for the flag
         with self._lock:
             providers = list(self._providers)
         if profile_id is None:
@@ -1165,6 +1166,44 @@ class ModelGateway:
         # Nothing permitted succeeded. Checkpoint and queue -- do NOT escalate.
         if task_id:
             self._cost.exhausted(task_id)
+
+        # AND IT REACHES THE FLAG BAR, WITH WHAT ACTUALLY HAPPENED.
+        #
+        # The owner, 2026-09-13: "vesper keep saying queued, when the rung is
+        # spent, or requests have errors in them, and i know they're not
+        # working, just some generic shit... now vesper is lying, he is not
+        # checking the flags bar, the logs, the errors."
+        #
+        # They were right on both halves. `gateway.py` raised NO flag anywhere,
+        # so a ladder that had run out reached the owner as one sentence about
+        # queueing and reached the bar not at all. What it knows and never said:
+        # which rungs were spent, which errored, and with what.
+        spent = sorted({a.get("provider_id") for a in self._last_attempts
+                        if a.get("classification") == "quota_ledger_exhausted"} - {None})
+        failed = sorted({(a.get("provider_id"), a.get("classification"))
+                         for a in self._last_attempts
+                         if a.get("outcome") not in ("ok", "skipped")})
+        detail = []
+        if spent:
+            detail.append(f"{len(spent)} rung(s) spent: {', '.join(spent[:6])}")
+        if failed:
+            detail.append("failed: " + "; ".join(
+                f"{pid} ({cls})" for pid, cls in failed[:4]))
+        if last_error:
+            detail.append(f"last error: {str(last_error)[:160]}")
+        self._bus.publish(
+            "flag.raised", subject=task_id or "gateway",
+            payload={"id": "gateway:no-rung-answered",
+                     "capability_id": "gateway",
+                     "text": ("no provider answered. "
+                              + " | ".join(detail) if detail else
+                              "no provider answered and nothing said why")[:400],
+                     # RE-PROVED BY ASKING AGAIN. A spent window refills, so this
+                     # flag must retire itself when a rung answers rather than
+                     # sitting on the bar until someone notices it is stale.
+                     "recheck": "gateway.answered"},
+            component="gateway")
+
         raise AllProvidersExhausted(
             "every permitted provider was unavailable, refused or failed. "
             "Task checkpointed and queued for the next permitted period; no "
@@ -1266,6 +1305,17 @@ class ModelGateway:
                         p.provider_id, elapsed_ms / 1000.0)
                 else:
                     o.update(elapsed_ms / 1000.0)
+        # KEPT FOR THIS REQUEST, so the flag raised when nothing answers can name
+        # the rungs instead of describing the outcome in the abstract. Cleared
+        # at the top of `complete`, so it never spans two requests.
+        try:
+            self._last_attempts.append(
+                {"provider_id": p.provider_id, "outcome": outcome,
+                 "classification": classification})
+        except AttributeError:
+            self._last_attempts = [{"provider_id": p.provider_id,
+                                    "outcome": outcome,
+                                    "classification": classification}]
         self._bus.publish("gateway.attempt", subject=p.provider_id,
                           payload={"provider_id": p.provider_id,
                                    "cost_class": cost_class, "outcome": outcome,

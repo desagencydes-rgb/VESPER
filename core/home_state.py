@@ -509,6 +509,22 @@ class HomeState:
             out.append(row)
         return out[-HISTORY_BAR_CAP:]
 
+    def open_flags(self) -> list:
+        """Everything currently on the bar, for VESPER to read on its next turn.
+
+        THE OWNER, 2026-09-13: *"i want it to put everything like that in the
+        flag bar, and vesper should look at the flag bar right on the next
+        working request."* Until this existed, nothing in a turn ever read the
+        bar -- `carried_flags` was called once at startup and never again, so
+        the surface whose job is to carry what went wrong was written to and
+        never consulted by the thing that could act on it.
+
+        NEWEST FIRST, because a turn reading this spends a small budget on it
+        and the newest flag is the one least likely to have been seen already.
+        """
+        with self._lock:
+            return [dict(f) for f in reversed(self._flags)]
+
     def carried_flags(self) -> list:
         """Flags inherited from the last process and not yet re-proved."""
         with self._lock:

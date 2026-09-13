@@ -1515,7 +1515,8 @@ def _render_conversation(recent: list) -> str:
 
 def answer(gw, router, persona, utterance, renderer=None,
            updater=None, misses=None, chooser=None,
-           context_cmds=None, can_do=None, recent=None, state=None) -> str:
+           context_cmds=None, can_do=None, recent=None, state=None,
+           flags=None) -> str:
     """One request across the ladder. Difficulty routes it; the ladder serves it.
 
     `privacy_class` IS NOT PASSED, and that is the point of the default. Anything
@@ -1606,6 +1607,27 @@ def answer(gw, router, persona, utterance, renderer=None,
     # documented as "Block B then the question, in that order and nothing
     # between them", so the conversation is prepended to the whole thing rather
     # than inserted into it.
+    # WHAT IS ON THE FLAG BAR, READ AT THE TOP OF THE TURN.
+    #
+    # The owner, 2026-09-13: "vesper should look at the flag bar right on the
+    # next working request, so after the first working request vesper checks
+    # that quickly and sees if there is anything critical." Until this line,
+    # NOTHING in a turn ever read the bar -- `carried_flags` was called once at
+    # startup and never again. The surface whose whole job is to carry what went
+    # wrong was written to by the executor and consulted by nobody who could act
+    # on it, so vesper answered "checkpointed and queued" while the reason sat
+    # on screen next to it.
+    if flags:
+        try:
+            from core.intent import render_flags
+            bar = render_flags(flags)
+        except Exception:                              # noqa: BLE001
+            # A TURN STILL ANSWERS WITHOUT THE BAR. Taking the reply down over
+            # context about a past failure would be a worse failure than the one
+            # it is describing.
+            bar = ""
+        if bar:
+            request = bar + "\n\n" + request
     if recent:
         conversation = _render_conversation(recent)
         if conversation:
@@ -2507,6 +2529,7 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                     # evidence anywhere else either.
                     reply = strip_internal_prefix(
                         answer(gw, router, persona, intake.history[-1],
+                               flags=(home.open_flags() if home is not None else None),
                                renderer=renderer, updater=updater,
                                misses=misses, chooser=chooser,
                                context_cmds=context_cmds,
