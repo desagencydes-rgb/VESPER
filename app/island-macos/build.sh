@@ -532,6 +532,18 @@ else
   done
 fi
 
+# ASK FOR EVERY MISSING PERMISSION, NOW, WHILE THE OWNER IS STILL HERE.
+#
+# Grants are keyed to the cdhash and this build just changed it, so everything
+# except Apple Events was revoked a second ago. The owner, 2026-09-13: "for
+# stuff that need dialog on runtime, they should be raised right after vesper
+# rebuilds and runs, so i won't have to go to settings anymore."
+#
+# `open -n` AND NOT THE BINARY. TCC attributes a request to the RESPONSIBLE
+# process; asking from this shell would ask on behalf of the shell, which is the
+# mistake MEMORY.md records costing a whole grant trip once already.
+open -n "$APP" --args --request-grants
+
 echo "built: $APP"
 echo
 echo "run, from the REPO ROOT:"

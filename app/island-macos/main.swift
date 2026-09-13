@@ -2342,6 +2342,15 @@ if args.contains("--window-where") {
     exit(0)
 }
 
+if args.contains("--request-grants") {
+    // ASK for everything missing, in one pass. Run by `build.sh` after every
+    // build -- grants die with the cdhash, so the moment after a rebuild is
+    // exactly when the owner should be asked, rather than discovering it
+    // mid-task and being sent to System Settings.
+    Grants.request()
+    exit(0)
+}
+
 if args.contains("--grants") {
     // ONE PASS, NO PROMPTS. See Grants.swift for why this is not five flags.
     func arg(_ n: String) -> String? {
