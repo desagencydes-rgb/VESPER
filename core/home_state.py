@@ -112,6 +112,7 @@ class HomeState:
         self._flags: list = self._load_flags()
         self._settings: list = []
         self._projects: list = []
+        self._dashboard: dict = {}
         self._research: list = []
         # A FLAG ON THE BAR WITH NO HISTORY ROW IS A HOLE IN "THE FULL HISTORY".
         #
@@ -415,6 +416,29 @@ class HomeState:
             n += len(self._projects) + len(self._research)
         except Exception:                                 # noqa: BLE001
             pass
+        # THE DASHBOARD (§28). Its phases come from a contract and its panels
+        # read the PROJECT -- which is told, never derived, because a runtime
+        # running from the bundle resolves its own location to the shipped copy
+        # and answers questions about that instead. `core/places.py` is the one
+        # thing that knows which directory the owner means.
+        try:
+            from core import project_dashboard as PD
+            from core import places as PL
+            root = ""
+            for row in PL.places():
+                if row.get("name") == "the project" and row.get("path"):
+                    root = row["path"]
+                    break
+            with self._lock:
+                self._dashboard = {
+                    "phases": PD.phases(),
+                    "modes": PD.modes(),
+                    "panels": PD.panels(root or None),
+                    "project_root": root,
+                }
+            n += len(self._dashboard.get("panels") or [])
+        except Exception:                                 # noqa: BLE001
+            pass
         self.write()
         return n
 
@@ -601,6 +625,8 @@ class HomeState:
                 existing["settings"] = self._settings
             if self._projects:
                 existing["projects"] = self._projects
+            if self._dashboard:
+                existing["project_dashboard"] = self._dashboard
             if self._research:
                 existing["research"] = self._research
             # ONLY WHEN A MODE HAS BEEN CHOSEN. Writing an empty ambience every

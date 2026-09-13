@@ -4884,3 +4884,48 @@ field — its note claims *"the thoughts and FINISHED actions come back so the c
 does not vanish."* A green gate over an empty surface is the shape this corpus
 keeps finding, and the next step is to ask what the check DRIVES versus what the
 pump CALLS.
+
+---
+
+# 43. THREE OF THE FOUR "BLOCKERS" WERE NOT BLOCKERS
+
+**Owner, 2026-09-13:** *"we have the j3, so nothing is blocked, for xcode, is it
+really necessary? for camera, the web cam is here, j3 is also here."*
+
+The session had listed four items as hardware- or tooling-blocked and therefore
+out of reach before the deadline. **Three of them were misread, and the way they
+were misread is worth keeping.**
+
+| item | what was checked | why that was the wrong question |
+|---|---|---|
+| §31 camera | `capability_profiles.toml` names 0 cameras | That is whether a camera is **ENROLLED**, not whether one **EXISTS**. This Mac has a webcam and the J3 has cameras. Enrollment is work, and `profile_node.py` is stdlib-only precisely so it runs on a new node with no setup |
+| §32 J3 | 0 rows in the node registry | Same mistake. The device is **here**; it is simply not enrolled yet |
+| §35 phone app | `xcodebuild` returns nothing | Xcode is needed for a **NATIVE** app. It is not needed for what the owner actually asked for |
+
+**AN ABSENCE FROM A REGISTRY IS NOT AN ABSENCE FROM THE WORLD.** That is the
+whole error, and it is the same shape as a false zero: the registry was read
+correctly and answered a different question than the one being asked. `INV-HW-2`
+says UNKNOWN means UNAVAILABLE — it does **not** say UNENROLLED means ABSENT.
+
+## XCODE, ANSWERED
+
+§37.1 recorded the owner's scope for the phone: *"full management from iphone on
+macbook."* **That is a web surface served by the Mac and opened in the phone's
+browser** — no Xcode, no provisioning profile, no store. It can be added to the
+home screen and behaves like an app.
+
+Xcode is required only for a NATIVE build, and the spike index already carries
+that question: **SPIKE-014, "A WidgetKit extension without Xcode, and its real
+refresh budget."** So the native path was always understood to need answering
+separately, and the management surface never depended on it.
+
+**§35's ordering is unchanged** — the owner put the phone last and that stands —
+but it is last by choice rather than by obstruction, which is a different thing
+and changes what may be promised.
+
+## WHAT IS ACTUALLY STILL GATED
+
+**Only §33's calling half**, and not by hardware: `SPIKE-005` — *"Delegated
+presence: programmatic call origination without deceptive impersonation"* — is
+`NOT_STARTED`, and its title names a constraint that must be satisfied in version
+one rather than added later. Messaging is not gated by it.

@@ -52,8 +52,23 @@ def _recorded_project_root() -> tuple[pathlib.Path | None, str]:
     try:
         text = _RECORD.read_text(encoding="utf-8")
     except OSError:
-        return None, ("no build record of where the project is -- this copy was "
-                      "not told, and a copy cannot work that out by looking at "
+        # NO RECORD. There is one honest fallback and it is NOT the derivation
+        # that caused the defect: if the directory the code is running from
+        # CARRIES THE PROJECT'S MARKERS, it is the project, and it is the
+        # project for the same reason any other candidate would be -- it was
+        # checked, not assumed.
+        #
+        # THE DIFFERENCE FROM THE BUG IS THE WHOLE POINT. `REPO =
+        # Path(__file__).parents[1]` took the module's location AS the answer
+        # with nothing verified, so the shipped copy called itself the project.
+        # That copy fails this test: it carries `core/` and no `CLAUDE.md`. The
+        # markers are what tell a real tree from a packaged one, so running from
+        # the repo resolves and running from the bundle correctly does not.
+        if all((_HERE / m).exists() for m in _PROJECT_MARKERS):
+            return _HERE, ""
+        return None, ("no build record of where the project is, and this "
+                      "directory does not carry the project's markers -- a copy "
+                      "cannot work out where the original is by looking at "
                       "itself")
     root = ""
     for line in text.splitlines():

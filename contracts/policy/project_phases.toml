@@ -1,0 +1,106 @@
+##############################################################################
+# PROJECT PHASES AND ENGINEERING MODES
+#
+# Authority: HOME-WORKBENCH SS28, owner 2026-09-12 -- "has phases, basically all
+# phases in engineering software, hardware, any type of engineering."
+#
+# ENGINEERING-GENERAL, NOT SOFTWARE-SHAPED, AND THAT IS THE POINT. A dashboard
+# that only knows design -> build -> test -> ship cannot hold the hologram rig
+# the owner is building by hand. The phases below are the ones every engineering
+# discipline shares; a discipline that needs another adds it here rather than in
+# the view.
+#
+# INV-HW-1 IN ITS ORIGINAL SENSE. A phase is a CLASS OF WORK, never a named tool
+# or product. "Fabrication" is a phase; the name of a printer is not. CI-007
+# scans this file.
+#
+# A PHASE IS RE-CHOOSABLE AND THAT IS A REQUIREMENT. The owner asked for
+# "places where i can switch between phases if they were not chosen well", so
+# phase is a MUTABLE ATTRIBUTE with history -- never a directory a thing was
+# filed into. Moving a project between phases must orphan nothing.
+##############################################################################
+
+schema_version = 1
+authority = "HOME-WORKBENCH SS28 - owner 2026-09-12 - INV-HW-1"
+
+# THE TWO MODES ARE TWO BODIES OF MATERIAL ABOUT THE SAME PROJECT, not two
+# states of it. The owner named them "engineering practices and engineering":
+# how the work is done, and the work.
+[[modes]]
+id = "work"
+name = "Engineering"
+what = "the artefacts themselves -- what is being built, and its current state"
+
+[[modes]]
+id = "practice"
+name = "Engineering practices"
+what = "how the work is done here -- the methods, reviews and standards that govern the artefacts, which outlive any one project"
+
+# ORDERED, because a phase list whose order is not declared is one every reader
+# guesses at. The order is the ordinary progression; it is NOT a gate -- nothing
+# here refuses a project that is in two phases or goes backwards, because real
+# engineering does both.
+[[phases]]
+id = "concept"
+name = "Concept"
+what = "the problem, the constraints, and whether it is worth doing at all"
+
+[[phases]]
+id = "research"
+name = "Research"
+what = "questions settled by measurement before anything depends on the answer"
+
+[[phases]]
+id = "requirements"
+name = "Requirements"
+what = "what it must do, stated so that a finished thing can be judged against it"
+
+[[phases]]
+id = "architecture"
+name = "Architecture"
+what = "the shape: the parts, their boundaries, and what crosses between them"
+
+[[phases]]
+id = "design"
+name = "Detailed design"
+what = "each part specified closely enough to be built from"
+
+[[phases]]
+id = "prototype"
+name = "Prototype"
+what = "the first one, built to be learned from rather than kept"
+
+[[phases]]
+id = "build"
+name = "Build"
+what = "implementation, fabrication, assembly -- making the real one"
+
+[[phases]]
+id = "verification"
+name = "Verification"
+what = "does it meet the specification. Measured, never declared"
+
+[[phases]]
+id = "validation"
+name = "Validation"
+what = "does it solve the problem. A thing can pass verification and fail this"
+
+[[phases]]
+id = "integration"
+name = "Integration"
+what = "it working alongside everything else, which is where most of it goes wrong"
+
+[[phases]]
+id = "deployment"
+name = "Deployment"
+what = "commissioning, handover, putting it where it does its job"
+
+[[phases]]
+id = "operation"
+name = "Operation"
+what = "running and maintaining it, which is the longest phase and the least planned for"
+
+[[phases]]
+id = "retirement"
+name = "Retirement"
+what = "decommissioning, migration, and what happens to what it held"
