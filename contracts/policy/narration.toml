@@ -23,6 +23,18 @@
 # retry_in_seconds, next_rung. A template referencing anything else cannot be
 # rendered and is refused at load rather than at 3 a.m.
 #
+# `{next_rung}` IS RENDERED ON ARRIVAL, NEVER FROM A CONSTANT. 2026-09-11 the
+# owner asked why he kept hearing "moving to a local model": the runtime handed
+# the phrase in once at startup, and this node has no local rung -- its nearest
+# candidate is a cloud endpoint whose vendor happens to be named after local
+# software. The phrase was INV-HW-1-correct and the fact was false. So a line
+# with a destination clause is spoken only from `gateway.descended`, which the
+# gateway publishes when the next rung has passed its own skip filters and is
+# about to be called, and the clause is one of exactly two phrases decided by
+# the row's MEASURED locality: "a model on this machine" when the endpoint's
+# host is loopback, "another provider" otherwise (unknown is not local,
+# INV-HW-2). A vendor's name never decides it.
+#
 # THIS IS A GOVERNED SURFACE. The runtime may PROPOSE a line and may never
 # apply one -- a system that can rewrite its own script can stop reporting the
 # thing it is failing at.
@@ -51,6 +63,15 @@ terminal_outcome_always_recorded = true
 note = """Under a log-only class the ATTEMPTS are recorded and nothing is
 spoken; only a terminal outcome that needs the owner is surfaced, and it is
 surfaced through the ordinary interruption path rather than by bypassing it."""
+# THE RATE IS READ TOO, NOT ONLY THE LATTICE. A request the owner is waiting on
+# means the owner is present and attending, and that is the budget cell below
+# in `interruption_budget.toml`: its `max_contacts_per_hour`, `max_cost_per_hour`
+# and `permitted_modalities` bound how often anything here is said aloud.
+# Every spoken line is one contact at the cost that file gives speech. For two
+# weeks only `speak_when` was consulted, so a permitted class was permitted
+# every time and the owner heard one outage ten times. Declared here, not in
+# code, because "the owner is attending" is a claim about the owner.
+waiting_cell = ["ACTIVE_SESSION", "available"]
 
 # --------------------------------------------------------------------------
 # One row per classification. `classification` values come from
@@ -164,6 +185,17 @@ classification = "cost_policy"
 text = "That provider isn't permitted right now. Moving to {next_rung}."
 why = """A refusal at the choke point, not a failure. Never phrased as an
 error: nothing went wrong, a rule was applied."""
+
+[[line]]
+classification = "descent"
+text = "That provider isn't answering. Moving to {next_rung}."
+why = """Spoken when the ladder moves on from a rung whose own line has no
+destination clause: a rate limit or a server error that outlasted its retries
+was narrated as "retrying", and then the retries ran out. Without this the
+descent after a transient failure is silent, while the descent after a
+terminal one is spoken -- the same event described or not depending on how
+the previous rung happened to fail. Says only what is known: the rung did not
+answer, and the ladder has actually moved."""
 
 [[line]]
 classification = "exhausted_all"

@@ -3762,6 +3762,271 @@ def check_narration_complete() -> Result:
     return r
 
 
+def check_narration_follows_the_ladder() -> Result:
+    """A descent is narrated ONCE, on ARRIVAL, with a MEASURED destination; and
+    the interruption budget's RATE is read, not only its lattice.
+
+    HOME-WORKBENCH §26.8, 2026-09-11: the owner kept hearing "no route to that
+    provider, moving to a local model" from a node with no local rung. The
+    phrase was a constant handed to `attach()` at startup; the nearest rung was
+    ollama.com. And the repetition was a second defect: the subscription fired
+    per failed attempt, and `narration.py` read `speak_when` -- may this CLASS
+    speak -- while `max_contacts_per_hour` sat unread. RUNTIME FIXTURE: a real
+    gateway, a real announcer, a bus that delivers, and the exact sentences.
+    """
+    import inspect
+    from types import SimpleNamespace
+
+    r = Result("narration-follows-the-ladder")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core.cost import CostPolicy
+        from core.gateway import (LOCAL, REMOTE, UNKNOWN_LOCALITY, ModelGateway,
+                                  Provider, TERMINAL, locality_of)
+        from core.hlc import HybridLogicalClock
+        from core.narration import (NEXT_RUNG_LOCAL, NEXT_RUNG_OTHER, Announcer,
+                                    NarrationRefused)
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the gateway or the narrator did not import: {exc!r}")
+        return r
+
+    class _Bus:
+        """Delivers, unlike `_StubBus`: the narrator is a SUBSCRIBER."""
+
+        def __init__(self) -> None:
+            self.events: list = []
+            self._subs: dict = {}
+            self._n = 0
+
+        def subscribe(self, topic, fn, name=None, idempotency_key=None):
+            self._subs.setdefault(topic, []).append(fn)
+
+        def publish(self, type_, *, subject=None, payload=None, component=None):
+            self._n += 1
+            ev = SimpleNamespace(type=type_, payload=payload or {},
+                                 event_id=f"e{self._n}", subject=subject)
+            self.events.append((type_, ev.payload))
+            for fn in list(self._subs.get(type_, [])):
+                fn(ev)
+
+    def _ok(prompt, options):
+        return {"text": "ok"}
+
+    def _run(spec, per_provider=2):
+        """spec: (provider_id, failing classification or None, locality, attrs)."""
+        bus = _Bus()
+        cost = CostPolicy(bus, HybridLogicalClock("ci"))
+        gw = ModelGateway(bus, cost, sleep=lambda s: None)
+        spoken: list = []
+        try:
+            a = Announcer(bus=bus, speaker=spoken.append)
+        except NarrationRefused as exc:
+            r.err(f"the announcer refused to load: {exc}")
+            return bus, spoken, None
+        a.attach(bus, interruption_class="active_user_task")
+        calls: list = []
+        for pid, cls, loc, attrs in spec:
+            cost.register_credential(pid, "free")
+            call = _raiser(cls, calls, pid, **attrs) if cls else _ok
+            gw.register(Provider(pid, "prof", call, model="m", locality=loc))
+        try:
+            gw.complete("q", task_id=f"t-{spec[0][0]}", profile_id="prof",
+                        max_attempts_per_provider=per_provider)
+        except Exception as exc:                   # noqa: BLE001
+            r.err(f"the ladder {spec!r} did not complete: {exc!r}")
+        return bus, spoken, a
+
+    def _kinds(bus, kind):
+        return [p for k, p in bus.events if k == kind]
+
+    # 1. THE CONSTANT IS GONE WITH ITS PARAMETER. Nothing can hand a destination
+    #    to the narrator at startup any more.
+    if "next_rung" in inspect.signature(Announcer.attach).parameters:
+        r.err("`Announcer.attach` still takes `next_rung`: a destination decided "
+              "at startup is the 2026-09-11 defect by construction.")
+
+    # 2. TERMINAL FAILURE, THEN A REMOTE RUNG ANSWERS. One descent, one sentence,
+    #    spoken on arrival with the departed rung's own line, and never "local".
+    bus, spoken, a = _run([("r0", "quota_exhausted", REMOTE, {}),
+                           ("r1", None, REMOTE, {})])
+    if a is not None:
+        want = a.render("quota_exhausted", next_rung=NEXT_RUNG_OTHER)
+        desc = _kinds(bus, "gateway.descended")
+        if len(desc) != 1 or (desc[0].get("from_provider"), desc[0].get("to_provider")) != ("r0", "r1"):
+            r.err(f"expected exactly one gateway.descended r0->r1, got {desc!r}. "
+                  "The descent is the only event that is a FACT about the ladder "
+                  "moving; without it every 'moving to' is a prediction.")
+        if desc and desc[0].get("to_locality") != REMOTE:
+            r.err(f"the descent carried to_locality={desc[0].get('to_locality')!r} "
+                  "for a remote rung; the narrator renders locality, so a wrong "
+                  "one is a wrong sentence.")
+        if spoken != [want]:
+            r.err(f"spoken {spoken!r}, expected exactly [{want!r}]: the departed "
+                  "rung's line, once, on arrival.")
+        if not _kinds(bus, "narration.deferred"):
+            r.err("the failed attempt was not recorded as deferred: a line with "
+                  "a destination clause must wait for the descent, and say so.")
+        for s in spoken:
+            if "local" in s.lower() or "this machine" in s.lower():
+                r.err(f"{s!r} claims a local destination for a remote rung. "
+                      "INV-HW-2 for sentences: unmeasured is not local.")
+
+    # 3. THE DESTINATION IS THE ROW'S MEASURED LOCALITY, IN BOTH DIRECTIONS.
+    bus, spoken, a = _run([("l0", "auth_failed", REMOTE, {}),
+                           ("l1", None, LOCAL, {})])
+    if a is not None and spoken != [a.render("auth_failed", next_rung=NEXT_RUNG_LOCAL)]:
+        r.err(f"a descent onto a loopback rung spoke {spoken!r}; the line must say "
+              f"{NEXT_RUNG_LOCAL!r}, because here it is true.")
+    bus, spoken, a = _run([("u0", "timeout", REMOTE, {}),
+                           ("u1", None, UNKNOWN_LOCALITY, {})])
+    if a is not None and spoken != [a.render("timeout", next_rung=NEXT_RUNG_OTHER)]:
+        r.err(f"a descent onto a rung of UNKNOWN locality spoke {spoken!r}; "
+              "unknown is not local (INV-HW-2).")
+    for url, want_loc in (("https://ollama.com/v1/chat/completions", REMOTE),
+                          ("https://api.groq.com/openai/v1/chat/completions", REMOTE),
+                          ("http://127.0.0.1:11434/v1/chat/completions", LOCAL),
+                          ("http://localhost:8080/completion", LOCAL),
+                          ("claude", UNKNOWN_LOCALITY),
+                          ("", UNKNOWN_LOCALITY)):
+        got = locality_of(url)
+        if got != want_loc:
+            r.err(f"locality_of({url!r}) = {got!r}, expected {want_loc!r}. The "
+                  "endpoint's host decides, never the vendor's name.")
+
+    # 4. A BURST ON ONE RUNG IS ONE SENTENCE, THEN ONE DESCENT. Five rate limits
+    #    then a working rung: "Rate limited..." once, "...Moving to" once.
+    bus, spoken, a = _run([("b0", "rate_limited", REMOTE, {"retry_after_ms": 10}),
+                           ("b1", None, REMOTE, {})], per_provider=5)
+    if a is not None:
+        attempts = [p for p in _kinds(bus, "gateway.attempt")
+                    if p.get("provider_id") == "b0" and p.get("outcome") != "ok"]
+        if len(attempts) != 5:
+            r.err(f"the fixture made {len(attempts)} failed attempts on b0, not 5; "
+                  "the burst it is meant to test did not happen.")
+        moving = a.render("descent", next_rung=NEXT_RUNG_OTHER)
+        if len(spoken) != 2 or not spoken[0].startswith("Rate limited.") or spoken[1] != moving:
+            r.err(f"a burst of 5 rate limits then a descent spoke {spoken!r}; "
+                  f"expected exactly ['Rate limited. ...', {moving!r}]. One "
+                  "failure said once, one move said once.")
+        if len(_kinds(bus, "narration.suppressed")) != 4:
+            r.err(f"{len(_kinds(bus, 'narration.suppressed'))} attempts were "
+                  "suppressed as repeats, expected 4: the burst must be RECORDED "
+                  "as quiet, not merely quiet.")
+
+    # 5. THE RATE IS READ FROM THE CONTRACT. Distinct failures, none a repeat,
+    #    under the waiting cell: exactly as many are spoken as the cell allows.
+    try:
+        budget = tomllib.loads(
+            (REPO / "contracts" / "policy" / "interruption_budget.toml").read_text())
+        narr = tomllib.loads(
+            (REPO / "contracts" / "policy" / "narration.toml").read_text())
+        period, attention = narr["speech"]["waiting_cell"]
+        cell = budget["budget"][period][attention]
+        speech_cost = int(budget["modality_cost"]["speech"])
+        allowed = min(int(cell["max_contacts_per_hour"]),
+                      int(cell["max_cost_per_hour"]) // speech_cost)
+        if "speech" not in cell["permitted_modalities"]:
+            r.err(f"{period}.{attention} does not permit speech, so a request the "
+                  "owner is waiting on could never be narrated aloud: SR-004 "
+                  "deleted by configuration.")
+        focused = budget["budget"]["ACTIVE_SESSION"]["focused"]
+        if "speech" in focused.get("permitted_modalities", []):
+            r.err("ACTIVE_SESSION.focused permits speech. REM-007 §4.6: a focused "
+                  "owner is reached visually only; this cell is what makes "
+                  "'focused' mean anything.")
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the budget or narration contract could not be read: {exc!r}")
+        return r
+
+    said: list = []
+    try:
+        a = Announcer(speaker=said.append)
+    except NarrationRefused as exc:
+        r.err(f"the announcer refused to load: {exc}")
+        return r
+    fields = dict(provider_class="a provider", attempt=1, max_attempts=10,
+                  retry_in_seconds=5, next_rung=NEXT_RUNG_OTHER)
+    distinct = [c for c in (*TERMINAL, "cost_policy", "quota_unavailable_on_tier",
+                            "exhausted_all", "descent", "rate_limited",
+                            "server_error", "connection_error")]
+    if len(distinct) <= allowed:
+        r.err(f"the fixture has {len(distinct)} classifications and the cell "
+              f"allows {allowed}: the rate cannot be seen binding.")
+    reasons = []
+    for cls in distinct:
+        u = a.announce(cls, interruption_class="active_user_task", **fields)
+        if not u.spoken:
+            reasons.append(u.reason)
+    if len(said) != allowed:
+        r.err(f"{len(said)} distinct failures were spoken in one hour under "
+              f"{period}.{attention}; the contract allows {allowed} "
+              f"(min(max_contacts_per_hour={cell['max_contacts_per_hour']}, "
+              f"max_cost_per_hour={cell['max_cost_per_hour']} // speech={speech_cost})). "
+              "The rate is declared and must be read.")
+    if reasons and not all(x.startswith("budget:") for x in reasons):
+        r.err(f"a silenced line gave a reason that does not name the budget: "
+              f"{[x for x in reasons if not x.startswith('budget:')][:2]!r}")
+    # 5b. BOTH HALVES OF THE RATE, EACH MADE TO BIND ON ITS OWN. Under the
+    #     shipped contract cost // speech (3) binds before contacts (6) in every
+    #     cell that permits speech, so a narrator that dropped the contact check
+    #     would pass 5 unnoticed -- a negative control that passed, 2026-09-13.
+    #     Synthetic budgets where one figure is loose and the other tight.
+    import tempfile
+    for tight, budget_toml in (
+        ("contacts", 'schema_version = 1\n[modality_cost]\nspeech = 8\n'
+                     '[exempt]\nclasses = ["alarm_safety"]\n'
+                     '[budget.ACTIVE_SESSION.available]\nmax_cost_per_hour = 8000\n'
+                     'max_contacts_per_hour = 2\npermitted_modalities = ["speech"]\n'),
+        ("cost", 'schema_version = 1\n[modality_cost]\nspeech = 8\n'
+                 '[exempt]\nclasses = ["alarm_safety"]\n'
+                 '[budget.ACTIVE_SESSION.available]\nmax_cost_per_hour = 16\n'
+                 'max_contacts_per_hour = 1000\npermitted_modalities = ["speech"]\n')):
+        with tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False) as fh:
+            fh.write(budget_toml)
+            tmp = Path(fh.name)
+        try:
+            heard: list = []
+            s = Announcer(speaker=heard.append, budget_path=tmp)
+            for cls in distinct:
+                s.announce(cls, interruption_class="active_user_task", **fields)
+            if len(heard) != 2:
+                r.err(f"with only {tight} binding (2 allowed), {len(heard)} of "
+                      f"{len(distinct)} distinct failures were spoken. The "
+                      f"{tight} half of the rate is loaded and not read.")
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    # Focused: visual only, so nothing is spoken there however fresh the hour.
+    b = Announcer(speaker=said.append)
+    n = len(said)
+    u = b.announce("timeout", interruption_class="active_user_task",
+                   budget_cell=("ACTIVE_SESSION", "focused"), **fields)
+    if u.spoken or len(said) != n:
+        r.err("a failure was SPOKEN under ACTIVE_SESSION.focused, whose "
+              "permitted_modalities has no speech. The narrator is not reading "
+              "the cell it claims to.")
+    # A cell nobody declared is zero, the contract's own rule.
+    u = b.announce("timeout", interruption_class="active_user_task",
+                   budget_cell=("ACTIVE_SESSION", "no_such_state"), **fields)
+    if u.spoken:
+        r.err("a failure was spoken under an UNDECLARED budget cell. Absence "
+              "never means unlimited.")
+    # Alarm class is exempt from the budget and must still be heard.
+    u = b.announce("timeout", interruption_class="alarm_safety", **fields)
+    if not u.spoken:
+        r.err("an alarm_safety line was silenced by the budget. [exempt] names "
+              "that class exhaustively so that exactly this cannot happen.")
+
+    if r.ok:
+        r.note(f"descent narrated once on arrival with measured locality (3 "
+               f"ladders); a 5-attempt burst spoke 2 lines; {allowed} of "
+               f"{len(distinct)} distinct failures spoken per hour under "
+               f"{period}.{attention}; focused, undeclared and exempt cells "
+               "behave as the contract says")
+    return r
+
+
 def check_chain_budget() -> Result:
     r = Result("chain-budget-bounded")
     if str(REPO) not in sys.path:
@@ -27256,13 +27521,18 @@ def check_one_runtime_and_one_voice() -> Result:
     spoken: list = []
 
     class _Bus:
-        def __init__(self): self.events: list = []
+        # ONE SLOT PER TOPIC. The announcer subscribes to two topics now
+        # (`gateway.attempt` and `gateway.descended`); a stub keeping only the
+        # last handler fed attempts to the descent handler and this check read
+        # the wrong sentences, 2026-09-13.
+        def __init__(self): self.events: list = []; self.fns: dict = {}
         def publish(self, kind, **kw): self.events.append(kind)
-        def subscribe(self, kind, fn, **kw): self.fn = fn
+        def subscribe(self, kind, fn, **kw): self.fns[kind] = fn
 
     bus = _Bus()
     ann = Announcer(bus, speaker=lambda t: spoken.append(t))
-    ann.attach(bus, interruption_class="active_user_task", next_rung="another provider")
+    ann.attach(bus, interruption_class="active_user_task")
+    on_attempt = bus.fns["gateway.attempt"]
 
     class _Ev:
         pass
@@ -27271,7 +27541,7 @@ def check_one_runtime_and_one_voice() -> Result:
         e = _Ev(); e.event_id = f"e{i}"
         e.payload = {"classification": "rate_limited", "outcome": "error",
                      "attempt": i + 1, "max_attempts": 10}
-        bus.fn(e)
+        on_attempt(e)
     if len(spoken) != 1:
         r.err(f"six retries of ONE failure were announced {len(spoken)} times; "
               f"the owner hears the same sentence over and over, which is what "
@@ -27281,11 +27551,13 @@ def check_one_runtime_and_one_voice() -> Result:
               "failure to notice look identical in the log")
 
     # A DIFFERENT FAILURE IS STILL WORTH HEARING. Suppressing globally would
-    # trade one noise defect for a silence defect.
+    # trade one noise defect for a silence defect. `server_error`, because its
+    # line has no destination clause: a line that says "moving to" is spoken
+    # from the descent, not from the attempt (`narration-follows-the-ladder`).
     e = _Ev(); e.event_id = "other"
-    e.payload = {"classification": "timeout", "outcome": "error",
+    e.payload = {"classification": "server_error", "outcome": "error",
                  "attempt": 1, "max_attempts": 10}
-    bus.fn(e)
+    on_attempt(e)
     if len(spoken) != 2:
         r.err("a DIFFERENT failure inside the window was suppressed too; two "
               "problems in a minute are two things the owner needs to hear")
@@ -27704,6 +27976,7 @@ CHECK_FNS = {
     "glass-hatch-contained": check_glass_hatch,
     "chain-budget-bounded": check_chain_budget,
     "narration-complete": check_narration_complete,
+    "narration-follows-the-ladder": check_narration_follows_the_ladder,
     "triage-excludes-quota": check_triage_excludes_quota,
     "shared-pool-is-shared": check_shared_pool_is_shared,
     "intake-is-modality-neutral": check_intake_is_modality_neutral,

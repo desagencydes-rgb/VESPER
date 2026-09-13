@@ -44,7 +44,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from core.gateway import Provider
+from core.gateway import Provider, locality_of
 from core.quota import QuotaLedger
 
 REPO = Path(__file__).resolve().parents[1]
@@ -896,7 +896,11 @@ def register(gateway, cost, ledger: QuotaLedger, *,
         # be sent down it.
         gateway.register(Provider(row.provider_id, row.profile_id, call,
                                   model=row.model,
-                                  egress_class=row.egress_class))
+                                  egress_class=row.egress_class,
+                                  # From the row's endpoint, never its id: the
+                                  # narrator turns this into "a model on this
+                                  # machine" only when the host is loopback.
+                                  locality=locality_of(raw.get("endpoint"))))
         e = ledger.entry(row.provider_id, row.model)
         if row.account:
             # ONE POOL PER ACCOUNT, declared before the entry joins it, so a

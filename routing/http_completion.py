@@ -60,7 +60,7 @@ from typing import Any
 
 # core/gateway.py's TERMINAL/TRANSIENT vocabulary. Imported rather than
 # restated so the two cannot drift apart silently.
-from core.gateway import Provider
+from core.gateway import Provider, locality_of
 
 
 class EndpointError(Exception):
@@ -672,4 +672,4 @@ def build_provider(provider_id: str, profile_id: str, base_url: str, *,
     # copying `provider_id` in would make two models on one account share a
     # quota line and retire both when either is refused.
     return Provider(provider_id=provider_id, profile_id=profile_id, call=call,
-                    model=ident.model or "")
+                    model=ident.model or "", locality=locality_of(base_url))

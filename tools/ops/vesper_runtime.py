@@ -824,10 +824,12 @@ def build(node: str = "vesper-runtime"):
 
     # SPOKEN WHEN THE OWNER IS WAITING, which is what typing into the field
     # means. RB-006 governs the other case and this process does not have one
-    # yet: everything it handles is a request somebody just made.
+    # yet: everything it handles is a request somebody just made. The
+    # destination of a descent is no longer handed in here: it comes from
+    # `gateway.descended`, with the row's measured locality, and the budget
+    # cell comes from `narration.toml`'s `waiting_cell`.
     announcer = Announcer(bus=bus)
-    announcer.attach(bus, interruption_class="active_user_task",
-                     next_rung="a local model")
+    announcer.attach(bus, interruption_class="active_user_task")
 
     intake = Intake(bus=bus, clock=clock)
     # LOADED ONCE, AT BUILD, AND ALLOWED TO STOP THE PROCESS. `Persona.load`

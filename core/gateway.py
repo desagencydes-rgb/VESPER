@@ -180,9 +180,37 @@ class Provider:
     # endpoint receive the owner's private content by omission rather than by
     # decision.
     egress_class: str = E1_PRIVATE
+    # WHERE THE ENDPOINT IS, as the narrator may say it. `local` only when the
+    # endpoint's host is this machine (loopback), `remote` when it has any other
+    # host, `unknown` when nobody measured. INV-HW-2 applied to a sentence: the
+    # owner heard "moving to a local model" from a node whose only "local" rung
+    # was ollama.com, because the word came from a constant and not from the
+    # row. Unknown is never rendered as local.
+    locality: str = "unknown"
 
     def quota_key(self) -> tuple[str, str]:
         return (self.provider_id, self.model)
+
+
+LOCAL, REMOTE, UNKNOWN_LOCALITY = "local", "remote", "unknown"
+_LOOPBACK = ("localhost", "127.", "0.0.0.0", "[::1]", "::1")
+
+
+def locality_of(endpoint: str | None) -> str:
+    """`local`, `remote` or `unknown`, from the endpoint's host and nothing else.
+
+    A bare command (`claude`, `codex`) has no host: the CLI reaches a service
+    somewhere, and where is not knowable from here, so it is `unknown` rather
+    than guessed. A vendor's NAME never decides -- `ollama-strong` at
+    `https://ollama.com` is remote, whatever the id suggests.
+    """
+    if not endpoint or "://" not in endpoint:
+        return UNKNOWN_LOCALITY
+    host = endpoint.split("://", 1)[1].split("/", 1)[0].split("@")[-1].lower()
+    bare = host.split(":")[0] if not host.startswith("[") else host.split("]")[0] + "]"
+    if any(bare == h or bare.startswith(h) for h in _LOOPBACK):
+        return LOCAL
+    return REMOTE if bare else UNKNOWN_LOCALITY
 
 
 @dataclass(slots=True)
@@ -982,6 +1010,13 @@ class ModelGateway:
         # a lie about a request that was only ever allowed 3.
         budget_cap = budget
 
+        # THE RUNG THAT WAS CALLED AND GAVE UP, so the next rung that is actually
+        # reached can say it is the successor. A descent is published on ARRIVAL,
+        # never on departure: the next entry in `providers` has three skip
+        # filters of its own below and may never be called, so a rung named at
+        # departure is a prediction, and narration may only state facts.
+        departed: tuple[str, str] | None = None
+
         for p in providers:
             if budget <= 0:
                 # THE LADDER STOPS WHERE THE BUDGET DOES. Recorded per untried
@@ -1043,6 +1078,23 @@ class ModelGateway:
 
             cred = self._cost.credential(p.provider_id)
             eff = cred.effective_class() if cred else "unknown"
+
+            if departed is not None:
+                # Every skip above has passed: this rung WILL be called. That is
+                # the moment the ladder has moved, and the only moment a
+                # sentence about moving is true. `to_locality` is the row's
+                # measured locality (`unknown` unless a loopback host was seen),
+                # so a narrator cannot turn a vendor's name into "local".
+                self._bus.publish(
+                    "gateway.descended", subject=p.provider_id,
+                    payload={"from_provider": departed[0],
+                             "from_classification": departed[1],
+                             "to_provider": p.provider_id,
+                             "to_locality": p.locality,
+                             "task_id": task_id},
+                    component="gateway")
+                departed = None
+            last_cls: str | None = None
 
             # Grown in place when an empty answer is retried, so the SECOND
             # attempt on this rung is not a byte-identical repeat of the first.
@@ -1135,8 +1187,8 @@ class ModelGateway:
                                          "changed": told,
                                          "task_id": task_id},
                                 component="gateway")
-                    self._record(p, "error",
-                                 "quota_unavailable_on_tier" if permanent else cls,
+                    last_cls = "quota_unavailable_on_tier" if permanent else cls
+                    self._record(p, "error", last_cls,
                                  delay, ms, cost_class=eff,
                                  server_retry_after_ms=hint,
                                  # NO +1: the budget is decremented BEFORE the
@@ -1162,6 +1214,10 @@ class ModelGateway:
                         "history_turns": history_turns,
                         "result": result, "effort": effort.to_dict(),
                         "attempts_remaining": budget}
+
+            # Reached only when this rung was called and did not answer: a
+            # success returns above. Recorded for the successor, if one is reached.
+            departed = (p.provider_id, last_cls or "chain_budget_exhausted")
 
         # Nothing permitted succeeded. Checkpoint and queue -- do NOT escalate.
         if task_id:

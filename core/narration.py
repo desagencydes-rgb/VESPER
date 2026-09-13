@@ -41,15 +41,30 @@ from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 NARRATION = REPO / "contracts" / "policy" / "narration.toml"
+BUDGET = REPO / "contracts" / "policy" / "interruption_budget.toml"
 
 # The gateway's vocabulary, imported by value so a new classification cannot
 # silently arrive with no line to say for it.
-from .gateway import TERMINAL, TRANSIENT           # noqa: E402
+from .gateway import LOCAL, TERMINAL, TRANSIENT    # noqa: E402
 
 # Classifications this module speaks for that are not gateway exception
-# classes: they are outcomes the gateway reaches by other paths.
+# classes: they are outcomes the gateway reaches by other paths. `descent` is
+# the ladder moving after a rung whose own line has no destination clause
+# (a rate limit or a server error that outlasted its retries).
 EXTRA = ("quota_unavailable_on_tier", "cost_policy", "exhausted_all",
-         "greeting")
+         "greeting", "descent")
+
+# WHAT `{next_rung}` MAY SAY, and it is decided by the row's measured locality,
+# never by a constant handed in at startup. The owner heard "moving to a local
+# model" for two days from a node whose nearest thing to a local rung was
+# ollama.com: the phrase was INV-HW-1-correct and the FACT was false. Unknown
+# renders as remote -- INV-HW-2, an unmeasured locality is not local.
+NEXT_RUNG_LOCAL = "a model on this machine"
+NEXT_RUNG_OTHER = "another provider"
+
+# ONE HOUR, the window every `max_*_per_hour` figure in the budget is written
+# against. Sliding, so "this hour" means the last 3600 s and not a clock face.
+HOUR_S = 3600.0
 
 
 # HOW LONG THE SAME FAILURE STAYS QUIET after it has been said once.
@@ -81,7 +96,7 @@ class Announcer:
     """Renders and (sometimes) speaks the operational status of a request."""
 
     def __init__(self, bus: Any = None, *, path: Path | None = None,
-                 speaker: Any = None) -> None:
+                 speaker: Any = None, budget_path: Path | None = None) -> None:
         self._bus = bus
         self._lock = threading.RLock()
         self._speaker = speaker            # injected in tests; None = real voice
@@ -90,6 +105,13 @@ class Announcer:
         sp = raw.get("speech") or {}
         self._speak_when = set(sp.get("speak_when") or ())
         self._log_only = set(sp.get("log_only_when") or ())
+        # THE BUDGET CELL FOR A REQUEST THE OWNER IS WAITING ON. Declared in the
+        # narration contract rather than here, because "the owner is present
+        # and attending" is a claim about the owner and belongs on a governed
+        # surface. Absent, no cell is assumed and nothing is spoken: the budget
+        # contract's own rule is that an undeclared cell is zero.
+        wc = sp.get("waiting_cell") or []
+        self._waiting_cell = tuple(wc) if len(wc) == 2 else None
         # WHEN EACH CLASSIFICATION WAS LAST SPOKEN. Keyed on the KIND of
         # failure, so two different problems inside a minute are two things
         # the owner hears, and one problem twelve times is one.
@@ -97,6 +119,25 @@ class Announcer:
         self._lines: dict[str, str] = {}
         for row in raw.get("line") or []:
             self._lines[row["classification"]] = row["text"]
+
+        # THE RATE, READ AT LAST. `interruption_budget.toml` declares, per
+        # (operating period, attention state), how many times an hour the owner
+        # may be contacted and what it may cost, and what speech costs. For two
+        # weeks only `speak_when` was consulted -- a membership test -- so a
+        # permitted class was permitted every time and the declared two
+        # contacts an hour sat unread. Every spoken line is a contact here.
+        b = tomllib.loads((budget_path or BUDGET).read_text(encoding="utf-8"))
+        self._budget_cells: dict = b.get("budget") or {}
+        cost = (b.get("modality_cost") or {}).get("speech")
+        if not isinstance(cost, int):
+            raise NarrationRefused(
+                "interruption_budget.toml declares no integer cost for speech; "
+                "a spoken line whose cost is unknown cannot be budgeted, and an "
+                "unbudgeted contact is the defect this reads to prevent.")
+        self._speech_cost = cost
+        self._exempt = set((b.get("exempt") or {}).get("classes") or ())
+        # (monotonic seconds, cost) of every SPOKEN contact, pruned to the hour.
+        self._contacts: list[tuple[float, int]] = []
 
         # EVERY CLASSIFICATION THE GATEWAY CAN PRODUCE MUST HAVE A LINE, checked
         # at load rather than discovered at the moment of failure. A missing
@@ -140,29 +181,82 @@ class Announcer:
     # ----------------------------------------------------------------- speak
 
     def announce(self, classification: str, *,
-                 interruption_class: str = "proactive", **fields: Any) -> Utterance:
-        """Render, and speak only if the budget's class permits it."""
+                 interruption_class: str = "proactive",
+                 budget_cell: tuple | None = None, **fields: Any) -> Utterance:
+        """Render, and speak only if the budget's class AND rate permit it.
+
+        Two questions, both asked of `interruption_budget.toml`: may this
+        CLASS speak at all (the lattice), and has this HOUR any contact left
+        (the rate). The second was never asked before, and the answer to the
+        first alone is what let one outage narrate itself ten times.
+        """
         text = self.render(classification, **fields)
         may_speak = interruption_class in self._speak_when
         spoken = False
         reason = ""
-        if may_speak:
-            spoken, reason = self._say(text)
-        else:
+        if not may_speak:
             reason = (f"interruption_class={interruption_class} is log-only "
                       "(RB-006 proportionality: narrating every retry of an "
                       "unattended run is noise, not status)")
+        elif interruption_class in self._exempt:
+            spoken, reason = self._say(text)
+        else:
+            with self._lock:
+                ok, why = self._budget_permits(budget_cell or self._waiting_cell)
+                if ok:
+                    spoken, reason = self._say(text)
+                    if spoken:
+                        # A contact is a sentence that was ATTEMPTED aloud;
+                        # one the synthesiser refused cost the owner nothing.
+                        self._contacts.append((_time.monotonic(), self._speech_cost))
+                else:
+                    reason = why
         u = Utterance(classification, text, spoken, reason)
         if self._bus is not None:
             self._bus.publish("narration.emitted", subject=classification,
                               payload=u.to_dict(), component="narration")
         return u
 
+    def _budget_permits(self, cell: tuple | None) -> tuple:
+        """May one more spoken contact happen this hour under `cell`?
+
+        `cell` is (operating_period, attention_state). A MISSING CELL IS ZERO,
+        the budget contract's own rule: absence never means unlimited. Speech
+        must be a permitted modality there, and both the contact count and the
+        cost spent in the last hour must leave room for one more.
+        """
+        if cell is None:
+            return False, ("budget: no cell declared for this request, and an "
+                           "undeclared cell is max_contacts_per_hour = 0")
+        period, attention = cell
+        row = (self._budget_cells.get(period) or {}).get(attention)
+        if not isinstance(row, dict):
+            return False, (f"budget: {period}.{attention} is not declared in "
+                           "interruption_budget.toml, and an undeclared cell is "
+                           "max_contacts_per_hour = 0")
+        if "speech" not in (row.get("permitted_modalities") or []):
+            return False, (f"budget: speech is not a permitted modality in "
+                           f"{period}.{attention}")
+        now = _time.monotonic()
+        self._contacts = [(t, c) for t, c in self._contacts if now - t < HOUR_S]
+        max_contacts = int(row.get("max_contacts_per_hour", 0))
+        max_cost = int(row.get("max_cost_per_hour", 0))
+        if len(self._contacts) >= max_contacts:
+            return False, (f"budget: {len(self._contacts)} contact(s) this hour "
+                           f"is the declared maximum for {period}.{attention} "
+                           f"(max_contacts_per_hour = {max_contacts})")
+        spent = sum(c for _, c in self._contacts)
+        if spent + self._speech_cost > max_cost:
+            return False, (f"budget: {spent} of {max_cost} spent this hour in "
+                           f"{period}.{attention}, and speech costs "
+                           f"{self._speech_cost}")
+        return True, ""
+
     # ------------------------------------------------------------- wiring
 
     def attach(self, bus: Any, *, interruption_class: str = "proactive",
-               next_rung: str = "another provider") -> None:
-        """Narrate `gateway.attempt` events as they happen.
+               budget_cell: tuple | None = None) -> None:
+        """Narrate the gateway's events as they happen.
 
         SUBSCRIBED RATHER THAN CALLED, and the decoupling is the point. The
         gateway must not hold a reference to a voice: SR-004 is about what a
@@ -174,33 +268,21 @@ class Announcer:
         `interruption_class` is supplied by the CALLER because only the caller
         knows whether anyone is waiting. The same failure is `active_user_task`
         when the owner is watching and `proactive` at 3 a.m., and this class
-        cannot tell those apart from the event alone.
+        cannot tell those apart from the event alone. `budget_cell` likewise:
+        the caller may know the owner's attention state; absent, the contract's
+        `waiting_cell` stands in for a request the owner is waiting on.
+
+        TWO TOPICS, TWO KINDS OF SENTENCE. `gateway.attempt` names the rung that
+        FAILED and carries the retry state; it can never say where the ladder
+        goes next, because at that moment the router has not chosen. So a line
+        whose template has a destination clause is not spoken from an attempt:
+        it waits for `gateway.descended`, which the gateway publishes only once
+        the successor's own skip filters have passed and it is about to be
+        called -- a fact, not a prediction. The constant that used to fill
+        `{next_rung}` at startup ("a local model", on a node with no local
+        rung) is gone with the parameter that carried it.
         """
-        def on_attempt(ev: Any) -> None:
-            payload = getattr(ev, "payload", {}) or {}
-            cls = payload.get("classification")
-            if not cls or payload.get("outcome") == "ok":
-                return          # nothing to say about a call that worked
-            if cls not in self._lines:
-                # A classification with no line is a DEFECT, not a reason to
-                # crash the call path. CI-061 fails on it; here it is recorded
-                # and the request continues -- narration must never be able to
-                # take down the thing it is describing.
-                if self._bus is not None:
-                    self._bus.publish(
-                        "narration.no_line", subject=cls,
-                        payload={"classification": cls,
-                                 "note": "no narration line; CI-061 covers this"},
-                        component="narration")
-                return
-            # THE BUDGET DECLARES A RATE AND NOTHING READ IT. `announce` checks
-            # `speak_when` -- may this CLASS speak at all -- and that is the only
-            # half of `interruption_budget.toml` anything consults. The contract
-            # also declares `max_contacts_per_hour = 2` for a focused session,
-            # and a permitted class was permitted EVERY time: one outage narrates
-            # once per retry per rung, so the owner hears the same sentence ten
-            # times and reports "i keep hearing rate limited shit again".
-            #
+        def _quiet(cls: str) -> bool:
             # SUPPRESSED PER CLASSIFICATION, NOT GLOBALLY. Two DIFFERENT problems
             # inside a minute are two things worth hearing; the same one twelve
             # times is one thing said twelve times.
@@ -219,18 +301,76 @@ class Announcer:
                                  "note": ("the same failure was already spoken; "
                                           "saying it again is noise, not status")},
                         component="narration")
-                return
+                return True
             self._said_at[cls] = now
+            return False
+
+        def on_attempt(ev: Any) -> None:
+            payload = getattr(ev, "payload", {}) or {}
+            cls = payload.get("classification")
+            if not cls or payload.get("outcome") == "ok":
+                return          # nothing to say about a call that worked
+            if cls not in self._lines:
+                # A classification with no line is a DEFECT, not a reason to
+                # crash the call path. CI-061 fails on it; here it is recorded
+                # and the request continues -- narration must never be able to
+                # take down the thing it is describing.
+                if self._bus is not None:
+                    self._bus.publish(
+                        "narration.no_line", subject=cls,
+                        payload={"classification": cls,
+                                 "note": "no narration line; CI-061 covers this"},
+                        component="narration")
+                return
+            if "next_rung" in _placeholders(self._lines[cls]):
+                # THE DESTINATION IS NOT KNOWN YET. Saying "moving to X" here
+                # would assert a descent the router has not made -- the same
+                # defect as the old constant, just harder to see. The sentence
+                # is spoken from `gateway.descended`, if and when it happens.
+                if self._bus is not None:
+                    self._bus.publish(
+                        "narration.deferred", subject=cls,
+                        payload={"classification": cls,
+                                 "provider_id": payload.get("provider_id"),
+                                 "note": ("the line names a destination; it is "
+                                          "spoken when the ladder actually moves")},
+                        component="narration")
+                return
+            if _quiet(cls):
+                return
             ms = payload.get("retry_after_ms") or payload.get("server_retry_after_ms")
             self.announce(
                 cls, interruption_class=interruption_class,
+                budget_cell=budget_cell,
                 provider_class="a provider",
                 attempt=payload.get("attempt", 1),
                 max_attempts=payload.get("max_attempts", 10),
-                retry_in_seconds=(round(ms / 1000) if ms else 0),
-                next_rung=next_rung)
+                retry_in_seconds=(round(ms / 1000) if ms else 0))
+
+        def on_descended(ev: Any) -> None:
+            payload = getattr(ev, "payload", {}) or {}
+            frm = payload.get("from_classification") or ""
+            # The departed rung's own line, if it has a destination clause;
+            # otherwise the generic descent (a rate limit or a server error
+            # that outlasted its retries has a "retrying" line, not a "moving").
+            cls = (frm if frm in self._lines
+                   and "next_rung" in _placeholders(self._lines[frm])
+                   else "descent")
+            if _quiet(cls):
+                return
+            # MEASURED LOCALITY, NEVER A NAME. `unknown` is remote here: a rung
+            # nobody measured as being on this machine is not said to be.
+            where = (NEXT_RUNG_LOCAL if payload.get("to_locality") == LOCAL
+                     else NEXT_RUNG_OTHER)
+            self.announce(
+                cls, interruption_class=interruption_class,
+                budget_cell=budget_cell,
+                provider_class="a provider", attempt=1, max_attempts=1,
+                retry_in_seconds=0, next_rung=where)
 
         bus.subscribe("gateway.attempt", on_attempt, name="narration-attempt",
+                      idempotency_key=lambda e: e.event_id)
+        bus.subscribe("gateway.descended", on_descended, name="narration-descent",
                       idempotency_key=lambda e: e.event_id)
 
     def _say(self, text: str) -> tuple:

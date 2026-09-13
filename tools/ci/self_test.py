@@ -1127,6 +1127,7 @@ GATEWAY = "core/gateway.py"
 HTTP_COMPLETION = REPO / "routing" / "http_completion.py"
 NARRATION = "core/narration.py"
 NARRATION_TOML = "contracts/policy/narration.toml"
+BUDGET_TOML = "contracts/policy/interruption_budget.toml"
 CHROME_TPL = "app/home-macos/chrome/home.html"
 CHROME_SW = "app/home-macos/HomeChrome.swift"
 HOME_STATE = "core/home_state.py"
@@ -1977,6 +1978,53 @@ CASES += [
           "        may_speak = False", 1),
      "nothing ever spoken -- RB-006 satisfied by deleting SR-004, and a failing "
      "request is indistinguishable from a hung one"),
+
+    ("narration-follows-the-ladder", GATEWAY,
+     _sub('                    "gateway.descended", subject=p.provider_id,',
+          '                    "gateway.descended_DISABLED", subject=p.provider_id,', 1),
+     "the gateway stops publishing the descent -- the one event that is a fact "
+     "about the ladder moving -- so no 'moving to' is ever spoken and the owner "
+     "hears a rung fail and then silence"),
+
+    ("narration-follows-the-ladder", GATEWAY,
+     _sub("    if any(bare == h or bare.startswith(h) for h in _LOOPBACK):\n        return LOCAL",
+          "    if True:\n        return LOCAL", 1),
+     "every endpoint measured as local -- ollama.com becomes 'a model on this "
+     "machine', which is the 2026-09-11 sentence back again with a measurement's "
+     "clothes on"),
+
+    ("narration-follows-the-ladder", NARRATION,
+     _sub('            if "next_rung" in _placeholders(self._lines[cls]):\n                # THE DESTINATION IS NOT KNOWN YET.',
+          '            if False:\n                # THE DESTINATION IS NOT KNOWN YET.', 1),
+     "a destination clause spoken from the FAILED attempt, before the router has "
+     "chosen anything -- a prediction read aloud as a fact, once per retry"),
+
+    ("narration-follows-the-ladder", NARRATION,
+     _sub("            if last and (now - last) < REPEAT_SILENCE_S:",
+          "            if False:", 1),
+     "the per-classification silence removed: a burst of rate limits on one rung "
+     "is narrated once per attempt, which is the sentence the owner reported "
+     "hearing over and over"),
+
+    ("narration-follows-the-ladder", NARRATION,
+     _sub("        if len(self._contacts) >= max_contacts:",
+          "        if False:", 1),
+     "the contact rate never checked -- max_contacts_per_hour is loaded and "
+     "ignored, which is exactly the half-wired budget this check exists to refuse"),
+
+    ("narration-follows-the-ladder", NARRATION,
+     _sub("        if spent + self._speech_cost > max_cost:",
+          "        if False:", 1),
+     "the cost rate never checked -- max_cost_per_hour is loaded and ignored; "
+     "under the shipped contract this is the half that actually binds, so "
+     "dropping it is the owner hearing twice as many sentences an hour"),
+
+    ("narration-follows-the-ladder", BUDGET_TOML,
+     _sub('permitted_modalities = ["ambient_visual", "visual_notice"]\n\n[budget.ACTIVE_SESSION.available]',
+          'permitted_modalities = ["ambient_visual", "visual_notice", "speech"]\n\n[budget.ACTIVE_SESSION.available]', 1),
+     "speech permitted in the FOCUSED cell -- the contract says a focused owner "
+     "is reached visually only, and a narrator that reads permitted_modalities "
+     "must go quiet there; one that speaks anyway is not reading it"),
 
     ("chain-budget-bounded", GATEWAY,
      _sub("    MAX_ATTEMPTS_PER_REQUEST = 10", "    MAX_ATTEMPTS_PER_REQUEST = 100", 1),
