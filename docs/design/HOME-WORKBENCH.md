@@ -4787,3 +4787,100 @@ measurement covered the case the first one raised. **The tree already held the
 refutation, in the docstring of the function the plan depended on.** `MEMORY.md`'s
 opening rule applies to designs as much as to counts: read the record before
 reasoning, because the answer is usually already measured.
+
+---
+
+# 41. "THE VESPER PROJECT ROOT" MEANS THE BUNDLE, AND THE ANSWER LOOKS RIGHT
+
+**Found 2026-09-13 by asking the running VESPER a question and CHECKING THE
+ANSWER against the world.**
+
+Asked *"list the files in the vesper project root"*, VESPER answered:
+
+    contracts core docs routing tools
+
+**That is five entries. The project root has twelve** — `app`, `contracts`,
+`core`, `docs`, `graphify-out`, `output`, `routing`, `spec`, `tests`, `tools`,
+`verification`, `workspace`.
+
+**The five it named are exactly what `build.sh` copies into the bundle.** VESPER
+listed `app/VESPER.app/Contents/Resources/runtime/` and called it the project
+root.
+
+## THE CAUSE IS ONE LINE, AND IT IS CORRECT IN THE REPO AND WRONG IN THE BUNDLE
+
+```python
+REPO = pathlib.Path(__file__).resolve().parents[1]      # core/capabilities.py:62
+```
+
+Measured both ways:
+
+| running from | `REPO` resolves to |
+|---|---|
+| the repo | `/Users/macbook/Projects/VESPER` |
+| **the bundle** | `…/app/VESPER.app/Contents/Resources/runtime` |
+
+And `shell_run` falls back to it: `base_cwd = ((carried or {}).get("cwd") or
+str(REPO))`. **The owner runs the bundle.** So every path-relative thing VESPER
+does — where a command runs, what a relative path means, what "the project" IS —
+points at the shipped copy rather than at the owner's work.
+
+## WHY THIS IS WORSE THAN A WRONG ANSWER
+
+**It is a wrong answer that looks right.** Five plausible directory names, in the
+right shape, with no error and no flag. Nothing in the reply says which directory
+was listed, so there is nothing for the owner to notice. `a-refusal-is-never-
+reported-as-done` guards the refusal case; this is its cousin — **an answer about
+a DIFFERENT PLACE reported as the place that was asked about** — and nothing
+guards it.
+
+It also explains why the bundle/repo split keeps producing surprises: the drift
+gate compares the two copies, §36 found the shipped DOCUMENTS go stale, and this
+is the third face of the same thing. **The runtime does not know it is a copy.**
+
+## WHAT IT IS NOT SAFE TO DO ABOUT IT TONIGHT
+
+Pointing `REPO` at the real project is a **containment decision, not a bug fix**.
+Running from the bundle means VESPER's commands and writes land in a copy; that
+may be deliberate protection for the owner's tree, or it may be an accident of
+packaging. `shell.run` already runs under `(deny default)` seatbelt and
+`host_actions.toml` governs what it may touch — **widening what "here" means
+widens all of it at once**, the night before a deadline.
+
+**So it is recorded, not changed.** The owner's call. The two candidate shapes:
+
+1. **The runtime is told where the project is** — an explicit path from the
+   launcher, so the bundle knows it is a copy and the project is elsewhere.
+2. **It stays contained and SAYS SO** — every path-bearing answer names the
+   directory it is about, so "the project root" can never silently mean the
+   bundle. This one is cheap and is worth doing **regardless** of the other.
+
+---
+
+# 42. THE BOARD DID NOT RECORD A TURN THAT REALLY HAPPENED
+
+Same investigation. After a turn that answered, the board read:
+
+    thoughts: 0    actions: 0    commands: 0    explanations: 1
+
+`bench.observe(...)` — which puts the thought up — sits directly inside
+`if did is not None and bench is not None:`, and `bench` is constructed at
+`vesper_runtime.py:805`, so it is not None. No `act.pass_failed` event was
+published, so the block did not raise. **No `workbench.restored` event has fired
+either**, so the seed on startup found nothing to take back.
+
+**THE OWNER REPORTED THIS AS CARDS DISAPPEARING, AND THE CODE ALREADY CARRIES
+THE SAME COMPLAINT FROM LAST TIME:** *"blanked the commands and explanations
+panes — which the owner saw and reported as a card disappearing."* So this is a
+recurrence, and the fix that was written for it is not holding.
+
+**WHAT IS ALREADY RULED OUT:** nothing was deleted. `home.json` still holds 201
+transcript rows, 73 metric rows, 4 flags, 16 flag-history entries, 34 settings,
+15 research rows. The durable side is intact; it is the per-turn board that is
+not being written.
+
+**AND `the-board-survives-a-restart` PASSES** while the board is empty in the
+field — its note claims *"the thoughts and FINISHED actions come back so the card
+does not vanish."* A green gate over an empty surface is the shape this corpus
+keeps finding, and the next step is to ask what the check DRIVES versus what the
+pump CALLS.
