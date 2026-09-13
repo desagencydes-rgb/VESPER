@@ -5186,3 +5186,32 @@ Steps 1, 5, 7 and 9 stay unmarked deliberately: their gates are the workbench
 chunk `CLAUDE.md` names (`CI-123`..`CI-129`), which run UNREGISTERED pending the
 owner ratifying the invariants they enforce, so claiming them as done would
 assert coverage the registry does not carry.
+
+---
+
+# 49. TONIGHT'S RELEASE, SEQUENCED ACROSS MODELS — 2026-09-13
+
+**Owner, 2026-09-13:**
+- Finish before sunset, stretchable to **21:00**.
+- Use this account's subscription first (Sonnet, Opus).
+- Then use **$100 of credits on another account for Fable**: the hardest and most
+  critical items first, then finishing, repo cleanup, bundling and shipping.
+- If the credits run out, Opus continues, and it must know exactly where Fable
+  stopped.
+- **The microphone (step 22) goes after all of it.**
+
+On completeness, in the owner's words: *"not forget anything that should be done
+before production."*
+
+**`PLAN_2026-09-13-RELEASE.md`** at the repo root carries the execution plan, the
+model and effort for every item, the money rules, the owner's grant-trip,
+acceptance and microphone guides, and the ledger. This document stays the track;
+that one sequences tonight.
+
+Two facts the plan rests on that appear nowhere else in this file:
+
+- **The battery binds before the credits do.** It was at 26% and discharging at
+  17:58, which puts the Mac out around 20:44 if left unplugged.
+- **Found tonight:** `island.err` holds 16 `FileNotFoundError`s from renaming
+  `heard.offset.<n>.tmp` over `heard.offset`, meaning two writers race on one
+  offset file. Recorded here, not yet chased (plan item A3).

@@ -4,6 +4,12 @@ Loaded automatically every session. Its job is to stop each session
 rediscovering the same things. If a statement here contradicts a command's
 output, **the command wins** and this file is stale — fix it.
 
+> **2026-09-13, TONIGHT'S RELEASE: read `PLAN_2026-09-13-RELEASE.md` first.** It
+> holds the model and effort for every remaining item, the owner's grant-trip,
+> acceptance and microphone guides, and the ledger that every session appends to.
+> For what comes next it supersedes the dated `HANDOFF_2026-*.md` files;
+> `docs/design/HOME-WORKBENCH.md` is still the track.
+
 ## Read these before reasoning, not after
 
 | File | What it holds |
