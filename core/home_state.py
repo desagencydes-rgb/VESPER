@@ -113,6 +113,7 @@ class HomeState:
         self._settings: list = []
         self._projects: list = []
         self._dashboard: dict = {}
+        self._research_room: dict = {}
         self._research: list = []
         # A FLAG ON THE BAR WITH NO HISTORY ROW IS A HOLE IN "THE FULL HISTORY".
         #
@@ -437,6 +438,18 @@ class HomeState:
                     "project_root": root,
                 }
             n += len(self._dashboard.get("panels") or [])
+            # §29's room reaches the surface through the same producer. Without
+            # this the module is built and called by nothing, which
+            # `gated-subsystems-are-reachable` refuses -- and it refused this one
+            # the same day it was written.
+            from core import research_room as RR
+            with self._lock:
+                self._research_room = {
+                    "sessions": RR.sessions(),
+                    "default": RR.default_layout(),
+                    "control_card": RR.control_card(),
+                }
+            n += len(self._research_room.get("control_card") or [])
         except Exception:                                 # noqa: BLE001
             pass
         self.write()
@@ -627,6 +640,8 @@ class HomeState:
                 existing["projects"] = self._projects
             if self._dashboard:
                 existing["project_dashboard"] = self._dashboard
+            if self._research_room:
+                existing["research_room"] = self._research_room
             if self._research:
                 existing["research"] = self._research
             # ONLY WHEN A MODE HAS BEEN CHOSEN. Writing an empty ambience every

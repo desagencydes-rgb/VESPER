@@ -26585,7 +26585,7 @@ def check_vesper_knows_where_it_is() -> Result:
     # 2. A RECORDED PATH THAT IS NOT THE PROJECT IS REFUSED. Driven three ways,
     #    because "it exists" is the assertion that lets a wrong directory pass.
     import tempfile
-    real = P._RECORD
+    real, real_here = P._RECORD, P._HERE
     try:
         with tempfile.TemporaryDirectory() as d:
             d = pathlib.Path(d)
@@ -26626,6 +26626,15 @@ def check_vesper_knows_where_it_is() -> Result:
                       f"A check that refuses everything proves nothing")
 
             # 3. AND THE ABSENT CASE IS NAMED, not silently empty.
+            #
+            # `_HERE` IS NEUTRALISED TOO, AND FORGETTING THAT TURNED THIS RED.
+            # `places` gained a fallback -- a directory carrying the project's
+            # markers IS the project -- and this case ran with `_HERE` still
+            # pointing at the repo, which carries them. So "unrecorded" was not
+            # unrecorded: the fallback correctly resolved it. The property being
+            # asserted is "no record AND no markers reads UNAVAILABLE", and the
+            # fixture has to produce both halves or it is testing neither.
+            P._HERE = d / "not-a-project"
             P._RECORD = d / "no-such-record.toml"
             rows = P.places()
             proj = next((x for x in rows if x["name"] == "the project"), None)
@@ -26638,6 +26647,7 @@ def check_vesper_knows_where_it_is() -> Result:
                       "guess wearing the shape of a reading")
     finally:
         P._RECORD = real
+        P._HERE = real_here
 
     # 4. THE PLANNER IS ACTUALLY TOLD. Built and unreached is this tree's most
     #    repeated shape; the wiring is asserted, not assumed.

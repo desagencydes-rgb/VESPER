@@ -1619,7 +1619,13 @@ final class HomeChrome {
           var railData = {projects: null, research: null, dashboard: null};
           window.__vesperRail = function (which, json) {
             try { railData[which] = JSON.parse(json); } catch (e) { railData[which] = null; }
-            if (active === which) show(which, opener);
+            // THE DASHBOARD ARRIVES UNDER ITS OWN NAME AND IS SHOWN UNDER ANOTHER. The
+            // view is `projects`; the payload is `dashboard`. Comparing the two
+            // directly meant the data landed while the surface was open and nothing
+            // redrew -- the owner would be looking at UNAVAILABLE with the answer
+            // already in the page.
+            var showing = (which === 'dashboard') ? 'projects' : which;
+            if (active === showing) show(showing, opener);
           };
           function stateChip(state){
             var el = node('span', 'rail-state ' + 'rs-' + String(state || 'unknown').replace(/[^a-z_]/g,''));
