@@ -2342,6 +2342,21 @@ if args.contains("--window-where") {
     exit(0)
 }
 
+if args.contains("--mic-level") {
+    // §9g's MEASURE FIRST. Reports what the microphone actually delivers and
+    // changes nothing about it.
+    func num(_ n: String) -> Double? {
+        guard let i = args.firstIndex(of: n), i + 1 < args.count else { return nil }
+        return Double(args[i + 1])
+    }
+    func str(_ n: String) -> String? {
+        guard let i = args.firstIndex(of: n), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+    runMicLevel(seconds: num("--seconds") ?? 8, out: str("--out"))
+    exit(0)
+}
+
 if args.contains("--request-grants") {
     // ASK for everything missing, in one pass. Run by `build.sh` after every
     // build -- grants die with the cdhash, so the moment after a rebuild is

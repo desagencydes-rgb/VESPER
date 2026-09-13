@@ -75,6 +75,62 @@ func note(_ line: String) {
     }
 }
 
+/// Peak and RMS of one buffer, in dBFS. Measurement only -- nothing is changed.
+///
+/// §9g, owner 2026-09-07: *"vesper's microphone is working, but it still doesn't
+/// hear me, i need to be screaming just so it can hear me."* The plan records
+/// the capture path as having "no gain stage, no normalisation, no level
+/// measurement and no automatic gain control anywhere in the file", and marks
+/// the step MEASURE FIRST.
+///
+/// SO THIS MEASURES AND DOES NOT CORRECT. A gain applied before anyone has read
+/// a level is a number chosen by guess, which is what `INV-HW-2` exists to
+/// refuse -- and if the real cause is the system input volume or the wrong
+/// input device, a software gain would amplify the noise floor and hide it.
+
+/// What the microphone is actually delivering, kept so it can be reported.
+///
+/// BOUNDED AND CHEAP. Two floats and a count per buffer; a tap runs hundreds of
+/// times a second and anything that allocates here is a cost paid forever.
+final class Levels {
+    static let shared = Levels()
+    private let lock = NSLock()
+    private var peak: Float = 0
+    private var rmsSum: Float = 0
+    private var n: Int = 0
+
+    func observe(peak p: Float, rms r: Float) {
+        lock.lock(); defer { lock.unlock() }
+        if p > peak { peak = p }
+        rmsSum += r
+        n += 1
+    }
+
+    /// Peak dBFS, mean RMS dBFS, and how many buffers it was measured over.
+    /// Returns nil when nothing has been heard -- an absence, never a zero.
+    func reading() -> (peakDb: Float, rmsDb: Float, buffers: Int)? {
+        lock.lock(); defer { lock.unlock() }
+        if n == 0 { return nil }
+        return (dbfs(peak), dbfs(rmsSum / Float(n)), n)
+    }
+}
+
+func bufferLevel(_ buf: AVAudioPCMBuffer) -> (peak: Float, rms: Float) {
+    guard let ch = buf.floatChannelData else { return (0, 0) }
+    let n = Int(buf.frameLength)
+    if n == 0 { return (0, 0) }
+    var peak: Float = 0
+    var sum: Float = 0
+    for i in 0..<n {
+        let v = abs(ch[0][i])
+        if v > peak { peak = v }
+        sum += ch[0][i] * ch[0][i]
+    }
+    return (peak, (sum / Float(n)).squareRoot())
+}
+
+func dbfs(_ v: Float) -> Float { v <= 0 ? -120 : 20 * log10(v) }
+
 private func meanConfidence(_ t: SFTranscription) -> Double {
     let segs = t.segments
     guard !segs.isEmpty else { return 0.0 }
@@ -118,6 +174,12 @@ final class Listener {
         let input = engine.inputNode
         let format = input.outputFormat(forBus: 0)
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buf, _ in
+            // MEASURED ON THE WAY PAST, NEVER CHANGED HERE. See `bufferLevel`:
+            // the level is what §9g asks to be established before anything is
+            // corrected, and a tap that quietly amplified would destroy the
+            // evidence for the decision.
+            let lv = bufferLevel(buf)
+            Levels.shared.observe(peak: lv.peak, rms: lv.rms)
             req.append(buf)
         }
         engine.prepare()
@@ -195,6 +257,72 @@ func runListener(locale: String, seconds: Double, diagnose: Bool) {
 // IT IS A SEPARATE ENTRY POINT ON PURPOSE. Adding a "just record" flag to
 // `runListener` would put a path that never checks `supportsOnDeviceRecognition`
 // inside the function whose whole job is to check it.
+/// MEASURE the microphone for `seconds` and print what it delivered. §9g.
+///
+/// NOTHING IS CORRECTED HERE. The owner reported having to shout; the plan marks
+/// the step MEASURE FIRST, and this is that measurement -- what the hardware
+/// actually hands the recogniser, in dBFS, before anyone chooses a gain.
+///
+/// HOW TO READ IT. Speech at a normal desk distance should peak around -12 to
+/// -6 dBFS with mean RMS near -30. A peak below about -35 means the signal is
+/// genuinely quiet, and the next question is WHERE: the system input volume,
+/// the selected input device, or the hardware itself. A software gain applied
+/// before that question is answered would raise the noise floor with the voice
+/// and hide the cause.
+func runMicLevel(seconds: Double, out: String? = nil) {
+    // WRITES TO A FILE WHEN ASKED, because `open -n` -- the only launch that
+    // carries vesper's own TCC identity -- DISCARDS stdout. `Grants.report(to:)`
+    // learned this first; a measurement nobody can read is not a measurement,
+    // and reading the microphone from a shell would measure the shell's grant.
+    var lines: [String] = []
+    func say(_ t: String) {
+        print(t)
+        lines.append(t)
+    }
+    func finish(_ code: Int32) -> Never {
+        if let out, !out.isEmpty {
+            try? lines.joined(separator: "\n").write(toFile: out,
+                                                     atomically: true,
+                                                     encoding: .utf8)
+        }
+        exit(code)
+    }
+    // `init?` -- FAILABLE, and a missing recogniser is a different fact from a
+    // quiet microphone. Said separately rather than folded into one message.
+    guard let listener = Listener(locale: "en-US", diagnose: false) else {
+        say("no speech recogniser for en-US on this node, so the capture "
+            + "path cannot be opened to measure it.")
+        finish(1)
+    }
+    do {
+        try listener.start()
+    } catch {
+        say("microphone could not be opened: \(error)")
+        finish(1)
+    }
+    say("measuring for \(Int(seconds))s -- speak normally, at your usual distance.")
+    RunLoop.main.run(until: Date().addingTimeInterval(seconds))
+    listener.stop()
+    guard let r = Levels.shared.reading() else {
+        // AN ABSENCE, NEVER A ZERO. No buffers means the tap never fired, which
+        // is a different fact from a quiet room and has a different cause.
+        say("no audio buffers arrived at all -- the tap never fired. That "
+            + "is not a quiet microphone; it is no microphone on this input.")
+        finish(1)
+    }
+    say(String(format: "peak %.1f dBFS, mean rms %.1f dBFS, over %d buffers",
+               r.peakDb, r.rmsDb, r.buffers))
+    if r.peakDb < -35 {
+        say("that is QUIET. Before adding any gain, check the system input "
+              + "volume and which input device is selected -- amplifying in "
+              + "software would raise the noise floor with the voice.")
+    } else {
+        say("that is a usable level; if recognition is still poor the "
+              + "cause is not the input level.")
+    }
+    finish(0)
+}
+
 func runRecorder(seconds: Double, out: String) {
     guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else {
         note("microphone is not authorized; run --speech-consent first")
