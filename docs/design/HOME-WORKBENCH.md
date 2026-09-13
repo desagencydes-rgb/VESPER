@@ -1468,13 +1468,13 @@ been driven against the running surface.**
 | # | Step | Ships |
 |---|---|---|
 | 1 | Stack geometry in Swift + `{{STACK_CSS}}` | Three empty cards in the right places, correct on a resize |
-| 2 | **Commands card** (§3) | `CI-123`, live: a real `shell.run` appears with its output |
-| 3 | **Explanations card** (§4) | `CI-124`, live: a long answer lands here and is not spoken |
-| 4 | **Changes card** (§5), list + diff + open-in-IDE | `CI-125`, live: a real write appears with a real diff |
+| 2 | **Commands card** (§3) | ✅ DONE — `commands-card-shows-what-ran` passes; `CI-123`, live: a real `shell.run` appears with its output |
+| 3 | **Explanations card** (§4) | ✅ DONE — `an-explanation-is-shown-and-never-spoken` passes; `CI-124`, live: a long answer lands here and is not spoken |
+| 4 | **Changes card** (§5), list + diff + open-in-IDE | ✅ DONE — `changes-are-shown-with-their-source` passes; `CI-125`, live: a real write appears with a real diff |
 | 5 | Changes overlay, view controls, git buttons | live: push/pull/create each confirmed and executed once |
-| 6 | **Terminal** (§6) | `CI-126`, live: the owner types and gets a shell |
+| 6 | **Terminal** (§6) | ✅ DONE — `the-terminal-is-the-owners` passes; `CI-126`, live: the owner types and gets a shell |
 | 7 | **Command buttons** (§7) | live: Run runs, Paste does not |
-| 8 | `CI-127` cross-cutting | red-run on each of its five rules |
+| 8 | `CI-127` cross-cutting | ✅ DONE — `auto-mode-does-not-ask-and-does-not-overreach` and `a-path-is-not-a-secret` pass; red-run on each of its five rules |
 | 9 | **HOST card producer** (§9b) | `CI-130`, live: the card shows a real reading |
 | 10 | **Notes as an agenda source** (§9c) | ✅ DONE 2026-09-07 — `CI-131`, 5 red runs, live: 5 titles, `retrieved_local`, no bodies |
 | 11 | **Provider-failure routing** (§9d) | ✅ DONE 2026-09-07 — `CI-132` (5 red runs), `CI-133` (10 red runs). Live: real advisor limit read as `rate_limited` with the 15-min floor carried; board surfacing fired; fix-and-resend driven through the real gateway loop, 4096→2048→answered, one repair and never a loop |
@@ -5158,3 +5158,31 @@ one-rung when the loader expands it to six.
 reported to the owner as a finding about VESPER before it was checked. The rule
 that catches all four is the same: *before reporting that something is missing,
 ask what the thing doing the looking can see.*
+
+---
+
+# 48. STEPS 1-9 WERE DONE AND UNMARKED, AND THAT COST A READING
+
+**Corrected 2026-09-13.** The build order's ✅ convention began at step 10, so
+steps 1-9 carried no marker and every listing of "what is unfinished" -- including
+this session's, twice -- reported them as open. They are not: each has a gate
+that passes today, checked one at a time rather than taken from the earlier note
+that said so.
+
+| step | gate |
+|---|---|
+| 2 commands card | `commands-card-shows-what-ran` |
+| 3 explanations | `an-explanation-is-shown-and-never-spoken` |
+| 4 changes | `changes-are-shown-with-their-source` |
+| 6 terminal | `the-terminal-is-the-owners` |
+| 8 cross-cutting | `auto-mode-does-not-ask-and-does-not-overreach`, `a-path-is-not-a-secret` |
+
+**AN ABSENT MARKER IS NOT AN ABSENT STEP**, which is the same shape as the four
+absence-from-a-partial-read mistakes this session already recorded: a registry
+read for cameras, one for the J3, an event query with a row cap, and a six-rung
+ladder read as one. Here the "registry" was a column of emoji.
+
+Steps 1, 5, 7 and 9 stay unmarked deliberately: their gates are the workbench
+chunk `CLAUDE.md` names (`CI-123`..`CI-129`), which run UNREGISTERED pending the
+owner ratifying the invariants they enforce, so claiming them as done would
+assert coverage the registry does not carry.
