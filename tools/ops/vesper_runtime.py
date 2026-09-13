@@ -1533,28 +1533,38 @@ def _what_was_tried(steps: list, final: str) -> str:
     the same shape as the fabricated button names. These strings come from the
     step records.
     """
+    # READ FROM `detail.result`, NOT FROM `args`. A step record carries
+    # capability_id, detail, kind, level and said -- and NO args. The first
+    # version of this read `st["args"]`, found nothing on every step, and
+    # produced a summary naming nothing; it was written against the shape of a
+    # PROPOSAL rather than the shape of a STEP, and the two differ.
     tried: list = []
     for st in steps:
         if not isinstance(st, dict):
             continue
         cid = str(st.get("capability_id") or "")
-        args = st.get("args") if isinstance(st.get("args"), dict) else {}
-        if cid == "shell.run":
-            what = str(args.get("cmd") or "").strip()
-        elif cid in ("fs.read", "fs.write", "fs.edit"):
-            what = f"{cid.split('.')[1]} {str(args.get('path') or '').strip()}"
-        elif cid:
-            what = cid
+        det = st.get("detail") if isinstance(st.get("detail"), dict) else {}
+        res = det.get("result") if isinstance(det.get("result"), dict) else {}
+        argv = res.get("argv")
+        if isinstance(argv, list) and argv:
+            what = " ".join(str(a) for a in argv)
+        elif res.get("path"):
+            what = f"{cid.split('.')[-1]} {res['path']}"
+        elif st.get("said"):
+            what = str(st["said"])
         else:
-            continue
+            what = cid
         if what:
-            tried.append(what[:60])
+            tried.append(what.strip()[:70])
     if len(tried) < 2:
         return final
     shown = "; ".join(tried[:4])
     more = f" (and {len(tried) - 4} more)" if len(tried) > 4 else ""
-    return (f"I tried {len(tried)} things and none of them worked: {shown}"
-            f"{more}. The last one: {final}")
+    # "I TRIED N THINGS", NOT "NONE OF THEM WORKED". Some steps in a failed
+    # turn succeed -- a `find` that returns nothing exits 0 -- and claiming they
+    # all failed is a small lie about the past in a sentence whose whole job is
+    # to be accurate about it.
+    return f"I tried {len(tried)} things: {shown}{more}. The last one: {final}"
 
 
 def answer(gw, router, persona, utterance, renderer=None,
@@ -2571,8 +2581,29 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                     # than one, so a single-step turn is untouched.
                     _steps = (did.detail or {}).get("steps") \
                         if isinstance(did.detail, dict) else None
+                    # KEYED ON WHETHER ANY STEP FAILED, NOT ON THE LAST ONE.
+                    # This read `did.kind in ("refused", "failed")` and missed
+                    # the case it was written for: asked for a file that does
+                    # not exist, vesper tried cat, ls, find and grep -- and
+                    # `find` returning nothing exits 0, so the TURN looked
+                    # successful while the goal was never met. The owner was
+                    # told "Done", about a search that found nothing.
+                    def _any_step_failed(steps: list) -> bool:
+                        for st in steps:
+                            if not isinstance(st, dict):
+                                continue
+                            det = st.get("detail") if isinstance(st.get("detail"), dict) else {}
+                            res = det.get("result") if isinstance(det.get("result"), dict) else {}
+                            code = res.get("exit_code")
+                            if (isinstance(code, int) and code != 0) \
+                                    or res.get("ok") is False \
+                                    or st.get("kind") in ("refused", "failed"):
+                                return True
+                        return False
+
                     if isinstance(_steps, list) and len(_steps) > 1 \
-                            and did.kind in ("refused", "failed"):
+                            and (did.kind in ("refused", "failed")
+                                 or _any_step_failed(_steps)):
                         reply = _what_was_tried(_steps, str(reply or ""))
                 else:
                     # STRIPPED ON THE WAY OUT. The statement asks the answerer
