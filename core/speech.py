@@ -458,15 +458,52 @@ class Speech:
                     "reason": "no credential in the environment or secrets file"}
         endpoint = (self._field(row, "endpoint") or "").replace(
             "{voice}", plan.voice or self._policy.get("darija_voice_id", ""))
-        body = json.dumps({"text": plan.text,
-                           "model_id": self._field(row, "model") or ""}).encode()
-        req = urllib.request.Request(
-            endpoint, data=body, method="POST",
-            headers={"xi-api-key": key, "Content-Type": "application/json"})
+        # SPEED TRAVELS WITH THE REQUEST, because the rate knobs above reach only
+        # the local synthesiser and the owner hears this one. `_rate_for` returns
+        # 0 for every non-local synth, so `darija_local_rate` and `english_rate`
+        # were inert on the path that actually speaks.
+        fields = {"text": plan.text, "model_id": self._field(row, "model") or ""}
         try:
+            speed = float(self._policy.get("remote_speed", 0) or 0)
+        except (TypeError, ValueError):
+            speed = 0.0
+        settings = {"speed": speed} if 0.5 <= speed <= 2.0 and speed != 1.0 else None
+        if settings:
+            fields["voice_settings"] = settings
+
+        def _post(payload: dict):
+            req = urllib.request.Request(
+                endpoint, data=json.dumps(payload).encode(), method="POST",
+                headers={"xi-api-key": key, "Content-Type": "application/json"})
             with urllib.request.urlopen(req, timeout=60) as resp:
-                audio = resp.read()
-                code = resp.status
+                return resp.read(), resp.status
+
+        try:
+            audio, code = _post(fields)
+        except urllib.error.HTTPError as exc:
+            # A PROVIDER THAT WILL NOT TAKE THE SETTING MUST NOT COST THE OWNER
+            # THEIR VOICE. Speed is a comfort field; speaking is the function.
+            # Retried once WITHOUT it, and the fallback is recorded rather than
+            # silently preferred, so "speed does nothing" is visible next time
+            # instead of being rediscovered by ear.
+            if settings is None or exc.code not in (400, 422):
+                return {"spoke": False, "attempted": rid, "reason": repr(exc)}
+            # `self._bus.publish`, NOT a `_emit` helper -- this class has no
+            # such method, and the first version of this fallback called one.
+            # An AttributeError inside the path that rescues speech would have
+            # cost the owner their voice in exactly the case it exists to save.
+            self._bus.publish(
+                "speech.speed_refused", subject="speech",
+                payload={"rung": rid, "http_status": exc.code, "speed": speed,
+                         "note": ("the synthesiser refused the speed field; "
+                                  "spoken at its default rather than not "
+                                  "spoken")},
+                component="speech")
+            fields.pop("voice_settings", None)
+            try:
+                audio, code = _post(fields)
+            except (urllib.error.URLError, OSError) as exc2:
+                return {"spoke": False, "attempted": rid, "reason": repr(exc2)}
         except (urllib.error.URLError, OSError) as exc:
             return {"spoke": False, "attempted": rid, "reason": repr(exc)}
         out = Path(tempfile.gettempdir()) / f"vesper-speech-{os.getpid()}.mp3"
