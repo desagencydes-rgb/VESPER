@@ -1321,6 +1321,47 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
     railList(railData.research,
              'The spike index has not arrived on this surface yet.');
   }
+  // THE CONTROL ON A SETTINGS ROW, and the one way it leaves the page. Owner,
+  // 2026-09-13: a settings screen that shows values and changes nothing is not
+  // settings. Each row that is the owner's to set carries `controls` from the
+  // producer -- key, kind, bounds, current value -- and this renders exactly
+  // that and nothing the page invented: the runtime re-checks the value against
+  // the same schema before writing it. Shared by the rail's settings card and
+  // the side-button panel, so both manage and neither drifts.
+  window.__vesperSettingControls = function(r){
+    var ctls = Array.isArray(r && r.controls) ? r.controls : [];
+    if (!ctls.length) return null;
+    var wrap = document.createElement('div'); wrap.className = 'st-ctls';
+    wrap.style.cssText = 'display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:6px';
+    function post(action, args){
+      try { window.webkit.messageHandlers.vesperControl.postMessage(JSON.stringify({action: action, args: args})); }
+      catch (e) { (window.__vesperErrs = window.__vesperErrs || []).push('control: ' + (e && e.message)); }
+    }
+    ctls.forEach(function(c){
+      var el = null;
+      if (c.kind === 'bool') {
+        el = document.createElement('input'); el.type = 'checkbox'; el.checked = !!c.value;
+        el.addEventListener('change', function(){ post('preference.set', {key: c.key, value: el.checked}); });
+      } else if (c.kind === 'choice') {
+        el = document.createElement('select');
+        (c.options || []).forEach(function(o){ var op = document.createElement('option'); op.value = o; op.textContent = o; if (o === c.value) op.selected = true; el.appendChild(op); });
+        el.addEventListener('change', function(){ post('preference.set', {key: c.key, value: el.value}); });
+      } else if (c.kind === 'range') {
+        el = document.createElement('input'); el.type = 'range'; el.min = c.min; el.max = c.max; el.step = c.step; el.value = c.value; el.title = String(c.value);
+        el.addEventListener('change', function(){ el.title = el.value; post('preference.set', {key: c.key, value: Number(el.value)}); });
+      } else if (c.kind === 'text') {
+        el = document.createElement('input'); el.type = 'text'; el.value = c.value == null ? '' : String(c.value); el.size = 6;
+        el.addEventListener('change', function(){ post('preference.set', {key: c.key, value: el.value}); });
+      }
+      if (el) {
+        el.className = 'st-ctl'; el.setAttribute('data-key', c.key || '');
+        el.setAttribute('aria-label', c.label || c.key || 'setting');
+        el.style.cssText = 'font:12px var(--face-body);color:var(--ink);background:rgba(255,255,255,.06);border:1px solid rgba(244,230,220,.18);border-radius:8px;padding:3px 6px';
+        wrap.appendChild(el);
+      }
+    });
+    return wrap;
+  };
   function renderSettings(){
     var rows = [];
     try { rows = JSON.parse(window.__vesperSettingsData || '[]'); } catch (e) { rows = []; }
@@ -1347,6 +1388,7 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
       right.append(node('div','rail-value',
                         r.status === 'available' ? String(r.value) : 'UNAVAILABLE'));
       if (r.status === 'available' && r.source) right.append(node('div','rail-where', String(r.source)));
+      var ctl = window.__vesperSettingControls(r); if (ctl) right.append(ctl);
       right.append(stateChip(r.governed ? 'governed' : 'yours to set'));
       row.append(left, right);
       list.append(row);
@@ -2339,6 +2381,8 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
         val.className = 'st-value';
         val.textContent = r.status === 'available' ? String(r.value) : 'UNAVAILABLE';
         right.appendChild(val);
+        var ctl = (window.__vesperSettingControls || function () { return null; })(r);
+        if (ctl) right.appendChild(ctl);
         if (r.status === 'available' && r.source) {
           var srcEl = document.createElement('div');
           srcEl.className = 'st-source';

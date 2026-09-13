@@ -2853,10 +2853,32 @@ func startHome() {
     // §2.6, wired. The ground's occlusion state is the ONLY signal, and it is
     // read from the notification rather than polled, so the island moves on the
     // same edge the owner sees.
+    // THE ISLAND TOGGLE (owner, 2026-09-13: "i want a toggle to toggle on or
+    // off the island in the settings"). The preference is the owner's, written
+    // by the runtime into preferences.json when the settings row is pressed,
+    // and read here every second -- polled rather than pushed because the
+    // island must obey it even when the runtime is down, and a second is the
+    // most a person waits after pressing a switch. `retreat` is idempotent, so
+    // re-applying an unchanged value costs nothing.
+    func islandEnabled() -> Bool {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/VESPER/preferences.json")
+        guard let d = try? Data(contentsOf: url),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let vals = o["values"] as? [String: Any],
+              let on = vals["island.enabled"] as? Bool else { return true }
+        return on
+    }
+    var homeVisible = false
     h.onVisibilityChange = { [weak controller] visible in
-        controller?.retreat(visible)
+        homeVisible = visible
+        controller?.retreat(visible || !islandEnabled())
         print("home: \(visible ? "visible  → island retreats" : "covered  → island returns")")
     }
+    let islandPrefTimer = Timer(timeInterval: 1.0, repeats: true) { [weak controller] _ in
+        controller?.retreat(homeVisible || !islandEnabled())
+    }
+    RunLoop.main.add(islandPrefTimer, forMode: .common)
     if let i = args.firstIndex(of: "--mode"), i + 1 < args.count {
         h.setMode(args[i + 1])
     }

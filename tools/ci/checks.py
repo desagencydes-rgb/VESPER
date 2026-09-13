@@ -4318,6 +4318,166 @@ def check_vesper_works_in_its_own_place() -> Result:
     return r
 
 
+def check_settings_manage_not_only_show() -> Result:
+    """Every settings row reads something real, the owner's rows carry a control
+    that WRITES, and the write reaches the runtime through one recorded channel.
+
+    OWNER, 2026-09-13: "where the fuck is management??? ... i should see no
+    'unavailable' there ... i want a toggle to toggle on or off the island in
+    the settings ... where the fuck is microphone sensitivity". Three properties:
+    no UNAVAILABLE row; a control on every preference row, bounded by the same
+    schema the runtime writes with; and the channel -- page posts `vesperControl`,
+    host appends `control.jsonl`, runtime drains it once and applies it.
+    RUNTIME FIXTURE on temp paths: a real write, a real drain, a real refusal.
+    """
+    import tempfile
+    from types import SimpleNamespace
+
+    r = Result("settings-manage-not-only-show")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core import controls as C
+        from core import preferences as P
+        from core import settings_surface as SS
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"preferences, controls or settings did not import: {exc!r}")
+        return r
+    if str(REPO / "tools" / "ops") not in sys.path:
+        sys.path.insert(0, str(REPO / "tools" / "ops"))
+    try:
+        import vesper_runtime as VR
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"the runtime did not import: {exc!r}")
+        return r
+
+    with tempfile.TemporaryDirectory() as td:
+        T = Path(td)
+        prefs = T / "preferences.json"
+
+        # 1. PREFERENCES: typed, bounded, refused rather than guessed.
+        if P.write("island.enabled", False, path=prefs) is not False or P.read(prefs)["island.enabled"] is not False:
+            r.err("island.enabled did not round-trip through the preference file")
+        if "island.enabled" not in P.is_set(prefs):
+            r.err("a written preference is not reported as set by the owner")
+        for key, bad in (("island.enabled", "maybe"), ("voice.rate", 9),
+                         ("nope", 1), ("language", "xx"), ("quiet_hours.start", "25:99")):
+            try:
+                P.write(key, bad, path=prefs)
+                r.err(f"preference {key}={bad!r} was ACCEPTED; the schema is the "
+                      "only thing standing between a button and an unbounded value")
+            except P.PreferenceRefused:
+                pass
+        for key in P.SCHEMA:
+            d = P.describe(key)
+            if d.get("kind") not in ("bool", "choice", "range", "text"):
+                r.err(f"{key} describes itself with kind {d.get('kind')!r}")
+
+        # 2. CONTROLS: each kind applied by the right party.
+        bus = SimpleNamespace(events=[])
+        bus.publish = lambda t, **kw: bus.events.append((t, kw.get("payload") or {}))
+        outbox = T / "say.jsonl"
+        ctx = {"bus": bus, "outbox": outbox, "preferences_path": prefs}
+        res = C.apply({"action": "preference.set", "args": {"key": "voice.rate", "value": 1.5}}, ctx=ctx)
+        if not res.get("ok") or P.read(prefs)["voice.rate"] != 1.5:
+            r.err(f"preference.set did not write: {res!r}")
+        res = C.apply({"action": "bogus"}, ctx=ctx)
+        if res.get("ok") or not res.get("reason"):
+            r.err("an unregistered control was applied, or refused without a reason")
+        res = C.apply({"action": "act", "args": {"text": "list my notes"}}, ctx=ctx)
+        if not res.get("ok") or "list my notes" not in outbox.read_text(encoding="utf-8"):
+            r.err("an act control did not queue through the typed path")
+        before = (REPO / "contracts" / "policy" / "provider_supply.toml").read_bytes()
+        res = C.apply({"action": "governed.propose",
+                       "args": {"file": "contracts/policy/provider_supply.toml",
+                                "key": "soft_cap_ratio", "value": 0.6}}, ctx=ctx)
+        if not res.get("ok") or "host" not in str(res.get("result", {}).get("applied_by", "")):
+            r.err(f"a governed proposal was not recorded for the host: {res!r}")
+        if (REPO / "contracts" / "policy" / "provider_supply.toml").read_bytes() != before:
+            r.err("the RUNTIME wrote a governed file from a button (INV-SELF-1)")
+        res = C.apply({"action": "governed.propose",
+                       "args": {"file": "core/gateway.py", "key": "x", "value": 1}}, ctx=ctx)
+        if res.get("ok"):
+            r.err("a governed proposal against a non-policy file was accepted")
+
+        # 3. THE DRAIN: applied once, offset kept, refusals recorded.
+        cj, co = T / "control.jsonl", T / "control.offset"
+        cj.write_text("\n".join(json.dumps(x) for x in (
+            {"action": "preference.set", "args": {"key": "language", "value": "fr-FR"}},
+            {"action": "act", "args": {"text": "what windows do i have open"}},
+            {"action": "bogus"})) + "\n", encoding="utf-8")
+        bus.events.clear()
+        n = VR._drain_control(bus, None, path=cj, offset_path=co, outbox=outbox,
+                              preferences_path=prefs)
+        kinds = [t for t, _ in bus.events]
+        if n != 3 or kinds.count("control.applied") != 2 or kinds.count("control.refused") != 1:
+            r.err(f"the drain applied {n} controls with events {kinds!r}; expected 2 applied, 1 refused")
+        if P.read(prefs)["language"] != "fr-FR":
+            r.err("a drained preference did not land")
+        if VR._drain_control(bus, None, path=cj, offset_path=co, outbox=outbox,
+                             preferences_path=prefs) != 0:
+            r.err("the drain re-applied controls it had already applied: the "
+                  "offset is not kept, so every pass presses every button again")
+        if not co.exists():
+            r.err("no offset file was written")
+
+    # 4. THE ROWS: nothing UNAVAILABLE, and every owner row has its control.
+    rows = SS.rows()
+    unavailable = [x["id"] for x in rows if x.get("status") != "available"]
+    if unavailable:
+        r.err(f"UNAVAILABLE rows: {unavailable}. The owner: 'i should see no "
+              "unavailable there'. Every row reads something real or says what it read")
+    by_id = {x["id"]: x for x in rows}
+    for item in SS.OWNER_PREFERENCE:
+        row = by_id.get(item)
+        ctls = (row or {}).get("controls") or []
+        if not row or not ctls:
+            r.err(f"owner row {item!r} has no control; it shows and cannot change")
+            continue
+        for c in ctls:
+            if c.get("kind") not in ("bool", "choice", "range", "text") or c.get("key") not in P.SCHEMA:
+                r.err(f"row {item!r} carries a control {c!r} the preference schema does not declare")
+    if not any(c.get("kind") == "bool" and c.get("key") == "island.enabled"
+               for c in (by_id.get("island") or {}).get("controls") or []):
+        r.err("no island on/off toggle in settings")
+    if not any(c.get("kind") == "range" and c.get("key") == "microphone.gain_db"
+               for c in (by_id.get("microphone") or {}).get("controls") or []):
+        r.err("no microphone gain control in settings")
+    if "claude-limits" not in by_id:
+        r.err("the Claude limits row is missing")
+
+    # 5. THE CHANNEL, END TO END, IN SOURCE: page -> host -> file -> island.
+    html = (REPO / "app" / "home-macos" / "chrome" / "home.html").read_text(encoding="utf-8")
+    if "window.__vesperSettingControls = function" not in html:
+        r.err("the chrome defines no settings control builder")
+    if "messageHandlers.vesperControl.postMessage" not in html:
+        r.err("the chrome never posts vesperControl: the controls render and reach nothing")
+    if html.count("__vesperSettingControls") < 3:
+        r.err("only one settings renderer uses the control builder; the rail card "
+              "and the side panel must both manage")
+    if "if (ctl) right.appendChild(ctl);" not in html:
+        r.err("the side-button settings panel does not attach the control it built")
+    swift = (REPO / "app" / "home-macos" / "HomeChrome.swift").read_text(encoding="utf-8")
+    if 'static let name = "vesperControl"' not in swift or "control.jsonl" not in swift:
+        r.err("HomeChrome has no ControlBridge writing control.jsonl")
+    if "cfg.userContentController.add(self.control, name: ControlBridge.name)" not in swift:
+        r.err("the ControlBridge is defined and never registered on the webview: "
+              "built and unreached")
+    main_swift = (REPO / "app" / "island-macos" / "main.swift").read_text(encoding="utf-8")
+    if '"island.enabled"' not in main_swift or "retreat(visible || !islandEnabled())" not in main_swift:
+        r.err("the island does not read the island.enabled preference into its retreat")
+    if "_drain_control(bus, home)" not in (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8"):
+        r.err("the pump never calls _drain_control: the channel ends in a file nobody reads")
+
+    if r.ok:
+        r.note(f"{len(rows)} settings rows, 0 UNAVAILABLE; {len(SS.OWNER_PREFERENCE)} owner rows "
+               "carry schema-bound controls (island toggle, microphone gain among them); "
+               "5 bad values refused; preference.set / act / governed.propose applied by the "
+               "right party; a 3-line control queue drained once and not twice; page, host, "
+               "runtime and island wired in source")
+    return r
+
+
 def check_chain_budget() -> Result:
     r = Result("chain-budget-bounded")
     if str(REPO) not in sys.path:
@@ -26716,10 +26876,15 @@ def check_the_settings_surface_reads_and_explains() -> Result:
     from core import settings_surface as S
 
     # 1. THE OWNER'S OWN LIST, and the one item that is not a row.
-    if len(S.ITEMS) != 34:
+    # THE OWNER'S 34, PLUS THE ROWS THEY ASKED FOR BY NAME ON 2026-09-13: the
+    # island toggle, microphone gain, and the Claude limits. Appended, never
+    # inserted, so the export's own order is the first thirty-four unchanged.
+    appended = ("island", "microphone", "claude-limits")
+    if len(S.ITEMS) != 34 + len(appended) or tuple(i[0] for i in S.ITEMS[-3:]) != appended:
         r.err(f"{len(S.ITEMS)} settings declared; the owner's routing export "
               f"names 35, of which 'Explain this setting' is marked 'in each "
-              f"dialog, on hover' -- a property of every row, not a 35th peer")
+              f"dialog, on hover' -- a property of every row, not a 35th peer -- "
+              f"plus exactly the three rows the owner added by name: {appended}")
     ids = [i[0] for i in S.ITEMS]
     if len(set(ids)) != len(ids):
         r.err("two settings share an id, so one overwrites the other")
@@ -26786,9 +26951,12 @@ def check_the_settings_surface_reads_and_explains() -> Result:
         elif re.match(r"^0\b", str(live.get("value") or "")):
             r.err(f"{item_id!r} reads {live.get('value')!r} -- a false zero from "
                   f"the wrong key, which looks measured and is not")
-        else:
-            if not str(x.get("reason") or "").strip():
-                r.err(f"{x['name']!r} is unavailable and says nothing about why")
+    # EVERY UNAVAILABLE ROW SAYS WHY. (Until 2026-09-13 this branch read a
+    # variable left over from an earlier loop -- the LAST row, whatever it was
+    # -- and fired on a governed, available row with no reason to give.)
+    for x in rows:
+        if x.get("status") != "available" and not str(x.get("reason") or "").strip():
+            r.err(f"{x['name']!r} is unavailable and says nothing about why")
 
     # 3. GOVERNED ROWS SAY WHERE A CHANGE IS MADE, and preference rows are told
     #    apart. Without the distinction a surface either offers to edit reviewed
@@ -28276,6 +28444,7 @@ CHECK_FNS = {
     "narration-follows-the-ladder": check_narration_follows_the_ladder,
     "claude-backs-every-ladder": check_claude_backs_every_ladder,
     "vesper-works-in-its-own-place": check_vesper_works_in_its_own_place,
+    "settings-manage-not-only-show": check_settings_manage_not_only_show,
     "triage-excludes-quota": check_triage_excludes_quota,
     "shared-pool-is-shared": check_shared_pool_is_shared,
     "intake-is-modality-neutral": check_intake_is_modality_neutral,

@@ -160,6 +160,10 @@ OUTBOX = STATE / "say.jsonl"
 # the permission for it.
 HEARD = STATE / "heard.jsonl"
 HEARD_OFFSET = STATE / "heard.offset"
+# WHAT THE OWNER ASKED FOR WITH A BUTTON. Appended by the Swift host's
+# ControlBridge, drained here, applied by core/controls.py.
+CONTROL = STATE / "control.jsonl"
+CONTROL_OFFSET = STATE / "control.offset"
 
 # HOW THE HOME TELLS THE RUNTIME A MODE DID NOT LAND.
 #
@@ -1925,6 +1929,67 @@ def _drain_heard(bus, transcriber) -> int:
     return done
 
 
+def _drain_control(bus, home, *, path=None, offset_path=None, outbox=None,
+                   preferences_path=None) -> int:
+    """Apply every control the home posted since the last pass.
+
+    OWNER, 2026-09-13: every surface showed readings and managed nothing. This
+    is the runtime's half of the management channel: the Swift host appends
+    `{action, args}` lines as the owner presses things, and each is applied by
+    `core/controls.py` -- a preference written, a governed change recorded for
+    the host to confirm, or an act queued through the ordinary typed path.
+
+    OFFSET-TRACKED LIKE `heard.jsonl`, and the offset file's temp name is unique
+    per writer for the reason `island.err` recorded sixteen times tonight. After
+    a preference changes the settings rows are re-read at once, so the screen
+    the owner is looking at shows the value they just set rather than the one
+    from the last ten-minute refresh.
+    """
+    from core import controls as C
+    p = pathlib.Path(path) if path else CONTROL
+    op = pathlib.Path(offset_path) if offset_path else CONTROL_OFFSET
+    if not p.exists():
+        return 0
+    try:
+        seen = int(op.read_text(encoding="utf-8").strip() or "0")
+    except (OSError, ValueError):
+        seen = 0
+    done = 0
+    changed_pref = False
+    with p.open("r", encoding="utf-8") as f:
+        f.seek(seen)
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                break                      # torn last line; see the say.jsonl note
+            res = C.apply(obj, ctx={"bus": bus, "outbox": outbox or OUTBOX,
+                                    "preferences_path": preferences_path})
+            bus.publish("control.applied" if res.get("ok") else "control.refused",
+                        subject=str(obj.get("action") or "?"),
+                        payload={**res, "args": obj.get("args"),
+                                 "at_ms": obj.get("at_ms")},
+                        component="runtime")
+            if res.get("ok") and res.get("kind") == C.PREFERENCE:
+                changed_pref = True
+            done += 1
+        seen = f.tell()
+    _tmp = op.with_name(f"{op.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    _tmp.write_text(str(seen), encoding="utf-8")
+    _tmp.replace(op)
+    if changed_pref and home is not None:
+        try:
+            home.refresh_settings()
+            home.write()
+        except Exception as _exc:                          # noqa: BLE001
+            bus.publish("control.refresh_failed", subject="settings",
+                        payload={"error": repr(_exc)}, component="runtime")
+    return done
+
+
 # WHICH AMBIENCE CONDITIONS THIS PROCESS HAS FLAGGED. Kept here rather than in
 # `home.json` because it answers a question about THIS run: the flags list is
 # rebuilt empty at startup, so a stale id could not survive a restart anyway,
@@ -2337,6 +2402,12 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
     # so a clip captured this pass is answered this pass rather than next.
     if transcriber is not None:
         _drain_heard(bus, transcriber)
+        try:
+            _drain_control(bus, home)
+        except Exception as _exc:                          # noqa: BLE001
+            # A CONTROL THAT FAILS MUST NOT STOP THE PUMP. Answering is the job.
+            bus.publish("control.drain_failed", subject="control",
+                        payload={"error": repr(_exc)}, component="runtime")
     # AND HOW THE LAST MODE WENT. Read every pass, because the failure it
     # reports is one the owner is looking at right now -- their own Desktop
     # showing while they wait for vesper's picture to change.

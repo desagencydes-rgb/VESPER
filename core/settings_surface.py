@@ -114,7 +114,30 @@ ITEMS: tuple[tuple[str, str, str], ...] = (
      "The architectural decisions, and which are accepted."),
     ("limitation-records", "Limitation records",
      "What VESPER cannot do, recorded so it is not rediscovered."),
+    # ADDED 2026-09-13 AT THE OWNER'S WORD, after the thirty-four: "i want a
+    # toggle to toggle on or off the island in the settings"; "where is
+    # microphone sensitivity"; and the Claude limits (Q23). Appended rather than
+    # inserted so the owner's own order above is untouched.
+    ("island", "Island",
+     "Whether the island shows at all. The home keeps running either way."),
+    ("microphone", "Microphone",
+     "Input gain applied before recognition, set from a measured level."),
+    ("claude-limits", "Claude limits",
+     "VESPER's own share of each Claude account's window: the agents' and the advisor's."),
 )
+
+# item -> the preference keys a control on that row sets.
+PREFERENCE_KEYS: dict[str, tuple[str, ...]] = {
+    "voice-and-speed": ("voice.rate",),
+    "wake-word": ("wake_word.enabled",),
+    "language": ("language",),
+    "quiet-hours": ("quiet_hours.start", "quiet_hours.end"),
+    "do-not-disturb": ("do_not_disturb",),
+    "notification-rules": ("notification_rules",),
+    "endpoint-selection": ("endpoint_selection",),
+    "island": ("island.enabled",),
+    "microphone": ("microphone.gain_db",),
+}
 
 # WHICH ITEMS ARE THE OWNER'S PREFERENCE AND WHICH ARE GOVERNED CONTRACTS.
 #
@@ -126,8 +149,24 @@ ITEMS: tuple[tuple[str, str, str], ...] = (
 # configuration tweak".
 OWNER_PREFERENCE = frozenset({
     "voice-and-speed", "wake-word", "language", "quiet-hours", "do-not-disturb",
-    "notification-rules", "endpoint-selection",
+    "notification-rules", "endpoint-selection", "island", "microphone",
 })
+
+
+def _project_root() -> Path:
+    """The owner's checkout, told by the build and checked -- never this file's
+    own location, which inside the bundle is the shipped copy. Documents that
+    live only in the checkout (CLAUDE.md, the ADR register, MEMORY.md) are read
+    from here; a runtime running from the bundle used to report them as
+    unreadable, which the owner saw as three UNAVAILABLE rows."""
+    try:
+        from core import places as PL
+        for row in PL.places():
+            if row.get("name") == "the project" and row.get("path"):
+                return Path(row["path"])
+    except Exception:                                     # noqa: BLE001
+        pass
+    return REPO
 
 
 def _toml(rel: str) -> dict | None:
@@ -241,19 +280,133 @@ def _reading(item_id: str) -> tuple[str, str, str]:
         return (f"{len(doc)} section(s) declared",
                 "contracts/policy/persona.toml", "")
 
-    if item_id == "voice-and-speed":
-        doc = _toml("contracts/policy/voice.toml")
+    if item_id in PREFERENCE_KEYS:
+        # THE OWNER'S OWN VALUE, OR THE DEFAULT SAID AS A DEFAULT. A preference
+        # row is never UNAVAILABLE: it always has a value, and the source says
+        # whether the owner set it or it is what VESPER ships with.
+        from core import preferences as P
+        vals, was_set = P.read(), P.is_set()
+        keys = PREFERENCE_KEYS[item_id]
+        parts = []
+        for k in keys:
+            v = vals.get(k)
+            if isinstance(v, bool):
+                shown = "on" if v else "off"
+            elif isinstance(v, float):
+                shown = f"{v:g}"
+            else:
+                shown = str(v)
+            parts.append(shown if len(keys) == 1 else f"{k.split('.')[-1]} {shown}")
+        if item_id == "voice-and-speed":
+            doc = _toml("contracts/policy/voice.toml") or {}
+            v = doc.get("voice") or {}
+            name = str(v.get("name") or v.get("voice") or "default voice")
+            parts.insert(0, name)
+        src = ("your preference" if any(k in was_set for k in keys)
+               else "default (you have not set it)")
+        return ", ".join(parts), src, ""
+
+    if item_id == "claude-limits":
+        doc = _toml("contracts/policy/provider_supply.toml")
         if not doc:
-            return "", "", "the voice contract could not be read"
-        v = doc.get("voice") or {}
-        name = str(v.get("name") or v.get("voice") or "")
-        rate = v.get("rate") or v.get("speed")
-        if name or rate:
-            return (f"{name or 'default'}"
-                    + (f", rate {rate}" if rate else ""),
-                    "contracts/policy/voice.toml", "")
-        return (f"{len(doc)} section(s) declared",
-                "contracts/policy/voice.toml", "")
+            return "", "", "the provider supply contract could not be read"
+        rows_ = [r for r in doc.get("provider") or [] if str(r.get("id", "")).startswith("claude-")]
+        adv = next((r for r in rows_ if r.get("id") == "claude-advisor"), None)
+        agents = [r for r in rows_ if r.get("id") != "claude-advisor"]
+        a_caps = sorted({r.get("soft_cap_ratio") for r in agents if r.get("soft_cap_ratio") is not None})
+        a_txt = (f"{int(a_caps[0] * 100)}%" if len(a_caps) == 1
+                 else ", ".join(f"{int(c * 100)}%" for c in a_caps) or "none")
+        d_txt = f"{int(adv['soft_cap_ratio'] * 100)}%" if adv and adv.get("soft_cap_ratio") else "none"
+        return (f"agents {a_txt} of a measured window, advisor {d_txt}; "
+                f"{len(rows_)} Claude rows",
+                "contracts/policy/provider_supply.toml, soft_cap_ratio", "")
+
+    if item_id == "rule-authoring":
+        doc = _toml("contracts/policy/trigger_registry.toml")
+        if not doc:
+            return "", "", "the trigger registry could not be read"
+        trg = doc.get("triggers") or {}
+        clock = [k for k, v in trg.items()
+                 if str(v.get("predicate_class", "")).upper() == "SCHEDULE"]
+        return (f"{len(trg)} predicate(s) authored, {len(trg) - len(clock)} not clock-only",
+                "contracts/policy/trigger_registry.toml", "")
+
+    if item_id == "authorization":
+        try:
+            from core.capability import LEVELS
+            from core.capabilities import build_registry
+            n = len(build_registry().ids())
+        except Exception:                                 # noqa: BLE001
+            n = None
+            LEVELS = ("L0", "L1", "L2", "L3", "L4", "L5")
+        who = f", {n} capabilities registered" if n is not None else ""
+        return (f"{len(LEVELS)} levels {LEVELS[0]}..{LEVELS[-1]}, L4 and L5 single-use{who}",
+                "core/capability.py, core/capabilities.py", "")
+
+    if item_id == "operating-periods":
+        try:
+            from core.actor import _PERIODS
+            periods = list(_PERIODS)
+        except Exception:                                 # noqa: BLE001
+            periods = []
+        doc = _toml("contracts/policy/cost_policy.toml") or {}
+        if not periods and not doc:
+            return "", "", "neither the actor's periods nor the cost policy could be read"
+        return (f"{len(periods)} period(s): {', '.join(periods) or 'declared in cost_policy.toml'}",
+                "core/actor.py, contracts/policy/cost_policy.toml", "")
+
+    if item_id == "model-routing":
+        doc = _toml("contracts/policy/provider_supply.toml")
+        lad = _toml("contracts/policy/degradation_ladder.toml") or {}
+        if not doc:
+            return "", "", "the provider supply contract could not be read"
+        rows_ = doc.get("provider") or []
+        profiles = {(r.get("tier", "standard"), r.get("purpose", "text"), r.get("rung"),
+                     r.get("egress_class")) for r in rows_}
+        purposes = {r.get("purpose", "text") for r in rows_}
+        return (f"{len(rows_)} rows in {len(profiles)} profiles over {len(purposes)} purposes; "
+                f"{len(lad.get('element') or [])} degradation step(s)",
+                "contracts/policy/provider_supply.toml, degradation_ladder.toml", "")
+
+    if item_id == "backup-restore":
+        d = Path.home() / "VESPER-backups"
+        bundles = sorted(d.glob("*.bundle"), key=lambda p: p.stat().st_mtime) if d.is_dir() else []
+        if not bundles:
+            return ("no bundle yet in ~/VESPER-backups", "~/VESPER-backups", "")
+        last = bundles[-1]
+        age_h = (time.time() - last.stat().st_mtime) / 3600.0
+        return (f"{len(bundles)} bundle(s); latest {last.name}, {age_h:.1f} h ago",
+                "~/VESPER-backups (git bundle --all)", "")
+
+    if item_id == "scheduled-changes":
+        doc = _toml("contracts/policy/tunables.toml") or {}
+        tun = doc.get("tunable") or {}
+        pdir = Path.home() / "Library" / "Application Support" / "VESPER" / "proposals"
+        pending = len(list(pdir.glob("*"))) if pdir.is_dir() else 0
+        return (f"{len(tun)} tunable(s) VESPER may move within range; {pending} proposal(s) pending",
+                "contracts/policy/tunables.toml, ~/Library/Application Support/VESPER/proposals", "")
+
+    if item_id == "reset-to-measured":
+        doc = _toml("contracts/policy/capability_profiles.toml") or {}
+        d = REPO / "docs" / "planning" / "spike-results"
+        files = sorted(d.glob("REMOTE-SUPPLY-*.json")) if d.is_dir() else []
+        if files:
+            age_h = (time.time() - files[-1].stat().st_mtime) / 3600.0
+            sup = f"remote supply measured {age_h:.1f} h ago ({files[-1].name})"
+        else:
+            sup = "remote supply never measured"
+        return (f"capability profiles measured = {str(bool(doc.get('measured'))).lower()}; {sup}",
+                "contracts/policy/capability_profiles.toml, docs/planning/spike-results", "")
+
+    if item_id == "privacy-routing":
+        doc = _toml("contracts/policy/provider_supply.toml")
+        if not doc:
+            return "", "", "the provider supply contract could not be read"
+        rows_ = doc.get("provider") or []
+        e1 = sum(1 for r in rows_ if r.get("egress_class") == "E1_PRIVATE")
+        return (f"{e1} rows may see private content, {len(rows_) - e1} public-only; "
+                "the redactor runs before every provider",
+                "contracts/policy/provider_supply.toml, core/redact.py", "")
 
     if item_id == "execution-classes":
         try:
@@ -267,7 +420,7 @@ def _reading(item_id: str) -> tuple[str, str, str]:
         # second counter would be a second number to drift, and `CI-089` exists
         # precisely because that pair drifted eight times.
         try:
-            text = (REPO / "CLAUDE.md").read_text(encoding="utf-8")
+            text = (_project_root() / "CLAUDE.md").read_text(encoding="utf-8")
             m = re.search(r"checks\.py all\s*#\s*(\d+) checks", text)
             if m:
                 return (f"{m.group(1)} mechanical checks",
@@ -278,7 +431,7 @@ def _reading(item_id: str) -> tuple[str, str, str]:
 
     if item_id == "self-test-evidence":
         try:
-            text = (REPO / "CLAUDE.md").read_text(encoding="utf-8")
+            text = (_project_root() / "CLAUDE.md").read_text(encoding="utf-8")
             m = re.search(r"red-then-green,\s*(\d+) cases", text)
             if m:
                 return (f"{m.group(1)} executed red runs",
@@ -299,7 +452,7 @@ def _reading(item_id: str) -> tuple[str, str, str]:
         # COUNTED AS DISTINCT IDS, not as table rows: the register cites ADR ids
         # in prose as well, and a line-anchored pattern found none at all.
         try:
-            text = (REPO / "docs" / "ADR" / "ADR-REGISTER.md").read_text(encoding="utf-8")
+            text = (_project_root() / "docs" / "ADR" / "ADR-REGISTER.md").read_text(encoding="utf-8")
         except Exception:                                 # noqa: BLE001
             return "", "", "the ADR register could not be read"
         ids = sorted(set(re.findall(r"\bADR-(\d{3})\b", text)))
@@ -312,13 +465,22 @@ def _reading(item_id: str) -> tuple[str, str, str]:
         # rather than to report zero of something that has no home yet. The
         # records exist -- `MEMORY.md` is full of them -- but not as a counted
         # artifact, so a number here would be invented.
-        d = REPO / "docs" / "limitations"
-        if not d.is_dir():
-            return "", "", ("there is no docs/limitations/ directory: "
-                            "limitations are recorded in MEMORY.md and in the "
-                            "protocol documents, not as a counted set")
-        n = len(list(d.glob("*.md")))
-        return f"{n} limitation(s) recorded", "docs/limitations/", ""
+        d = _project_root() / "docs" / "limitations"
+        if d.is_dir():
+            n = len(list(d.glob("*.md")))
+            return f"{n} limitation(s) recorded", "docs/limitations/", ""
+        # NO DIRECTORY, SO THE READING IS WHERE THEY ACTUALLY ARE: the
+        # limitation records this tree keeps are INV-LIMIT-1's records in the
+        # SR registry and the "known limits" in the release plan. Counted from
+        # the registry, which is the artifact that exists.
+        reg = _toml("verification/traceability/registry.toml") or {}
+        reqs = reg.get("requirements") or {}
+        limited = [k for k, v in reqs.items()
+                   if str(v.get("status", "")).upper() in ("R_AND_D", "PARTIAL_R_AND_D",
+                                                            "EXCLUDED_BY_SAFETY_POLICY")]
+        return (f"{len(limited)} requirement(s) carry a limitation record "
+                f"({', '.join(limited[:6])}); no docs/limitations/ directory yet",
+                "verification/traceability/registry.toml", "")
 
     if item_id == "config-diff":
         # WHAT CHANGED IN THE GOVERNED FILES, asked of git rather than tracked
@@ -327,7 +489,7 @@ def _reading(item_id: str) -> tuple[str, str, str]:
         try:
             out = subprocess.run(
                 ["git", "status", "--porcelain", "--", "contracts/"],
-                capture_output=True, text=True, cwd=str(REPO), timeout=10)
+                capture_output=True, text=True, cwd=str(_project_root()), timeout=10)
             n = len([l for l in out.stdout.splitlines() if l.strip()])
             return (f"{n} governed file(s) changed and uncommitted",
                     "git status over contracts/", "")
@@ -372,6 +534,21 @@ def rows() -> list:
                        at_ms=now, ttl_ms=600_000)
         else:
             row.update(status="unavailable", reason=why)
+        # THE CONTROL, WHERE THE ROW IS THE OWNER'S TO SET. Owner, 2026-09-13:
+        # a settings screen that shows values and changes nothing is not
+        # settings. Each control names the preference key it sets, its kind,
+        # its bounds and its current value; the chrome renders exactly that and
+        # posts `preference.set` through the host into `control.jsonl`.
+        if item_id in PREFERENCE_KEYS:
+            try:
+                from core import preferences as P
+                vals = P.read()
+                row["controls"] = [{**P.describe(k), "value": vals.get(k),
+                                    "label": k.replace("_", " ").replace(".", " ")}
+                                   for k in PREFERENCE_KEYS[item_id]]
+            except Exception as exc:                      # noqa: BLE001
+                row["controls"] = []
+                row["control_error"] = repr(exc)
         # WHERE A CHANGE IS MADE, said on every governed row. A settings screen
         # that shows a governed value and offers no way to change it looks broken
         # unless it says why -- and the reason is the review, not a missing

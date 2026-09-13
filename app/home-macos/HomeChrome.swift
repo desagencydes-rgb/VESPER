@@ -139,6 +139,55 @@ final class SayBridge: NSObject, WKScriptMessageHandler {
 }
 
 
+/// What the owner asked for with a BUTTON, on its way to the runtime.
+///
+/// THE OWNER, 2026-09-13: every surface showed readings and managed nothing.
+/// This is the fourth channel out of the page, kept apart from the other
+/// three for the same reason they are kept apart from each other: `vesperSay`
+/// is a sentence, `vesperAct` is a re-derived argv, `vesperTerm` is the
+/// owner's shell, and this is a MANAGEMENT REQUEST -- `{action, args}` -- that
+/// the runtime applies through `core/controls.py`, where each action's KIND
+/// decides who may apply it. Nothing is executed here: the page is not trusted
+/// with arguments (see ActBridge), and this bridge only records what was
+/// pressed, stamped with when and by which channel, into `control.jsonl` for
+/// the runtime to drain. A preference is applied by the runtime; a governed
+/// change is only RECORDED by it and confirmed by the host; an act goes back
+/// through the typed path like any other request.
+final class ControlBridge: NSObject, WKScriptMessageHandler {
+    static let name = "vesperControl"
+    static var queue: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/VESPER/control.jsonl")
+    }
+
+    func userContentController(_ c: WKUserContentController,
+                               didReceive message: WKScriptMessage) {
+        guard message.name == Self.name,
+              let raw = message.body as? String,
+              let d = raw.data(using: .utf8),
+              var o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let action = o["action"] as? String, !action.isEmpty
+        else { return }
+        o["at_ms"] = Int(Date().timeIntervalSince1970 * 1000)
+        o["source"] = "home"
+        guard let data = try? JSONSerialization.data(withJSONObject: o),
+              var line = String(data: data, encoding: .utf8) else { return }
+        line += "\n"
+        let url = Self.queue
+        try? FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if let h = try? FileHandle(forWritingTo: url) {
+            defer { try? h.close() }
+            _ = try? h.seekToEnd()
+            try? h.write(contentsOf: Data(line.utf8))
+        } else {
+            try? Data(line.utf8).write(to: url)
+        }
+        print("control: \(action) queued")
+    }
+}
+
+
 final class HomeChrome {
 
     private(set) var web: WKWebView?
@@ -1829,6 +1878,47 @@ final class HomeChrome {
             railList(railData.research,
                      'The spike index has not arrived on this surface yet.');
           }
+          // THE CONTROL ON A SETTINGS ROW, and the one way it leaves the page. Owner,
+          // 2026-09-13: a settings screen that shows values and changes nothing is not
+          // settings. Each row that is the owner's to set carries `controls` from the
+          // producer -- key, kind, bounds, current value -- and this renders exactly
+          // that and nothing the page invented: the runtime re-checks the value against
+          // the same schema before writing it. Shared by the rail's settings card and
+          // the side-button panel, so both manage and neither drifts.
+          window.__vesperSettingControls = function(r){
+            var ctls = Array.isArray(r && r.controls) ? r.controls : [];
+            if (!ctls.length) return null;
+            var wrap = document.createElement('div'); wrap.className = 'st-ctls';
+            wrap.style.cssText = 'display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:6px';
+            function post(action, args){
+              try { window.webkit.messageHandlers.vesperControl.postMessage(JSON.stringify({action: action, args: args})); }
+              catch (e) { (window.__vesperErrs = window.__vesperErrs || []).push('control: ' + (e && e.message)); }
+            }
+            ctls.forEach(function(c){
+              var el = null;
+              if (c.kind === 'bool') {
+                el = document.createElement('input'); el.type = 'checkbox'; el.checked = !!c.value;
+                el.addEventListener('change', function(){ post('preference.set', {key: c.key, value: el.checked}); });
+              } else if (c.kind === 'choice') {
+                el = document.createElement('select');
+                (c.options || []).forEach(function(o){ var op = document.createElement('option'); op.value = o; op.textContent = o; if (o === c.value) op.selected = true; el.appendChild(op); });
+                el.addEventListener('change', function(){ post('preference.set', {key: c.key, value: el.value}); });
+              } else if (c.kind === 'range') {
+                el = document.createElement('input'); el.type = 'range'; el.min = c.min; el.max = c.max; el.step = c.step; el.value = c.value; el.title = String(c.value);
+                el.addEventListener('change', function(){ el.title = el.value; post('preference.set', {key: c.key, value: Number(el.value)}); });
+              } else if (c.kind === 'text') {
+                el = document.createElement('input'); el.type = 'text'; el.value = c.value == null ? '' : String(c.value); el.size = 6;
+                el.addEventListener('change', function(){ post('preference.set', {key: c.key, value: el.value}); });
+              }
+              if (el) {
+                el.className = 'st-ctl'; el.setAttribute('data-key', c.key || '');
+                el.setAttribute('aria-label', c.label || c.key || 'setting');
+                el.style.cssText = 'font:12px var(--face-body);color:var(--ink);background:rgba(255,255,255,.06);border:1px solid rgba(244,230,220,.18);border-radius:8px;padding:3px 6px';
+                wrap.appendChild(el);
+              }
+            });
+            return wrap;
+          };
           function renderSettings(){
             var rows = [];
             try { rows = JSON.parse(window.__vesperSettingsData || '[]'); } catch (e) { rows = []; }
@@ -1855,6 +1945,7 @@ final class HomeChrome {
               right.append(node('div','rail-value',
                                 r.status === 'available' ? String(r.value) : 'UNAVAILABLE'));
               if (r.status === 'available' && r.source) right.append(node('div','rail-where', String(r.source)));
+              var ctl = window.__vesperSettingControls(r); if (ctl) right.append(ctl);
               right.append(stateChip(r.governed ? 'governed' : 'yours to set'));
               row.append(left, right);
               list.append(row);
@@ -2847,6 +2938,8 @@ final class HomeChrome {
                 val.className = 'st-value';
                 val.textContent = r.status === 'available' ? String(r.value) : 'UNAVAILABLE';
                 right.appendChild(val);
+                var ctl = (window.__vesperSettingControls || function () { return null; })(r);
+                if (ctl) right.appendChild(ctl);
                 if (r.status === 'available' && r.source) {
                   var srcEl = document.createElement('div');
                   srcEl.className = 'st-source';
@@ -3503,6 +3596,7 @@ final class HomeChrome {
     private let bridge = SayBridge()
     private let acts = ActBridge()
     private let term = TerminalBridge()
+    private let control = ControlBridge()
 
     /// What the page last reported about VESPER's own delivery, for the host's
     /// render tick. `(level, isDriven)` -- and `isDriven` is not redundant with
@@ -3861,6 +3955,10 @@ final class HomeChrome {
             // that only two gestures can reach it. A channel like that has to
             // be readable on its own line.
             cfg.userContentController.add(self.term, name: TerminalBridge.name)
+            // The settings controls and every management button. A FOURTH
+            // handler, because a management request is neither a sentence, an
+            // argv nor a keystroke -- see ControlBridge's header.
+            cfg.userContentController.add(self.control, name: ControlBridge.name)
             let w = WKWebView(frame: host.bounds, configuration: cfg)
             w.autoresizingMask = [.width, .height]
             GlassGuard.makeTransparent(w)

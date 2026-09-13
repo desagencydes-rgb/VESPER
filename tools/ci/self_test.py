@@ -1130,6 +1130,12 @@ NARRATION_TOML = "contracts/policy/narration.toml"
 BUDGET_TOML = "contracts/policy/interruption_budget.toml"
 QUOTA_LEDGER_PY = "core/quota.py"
 F6_PLACES = "core/places.py"
+F7_SETTINGS = "core/settings_surface.py"
+F7_PREFS = "core/preferences.py"
+F7_RUNTIME = "tools/ops/vesper_runtime.py"
+F7_HOME_HTML = "app/home-macos/chrome/home.html"
+F7_HOMECHROME = "app/home-macos/HomeChrome.swift"
+F7_MAIN_SWIFT = "app/island-macos/main.swift"
 F6_BUILD_SH = "app/island-macos/build.sh"
 F6_RUNTIME_HOST = "app/home-macos/RuntimeHost.swift"
 CHROME_TPL = "app/home-macos/chrome/home.html"
@@ -2103,6 +2109,45 @@ CASES += [
           "        p.currentDirectoryURL = URL(fileURLWithPath: root)", 1),
      "the runtime child works inside the bundle's runtime directory, which "
      "every build rewrites -- its relative files are doomed on arrival"),
+
+    ("settings-manage-not-only-show", F7_PREFS,
+     _sub("        if not (lo <= f <= hi):", "        if False:", 1),
+     "a range preference accepts any number -- a slider's bounds are decoration "
+     "and a button can set the microphone gain to a thousand"),
+
+    ("settings-manage-not-only-show", F7_RUNTIME,
+     _sub('    with p.open("r", encoding="utf-8") as f:\n        f.seek(seen)',
+          '    with p.open("r", encoding="utf-8") as f:\n        f.seek(0)', 1),
+     "the control drain forgets its offset: every pass presses every button the "
+     "owner ever pressed, again"),
+
+    ("settings-manage-not-only-show", F7_SETTINGS,
+     _sub('    ("island", "Island",', '    ("island_DISABLED", "Island",', 1),
+     "the island row is gone from settings, and with it the one toggle the owner "
+     "asked for by name"),
+
+    ("settings-manage-not-only-show", F7_SETTINGS,
+     _sub('        return (f"{len(bundles)} bundle(s); latest {last.name}, {age_h:.1f} h ago",',
+          '        return ("", "", "no producer reads this yet",) if True else (f"{len(bundles)} bundle(s); latest {last.name}, {age_h:.1f} h ago",', 1),
+     "one settings row goes back to UNAVAILABLE with the old excuse -- the owner "
+     "said they should see none"),
+
+    ("settings-manage-not-only-show", F7_HOME_HTML,
+     _sub("        if (ctl) right.appendChild(ctl);", "        if (false) right.appendChild(ctl);", 1),
+     "the side-button settings panel builds the control and never attaches it: "
+     "the rows show values and change nothing, which is where this started"),
+
+    ("settings-manage-not-only-show", F7_HOMECHROME,
+     _sub("            cfg.userContentController.add(self.control, name: ControlBridge.name)",
+          "            // (control bridge not registered)", 1),
+     "the ControlBridge exists and is never registered on the webview, so every "
+     "control posts into nothing -- built and unreached"),
+
+    ("settings-manage-not-only-show", F7_MAIN_SWIFT,
+     _sub("        controller?.retreat(visible || !islandEnabled())",
+          "        controller?.retreat(visible)", 1),
+     "the island ignores the owner's toggle: the preference is written, read and "
+     "not obeyed"),
 
     ("chain-budget-bounded", GATEWAY,
      _sub("    MAX_ATTEMPTS_PER_REQUEST = 10", "    MAX_ATTEMPTS_PER_REQUEST = 100", 1),
