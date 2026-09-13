@@ -8007,5 +8007,24 @@ CASES += [
      "READS home.json erases the card the owner is looking at"),
 ]
 
+FILT_REAL = '    permitted = [r for r in permitted\n                 if str(getattr(r, "purpose", "") or "") not in NOT_A_COMPLETION]'
+NAMES_REAL = '    NOT_A_COMPLETION = ("image", "speech", "transcribe")'
+
+SUPPLY_PY = "routing/supply.py"
+
+CASES += [
+    ("a-completion-ladder-holds-only-completions", SUPPLY_PY,
+     _sub(FILT_REAL, "", 1),
+     "image, speech and transcription rows go back on the completion ladder, so "
+     "a question whose text rungs are spent is answered by an image generator -- "
+     "measured as 'image/jpeg base64 1009388 chars' returned as an ANSWER with "
+     "outcome ok, while two usable text rungs were never tried"),
+
+    ("a-completion-ladder-holds-only-completions", SUPPLY_PY,
+     _sub(NAMES_REAL, '    NOT_A_COMPLETION = ("image", "speech", "transcribe", "text", "chooser", "updater", "drafter", "auditor", "advisor", "arbiter", "tester", "navigator", "briefer", "researcher", "investigator", "implementer", "forgetter", "compactor")', 1),
+     "the filter removes the completions too, emptying the ladder -- which fails "
+     "closed in the worst way, leaving vesper unable to answer anything at all"),
+]
+
 if __name__ == "__main__":
     sys.exit(main())

@@ -850,6 +850,31 @@ def register(gateway, cost, ledger: QuotaLedger, *,
     table = tomllib.loads((supply_path or SUPPLY).read_text(encoding="utf-8"))
     by_id = {r["id"]: r for r in table.get("provider", [])}
 
+    # A LADDER FOR COMPLETIONS MUST NOT CONTAIN A THING THAT CANNOT COMPLETE.
+    #
+    # Measured 2026-09-13, and it is the worst kind of failure because it
+    # SUCCEEDS: asked to reply with the single word "ok", the gateway skipped
+    # twelve exhausted text rungs, reached `cf-image`, and returned
+    # "image/jpeg base64 1009388 chars" as the ANSWER. A megabyte of JPEG,
+    # reported as `outcome: ok`, with cf-strong and claude-sub -- both usable --
+    # never attempted, because the descent had already "succeeded".
+    #
+    # `register` put every permitted row on one gateway and `core/gateway.py`
+    # does not mention `purpose` anywhere, so nothing downstream could tell a
+    # text rung from an image one. Speech and transcription were never affected:
+    # `core/speech.speech_rows()` reads its own rows and filters by purpose,
+    # which is exactly the filter that was missing here.
+    #
+    # EXCLUDED BY WHAT THEY PRODUCE, not by name. An image, an audio stream and
+    # a transcript are not completions; every other purpose here -- chooser,
+    # updater, drafter, auditor and the rest -- is a completion with a job
+    # attached, and a text task descending onto one of those gets text.
+    NOT_A_COMPLETION = ("image", "speech", "transcribe")
+    excluded = [r.provider_id for r in permitted
+                if str(getattr(r, "purpose", "") or "") in NOT_A_COMPLETION]
+    permitted = [r for r in permitted
+                 if str(getattr(r, "purpose", "") or "") not in NOT_A_COMPLETION]
+
     registered = []
     for row in permitted:
         raw = by_id[row.provider_id]

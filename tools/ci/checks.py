@@ -27356,6 +27356,107 @@ def check_a_reader_cannot_empty_the_owners_board() -> Result:
     return r
 
 
+def check_a_completion_ladder_holds_only_completions() -> Result:
+    """An image generator must never be the fallback for a question.
+
+    MEASURED 2026-09-13, AND IT SUCCEEDED, WHICH IS WHY IT MATTERS. Asked to
+    reply with the single word "ok", the gateway skipped twelve exhausted text
+    rungs, reached `cf-image`, and returned "image/jpeg base64 1009388 chars" as
+    the ANSWER -- a megabyte of JPEG, reported as `outcome: ok`. `cf-strong` and
+    `claude-sub`, both usable, were never attempted: as far as the ladder was
+    concerned, the descent had already worked.
+
+    `routing.supply.register` put every permitted row on one gateway and
+    `core/gateway.py` does not mention `purpose` anywhere, so nothing downstream
+    could tell a text rung from an image one. Speech and transcription were
+    never affected -- `core/speech.speech_rows()` filters by purpose, which is
+    exactly the filter that was missing here.
+
+    DRIVEN THROUGH THE REAL `register`, NOT READ. The first version of this
+    check asserted that the string `NOT_A_COMPLETION` appeared in the source,
+    and passed when the filter LINE was deleted because the constant survived.
+    BOTH of its red runs came back green. A negative control that passes is a
+    defect, and that one proved the check could not see the fault it was written
+    for.
+    """
+    r = Result("a-completion-ladder-holds-only-completions")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import tomllib as _t
+    import tempfile as _tf4
+    from routing import supply as _sup
+    from core.quota import QuotaLedger
+    from core.bus import EventBus
+    from core.hlc import HybridLogicalClock
+    from core.store import StoreSet
+    from core.cost import CostPolicy
+
+    table = _t.loads((REPO / "contracts" / "policy" / "provider_supply.toml")
+                     .read_text(encoding="utf-8"))
+    rows = table.get("provider") or []
+    NOT_A_COMPLETION = ("image", "speech", "transcribe")
+    purpose_of = {str(x.get("id")): str(x.get("purpose") or "text") for x in rows}
+    declared = sorted(i for i, pp in purpose_of.items() if pp in NOT_A_COMPLETION)
+    if not declared:
+        r.err("the supply table declares no image, speech or transcribe row, so "
+              "this check would pass over an empty set and prove nothing")
+        return r
+
+    class _Recorder:
+        """Records what `register` puts on the ladder and tolerates the rest.
+
+        PERMISSIVE BY `__getattr__`, deliberately: `register` also seeds
+        observations and may call more of the gateway later. A stub that must
+        list every method it does not care about is a stub that breaks whenever
+        the real thing grows one, which turns a passing check red for a reason
+        that has nothing to do with the property.
+        """
+        def __init__(self) -> None:
+            self.ids: list = []
+        def register(self, provider, *a, **k):
+            self.ids.append(getattr(provider, "provider_id", None))
+        def __getattr__(self, _name):
+            return lambda *a, **k: None
+
+    completions: list = []
+    with _tf4.TemporaryDirectory() as td:
+        base = Path(td)
+        clock = HybridLogicalClock("ladder")
+        bus = EventBus(clock, StoreSet(base / "s", node_id="ladder"),
+                       component="ladder")
+        led = QuotaLedger(path=base / "q.json", bus=bus)
+        rec = _Recorder()
+        try:
+            _sup.register(rec, CostPolicy(bus, clock), led,
+                          egress_class="E1_PRIVATE")
+        except Exception as exc:                       # noqa: BLE001
+            r.err(f"the ladder could not be built at all: "
+                  f"{type(exc).__name__}: {exc}")
+            return r
+
+        got = [i for i in rec.ids if i]
+        landed = sorted(i for i in got
+                        if purpose_of.get(i, "text") in NOT_A_COMPLETION)
+        if landed:
+            r.err(f"{landed} landed on the COMPLETION ladder. A request whose "
+                  f"text rungs are spent descends onto one of these and returns "
+                  f"its output as the answer -- measured once as a megabyte of "
+                  f"JPEG reported as outcome ok")
+        completions = [i for i in got
+                       if purpose_of.get(i, "text") not in NOT_A_COMPLETION]
+        if len(completions) < 5:
+            r.err(f"only {len(completions)} completion rung(s) were registered; "
+                  f"the filter removes more than it should, and a ladder that "
+                  f"short leaves vesper unable to answer at all")
+
+    if not r.errors:
+        r.note(f"{len(declared)} non-completion row(s) declared "
+               f"({', '.join(declared)}); register() put NONE of them on the "
+               f"ladder and registered {len(completions)} completion rungs, so "
+               f"it is shortened rather than emptied")
+    return r
+
+
 CHECK_FNS = {
     "ci-registry": check_ci_registry,
     "every-turn-recorded-with-its-outcome": check_every_turn_is_recorded_with_its_outcome,
@@ -27543,6 +27644,7 @@ CHECK_FNS = {
     "vesper-never-speaks-an-internal-identifier": check_vesper_never_speaks_an_internal_identifier,
     "one-runtime-and-one-voice": check_one_runtime_and_one_voice,
     "a-reader-cannot-empty-the-owners-board": check_a_reader_cannot_empty_the_owners_board,
+    "a-completion-ladder-holds-only-completions": check_a_completion_ladder_holds_only_completions,
     "the-wallpaper-changes-only-on-vespers-desktop": check_the_wallpaper_changes_only_on_vespers_desktop,
     "a-mode-is-a-pairing-of-two-axes": check_a_mode_is_a_pairing_of_two_axes,
     "a-stage-bounds-what-vesper-opens": check_a_stage_bounds_what_vesper_opens,
