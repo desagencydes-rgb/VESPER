@@ -1065,6 +1065,22 @@ if args.contains("--stop") {
 /// hand), so on this machine right now globe x3 brings nothing back. Shipping
 /// a quit whose only undo is a broken agent would be shipping a one-way door.
 if args.contains("--start") {
+    // THE ISLAND IS LAUNCHCTL'S WHEN build.sh HAS WRITTEN ITS PLIST, and
+    // SMAppService cannot register a label a file already owns. So the
+    // `register()` below did nothing for it: on 2026-09-14 this printed
+    // "VESPER started" while only the wake listener and the starter came back,
+    // and the home and its runtime stayed down until the plist was bootstrapped
+    // by hand. The island is started by the mechanism that owns it.
+    let islandPlist = NSHomeDirectory() + "/Library/LaunchAgents/ai.vesper.island.plist"
+    let fileBased = FileManager.default.fileExists(atPath: islandPlist)
+    if fileBased {
+        let boot = Process()
+        boot.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        boot.arguments = ["bootstrap", "gui/\(getuid())", islandPlist]
+        boot.standardOutput = FileHandle.nullDevice
+        boot.standardError = FileHandle.nullDevice
+        try? boot.run(); boot.waitUntilExit()
+    }
     if #available(macOS 13.0, *) {
         // UNREGISTER FIRST, AND THAT IS THE WHOLE FIX. A bare `register()` on
         // a service that has been `bootout`-ed does nothing useful: launchd
@@ -1081,14 +1097,29 @@ if args.contains("--start") {
         // the way back restores it. The minter stays off (see the print below).
         for name in ["ai.vesper.island.plist", "ai.vesper.island.fnwatch.plist",
                      "ai.vesper.island.wake.plist"] {
+            // Bootstrapped above; SMAppService must not touch a file-based label.
+            if fileBased && name == "ai.vesper.island.plist" { continue }
             let svc = SMAppService.agent(plistName: name)
             try? svc.unregister()
             Thread.sleep(forTimeInterval: 1.0)
             try? svc.register()
         }
     }
-    print("VESPER started. Autonomy stays off until `VESPER --arm --install`.")
-    exit(0)
+    // SAID ONLY IF IT IS TRUE. The home answers on its message port once it is
+    // up; "started" is printed after that, never before.
+    var up = false
+    for _ in 0..<30 {
+        if homeIsRunning() { up = true; break }
+        Thread.sleep(forTimeInterval: 0.5)
+    }
+    if up {
+        print("VESPER started. Autonomy stays off until `VESPER --arm --install`.")
+        exit(0)
+    }
+    FileHandle.standardError.write(Data(("VESPER did not come up: the home is not running 15 s "
+        + "after the start. Try: launchctl bootstrap gui/$(id -u) "
+        + "~/Library/LaunchAgents/ai.vesper.island.plist\n").utf8))
+    exit(1)
 }
 
 if args.contains("--login-item-status") {

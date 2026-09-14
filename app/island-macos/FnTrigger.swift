@@ -97,8 +97,25 @@ func launchVesper() {
     // `register()` throws when the service is already registered, which is the
     // ordinary case and not an error; the result is discarded and the open
     // below still runs if nothing came up.
+    // THE ISLAND BELONGS TO LAUNCHCTL WHEN build.sh HAS WRITTEN ITS PLIST, and
+    // SMAppService cannot register a label a file already owns. The
+    // `register()` below brought nothing back, so every globe x3 after a stop
+    // fell through to the unsupervised open further down (measured 2026-09-14
+    // through `--start`, which had no such fallback and left VESPER down).
+    let islandPlist = NSHomeDirectory() + "/Library/LaunchAgents/ai.vesper.island.plist"
+    let islandFileBased = FileManager.default.fileExists(atPath: islandPlist)
+    if islandFileBased {
+        let boot = Process()
+        boot.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        boot.arguments = ["bootstrap", "gui/\(getuid())", islandPlist]
+        boot.standardOutput = FileHandle.nullDevice
+        boot.standardError = FileHandle.nullDevice
+        try? boot.run(); boot.waitUntilExit()
+    }
     if #available(macOS 13.0, *) {
-        try? SMAppService.agent(plistName: "ai.vesper.island.plist").register()
+        if !islandFileBased {
+            try? SMAppService.agent(plistName: "ai.vesper.island.plist").register()
+        }
         // THE LISTENER COMES BACK WITH VESPER. The stop boots the wake agent out
         // -- it holds the microphone, and a stopped VESPER must not listen -- so
         // the start re-registers it. Unregister first: a bare register() over a

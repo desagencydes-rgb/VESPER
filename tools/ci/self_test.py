@@ -3994,6 +3994,27 @@ CASES += [
           "        if transcriber is not None: _drain_control(bus, home, actor=actor)", 1),
      "the control drain goes back inside the transcriber's branch: without speech, "
      "no button the owner presses is ever applied"),
+
+    # THE WAY BACK, 2026-09-14: `--start` left the home and runtime down.
+    ("wake-word-listens-locally-and-starts-once", MAIN_SWIFT,
+     _sub('        boot.arguments = ["bootstrap", "gui/\\(getuid())", islandPlist]\n', "", 1),
+     "--start never bootstraps the file-based island, so after a stop it brings "
+     "back the microphone listener and not VESPER"),
+
+    ("wake-word-listens-locally-and-starts-once", MAIN_SWIFT,
+     _sub('            if fileBased && name == "ai.vesper.island.plist" { continue }\n', "", 1),
+     "--start hands the file-based island to SMAppService, which cannot register a "
+     "label a plist already owns and boots it out on unregister"),
+
+    ("wake-word-listens-locally-and-starts-once", MAIN_SWIFT,
+     _sub('    if up {\n        print("VESPER started.', '    if true {\n        print("VESPER started.', 1),
+     "--start prints 'VESPER started' whether or not the home came up -- the sentence "
+     "it printed on 2026-09-14 while VESPER stayed down"),
+
+    ("wake-word-listens-locally-and-starts-once", FN_SWIFT,
+     _sub('        boot.arguments = ["bootstrap", "gui/\\(getuid())", islandPlist]\n', "", 1),
+     "globe x3 after a stop never bootstraps the island and falls through to an "
+     "unsupervised open, so the next crash leaves VESPER down"),
 ]
 
 

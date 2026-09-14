@@ -13232,6 +13232,26 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
                       "no button the owner presses is ever applied")
                 break
 
+    # AND THE WAY BACK STARTS WHAT THE STOP STOPPED (2026-09-14). `--start` asked
+    # SMAppService to register the island, a label build.sh's plist already owns,
+    # and printed "VESPER started" while the home and its runtime stayed down.
+    start_block = main[main.find('if args.contains("--start") {'):]
+    start_block = start_block[:start_block.find("\n}\n")]
+    if 'boot.arguments = ["bootstrap", "gui/\\(getuid())", islandPlist]' not in start_block:
+        r.err("--start does not bootstrap the file-based island through launchctl, so it "
+              "brings back the listener and not VESPER")
+    if 'if fileBased && name == "ai.vesper.island.plist" { continue }' not in start_block:
+        r.err("--start hands the file-based island label to SMAppService, which cannot register "
+              "it and boots it out when it unregisters")
+    if not re.search(r'if up \{\n\s+print\("VESPER started\.', start_block):
+        r.err("--start says VESPER started without checking that the home came up")
+    launch = fn_src[fn_src.find("func launchVesper()"):]
+    launch = launch[:launch.find("\n}\n")]
+    boot_at = launch.find('boot.arguments = ["bootstrap", "gui/\\(getuid())", islandPlist]')
+    if boot_at < 0 or boot_at > launch.find("NSWorkspace.OpenConfiguration()"):
+        r.err("globe x3 does not bootstrap the file-based island before falling back to an "
+              "unsupervised open")
+
     # THE MINTER IS THE JOB, NOT A PARENT WATCHING ONE. Spawn-and-wait made
     # every arm job two processes and orphaned the python half on every
     # SIGTERM: seven live minters, measured 2026-09-04.
