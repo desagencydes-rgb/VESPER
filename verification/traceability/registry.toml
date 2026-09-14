@@ -65,8 +65,8 @@ tests = ["A-009", "A-026"]
 contracts = ["contracts/entities/semantic_scene.schema.json"]
 state_machines = ["SM-SCENE"]
 decision_functions = ["DF-SELECT-ENDPOINT"]
-invariants = ["INV-SCENE-1", "INV-SCENE-3", "INV-HOME-5", "INV-HOME-8"]
-ci = ["CI-028", "CI-030", "CI-057", "CI-058", "CI-065", "CI-135"]
+invariants = ["INV-SCENE-1", "INV-SCENE-3", "INV-HOME-5", "INV-HOME-8", "INV-HOME-9", "INV-HOME-10", "INV-HOME-11", "INV-HOME-12", "INV-HOME-13", "INV-HOME-14", "INV-HOME-15", "INV-HOME-16", "INV-HOME-17"]
+ci = ["CI-028", "CI-030", "CI-057", "CI-058", "CI-065", "CI-135", "CI-157", "CI-158", "CI-164", "CI-170", "CI-171", "CI-172", "CI-175", "CI-176", "CI-179", "CI-180", "CI-182", "CI-191", "CI-200", "CI-201", "CI-206", "CI-208", "CI-209", "CI-210", "CI-211", "CI-212", "CI-213", "CI-214", "CI-217", "CI-218", "CI-219", "CI-220"]
 status = "SPECIFIED"
 
 [requirements.SR-003]
@@ -75,8 +75,8 @@ ic = ["IC-002"]
 tests = ["A-004"]
 contracts = ["contracts/commands/command.schema.json", "contracts/results/result.schema.json"]
 decision_functions = ["DF-PROVIDER-ADMIT"]
-invariants = ["INV-COST-3", "INV-COST-8", "INV-COST-9"]
-ci = ["CI-020", "CI-059", "CI-060", "CI-062", "CI-063", "CI-066", "CI-084"]
+invariants = ["INV-COST-3", "INV-COST-8", "INV-COST-9", "INV-COST-11", "INV-TRIAGE-1", "INV-COST-12"]
+ci = ["CI-020", "CI-059", "CI-060", "CI-062", "CI-063", "CI-066", "CI-084", "CI-143", "CI-177", "CI-186", "CI-207"]
 status = "SPECIFIED"
 raised_triage_2026_08_25 = """CI-062 is the half of SR-003 that comes AFTER the switch. `Retry without stopping` keeps the request alive; it says nothing about what happens to the failure once the request has been answered by somebody else. Until the triage queue existed, failures were published to the bus and forgotten -- the system switched successfully and learned nothing, so a revoked key removed a rung every day and no record accumulated. Quota failures are excluded because a queue that fills with `yes, we used what we had` is a queue nobody opens."""
 raised = "2026-08-25: `switch according to policy` had no policy behind it. The gateway classified failures and retried, and then chose the next provider by REGISTRATION ORDER -- so `switching` was real and `according to policy` was not, and nothing could see the gap because the router was asserted against its own decision and the gateway against its own counters. CI-059 binds the two. CI-060 is here for the RETRY half of `retry without stopping`: a 200 carrying empty content is a failed attempt, and until it was named as one the gateway recorded it as `ok` and handed back an empty string."
@@ -88,7 +88,7 @@ tests = ["A-004"]
 contracts = ["contracts/events/event_envelope.schema.json", "contracts/results/result.schema.json", "contracts/policy/narration.toml"]
 decision_functions = ["DF-PROVIDER-ADMIT"]
 invariants = ["INV-OBS-1", "INV-NARRATE-1"]
-ci = ["CI-040", "CI-061", "CI-064", "CI-067"]
+ci = ["CI-040", "CI-061", "CI-064", "CI-067", "CI-178", "CI-185", "CI-205"]
 status = "SPECIFIED"
 raised_2026_08_25 = """`Show error type and retry time` had been read as a
 telemetry requirement, and the CI behind it checked the observability envelope.
@@ -179,8 +179,8 @@ ic = ["IC-001"]
 tests = ["A-005", "A-020", "A-033", "A-043"]
 contracts = ["contracts/events/event_envelope.schema.json", "contracts/entities/telemetry_record.schema.json", "contracts/policy/host_actions.toml"]
 decision_functions = ["DF-GOVERNOR-LEVEL"]
-invariants = ["INV-COORD-4", "INV-OBS-1", "INV-PERF-1", "INV-GOV-1", "INV-HOST-1", "INV-HOST-2"]
-ci = ["CI-005", "CI-039", "CI-040", "CI-056"]
+invariants = ["INV-COORD-4", "INV-OBS-1", "INV-PERF-1", "INV-GOV-1", "INV-HOST-1", "INV-HOST-2", "INV-HOST-3", "INV-HOST-4", "INV-HOST-5"]
+ci = ["CI-005", "CI-039", "CI-040", "CI-056", "CI-161", "CI-162", "CI-166", "CI-168", "CI-181", "CI-190", "CI-193", "CI-194", "CI-203"]
 status = "SPECIFIED"
 raised = "2026-08-12: SR-011 requires telemetry VISIBLE TO THE MODEL AND ACTIONABLE, which is a hazard as well as a requirement. CI-039 (governor-damping-present) already existed and named the mechanism; it had no artifact. `decided_by` is a one-member enum, so a governor level attributed to a model is unrecordable."
 note = """Host actions were added here 2026-08-20 rather than to a new SR, because this row already carries the hazard they instantiate: its own raised note calls model-visible ACTIONABLE telemetry a hazard as well as a requirement, and a host action is what happens when something acts on it. INV-GOV-1's shape carries over exactly -- the model may request, the governor decides -- with one addition the host forces. The platform offers no negotiation interface, so there is no call that asks permission and gets an answer; VESPER can only act and re-read the world. That makes contracts/policy/host_actions.toml the whole boundary, and INV-HOST-1/2 the properties CI-056 holds it to."""
@@ -278,8 +278,8 @@ contracts = [
 ]
 state_machines = ["SM-SENSOR", "SM-ENDPOINT-EPISODE"]
 decision_functions = ["DF-ENDPOINT-ACT", "DF-ENDPOINT-OBSERVE", "DF-ENDPOINT-RECOVER"]
-invariants = ["INV-PRIV-4", "INV-ACT-1", "INV-ACT-2", "INV-ACT-3", "INV-ACT-4", "INV-ACT-5", "INV-ACT-6", "INV-NARRATE-2", "INV-PRIV-8"]
-ci = ["CI-052", "CI-053", "CI-054", "CI-090", "CI-091", "CI-105", "CI-108", "CI-109", "CI-114", "CI-115", "CI-120"]
+invariants = ["INV-PRIV-4", "INV-ACT-1", "INV-ACT-2", "INV-ACT-3", "INV-ACT-4", "INV-ACT-5", "INV-ACT-6", "INV-NARRATE-2", "INV-PRIV-8", "INV-ACT-11", "INV-PRIV-10"]
+ci = ["CI-052", "CI-053", "CI-054", "CI-090", "CI-091", "CI-105", "CI-108", "CI-109", "CI-114", "CI-115", "CI-120", "CI-156", "CI-159", "CI-160", "CI-163", "CI-167", "CI-196", "CI-197", "CI-202"]
 status = "SPECIFIED"
 agency_clause = "2026-08-12: SR-020's 'self-interact across available hardware' clause traced only to semantic_scene.schema.json, SM-SENSOR and INV-PRIV-4 -- capture, sensor indicators and output rendering. None of them concerns ACTING. The status was SPECIFIED on the perception clause while the agency clause had no subsystem, no decision function and no contract. Rather than downgrade the requirement to make the registry honest, SPEC-30, SM-ENDPOINT-EPISODE, DF-ENDPOINT-ACT/OBSERVE/RECOVER, two contracts, INV-ACT-1..6 and A-051/A-052 were written. SPECIFIED is now earned on both clauses."
 
@@ -294,8 +294,8 @@ contracts = [
 ]
 state_machines = ["SM-ENDPOINT-EPISODE"]
 decision_functions = ["DF-AUTHORIZE", "DF-ENDPOINT-ACT", "DF-ENDPOINT-RECOVER"]
-invariants = ["INV-AUTH-1", "INV-AUTH-5", "INV-ACT-1", "INV-ACT-4", "INV-ACT-5", "INV-ACT-6"]
-ci = ["CI-011", "CI-013", "CI-052", "CI-054", "CI-118"]
+invariants = ["INV-AUTH-1", "INV-AUTH-5", "INV-ACT-1", "INV-ACT-4", "INV-ACT-5", "INV-ACT-6", "INV-ACT-7", "INV-AUTH-8", "INV-ACT-8", "INV-ACT-9", "INV-ACT-10"]
+ci = ["CI-011", "CI-013", "CI-052", "CI-054", "CI-118", "CI-138", "CI-139", "CI-140", "CI-150", "CI-153", "CI-154", "CI-155"]
 status = "SPECIFIED"
 
 [requirements.SR-022]
@@ -333,7 +333,7 @@ tests = ["A-006", "A-025"]
 contracts = ["contracts/policy/authorization.schema.json"]
 decision_functions = ["DF-CONTEXT-CEILING"]
 invariants = ["INV-AUTH-3", "INV-AUTH-6", "INV-AUTH-7"]
-ci = ["CI-012", "CI-014", "CI-093"]
+ci = ["CI-012", "CI-014", "CI-093", "CI-165", "CI-174", "CI-183"]
 status = "SPECIFIED"
 
 [requirements.SR-026]
@@ -434,8 +434,8 @@ ic = ["IC-005"]
 tests = ["A-036"]
 contracts = ["contracts/entities/semantic_scene.schema.json", "contracts/policy/persona_policy.schema.json", "contracts/policy/persona.toml", "contracts/policy/voice.toml"]
 decision_functions = ["DF-PERSONA"]
-invariants = ["INV-EVID-1", "INV-EVID-3", "INV-PERSONA-1", "INV-PERSONA-2"]
-ci = ["CI-068", "CI-070", "CI-112"]
+invariants = ["INV-EVID-1", "INV-EVID-3", "INV-PERSONA-1", "INV-PERSONA-2", "INV-PERSONA-3"]
+ci = ["CI-068", "CI-070", "CI-112", "CI-192", "CI-204"]
 status = "SPECIFIED"
 raised = "2026-08-26: this row named persona_policy.schema.json and DF-PERSONA and carried no `ci` key, which was accurate -- the schema had been specified since IC-005 and never instantiated. Nothing composed a persona and no wire in routing/supply.py carried a system turn, so every request reached every supplier as a bare user turn. Asked its own name that day the ladder replied that Vesper was `one of my names`: a fabricated fact about itself, confidently stated, which is the class RB-001 forbids. CI-068 asserts the contract loads fail-closed; CI-070 asserts the composed preamble actually reaches the wire, because composing one that nothing sends is this tree's recurring failure."
 
@@ -485,8 +485,8 @@ ic = ["IC-003"]
 tests = ["A-008"]
 contracts = ["contracts/entities/world_fact.schema.json"]
 state_machines = ["SM-SENSOR"]
-invariants = ["INV-PRIV-3"]
-ci = ["CI-104"]
+invariants = ["INV-PRIV-3", "INV-PRIV-9"]
+ci = ["CI-104", "CI-151"]
 status = "SPECIFIED"
 
 [requirements.SR-041]
@@ -495,8 +495,8 @@ ic = ["IC-005", "IC-006"]
 tests = ["A-003", "A-036", "A-050"]
 contracts = ["contracts/results/result.schema.json", "contracts/entities/record_loss.schema.json"]
 decision_functions = ["DF-OUTPUT-GATE", "DF-MEMORY-AUTHORITY", "DF-LOSS-SURFACE", "DF-CONFLICT-DETECT"]
-invariants = ["INV-EVID-1", "INV-EVID-3", "INV-MEM-1", "INV-LOSS-3"]
-ci = ["CI-033", "CI-049", "CI-074", "CI-076", "CI-078", "CI-079", "CI-080", "CI-082"]
+invariants = ["INV-EVID-1", "INV-EVID-3", "INV-MEM-1", "INV-LOSS-3", "INV-MEM-3", "INV-MEM-4", "INV-MEM-5"]
+ci = ["CI-033", "CI-049", "CI-074", "CI-076", "CI-078", "CI-079", "CI-080", "CI-082", "CI-147", "CI-148", "CI-188"]
 status = "SPECIFIED"
 
 [requirements.SR-042]
@@ -510,13 +510,13 @@ decision_functions = ["DF-TRIGGER-EVAL", "DF-GOVERNED-WRITE", "DF-AUTONOMY-ELIGI
 # is anything worth doing, so the evaluator's lack of model capability belongs
 # with it. A-011 and A-029, INV-TRIG-2's other declared enforcers, are both
 # already listed here.
-invariants = ["INV-SELF-7", "INV-AUTO-1", "INV-AUTO-5", "INV-TRIG-2", "INV-TRIG-5"]
+invariants = ["INV-SELF-7", "INV-AUTO-1", "INV-AUTO-5", "INV-TRIG-2", "INV-TRIG-5", "INV-AUTO-6"]
 # CI-121 added 2026-09-05. SR-042 owns DF-TRIGGER-EVAL and already lists
 # A-029, INV-AUTO-2's other enforcer. The gap CI-121 closes is that every
 # existing gate here describes a trigger's DECISION -- the anti-cron probe,
 # predicate totality, the registry -- and none can tell a trigger that
 # announces something from one that notices it silently.
-ci = ["CI-015", "CI-024", "CI-026", "CI-023", "CI-096", "CI-121"]
+ci = ["CI-015", "CI-024", "CI-026", "CI-023", "CI-096", "CI-121", "CI-149", "CI-152"]
 state_machines = ["SM-TRIGGER"]
 status = "SPECIFIED"
 
@@ -578,8 +578,8 @@ tests = ["A-020", "A-047", "A-009"]
 contracts = ["contracts/entities/semantic_scene.schema.json", "contracts/policy/latency_budgets.toml"]
 state_machines = ["SM-SCENE"]
 decision_functions = ["DF-DEGRADE"]
-invariants = ["INV-PERF-1", "INV-PERF-2", "INV-SCENE-2", "INV-HOLD-1"]
-ci = ["CI-031", "CI-051", "CI-071", "CI-072", "CI-083"]
+invariants = ["INV-PERF-1", "INV-PERF-2", "INV-SCENE-2", "INV-HOLD-1", "INV-INTAKE-1"]
+ci = ["CI-031", "CI-051", "CI-071", "CI-072", "CI-083", "CI-145", "CI-189"]
 status = "SPECIFIED"
 raised_2026_08_26 = "latency_budgets.toml has set speech_end_to_response_onset at 1200 ms since before any hardware existed, and CI-031 has guarded the number against being relaxed. Nothing measured the path against it. The first measurement was 25.9 s and 68.7 s on the same conversational turn -- a 20-57x miss -- and on_miss.prohibited begins with `relax budget_ms`, so the implementation moved. CI-071 is the gap analysis turned into a gate."
 raised = "2026-08-12: latency budgets now exist as a contract, written BEFORE measurement per INV-PERF-1, and give SPIKE-002 a pass/fail criterion. Progressive presence (SM-SCENE update_mode = stream) is the mechanism that makes first-audio achievable at all; a scene deliverable only when complete makes the budget unmeetable by construction."
@@ -591,7 +591,7 @@ tests = ["A-003", "A-016", "A-029"]
 contracts = ["contracts/entities/trigger.schema.json"]
 decision_functions = ["DF-PROACTIVE", "DF-TRIGGER-EVAL"]
 invariants = ["INV-TRIG-3", "INV-TRIG-6", "INV-BASE-1"]
-ci = ["CI-025", "CI-073", "CI-101"]
+ci = ["CI-025", "CI-073", "CI-101", "CI-136"]
 state_machines = ["SM-TRIGGER"]
 status = "SPECIFIED"
 
@@ -606,8 +606,8 @@ decision_functions = ["DF-GOVERNED-WRITE", "DF-ACTUATION-GATE", "DF-LOSS-CLASS"]
 # what makes INV-STOP-1 achievable rather than aspirational: a stop that
 # traverses a lease cannot happen during the partition it is most needed in.
 # A-031 was already listed here and is INV-STOP-2's other declared enforcer.
-invariants = ["INV-SELF-1", "INV-SELF-4", "INV-STOP-1", "INV-STOP-2", "INV-LOSS-2", "INV-LOSS-6", "INV-ADR-1", "INV-STOP-4", "INV-STOP-5"]
-ci = ["CI-008", "CI-015", "CI-018", "CI-048", "CI-016", "CI-019", "CI-098", "CI-099", "CI-102", "CI-103", "CI-110", "CI-119"]
+invariants = ["INV-SELF-1", "INV-SELF-4", "INV-STOP-1", "INV-STOP-2", "INV-LOSS-2", "INV-LOSS-6", "INV-ADR-1", "INV-STOP-4", "INV-STOP-5", "INV-SCHEMA-3", "INV-SCHEMA-4", "INV-SELF-8"]
+ci = ["CI-008", "CI-015", "CI-018", "CI-048", "CI-016", "CI-019", "CI-098", "CI-099", "CI-102", "CI-103", "CI-110", "CI-119", "CI-141", "CI-142", "CI-187", "CI-199"]
 contracts_note = "core/interlock.py is CI-019's subject"
 status = "SPECIFIED"
 
@@ -618,7 +618,7 @@ tests = ["A-010", "A-042"]
 contracts = ["contracts/events/event_envelope.schema.json"]
 state_machines = ["SM-DEVICE"]
 invariants = ["INV-HW-1"]
-ci = ["CI-007"]
+ci = ["CI-007", "CI-169"]
 status = "SPECIFIED"
 
 [requirements.SR-051]
@@ -627,8 +627,8 @@ ic = ["IC-009"]
 tests = ["A-001"]
 contracts = ["contracts/policy/governed_surfaces.toml"]
 decision_functions = ["DF-GOVERNED-WRITE"]
-invariants = ["INV-TRACE-1", "INV-SRC-1", "INV-PROC-1", "INV-SELF-1", "INV-PROC-4"]
-ci = ["CI-002", "CI-003", "CI-050", "CI-041", "CI-043", "CI-089"]
+invariants = ["INV-TRACE-1", "INV-SRC-1", "INV-PROC-1", "INV-SELF-1", "INV-PROC-4", "INV-PROC-5", "INV-PROC-6", "INV-PROC-7", "INV-PROC-8"]
+ci = ["CI-002", "CI-003", "CI-050", "CI-041", "CI-043", "CI-089", "CI-137", "CI-146", "CI-184", "CI-195", "CI-198"]
 status = "SPECIFIED"
 raised = "2026-08-12: `the COC becomes the project bible` is not a sentiment, it is surface 5 of GOVERNED_PATHS plus the traceability regime. CI-003 is implemented and runs; CI-050 was added because a document could previously name an artifact that did not exist and no gate noticed."
 
@@ -681,9 +681,9 @@ arch = ["ARCH-10", "ARCH-12"]
 ic = ["IC-006", "IC-010"]
 contracts = ["contracts/results/result.schema.json"]
 decision_functions = ["DF-OUTPUT-GATE"]
-invariants = ["INV-EVID-2", "INV-EVID-3"]
+invariants = ["INV-EVID-2", "INV-EVID-3", "INV-EVID-4"]
 tests = ["A-003", "A-006"]
-ci = ["CI-033", "CI-074", "CI-077", "CI-086"]
+ci = ["CI-033", "CI-074", "CI-077", "CI-086", "CI-216"]
 status = "SPECIFIED"
 
 [requirements.SR-053]
@@ -700,9 +700,9 @@ arch = ["ARCH-10"]
 ic = ["IC-006"]
 contracts = ["contracts/policy/authorization.schema.json", "contracts/entities/context_fragment.schema.json"]
 decision_functions = ["DF-CACHE-ADMIT"]
-invariants = ["INV-AUTH-3", "INV-AUTH-6"]
+invariants = ["INV-AUTH-3", "INV-AUTH-6", "INV-PRIV-7"]
 tests = ["A-006", "A-025"]
-ci = ["CI-012", "CI-085"]
+ci = ["CI-012", "CI-085", "CI-173"]
 status = "SPECIFIED"
 raised = "2026-08-12: INV-AUTH-3 already required cache entries to inherit taint and CI-012 already existed to catch the omission. The five tiers had no artifact, so the requirement they inherit taint had nowhere to attach. `derived_from` is mandatory on summary/embedding/cache fragments, so an untainted summariser output is malformed."
 
@@ -729,9 +729,9 @@ arch = ["ARCH-13"]
 ic = ["IC-004"]
 contracts = ["contracts/entities/node_capability_profile.schema.json"]
 decision_functions = ["DF-SURVIVAL-PROFILE"]
-invariants = ["INV-HW-1", "INV-HW-2"]
+invariants = ["INV-HW-1", "INV-HW-2", "INV-HW-3", "INV-HW-4"]
 tests = ["A-005", "A-042"]
-ci = ["CI-007", "CI-034"]
+ci = ["CI-007", "CI-034", "CI-144", "CI-215"]
 status = "SPECIFIED"
 
 [requirements.SR-058]

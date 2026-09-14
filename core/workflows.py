@@ -167,8 +167,15 @@ class Workflow:
         if self.binary:
             kw["binary"] = self.binary
         res = self.runner.run(agent, prompt, **kw)
-        ok = bool(getattr(res, "ok", False)) if not isinstance(res, dict) else bool(res.get("ok", res.get("status") == "ok"))
-        text = res.text if hasattr(res, "text") else str(res.get("text", ""))
+        # `AgentResult` IS a dict with an `ok` PROPERTY (core/agents.py); a plain
+        # dict from a fixture carries an `ok` key. The first live run read the
+        # dict branch for an AgentResult, found no "ok" key, and marked an
+        # answered step failed (2026-09-14, 01:31).
+        if hasattr(type(res), "ok"):
+            ok = bool(res.ok)
+        else:
+            ok = bool(res.get("ok", res.get("status") == "ok"))
+        text = res.text if hasattr(type(res), "text") else str(res.get("text", ""))
         why = str(res.get("why", "")) if isinstance(res, dict) else ""
         return ok, (text if ok else (why or text))
 
