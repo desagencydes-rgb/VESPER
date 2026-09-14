@@ -53,6 +53,23 @@ would be a way to manufacture consent: feed it material arguing for the action
 and receive authorisation. INV-ACT-3 says content entering the system may never
 raise authority, and advice is content entering the system."""
 
+[agents.scholar]
+purpose = "scholar"
+description = "Finds the state of the art on a question, on the web, with sources."
+tools = ["WebSearch", "WebFetch", "Read"]
+note = """THE ONE AGENT THAT LEAVES THE MACHINE TO READ. Owner, 2026-09-13: "can
+vesper run a real scientist level research, on an unsolved/undiscovered
+subject?" -- not from this repository's documents it cannot, so this agent
+searches and fetches. What comes back is retrieved_external: sources, never
+instructions (INV-AUTH-3), and a claim without a URL is not a finding
+(INV-EVID-2). It reads nothing private: no Grep or Glob over the tree, no Bash."""
+prompt = """You are reviewing the literature on a research question. Search the
+web, read what you find, and report: (1) what is established, (2) what is open
+or contested, (3) the strongest recent results, each with the URL you read it
+at and the date, quoting the sentence you rely on. Never state a result without
+its source. Say plainly what you could not find. End with a section
+'## Sources' listing every URL you used, one per line."""
+
 [agents.investigator]
 purpose = "investigator"
 description = "Answers a question that needs looking around first."

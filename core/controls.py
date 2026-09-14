@@ -157,7 +157,32 @@ def _board(fn_name: str):
     return run
 
 
+WORKFLOW = "workflow"
+
+
+def _workflow(kind: str):
+    """Start a research or project run. The actor and the runner come from the
+    runtime through `ctx`; a workflow never has a command or an account of its
+    own. Runs in the background: the pump must not wait minutes for an agent."""
+    def run(args: dict, ctx: dict) -> dict:
+        from core import workflows as W
+        title = str(args.get("question") or args.get("goal") or args.get("title") or "")
+        actor = ctx.get("actor")
+        runner = ctx.get("runner") or getattr(actor, "_runner", None)
+        act = (lambda text: actor.maybe_act(text)) if actor is not None else ctx.get("act")
+        try:
+            return W.start(kind, title, runner=runner, act=act, bus=ctx.get("bus"),
+                           workdir=ctx.get("workdir"), status_path=ctx.get("workflows_path"),
+                           background=ctx.get("background", True),
+                           config_dir=ctx.get("config_dir"), binary=ctx.get("binary"))
+        except W.WorkflowRefused as exc:
+            raise ControlRefused(str(exc)) from None
+    return run
+
+
 REGISTRY: dict[str, tuple[str, Callable[[dict, dict], dict]]] = {
+    "workflow.research": (WORKFLOW, _workflow("research")),
+    "workflow.project": (WORKFLOW, _workflow("project")),
     "board.add_window": (BOARD, _board("add_window")),
     "board.remove_window": (BOARD, _board("remove_window")),
     "board.add_card": (BOARD, _board("add_card")),

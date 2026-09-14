@@ -209,6 +209,17 @@ def board(kind: str, *, path: pathlib.Path | None = None, inventory: list | None
         "add_window_control": {"action": "board.add_window", "args": {"kind": k}},
         "add_card_control": {"action": "board.add_card", "args": {"kind": k}},
     }
+    # THE RUNS ON THIS BOARD (core/workflows.py): what was asked, each step's
+    # status and where its files are, while it runs and after.
+    try:
+        from core import workflows as WF
+        out["workflows"] = WF.runs("research" if k == "research" else "project")
+    except Exception:                                     # noqa: BLE001
+        out["workflows"] = []
+    out["start_control"] = ({"action": "workflow.research", "label": "Research this question",
+                             "placeholder": "a question worth a study"} if k == "research"
+                            else {"action": "workflow.project", "label": "Work on this goal",
+                                  "placeholder": "what to build, in one sentence"})
     if k == "research":
         from core import research_room as RR
         out["session"] = d.get("session") or ""

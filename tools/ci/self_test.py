@@ -1144,6 +1144,8 @@ F10_LISTENER = "app/island-macos/Listener.swift"
 F10_CAMERA = "app/island-macos/Camera.swift"
 F10_PROBES = "core/host_probes.py"
 F10_BUILD = "app/island-macos/build.sh"
+F11_WORKFLOWS = "core/workflows.py"
+F11_ROSTER = "contracts/policy/subagents.toml"
 F6_BUILD_SH = "app/island-macos/build.sh"
 F6_RUNTIME_HOST = "app/home-macos/RuntimeHost.swift"
 CHROME_TPL = "app/home-macos/chrome/home.html"
@@ -2260,6 +2262,37 @@ CASES += [
      _sub("WakeWord.swift FnTrigger.swift Camera.swift \\", "WakeWord.swift FnTrigger.swift \\", 1),
      "Camera.swift is written and not compiled: the mode exists in source and "
      "the built binary has no camera at all"),
+
+    ("workflows-show-their-work", F11_WORKFLOWS,
+     _sub("        if not ok or not urls:", "        if not ok:", 1),
+     "a literature review with no source URL is accepted, and findings are "
+     "written on opinion -- INV-EVID-2 deleted by one clause"),
+
+    ("workflows-show-their-work", F11_WORKFLOWS,
+     _sub("        if not ran:\n            self._finish(\"failed\", \"the experiment did not execute; no findings are written for a run that did not happen\")\n            return",
+          "        if False:\n            self._finish(\"failed\", \"the experiment did not execute; no findings are written for a run that did not happen\")\n            return", 1),
+     "findings are written for an experiment the actor refused to run -- a "
+     "result invented for a run that never happened"),
+
+    ("workflows-show-their-work", F11_WORKFLOWS,
+     _sub("            name = pathlib.PurePosixPath(h).name           # no directories, no escapes",
+          "            name = h", 1),
+     "a file the implementer named ../../escape.py lands two directories up, "
+     "outside the run and possibly outside VESPER's own place"),
+
+    ("workflows-show-their-work", F8_CONTROLS,
+     _sub('    "workflow.research": (WORKFLOW, _workflow("research")),', '', 1),
+     "the research board's start button names a control nobody applies"),
+
+    ("workflows-show-their-work", F7_RUNTIME,
+     _sub('                                    "actor": actor})', '                                    "actor": None})', 1),
+     "the runtime hands the drain no actor, so every workflow's experiment "
+     "step fails with nobody to run it through"),
+
+    ("workflows-show-their-work", F11_ROSTER,
+     _sub('tools = ["WebSearch", "WebFetch", "Read"]', 'tools = ["WebSearch", "WebFetch", "Read", "Bash"]', 1),
+     "the scholar, the one agent that leaves the machine to read, is handed a "
+     "shell: what it fetches could then run here"),
 
     ("chain-budget-bounded", GATEWAY,
      _sub("    MAX_ATTEMPTS_PER_REQUEST = 10", "    MAX_ATTEMPTS_PER_REQUEST = 100", 1),

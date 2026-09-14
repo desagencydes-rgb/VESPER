@@ -2069,6 +2069,29 @@ final class HomeChrome {
             if(!(b.chosen_windows||[]).length&&!(b.chosen_cards||[]).length)list.append(node('p','menu-note','Nothing chosen yet. Pick a window or a card above.'));
             sect.append(list);
             sect.append(node('p','menu-note','Open a window on this Desktop:'));sect.append(actionButtons(b.open_actions));
+            // THE WORK ITSELF (core/workflows.py): start a research question or a
+            // project goal, and watch each step land with its files.
+            if(b.start_control){
+              var sc=b.start_control,wrow=node('div','board-pick');wrow.style.cssText='display:flex;gap:8px;align-items:center;margin:12px 0 6px';
+              var q=node('input','st-ctl');q.type='text';q.placeholder=sc.placeholder||'';q.size=42;q.setAttribute('aria-label',sc.label);
+              var go=node('button','menu-action',sc.label);go.type='button';
+              go.addEventListener('click',function(){var t=q.value.trim();if(t.length<8)return;boardPost(sc.action,kind==='research'?{question:t}:{goal:t});q.value='';go.disabled=true;go.textContent=sc.label+' — started';setTimeout(function(){go.disabled=false;go.textContent=sc.label;},4000);});
+              wrow.append(q,go);sect.append(wrow);
+            }
+            var runs=b.workflows||[];
+            if(runs.length){
+              var rl=node('div','rail-list');
+              runs.forEach(function(r){
+                var row=node('div','rail-row');row.dataset.run=r.id;var left=node('div');
+                left.append(node('div','rail-name',String(r.title)));
+                var steps=(r.steps||[]).map(function(s){return s.name+':'+s.status;}).join(' · ');
+                left.append(node('div','rail-detail',(r.status||'')+(steps?' — '+steps:'')+(r.dir?' — '+r.dir:'')));
+                if(r.summary)left.append(node('div','rail-detail',String(r.summary).slice(0,400)));
+                var right=node('div');right.append(stateChip(r.status==='done'?'available':r.status==='running'?'running':'unavailable'));
+                row.append(left,right);rl.append(row);
+              });
+              sect.append(node('p','menu-note',runs.length+' run(s), newest first:'));sect.append(rl);
+            }
             if(kind==='research'){
               var ss=node('div','board-pick');ss.style.cssText='display:flex;gap:8px;align-items:center;margin:8px 0';
               var name=node('input','st-ctl');name.type='text';name.placeholder='new research session name';name.value=b.session||'';name.setAttribute('aria-label','Research session name');

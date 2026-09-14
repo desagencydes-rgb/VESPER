@@ -1939,7 +1939,7 @@ def _drain_heard(bus, transcriber) -> int:
 
 
 def _drain_control(bus, home, *, path=None, offset_path=None, outbox=None,
-                   preferences_path=None) -> int:
+                   preferences_path=None, actor=None) -> int:
     """Apply every control the home posted since the last pass.
 
     OWNER, 2026-09-13: every surface showed readings and managed nothing. This
@@ -1976,7 +1976,10 @@ def _drain_control(bus, home, *, path=None, offset_path=None, outbox=None,
             except json.JSONDecodeError:
                 break                      # torn last line; see the say.jsonl note
             res = C.apply(obj, ctx={"bus": bus, "outbox": outbox or OUTBOX,
-                                    "preferences_path": preferences_path})
+                                    "preferences_path": preferences_path,
+                                    # THE ACTOR, so a workflow's experiment runs
+                                    # through the same door a typed sentence does.
+                                    "actor": actor})
             bus.publish("control.applied" if res.get("ok") else "control.refused",
                         subject=str(obj.get("action") or "?"),
                         payload={**res, "args": obj.get("args"),
@@ -2412,7 +2415,7 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
     if transcriber is not None:
         _drain_heard(bus, transcriber)
         try:
-            _drain_control(bus, home)
+            _drain_control(bus, home, actor=actor)
         except Exception as _exc:                          # noqa: BLE001
             # A CONTROL THAT FAILS MUST NOT STOP THE PUMP. Answering is the job.
             bus.publish("control.drain_failed", subject="control",

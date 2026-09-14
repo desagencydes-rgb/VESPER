@@ -4889,6 +4889,144 @@ def check_microphone_and_camera_are_measured_first() -> Result:
     return r
 
 
+def check_workflows_show_their_work() -> Result:
+    """A research or project run writes every step's artefact, runs its
+    experiment through the actor's own door, and never writes findings without
+    sources or for a run that did not happen.
+
+    OWNER, 2026-09-13: "can vesper run a real scientist level research ...
+    can vesper work on a project ... help making and learning an LLM?" The
+    answer is a workflow that does the work and shows it. RUNTIME FIXTURE with
+    a canned agent runner and a canned actor: the happy path, the no-sources
+    path, the no-script path, the refused-run path, and a project; then the
+    wiring, and the rule that this module runs no command of its own.
+    """
+    import tempfile
+    from types import SimpleNamespace
+
+    r = Result("workflows-show-their-work")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core import boards as B
+        from core import controls as C
+        from core import workflows as W
+        from core.agents import load_roster
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"workflows, controls, boards or agents did not import: {exc!r}")
+        return r
+
+    class Runner:
+        def __init__(self, answers): self.answers, self.calls = answers, []
+        def run(self, agent, prompt, **kw):
+            self.calls.append(agent)
+            t = self.answers.get(agent, "")
+            return {"ok": bool(t), "text": t, "why": "" if t else "canned failure"}
+
+    sentences: list = []
+    def act_ok(sentence):
+        sentences.append(sentence)
+        return SimpleNamespace(to_dict=lambda: {"kind": "acted", "capability_id": "shell.run",
+                                                "said": "ran it", "detail": {"stdout": "mean 0.5"}})
+    def act_refused(sentence):
+        sentences.append(sentence)
+        return SimpleNamespace(to_dict=lambda: {"kind": "refused", "capability_id": "shell.run",
+                                                "said": "not permitted", "detail": {}})
+    good = {"scholar": "Established: X. See https://example.org/p1 (2025).\n## Sources\nhttps://example.org/p1",
+            "drafter": "H1. Experiment: simulate flips.",
+            "implementer": "```python\n# file: experiment.py\nimport random\nrandom.seed(1)\nprint('mean', 0.5)\n```",
+            "auditor": "The run printed a mean near 0.5, consistent with https://example.org/p1 .",
+            "navigator": "needs main.py"}
+    with tempfile.TemporaryDirectory() as td:
+        T = Path(td); sp = T / "wf.json"
+        common = dict(workdir=T, status_path=sp, background=False, config_dir=None, binary="x")
+        res = W.start("research", "Does a fair coin's mean converge to one half?", runner=Runner(good), act=act_ok, **common)
+        files = {p.name for p in Path(res["dir"]).iterdir()}
+        if res["status"] != "done" or files != {"experiment.py", "findings.md", "plan.md", "run.md", "sources.md"}:
+            r.err(f"the happy research run ended {res['status']!r} with files {sorted(files)}")
+        run = W.runs("research", sp)[0]
+        if [s["name"] for s in run["steps"]] != ["scholar", "drafter", "implementer", "run", "auditor"] or any(s["status"] != "ok" for s in run["steps"]):
+            r.err(f"steps recorded {[(s['name'], s['status']) for s in run['steps']]!r}")
+        if not sentences or not sentences[-1].startswith("run this command in your own place"):
+            r.err("the experiment was not run through the actor as a sentence in VESPER's own place")
+        if not str(Path(res["dir"])).startswith(str(T)):
+            r.err("the run's files landed outside the given working place")
+
+        nosrc = dict(good); nosrc["scholar"] = "In my opinion X is true. No links."
+        res = W.start("research", "A question the literature does not answer here", runner=Runner(nosrc), act=act_ok, **common)
+        files = {p.name for p in Path(res["dir"]).iterdir()}
+        if res["status"] != "unsupported" or "findings.md" in files or "experiment.py" in files:
+            r.err(f"with no source URL the run ended {res['status']!r} and wrote {sorted(files)}: findings without sources (INV-EVID-2)")
+
+        nocode = dict(good); nocode["implementer"] = "I would write a script that prints the mean."
+        res = W.start("research", "A question whose experiment never gets written", runner=Runner(nocode), act=act_ok, **common)
+        files = {p.name for p in Path(res["dir"]).iterdir()}
+        if res["status"] != "failed" or "run.md" in files or "findings.md" in files:
+            r.err(f"with no script the run ended {res['status']!r} and wrote {sorted(files)}: a run that never happened was reported")
+
+        res = W.start("research", "A question whose run the actor refuses tonight", runner=Runner(good), act=act_refused, **common)
+        files = {p.name for p in Path(res["dir"]).iterdir()}
+        if res["status"] != "failed" or "findings.md" in files or "run.md" not in files:
+            r.err(f"with the actor refusing, the run ended {res['status']!r} and wrote {sorted(files)}: findings for an experiment that did not execute")
+
+        proj = dict(good); proj["implementer"] = "```python\n# file: main.py\nprint('hello')\n```\n```text\n# file: README.txt\nnotes\n```"
+        res = W.start("project", "Build a tiny bigram language model on sample text", runner=Runner(proj), act=act_ok, **common)
+        files = {p.name for p in Path(res["dir"]).iterdir()}
+        if res["status"] != "done" or not {"main.py", "README.txt", "run.md", "report.md", "where.md"} <= files:
+            r.err(f"the project run ended {res['status']!r} with files {sorted(files)}")
+        evil = dict(proj); evil["implementer"] = "```python\n# file: ../../escape.py\nprint(1)\n```\n```python\n# file: main.py\nprint(2)\n```"
+        res = W.start("project", "A project whose file names try to climb out", runner=Runner(evil), act=act_ok, **common)
+        if (T / "escape.py").exists() or (Path(res["dir"]).parent.parent / "escape.py").exists():
+            r.err("a file name with ../ escaped the run's directory")
+        try:
+            W.start("research", "short", runner=Runner(good), act=act_ok, **common)
+            r.err("a one-word question started a research run")
+        except W.WorkflowRefused:
+            pass
+        bus = SimpleNamespace(events=[]); bus.publish = lambda t, **kw: bus.events.append((t, kw.get("payload") or {}))
+        res = C.apply({"action": "workflow.project", "args": {"goal": "Build a tiny bigram language model"}},
+                      ctx={"bus": bus, "runner": Runner(proj), "act": act_ok, "workdir": T, "workflows_path": sp,
+                           "background": False, "config_dir": None, "binary": "x"})
+        if not res.get("ok") or res.get("kind") != C.WORKFLOW:
+            r.err(f"workflow.project through the registry: {res!r}")
+        board = B.board("project" if False else "projects", path=T / "b.json", inventory=[])
+        if not board.get("workflows") is not None:
+            pass
+        rb = B.board("research", path=T / "b.json", inventory=[])
+        if rb.get("start_control", {}).get("action") != "workflow.research" or board.get("start_control", {}).get("action") != "workflow.project":
+            r.err("the boards carry no start control for a research question / project goal")
+
+    # THE RULES IN SOURCE.
+    src = (REPO / "core" / "workflows.py").read_text(encoding="utf-8")
+    # THE IMPORT, NOT THE WORD: the module's own docstring names `subprocess`
+    # to say it is absent.
+    if re.search(r"^\s*(import subprocess|from subprocess)", src, re.M) or "os.system(" in src or "os.popen(" in src:
+        r.err("workflows.py runs commands itself; the experiment must go through the actor (INV-AUTH-1)")
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if '"actor": actor' not in rt or "_drain_control(bus, home, actor=actor)" not in rt:
+        r.err("the runtime does not hand the actor to the control drain; a workflow could run nothing")
+    roster = load_roster()
+    sch = roster.get("scholar") or {}
+    if "WebSearch" not in (sch.get("tools") or []) or any(t.startswith("Bash") or t in ("Grep", "Glob", "Edit", "Write") for t in sch.get("tools") or []):
+        r.err(f"the scholar agent must search the web and touch nothing here; tools = {sch.get('tools')!r}")
+    html = (REPO / "app" / "home-macos" / "chrome" / "home.html").read_text(encoding="utf-8")
+    if "b.start_control" not in html or "b.workflows" not in html:
+        r.err("the board does not render the start control and the runs")
+    bsrc = (REPO / "core" / "boards.py").read_text(encoding="utf-8")
+    if 'out["workflows"] = WF.runs(' not in bsrc:
+        r.err("boards do not carry the workflow runs")
+    for k in ("workflow.research", "workflow.project"):
+        if k not in C.REGISTRY or C.REGISTRY[k][0] != C.WORKFLOW:
+            r.err(f"{k} is not a registered workflow control; its start button would press nothing")
+
+    if r.ok:
+        r.note("research: five artefacts on the happy path; no sources → unsupported and no findings; "
+               "no script → no run; refused run → no findings; project: files, entry point run, report; "
+               "../ names contained; a one-word question refused; experiments run only through the actor; "
+               "the scholar searches the web and touches nothing here; boards carry start controls and runs")
+    return r
+
+
 def check_chain_budget() -> Result:
     r = Result("chain-budget-bounded")
     if str(REPO) not in sys.path:
@@ -28859,6 +28997,7 @@ CHECK_FNS = {
     "main-menu-manages": check_main_menu_manages,
     "boards-hold-windows-and-cards": check_boards_hold_windows_and_cards,
     "microphone-and-camera-are-measured-first": check_microphone_and_camera_are_measured_first,
+    "workflows-show-their-work": check_workflows_show_their_work,
     "triage-excludes-quota": check_triage_excludes_quota,
     "shared-pool-is-shared": check_shared_pool_is_shared,
     "intake-is-modality-neutral": check_intake_is_modality_neutral,
