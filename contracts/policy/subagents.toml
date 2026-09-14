@@ -83,6 +83,10 @@ rather than filling the gap."""
 purpose = "implementer"
 description = "Proposes a concrete change as a diff. Never applies it."
 tools = ["Read", "Grep", "Glob"]
+# The workflows ask this agent for whole files, and a real project's files run
+# past the 12 000-character bound sized for findings: the first data-pipeline
+# project answered at 13 490 characters and was refused whole (2026-09-14).
+max_output_chars = 60000
 prompt = """You propose changes; you do not make them. Read enough to be
 specific, then give the exact edit -- file, the lines as they are now, and the
 lines as they should be. If you are not certain what the current text is, say so

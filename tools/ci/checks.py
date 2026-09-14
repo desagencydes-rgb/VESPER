@@ -21349,6 +21349,30 @@ def check_a_broken_agent_is_never_a_bad_answer() -> Result:
         if res.get("text"):
             r.err(f"{label} returned text alongside an unavailable status")
 
+    # 3a. A CLI THAT EXPLAINS ITSELF ON STDOUT AND EXITS NON-ZERO IS HEARD. Two
+    #     research steps failed as "exit 1: no detail" on 2026-09-14.
+    quiet = _ask("crash_stdout")
+    if quiet["status"] != UNAVAILABLE or "session limit" not in str(quiet.get("why")):
+        r.err(f"a CLI that printed its reason on stdout and exited 1 came back {quiet['status']!r} "
+              f"with why={quiet.get('why')!r}: the reason was thrown away and the owner is told "
+              "'no detail'")
+
+    # 3b. A ROSTER CEILING RAISES ONE AGENT'S BOUND AND NOBODY ELSE'S. The
+    #     implementer writes whole files, and its first real project answered at
+    #     13 490 characters against the findings-sized default and was refused
+    #     whole (2026-09-14). The same 120 000-character output that is refused
+    #     above must be answered by an agent whose own entry allows it.
+    wide = AgentRunner(roster={"investigator": {**(runner.spec("investigator") or {}),
+                                                "max_output_chars": 200000}})
+    _os.environ["FAKE_MODE"] = "huge"
+    wide_res = wide.run("investigator", "what is here?", binary=cli.name, timeout_s=60.0)
+    if wide_res["status"] != ANSWERED:
+        r.err(f"an agent whose roster entry raises its output ceiling to 200000 was still refused "
+              f"at the default bound: {wide_res.get('why')!r}")
+    if int((load_roster().get("implementer") or {}).get("max_output_chars") or 0) <= MAX_OUTPUT_CHARS:
+        r.err("the implementer, which the workflows ask for whole files, keeps the findings-sized "
+              "output bound, so a real project's files are refused as a cut-off answer")
+
     # 4. AN UNAVAILABLE RESULT CANNOT BE MISTAKEN FOR AN ANSWER.
     if _ask("crash").ok or _ask("crash").text:
         r.err("an unavailable result reports .ok or carries .text")

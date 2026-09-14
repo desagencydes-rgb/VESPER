@@ -5380,6 +5380,23 @@ CASES += [
           '"-s", CODEX_SANDBOX_WRITE]', 1),
      "a thinking agent is sandboxed workspace-write, so an agent that may only "
      "read is refused by nothing if it decides to write"),
+
+    ("a-broken-agent-is-never-a-bad-answer", AGENTS_PY_Q,
+     _sub('        limit = int(spec.get("max_output_chars") or MAX_OUTPUT_CHARS)',
+          '        limit = MAX_OUTPUT_CHARS', 1),
+     "the roster's ceiling is ignored, so the implementer's whole-file answers are "
+     "refused as cut off the moment a project is bigger than a finding"),
+
+    ("a-broken-agent-is-never-a-bad-answer", AGENTS_PY_Q,
+     _sub('                      or str(out or "").strip().splitlines() or ["no detail"])[-1]',
+          '                      or ["no detail"])[-1]', 1),
+     "a CLI that explains itself on stdout and exits 1 is reported as 'no detail' "
+     "again, the way two research steps failed on 2026-09-14"),
+
+    ("a-broken-agent-is-never-a-bad-answer", F11_ROSTER,
+     _sub("max_output_chars = 60000", "max_output_chars = 0", 1),
+     "the implementer falls back to the findings-sized bound, and the first real "
+     "project -- 13 490 characters -- is refused whole again"),
 ]
 
 

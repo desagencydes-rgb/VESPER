@@ -304,7 +304,13 @@ class AgentRunner:
                                           "the agent's output"))
 
         if proc.returncode != 0:
-            reason = (str(err or "").strip().splitlines() or ["no detail"])[-1]
+            # THE CLI'S OWN WORDS, WHEREVER IT PUT THEM. This read stderr alone,
+            # and twice on 2026-09-14 a research step failed as "exit 1: no
+            # detail" -- a CLI that explains itself on stdout and exits non-zero
+            # had its explanation thrown away with the output. The output still
+            # never becomes an answer; only its last line becomes the reason.
+            reason = (str(err or "").strip().splitlines()
+                      or str(out or "").strip().splitlines() or ["no detail"])[-1]
             return self._emit(_result(
                 agent, UNAVAILABLE, rung=binary,
                 why=f"exit {proc.returncode}: {reason[:160]}"))
@@ -325,7 +331,13 @@ class AgentRunner:
                 agent, UNAVAILABLE, rung=binary,
                 why=f"the rung reports it is out of quota ({spent!r}), so it "
                     "answered nothing"))
-        truncated = len(text) > MAX_OUTPUT_CHARS
+        # AN AGENT THAT WRITES WHOLE FILES ANSWERS AT A FILE'S LENGTH. The default
+        # bound was sized for findings, and the implementer's first real project
+        # (a data pipeline, 2026-09-14) came back at 13 490 characters against it
+        # and was refused whole. A roster entry may raise its own ceiling; every
+        # agent that does not say keeps the default.
+        limit = int(spec.get("max_output_chars") or MAX_OUTPUT_CHARS)
+        truncated = len(text) > limit
         if truncated:
             # TRUNCATION IS UNAVAILABILITY, NOT A SHORTER ANSWER. A cut-off
             # investigation is the shape of finding that misleads most: it looks
@@ -333,7 +345,7 @@ class AgentRunner:
             return self._emit(_result(
                 agent, UNAVAILABLE, rung=binary,
                 why=f"produced {len(text)} characters against a "
-                    f"{MAX_OUTPUT_CHARS} limit; a cut-off answer is not a "
+                    f"{limit} limit; a cut-off answer is not a "
                     "shorter one"))
         return self._emit(_result(agent, ANSWERED, text=text, rung=binary))
 
