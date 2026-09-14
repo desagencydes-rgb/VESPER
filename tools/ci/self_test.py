@@ -4190,7 +4190,10 @@ CASES += [
     ("loop-observes-and-is-bounded", ACTOR_PY,
      # The range gained a start, so a turn parked on a question resumes at the
      # step it stopped on rather than replaying the ones already taken.
-     _sub("        for step in range(int(st.get(\"start_step\") or 0), max(1, int(max_steps))):",
+     # AND THEN THE START WAS NAMED: `first_step` is read once above the loop,
+     # and the literal that spelled it inline stopped matching, so this case
+     # tested nothing ("the mutation did not apply", full run 2026-09-14).
+     _sub("        for step in range(first_step, max(1, int(max_steps))):",
           "        for step in range(1):", 1),
      "the loop takes one step again: VESPER cannot run a command, look at the "
      "output and open the file it found -- the omission everything else sat on"),

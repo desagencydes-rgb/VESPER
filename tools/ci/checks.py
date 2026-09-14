@@ -13477,6 +13477,16 @@ def check_capabilities_registered_and_levelled_by_argument() -> Result:
     # here, and stayed green under exactly that mutation. What has to hold
     # everywhere is that the durable space does not move when the code is copied.
     ws = caps.resolve("workspace/note.txt")
+    # `workspace/` NAMES THE PLACE ITSELF, not a folder inside it. Since D6 a
+    # bare relative path also lands in VESPER's own place, so a neutered
+    # `workspace/` branch resolved to `<place>/workspace/note.txt` -- still
+    # inside the place -- and the containment test below stayed green under
+    # that mutation (full self_test, 2026-09-14). Equality is the property.
+    if ws != (caps.WORKSPACE / "note.txt").resolve():
+        r.err(f"`workspace/note.txt` resolves to {ws}, not "
+              f"{caps.WORKSPACE / 'note.txt'}: the `workspace/` prefix no longer "
+              "names VESPER's own place, so every rule and note that uses it "
+              "points one folder deeper than the place")
     code_root = Path(caps.__file__).resolve().parents[1]
     if str(ws).startswith(str(code_root)):
         r.err(f"the workspace resolves to {ws}, under the code at {code_root}. "
