@@ -14,7 +14,7 @@ const data = JSON.parse(fs.readFileSync(process.argv[3], 'utf8'));
 function El(tag) {
   return {
     tagName: (tag || '').toUpperCase(), children: [], className: '', textContent: '',
-    hidden: false, type: '', title: '', dataset: {}, attrs: {},
+    hidden: false, type: '', title: '', dataset: {}, attrs: {}, style: {},
     classList: { list: [], add(c){ this.list.push(c); }, contains(c){ return this.list.includes(c); } },
     append(...cs){ cs.forEach(c => this.children.push(c)); },
     appendChild(c){ this.children.push(c); return c; },
@@ -42,7 +42,11 @@ function grab(name) {
   }
   return null;
 }
-const fns = ['dashSwitch', 'renderProjects'].map(grab);
+// renderBoard AND ITS HELPERS TOO: renderProjects draws the board since the
+// owner asked for windows and cards on the dashboard, and a driver that grabbed
+// only the first two functions threw on the call (full suite, 2026-09-14).
+const fns = ['dashSwitch', 'renderProjects', 'renderBoard', 'actionButtons',
+             'boardPost', 'stateChip'].map(grab);
 if (fns.some(f => !f)) {
   console.log('FAILURES:\n  the dashboard renderer is gone from the page');
   process.exit(1);
@@ -53,6 +57,14 @@ eval(fns.join('\n'));
 renderProjects();
 
 const fails = [];
+// THE BOARD IS ON THE DASHBOARD (owner, 2026-09-13: windows and cards chosen
+// from a list, with management), drawn by the page's own renderBoard -- which,
+// with no boards pushed yet, must still draw its section and say why it is empty.
+const boardSect = content.children.find(c => c.className === 'board');
+if (!boardSect) fails.push('the projects board is not drawn on the dashboard');
+else if (!boardSect.children.some(c => /producer has not run yet/.test(c.textContent || ''))) {
+  fails.push('with no boards pushed, the board section does not say why it is empty');
+}
 const top = content.children.find(c => c.className === 'dash-top');
 const grid = content.children.find(c => c.className === 'dash-grid');
 if (!top) fails.push('no switch row was drawn at the top');

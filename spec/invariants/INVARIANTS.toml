@@ -1219,7 +1219,7 @@ kind = "runtime"
 note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-HOST-5]
-statement = "VESPER may manage any window: its own always, the owner's only on demand -- a sentence the owner typed or a button they pressed is the demand (owner, rule 31, 2026-09-13). A window is claimed as VESPER's only with proof it opened it; a claim restored from disk is corroborated against the world; and what VESPER did with windows is written down and reopens nothing."
+statement = "VESPER may manage any window: its own always, the owner's only on demand -- a sentence the owner typed or a button they pressed is the demand, and the demand is the grant, so what the owner asked for is not turned into a second question (owner, rule 31, 2026-09-13). Where a window sits never makes it VESPER's. A window is claimed as VESPER's only with proof it opened it; a claim restored from disk is corroborated against the world; and what VESPER did with windows is written down and reopens nothing."
 owner_rem = "REM-012"
 enforced_by = ["CI-181", "CI-190", "CI-193", "CI-194"]
 kind = "runtime"

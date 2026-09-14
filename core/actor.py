@@ -76,6 +76,13 @@ AUTO_GRANT_TTL_MS = 60_000
 # decide -> write -> verify with room to recover from one mistake.
 MAX_STEPS = 6
 
+# WHAT ONLY LOOKS. A step whose capability changes nothing on the machine does
+# not spend the owner's demand (rule 31, 2026-09-13): "close the safari window"
+# lists first and closes second, and the close is what was demanded. Named, not
+# inferred from a level -- `ui.open` is L1 and puts a window in front of the
+# owner, which is an act.
+LOOKS = frozenset({"window.list", "ui.view", "app.query", "fs.read"})
+
 # Consecutive refused or failed steps before the turn is stopped. Codex bounds
 # the same thing at three denials per turn, and the reason is the same: with a
 # loop, a proposer that keeps re-proposing something the ladder refuses grinds
@@ -490,6 +497,8 @@ class Actor:
         consecutive_refusals = int(st.get("consecutive_refusals") or 0)
 
         first_step = int(st.get("start_step") or 0)
+        # A RESUMED TURN STARTS UNSPENT: the owner's "yes" is itself a demand.
+        demand_spent = False
         for step in range(first_step, max(1, int(max_steps))):
             # THE STOP, ASKED EVERY STEP -- AND IT WAS ASKED NOWHERE.
             #
@@ -554,18 +563,28 @@ class Actor:
             # `args["owner_requested"]`, and `core/capabilities.py` records that
             # NOTHING IN THE PRODUCTION PATH EVER SET IT.
             #
-            # THE FIRST STEP ONLY, AND THAT IS THE WHOLE CARE IN THIS CHANGE.
-            # The same comment says why it was left: `permitted is None` marks a
-            # TURN as owner-originated, not each STEP, so lifting at turn level
-            # would let vesper put windows in the owner's workspace during the
-            # fifth step of an elaboration they never asked for. The first
-            # proposal of an owner-originated turn IS the owner's request; every
-            # step after it is vesper's own idea and gets nothing.
+            # ONCE, AND THAT IS THE WHOLE CARE IN THIS CHANGE. The same comment
+            # says why it was left: `permitted is None` marks a TURN as
+            # owner-originated, not each STEP, so lifting at turn level would let
+            # vesper put windows in the owner's workspace during the fifth step
+            # of an elaboration they never asked for. The first proposal that
+            # ACTS is the owner's request; every act after it is vesper's own
+            # idea and gets nothing.
+            #
+            # THE FIRST ACT, NOT THE FIRST STEP -- RULE 31 (owner, 2026-09-13:
+            # their windows are "managed only on demand"). This lifted
+            # `step == first_step`, and "close the safari window" is a
+            # `window.list` and then a `window.close` -- the proposer is told ids
+            # are not guessable and to list first -- so the demand went to the
+            # LIST and the close was refused "was not asked about", to an owner
+            # who had just asked. A look changes nothing and cannot trespass, so
+            # it carries the demand forward instead of spending it.
             #
             # An autonomous turn (`permitted` supplied) never lifts at all.
-            if step == first_step and permitted is None and isinstance(
+            if permitted is None and not demand_spent and isinstance(
                     getattr(p, "args", None), dict):
                 p.args["owner_requested"] = True
+                demand_spent = p.capability_id not in LOOKS
 
             out = self._one_step(p, text, attention_state, period,
                                  fragments, observations)

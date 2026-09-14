@@ -5,10 +5,14 @@ be managed only from a request from me; windows opened by vesper can be totally
 managed by vesper"* -- and, asked what happens when the owner's own window sits
 on VESPER's Desktop: *"VESPER's Desktop, VESPER's rules."*
 
-So authority has TWO sources and they are checked in order: WHERE the window is,
-then WHO opened it. That order is the owner's answer and it is not a detail --
-it is what makes VESPER's Desktop a workspace rather than a place the owner's
-windows happen to be.
+THEN RULE 31, 2026-09-13, AND IT REPLACED THAT ANSWER: *"vesper can manage any
+window, but only the windows that aren't his are managed only on demand,
+everything else is vesper, all grants given by default there for both."* So
+authority has ONE source now -- WHO opened the window -- and where it sits
+decides nothing. The Desktop clause is gone: an owner's window on VESPER's
+Desktop is still the owner's. VESPER's Desktop is still where what VESPER opens
+goes (`window_open`); it is no longer a place that makes someone else's window
+VESPER's.
 
 WHY THIS IS A MODULE AND NOT A BRANCH INSIDE THE ADAPTER. Everything here is
 decidable from a record: a window id, where it is, and who opened it. None of it
@@ -106,31 +110,24 @@ class Window:
 def authority(window: Window, effect: str, *, vespers_desktop: str | None) -> str:
     """May VESPER do `effect` to `window` unprompted, on request, or never?
 
-    THE TWO CLAUSES, IN THE OWNER'S ORDER.
+    ONE QUESTION, RULE 31's (owner, 2026-09-13): who opened it. `vesper_opened`
+    is free, everywhere. `owner_opened` and `unknown` are the owner's,
+    everywhere, and need the owner to have asked.
 
-    1. **On VESPER's Desktop, every window is VESPER's to arrange**, whoever
-       opened it. This is the clause the owner chose over the alternative, and
-       it is why the Desktop is a workspace: VESPER tidying around what it is
-       showing the owner is the point of the feature, not a liberty taken.
+    WHAT WENT, AND WHY IT HAD TO. This used to ask WHERE first: "on VESPER's
+    Desktop, every window is VESPER's to arrange, whoever opened it" (the owner,
+    2026-09-08). Rule 31 has no Desktop exception, and INV-HOST-5 was filed with
+    rule 31's sentence while this function still answered the old way -- a gate
+    green under a rule it did not enforce. That clause also needed a guard of
+    its own: carrying an owner's window onto the Desktop GAVE authority and
+    carrying it off SPENT authority held only there. With authority carried by
+    the window rather than the place, moving it changes nothing about whose it
+    is, and relocation needs no branch.
 
-    2. **Everywhere else, provenance decides.** `vesper_opened` is free;
-       `owner_opened` and `unknown` need the owner to have asked.
-
-    AND THE SHARP EDGE, WHICH CLAUSE 1 CREATES AND DOES NOT SOLVE. If everything
-    on VESPER's Desktop is VESPER's, then MOVING an owner's window off that
-    Desktop is authorised by clause 1 -- and the moment it lands, clause 2
-    applies and VESPER has lost the authority it just used. Worse in the other
-    direction: VESPER could move an owner's window onto its Desktop and thereby
-    grant itself authority over a window it was never allowed to touch.
-
-    So `RELOCATE_OFF` is a distinct effect and it is ALWAYS `ON_REQUEST` for a
-    window the owner opened. A rule that can be escaped by relocating the
-    evidence is not a rule, and the escape is available in both directions
-    unless the transition itself is governed rather than the end state.
-
-    `vespers_desktop=None` means VESPER holds no Desktop right now -- it is not
-    running its ground, or has not been given one. Clause 1 then cannot apply to
-    anything, which is correct: there is no workspace to tidy.
+    `vespers_desktop` IS STILL TAKEN AND DELIBERATELY NOT CONSULTED. `may_act`
+    and `describe` tell the owner where the window is, and callers hand the
+    same record to all three. `a-window-belongs-to-someone` asserts every
+    effect answers the same on every Desktop and with no Desktop at all.
     """
     if effect not in EFFECTS:
         raise WindowRuleViolation(
@@ -139,21 +136,9 @@ def authority(window: Window, effect: str, *, vespers_desktop: str | None) -> st
             "is not named is refused rather than approximated to the nearest "
             "one that is.")
 
-    # RELOCATION IS JUDGED BEFORE LOCATION, deliberately. It is the one effect
-    # whose whole subject is leaving the place that would otherwise authorise
-    # it, so asking "where is it now" first would answer the wrong question.
-    if effect == RELOCATE_OFF:
-        if window.provenance == VESPER_OPENED:
-            return FREE
-        return ON_REQUEST
-
-    on_vespers_desktop = (vespers_desktop is not None
-                          and window.desktop_id == vespers_desktop)
-    if on_vespers_desktop:
-        return FREE                                   # clause 1
     if window.provenance == VESPER_OPENED:
-        return FREE                                   # clause 2, VESPER's own
-    return ON_REQUEST                                 # clause 2, owner's/unknown
+        return FREE                                   # VESPER's own, anywhere
+    return ON_REQUEST                                 # the owner's or unrecorded, anywhere
 
 
 def may_act(window: Window, effect: str, *, vespers_desktop: str | None,
@@ -175,9 +160,8 @@ def may_act(window: Window, effect: str, *, vespers_desktop: str | None,
     where = ("on vesper's desktop" if vespers_desktop
              and window.desktop_id == vespers_desktop else "elsewhere")
     if effect == RELOCATE_OFF:
-        return False, ("moving a window the owner opened off vesper's desktop "
-                       "needs the owner to ask -- otherwise the move would "
-                       "spend the authority it is about to give away")
+        return False, ("moving a window the owner opened to another desktop "
+                       "needs the owner to ask")
     return False, (f"this window is the owner's ({window.provenance}, {where}) "
                    "and was not asked about")
 

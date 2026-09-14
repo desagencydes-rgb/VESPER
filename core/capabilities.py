@@ -1313,14 +1313,26 @@ def window_list_level(args: dict) -> str:
 
 
 def window_close_level(args: dict) -> str:
-    """Closing VESPER's own window is L4; closing the owner's is L5.
+    """Closing VESPER's own window is L2; closing the owner's, on demand, is L3.
 
-    Nothing can undo either, which is why neither is below L4. What separates
-    them is whose unsaved work is at stake.
+    RULE 31 (owner, 2026-09-13): "... all grants given by default there for
+    both." These were L4 and L5, and L4/L5 bind to one command instance and no
+    standing grant reaches them (`permission_mode.FREE_LEVEL` is L3) -- so every
+    close was a second question in every mode, including `auto`, which the
+    owner chose so as not to be asked. The owner ruled that the demand is the
+    grant.
+
+    WHAT STILL PROTECTS THE OWNER'S WORK, since nothing here undoes a close:
+    `core/windows.py` refuses the owner's window unless this step carries their
+    demand; the bridge presses the window's OWN close button and never
+    terminates, so an application with unsaved work puts up its own "save
+    changes?" sheet; and `ask` mode stands at L2, so an owner who chose to be
+    asked is still asked about theirs. Reversibility stays `irreversible`,
+    because that is the truth about a close.
     """
     from core import windows as W
 
-    return "L4" if args.get("provenance") == W.VESPER_OPENED else "L5"
+    return "L2" if args.get("provenance") == W.VESPER_OPENED else "L3"
 
 
 def placement_from_where(new_id: str, where: dict) -> dict | None:
@@ -3403,16 +3415,16 @@ def build_registry() -> CapabilityRegistry:
     # about `terminate_process` -- the only irreversible row in the vocabulary
     # exists to be governed, not to be undone.
     reg.register("window.close", window_close_level, [
-        LevelRule("vesper's own", "L4",
+        LevelRule("vesper's own", "L2",
                   {"window_id": "1", "effect": "close",
                    "provenance": "vesper_opened"},
                   refutes=({"window_id": "1", "effect": "close",
                             "provenance": "unknown"},)),
-        # THE OWNER'S WINDOW IS A LEVEL HIGHER, and `host_actions.toml` agrees
-        # from the other side: `close_window` is the one row the owner's
-        # 2026-09-08 authorisation deliberately does NOT cover. Unsaved work in
-        # the target is destroyed and no inverse recovers it.
-        LevelRule("the owner's", "L5",
+        # THE OWNER'S WINDOW IS A LEVEL HIGHER AND STILL INSIDE THE STANDING
+        # GRANT of `workspace` and `auto`: rule 31 (2026-09-13) made the owner's
+        # demand the grant. It was L5 under the 2026-09-08 authorisation, which
+        # did not cover closing the owner's windows at all; rule 31 does.
+        LevelRule("the owner's", "L3",
                   {"window_id": "1", "effect": "close", "provenance": "unknown"}),
     ], reversibility="irreversible")
 

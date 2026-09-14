@@ -101,7 +101,7 @@ def _last(kind: str) -> float | None:
 def _age(ts: float | None) -> str:
     if ts is None:
         return "never"
-    s = max(0.0, time.time() - ts)
+    s = max(0.0, time.time() - ts)  # WALL-CLOCK-OK: an age shown to the owner, never an order
     if s < 90:
         return f"{int(s)} s ago"
     if s < 5400:

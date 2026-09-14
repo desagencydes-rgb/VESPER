@@ -4466,7 +4466,11 @@ def check_settings_manage_not_only_show() -> Result:
     main_swift = (REPO / "app" / "island-macos" / "main.swift").read_text(encoding="utf-8")
     if '"island.enabled"' not in main_swift or "retreat(visible || !islandEnabled())" not in main_swift:
         r.err("the island does not read the island.enabled preference into its retreat")
-    if "_drain_control(bus, home)" not in (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8"):
+    # A CALL, NOT ONE SPELLING OF ITS ARGUMENTS: the pump passes the actor too
+    # since the workflows landed, and the literal `_drain_control(bus, home)`
+    # stopped matching a call that was there (full suite, 2026-09-14).
+    if not re.search(r"^\s+_drain_control\(bus, home[,)]",
+                     (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8"), re.M):
         r.err("the pump never calls _drain_control: the channel ends in a file nobody reads")
 
     if r.ok:
@@ -16861,18 +16865,23 @@ def check_the_model_rows_read_a_real_completion() -> Result:
 
 
 def check_a_window_belongs_to_someone() -> Result:
-    """VESPER may arrange its own workspace and not the owner's session.
+    """VESPER manages its own windows always and the owner's only on demand.
 
-    THE OWNER'S RULE, 2026-09-08: windows they opened are theirs and need a
-    request; windows VESPER opened are VESPER's; and on VESPER's own Desktop,
-    everything is VESPER's to arrange -- "VESPER's Desktop, VESPER's rules".
+    RULE 31, THE OWNER, 2026-09-13: *"vesper can manage any window, but only
+    the windows that aren't his are managed only on demand, everything else is
+    vesper, all grants given by default there for both."* It replaced the
+    2026-09-08 answer ("VESPER's Desktop, VESPER's rules"), under which an
+    owner's window on VESPER's Desktop was VESPER's to move and close unasked.
+    INV-HOST-5 was filed with rule 31's sentence while this gate still asserted
+    the old clause -- green under a rule it did not enforce -- and this version
+    exists to end that.
 
-    WHAT THIS GATE IS REALLY FOR. The rule has one catastrophic failure mode and
-    it is not subtle in effect, only in cause: if the code ever believes the
-    ACTIVE Desktop is VESPER's Desktop, then clause 1 applies to every window on
-    screen and VESPER may rearrange the owner's entire session unprompted. That
-    is not a hypothetical -- it was the state of the first draft, and then of the
-    second, for two different reasons. Both are asserted below.
+    WHAT IT ASSERTS. One question, who opened the window, answered the same on
+    every Desktop and with or without VESPER holding one; the owner's demand
+    lifts the refusal; and the demand is the grant, so a close the owner asked
+    for sits inside the standing grant rather than becoming a second question.
+    The adapter's two live defects stay asserted, because `vespers_desktop`
+    still decides where VESPER's own windows open.
     """
     r = Result("a-window-belongs-to-someone")
     if str(REPO) not in sys.path:
@@ -16885,51 +16894,73 @@ def check_a_window_belongs_to_someone() -> Result:
         return W.Window(window_id=wid, pid=1, app_label="editor",
                         desktop_id=desk, provenance=prov)
 
-    # ------------------------------------------- the rule, branch by branch
+    # ------------------------------------------- rule 31, branch by branch
     for label, w, effect, want in [
         ("vesper's own window elsewhere", win(W.VESPER_OPENED), W.MOVE, W.FREE),
+        ("closing vesper's own window on its desktop",
+         win(W.VESPER_OPENED, V), W.CLOSE, W.FREE),
         ("the owner's window elsewhere", win(W.OWNER_OPENED), W.MOVE, W.ON_REQUEST),
         ("an unrecorded window elsewhere", win(W.UNKNOWN), W.MOVE, W.ON_REQUEST),
         ("the owner's window on vesper's desktop",
-         win(W.OWNER_OPENED, V), W.MOVE, W.FREE),
+         win(W.OWNER_OPENED, V), W.MOVE, W.ON_REQUEST),
         ("closing the owner's window on vesper's desktop",
-         win(W.OWNER_OPENED, V), W.CLOSE, W.FREE),
+         win(W.OWNER_OPENED, V), W.CLOSE, W.ON_REQUEST),
+        ("an unrecorded window on vesper's desktop",
+         win(W.UNKNOWN, V), W.RESIZE, W.ON_REQUEST),
     ]:
         got = W.authority(w, effect, vespers_desktop=V)
         if got != want:
-            r.err(f"{label}: {effect} came back {got!r}, not {want!r}. The "
-                  "owner's rule has two clauses -- location first, then who "
-                  "opened it -- and this branch is not honouring one of them.")
+            r.err(f"{label}: {effect} came back {got!r}, not {want!r}. Rule 31 "
+                  "asks one question -- who opened the window -- and this "
+                  "branch answers a different one.")
 
     # ----------------------------- UNKNOWN IS THE OWNER'S, NOT A THIRD THING
-    if W.authority(win(W.UNKNOWN), W.MOVE, vespers_desktop=V) == W.FREE:
+    if W.authority(win(W.UNKNOWN, V), W.MOVE, vespers_desktop=V) == W.FREE:
         r.err("a window whose opener was never recorded is treated as VESPER's. "
               "Anything VESPER has forgotten about would become something it "
               "may close -- INV-HW-2's shape applied to authority: UNKNOWN must "
               "resolve to the restrictive answer, not the convenient one.")
 
-    # ---------------------------------------- the relocation escape hatch
-    # Clause 1 authorises acting on anything on VESPER's Desktop -- INCLUDING
-    # moving it off, which ends clause 1. Left ungoverned, VESPER could take an
-    # owner's window off its Desktop using authority it only had while the
-    # window was there, or move one ON to grant itself authority it never had.
-    if W.authority(win(W.OWNER_OPENED, V), W.RELOCATE_OFF,
-                   vespers_desktop=V) != W.ON_REQUEST:
-        r.err("moving the owner's window off VESPER's Desktop is permitted "
-              "unprompted. A rule that can be escaped by relocating the "
-              "evidence is not a rule -- the move spends exactly the authority "
-              "it is about to give away.")
-    if W.authority(win(W.VESPER_OPENED, V), W.RELOCATE_OFF,
-                   vespers_desktop=V) != W.FREE:
-        r.err("VESPER may not move its OWN window off its own Desktop. The "
-              "relocation guard is meant to protect the owner's windows; "
-              "catching every window means it cannot tell it is working.")
+    # ------------------------- THE DESKTOP BUYS NOTHING, IN EITHER DIRECTION
+    # The clause rule 31 removed was "on VESPER's Desktop, every window is
+    # VESPER's", and its escape was relocation: carry an owner's window onto
+    # the Desktop to gain authority, or off it having spent authority held only
+    # there. With authority carried by the window, every effect must answer the
+    # same wherever the window sits and whether or not VESPER holds a Desktop.
+    for eff in W.EFFECTS:
+        theirs = {W.authority(win(W.OWNER_OPENED, d), eff, vespers_desktop=vd)
+                  for d in (V, O) for vd in (V, None)}
+        if theirs != {W.ON_REQUEST}:
+            r.err(f"{eff} on an owner's window answers {sorted(theirs)} "
+                  "depending on where it sits. Rule 31 has no Desktop "
+                  "exception: the owner's window is managed on demand wherever "
+                  "it is.")
+        own = {W.authority(win(W.VESPER_OPENED, d), eff, vespers_desktop=vd)
+               for d in (V, O) for vd in (V, None)}
+        if own != {W.FREE}:
+            r.err(f"{eff} on VESPER's own window answers {sorted(own)}. Rule 31: "
+                  "its own windows are VESPER's to manage, always -- a guard "
+                  "that catches them too cannot tell it is working.")
 
-    # ------------------------------- NO GROUND, NO CLAUSE 1. The whole gate.
-    if W.authority(win(W.OWNER_OPENED, V), W.MOVE, vespers_desktop=None) != W.ON_REQUEST:
-        r.err("with VESPER holding no Desktop, clause 1 still fired. When there "
-              "is no ground there is no workspace to tidy, and every window "
-              "must fall through to provenance.")
+    # --------------------------------------- THE DEMAND IS THE GRANT (rule 31)
+    ok, why = W.may_act(win(W.OWNER_OPENED, V), W.CLOSE, vespers_desktop=V,
+                        owner_requested=True)
+    if not ok:
+        r.err(f"the owner asked to close their own window and was refused: {why}")
+    ok, why = W.may_act(win(W.OWNER_OPENED, V), W.CLOSE, vespers_desktop=V,
+                        owner_requested=False)
+    if ok or not why:
+        r.err("an owner's window closes without their demand, or the refusal "
+              "carries no sentence the owner can read")
+    from core import capabilities as _caps31
+    from core import permission_mode as _pm31
+    for prov in (W.VESPER_OPENED, W.OWNER_OPENED, W.UNKNOWN):
+        lvl = _caps31.window_close_level({"window_id": "1", "provenance": prov})
+        if lvl > _pm31.FREE_LEVEL:
+            r.err(f"closing a {prov} window needs {lvl}, above the standing "
+                  f"grant ({_pm31.FREE_LEVEL}), so a close the owner asked for "
+                  "becomes a second question. Rule 31: 'all grants given by "
+                  "default there for both' -- the demand is the grant.")
 
     # ---------------------------------------- an unjudgeable record is refused
     for bad, why in [
@@ -16968,11 +16999,12 @@ def check_a_window_belongs_to_someone() -> Result:
     caps = (REPO / "core" / "capabilities.py").read_text(encoding="utf-8")
     if 'vespers = raw.get("vespers_desktop")' not in caps:
         r.err("core/capabilities.py no longer reads `vespers_desktop` from the "
-              "bridge. Reading the ACTIVE desktop instead hands VESPER the "
-              "owner's whole session under clause 1.")
+              "bridge. Reading the ACTIVE desktop instead tells `window_open` "
+              "that every Desktop is VESPER's, so what VESPER opens lands in the "
+              "owner's workspace uninvited.")
     if "vespers)" not in caps.split("_VESPER_OPENED_WINDOWS: set")[0]:
-        r.err("the inventory does not return `vespers` as the Desktop authority "
-              "is judged against.")
+        r.err("the inventory does not return `vespers` as the Desktop that "
+              "placement and relocation are judged against.")
     bridge = (REPO / "app" / "home-macos" / "WindowBridge.swift").read_text(encoding="utf-8")
     for needle, what in [
         ("$0.pid != selfPid", "the probing process's own window is counted as "
@@ -16992,14 +17024,14 @@ def check_a_window_belongs_to_someone() -> Result:
               "`before` and `after` identical, because the test was only "
               "whether the window still existed.")
 
-    r.note("the owner's two-clause rule holds on every branch: location first, "
-           "then provenance; UNKNOWN resolves to the owner; relocation off "
-           "VESPER's Desktop cannot be used to escape the rule; with no ground "
-           "there is no clause 1; unjudgeable records and unnamed effects are "
-           "refused; and both live defects are asserted -- the adapter answers "
-           "with VESPER's Desktop rather than the active one, ignoring its own "
-           "window and the all-Spaces island, and a move reports the geometry "
-           "the window actually took")
+    r.note("rule 31 holds on every branch: who opened the window decides, the "
+           "same on every Desktop and with no Desktop at all; UNKNOWN resolves "
+           "to the owner; the owner's demand lifts the refusal and a close on "
+           "demand sits inside the standing grant; unjudgeable records and "
+           "unnamed effects are refused; and both live adapter defects are "
+           "asserted -- VESPER's Desktop rather than the active one, ignoring its "
+           "own window and the all-Spaces island, and a move reports the "
+           "geometry the window actually took")
     return r
 
 
@@ -28375,9 +28407,14 @@ def check_what_the_owner_asks_for_opens_where_they_are() -> Result:
     unwired: `permitted is None` marks a TURN as owner-originated, not each STEP,
     so lifting at turn level would let VESPER put windows in the owner's
     workspace during the fifth step of an elaboration they never asked for --
-    the exact trespass the guard exists to refuse. The FIRST proposal of an
-    owner-originated turn is the owner's request; everything after it is VESPER's
-    own idea and gets nothing, and an autonomous turn never lifts at all.
+    the exact trespass the guard exists to refuse. The first proposal that ACTS
+    is the owner's request; every act after it is VESPER's own idea and gets
+    nothing, and an autonomous turn never lifts at all.
+
+    RULE 31 (2026-09-13) MOVED "FIRST" FROM THE FIRST STEP TO THE FIRST ACT.
+    "Close the safari window" is a `window.list` and then a `window.close`, and
+    lifting the literal first step handed the owner's demand to the list and
+    refused the close. A look changes nothing, so it carries the demand forward.
 
     DRIVEN THROUGH A REAL ACTOR over a real multi-step turn, because "the flag is
     set" is satisfied by setting it everywhere, which is the failure.
@@ -28395,10 +28432,14 @@ def check_what_the_owner_asks_for_opens_where_they_are() -> Result:
         def __init__(self): self.n = 0
         def complete(self, *a, **k):
             self.n += 1
+            # A LOOK, THEN TWO ACTS: the look must carry the demand to the first
+            # act, and the second act must get nothing.
             if self.n == 1:
-                p = {"action": "fs.read", "args": {"path": "/etc/hosts"}, "why": "one"}
+                p = {"action": "fs.read", "args": {"path": "/etc/hosts"}, "why": "look"}
             elif self.n == 2:
-                p = {"action": "fs.read", "args": {"path": "/etc/services"}, "why": "two"}
+                p = {"action": "shell.run", "args": {"cmd": "echo one"}, "why": "act"}
+            elif self.n == 3:
+                p = {"action": "shell.run", "args": {"cmd": "echo two"}, "why": "again"}
             else:
                 p = {"action": "none"}
             return {"result": {"text": _j.dumps(p)}}
@@ -28422,19 +28463,24 @@ def check_what_the_owner_asks_for_opens_where_they_are() -> Result:
     owner = drive(None)
     auto = drive(lambda: True)
 
-    if len(owner) < 2:
+    if len(owner) < 3:
         r.err(f"the owner turn produced {len(owner)} step(s); this check needs a "
-              f"multi-step turn to tell the first step from the rest, so it is "
-              f"not testing what it claims")
+              f"look and two acts to tell the demand's act from the rest, so it "
+              f"is not testing what it claims")
     else:
         if owner[0].get("owner_requested") is not True:
-            r.err("the owner's OWN first request does not lift the workspace "
-                  "guard, so vesper still answers 'switch to my desktop and I "
-                  "will open it there' to a request the owner just made")
-        for i, st in enumerate(owner[1:], start=1):
+            r.err("the owner's turn does not lift at its first step, so vesper "
+                  "still answers 'switch to my desktop and I will open it there' "
+                  "to a request the owner just made")
+        if owner[1].get("owner_requested") is not True:
+            r.err("the first ACT after a look lost the owner's demand: the look "
+                  "spent it. Rule 31's defect -- 'close the safari window' lists "
+                  "first, and the close is refused 'was not asked about' to an "
+                  "owner who had just asked")
+        for i, st in enumerate(owner[2:], start=2):
             if st.get("owner_requested"):
                 r.err(f"step {i} of the turn also carries owner_requested. Only "
-                      f"the FIRST proposal is the owner's request; the rest are "
+                      f"the first act is the owner's request; the rest are "
                       f"vesper's elaboration, and lifting there puts windows in "
                       f"the owner's workspace during steps they never asked for")
 
@@ -28451,9 +28497,10 @@ def check_what_the_owner_asks_for_opens_where_they_are() -> Result:
               "passes over a rule that no longer exists")
 
     if not r.errors:
-        r.note(f"driven over a real {len(owner)}-step owner turn: the first "
-               f"proposal lifts the guard and no later step does; an autonomous "
-               f"turn lifts nothing; and the guard it lifts is still there")
+        r.note(f"driven over a real {len(owner)}-step owner turn: a look carries "
+               f"the owner's demand to the first act, which spends it, and no "
+               f"later act gets it; an autonomous turn lifts nothing; and the "
+               f"guard it lifts is still there")
     return r
 
 

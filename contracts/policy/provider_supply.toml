@@ -1167,6 +1167,50 @@ starves only itself -- the pattern the compactor, chooser, updater, arbiter and
 forgetter already follow. Does not enrol until the credential exists."""
 
 [[provider]]
+id = "claude-scholar"
+soft_cap_ratio = 0.70
+tier = "strong"
+purpose = "scholar"
+rung = 1
+egress_class = "E1_PRIVATE"
+cost_class = "free"
+credential_env = "VESPER_CLAUDE_CONFIG_DIR"
+endpoint = "claude"
+wire = "cli_subprocess"
+argv = ["-p", "{prompt}"]
+config_dir_env = "CLAUDE_CONFIG_DIR"
+config_dir = "~/.config/vesper/claude-vesper"
+model = "subscription-default"
+quota_unit = "requests"
+quota_published = 0
+quota_window_seconds = 18_000
+quota_note = """The owner's own claude subscription, shared with the other agents on
+this account, and the scholar's rung that can search: the CLI's WebSearch and
+WebFetch tools are what let a finding carry the URL it was read at. Unmetered per
+token and unpublished per request, so the ledger books an unmeasured ceiling."""
+
+[[provider]]
+id = "google-scholar"
+tier = "standard"
+purpose = "scholar"
+rung = 2
+egress_class = "E1_PRIVATE"
+cost_class = "metered_free_tier"
+provable_hard_cap = true
+hard_cap_evidence = "OWED: no key has been provisioned for the scholar. Free tier, no card attached; verify before first use and record the ceiling here."
+credential_env = "GOOGLE_API_KEY_SCHOLAR"
+endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent"
+model = "gemini-3.6-flash"
+wire = "google_generate"
+quota_unit = "UNKNOWN"
+quota_published = 0
+quota_window_seconds = 86_400
+quota_note = """Dedicated account for the scholar, so a spent agent starves only
+itself. Does not enrol until the credential exists -- and must not answer a
+research question until search grounding is wired on this wire: a literature
+review without the sources it read is not a finding (INV-EVID-2)."""
+
+[[provider]]
 id = "claude-auditor"
 soft_cap_ratio = 0.70
 tier = "strong"

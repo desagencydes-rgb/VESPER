@@ -6574,21 +6574,44 @@ WINDOW_BRIDGE = "app/home-macos/WindowBridge.swift"
 
 CASES += [
     ("a-window-belongs-to-someone", WINDOWS_PY,
-     _sub("    if effect == RELOCATE_OFF:\n"
-          "        if window.provenance == VESPER_OPENED:\n"
-          "            return FREE\n"
-          "        return ON_REQUEST\n", "", 1),
-     "relocation stops being its own effect, so VESPER may carry the owner's "
-     "window off its Desktop using authority it holds only while the window is "
-     "there -- and move one on to grant itself authority it never had"),
+     _sub("    if window.provenance == VESPER_OPENED:\n"
+          "        return FREE                                   # VESPER's own, anywhere\n",
+          "    if vespers_desktop is not None and window.desktop_id == vespers_desktop:\n"
+          "        return FREE\n"
+          "    if window.provenance == VESPER_OPENED:\n"
+          "        return FREE                                   # VESPER's own, anywhere\n", 1),
+     "the Desktop clause comes back: an owner's window on VESPER's Desktop is "
+     "VESPER's to move and close unasked -- the answer rule 31 replaced, and "
+     "the one this gate asserted while INV-HOST-5 said otherwise"),
 
     ("a-window-belongs-to-someone", WINDOWS_PY,
      _sub("    if window.provenance == VESPER_OPENED:\n"
-          "        return FREE                                   # clause 2, VESPER's own\n"
-          "    return ON_REQUEST                                 # clause 2, owner's/unknown",
+          "        return FREE                                   # VESPER's own, anywhere\n"
+          "    return ON_REQUEST                                 # the owner's or unrecorded, anywhere",
           "    return FREE", 1),
-     "clause 2 collapses and every window anywhere becomes VESPER's to "
+     "provenance stops mattering and every window anywhere becomes VESPER's to "
      "arrange -- the owner's whole session, on every Desktop"),
+
+    ("a-window-belongs-to-someone", WINDOWS_PY,
+     _sub("    if window.provenance == VESPER_OPENED:\n",
+          "    if window.provenance in (VESPER_OPENED, UNKNOWN):\n", 1),
+     "a window whose opener was never recorded counts as VESPER's, so anything "
+     "VESPER has forgotten about becomes something it may close"),
+
+    ("a-window-belongs-to-someone", WINDOWS_PY,
+     _sub("    if window.provenance == VESPER_OPENED:\n",
+          "    if effect == RELOCATE_OFF:\n"
+          "        return FREE\n"
+          "    if window.provenance == VESPER_OPENED:\n", 1),
+     "carrying a window to another Desktop is free whoever opened it, so the "
+     "owner's window can be taken off their Desktop unasked"),
+
+    ("a-window-belongs-to-someone", CAPS_PY,
+     _sub('    return "L2" if args.get("provenance") == W.VESPER_OPENED else "L3"',
+          '    return "L2" if args.get("provenance") == W.VESPER_OPENED else "L5"', 1),
+     "closing the owner's window climbs back above the standing grant, so a close "
+     "the owner demanded becomes a second question in every mode -- the opposite "
+     "of rule 31's 'all grants given by default there for both'"),
 
     ("a-window-belongs-to-someone", WINDOWS_PY,
      _sub('        if not str(self.desktop_id).strip():',
@@ -8274,9 +8297,10 @@ CASES += [
      "owner's two halves into one"),
 ]
 
-LIFT_REAL = '            if step == first_step and permitted is None and isinstance(\n                    getattr(p, "args", None), dict):\n                p.args["owner_requested"] = True\n'
+LIFT_REAL = '            if permitted is None and not demand_spent and isinstance(\n                    getattr(p, "args", None), dict):\n                p.args["owner_requested"] = True\n                demand_spent = p.capability_id not in LOOKS\n'
 LIFT_EVERY = '            if permitted is None and isinstance(\n                    getattr(p, "args", None), dict):\n                p.args["owner_requested"] = True\n'
-LIFT_AUTO = '            if step == first_step and isinstance(\n                    getattr(p, "args", None), dict):\n                p.args["owner_requested"] = True\n'
+LIFT_AUTO = '            if not demand_spent and isinstance(\n                    getattr(p, "args", None), dict):\n                p.args["owner_requested"] = True\n                demand_spent = p.capability_id not in LOOKS\n'
+LIFT_LOOKS_SPEND = '            if permitted is None and not demand_spent and isinstance(\n                    getattr(p, "args", None), dict):\n                p.args["owner_requested"] = True\n                demand_spent = True\n'
 
 ACTOR_PY = "core/actor.py"
 
@@ -8297,6 +8321,12 @@ CASES += [
      _sub(LIFT_REAL, LIFT_AUTO, 1),
      "an autonomous turn lifts the guard too, so vesper opens into the owner's "
      "workspace when nobody asked for anything at all"),
+
+    ("what-the-owner-asks-for-opens-where-they-are", ACTOR_PY,
+     _sub(LIFT_REAL, LIFT_LOOKS_SPEND, 1),
+     "a look spends the owner's demand, so 'close the safari window' lists the "
+     "windows and then refuses the close 'was not asked about' -- rule 31's "
+     "defect, to an owner who had just asked"),
 ]
 
 NAMED_REAL = '        named = [str(r.get("label")).strip() for r in can\n                 if str(r.get("label") or "").strip()]'
