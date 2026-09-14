@@ -3953,6 +3953,47 @@ CASES += [
      _sub("guard ev.keyCode == FN_KEYCODE else { return }", "", 1),
      "the .function flag alone counts as a globe tap, and every arrow key raises "
      "it -- three quick presses scrolling a document start VESPER"),
+
+    # THE STOP THE OWNER PRESSED, 2026-09-14: each part it left running.
+    ("wake-word-listens-locally-and-starts-once", MAIN_SWIFT,
+     _sub('    launchctl(["bootout", "gui/\\(uid)/ai.vesper.island.arm"])',
+          '    launchctl(["bootout", "gui/\\(uid)/ai.vesper.arm"])', 1),
+     "the stop boots out a label no agent carries, KeepAlive restores the minter, "
+     "and autonomy stays armed for hours after the owner pressed stop"),
+
+    ("wake-word-listens-locally-and-starts-once", MAIN_SWIFT,
+     _sub('    launchctl(["bootout", "gui/\\(uid)/ai.vesper.island.wake"])\n', "", 1),
+     "the stop leaves the wake listener running, so the microphone stays open "
+     "on a VESPER the owner has stopped"),
+
+    ("wake-word-listens-locally-and-starts-once", MAIN_SWIFT,
+     _sub('    pkill("vesper_runtime.py")\n', "", 1),
+     "the stop boots out the home and leaves its runtime running, reparented to "
+     "launchd and still acting"),
+
+    ("wake-word-listens-locally-and-starts-once", FN_SWIFT,
+     _sub('        let wake = SMAppService.agent(plistName: "ai.vesper.island.wake.plist")',
+          '        let wake = SMAppService.agent(plistName: "ai.vesper.island.agenda.plist")', 1),
+     "globe x3 starts VESPER without its wake listener, so after one stop the "
+     "wake word is gone until the next build"),
+
+    ("wake-word-listens-locally-and-starts-once", MAIN_SWIFT,
+     _sub('        for name in ["ai.vesper.island.plist", "ai.vesper.island.fnwatch.plist",\n'
+          '                     "ai.vesper.island.wake.plist"] {',
+          '        for name in ["ai.vesper.island.plist", "ai.vesper.island.fnwatch.plist"] {', 1),
+     "--start restores the app and the starter but not the wake listener the stop "
+     "booted out"),
+
+    ("wake-word-listens-locally-and-starts-once", RUNTIME_PY,
+     _sub("        if os.getppid() == 1:", "        if False:", 1),
+     "a runtime whose home has died keeps pumping with its actor and autonomy, "
+     "which is how a stopped VESPER ran autonomous turns for hours"),
+
+    ("wake-word-listens-locally-and-starts-once", RUNTIME_PY,
+     _sub("        _drain_control(bus, home, actor=actor)",
+          "        if transcriber is not None: _drain_control(bus, home, actor=actor)", 1),
+     "the control drain goes back inside the transcriber's branch: without speech, "
+     "no button the owner presses is ever applied"),
 ]
 
 

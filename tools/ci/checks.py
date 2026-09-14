@@ -13185,6 +13185,53 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
         r.err("there is no --start, so a stop is only undone by an agent that "
               "has already been observed refusing to spawn")
 
+    # A STOP STOPS EVERYTHING BUT THE STARTER (2026-09-14). The owner pressed
+    # stop. The minter's bootout named `ai.vesper.arm`, a label no agent has, so
+    # KeepAlive restored it and autonomy stayed armed; the wake listener was
+    # never stopped, so the microphone stayed open; and the runtime outlived its
+    # home and kept acting for hours. PARSED, NOT GREPPED: the labels the stop
+    # boots out must be labels the bundle's agents actually carry.
+    stop_body = main.split("func stopVesper", 1)[-1]
+    stop_body = stop_body[:stop_body.find("\n}\n")]
+    booted = re.findall(r'launchctl\(\["bootout", "gui/\\\(uid\)/([A-Za-z0-9._-]+)"\]\)', stop_body)
+    known = {"ai.vesper.island"} | {n[:-len(".plist")] for n in
+                                    re.findall(r'"(ai\.vesper\.island\.[a-z]+\.plist)"', main)}
+    for label in booted:
+        if label not in known:
+            r.err(f"the stop boots out {label!r}, which no agent carries: the bootout does "
+                  "nothing, and KeepAlive keeps that job running after the owner pressed stop")
+    for need, what in (("ai.vesper.island.arm", "the minter keeps autonomy armed"),
+                       ("ai.vesper.island.wake", "the wake listener keeps the microphone open"),
+                       ("ai.vesper.island", "the app itself keeps running")):
+        if need not in booted:
+            r.err(f"the stop does not boot out {need}: {what} after a stop")
+    if "ai.vesper.island.fnwatch" in booted:
+        r.err("the stop boots out the globe-key starter, the only way back without a terminal")
+    kill_rt = stop_body.find('pkill("vesper_runtime.py")')
+    island_out = stop_body.find('"gui/\\(uid)/ai.vesper.island"])')
+    if kill_rt < 0 or (island_out >= 0 and kill_rt > island_out):
+        r.err("the stop does not end the runtime before booting the home out, so the runtime "
+              "outlives the home that spawned it and keeps acting")
+    fn_src = (REPO / "app" / "island-macos" / "FnTrigger.swift").read_text(encoding="utf-8")
+    if 'SMAppService.agent(plistName: "ai.vesper.island.wake.plist")' not in fn_src:
+        r.err("globe x3 does not bring the wake listener back after a stop, so the wake word "
+              "is gone until the next build")
+    if not re.search(r'for name in \["ai\.vesper\.island\.plist", "ai\.vesper\.island\.fnwatch\.plist",'
+                     r'\s*"ai\.vesper\.island\.wake\.plist"\]', main):
+        r.err("--start does not re-register the wake listener after a stop")
+    rt_src = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if not re.search(r"while True:\n(?:\s*#.*\n)*\s+if os\.getppid\(\) == 1:", rt_src):
+        r.err("the runtime does not end itself when its home is gone, so a stopped VESPER "
+              "keeps a headless runtime acting")
+    # AND A BUTTON DOES NOT WAIT FOR A MICROPHONE.
+    for node in ast.walk(ast.parse(rt_src)):
+        if isinstance(node, ast.If) and "transcriber" in ast.unparse(node.test):
+            if any(isinstance(n, ast.Call) and getattr(n.func, "id", "") == "_drain_control"
+                   for n in ast.walk(node)):
+                r.err("the control drain sits inside the transcriber's branch, so without speech "
+                      "no button the owner presses is ever applied")
+                break
+
     # THE MINTER IS THE JOB, NOT A PARENT WATCHING ONE. Spawn-and-wait made
     # every arm job two processes and orphaned the python half on every
     # SIGTERM: seven live minters, measured 2026-09-04.

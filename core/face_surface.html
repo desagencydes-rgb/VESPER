@@ -14,10 +14,18 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden}
 .face.s{transform:translate(-50%,0%) rotate(0deg)}
 .face.w{transform:translate(-100%,-50%) rotate(90deg)}
 .face.e{transform:translate(0%,-50%) rotate(-90deg)}
-#hud{position:fixed;left:6px;bottom:6px;font:11px/1.3 Roboto,-apple-system,sans-serif;color:#444}
+#hud{position:fixed;left:6px;bottom:6px;font:15px/1.35 Roboto,-apple-system,sans-serif;color:#b8b8b8}
+#hud.error{color:#ff8a80}
 </style></head><body>
 <div id="stage"></div><div id="hud">connecting to VESPER</div>
 <script>
+// A BLACK SCREEN MUST SAY WHY (2026-09-14). The owner opened this on the phone
+// and saw a blank page, with nothing on it to tell a script error from a slow
+// download from a wrong address. So an error prints itself, in readable type.
+window.onerror = function (msg, src, line) {
+  var h = document.getElementById('hud');
+  if (h) { h.className = 'error'; h.textContent = 'the face page failed: ' + msg + ' (line ' + line + ')'; }
+};
 (function () {
   'use strict';
   // THE SAME FACE, A SECOND SURFACE (HOME-WORKBENCH §32.1). The cloud is the
@@ -56,6 +64,13 @@ html,body{margin:0;height:100%;background:#000;overflow:hidden}
     var x = new XMLHttpRequest();
     x.open('GET', 'face.bin');
     x.responseType = 'arraybuffer';
+    // THE DOWNLOAD SAYS HOW FAR IT HAS GOT. The cloud is ~600 KB, and over a
+    // phone's hotspot that is seconds of black screen with nothing to read.
+    x.onprogress = function (e) {
+      if (e.lengthComputable && e.total > 0) {
+        hud.textContent = 'loading VESPER\'s face ' + Math.round(100 * e.loaded / e.total) + '%';
+      }
+    };
     x.onload = function () {
       if (x.status !== 200 || !x.response || x.response.byteLength < 20) {
         hud.textContent = 'VESPER did not send its face';

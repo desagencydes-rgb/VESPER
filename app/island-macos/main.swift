@@ -1015,15 +1015,33 @@ func stopVesper(exitAfter: Bool = true) -> Void {
         try? p.run()
         p.waitUntilExit()
     }
-    launchctl(["bootout", "gui/\(uid)/ai.vesper.arm"])
+    // THE REAL LABELS, AND ALL OF THEM (2026-09-14). This booted out
+    // `ai.vesper.arm`, a label no agent has -- the minter's is
+    // `ai.vesper.island.arm` -- so the bootout did nothing, the pkill below
+    // killed the minter, and KeepAlive started it again: autonomy stayed armed
+    // for hours after the owner pressed stop. The wake listener was never
+    // stopped at all, so the microphone stayed open, and the runtime the home
+    // had spawned outlived the home and kept acting. A stop stops everything
+    // but the starter.
+    launchctl(["bootout", "gui/\(uid)/ai.vesper.island.arm"])
     // ANY MINTER THAT OUTLIVED ITS JOB. Belt and braces: the exec fix above
     // stops new ones being orphaned, and this clears any that already were.
-    let pk = Process()
-    pk.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-    pk.arguments = ["-f", "vesper_arm.py"]
-    pk.standardOutput = FileHandle.nullDevice
-    pk.standardError = FileHandle.nullDevice
-    try? pk.run(); pk.waitUntilExit()
+    func pkill(_ pattern: String) {
+        let pk = Process()
+        pk.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        pk.arguments = ["-f", pattern]
+        pk.standardOutput = FileHandle.nullDevice
+        pk.standardError = FileHandle.nullDevice
+        try? pk.run(); pk.waitUntilExit()
+    }
+    pkill("vesper_arm.py")
+    // THE MICROPHONE. The wake listener is its own KeepAlive agent; a stop that
+    // leaves it running leaves the room listened to.
+    launchctl(["bootout", "gui/\(uid)/ai.vesper.island.wake"])
+    // THE RUNTIME, BEFORE THE HOME THAT SPAWNED IT. A SIGTERM to the home does
+    // not reach its python child, which is reparented to launchd and keeps
+    // acting with whatever authority it last held.
+    pkill("vesper_runtime.py")
 
     print("VESPER stopped. Globe x3 starts it again.")
     // Last, because it SIGTERMs the island process -- which is US when the
@@ -1059,7 +1077,10 @@ if args.contains("--start") {
         // This is also why the globe-key starter looked broken for a day: it
         // was never re-registered after a rebuild, only re-registered ON TOP
         // of a stale record, which is the same no-op.
-        for name in ["ai.vesper.island.plist", "ai.vesper.island.fnwatch.plist"] {
+        // THE WAKE LISTENER TOO: the stop boots it out with the microphone, so
+        // the way back restores it. The minter stays off (see the print below).
+        for name in ["ai.vesper.island.plist", "ai.vesper.island.fnwatch.plist",
+                     "ai.vesper.island.wake.plist"] {
             let svc = SMAppService.agent(plistName: name)
             try? svc.unregister()
             Thread.sleep(forTimeInterval: 1.0)

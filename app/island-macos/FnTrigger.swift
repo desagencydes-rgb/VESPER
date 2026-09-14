@@ -99,6 +99,15 @@ func launchVesper() {
     // below still runs if nothing came up.
     if #available(macOS 13.0, *) {
         try? SMAppService.agent(plistName: "ai.vesper.island.plist").register()
+        // THE LISTENER COMES BACK WITH VESPER. The stop boots the wake agent out
+        // -- it holds the microphone, and a stopped VESPER must not listen -- so
+        // the start re-registers it. Unregister first: a bare register() over a
+        // booted-out record is a no-op (see `--start`). The minter is NOT
+        // restored here; autonomy after a stop is re-armed by a person.
+        let wake = SMAppService.agent(plistName: "ai.vesper.island.wake.plist")
+        try? wake.unregister()
+        Thread.sleep(forTimeInterval: 1.0)
+        try? wake.register()
         Thread.sleep(forTimeInterval: 1.5)
         if homeIsRunning() {
             note("globe x3 -- VESPER restored under launchd supervision")

@@ -97,7 +97,7 @@ tools/traceability_lint.py --profile release  FAIL   2 errors, DEPTH only (SR-01
 tools/reference_lint.py                       PASS   0 errors — 179 normative files scanned
 tools/reference_lint.py --self-test           PASS   6/6 red-then-green
 tools/ci/checks.py all                        STALE  196/196 runnable checks -- 195/196 passed on 2026-09-14 18:13; the one red is the-shipped-runtime-can-reach-what-it-needs, bundle drift the next build clears
-tools/ci/self_test.py                         STALE  1018/1018 red-then-green -- last FULL run 900/900 on 2026-09-12; cases added since were run on their own, check by check. A full run at ec8f146 was started in a worktree on 2026-09-14 07:13 and has not completed
+tools/ci/self_test.py                         STALE  1025/1025 red-then-green -- last FULL run 900/900 on 2026-09-12; cases added since were run on their own, check by check. A full run at ec8f146 was started in a worktree on 2026-09-14 07:13 and has not completed
 tools/ci/checks.py status                            189/207 check IDs implemented, 18 PENDING
 tools/ci/checks.py ci-registry                       ENFORCED TODAY: 131/182 invariants
 verification/run_f0_acceptance.py             PASS

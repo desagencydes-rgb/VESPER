@@ -2432,28 +2432,33 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
     # so a clip captured this pass is answered this pass rather than next.
     if transcriber is not None:
         _drain_heard(bus, transcriber)
+    # THE BUTTONS AND THE CARDS DO NOT DEPEND ON HEARING (2026-09-14). The control
+    # drain and the surface refresh sat inside the transcriber's branch above, so
+    # a VESPER without speech would apply no button the owner pressed and refresh
+    # no card -- management gated on a microphone permission it has nothing to
+    # do with.
+    try:
+        _drain_control(bus, home, actor=actor)
+    except Exception as _exc:                              # noqa: BLE001
+        # A CONTROL THAT FAILS MUST NOT STOP THE PUMP. Answering is the job.
+        bus.publish("control.drain_failed", subject="control",
+                    payload={"error": repr(_exc)}, component="runtime")
+    # THE MANAGEMENT SURFACES RE-READ EVERY 30 s. Until 2026-09-14 the
+    # settings rows and the menu cards were built once at startup and again
+    # only after a control landed, so a card showed the arm agent's pid from
+    # before the last build for as long as nobody pressed anything. Thirty
+    # seconds is the most a person waits after doing something outside VESPER
+    # (granting a permission, stopping an agent) before looking at the card.
+    # `time.monotonic()`: an elapsed interval, which INV-COORD-4 permits.
+    global _LAST_SURFACE_REFRESH
+    _now_m = time.monotonic()
+    if _now_m - _LAST_SURFACE_REFRESH >= 30.0:
+        _LAST_SURFACE_REFRESH = _now_m
         try:
-            _drain_control(bus, home, actor=actor)
+            home.refresh_settings()
         except Exception as _exc:                          # noqa: BLE001
-            # A CONTROL THAT FAILS MUST NOT STOP THE PUMP. Answering is the job.
-            bus.publish("control.drain_failed", subject="control",
+            bus.publish("surface.refresh_failed", subject="settings",
                         payload={"error": repr(_exc)}, component="runtime")
-        # THE MANAGEMENT SURFACES RE-READ EVERY 30 s. Until 2026-09-14 the
-        # settings rows and the menu cards were built once at startup and again
-        # only after a control landed, so a card showed the arm agent's pid from
-        # before the last build for as long as nobody pressed anything. Thirty
-        # seconds is the most a person waits after doing something outside VESPER
-        # (granting a permission, stopping an agent) before looking at the card.
-        # `time.monotonic()`: an elapsed interval, which INV-COORD-4 permits.
-        global _LAST_SURFACE_REFRESH
-        _now_m = time.monotonic()
-        if _now_m - _LAST_SURFACE_REFRESH >= 30.0:
-            _LAST_SURFACE_REFRESH = _now_m
-            try:
-                home.refresh_settings()
-            except Exception as _exc:                      # noqa: BLE001
-                bus.publish("surface.refresh_failed", subject="settings",
-                            payload={"error": repr(_exc)}, component="runtime")
     # AND HOW THE LAST MODE WENT. Read every pass, because the failure it
     # reports is one the owner is looking at right now -- their own Desktop
     # showing while they wait for vesper's picture to change.
@@ -3234,6 +3239,18 @@ def main() -> int:
     print("vesper runtime: watching the field. ctrl-c to stop.")
     home.write()
     while True:
+        # A RUNTIME WITH NO HOME ENDS ITSELF (2026-09-14). The home spawns this
+        # process. When the home dies without ending it -- a stop that SIGTERMs
+        # the home, a crash -- this is reparented to launchd (ppid 1), and until
+        # now it kept pumping with its actor and its autonomy: after the owner
+        # pressed stop it ran autonomous turns for hours. Nothing supervises a
+        # runtime but its home, so a runtime that has lost its home stops.
+        if os.getppid() == 1:
+            bus.publish("runtime.orphaned", subject="runtime",
+                        payload={"note": "the home that spawned this runtime is gone; it stops"},
+                        component="runtime")
+            print("vesper runtime: the home that started me is gone; stopping.", flush=True)
+            return 0
         try:
             pump(bus, gw, router, persona, bench, home, intake, transcript,
                  changes=changes,
