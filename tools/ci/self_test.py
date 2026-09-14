@@ -7737,8 +7737,12 @@ CHECKS_PY_SELF = "tools/ci/checks.py"
 STATUS_MD = "VESPER_ENGINEERING_STATUS.md"
 
 CASES += [
+    # THE PASS ROW, NOT THE STALE ONE. The self_test row says STALE by design
+    # until a full run completes, and a STALE row carries no date to remove, so
+    # this case stopped applying (full self_test, 2026-09-14). The checks row is
+    # the one that says PASS and must name its day.
     ("documented-counts-match-commands", STATUS_MD,
-     _undate(" red-then-green"),
+     _undate(" runnable checks"),
      "a PASS loses the day it passed, so the word claims a run with nothing to "
      "age against -- which is how this pair sat six sessions stale while the "
      "table said the suite was green"),
@@ -8137,10 +8141,14 @@ CASES += [
      "'list windows first to learn ids' becomes unfollowable"),
 
     ("the-loop-can-see-what-it-just-did", INTENT_PY,
+     # The render gained `always=("label",)` so an unnamed control says so, and
+     # the literal that spelled the call without it stopped matching
+     # ("the mutation did not apply", full self_test 2026-09-14).
      _sub("""        els = o.get("elements")
         if isinstance(els, list) and els:
             out.extend(_render_rows(
-                "elements", els, ("path", "role", "label", "can")))
+                "elements", els, ("path", "role", "label", "can"),
+                always=("label",)))
 """, "", 1),
      "the interface elements stop reaching the planner, so ui.act can never be "
      "given a path and the clicking half of the loop cannot be addressed"),

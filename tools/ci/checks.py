@@ -27850,8 +27850,20 @@ def check_the_settings_surface_reads_and_explains() -> Result:
         r.err(f"{dom.name} is missing, so the renderer is asserted about rather "
               f"than driven")
         return r
+    # ONE ROW WITH NO READING RIDES ALONG, ALWAYS. Every live row reads a value
+    # now -- the owner asked to see UNAVAILABLE nowhere -- so the renderer's
+    # absence branch was never drawn, and a mutation that blanked it passed this
+    # check (full self_test, 2026-09-14). The owner-facing assertions above read
+    # the real rows; only the renderer is handed the absence to draw.
+    absent_row = {"id": "a-setting-with-no-reading", "name": "A setting with no reading",
+                  "what": "A fixture row the renderer must draw as an absence with its reason.",
+                  # NO VALUE, as a real absent row carries none: with the word in
+                  # `value` a renderer that blanked the cell still printed it.
+                  "governed": False, "status": "unavailable", "value": None,
+                  "reason": "no producer answered for this row in the fixture", "source": "",
+                  "at_ms": 0, "ttl_ms": 0, "change_by": ""}
     with _tf.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
-        json.dump(rows, fh)
+        json.dump(rows + [absent_row], fh)
         rows_path = fh.name
     out = _sp.run([node, str(dom),
                    str(REPO / "app" / "home-macos" / "chrome" / "home.html"),
