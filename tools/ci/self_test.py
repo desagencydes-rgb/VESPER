@@ -1138,6 +1138,8 @@ F7_HOMECHROME = "app/home-macos/HomeChrome.swift"
 F7_MAIN_SWIFT = "app/island-macos/main.swift"
 F8_CARDS = "core/menu_cards.py"
 F8_CONTROLS = "core/controls.py"
+F9_BOARDS = "core/boards.py"
+F9_HOME_STATE = "core/home_state.py"
 F6_BUILD_SH = "app/island-macos/build.sh"
 F6_RUNTIME_HOST = "app/home-macos/RuntimeHost.swift"
 CHROME_TPL = "app/home-macos/chrome/home.html"
@@ -2189,6 +2191,38 @@ CASES += [
           "", 1),
      "the host builds the cards JSON and never pushes it, so the receiver waits "
      "forever with nothing to show"),
+
+    ("boards-hold-windows-and-cards", F9_BOARDS,
+     _sub('    available = [w for w in inventory if str(w["window_id"]) not in chosen_ids]',
+          '    available = list(inventory)', 1),
+     "the picker offers windows that are already on the board, so one press adds "
+     "the same window twice and the list never shrinks"),
+
+    ("boards-hold-windows-and-cards", F9_BOARDS,
+     _sub('            if prov == "vesper_opened":', '            if True:', 1),
+     "the owner's window gets VESPER's own close sentence, with no demand in it "
+     "-- rule 31 says others are managed only on demand"),
+
+    ("boards-hold-windows-and-cards", F9_BOARDS,
+     _sub('        status = ("open" + (", on the showing Desktop" if lw and lw.get("on_active_desktop") else ", elsewhere")) if lw else "gone (closed since it was chosen)"',
+          '        status = "open"', 1),
+     "a window that closed since it was chosen still reads as open: the board "
+     "keeps offering to bring here a window that is not there"),
+
+    ("boards-hold-windows-and-cards", F8_CONTROLS,
+     _sub('    "board.add_window": (BOARD, _board("add_window")),', '', 1),
+     "the picker's Add window button names a control nobody applies"),
+
+    ("boards-hold-windows-and-cards", F7_HOME_HTML,
+     _sub("    content.append(renderBoard('projects'));", "    if(false)content.append(renderBoard('projects'));", 1),
+     "the projects dashboard shows its panels and no workspace: no picker, no "
+     "windows, no cards -- what the owner called generic cards that are not working"),
+
+    ("boards-hold-windows-and-cards", F9_HOME_STATE,
+     _sub('            if getattr(self, "_boards", None):\n                existing["boards"] = self._boards',
+          '            if False:\n                existing["boards"] = self._boards', 1),
+     "the boards are built every 30 s and never written to home.json, so the "
+     "page's picker stays empty with the answer already in the process"),
 
     ("chain-budget-bounded", GATEWAY,
      _sub("    MAX_ATTEMPTS_PER_REQUEST = 10", "    MAX_ATTEMPTS_PER_REQUEST = 100", 1),

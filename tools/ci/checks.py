@@ -4625,6 +4625,150 @@ def check_main_menu_manages() -> Result:
     return r
 
 
+def check_boards_hold_windows_and_cards() -> Result:
+    """The projects and research boards hold windows and cards the owner picked
+    from a list, show each one's live status, and offer the acts that manage it.
+
+    OWNER, 2026-09-13: "windows and cards should appear there ... with full
+    management i choose from a pop up list". RUNTIME FIXTURE on a temp board
+    file with a fake inventory: choose, see, act, remove; a window that closed
+    reads as gone rather than vanishing; a window that is not VESPER's is closed
+    only on the owner's demand (rule 31); the picker never offers what is
+    already chosen. Then the wiring: controls, producer, push, page.
+    """
+    import tempfile
+    from types import SimpleNamespace
+
+    r = Result("boards-hold-windows-and-cards")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core import boards as B
+        from core import controls as C
+        from core import research_room as RR
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"boards, controls or research_room did not import: {exc!r}")
+        return r
+
+    inv = [{"window_id": "101", "pid": "1", "app_label": "Safari", "provenance": "unknown", "on_active_desktop": True},
+           {"window_id": "202", "pid": "2", "app_label": "TextEdit", "provenance": "vesper_opened", "on_active_desktop": False}]
+    with tempfile.TemporaryDirectory() as td:
+        T = Path(td)
+        bp = T / "boards.json"
+        B.add_window("projects", inv[0], path=bp)
+        B.add_window("projects", inv[1], path=bp)
+        B.add_window("projects", {"window_id": "303", "app_label": "Notes"}, path=bp)   # will read as gone
+        try:
+            B.add_window("nope", inv[0], path=bp)
+            r.err("a window was added to a board that does not exist")
+        except B.BoardRefused:
+            pass
+        try:
+            B.add_card("projects", "not-a-panel", path=bp)
+            r.err("a card the board cannot hold was added")
+        except B.BoardRefused:
+            pass
+        avail_cards = B.available_cards("projects")
+        if not avail_cards:
+            r.err("the projects board offers no cards to add")
+        else:
+            B.add_card("projects", avail_cards[0]["id"], path=bp)
+        b = B.board("projects", path=bp, inventory=inv)
+        by = {w["window_id"]: w for w in b["chosen_windows"]}
+        if set(by) != {"101", "202", "303"}:
+            r.err(f"chosen windows {sorted(by)!r}, expected the three added")
+        if not by.get("303", {}).get("status", "").startswith("gone"):
+            r.err("a chosen window that is no longer open is not reported as gone")
+        if "showing Desktop" not in by.get("101", {}).get("status", ""):
+            r.err("a window on the showing Desktop is not said to be there")
+        acts101 = {a["id"]: a for a in by.get("101", {}).get("actions", [])}
+        acts202 = {a["id"]: a for a in by.get("202", {}).get("actions", [])}
+        if "bring-101" not in acts101 or acts101["bring-101"]["control"]["action"] != "act":
+            r.err("no 'bring here' act for a chosen open window")
+        if "asking you to" not in acts101.get("close-101", {}).get("control", {}).get("args", {}).get("text", ""):
+            r.err("closing the OWNER's window is offered without the owner's demand in the sentence (rule 31)")
+        if "asking" in acts202.get("close-202", {}).get("control", {}).get("args", {}).get("text", ""):
+            r.err("closing VESPER's own window asks for a demand it does not need (rule 31)")
+        if not any(a["control"]["action"] == "board.remove_window" for a in by.get("303", {}).get("actions", [])):
+            r.err("a gone window cannot be removed from the board")
+        if {w["window_id"] for w in b["available_windows"]} & set(by):
+            r.err("the picker offers a window that is already on the board")
+        if b["chosen_cards"] and b["chosen_cards"][0]["id"] in {c["id"] for c in b["available_cards"]}:
+            r.err("the picker offers a card that is already on the board")
+        if len(b["open_actions"]) != 4 or any(a["control"]["action"] != "act" for a in b["open_actions"]):
+            r.err("the board does not offer the four open-a-window acts")
+        B.remove_window("projects", "303", path=bp)
+        B.remove_card("projects", avail_cards[0]["id"] if avail_cards else "", path=bp)
+        b2 = B.board("projects", path=bp, inventory=inv)
+        if "303" in {w["window_id"] for w in b2["chosen_windows"]} or b2["chosen_cards"]:
+            r.err("remove_window / remove_card left the item on the board")
+
+        # research: the session, saved into a TEMP sessions dir.
+        real_sessions = RR.SESSIONS
+        RR.SESSIONS = T / "research"
+        try:
+            res = B.set_research_session("ci-room", path=bp)
+            rb = B.board("research", path=bp, inventory=inv)
+            if not res.get("saved") or rb.get("session") != "ci-room" or not any(s["session_id"] == "ci-room" for s in rb.get("sessions", [])):
+                r.err(f"the research session was not set and saved: {res!r}, board {rb.get('session')!r}")
+            if not rb.get("session_actions") or "new_session_control" not in rb:
+                r.err("the research board offers no open-the-room act or new-session control")
+            try:
+                B.set_research_session("", path=bp)
+                r.err("an empty research session name was accepted")
+            except B.BoardRefused:
+                pass
+        finally:
+            RR.SESSIONS = real_sessions
+
+        # the controls, through the registry
+        bus = SimpleNamespace(events=[])
+        bus.publish = lambda t, **kw: bus.events.append((t, kw.get("payload") or {}))
+        ctx = {"bus": bus, "boards_path": bp}
+        res = C.apply({"action": "board.add_window", "args": {"kind": "research", "window": inv[0]}}, ctx=ctx)
+        if not res.get("ok") or res.get("kind") != C.BOARD:
+            r.err(f"board.add_window through the registry failed: {res!r}")
+        res = C.apply({"action": "board.add_card", "args": {"kind": "research", "card_id": "sources"}}, ctx=ctx)
+        if not res.get("ok"):
+            r.err(f"board.add_card sources failed: {res!r}")
+        res = C.apply({"action": "board.add_card", "args": {"kind": "research", "card_id": "nope"}}, ctx=ctx)
+        if res.get("ok"):
+            r.err("board.add_card accepted a card the research room does not have")
+        rb = B.board("research", path=bp, inventory=inv)
+        if {w["window_id"] for w in rb["chosen_windows"]} != {"101"} or [c["id"] for c in rb["chosen_cards"]] != ["sources"]:
+            r.err("the research board does not hold what the controls added")
+
+    # the wiring
+    html = (REPO / "app" / "home-macos" / "chrome" / "home.html").read_text(encoding="utf-8")
+    swift = (REPO / "app" / "home-macos" / "HomeChrome.swift").read_text(encoding="utf-8")
+    hs = (REPO / "core" / "home_state.py").read_text(encoding="utf-8")
+    if "function renderBoard(kind)" not in html:
+        r.err("the chrome has no board renderer")
+    # ANCHORED AT LINE START: a call wrapped in `if(false)` still contains the
+    # substring, and a first version passed with exactly that (negative
+    # control, 2026-09-14).
+    for view in ("projects", "research"):
+        if not re.search(r"^\s*content\.append\(renderBoard\('" + view + r"'\)\);", html, re.M):
+            r.err(f"the {view} view does not render its board unconditionally")
+    if "board.add_window" not in html or "board.add_card" not in html or "board.research_session" not in html:
+        r.err("the picker does not post the board controls")
+    if "__vesperRail('boards'" not in swift or 'railJSON("boards")' not in swift:
+        r.err("the host does not push the boards to the page")
+    if ('if getattr(self, "_boards", None):\n                existing["boards"] = self._boards' not in hs
+            or "BD.boards()" not in hs):
+        r.err("home_state does not produce the boards and write them when present")
+    for k in ("board.add_window", "board.remove_window", "board.add_card", "board.remove_card", "board.research_session"):
+        if k not in C.REGISTRY:
+            r.err(f"{k} is not a registered control")
+
+    if r.ok:
+        r.note("windows chosen from a live inventory and cards from the panels; a closed window reads "
+               "as gone; the owner's window closes only on demand and VESPER's own without it; the "
+               "picker never re-offers a choice; the research session saves into its room; five "
+               "board controls registered; producer, push and both renderers wired")
+    return r
+
+
 def check_chain_budget() -> Result:
     r = Result("chain-budget-bounded")
     if str(REPO) not in sys.path:
@@ -28593,6 +28737,7 @@ CHECK_FNS = {
     "vesper-works-in-its-own-place": check_vesper_works_in_its_own_place,
     "settings-manage-not-only-show": check_settings_manage_not_only_show,
     "main-menu-manages": check_main_menu_manages,
+    "boards-hold-windows-and-cards": check_boards_hold_windows_and_cards,
     "triage-excludes-quota": check_triage_excludes_quota,
     "shared-pool-is-shared": check_shared_pool_is_shared,
     "intake-is-modality-neutral": check_intake_is_modality_neutral,

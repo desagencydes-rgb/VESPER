@@ -415,6 +415,16 @@ class HomeState:
                 n += len(self._menu_cards)
             except Exception:                             # noqa: BLE001
                 pass
+            # THE PROJECTS AND RESEARCH BOARDS (`core/boards.py`): the windows and
+            # cards the owner chose, each with its live status and its acts, and
+            # what the picker may add. Same cadence, same pass.
+            try:
+                from core import boards as BD
+                with self._lock:
+                    self._boards = BD.boards()
+                n += len(self._boards)
+            except Exception:                             # noqa: BLE001
+                pass
             n += len(self._settings)
         except Exception:                                 # noqa: BLE001
             pass
@@ -684,6 +694,8 @@ class HomeState:
                 existing["settings"] = self._settings
             if getattr(self, "_menu_cards", None):
                 existing["menu_cards"] = self._menu_cards
+            if getattr(self, "_boards", None):
+                existing["boards"] = self._boards
             if self._projects:
                 existing["projects"] = self._projects
             if self._dashboard:

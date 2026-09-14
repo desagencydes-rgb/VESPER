@@ -2000,11 +2000,77 @@ final class HomeChrome {
               grid.append(card);
             });
             content.append(grid);
+            content.append(renderBoard('projects'));
+          }
+          // THE WORKSPACE ON A BOARD (core/boards.py). Owner, 2026-09-13: "windows and
+          // cards should appear there ... with full management i choose from a pop up
+          // list". A picker of the LIVE windows and of the cards VESPER has; the chosen
+          // ones listed with their status and the acts that manage each; and the
+          // stage's open-a-window acts. Every button posts a control; nothing here
+          // moves a window itself.
+          function boardPost(action,args){
+            try{window.webkit.messageHandlers.vesperControl.postMessage(JSON.stringify({action:action,args:args||{}}));}
+            catch(e){(window.__vesperErrs=window.__vesperErrs||[]).push('control: '+(e&&e.message));}
+          }
+          function actionButtons(actions){
+            var bar=node('div','menu-actions');bar.style.cssText='display:flex;flex-wrap:wrap;gap:6px;margin-top:6px';
+            (actions||[]).forEach(function(a){
+              var b=node('button','menu-action',a.label);b.type='button';b.dataset.control=(a.control&&a.control.action)||'';
+              b.addEventListener('click',function(){if(!a.control)return;boardPost(a.control.action,a.control.args||{});b.disabled=true;var was=b.textContent;b.textContent=was+' — sent';setTimeout(function(){b.disabled=false;b.textContent=was;},2500);});
+              bar.append(b);
+            });
+            return bar;
+          }
+          function renderBoard(kind){
+            var all=railData.boards, b=all&&all[kind];
+            var sect=node('section','board');sect.dataset.board=kind;
+            var h=node('h3','',kind==='projects'?'Workspace: windows and cards on this board':'Room: windows and cards in this research');
+            sect.append(h);
+            if(!b){sect.append(node('p','menu-note','The board producer has not run yet; the picker fills in when it does.'));return sect;}
+            // The picker: a live window, added to the board.
+            var pick=node('div','board-pick');pick.style.cssText='display:flex;gap:8px;align-items:center;margin:8px 0';
+            var sel=node('select','st-ctl');sel.setAttribute('aria-label','Add a window to the board');
+            var o0=node('option','', (b.available_windows||[]).length?'Choose a window to add…':(b.inventory_why?'No window list: '+b.inventory_why:'Every open window is already on the board'));o0.value='';sel.append(o0);
+            (b.available_windows||[]).forEach(function(w){var o=node('option','',(w.app_label||'?')+' — window '+w.window_id+(w.provenance==='vesper_opened'?' (VESPER\\'s)':' (yours)'));o.value=w.window_id;sel.append(o);});
+            var add=node('button','menu-action','Add window');add.type='button';
+            add.addEventListener('click',function(){var w=(b.available_windows||[]).filter(function(x){return String(x.window_id)===sel.value;})[0];if(!w)return;boardPost('board.add_window',{kind:kind,window:{window_id:w.window_id,app_label:w.app_label,pid:w.pid}});});
+            pick.append(sel,add);sect.append(pick);
+            var csel=node('select','st-ctl');csel.setAttribute('aria-label','Add a card to the board');
+            var c0=node('option','',(b.available_cards||[]).length?'Choose a card to add…':'Every card is already on the board');c0.value='';csel.append(c0);
+            (b.available_cards||[]).forEach(function(c){var o=node('option','',c.name);o.value=c.id;o.title=c.what||'';csel.append(o);});
+            var cadd=node('button','menu-action','Add card');cadd.type='button';
+            cadd.addEventListener('click',function(){if(!csel.value)return;boardPost('board.add_card',{kind:kind,card_id:csel.value});});
+            var cpick=node('div','board-pick');cpick.style.cssText='display:flex;gap:8px;align-items:center;margin:8px 0';cpick.append(csel,cadd);sect.append(cpick);
+            // What is on the board, with its status and its acts.
+            var list=node('div','rail-list');
+            (b.chosen_windows||[]).forEach(function(w){
+              var row=node('div','rail-row');var left=node('div');left.append(node('div','rail-name',(w.app_label||'?')+' — window '+w.window_id));
+              left.append(node('div','rail-detail',String(w.status)+' · '+String(w.provenance||'unknown').replace(/_/g,' ')));
+              var right=node('div');right.append(actionButtons(w.actions));row.append(left,right);list.append(row);
+            });
+            (b.chosen_cards||[]).forEach(function(c){
+              var row=node('div','rail-row');var left=node('div');left.append(node('div','rail-name',c.name));left.append(node('div','rail-detail','card'));
+              var right=node('div');right.append(actionButtons(c.actions));row.append(left,right);list.append(row);
+            });
+            if(!(b.chosen_windows||[]).length&&!(b.chosen_cards||[]).length)list.append(node('p','menu-note','Nothing chosen yet. Pick a window or a card above.'));
+            sect.append(list);
+            sect.append(node('p','menu-note','Open a window on this Desktop:'));sect.append(actionButtons(b.open_actions));
+            if(kind==='research'){
+              var ss=node('div','board-pick');ss.style.cssText='display:flex;gap:8px;align-items:center;margin:8px 0';
+              var name=node('input','st-ctl');name.type='text';name.placeholder='new research session name';name.value=b.session||'';name.setAttribute('aria-label','Research session name');
+              var setb=node('button','menu-action',b.session?'Rename / switch session':'Start a session');setb.type='button';
+              setb.addEventListener('click',function(){if(!name.value.trim())return;boardPost('board.research_session',{session:name.value.trim()});});
+              ss.append(name,setb);sect.append(ss);
+              if((b.session_actions||[]).length)sect.append(actionButtons(b.session_actions));
+              var sess=b.sessions||[];sect.append(node('p','menu-note',sess.length?sess.length+' recorded session(s): '+sess.map(function(s){return s.session_id;}).join(', '):'no recorded sessions yet'));
+            }
+            return sect;
           }
           function renderResearch(){
             intro.textContent = 'Every question settled by measurement, with the status the '
               + 'spike index gives it — never a document\\'s own header, which is the thing '
               + 'that has been wrong before.';
+            content.append(renderBoard('research'));
             railList(railData.research,
                      'The spike index has not arrived on this surface yet.');
           }
@@ -3994,6 +4060,8 @@ final class HomeChrome {
             // The main menu's seventeen cards (core/menu_cards.py): rows,
             // borrowed settings rows and actions, keyed by destination id.
             let cardsSafe = esc(Self.railJSON("menu_cards"))
+            // The projects and research boards (core/boards.py).
+            let boardsSafe = esc(Self.railJSON("boards"))
             let setSafe = Self.settingsJSON()
                 .replacingOccurrences(of: "\\", with: "\\\\")
                 .replacingOccurrences(of: "`", with: "\\`")
@@ -4043,6 +4111,7 @@ final class HomeChrome {
               step('research', function(){ if (window.__vesperRail) window.__vesperRail('research', `\(resSafe)`); });
               step('dashboard', function(){ if (window.__vesperRail) window.__vesperRail('dashboard', `\(dashSafe)`); });
               step('cards',     function(){ if (window.__vesperCards) window.__vesperCards(`\(cardsSafe)`); });
+              step('boards',    function(){ if (window.__vesperRail) window.__vesperRail('boards', `\(boardsSafe)`); });
             })();
             """
             // REPORT WHAT THE PUSH DID. `completionHandler: nil` swallowed

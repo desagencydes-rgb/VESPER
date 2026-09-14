@@ -164,6 +164,8 @@ HEARD_OFFSET = STATE / "heard.offset"
 # ControlBridge, drained here, applied by core/controls.py.
 CONTROL = STATE / "control.jsonl"
 CONTROL_OFFSET = STATE / "control.offset"
+# When the settings rows and menu cards were last rebuilt (monotonic seconds).
+_LAST_SURFACE_REFRESH = 0.0
 
 # HOW THE HOME TELLS THE RUNTIME A MODE DID NOT LAND.
 #
@@ -1973,7 +1975,7 @@ def _drain_control(bus, home, *, path=None, offset_path=None, outbox=None,
                         payload={**res, "args": obj.get("args"),
                                  "at_ms": obj.get("at_ms")},
                         component="runtime")
-            if res.get("ok") and res.get("kind") in (C.PREFERENCE, C.PERMISSION, C.HOST, C.EXPORT):
+            if res.get("ok") and res.get("kind") in (C.PREFERENCE, C.PERMISSION, C.HOST, C.EXPORT, C.BOARD):
                 changed_pref = True
             done += 1
         seen = f.tell()
@@ -2408,6 +2410,22 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
             # A CONTROL THAT FAILS MUST NOT STOP THE PUMP. Answering is the job.
             bus.publish("control.drain_failed", subject="control",
                         payload={"error": repr(_exc)}, component="runtime")
+        # THE MANAGEMENT SURFACES RE-READ EVERY 30 s. Until 2026-09-14 the
+        # settings rows and the menu cards were built once at startup and again
+        # only after a control landed, so a card showed the arm agent's pid from
+        # before the last build for as long as nobody pressed anything. Thirty
+        # seconds is the most a person waits after doing something outside VESPER
+        # (granting a permission, stopping an agent) before looking at the card.
+        # `time.monotonic()`: an elapsed interval, which INV-COORD-4 permits.
+        global _LAST_SURFACE_REFRESH
+        _now_m = time.monotonic()
+        if _now_m - _LAST_SURFACE_REFRESH >= 30.0:
+            _LAST_SURFACE_REFRESH = _now_m
+            try:
+                home.refresh_settings()
+            except Exception as _exc:                      # noqa: BLE001
+                bus.publish("surface.refresh_failed", subject="settings",
+                            payload={"error": repr(_exc)}, component="runtime")
     # AND HOW THE LAST MODE WENT. Read every pass, because the failure it
     # reports is one the owner is looking at right now -- their own Desktop
     # showing while they wait for vesper's picture to change.

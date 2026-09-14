@@ -130,7 +130,39 @@ def _host_done(args: dict, ctx: dict) -> dict:
             "detail": str(args.get("detail") or "")[:300]}
 
 
+BOARD = "board"
+
+
+def _board(fn_name: str):
+    """The owner's own record of what is on a board: written directly, like a
+    preference, and refused rather than guessed when the argument is not one
+    the board can hold."""
+    def run(args: dict, ctx: dict) -> dict:
+        from core import boards as B
+        path = ctx.get("boards_path")
+        try:
+            if fn_name == "add_window":
+                return B.add_window(args.get("kind"), args.get("window") or args, path=path)
+            if fn_name == "remove_window":
+                return B.remove_window(args.get("kind"), str(args.get("window_id") or ""), path=path)
+            if fn_name == "add_card":
+                return B.add_card(args.get("kind"), str(args.get("card_id") or ""), path=path)
+            if fn_name == "remove_card":
+                return B.remove_card(args.get("kind"), str(args.get("card_id") or ""), path=path)
+            if fn_name == "research_session":
+                return B.set_research_session(str(args.get("session") or ""), path=path)
+        except B.BoardRefused as exc:
+            raise ControlRefused(str(exc)) from None
+        raise ControlRefused(f"no board operation {fn_name!r}")
+    return run
+
+
 REGISTRY: dict[str, tuple[str, Callable[[dict, dict], dict]]] = {
+    "board.add_window": (BOARD, _board("add_window")),
+    "board.remove_window": (BOARD, _board("remove_window")),
+    "board.add_card": (BOARD, _board("add_card")),
+    "board.remove_card": (BOARD, _board("remove_card")),
+    "board.research_session": (BOARD, _board("research_session")),
     "preference.set": (PREFERENCE, _set_preference),
     "permission.set": (PERMISSION, _set_permission),
     "governed.propose": (GOVERNED, _propose_governed),
