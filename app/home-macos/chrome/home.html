@@ -1492,13 +1492,20 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
   }
   function renderHistory(){
    if(!historyNodes)return;var list=historyNodes.list;list.textContent='';
-   if(history===null){historyNodes.note.textContent='UNAVAILABLE — conversation history has not arrived.';return;}
+   if(history===null){historyNodes.note.textContent='The conversation has not arrived on this surface yet.';return;}
    var shown=history.filter(function(r){return (r.who+' '+r.text).toLowerCase().includes(historyQuery.toLowerCase());});
    historyNodes.note.textContent=shown.length+' of '+history.length+' supplied entries'+(historyTruncated?' · newest '+MAX_MENU_HISTORY+', older ones are in the log.':'.');
    // NEWEST FIRST. The owner opens this to see what just happened, and scrolling
    // to the bottom of sixty entries to find it is the same defect as showing the
    // oldest sixty -- which is what `slice(0, ...)` did until 2026-09-11.
-   shown.slice().reverse().forEach(function(r){var el=node('li');el.append(node('strong','',r.who),node('p','',r.text));list.append(el);});
+   // EACH ENTRY CAN BE ACTED ON (owner, 2026-09-13: the side buttons showed
+   // data and managed nothing). What you said can be asked again; what VESPER
+   // said can be explained. Both go through the typed path, like a sentence.
+   shown.slice().reverse().forEach(function(r){var el=node('li');el.append(node('strong','',r.who),node('p','',r.text));
+    var acts=node('div','menu-actions');acts.style.cssText='display:flex;gap:6px;margin-top:4px';
+    var b=node('button','menu-action',r.who==='you'?'Ask again':'Explain this');b.type='button';b.dataset.control='act';
+    b.addEventListener('click',function(){menuPost('act',{text:r.who==='you'?r.text:'explain what you meant when you said: '+String(r.text).slice(0,300)});b.disabled=true;b.textContent=b.textContent+' — sent';});
+    acts.append(b);el.append(acts);list.append(el);});
   }
   function palette(){
    intro.textContent='Search all 68 surfaces by name or description. Opening a surface does not execute its action.';
@@ -1633,7 +1640,9 @@ html,body{margin:0;height:100%;background:transparent;overflow:hidden;
    else if(view==='history'){
     intro.textContent='Conversation entries in their supplied order. This is not the full action log.';
     var search=node('input','menu-search');search.type='search';search.maxLength=MAX_SEARCH;search.placeholder='Find in conversation';search.setAttribute('aria-label','Find in conversation');search.value=historyQuery;
-    var note=node('p','menu-note'),list=node('ol','menu-history-list');content.append(search,note,list);historyNodes={note:note,list:list};
+    var exp=node('button','menu-action','Export conversation');exp.type='button';exp.dataset.control='history.export';
+    exp.addEventListener('click',function(){menuPost('history.export',{});exp.disabled=true;exp.textContent='Export conversation — sent to your Desktop';});
+    var note=node('p','menu-note'),list=node('ol','menu-history-list');content.append(search,exp,note,list);historyNodes={note:note,list:list};
     search.addEventListener('input',function(){historyQuery=search.value;renderHistory();});renderHistory();
    }else{content.append(node('span','menu-status','UNAVAILABLE'),node('p','menu-note','This destination has no collection or save operation connected to this surface.'));}
    tile.setAttribute('aria-expanded',String(view==='instruments'));

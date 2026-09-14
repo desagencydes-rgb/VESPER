@@ -4639,12 +4639,44 @@ def check_main_menu_manages() -> Result:
     if "existing[\"menu_cards\"] = self._menu_cards" not in (REPO / "core" / "home_state.py").read_text(encoding="utf-8"):
         r.err("home_state never writes menu_cards into home.json")
 
+    # --------------------------------------------- the history side button manages
+    # OWNER, 2026-09-13: the side buttons "are all just bunch of bullshit data
+    # showing up". The conversation view had a search box and nothing to do with
+    # what it found. Each entry now posts an act (ask again / explain this), and
+    # the view exports the conversation through a registered control that writes
+    # a file -- driven here, not read.
+    hist = html[html.find("function renderHistory(){"):]
+    hist = hist[:hist.find("\n  function ")]
+    if "menuPost('act',{text:r.who==='you'?r.text:" not in hist:
+        r.err("the conversation view's entries post nothing: what the owner said cannot be asked again "
+              "and what VESPER said cannot be explained")
+    if not re.search(r"^\s*exp\.addEventListener\('click',function\(\)\{menuPost\('history\.export',\{\}\);", html, re.M):
+        r.err("the conversation view has no export button that posts history.export")
+    if C.REGISTRY.get("history.export", (None,))[0] != C.EXPORT:
+        r.err("history.export is not a registered export control, so the export button posts into nothing")
+    else:
+        with tempfile.TemporaryDirectory() as _htd:
+            hp = Path(_htd) / "home.json"
+            hp.write_text(json.dumps({"transcript": [{"who": "owner", "text": "what is my battery?"},
+                                                     {"who": "vesper", "text": "fifty percent"}]}), encoding="utf-8")
+            res = C.apply({"action": "history.export", "args": {}},
+                          ctx={"home_path": hp, "export_dir": Path(_htd) / "out"})
+            p = Path(str((res.get("result") or {}).get("path") or "/nonexistent"))
+            body = p.read_text(encoding="utf-8") if p.is_file() else ""
+            if not res.get("ok") or "what is my battery?" not in body or "fifty percent" not in body:
+                r.err(f"history.export did not write the conversation to a file: {res!r}")
+            hp.write_text(json.dumps({"transcript": []}), encoding="utf-8")
+            if C.apply({"action": "history.export", "args": {}},
+                       ctx={"home_path": hp, "export_dir": Path(_htd) / "out"}).get("ok"):
+                r.err("history.export reported an export of an empty conversation")
+
     if r.ok:
         n_act = sum(len(c.get("actions") or []) for c in cards.values())
         r.note(f"{len(main_ids)} destinations, {len(cards)} cards, {n_act} actions over "
                f"{len(C.REGISTRY)} runtime controls and {len(host_cases)} host cases, each side "
                "reaching the other; the stop is the host's and asks nothing; panic asks once and "
-               "resets TCC; permission.set, memory.export and host.done applied on temp paths")
+               "resets TCC; permission.set, memory.export and host.done applied on temp paths; the "
+               "conversation view asks again, explains and exports, driven")
     return r
 
 

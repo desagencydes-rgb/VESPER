@@ -123,6 +123,35 @@ def _export_memory(args: dict, ctx: dict) -> dict:
             "counts": {t: (len(v) if isinstance(v, list) else 0) for t, v in out["tables"].items()}}
 
 
+def _export_history(args: dict, ctx: dict) -> dict:
+    """The conversation, as the home shows it, into a file on the owner's Desktop.
+
+    THE HISTORY SIDE BUTTON HAD A SEARCH BOX AND NOTHING TO DO WITH WHAT IT
+    FOUND (owner, 2026-09-13: "all side buttons ... just bunch of bullshit data
+    showing up"). The file is the owner's to keep: who said what, in order, as
+    markdown -- the same entries the view shows, read from the surface the
+    runtime publishes, never from a store the view does not show."""
+    import pathlib
+    home_path = pathlib.Path(ctx.get("home_path") or (
+        pathlib.Path.home() / "Library" / "Application Support" / "VESPER" / "home.json"))
+    try:
+        entries = json.loads(home_path.read_text(encoding="utf-8")).get("transcript") or []
+    except (OSError, ValueError) as exc:
+        raise ControlRefused(f"the conversation could not be read: {type(exc).__name__}") from None
+    entries = [e for e in entries if isinstance(e, dict) and isinstance(e.get("text"), str)]
+    if not entries:
+        raise ControlRefused("there is no conversation to export yet")
+    dest_dir = pathlib.Path(ctx.get("export_dir") or (pathlib.Path.home() / "Desktop"))
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    lines = [f"# VESPER conversation, exported {time.strftime('%Y-%m-%d %H:%M')}", ""]
+    for e in entries:
+        who = "You" if e.get("who") == "owner" else str(e.get("who") or "unknown").capitalize()
+        lines += [f"**{who}:** {e['text']}", ""]
+    dest = dest_dir / time.strftime("VESPER-conversation-%Y%m%d-%H%M%S.md")
+    dest.write_text("\n".join(lines), encoding="utf-8")
+    return {"path": str(dest), "entries": len(entries)}
+
+
 def _host_done(args: dict, ctx: dict) -> dict:
     """The host did something itself (a stop, a pane, a revoke) and says so here
     so the record is on the bus with everything else. Nothing is applied."""
@@ -192,6 +221,7 @@ REGISTRY: dict[str, tuple[str, Callable[[dict, dict], dict]]] = {
     "permission.set": (PERMISSION, _set_permission),
     "governed.propose": (GOVERNED, _propose_governed),
     "memory.export": (EXPORT, _export_memory),
+    "history.export": (EXPORT, _export_history),
     "act": (ACT, _act),
     "host.done": (HOST, _host_done),
 }

@@ -2198,6 +2198,28 @@ CASES += [
      "the host builds the cards JSON and never pushes it, so the receiver waits "
      "forever with nothing to show"),
 
+    ("main-menu-manages", F7_HOME_HTML,
+     _sub("menuPost('act',{text:r.who==='you'?r.text:", "void({text:r.who==='you'?r.text:", 1),
+     "the conversation's entries show a button that posts nothing: the history "
+     "side button is a list to read again"),
+
+    ("main-menu-manages", F7_HOME_HTML,
+     _sub("exp.addEventListener('click',function(){menuPost('history.export',{});",
+          "exp.addEventListener('click',function(){void('history.export',{});", 1),
+     "the export button disables itself and says 'sent to your Desktop' while "
+     "nothing is posted and no file is written"),
+
+    ("main-menu-manages", F8_CONTROLS,
+     _sub('    "history.export": (EXPORT, _export_history),', '', 1),
+     "the export button posts a control nobody applies: every press is refused "
+     "as unregistered"),
+
+    ("main-menu-manages", F8_CONTROLS,
+     _sub('    if not entries:\n        raise ControlRefused("there is no conversation to export yet")',
+          '    if False:\n        raise ControlRefused("there is no conversation to export yet")', 1),
+     "an empty conversation is 'exported' as a file with a heading and nothing "
+     "else, and reported as done"),
+
     ("main-menu-manages", F8_CARDS,
      _sub('        acts = [_action(f"explain-{iid}", "Explain this reading", "act",\n                        {"text": f"explain the \'{name}\' reading on your instruments menu: what it measures, "\n                                 f"what it says right now, and what I can do about it"})]',
           '        acts = []', 1),
