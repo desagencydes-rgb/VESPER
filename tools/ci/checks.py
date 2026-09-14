@@ -4529,8 +4529,27 @@ def check_main_menu_manages() -> Result:
         if not (card.get("actions") or card.get("controls") or card.get("settings")):
             r.err(f"card {cid!r} shows and manages nothing: no action, control or settings row")
     for cid in cards:
-        if cid not in main_ids:
+        if cid not in main_ids and not cid.startswith("_"):
             r.err(f"a card {cid!r} exists for no main destination")
+
+    # 1b. EVERY INSTRUMENT ON THE EXPANDABLE MENU CAN DO SOMETHING. The 51
+    #     instrument ids from the catalogue each carry at least one act, and
+    #     every act is a registered control (or a host case, below).
+    inst_ids = [e["id"] for e in json.loads(m.group(1)) if e.get("area") == "instruments"]
+    iacts = cards.get("_instruments") or {}
+    for iid in inst_ids:
+        acts = iacts.get(iid) or []
+        if not acts:
+            r.err(f"instrument {iid!r} has no action: a reading with nothing to do about it")
+        for a in acts:
+            act = (a.get("control") or {}).get("action", "")
+            if not act.startswith("host.") and act not in C.REGISTRY:
+                r.err(f"instrument {iid!r} names control {act!r}, which nothing applies")
+    for iid in iacts:
+        if iid not in inst_ids:
+            r.err(f"actions declared for {iid!r}, which is not an instrument on the menu")
+    if "cardsData._instruments[item.id]" not in html or "if(iacts.length)el.append(actionButtons(iacts));" not in html:
+        r.err("the expandable menu does not render an instrument's actions")
 
     # 2. EVERY ACTION NAMES SOMETHING THAT EXISTS, IN BOTH DIRECTIONS.
     host_cases = set(re.findall(r'case "(host\.[a-z_]+)":', swift))

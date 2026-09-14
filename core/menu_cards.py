@@ -214,6 +214,61 @@ def _memory_counts() -> dict:
     return out
 
 
+INSTRUMENT_IDS = (
+    "attestation-state", "battery-health", "capability-registry", "charge-policy", "compensation",
+    "compressor-swap", "control-plane-lease", "degradation-ladder", "endpoints", "enrollment",
+    "governed-surfaces", "key-identity-state", "memory-headroom", "memory-pressure-band",
+    "network-segments", "node-profiles", "owner-working-set", "placement-decisions",
+    "platform-adapters", "survival-profile", "trust-zones", "before-after", "command-palette",
+    "costing-me-now", "disk-i-o-rate", "display-power", "link-quality", "maintenance-actions",
+    "node-roles", "peripherals", "radio-state", "relocation-history", "retry-policy",
+    "sleep-wake-log", "storage-ssd", "thermal-history", "throttle-events", "approval-history",
+    "blast-radius", "clock-skew", "migration-dry-run", "node-comparison", "onboarding-wizard",
+    "ambient-estimate", "behaviour-on-off-this-mac", "charging-schedule", "consent-channel-policy",
+    "failover-drill", "fan-acoustics", "power-draw", "process-energy",
+)
+_HEAT = {"thermal-history", "throttle-events", "fan-acoustics", "power-draw", "process-energy",
+         "costing-me-now", "behaviour-on-off-this-mac"}
+_MEMORY = {"memory-headroom", "memory-pressure-band", "compressor-swap"}
+_POWER = {"battery-health", "charge-policy", "charging-schedule", "sleep-wake-log", "display-power"}
+
+
+def instrument_actions() -> dict:
+    """What can be DONE from an instrument on the expandable menu.
+
+    OWNER, 2026-09-13: the expandable menu was "a bunch of data showing up".
+    Every instrument now carries at least one act, and the ones that read a
+    condition VESPER can change carry the enabled host action that changes it
+    (`contracts/policy/host_actions.toml`): yield the fast cores, restore them,
+    release or reload the resident model, report a host finding. Each is a
+    sentence through the typed path, so it meets the same authorisation as
+    anything the owner says.
+    """
+    out: dict = {}
+    for iid in INSTRUMENT_IDS:
+        name = iid.replace("-", " ")
+        acts = [_action(f"explain-{iid}", "Explain this reading", "act",
+                        {"text": f"explain the '{name}' reading on your instruments menu: what it measures, "
+                                 f"what it says right now, and what I can do about it"})]
+        if iid in _HEAT:
+            acts += [_action(f"yield-{iid}", "Yield the fast cores", "act",
+                             {"text": "place your own work at the background execution class, yielding the fast cores"}),
+                     _action(f"restore-{iid}", "Restore your execution class", "act",
+                             {"text": "restore your own execution class to normal"}),
+                     _action(f"release-{iid}", "Release resident model", "act",
+                             {"text": "release your resident model to return memory to the host"})]
+        if iid in _MEMORY:
+            acts += [_action(f"release-{iid}", "Release resident model", "act",
+                             {"text": "release your resident model to return memory to the host"}),
+                     _action(f"reload-{iid}", "Reload resident model", "act",
+                             {"text": "load your resident model back into residency if headroom allows"})]
+        if iid in _POWER:
+            acts += [_action(f"report-{iid}", "Report this condition", "act",
+                             {"text": f"report the host condition you see in '{name}' and the change that would address it"})]
+        out[iid] = acts
+    return out
+
+
 def cards(home: Any = None) -> dict:
     """Every main destination, as a card. Keyed by catalogue id."""
     from core import permission_mode as PM
@@ -476,4 +531,6 @@ def cards(home: Any = None) -> dict:
         "controls": [{**P.describe("work_rate.window_hours"), "value": hrs, "label": "window (hours)"}],
         "actions": [],
     }
+    # THE INSTRUMENTS' ACTS, under a key no destination can have.
+    out["_instruments"] = instrument_actions()
     return out

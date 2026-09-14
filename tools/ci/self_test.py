@@ -2198,6 +2198,17 @@ CASES += [
      "the host builds the cards JSON and never pushes it, so the receiver waits "
      "forever with nothing to show"),
 
+    ("main-menu-manages", F8_CARDS,
+     _sub('        acts = [_action(f"explain-{iid}", "Explain this reading", "act",\n                        {"text": f"explain the \'{name}\' reading on your instruments menu: what it measures, "\n                                 f"what it says right now, and what I can do about it"})]',
+          '        acts = []', 1),
+     "the instruments lose their one universal act: forty-odd readings on the "
+     "expandable menu have nothing to press again"),
+
+    ("main-menu-manages", F7_HOME_HTML,
+     _sub("   if(iacts.length)el.append(actionButtons(iacts));", "   if(false)el.append(actionButtons(iacts));", 1),
+     "the expandable menu's instruments carry actions the page never renders: "
+     "the readings are back to being a bunch of data showing up"),
+
     ("boards-hold-windows-and-cards", F9_BOARDS,
      _sub('    available = [w for w in inventory if str(w["window_id"]) not in chosen_ids]',
           '    available = list(inventory)', 1),

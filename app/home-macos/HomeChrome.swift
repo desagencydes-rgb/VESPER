@@ -1824,6 +1824,12 @@ final class HomeChrome {
            if(['before-after','command-palette','enrollment','onboarding-wizard'].includes(item.id)){
             el.append(action('Open '+item.name,function(){show(item.id,opener);}));
            }
+           // WHAT CAN BE DONE FROM THIS INSTRUMENT (core/menu_cards.instrument_actions):
+           // every reading carries at least an explain act; the ones VESPER can change
+           // carry the host action that changes it. Owner, 2026-09-13: readings alone
+           // were "a bunch of data showing up".
+           var iacts=(cardsData&&cardsData._instruments&&cardsData._instruments[item.id])||[];
+           if(iacts.length)el.append(actionButtons(iacts));
            updateReading(el,item);return el;
           }
           function renderInstruments(){
