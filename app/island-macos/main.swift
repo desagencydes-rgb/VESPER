@@ -2342,6 +2342,23 @@ if args.contains("--window-where") {
     exit(0)
 }
 
+if args.contains("--camera-probe") || args.contains("--presence") {
+    // THE CAMERA, MEASURED BEFORE ANYTHING IS CHOSEN. See Camera.swift.
+    func num(_ n: String) -> Double? {
+        guard let i = args.firstIndex(of: n), i + 1 < args.count else { return nil }
+        return Double(args[i + 1])
+    }
+    func str(_ n: String) -> String? {
+        guard let i = args.firstIndex(of: n), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+    let state = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/VESPER")
+    let presence = str("--presence-out")
+        ?? (args.contains("--presence") ? state.appendingPathComponent("presence.json").path : nil)
+    runCameraProbe(seconds: num("--seconds") ?? 5, out: str("--out"), presenceOut: presence)
+}
+
 if args.contains("--mic-level") {
     // §9g's MEASURE FIRST. Reports what the microphone actually delivers and
     // changes nothing about it.

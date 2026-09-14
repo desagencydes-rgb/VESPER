@@ -73,6 +73,30 @@ def _critical_ratio() -> float:
         return 0.20
 
 
+def camera_presence(path=None, now_ms=None):
+    """`someone`, `nobody`, or None (UNKNOWN) from the last camera probe.
+
+    THE CAMERA IS GATED AND THIS IS NOT THE CAMERA. `docs/design/VISION-
+    IDENTITY.md`: presence is a flag set when the camera is asked, read from
+    memory like any fact. The probe (`VESPER --camera-probe`, the owner's
+    press) writes `presence.json`; this reads it, and past 120 s it reads
+    UNKNOWN -- `INV-COORD-2`: an expired fact is never its last value, and
+    unknown fails toward withholding. Detection, not identity.
+    """
+    import json as _json
+    import pathlib as _pl
+    import time as _t
+    p = _pl.Path(path) if path else (_pl.Path.home() / "Library" / "Application Support" / "VESPER" / "presence.json")
+    try:
+        d = _json.loads(p.read_text(encoding="utf-8"))
+        now = float(now_ms) if now_ms is not None else _t.time() * 1000
+        if now - float(d.get("at_ms", 0)) > 120_000:
+            return None
+        return "someone" if d.get("someone") else "nobody"
+    except Exception:                                     # noqa: BLE001
+        return None
+
+
 def power_source() -> str:
     """`ac`, `battery`, or `battery_critical`. The profile, not the hardware.
 

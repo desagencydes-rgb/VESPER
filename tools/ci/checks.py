@@ -4769,6 +4769,126 @@ def check_boards_hold_windows_and_cards() -> Result:
     return r
 
 
+def check_microphone_and_camera_are_measured_first() -> Result:
+    """The microphone's level is measured before any gain, the gain is bounded
+    and applied to a copy, and the camera is measured -- fps, faces, cpu -- and
+    reports presence as detection with identity UNKNOWN, expiring to UNKNOWN.
+
+    OWNER: "i need to be screaming just so it can hear me" (2026-09-07); "where
+    the fuck is microphone sensitivity, where the fuck is camera" (2026-09-13).
+    `docs/design/VISION-IDENTITY.md` is the design and is not re-derived here:
+    presence is a flag, gated, detection tonight and identity when a standalone
+    model has been measured. INV-HW-2 for both instruments: a reading before a
+    choice. INV-PRIV-3: no frame is kept.
+    """
+    import tempfile
+
+    r = Result("microphone-and-camera-are-measured-first")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core import host_probes as HP
+        from core import menu_cards as MC
+    except Exception as exc:                       # noqa: BLE001
+        r.err(f"host_probes or menu_cards did not import: {exc!r}")
+        return r
+    isl = REPO / "app" / "island-macos"
+    listener = (isl / "Listener.swift").read_text(encoding="utf-8")
+    wake = (isl / "WakeWord.swift").read_text(encoding="utf-8")
+    camera = (isl / "Camera.swift").read_text(encoding="utf-8") if (isl / "Camera.swift").exists() else ""
+    main_swift = (isl / "main.swift").read_text(encoding="utf-8")
+    build = (isl / "build.sh").read_text(encoding="utf-8")
+    home_chrome = (REPO / "app" / "home-macos" / "HomeChrome.swift").read_text(encoding="utf-8")
+
+    # 1. THE GAIN: after the measurement, to a copy, bounded, clipped, in both taps.
+    tap = listener.split("Levels.shared.observe(peak: lv.peak, rms: lv.rms)")
+    if len(tap) < 2 or "req.append(MicGain.apply(buf))" not in tap[1].split("}")[0]:
+        r.err("the listener's tap does not hand the recogniser MicGain.apply(buf) AFTER measuring the level")
+    if "req.append(MicGain.apply(buf))" not in wake:
+        r.err("the wake word does not hear the gained copy; dictation and wake would hear different levels")
+    if "cached = max(-20, min(20, g.floatValue))" not in listener:
+        r.err("MicGain does not clamp the preference to ±20 dB")
+    if "max(-1, min(1, src[c][i] * k))" not in listener:
+        r.err("MicGain does not clip at full scale; a gain that clips would wrap silently")
+    if 'vals["microphone.gain_db"]' not in listener:
+        r.err("MicGain does not read the owner's microphone.gain_db preference")
+    if "AVAudioPCMBuffer(pcmFormat: buf.format" not in listener:
+        r.err("MicGain amplifies the measured buffer in place rather than a copy")
+
+    # 2. THE CAMERA: measured, on-device detection, nothing kept, identity unknown.
+    if not camera:
+        r.err("no Camera.swift")
+    else:
+        for needle, why in (("VNDetectFaceRectanglesRequest", "no on-device face detection"),
+                            ("processCPUSeconds()", "cpu is not measured"),
+                            ("fps", "frames per second are not reported"),
+                            ('"identity": "unknown"', "presence claims an identity it cannot know"),
+                            ("AVCaptureDevice.requestAccess(for: .video)", "the camera grant is not asked as VESPER"),
+                            ("session.stopRunning()", "the camera is never closed")):
+            if needle not in camera:
+                r.err(f"Camera.swift: {why}")
+        for forbidden in ("AVAssetWriter", "jpeg", "JPEG", "png", "PNG", "CIImage", "write(to: URL(fileURLWithPath: out"):
+            if forbidden in camera.replace('URL(fileURLWithPath: presenceOut)', ''):
+                r.err(f"Camera.swift persists imagery ({forbidden}); INV-PRIV-3: no frame is kept")
+    if 'args.contains("--camera-probe")' not in main_swift or 'args.contains("--mic-level")' not in main_swift:
+        r.err("main.swift lacks the --camera-probe or --mic-level mode")
+    # THE COMPILE COMMAND, not the comment that mentions swiftc ten lines above
+    # it: the line that starts with `swiftc` and ends at `-o island`.
+    compile_cmd = build.split("\nswiftc ")[-1].split("-o island")[0]
+    if "Camera.swift" not in compile_cmd:
+        r.err("build.sh does not compile Camera.swift")
+    if "NSCameraUsageDescription" not in build:
+        r.err("the bundle declares no camera usage description; the request would abort the process")
+    for case in ('case "host.mic_level":', 'case "host.camera_probe":'):
+        if case not in home_chrome:
+            r.err(f"the host has no {case}")
+
+    # 3. THE READINGS, INTERPRETED THE INSTRUMENT'S OWN WAY.
+    with tempfile.TemporaryDirectory() as td:
+        T = Path(td)
+        real = MC.STATE
+        MC.STATE = T
+        try:
+            val, _ = MC.mic_reading()
+            if "not measured yet" not in val:
+                r.err(f"with no reading the microphone row says {val!r}")
+            for peak, want in ((-50.0, "QUIET"), (-10.0, "usable"), (-1.0, "HOT")):
+                (T / "mic-level.txt").write_text(f"peak {peak} dBFS, mean rms -30.0 dBFS, over 300 buffers\n", encoding="utf-8")
+                val, src = MC.mic_reading()
+                if want not in val or not src:
+                    r.err(f"a peak of {peak} dBFS reads {val!r}; expected {want!r} with a source")
+            (T / "mic-level.txt").write_text("no audio buffers arrived at all -- the tap never fired.", encoding="utf-8")
+            if "no microphone" not in MC.mic_reading()[0]:
+                r.err("no buffers is not reported as no microphone on that input")
+        finally:
+            MC.STATE = real
+        pres = T / "presence.json"
+        now = 1_000_000_000_000
+        pres.write_text(json.dumps({"at_ms": now - 5_000, "someone": True}), encoding="utf-8")
+        if HP.camera_presence(pres, now_ms=now) != "someone":
+            r.err("a fresh presence flag does not read as someone")
+        pres.write_text(json.dumps({"at_ms": now - 5_000, "someone": False}), encoding="utf-8")
+        if HP.camera_presence(pres, now_ms=now) != "nobody":
+            r.err("a fresh empty room does not read as nobody")
+        pres.write_text(json.dumps({"at_ms": now - 130_000, "someone": True}), encoding="utf-8")
+        if HP.camera_presence(pres, now_ms=now) is not None:
+            r.err("a presence flag older than 120 s still reads as a value; INV-COORD-2 says UNKNOWN")
+        if HP.camera_presence(T / "missing.json", now_ms=now) is not None:
+            r.err("a missing presence file reads as a value")
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if 'Sensor("camera-presence", "world.owner", "presence"' not in rt or "host_probes.camera_presence, TIMER" not in rt:
+        r.err("the runtime registers no camera-presence sensor over the probe's file")
+    if "GATED" in rt.split('Sensor("camera-presence"')[1].split(")")[0] if 'Sensor("camera-presence"' in rt else False:
+        r.err("the camera itself is on the sensor timer; gated sources are never polled")
+
+    if r.ok:
+        r.note("gain read from the owner's preference, clamped ±20 dB, applied to a copy after the "
+               "level is measured, in both taps; camera probe detects on-device, measures fps/faces/cpu, "
+               "keeps no frame, reports identity unknown; readings interpreted QUIET/usable/HOT and "
+               "no-microphone; presence someone/nobody/UNKNOWN by age; sensor registered over the file")
+    return r
+
+
 def check_chain_budget() -> Result:
     r = Result("chain-budget-bounded")
     if str(REPO) not in sys.path:
@@ -28738,6 +28858,7 @@ CHECK_FNS = {
     "settings-manage-not-only-show": check_settings_manage_not_only_show,
     "main-menu-manages": check_main_menu_manages,
     "boards-hold-windows-and-cards": check_boards_hold_windows_and_cards,
+    "microphone-and-camera-are-measured-first": check_microphone_and_camera_are_measured_first,
     "triage-excludes-quota": check_triage_excludes_quota,
     "shared-pool-is-shared": check_shared_pool_is_shared,
     "intake-is-modality-neutral": check_intake_is_modality_neutral,

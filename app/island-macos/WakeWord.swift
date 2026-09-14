@@ -83,7 +83,9 @@ final class WakeListener {
         let format = input.outputFormat(forBus: 0)
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buf, _ in
-            req.append(buf)
+            // The owner's gain (Listener.swift, MicGain): the wake word hears
+            // the same amplified copy the dictation does.
+            req.append(MicGain.apply(buf))
         }
         engine.prepare()
         try engine.start()

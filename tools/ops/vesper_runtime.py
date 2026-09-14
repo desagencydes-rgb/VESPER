@@ -952,6 +952,13 @@ def build(node: str = "vesper-runtime"):
     sensors.register(Sensor("host-disk", "world.current_host", "disk_free_ratio",
                             host_probes.disk_free_ratio, TIMER,
                             period_ms=300_000, ttl_ms=900_000))
+    # PRESENCE FROM THE CAMERA, AS A FLAG (VISION-IDENTITY.md). The camera is a
+    # GATED source and is never on this timer: what is polled here is the FILE
+    # the owner's probe wrote, cheap to read, and it reads UNKNOWN 120 s after
+    # the probe rather than the last value. Detection, not identity.
+    sensors.register(Sensor("camera-presence", "world.owner", "presence",
+                            host_probes.camera_presence, TIMER,
+                            period_ms=15_000, ttl_ms=120_000))
 
     # THE PLATFORM'S OWN VERDICT, TRANSLATED. `core/host.py` exists so the raw
     # numbers never reach the shared logic -- a value meaning "healthy" on one

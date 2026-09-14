@@ -302,6 +302,14 @@ def _reading(item_id: str) -> tuple[str, str, str]:
             v = doc.get("voice") or {}
             name = str(v.get("name") or v.get("voice") or "default voice")
             parts.insert(0, name)
+        if item_id == "microphone":
+            # THE MEASURED LEVEL BESIDE THE GAIN, because a gain chosen before a
+            # reading is a guess (PLAN §12).
+            try:
+                from core.menu_cards import mic_reading
+                parts[0] = f"gain {parts[0]} dB; level {mic_reading()[0]}"
+            except Exception:                             # noqa: BLE001
+                parts[0] = f"gain {parts[0]} dB"
         src = ("your preference" if any(k in was_set for k in keys)
                else "default (you have not set it)")
         return ", ".join(parts), src, ""

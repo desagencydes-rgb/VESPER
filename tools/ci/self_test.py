@@ -1140,6 +1140,10 @@ F8_CARDS = "core/menu_cards.py"
 F8_CONTROLS = "core/controls.py"
 F9_BOARDS = "core/boards.py"
 F9_HOME_STATE = "core/home_state.py"
+F10_LISTENER = "app/island-macos/Listener.swift"
+F10_CAMERA = "app/island-macos/Camera.swift"
+F10_PROBES = "core/host_probes.py"
+F10_BUILD = "app/island-macos/build.sh"
 F6_BUILD_SH = "app/island-macos/build.sh"
 F6_RUNTIME_HOST = "app/home-macos/RuntimeHost.swift"
 CHROME_TPL = "app/home-macos/chrome/home.html"
@@ -2223,6 +2227,39 @@ CASES += [
           '            if False:\n                existing["boards"] = self._boards', 1),
      "the boards are built every 30 s and never written to home.json, so the "
      "page's picker stays empty with the answer already in the process"),
+
+    ("microphone-and-camera-are-measured-first", F10_LISTENER,
+     _sub("            req.append(MicGain.apply(buf))", "            req.append(buf)", 1),
+     "the listener ignores the owner's gain: the setting is written, read and "
+     "never applied, and the owner keeps shouting"),
+
+    ("microphone-and-camera-are-measured-first", F10_LISTENER,
+     _sub("            for i in 0..<n { dst[c][i] = max(-1, min(1, src[c][i] * k)) }",
+          "            for i in 0..<n { dst[c][i] = src[c][i] * k }", 1),
+     "the gain is applied without clipping, so a hot setting wraps the waveform "
+     "silently instead of showing up in the reading"),
+
+    ("microphone-and-camera-are-measured-first", F10_CAMERA,
+     _sub('"identity": "unknown"', '"identity": "owner"', 1),
+     "the camera probe claims the face is the owner's with detection alone -- "
+     "the identity model of VISION-IDENTITY.md does not exist, so this is a guess "
+     "dressed as a reading"),
+
+    ("microphone-and-camera-are-measured-first", F10_PROBES,
+     _sub("        if now - float(d.get(\"at_ms\", 0)) > 120_000:", "        if False:", 1),
+     "a presence flag never expires: the owner who left an hour ago still reads "
+     "as present (INV-COORD-2)"),
+
+    ("microphone-and-camera-are-measured-first", F8_CARDS,
+     _sub('    verdict = ("QUIET: check the system input volume and device before adding gain" if peak < -35',
+          '    verdict = ("QUIET: check the system input volume and device before adding gain" if peak < -95', 1),
+     "a -50 dBFS peak is called usable, so the owner is told the level is fine "
+     "while the instrument's own reference says it is quiet"),
+
+    ("microphone-and-camera-are-measured-first", F10_BUILD,
+     _sub("WakeWord.swift FnTrigger.swift Camera.swift \\", "WakeWord.swift FnTrigger.swift \\", 1),
+     "Camera.swift is written and not compiled: the mode exists in source and "
+     "the built binary has no camera at all"),
 
     ("chain-budget-bounded", GATEWAY,
      _sub("    MAX_ATTEMPTS_PER_REQUEST = 10", "    MAX_ATTEMPTS_PER_REQUEST = 100", 1),

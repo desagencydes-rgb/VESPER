@@ -289,6 +289,20 @@ enum HostActions {
             let out = state.appendingPathComponent("grants.txt").path
             let (rc, msg) = run(["/usr/bin/open", "-n", Bundle.main.bundlePath, "--args", "--grants", "--out", out])
             return (rc == 0, rc == 0 ? "grants being written to \(out)" : msg)
+        case "host.mic_level":
+            // §9g: MEASURE FIRST. Eight seconds of the owner's normal voice,
+            // reported in dBFS, before any gain is chosen.
+            let out = state.appendingPathComponent("mic-level.txt").path
+            let (rc, msg) = run(["/usr/bin/open", "-n", Bundle.main.bundlePath, "--args",
+                                 "--mic-level", "--seconds", "8", "--out", out])
+            return (rc == 0, rc == 0 ? "measuring for 8 s -- speak normally; the reading lands in mic-level.txt" : msg)
+        case "host.camera_probe":
+            // The camera, measured: fps, faces, cpu -- and presence as a flag.
+            let out = state.appendingPathComponent("camera-probe.txt").path
+            let pres = state.appendingPathComponent("presence.json").path
+            let (rc, msg) = run(["/usr/bin/open", "-n", Bundle.main.bundlePath, "--args",
+                                 "--camera-probe", "--seconds", "5", "--out", out, "--presence-out", pres])
+            return (rc == 0, rc == 0 ? "camera opening for 5 s as \(bundleID); the reading lands in camera-probe.txt" : msg)
         case "host.run_gates":
             let root = projectRoot()
             guard !root.isEmpty else { return (false, "the build recorded no project root") }

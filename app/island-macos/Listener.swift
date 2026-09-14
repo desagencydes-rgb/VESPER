@@ -115,6 +115,47 @@ final class Levels {
     }
 }
 
+/// THE OWNER'S MICROPHONE GAIN, applied to a COPY of each buffer on its way to
+/// the recogniser -- never to the buffer the level was measured on. Owner,
+/// 2026-09-07: "i need to be screaming just so it can hear me"; 2026-09-13:
+/// "where the fuck is microphone sensitivity". The gain is `microphone.gain_db`
+/// in preferences.json, set from the settings row after a measured level
+/// (`--mic-level`), bounded ±20 dB by the preference schema and re-read here
+/// at most once a second. Samples are clipped at full scale: a gain that
+/// clips is audible in the reading, not silently wrapped.
+enum MicGain {
+    private static var cached: Float = 0
+    private static var readAt: TimeInterval = 0
+    static func db() -> Float {
+        let now = Date().timeIntervalSince1970
+        if now - readAt < 1.0 { return cached }
+        readAt = now
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/VESPER/preferences.json")
+        guard let d = try? Data(contentsOf: url),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+              let vals = o["values"] as? [String: Any],
+              let g = vals["microphone.gain_db"] as? NSNumber else { cached = 0; return 0 }
+        cached = max(-20, min(20, g.floatValue))
+        return cached
+    }
+    /// The buffer to hand the recogniser: the original when the gain is zero,
+    /// otherwise an amplified copy, clipped to ±1.
+    static func apply(_ buf: AVAudioPCMBuffer) -> AVAudioPCMBuffer {
+        let g = db()
+        guard abs(g) > 0.01, let src = buf.floatChannelData,
+              let out = AVAudioPCMBuffer(pcmFormat: buf.format, frameCapacity: buf.frameCapacity),
+              let dst = out.floatChannelData else { return buf }
+        out.frameLength = buf.frameLength
+        let k = powf(10, g / 20)
+        let n = Int(buf.frameLength)
+        for c in 0..<Int(buf.format.channelCount) {
+            for i in 0..<n { dst[c][i] = max(-1, min(1, src[c][i] * k)) }
+        }
+        return out
+    }
+}
+
 func bufferLevel(_ buf: AVAudioPCMBuffer) -> (peak: Float, rms: Float) {
     guard let ch = buf.floatChannelData else { return (0, 0) }
     let n = Int(buf.frameLength)
@@ -180,7 +221,9 @@ final class Listener {
             // evidence for the decision.
             let lv = bufferLevel(buf)
             Levels.shared.observe(peak: lv.peak, rms: lv.rms)
-            req.append(buf)
+            // THE GAIN IS APPLIED AFTER THE MEASUREMENT, to a copy. The
+            // reading above stays what the microphone delivered.
+            req.append(MicGain.apply(buf))
         }
         engine.prepare()
         try engine.start()

@@ -150,6 +150,50 @@ def _grants() -> tuple[list, str]:
     return rows, f"{p.name}, read {_age(p.stat().st_mtime)}"
 
 
+def mic_reading() -> tuple[str, str]:
+    """The last `--mic-level` reading and what it means, or why there is none.
+
+    The interpretation is `Listener.swift`'s own: normal speech at a desk peaks
+    around -12 to -6 dBFS with mean RMS near -30; a peak below -35 is quiet;
+    no buffers at all is no microphone on that input, not a quiet one.
+    """
+    p = STATE / "mic-level.txt"
+    if not p.exists():
+        return "not measured yet -- press Measure and speak normally for 8 s", ""
+    text = p.read_text(encoding="utf-8", errors="replace")
+    import re as _re
+    m = _re.search(r"peak (-?[\d.]+) dBFS, mean rms (-?[\d.]+) dBFS, over (\d+) buffers", text)
+    when = _age(p.stat().st_mtime)
+    if not m:
+        if "no audio buffers" in text:
+            return f"no audio buffers arrived ({when}): no microphone on the selected input", str(p)
+        return f"unreadable reading ({when})", str(p)
+    peak, rms, n = float(m.group(1)), float(m.group(2)), int(m.group(3))
+    verdict = ("QUIET: check the system input volume and device before adding gain" if peak < -35
+               else "usable level" if peak <= -3 else "HOT: near clipping, lower the input")
+    return f"peak {peak:g} dBFS, rms {rms:g} dBFS over {n} buffers ({when}) -- {verdict}", str(p)
+
+
+def camera_reading() -> tuple[str, str]:
+    """The last `--camera-probe` reading, or why there is none."""
+    p = STATE / "camera-probe.txt"
+    if not p.exists():
+        return "not measured yet -- press Probe camera (5 s, on-device detection, nothing stored)", ""
+    lines = [l for l in p.read_text(encoding="utf-8", errors="replace").splitlines() if l.strip()]
+    return f"{lines[-1][:140] if lines else 'empty'} ({_age(p.stat().st_mtime)})", str(p)
+
+
+def presence_reading() -> tuple[str, str]:
+    p = STATE / "presence.json"
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+        age = _age(d.get("at_ms", 0) / 1000.0)
+        who = "someone at the machine" if d.get("someone") else "nobody in view"
+        return f"{who} ({age}; identity {d.get('identity', 'unknown')})", str(p)
+    except Exception:                                     # noqa: BLE001
+        return "no presence flag yet -- the camera has not been asked", ""
+
+
 def _memory_counts() -> dict:
     p = STATE / "l2.db"
     out = {"entity": 0, "fact": 0, "edge": 0}
@@ -240,15 +284,28 @@ def cards(home: Any = None) -> dict:
                                "every rebuild re-signs the app and TCC forgets it (MEMORY: TCC grants die on every rebuild)")],
         "actions": [read_grants] + panes[:4],
     }
+    mic_val, mic_src = mic_reading()
+    cam_val, cam_src = camera_reading()
+    pres_val, pres_src = presence_reading()
     out["hardware-access"] = {
         "title": "Hardware access",
-        "summary": "Camera, microphone, screen: what is granted and what is in use.",
+        "summary": "Camera, microphone, screen: what is granted, what was measured, and what is in use.",
         "rows": ([r for r in grows if any(w in r["label"].lower() for w in ("camera", "microphone", "screen", "speech"))]
                  or [_row("hardware grants", "not read since the last build", "app --grants")])
-                + [_row("microphone gain", f"{prefs.get('microphone.gain_db', 0):g} dB", "preferences.json",
-                        "set from a measured level (Settings → Microphone)")],
+                + [_row("microphone level", mic_val, mic_src or "app --mic-level",
+                        "measured at the recogniser's input, before any gain"),
+                   _row("microphone gain", f"{prefs.get('microphone.gain_db', 0):g} dB", "preferences.json",
+                        "applied to a copy of each buffer after the level is measured; ±20 dB"),
+                   _row("camera", cam_val, cam_src or "app --camera-probe",
+                        "fps, faces and cpu from Apple's on-device face detection; no frame is kept"),
+                   _row("presence", pres_val, pres_src or "presence.json",
+                        "detection, not identity: the face-auth model of VISION-IDENTITY.md is not built")],
         "settings": ["microphone"],
-        "actions": [read_grants, panes[3], panes[2], panes[1]],
+        "actions": [_action("mic", "Measure microphone (8 s)", "host.mic_level",
+                            note="speak normally at your usual distance; the reading lands here"),
+                    _action("cam", "Probe camera (5 s)", "host.camera_probe",
+                            note="opens the webcam as VESPER, detects faces on-device, writes counts and a presence flag"),
+                    read_grants, panes[3], panes[2], panes[1]],
     }
     out["macos-permissions"] = {
         "title": "macOS permissions",
