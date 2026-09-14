@@ -51,6 +51,15 @@ STATE = pathlib.Path.home() / "Library" / "Application Support" / "VESPER"
 STATUS = STATE / "workflows.json"
 RESEARCH, PROJECT = "research", "project"
 STEP_TIMEOUT_S = 600.0
+# THE LITERATURE STEP READS THE WORLD AND TAKES AS LONG AS THE WORLD DOES.
+# Measured 2026-09-14: a review of the Collatz stochastic-model question was
+# still searching at 9 min 36 s and was cut off at 600 s with nothing written,
+# while a one-fact question had answered in 34 s. Every other step reasons over
+# text it was handed and keeps the shared limit.
+AGENT_TIMEOUT_S = {"scholar": 1500.0}
+# How many times a script that ran and failed goes back to the implementer with
+# its own error before the run reports the failure it has.
+MAX_REPAIRS = 2
 _LOCK = threading.RLock()
 _URL = re.compile(r"https?://[^\s)>\]\"']+")
 
@@ -102,6 +111,21 @@ def _code_blocks(text: str) -> list[tuple[str, str]]:
             code = code.split("\n", 1)[1] if "\n" in code else ""
         out.append((hint, code))
     return out
+
+
+def _last_exit(outcome: dict) -> int | None:
+    """The exit code of the last command the actor ran for one sentence, or None.
+
+    The turn's own `result` is its first command; when the actor recovered from a
+    failed attempt, `steps` holds every command in order and the last one is the
+    one that counts."""
+    detail = outcome.get("detail") if isinstance(outcome.get("detail"), dict) else {}
+    for s in reversed(detail.get("steps") or []):
+        res = ((s or {}).get("detail") or {}).get("result") if isinstance(s, dict) else None
+        if isinstance(res, dict) and isinstance(res.get("exit_code"), int):
+            return res["exit_code"]
+    res = detail.get("result") if isinstance(detail.get("result"), dict) else {}
+    return res.get("exit_code") if isinstance(res.get("exit_code"), int) else None
 
 
 class Workflow:
@@ -161,7 +185,11 @@ class Workflow:
                              component="workflows")
 
     def _ask(self, agent: str, prompt: str) -> tuple[bool, str]:
-        kw: dict = {"timeout_s": self.timeout_s}
+        # A CALLER'S SHORTER LIMIT STANDS (tests pass one); the default is
+        # lengthened only for the agent that has to search.
+        limit = (max(self.timeout_s, AGENT_TIMEOUT_S.get(agent, 0.0))
+                 if self.timeout_s >= STEP_TIMEOUT_S else self.timeout_s)
+        kw: dict = {"timeout_s": limit}
         if self.config_dir:
             kw["config_dir"] = self.config_dir
         if self.binary:
@@ -188,21 +216,57 @@ class Workflow:
         """Through the actor. A workflow has no command of its own."""
         if self.act is None:
             return False, "no actor to run it through; a workflow never runs commands itself"
+        # `python3` AND A QUOTED PATH. The first live run asked for `python3.13`,
+        # which the sandbox cannot find on its PATH, and the unquoted path split
+        # at "Application Support" into two arguments; the actor recovered on its
+        # own with `python3`, one failed step later (2026-09-14, run.md). The
+        # prompts ask for code that runs on that interpreter.
         sentence = (f"run this command in your own place and show me its output: "
-                    f"python3.13 {path} -- it is {what} I asked you to build; "
+                    f"python3 \"{path}\" -- it is {what} I asked you to build; "
                     f"it may take up to two minutes")
         try:
             out = self.act(sentence)
         except Exception as exc:                          # noqa: BLE001
-            return False, f"the actor raised {type(exc).__name__}: {exc}"
+            return False, f"the actor raised {type(exc).__name__}: {exc}", False
         if out is None:
-            return False, "the actor did not treat that as a request to run anything"
+            return False, "the actor did not treat that as a request to run anything", False
         d = out.to_dict() if hasattr(out, "to_dict") else (out if isinstance(out, dict) else {"said": str(out)})
         kind = str(d.get("kind", ""))
         said = str(d.get("said", ""))
+        code = _last_exit(d)
         detail = json.dumps(d.get("detail", {}), default=str)[:4000]
-        text = f"# Run\n\nactor outcome: {kind}\n\n{said}\n\n## Detail\n\n{detail}\n"
-        return kind == "acted", text
+        text = (f"# Run\n\nactor outcome: {kind}" + (f", exit {code}" if code is not None else "")
+                + f"\n\n{said}\n\n## Detail\n\n{detail}\n")
+        # ACTED IS NOT SUCCEEDED. The actor reports that it ran a command; the
+        # command's own exit code says whether the script worked. A script that
+        # ran and failed can be repaired; a refusal cannot, and is not retried.
+        failed_by_exit = kind == "acted" and code not in (0, None)
+        return kind == "acted" and not failed_by_exit, text, failed_by_exit
+
+    def _repair(self, *, brief: str, files: list, run_text: str, attempt: int,
+                rules: str, entry: str) -> list:
+        """A script that ran and failed goes back to the implementer with its own
+        error, the way a person reads the traceback and fixes the line. Returns
+        the names written; empty when nothing usable came back."""
+        shown = "\n\n".join(
+            f"# file: {n}\n{(self.dir / n).read_text(encoding='utf-8', errors='replace')[:6000]}"
+            for n in files if (self.dir / n).is_file())
+        ok, code_text = self._ask("implementer", (
+            f"{brief}\n\nThese files were run and {entry} failed.\n\nFiles:\n{shown[:12000]}\n\n"
+            f"What running it printed:\n{run_text[:5000]}\n\nFix the cause. {rules} Reply with each "
+            "file that changes as its own code block whose FIRST LINE is `# file: <name>`, and nothing else."))
+        blocks = [(h, c) for h, c in _code_blocks(code_text) if h] if ok else []
+        if not blocks:
+            path = self._write(f"repair-{attempt}.md", code_text or "")
+            self._step(f"repair {attempt}", "failed", (code_text or "no files came back")[:200], path)
+            return []
+        names = []
+        for h, c in blocks:
+            name = pathlib.PurePosixPath(h).name  # the first write's rule: no directories, no escapes
+            (self.dir / name).write_text(c, encoding="utf-8")
+            names.append(name)
+        self._step(f"repair {attempt}", "ok", ", ".join(names), str(self.dir))
+        return names
 
     # --------------------------------------------------------------- research
     def research(self) -> None:
@@ -220,7 +284,7 @@ class Workflow:
         ok, plan = self._ask("drafter", (
             f"Research question: {q}\n\nLiterature review (with sources):\n{text[:9000]}\n\n"
             "Write (1) two or three testable hypotheses, (2) ONE small experiment that can run "
-            "on a laptop in under 60 seconds using only Python 3 standard library, no network, "
+            "on a laptop in under 60 seconds using only the Python 3.9 standard library, no network, "
             "no installs, printing numbers that bear on the hypotheses, (3) what result would "
             "support or refute each hypothesis. Be concrete about the algorithm and the data it generates."))
         if not ok:
@@ -232,7 +296,7 @@ class Workflow:
         self._step("drafter", "ok", "hypotheses and one runnable experiment", plan_path)
 
         ok, code_text = self._ask("implementer", (
-            f"Plan:\n{plan[:9000]}\n\nWrite the experiment as ONE self-contained Python 3 script, "
+            f"Plan:\n{plan[:9000]}\n\nWrite the experiment as ONE self-contained Python 3.9 script, "
             "standard library only, no network, deterministic (seed it), finishing in under 60 "
             "seconds, printing its results as plain lines. Reply with a single ```python code block "
             "whose first line is `# file: experiment.py`, and nothing else."))
@@ -246,9 +310,22 @@ class Workflow:
         script.write_text(blocks[0], encoding="utf-8")
         self._step("implementer", "ok", f"{len(blocks[0].splitlines())} lines", str(script))
 
-        ran, run_text = self._run_script(script, "the experiment")
+        ran, run_text, repairable = self._run_script(script, "the experiment")
         run_path = self._write("run.md", run_text)
         self._step("run", "ok" if ran else "failed", ("executed through the actor" if ran else run_text[:200]), run_path)
+        for attempt in range(1, MAX_REPAIRS + 1):
+            if ran or not repairable:
+                break
+            if not self._repair(brief=f"Plan:\n{plan[:6000]}", files=["experiment.py"], run_text=run_text,
+                                attempt=attempt, entry="experiment.py",
+                                rules=("Keep the file named experiment.py. Python 3.9 standard library only, "
+                                       "no network, deterministic (seeded), finishing in under 60 seconds, "
+                                       "printing its results as plain lines.")):
+                break
+            ran, run_text, repairable = self._run_script(script, "the experiment, repaired")
+            run_path = self._write(f"run-{attempt + 1}.md", run_text)
+            self._step(f"run {attempt + 1}", "ok" if ran else "failed",
+                       ("executed through the actor" if ran else run_text[:200]), run_path)
         if not ran:
             self._finish("failed", "the experiment did not execute; no findings are written for a run that did not happen")
             return
@@ -273,12 +350,12 @@ class Workflow:
         g = self.title
         ok, where = self._ask("navigator", (
             f"Goal: {g}\n\nSay, briefly, what such a project needs: the files, the entry point, and "
-            "how it would be run and checked on a laptop with Python 3 standard library only."))
+            "how it would be run and checked on a laptop with the Python 3.9 standard library only."))
         w_path = self._write("where.md", where)
         self._step("navigator", "ok" if ok else "failed", where[:120], w_path)
 
         ok, code_text = self._ask("implementer", (
-            f"Goal: {g}\n\nNotes:\n{where[:4000] if ok else ''}\n\nWrite the project as files. Python 3 "
+            f"Goal: {g}\n\nNotes:\n{where[:4000] if ok else ''}\n\nWrite the project as files. Python 3.9 "
             "standard library only, no network, no installs. Give each file as its own ```python (or "
             "```text) code block whose FIRST LINE is `# file: <name>`; include an entry point named "
             "main.py that runs in under 90 seconds, prints what it did and exits 0. Nothing else in the reply."))
@@ -295,9 +372,23 @@ class Workflow:
             written.append(name)
         self._step("implementer", "ok", ", ".join(written), str(self.dir))
 
-        ran, run_text = self._run_script(self.dir / "main.py", "the project's entry point")
+        ran, run_text, repairable = self._run_script(self.dir / "main.py", "the project's entry point")
         run_path = self._write("run.md", run_text)
         self._step("run", "ok" if ran else "failed", ("executed through the actor" if ran else run_text[:200]), run_path)
+        for attempt in range(1, MAX_REPAIRS + 1):
+            if ran or not repairable:
+                break
+            names = self._repair(brief=f"Goal: {g}", files=written, run_text=run_text, attempt=attempt,
+                                 entry="main.py",
+                                 rules=("Python 3.9 standard library only, no network, no installs; main.py "
+                                        "runs in under 90 seconds, prints what it did and exits 0."))
+            if not names:
+                break
+            written = sorted(set(written) | set(names))
+            ran, run_text, repairable = self._run_script(self.dir / "main.py", "the project's entry point, repaired")
+            run_path = self._write(f"run-{attempt + 1}.md", run_text)
+            self._step(f"run {attempt + 1}", "ok" if ran else "failed",
+                       ("executed through the actor" if ran else run_text[:200]), run_path)
 
         ok, report = self._ask("auditor", (
             f"Goal: {g}\n\nFiles written: {', '.join(written)}\n\nWhat running main.py did:\n{run_text[:6000]}\n\n"

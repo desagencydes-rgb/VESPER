@@ -4940,9 +4940,10 @@ def check_workflows_show_their_work() -> Result:
         return r
 
     class Runner:
-        def __init__(self, answers): self.answers, self.calls = answers, []
+        def __init__(self, answers): self.answers, self.calls, self.limits = answers, [], {}
         def run(self, agent, prompt, **kw):
             self.calls.append(agent)
+            self.limits[agent] = kw.get("timeout_s")
             t = self.answers.get(agent, "")
             return {"ok": bool(t), "text": t, "why": "" if t else "canned failure"}
 
@@ -4963,13 +4964,19 @@ def check_workflows_show_their_work() -> Result:
     with tempfile.TemporaryDirectory() as td:
         T = Path(td); sp = T / "wf.json"
         common = dict(workdir=T, status_path=sp, background=False, config_dir=None, binary="x")
-        res = W.start("research", "Does a fair coin's mean converge to one half?", runner=Runner(good), act=act_ok, **common)
+        happy = Runner(good)
+        res = W.start("research", "Does a fair coin's mean converge to one half?", runner=happy, act=act_ok, **common)
         files = {p.name for p in Path(res["dir"]).iterdir()}
         if res["status"] != "done" or files != {"experiment.py", "findings.md", "plan.md", "run.md", "sources.md"}:
             r.err(f"the happy research run ended {res['status']!r} with files {sorted(files)}")
         run = W.runs("research", sp)[0]
         if [s["name"] for s in run["steps"]] != ["scholar", "drafter", "implementer", "run", "auditor"] or any(s["status"] != "ok" for s in run["steps"]):
             r.err(f"steps recorded {[(s['name'], s['status']) for s in run['steps']]!r}")
+        # THE LITERATURE STEP GETS ITS OWN, LONGER LIMIT, AND NOTHING ELSE DOES. A
+        # real review was cut off at 600 s with nothing written (2026-09-14).
+        if not (happy.limits.get("scholar") or 0) > W.STEP_TIMEOUT_S or happy.limits.get("implementer") != W.STEP_TIMEOUT_S:
+            r.err(f"step limits given {happy.limits!r}: the scholar, which searches the web, must get more than "
+                  f"{W.STEP_TIMEOUT_S:.0f} s and every other agent the shared limit")
         if not sentences or not sentences[-1].startswith("run this command in your own place"):
             r.err("the experiment was not run through the actor as a sentence in VESPER's own place")
         if not str(Path(res["dir"])).startswith(str(T)):
@@ -4987,10 +4994,14 @@ def check_workflows_show_their_work() -> Result:
         if res["status"] != "failed" or "run.md" in files or "findings.md" in files:
             r.err(f"with no script the run ended {res['status']!r} and wrote {sorted(files)}: a run that never happened was reported")
 
-        res = W.start("research", "A question whose run the actor refuses tonight", runner=Runner(good), act=act_refused, **common)
+        refusing = Runner(good)
+        res = W.start("research", "A question whose run the actor refuses tonight", runner=refusing, act=act_refused, **common)
         files = {p.name for p in Path(res["dir"]).iterdir()}
         if res["status"] != "failed" or "findings.md" in files or "run.md" not in files:
             r.err(f"with the actor refusing, the run ended {res['status']!r} and wrote {sorted(files)}: findings for an experiment that did not execute")
+        if refusing.calls.count("implementer") != 1:
+            r.err(f"a run the actor REFUSED went back to the implementer {refusing.calls.count('implementer') - 1} time(s): "
+                  "a refusal is not a bug in the script, and rewriting the code cannot change the answer")
 
         proj = dict(good); proj["implementer"] = "```python\n# file: main.py\nprint('hello')\n```\n```text\n# file: README.txt\nnotes\n```"
         res = W.start("project", "Build a tiny bigram language model on sample text", runner=Runner(proj), act=act_ok, **common)
@@ -5001,6 +5012,44 @@ def check_workflows_show_their_work() -> Result:
         res = W.start("project", "A project whose file names try to climb out", runner=Runner(evil), act=act_ok, **common)
         if (T / "escape.py").exists() or (Path(res["dir"]).parent.parent / "escape.py").exists():
             r.err("a file name with ../ escaped the run's directory")
+
+        # A SCRIPT THAT RAN AND FAILED GOES BACK TO THE IMPLEMENTER WITH ITS OWN
+        # ERROR, runs again, and the repaired files obey the first write's rule.
+        attempts = {"n": 0}
+        def act_fail_then_ok(sentence):
+            sentences.append(sentence)
+            attempts["n"] += 1
+            code = 1 if attempts["n"] == 1 else 0
+            return SimpleNamespace(to_dict=lambda code=code: {
+                "kind": "acted", "capability_id": "shell.run", "said": "ran it",
+                "detail": {"result": {"exit_code": code, "stdout": "" if code else "fixed",
+                                      "stderr": "NameError: name 'x' is not defined" if code else ""}}})
+        class _Seq(Runner):
+            def __init__(self, answers, seq):
+                super().__init__(answers)
+                self.seq, self.prompts = list(seq), []
+            def run(self, agent, prompt, **kw):
+                if agent == "implementer" and self.seq:
+                    self.calls.append(agent)
+                    self.prompts.append(prompt)
+                    return {"ok": True, "text": self.seq.pop(0), "why": ""}
+                return super().run(agent, prompt, **kw)
+        fixer = _Seq(proj, [proj["implementer"],
+                            "```python\n# file: ../../repair-escape.py\nprint(1)\n```\n"
+                            "```python\n# file: main.py\nprint('fixed')\n```"])
+        res = W.start("project", "A project whose first run raises and whose repair runs",
+                      runner=fixer, act=act_fail_then_ok, **common)
+        run = next((x for x in W.runs("project", sp) if x.get("dir") == res.get("dir")), {})
+        names = [s["name"] for s in run.get("steps") or []]
+        if res["status"] != "done" or names[-4:] != ["run", "repair 1", "run 2", "auditor"]:
+            r.err(f"a run that exited 1 and was repaired ended {res['status']!r} with steps {names!r}: a failed "
+                  "script must go back to the implementer with its error and run again")
+        if "NameError" not in " ".join(fixer.prompts[1:]):
+            r.err("the repair prompt did not carry the run's own error, so the implementer is asked to fix a "
+                  "failure it cannot see")
+        if (T / "repair-escape.py").exists() or (Path(res["dir"]).parent.parent / "repair-escape.py").exists():
+            r.err("a file name with ../ in a REPAIR escaped the run's directory: the first write's rule was not "
+                  "applied again")
         try:
             W.start("research", "short", runner=Runner(good), act=act_ok, **common)
             r.err("a one-word question started a research run")

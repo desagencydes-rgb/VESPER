@@ -2291,6 +2291,36 @@ CASES += [
      "a file the implementer named ../../escape.py lands two directories up, "
      "outside the run and possibly outside VESPER's own place"),
 
+    ("workflows-show-their-work", F11_WORKFLOWS,
+     _sub("        for attempt in range(1, MAX_REPAIRS + 1):\n            if ran or not repairable:\n"
+          "                break\n            names = self._repair(",
+          "        for attempt in range(0):\n            if ran or not repairable:\n"
+          "                break\n            names = self._repair(", 1),
+     "a project whose script ran and failed is never sent back to the implementer: "
+     "the first error ends the run, which is how nothing bigger than a toy gets built"),
+
+    ("workflows-show-their-work", F11_WORKFLOWS,
+     _sub("        failed_by_exit = kind == \"acted\" and code not in (0, None)",
+          "        failed_by_exit = False", 1),
+     "a script that exited 1 counts as run because the actor said it acted, so a "
+     "traceback is audited as a working project"),
+
+    ("workflows-show-their-work", F11_WORKFLOWS,
+     _sub("            name = pathlib.PurePosixPath(h).name  # the first write's rule: no directories, no escapes",
+          "            name = h", 1),
+     "a file named ../../ in a REPAIR lands outside the run: the first write's rule "
+     "is not applied to the second"),
+
+    ("workflows-show-their-work", F11_WORKFLOWS,
+     _sub("            if ran or not repairable:", "            if ran:", 1),
+     "a run the actor REFUSED is sent back to the implementer, as if rewriting the "
+     "code could change an authorisation answer"),
+
+    ("workflows-show-their-work", F11_WORKFLOWS,
+     _sub("AGENT_TIMEOUT_S = {\"scholar\": 1500.0}", "AGENT_TIMEOUT_S = {}", 1),
+     "the scholar gets the shared 600 s limit again, and a literature review that "
+     "needs longer is cut off with nothing written"),
+
     ("workflows-show-their-work", F8_CONTROLS,
      _sub('    "workflow.research": (WORKFLOW, _workflow("research")),', '', 1),
      "the research board's start button names a control nobody applies"),
