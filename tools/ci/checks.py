@@ -16874,6 +16874,167 @@ def check_the_model_rows_read_a_real_completion() -> Result:
     return r
 
 
+def check_the_expandable_menu_reads_what_it_names() -> Result:
+    """Every expandable-menu row reads what it names, or says what is missing.
+
+    THE OWNER, 2026-09-13: *"i should see no 'unavailable' there."* Thirty-four
+    of sixty-eight rows read UNAVAILABLE while most of their readings were one
+    root-free command away. The producer reads them now; this gate drives it
+    against recorded command output, so each reading is shown to come from what
+    it names -- and to refuse when its unit cannot be proven.
+
+    DRIVEN, NOT GREPPED. The collector runs over a runner that answers only the
+    exact argv it asks for, a temporary state directory holding a real event
+    store with more records than the 100-record tail, and a stand-in registry.
+    What is asserted is what the rows say.
+    """
+    r = Result("the-expandable-menu-reads-what-it-names")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import json as _j, plistlib as _pl, sqlite3 as _sq, tempfile as _tfm, types as _ty
+    try:
+        import tools.menu_snapshot as MS
+        import core.menu_cards as MC
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"the menu producer does not import: {exc!r}")
+        return r
+
+    def battery(load, volts, amps):
+        return _pl.dumps([{
+            "DesignCapacity": 8694, "AppleRawMaxCapacity": 7392, "CycleCount": 197,
+            "CurrentCapacity": 50, "IsCharging": False, "ExternalConnected": False,
+            "Temperature": 3077, "Voltage": volts, "InstantAmperage": amps % 2**64,
+            "BatteryData": {"DailyMinSoc": 40, "DailyMaxSoc": 60},
+            "PowerTelemetryData": {"SystemLoad": load, "SystemPowerIn": 0,
+                                   "SystemVoltageIn": 0, "SystemCurrentIn": 0}}])
+
+    # TWO SAMPLES, AND THE FIRST IS ZEROES -- as `top` really prints them.
+    top = ("Processes: 3\n\nPID    COMMAND          POWER\n1      kernel_task      0.0\n"
+           "2      BusyThing        0.0\n\nProcesses: 3\n\nPID    COMMAND          POWER\n"
+           "2      BusyThing        31.5\n1      kernel_task      2.0\n3      Idle             0.0\n").encode()
+    display = _pl.dumps([{"IORegistryEntryChildren": [{"IORegistryEntryChildren": [{
+        "IODisplayParameters": {
+            "brightness": {"min": 0, "max": 65536, "value": 32768},
+            "BrightnessMilliNits": {"min": 3979, "max": 1599999, "value": 381794},
+            "BrightnessMicroAmps": {"min": 51, "max": 13799, "value": 3199}}}]}]}])
+    table = {
+        ("/usr/bin/top", "-l", "2", "-n", "15", "-stats", "pid,command,power", "-o", "power"): top,
+        ("/usr/sbin/ioreg", "-ar", "-k", "IODisplayParameters"): display,
+        ("/usr/sbin/system_profiler", "SPUSBHostDataType", "-json"): _j.dumps({"SPUSBHostDataType": [
+            {"_name": "USB 3.1 Bus", "_items": [{"_name": "Keyboard"}]},
+            {"_name": "USB 3.1 Bus"}, {"_name": "USB 3.1 Bus"}]}).encode(),
+        # The older data type answers with nothing, as it does on this OS.
+        ("/usr/sbin/system_profiler", "SPUSBDataType", "-json"): _j.dumps({"SPUSBDataType": []}).encode(),
+        ("/usr/bin/pmset", "-g", "therm"): (b"Note: No thermal warning level has been recorded\n"
+                                            b"Note: No performance warning level has been recorded\n"),
+        ("/usr/sbin/sysctl", "-n", "hw.memsize"): b"17179869184\n",
+        ("/usr/sbin/diskutil", "info", "-plist", "/"): _pl.dumps(
+            {"APFSContainerSize": 494384795648, "APFSContainerFree": 300000000000,
+             "SMARTStatus": "Verified", "SolidState": True, "TRIMSupport": True}),
+    }
+
+    def runner(batt):
+        def run(argv, timeout=5):
+            key = tuple(argv)
+            if key == ("/usr/sbin/ioreg", "-ar", "-c", "AppleSmartBattery"):
+                return batt
+            if key not in table:
+                raise ValueError(f"{argv[0]} is not recorded in this fixture")
+            return table[key]
+        return run
+
+    class _Dev:
+        def all(self):
+            return [{"node_id": "n1", "availability_class": "on_demand",
+                     "key_storage_class": "os_keychain", "trust_zone_ceiling": "Z1",
+                     "is_survival_host": True}]
+        def placement(self, domain):
+            return ["n1"] if domain == "memory" else []
+
+    real_cards, real_platform = MC.cards, MS.platform
+    MC.cards = lambda home=None: {"panic-revoke": {
+        "summary": "Drop every grant.", "actions": [{"label": "Revoke"}],
+        "rows": [{"label": "what it drops", "value": "every macOS grant", "source": "fixture"}]}}
+    MS.platform = _ty.SimpleNamespace(system=lambda: "Darwin")
+    try:
+        with _tfm.TemporaryDirectory() as td:
+            base = Path(td)
+            (base / "bus").mkdir()
+            con = _sq.connect(base / "bus" / "log.db")
+            con.execute("CREATE TABLE records (seq INTEGER PRIMARY KEY, kind TEXT, body TEXT, "
+                        "hlc_physical_ms INTEGER, hlc_logical INTEGER, hlc_node_id TEXT, lease_epoch INTEGER)")
+            con.execute("CREATE INDEX ix_records_kind ON records(kind)")
+            # Approvals and placements FIRST, then more records than the tail
+            # holds: a count read off the tail sees none of them.
+            kinds = (["act.resumed"] * 2 + ["placement.assigned"] * 3 + ["turn.heard"] * 150)
+            for i, kind in enumerate(kinds):
+                con.execute("INSERT INTO records (kind, body, hlc_physical_ms, hlc_logical, hlc_node_id, "
+                            "lease_epoch) VALUES (?,?,?,?,?,?)", (kind, _j.dumps({"type": kind}), 1000 + i, 0, "n", 0))
+            con.commit()
+            con.close()
+            (base / "permission_mode.json").write_text('{"mode": "auto"}', encoding="utf-8")
+
+            c = MS.Collector(context={"devices": _Dev()}, state=base, runner=runner(battery(7460, 11400, -654)))
+            rows = {x["label"]: x for x in c.collect()}
+            fresh = MS.Collector(context={"devices": _Dev()}, state=base, runner=runner(battery(20000, 11400, -654)))
+            unproven = {x["label"]: x for x in fresh.collect()}
+            c.runner = runner(battery(19336, 11146, -2082))
+            swung = {x["label"]: x for x in c.collect()}
+    finally:
+        MC.cards, MS.platform = real_cards, real_platform
+
+    def row(rs, name):
+        x = rs.get(name) or {}
+        return x.get("status"), str(x.get("value")), str(x.get("reason"))
+
+    for name, want in [
+        ("Power draw", "7.46 W whole machine"),
+        ("Costing me now", "BusyThing 31.5"),
+        ("Process energy", "2 of 3 sampled processes drawing"),
+        ("Display power", "brightness 50% · 382 nits · backlight 3.2 mA"),
+        ("Peripherals", "1 USB device(s) on 3 bus(es)"),
+        ("Fan & acoustics", "no thermal or performance warning"),
+        ("Approval history", "2 approvals recorded"),
+        ("Relocation history", "3 placement events: assigned 3"),
+        ("Panic revoke", "what it drops: every macOS grant"),
+        ("Enrollment", "1 enrolled: n1"),
+        ("Node roles", "n1 holds memory"),
+        ("Charging schedule", "macOS decides, not VESPER · today 40–60% · on battery"),
+        ("Survival profile", "n1 carries"),
+    ]:
+        st, v, why = row(rows, name)
+        if st != "available" or not v.startswith(want):
+            r.err(f"{name} reads {st}: {v!r} ({why[:160]}), not {want!r}. The row names a reading "
+                  "the fixture supplies, so it is not reading what it names.")
+    for name in ("Consent channel policy", "Before/after", "Onboarding wizard", "Trust zones",
+                 "Behaviour on / off this Mac", "Blast radius", "Migration dry-run"):
+        if row(rows, name)[0] != "available":
+            r.err(f"{name} is unavailable over a fixture that supplies everything it reads: {row(rows, name)[2][:160]}")
+
+    # A NUMBER WHOSE UNIT WAS NEVER PROVEN IS NOT PUBLISHED -- and one proven
+    # earlier survives a sample that straddles a load swing, with its disagreement.
+    st, v, why = row(unproven, "Power draw")
+    if st == "available":
+        r.err(f"a power figure that disagrees with voltage x current by 168% on its first sample was "
+              f"published as {v!r}: a plausible number is not a unit")
+    st, v, why = row(swung, "Power draw")
+    dis = (((swung.get("Power draw") or {}).get("data") or {}).get("cross_check") or {}).get("disagreement")
+    if st != "available" or not v.startswith("19.34 W") or not isinstance(dis, float) or dis <= 0.1:
+        r.err(f"after the unit was proven, a sample straddling a load swing reads {st}: {v!r} with "
+              f"disagreement {dis!r}; it should publish and record its own disagreement")
+
+    leaked = [n for n, x in rows.items() if x.get("status") == "available" and "UNAVAILABLE" in str(x.get("value"))]
+    if leaked:
+        r.err(f"{leaked} are marked available with UNAVAILABLE in the value itself")
+    if not r.errors:
+        r.note(f"driven over recorded command output: {sum(x.get('status') == 'available' for x in rows.values())} "
+               f"of {len(rows)} rows read what they name; watts are withheld until proven against "
+               "voltage x current and kept through a load swing once proven; energy is read from the "
+               "last top sample; approvals and placements are counted past the tail; main rows mirror "
+               "their cards; fabric rows read the registry")
+    return r
+
+
 def check_a_window_belongs_to_someone() -> Result:
     """VESPER manages its own windows always and the owner's only on demand.
 
@@ -29029,6 +29190,7 @@ CHECK_FNS = {
     "the-island-shows-vespers-own-state": check_the_island_shows_vespers_own_state,
     "the-model-rows-read-a-real-completion": check_the_model_rows_read_a_real_completion,
     "a-window-belongs-to-someone": check_a_window_belongs_to_someone,
+    "the-expandable-menu-reads-what-it-names": check_the_expandable_menu_reads_what_it_names,
     "spaces-hatch-contained": check_spaces_hatch,
     "notes-are-never-instructions": check_notes_are_titles_and_never_instructions,
     "taint-ceiling-binds-the-act-path": check_taint_ceiling_binds_the_act_path,

@@ -96,8 +96,8 @@ tools/traceability_lint.py                    PASS   0 errors, 0 warnings, 0 inf
 tools/traceability_lint.py --profile release  FAIL   2 errors, DEPTH only (SR-017, SR-034)
 tools/reference_lint.py                       PASS   0 errors — 179 normative files scanned
 tools/reference_lint.py --self-test           PASS   6/6 red-then-green
-tools/ci/checks.py all                        PASS   194/194 runnable checks, ran 2026-09-14
-tools/ci/self_test.py                         STALE  993/993 red-then-green -- last FULL run 900/900 on 2026-09-12; cases added since were run on their own, check by check. A full run at ec8f146 was started in a worktree on 2026-09-14 07:13 and has not completed
+tools/ci/checks.py all                        PASS   195/195 runnable checks, ran 2026-09-14 12:08 with the expandable-menu gate
+tools/ci/self_test.py                         STALE  1000/1000 red-then-green -- last FULL run 900/900 on 2026-09-12; cases added since were run on their own, check by check. A full run at ec8f146 was started in a worktree on 2026-09-14 07:13 and has not completed
 tools/ci/checks.py status                            189/207 check IDs implemented, 18 PENDING
 tools/ci/checks.py ci-registry                       ENFORCED TODAY: 131/182 invariants
 verification/run_f0_acceptance.py             PASS

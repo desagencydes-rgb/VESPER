@@ -8332,6 +8332,51 @@ CASES += [
      "defect, to an owner who had just asked"),
 ]
 
+MENU_SNAPSHOT_PY = "tools/menu_snapshot.py"
+
+CASES += [
+    ("the-expandable-menu-reads-what-it-names", MENU_SNAPSHOT_PY,
+     _sub("        if self.power_unit_proven_at is None:\n            raise ValueError(",
+          "        if False:\n            raise ValueError(", 1),
+     "a power figure is published whether or not it agrees with voltage x current, "
+     "so a plausible number stands in for a unit nobody proved"),
+
+    ("the-expandable-menu-reads-what-it-names", MENU_SNAPSHOT_PY,
+     _sub("        if disagreement<=POWER_AGREEMENT and self.power_unit_proven_at is None:\n"
+          "            self.power_unit_proven_at=at",
+          "        if False:\n            self.power_unit_proven_at=at", 1),
+     "nothing is ever proven, so the one reading that agrees is withheld with the "
+     "ones that do not -- the row goes back to UNAVAILABLE over a good sample"),
+
+    ("the-expandable-menu-reads-what-it-names", MENU_SNAPSHOT_PY,
+     _sub("        rows=sorted(blocks[-1],", "        rows=sorted(blocks[0],", 1),
+     "energy is read from top's first sample, which has no interval behind it and "
+     "reads 0.0 for every process: the owner is shown a ranking of nothing"),
+
+    ("the-expandable-menu-reads-what-it-names", MENU_SNAPSHOT_PY,
+     _sub("        for dtype in ('SPUSBHostDataType','SPUSBDataType'):",
+          "        for dtype in ('SPUSBDataType',):", 1),
+     "peripherals ask only the data type this OS no longer answers, and the row "
+     "reads 'no inventory' over three USB buses"),
+
+    ("the-expandable-menu-reads-what-it-names", MENU_SNAPSHOT_PY,
+     _sub("        total=self.db('log',\"SELECT count(*) FROM records WHERE kind='act.resumed'\")[0][0]",
+          "        total=len(approvals)", 1),
+     "approvals are counted off the 100-record tail again, which holds none of them, "
+     "so the owner is told nothing was ever approved"),
+
+    ("the-expandable-menu-reads-what-it-names", MENU_SNAPSHOT_PY,
+     _sub("            self.destinations(put,result)", "            pass", 1),
+     "the main destinations stop mirroring their cards and read UNAVAILABLE with the "
+     "excuse the card had already retired, beside a card whose buttons work"),
+
+    ("the-expandable-menu-reads-what-it-names", MENU_SNAPSHOT_PY,
+     _sub("            for child in node.get('IORegistryEntryChildren') or []:",
+          "            for child in []:", 1),
+     "the display search stops at the top of the registry tree, and a backlight "
+     "published one level down is never found"),
+]
+
 NAMED_REAL = '        named = [str(r.get("label")).strip() for r in can\n                 if str(r.get("label") or "").strip()]'
 ROLEBACK_BAD = '        named = [str(r.get("label") or r.get("role")).strip() for r in can]'
 THROTTLE_REAL = '            if last and (now - last) < REPEAT_SILENCE_S:'

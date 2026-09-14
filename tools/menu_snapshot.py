@@ -130,6 +130,7 @@ class Collector:
         self.cache = {}
         self.previous_work = None
         self.baseline = None
+        self.power_unit_proven_at = None
 
     def command(self, argv, *, slow=False):
         key = tuple(argv)
@@ -459,12 +460,21 @@ class Collector:
             raise ValueError(f'the {label} cross-check has no voltage, current or power in this sample')
         product=volts*amps/1000
         disagreement=abs(product-claimed)/claimed
-        if disagreement>POWER_AGREEMENT:
-            raise ValueError(f'{label} power {claimed} disagrees with voltage x current {product:.0f} by {disagreement:.0%}; the unit is not proven')
+        # THE UNIT IS PROVEN ONCE; A SAMPLE CAN STILL STRADDLE A LOAD SWING. The
+        # controller refreshes the power figure and the current at different
+        # instants: live on 2026-09-14 one sample read 19336 mW against 23204 mW
+        # (20%) during a build, and the next 20686 against 20252 (2%). A unit
+        # does not change between samples, so once one agrees the figure is
+        # published with each sample's own disagreement recorded; until one
+        # agrees, nothing is.
+        if disagreement<=POWER_AGREEMENT and self.power_unit_proven_at is None:
+            self.power_unit_proven_at=at
+        if self.power_unit_proven_at is None:
+            raise ValueError(f'{label} power {claimed} disagrees with voltage x current {product:.0f} by {disagreement:.0%}; the unit is not proven yet')
         value=f'{load/1000:.2f} W whole machine'
         if external:value+=f' · {claimed/1000:.2f} W from the adapter'
         put('Power draw',value,'ioreg AppleSmartBattery.PowerTelemetryData',at=at,
-            data=dict(system_load_mw=load,external_power=external,
+            data=dict(system_load_mw=load,external_power=external,unit_proven_at_ms=self.power_unit_proven_at,
                       cross_check=dict(of=label,voltage_mv=volts,current_ma=amps,claimed_mw=claimed,
                                        product_mw=round(product,1),disagreement=round(disagreement,4))),
             details='Whole-machine load from the battery controller, cross-checked against voltage × current from the same service in this sample. The split into compute versus everything else needs powermetrics, which needs root, and is not attempted.')
