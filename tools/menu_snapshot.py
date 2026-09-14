@@ -39,6 +39,14 @@ MAX_HISTORY = 120
 MAX_DB_STEPS = 2000
 TTL_MS = 120_000
 SLOW_TTL_MS = 600_000
+# How far a published power figure may sit from voltage x current in the same
+# sample before its unit counts as unproven. Measured agreement on this Mac,
+# 2026-09-14: 7455 mW against 11400 mV x 654 mA = 7455.6 mW.
+POWER_AGREEMENT = 0.10
+# The numeric readings Before/after compares: (row, data key, scale, unit).
+BASELINE_KEYS = (('Power draw', 'system_load_mw', 1/1000, 'W'),
+                 ('Memory headroom', 'reclaimable_gib', 1, 'GiB'),
+                 ('Compressor & swap', 'compressor_bytes', 1/1024**3, 'GiB'))
 STATE = Path.home() / 'Library' / 'Application Support' / 'VESPER'
 
 
@@ -98,6 +106,19 @@ def observed(item, value, source, at_ms, *, details='', data=None, ttl_ms=TTL_MS
                 details=details[:MAX_TEXT], data=clean(data))
 
 
+def project_file(rel):
+    """A file from the project, found from the repo or, inside the bundle, from
+    the project root the build recorded in place.toml. None when neither has it."""
+    p=REPO/rel
+    if p.is_file():return p
+    try:
+        root=tomllib.loads((REPO/'place.toml').read_text(encoding='utf-8')).get('project_root')
+    except (OSError,ValueError):
+        return None
+    q=Path(root)/rel if root else None
+    return q if q is not None and q.is_file() else None
+
+
 class Collector:
     def __init__(self, *, context=None, state=STATE, runner=run, now_ms=None):
         self.context = context or {}
@@ -108,6 +129,7 @@ class Collector:
         self.previous_io = None
         self.cache = {}
         self.previous_work = None
+        self.baseline = None
 
     def command(self, argv, *, slow=False):
         key = tuple(argv)
@@ -205,6 +227,10 @@ class Collector:
             attempt(['Throttle events'],lambda:self.throttle(put))
             attempt(['Radio state'],lambda:self.radio(put))
             attempt(['Peripherals'],lambda:self.peripherals(put))
+            attempt(['Power draw'],lambda:self.power(put))
+            attempt(['Costing me now','Process energy'],lambda:self.energy(put))
+            attempt(['Display power'],lambda:self.display(put))
+            attempt(['Fan & acoustics'],lambda:self.thermal_level(put))
         else:
             for name in ('Battery health','Charge policy','Thermal history','Compressor & swap',
                          'Disk I/O rate','Sleep & wake log','Throttle events','Radio state','Peripherals'):
@@ -213,7 +239,19 @@ class Collector:
         attempt(['Control-plane lease'],lambda:self.leases(put))
         attempt(['Live activity stream','Relocation history','Approval history'],lambda:self.logs(put))
         self.live(put,attempt)
+        devices=self.context.get('devices')
+        if devices is not None:
+            attempt(['Enrollment','Node roles','Trust zones','Onboarding wizard','Behaviour on / off this Mac'],
+                    lambda:self.fabric_rows(put,devices))
+        attempt(['Maintenance actions'],lambda:self.maintenance(put))
+        attempt(['Consent channel policy'],lambda:self.consent_policy(put))
         profiles=self.context.get('placement_profiles')
+        if not profiles and devices is not None:
+            try:
+                profiles=self.registry_profiles(devices,result)
+            except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as exc:
+                profiles=None
+                fail(['Survival profile','Blast radius','Migration dry-run'],exc)
         if profiles:
             attempt(['Survival profile','Blast radius','Migration dry-run','Node comparison'],
                     lambda:self.simulations(put,profiles))
@@ -221,6 +259,18 @@ class Collector:
         if clock_samples:
             attempt(['Clock skew'],lambda:put('Clock skew','Bounded clock-offset intervals','clock request/response observations',
                 data=[clock_interval(s) for s in clock_samples[:MAX_RECORDS]],details='Intervals include round-trip uncertainty. HLC still decides order.'))
+        # THE MAIN DESTINATIONS ARE CARDS THAT MANAGE (core/menu_cards.py). A
+        # catalogue row for one of them still read UNAVAILABLE with the excuse
+        # the card had already retired -- "no revoke command" beside a card whose
+        # revoke button works. Only rows nothing else produced are filled, so a
+        # live reading is never replaced by a card's summary.
+        try:
+            self.destinations(put,result)
+        except (ImportError, OSError, ValueError, KeyError, TypeError, AttributeError, sqlite3.Error) as exc:
+            for item in CATALOGUE:
+                if item['area']=='main' and result[item['name']]['status']=='unavailable':
+                    result[item['name']]=absent(item,item['reason']+' Card: '+type(exc).__name__+': '+str(exc)[:200],checked)
+        attempt(['Before/after'],lambda:self.before_after(put,result))
         # Palette and comparisons execute in the display; they are not fake OS readings.
         put('Command palette','Command-K · search all 68 surfaces','local menu catalogue',
             details='Opens the selected surface. It never sends terminal commands.')
@@ -242,6 +292,11 @@ class Collector:
         charge.update({k:data.get(k) for k in ('DailyMinSoc','DailyMaxSoc')})
         put('Charge policy',f"charge {b.get('CurrentCapacity','UNAVAILABLE')}%",'ioreg AppleSmartBattery',at=at,data=charge,
             details='DailyMinSoc and DailyMaxSoc are observed charge extrema, not configured charge limits. Configured limit and charging control UNAVAILABLE.')
+        state=('charging' if charge.get('IsCharging') else
+               'on the adapter, not charging' if charge.get('ExternalConnected') else 'on battery')
+        put('Charging schedule',f"macOS decides, not VESPER · today {charge.get('DailyMinSoc')}–{charge.get('DailyMaxSoc')}% · {state}",
+            'ioreg AppleSmartBattery',at=at,data=charge,
+            details='VESPER sets no charging schedule: charging control would need a governed host action that does not exist, so macOS decides when to charge. The day\'s observed charge range is the evidence of what it did.')
         # Preserve the raw field until its unit is established by this adapter's
         # evidence. A plausible conversion to degrees is not unit provenance.
         temperature=b.get('Temperature')
@@ -353,19 +408,163 @@ class Collector:
             data=states,details='Wi-Fi power, radio watts, and wake attribution UNAVAILABLE. Controller state is not power cost; addresses and paired-device identities are omitted.')
 
     def peripherals(self,put):
-        at,raw=self.command(['/usr/sbin/system_profiler','SPUSBDataType','-json'],slow=True)
-        doc=json.loads(raw);inventory=[]
+        # SPUSBHostDataType IS WHAT THIS OS ANSWERS. The row asked SPUSBDataType
+        # only, got no inventory, and read "no public peripheral inventory" while
+        # the host data type listed three USB buses (2026-09-14, macOS 26).
+        doc=None;source=None;at=0
+        for dtype in ('SPUSBHostDataType','SPUSBDataType'):
+            try:
+                at,raw=self.command(['/usr/sbin/system_profiler',dtype,'-json'],slow=True)
+            except (OSError,ValueError,subprocess.SubprocessError):
+                continue
+            doc=json.loads(raw)
+            if doc.get(dtype):
+                source=dtype;break
+        if not source:raise ValueError('neither USB data type returned an inventory')
+        inventory=[];counts={'buses':0,'devices':0}
         def visit(items,depth=0):
             if depth>5:return
             for item in items[:MAX_RECORDS]:
                 if len(inventory)>=MAX_RECORDS:return
-                row={k:item[k] for k in ('_name','bus_power','bus_power_used','extra_current_used') if k in item}
-                if row:inventory.append(row)
+                counts['buses' if depth==0 else 'devices']+=1
+                row={k:item[k] for k in ('_name','USBKeyHardwareType','bus_power','bus_power_used','extra_current_used') if k in item}
+                row['depth']=depth
+                inventory.append(row)
                 visit(item.get('_items') or [],depth+1)
-        visit(doc.get('SPUSBDataType') or [])
-        if not inventory:raise ValueError('no USB inventory was returned')
-        put('Peripherals',f'{len(inventory)} USB inventory entries','system_profiler SPUSBDataType',at=at,ttl=SLOW_TTL_MS,
-            data=inventory,details='Reported USB current budgets are not measured watts. Device wake assertions and non-USB peripherals UNAVAILABLE. Serial numbers are not exported.')
+        visit(doc.get(source) or [])
+        put('Peripherals',f"{counts['devices']} USB device(s) on {counts['buses']} bus(es)",f'system_profiler {source}',at=at,ttl=SLOW_TTL_MS,
+            data=inventory,details='Buses and the devices on them. Reported USB current budgets are not measured watts; device wake assertions and non-USB peripherals are not in this inventory. Serial numbers are not exported.')
+
+    def power(self,put):
+        # WATTS WITHOUT ROOT, AND THE UNIT PROVEN IN THE SAME SAMPLE. The battery
+        # controller publishes `PowerTelemetryData.SystemLoad`. On battery it must
+        # equal Voltage x InstantAmperage from the same service; on the adapter,
+        # SystemPowerIn must equal SystemVoltageIn x SystemCurrentIn. A figure is
+        # published only when it does -- a plausible number is not a unit.
+        at,raw=self.command(['/usr/sbin/ioreg','-ar','-c','AppleSmartBattery'])
+        entries=plistlib.loads(raw)
+        if not entries:raise ValueError('no battery service returned')
+        b=entries[0];t=b.get('PowerTelemetryData') or {}
+        load=t.get('SystemLoad')
+        if not isinstance(load,int) or load<=0:raise ValueError('PowerTelemetryData.SystemLoad is absent or zero')
+        external=bool(b.get('ExternalConnected'))
+        if external:
+            volts,amps,claimed,label=t.get('SystemVoltageIn'),t.get('SystemCurrentIn'),t.get('SystemPowerIn'),'adapter in'
+        else:
+            amps=b.get('InstantAmperage',b.get('Amperage'))
+            # A signed current published as an unsigned 64-bit integer: 2**64-654 is -654 mA.
+            if isinstance(amps,int) and amps>=2**63:amps-=2**64
+            volts,amps,claimed,label=b.get('Voltage'),(-amps if isinstance(amps,int) else amps),load,'battery out'
+        if not all(isinstance(v,int) and v>0 for v in (volts,amps,claimed)):
+            raise ValueError(f'the {label} cross-check has no voltage, current or power in this sample')
+        product=volts*amps/1000
+        disagreement=abs(product-claimed)/claimed
+        if disagreement>POWER_AGREEMENT:
+            raise ValueError(f'{label} power {claimed} disagrees with voltage x current {product:.0f} by {disagreement:.0%}; the unit is not proven')
+        value=f'{load/1000:.2f} W whole machine'
+        if external:value+=f' · {claimed/1000:.2f} W from the adapter'
+        put('Power draw',value,'ioreg AppleSmartBattery.PowerTelemetryData',at=at,
+            data=dict(system_load_mw=load,external_power=external,
+                      cross_check=dict(of=label,voltage_mv=volts,current_ma=amps,claimed_mw=claimed,
+                                       product_mw=round(product,1),disagreement=round(disagreement,4))),
+            details='Whole-machine load from the battery controller, cross-checked against voltage × current from the same service in this sample. The split into compute versus everything else needs powermetrics, which needs root, and is not attempted.')
+
+    def energy(self,put):
+        # APPLE'S ENERGY-IMPACT SCORE -- the number Activity Monitor shows -- and
+        # NOT WATTS. `top` computes it without root. Its first sample has no
+        # interval behind it and reads 0.0 for every process (2026-09-14), so only
+        # the LAST sample counts; a parser that took the first would rank nothing.
+        at,raw=self.command(['/usr/bin/top','-l','2','-n','15','-stats','pid,command,power','-o','power'])
+        blocks=[];current=None
+        for line in raw.decode(errors='replace').splitlines():
+            if line.startswith('PID'):
+                current=[];blocks.append(current);continue
+            m=re.match(r'\s*(\d+)\s+(.*?)\s+(\d+(?:\.\d+)?)\s*$',line) if current is not None else None
+            if m:current.append(dict(pid=int(m[1]),process=m[2].strip()[:40],energy_impact=float(m[3])))
+        if len(blocks)<2:raise ValueError('top returned fewer than two samples; the first has no interval behind it')
+        rows=sorted(blocks[-1],key=lambda r:r['energy_impact'],reverse=True)
+        if not rows:raise ValueError('the last sample listed no processes')
+        lead=' · '.join(f"{r['process']} {r['energy_impact']:.1f}" for r in rows[:3])
+        put('Costing me now',lead,'top -l 2 -stats power (last sample)',at=at,data=rows[:10],
+            details="Apple's energy-impact score over the last second, highest first: a relative score, the one Activity Monitor shows, not watts. Whole-machine watts are on Power draw.")
+        put('Process energy',f"{sum(1 for r in rows if r['energy_impact']>0)} of {len(rows)} sampled processes drawing",
+            'top -l 2 -stats power (last sample)',at=at,data=rows,
+            details='Per-process energy impact, ranked. Relative, not watts: per-process watts need powermetrics, which needs root, and is not attempted.')
+
+    def display(self,put):
+        # THE BACKLIGHT'S OWN NUMBERS, published by its driver without root:
+        # the brightness setting, luminance in milli-nits and the backlight
+        # current in microamps (2026-09-14: 32768/65536, 381794 mnits, 3199 µA).
+        # Watts for the display alone are not published.
+        at,raw=self.command(['/usr/sbin/ioreg','-ar','-k','IODisplayParameters'])
+        def find(node,depth=0):
+            if depth>8 or not isinstance(node,dict):return None
+            p=node.get('IODisplayParameters')
+            if isinstance(p,dict) and isinstance(p.get('brightness'),dict):return p
+            for child in node.get('IORegistryEntryChildren') or []:
+                got=find(child,depth+1)
+                if got:return got
+            return None
+        params=next((p for p in (find(e) for e in plistlib.loads(raw) or []) if p),None)
+        if params is None:raise ValueError('no display publishes brightness parameters')
+        def part(key):
+            d=params.get(key) or {}
+            v,lo,hi=d.get('value'),d.get('min'),d.get('max')
+            return (v,lo,hi) if all(isinstance(x,int) for x in (v,lo,hi)) and hi>lo else None
+        br=part('brightness')
+        if br is None:raise ValueError('brightness carries no value, min and max')
+        value=f'brightness {100*(br[0]-br[1])/(br[2]-br[1]):.0f}%'
+        nits=part('BrightnessMilliNits');micro=part('BrightnessMicroAmps')
+        if nits:value+=f' · {nits[0]/1000:.0f} nits'
+        if micro:value+=f' · backlight {micro[0]/1000:.1f} mA'
+        put('Display power',value,'ioreg IODisplayParameters',at=at,
+            data={k:params.get(k) for k in ('brightness','BrightnessMilliNits','BrightnessMicroAmps')},
+            details='The built-in backlight as its driver reports it: the setting, the luminance and the backlight current. Display watts are not published separately; whole-machine watts are on Power draw, so the cost of a brightness change can be measured there.')
+
+    def thermal_level(self,put):
+        # THE OS'S OWN THERMAL AND PERFORMANCE WARNING STATE -- what the fan
+        # answers to. Fan RPM sits behind the SMC and is not read here.
+        at,raw=self.command(['/usr/bin/pmset','-g','therm'],slow=True)
+        text=raw.decode(errors='replace').strip()
+        if not text or 'Error:' in text:raise ValueError('pmset -g therm returned no status')
+        levels=dict(re.findall(r'([A-Za-z_]+)\s*=\s*(\d+)',text))
+        quiet=('No thermal warning level has been recorded' in text
+               and 'No performance warning level has been recorded' in text)
+        value=('no thermal or performance warning' if quiet and not levels
+               else ' · '.join(f'{k} {v}' for k,v in levels.items()) or text.splitlines()[0][:120])
+        put('Fan & acoustics',value,'pmset -g therm',at=at,ttl=SLOW_TTL_MS,data=dict(levels=levels,report=text[:600]),
+            details='The thermal and performance warning levels macOS records -- the state the fan responds to. Fan RPM is held by the SMC and is not read by this publisher.')
+
+    def destinations(self,put,result):
+        from core.menu_cards import cards
+        deck=cards(None)
+        for item in CATALOGUE:
+            if item['area']!='main' or result[item['name']]['status']!='unavailable':continue
+            card=deck.get(item['id']) or {}
+            rows=card.get('rows') or []
+            if not rows:continue
+            acts=[a.get('label') for a in (card.get('actions') or [])]
+            put(item['name'],' · '.join(f"{r.get('label')}: {r.get('value')}" for r in rows[:2])[:240],
+                'core.menu_cards · '+str(rows[0].get('source') or 'card'),data=dict(rows=rows,actions=acts),
+                details=str(card.get('summary') or '')+(f' Managed from its card: {len(acts)} action(s).' if acts else ''))
+
+    def before_after(self,put,result):
+        # A REAL BEFORE AND AFTER. The first numeric readings this publisher took
+        # are the baseline and every later collection is compared against them.
+        now={}
+        for name,key,scale,unit in BASELINE_KEYS:
+            row=result.get(name) or {}
+            d=row.get('data') if row.get('status')=='available' else None
+            if isinstance(d,dict) and isinstance(d.get(key),(int,float)) and not isinstance(d.get(key),bool):
+                now[name]=(d[key]*scale,unit,row['at_ms'])
+        if not now:raise ValueError('no numeric reading was available to compare')
+        if self.baseline is None:self.baseline=now
+        pairs=[(n,self.baseline[n],now[n]) for n in now if n in self.baseline]
+        if not pairs:raise ValueError('the baseline shares no reading with this collection')
+        put('Before/after',' · '.join(f'{n.lower()} {b[0]:.2f}→{c[0]:.2f} {c[1]}' for n,b,c in pairs),
+            'this publisher: its first reading against its latest',
+            data=[dict(reading=n,before=b[0],after=c[0],unit=c[1],before_at_ms=b[2],after_at_ms=c[2]) for n,b,c in pairs],
+            details='Before is the first reading this publisher took after VESPER started; after is the latest. To measure a change you make, note the after value, make the change, and read it again a minute later.')
 
     def leases(self,put):
         rows=self.db('state','SELECT domain, epoch, holder, state FROM leased_domain LIMIT ?', (MAX_RECORDS,))
@@ -377,12 +576,29 @@ class Collector:
         events=self.events()
         put('Live activity stream',f'{len(events)} recent event headers','active log store, HLC order',
             data=events,details='Latest 100 event headers from the active log segment. Archived segments and event payloads are excluded.')
+        # COUNTED BY KIND ACROSS THE ACTIVE STORE, like approvals below: the tail
+        # held no placement event and the row read UNAVAILABLE over 358 of them.
         relocation=[e for e in events if e['event'].startswith('placement.')]
-        if relocation:put('Relocation history',f'{len(relocation)} placement events in tail','active log store',data=relocation,
-                          details='Bounded active-segment tail only; absence here is not evidence that no relocation occurred.')
+        by_kind=dict(self.db('log',"SELECT kind, count(*) FROM records WHERE kind >= 'placement.' AND kind < 'placement/' GROUP BY kind"))
+        put('Relocation history',
+            (f"{sum(by_kind.values())} placement events: "+', '.join(f"{k.split('.',1)[1]} {n}" for k,n in sorted(by_kind.items()))
+             if by_kind else 'no placement events recorded'),
+            'active log store, kind placement.* (indexed count)',data=dict(by_kind=by_kind,recent=relocation),
+            details='Every placement event in the active log segment, counted by kind; archived segments are not counted.')
+        # COUNTED ACROSS THE WHOLE ACTIVE STORE, not read off the 100-record
+        # tail. Approvals are rare and the log is not, so the tail held none for
+        # days and the row read UNAVAILABLE -- but "none in the tail" is not "none
+        # approved". `kind` is indexed, so the count costs one index range.
         approvals=[e for e in events if e['event']=='act.resumed']
-        if approvals:put('Approval history',f'{len(approvals)} approved resumptions in tail','active log store',data=approvals,
-                         details='Owner-approved act.resumed events only; outbox confirmations and automatic elevations are not approvals. This is not a complete approval ledger. Withdrawal UNAVAILABLE: no public revoke operation exists.')
+        total=self.db('log',"SELECT count(*) FROM records WHERE kind='act.resumed'")[0][0]
+        pressed=self.db('log',"SELECT count(*) FROM records WHERE kind='control.applied'")[0][0]
+        put('Approval history',f'{total} approvals recorded' if total else 'none recorded yet',
+            'active log store, kind=act.resumed (indexed count)',
+            data=dict(approvals=total,owner_controls_applied=pressed,recent=approvals),
+            details=('Owner-approved act.resumed events across the active log segment; archived segments are not counted, '
+                     'and outbox confirmations and automatic elevations are not approvals. '
+                     f'{pressed} button presses from the home were applied as controls. An approval is spent by the action '
+                     'it approved, so there is nothing standing to withdraw; standing grants are on the Grants row.'))
 
     def live(self,put,attempt):
         ctx=self.context
@@ -474,15 +690,120 @@ class Collector:
             # as an independent STOP button simply because permission is readable.
             pass
 
+    def fabric_rows(self,put,devices):
+        # THE ENROLLED FABRIC AS THE RUNTIME HOLDS IT. Every row here reads the
+        # live registry; none of them is a declaration taken from a contract.
+        profiles=devices.all()
+        ids=[str(p.get('node_id')) for p in profiles]
+        domains=('tasks','world','memory','devices','policy','autonomy_queue','alarms')
+        held={nid:[d for d in domains if nid in (devices.placement(d) or [])] for nid in ids}
+        put('Enrollment',f"{len(ids)} enrolled: {', '.join(ids)}" if ids else 'no node enrolled','live DeviceRegistry.all',
+            data=profiles,
+            details='The nodes this runtime has admitted. A new machine is measured by tools/profile_node.py on that machine, and its profile reaches placement only through a reviewed promotion; the display never admits a node.')
+        put('Node roles',' · '.join(f"{nid} holds {', '.join(ds) if ds else 'nothing yet'}" for nid,ds in held.items()) or 'no node enrolled',
+            'live DeviceRegistry.placement',data=held,
+            details='What each node is used for, read from the live placement assignments: a role is what a node holds, not its availability class.')
+        put('Trust zones',' · '.join(f"{p.get('node_id')} ceiling {p.get('trust_zone_ceiling')} ({p.get('key_storage_class')})" for p in profiles) or 'no node enrolled',
+            'live DeviceRegistry.all',
+            data=[{k:p.get(k) for k in ('node_id','trust_zone_ceiling','key_storage_class','is_survival_host')} for p in profiles],
+            details="The ceiling each node's key storage allows. A node reached through a fabric segment gets the weaker of this and the segment's ceiling (INV-NET-2); the fabric is not attested, so no remote node is admitted today.")
+        # tools/spike/, AND FOUND FROM THE PROJECT ROOT: the bundle carries no
+        # tools/spike, so a path from the runtime copy read "missing" for a file
+        # that exists (driven 2026-09-14).
+        wizard=project_file('tools/spike/profile_node.py')
+        put('Onboarding wizard',('ready' if wizard else 'tools/spike/profile_node.py is missing')+': three steps, the first on the new machine',
+            str(wizard or 'tools/spike/profile_node.py'),
+            data=[dict(step=1,where='the new machine',do='python3 tools/spike/profile_node.py -- standard library only, no setup'),
+                  dict(step=2,where='this Mac',do='bring the profile back and review what was measured'),
+                  dict(step=3,where='review',do='promote it into contracts/policy/capability_profiles.toml as a reviewed act')],
+            details='Enrollment measures rather than declares (INV-HW-2). The display lays out the steps; it never admits a node itself.')
+        mode=self._permission_mode()
+        put('Behaviour on / off this Mac',
+            (f'runs only on this Mac · one rule set · permission mode {mode}' if len(ids)<=1
+             else f'{len(ids)} nodes · rules follow placement · permission mode {mode}'),
+            'live DeviceRegistry.all; permission_mode.json',data=dict(nodes=ids,permission_mode=mode),
+            details='With one node there is no "off this Mac": VESPER runs here under the permission mode you set. Separate rules per node become possible once a second node is enrolled.')
+
+    def consent_policy(self,put):
+        # WHAT ACTUALLY APPROVES TODAY, read from the path that settles a parked
+        # question: the runtime classifies the owner's latest utterance -- spoken
+        # or typed, one intake -- and a yes answers the question in front of them.
+        # Nothing splits approval tiers by channel, and saying so IS the reading:
+        # a policy the code does not enforce is not shown as one.
+        src=(REPO/'tools'/'ops'/'vesper_runtime.py').read_text(encoding='utf-8')
+        if 'consent.classify(spoken)' not in src or 'actor.broker.answer(pending' not in src:
+            raise ValueError('the approval path was not found in the runtime, so what approves cannot be stated')
+        put('Consent channel policy','a yes, spoken or typed, answers the question in front of you · no tier requires a tap',
+            'tools/ops/vesper_runtime.py: consent.classify on the latest utterance',
+            data=dict(channels=['voice','typed'],tiers_requiring_a_tap=[]),
+            details='The question in front of you is settled by your next utterance, whichever way it arrived; a question queued behind it is re-asked rather than settled. Requiring a tap for the highest tiers is a policy you have not set, and the runtime does not enforce one.')
+
+    def _permission_mode(self):
+        try:
+            return str(json.loads((self.state/'permission_mode.json').read_text(encoding='utf-8')).get('mode') or 'unknown')
+        except (OSError,ValueError):
+            return 'unknown'
+
+    def maintenance(self,put):
+        # WHAT UPKEEP HAS BEEN DONE, AND THE STORES THAT GROW UNTIL SOMETHING
+        # COMPACTS THEM. The gate log is written by the host's run_gates action.
+        rows={}
+        gates=self.state/'gates.log'
+        if gates.is_file():
+            tail=[line for line in gates.read_text(encoding='utf-8',errors='replace').splitlines() if line.strip()][-1:]
+            rows['gates']=dict(last_line=tail[0][:160] if tail else '',written_at_ms=int(gates.stat().st_mtime*1000))
+        for name in ('bus/log.db','l2.db','audit.db'):
+            p=self.state/name
+            if p.is_file():rows[name]=round(p.stat().st_size/1024**2,1)
+        if not rows:raise ValueError('no gate log and no stores to report')
+        gate=('gates never run from the home' if 'gates' not in rows else
+              f"gates last run {max(0,int(time.time()-rows['gates']['written_at_ms']/1000))//60} min ago")
+        put('Maintenance actions',f"{gate} · event log {rows.get('bus/log.db','?')} MB · memory {rows.get('l2.db','?')} MB",
+            'gates.log; store file sizes',data=rows,
+            details='Run the gates from the verification card; the event-log and memory-store sizes say when compaction is worth doing. Nothing here runs by itself.')
+
+    def registry_profiles(self,devices,result):
+        # THE NODE PLACEMENT CAN SEE, WITH WHAT WAS MEASURED ABOUT IT HERE. The
+        # registry profile carries no RAM or storage, and a NodeProfile left at
+        # zero would "simulate" a host that fits nothing. So with exactly one
+        # node -- the host the runtime registers -- RAM is read from sysctl
+        # hw.memsize and storage from this collection's own diskutil reading.
+        # Throughput is never measured here, so `measured` stays False.
+        from core.placement import NodeProfile
+        profiles=devices.all()
+        if len(profiles)!=1:
+            raise ValueError(f'{len(profiles)} registry profiles; host resources are attributed only to a single local node')
+        p=profiles[0]
+        _,raw=self.command(['/usr/sbin/sysctl','-n','hw.memsize'])
+        ram_gb=int(raw.decode().strip())/1024**3
+        free=((result.get('Storage & SSD') or {}).get('data') or {}).get('APFSContainerFree')
+        if not isinstance(free,int):raise ValueError('no measured free storage in this collection')
+        node=NodeProfile(node_id=str(p['node_id']),trust_zone=str(p['trust_zone_ceiling']),
+                         availability_class=str(p['availability_class']),ram_gb=round(ram_gb,2),
+                         storage_gb=round(free/1024**3,2),measured=False,
+                         survival_capable=bool(p.get('is_survival_host')))
+        return {node.node_id:node}
+
     def simulations(self,put,profiles):
         from core.placement import survival_profile
         profiles=dict(list(profiles.items())[:MAX_RECORDS])
         data=simulate(profiles,self.context.get('assignments') or {})
-        put('Blast radius','Simulation · remove each node','core.placement; menu simulation',data=data['blast'],
-            details='Read-only scenario evaluation. No node is stopped and no assignment is written.')
-        put('Migration dry-run','Simulation · candidate survival sets','core.placement.survival_profile',data=data['migration'],
+        # THE VALUE SAYS WHAT THE SIMULATION FOUND, not that one was run.
+        def carried(m):
+            p=m['profile'];n=len(p.get('capabilities') or ());d=len(p.get('degradations') or ())
+            short=p.get('core_shortfall') or ()
+            why=(f" ({short[0].get('capability')}: {short[0].get('reason')})"
+                 if short and isinstance(short[0],dict) else '')
+            return f"{m['destination']} carries {n} of {n+d}"+('' if p.get('core_complete') else ', core incomplete'+why)
+        put('Blast radius',' · '.join(f"without {b['removed']}: {b['outcome']}"
+                                      +(f", {len(b['affected_domains'])} domain(s) displaced" if b['affected_domains'] else '')
+                                      for b in data['blast']),
+            'core.placement; menu simulation',data=data['blast'],
+            details='Read-only scenario evaluation: each node removed in turn and placement asked again. No node is stopped and no assignment is written.')
+        put('Migration dry-run',' · '.join('to '+carried(m) for m in data['migration']),'core.placement.survival_profile',data=data['migration'],
             details='Per-destination capacity/trust evaluation. Does not predict transfer time or perform migration.')
-        put('Survival profile','Simulation · current measured profiles','core.placement.survival_profile',data=data['migration'])
+        put('Survival profile',' · '.join(carried(m) for m in data['migration']),'core.placement.survival_profile',data=data['migration'],
+            details='What each node can carry if it is the last one standing, core first, then capabilities in value order while they fit; what does not fit is named with its reason.')
         if len(profiles)>=2:
             put('Node comparison',f'{len(profiles)} measured profile records','enrolled placement profiles',data=data['comparison'],
                 details='Side by side on recorded axes. UNKNOWN throughput stays absent.')

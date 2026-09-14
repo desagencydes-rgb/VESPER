@@ -83,6 +83,20 @@ def _bus(sql: str, params: tuple = ()) -> list:
         return []
 
 
+def _enrolled_nodes() -> tuple[list, str]:
+    """Node ids in the live registry, as the runtime last published them."""
+    try:
+        home = json.loads((STATE / "home.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return [], "home.json is not readable"
+    for r in home.get("rows") or []:
+        if (r.get("label") == "Endpoints" and r.get("status") == "available"
+                and isinstance(r.get("data"), list)):
+            return ([str(p.get("node_id")) for p in r["data"] if isinstance(p, dict)],
+                    "live DeviceRegistry.all, as published in home.json")
+    return [], "the live registry has not been published yet"
+
+
 def _counts(hours: float, kinds: tuple) -> dict:
     since = int((time.time() - hours * 3600) * 1000)
     marks = ",".join("?" for _ in kinds)
@@ -396,12 +410,18 @@ def cards(home: Any = None) -> dict:
     }
 
     # --- follow-me / remote-surfaces --------------------------------------
-    caps = (_toml("contracts/policy/capability_profiles.toml").get("capability") or {})
+    # ENROLLED NODES ARE THE RUNTIME'S REGISTRY, NOT THE CAPABILITY CONTRACT.
+    # This counted `capability_profiles.toml`'s [capability] table -- thirteen
+    # CAPABILITIES (identity_continuity, durable_task_state, ...) -- and told the
+    # owner "13 enrolled nodes, 12 besides this one" while the live registry held
+    # one (2026-09-14). The registry's own reading is the Endpoints row the menu
+    # publisher writes into home.json.
+    nodes, nodes_src = _enrolled_nodes()
     out["follow-me"] = {
         "title": "Follow-me",
         "summary": "The interface follows VESPER when it relocates. Relocation needs a second enrolled node.",
-        "rows": [_row("enrolled nodes", len(caps), "contracts/policy/capability_profiles.toml"),
-                 _row("placement", "single node: nothing to follow yet" if len(caps) <= 1 else "re-evaluated continuously (INV-PLACE-1)",
+        "rows": [_row("enrolled nodes", len(nodes) if nodes else "not published yet", nodes_src, ", ".join(nodes)),
+                 _row("placement", "single node: nothing to follow yet" if len(nodes) <= 1 else "re-evaluated continuously (INV-PLACE-1)",
                       "core/placement.py")],
         "actions": [_action("enroll", "How do I enroll a node?", "act",
                             {"text": "explain how to enroll another machine as a node, step by step"})],
@@ -410,7 +430,7 @@ def cards(home: Any = None) -> dict:
         "title": "Remote surfaces",
         "summary": "Reaching VESPER from a phone or another machine.",
         "rows": [_row("phone app", "not built (build order step 31)", "HOME-WORKBENCH §10"),
-                 _row("remote nodes", f"{max(0, len(caps) - 1)} besides this one", "capability_profiles.toml"),
+                 _row("remote nodes", f"{max(0, len(nodes) - 1)} besides this one" if nodes else "not published yet", nodes_src),
                  _row("endpoint preference", prefs.get("endpoint_selection", "auto"), "preferences.json")],
         "settings": ["endpoint-selection"],
         "actions": [_action("plan", "What would it take?", "act",
