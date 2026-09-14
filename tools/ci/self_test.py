@@ -8454,6 +8454,46 @@ CASES += [
      "published one level down is never found"),
 ]
 
+FACE_SURFACE_PY = "core/face_surface.py"
+FACE_SURFACE_HTML = "core/face_surface.html"
+
+CASES += [
+    ("a-served-face-is-the-face-and-nothing-else", FACE_SURFACE_PY,
+     _sub('    out["behaviour"] = b if isinstance(b, str) and b else "resting"',
+          '    out.update(face if isinstance(face, dict) else {})\n'
+          '    out["behaviour"] = b if isinstance(b, str) and b else "resting"', 1),
+     "the state is filtered out of home.json's face instead of built from an allowlist, "
+     "and the face's private reason is served to everyone on the Wi-Fi"),
+
+    ("a-served-face-is-the-face-and-nothing-else", FACE_SURFACE_PY,
+     _sub("    if not (0 < fps <= 240 and 0 < points <= 100_000 and 0 < w <= 8192 and 0 < h <= 8192):",
+          "    if False:", 1),
+     "a frame rate of 9999 is recorded as measured on the device, and the number that "
+     "decides what the phone can sustain is whatever a request said"),
+
+    ("a-served-face-is-the-face-and-nothing-else", FACE_SURFACE_PY,
+     _sub('            return self._send(405, b"this surface accepts no writes")',
+          "            return self._send(204)", 1),
+     "the surface answers writes as if it took them: a LAN-facing listener that says "
+     "yes to anything anyone on the network sends it"),
+
+    ("a-served-face-is-the-face-and-nothing-else", FACE_SURFACE_HTML,
+     _sub("        if (s && typeof s.behaviour === 'string') behaviour = s.behaviour;",
+          "        if (typeof s?.behaviour === 'string') behaviour = s.behaviour;", 1),
+     "the page uses optional chaining, which the display node's Chrome 55 cannot parse: the "
+     "script never runs and the rig reflects a black screen"),
+
+    ("a-served-face-is-the-face-and-nothing-else", F7_RUNTIME,
+     _sub('        if _prefs_face.read().get("face_surface.enabled", True):', "        if False:", 1),
+     "the runtime never starts the face surface: the page and the check are green and "
+     "the rig on the shelf reflects nothing"),
+
+    ("a-served-face-is-the-face-and-nothing-else", FACE_SURFACE_HTML,
+     _sub("#hud{position:fixed;left:6px;bottom:6px;", "#hud{position:fixed;left:min(6px,1vw);bottom:6px;", 1),
+     "the page's CSS uses min(), invalid on that browser -- the defect that collapsed every "
+     "pyramid face on SPIKE-004's page"),
+]
+
 NAMED_REAL = '        named = [str(r.get("label")).strip() for r in can\n                 if str(r.get("label") or "").strip()]'
 ROLEBACK_BAD = '        named = [str(r.get("label") or r.get("role")).strip() for r in can]'
 THROTTLE_REAL = '            if last and (now - last) < REPEAT_SILENCE_S:'

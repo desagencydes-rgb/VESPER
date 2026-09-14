@@ -1443,6 +1443,24 @@ def build(node: str = "vesper-runtime"):
 
     autonomy.register(agenda.agenda_trigger(handler=_agenda_due_handler))
 
+    # THE SERVED FACE (HOME-WORKBENCH §32): VESPER's face served to a display node
+    # over the local network while VESPER runs, unless the owner turns it off.
+    # Only the page, the face's cloud and what the face is doing cross the
+    # network (core/face_surface.py). A port that cannot be bound is recorded and
+    # changes nothing else about the runtime.
+    try:
+        from core import face_surface as _face_surface
+        from core import preferences as _prefs_face
+        if _prefs_face.read().get("face_surface.enabled", True):
+            _face_server = _face_surface.start()
+            bus.publish("face_surface.started", subject="face_surface",
+                        payload={"port": _face_server.server_address[1],
+                                 "face_bin": str(_face_surface.face_bin_path() or "")},
+                        component="runtime")
+    except Exception as exc:                              # noqa: BLE001
+        bus.publish("face_surface.failed", subject="face_surface",
+                    payload={"error": repr(exc)}, component="runtime")
+
     _menu_context.clear()
     _menu_context.update(devices=devices, actor=actor, autonomy=autonomy,
                          verifier=verifier, interlock=interlock, bench=bench)

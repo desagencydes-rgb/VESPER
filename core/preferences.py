@@ -39,6 +39,10 @@ SCHEMA: dict[str, tuple[str, Any, Any, str]] = {
     "island.enabled": ("bool", True, None,
                        "Whether the island shows at all. Off keeps it out of "
                        "sight; the home still runs."),
+    "face_surface.enabled": ("bool", True, None,
+                             "Whether VESPER serves its face to a display node over "
+                             "the local network. Only the face and what it is doing "
+                             "cross the network; takes effect when VESPER next starts."),
     "wake_word.enabled": ("bool", True, None,
                           "Whether the wake word is armed."),
     "voice.rate": ("range", 1.0, (0.5, 2.0, 0.05),

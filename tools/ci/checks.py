@@ -16955,6 +16955,134 @@ def check_the_model_rows_read_a_real_completion() -> Result:
     return r
 
 
+def check_a_served_face_is_the_face_and_nothing_else() -> Result:
+    """A display node gets VESPER's face over the LAN, and nothing a neighbour should read.
+
+    THE OWNER, 2026-09-13, asked for the hologram on a display node first. HOME-WORKBENCH §32.1: the
+    island's face on a second surface. A listener on the local network is readable
+    by everyone on it, so this is DRIVEN: the server runs on an ephemeral port over
+    a state directory whose home.json holds a transcript and a private reason, and
+    the gate asserts none of it crosses -- only the page, the island's own cloud and
+    the behaviour's name. The node's frame rate is recorded only when it is a number
+    a display can produce, and nothing is written through the surface. The page
+    must parse on the display node's Chrome 55: SPIKE-004's page lost its whole layout to one
+    CSS min().
+    """
+    r = Result("a-served-face-is-the-face-and-nothing-else")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import json as _j
+    import tempfile as _tfj
+    import urllib.error as _ue
+    import urllib.request as _ur
+    try:
+        from core import face_surface as J
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"core/face_surface.py does not import: {exc!r}")
+        return r
+
+    page = (REPO / "core" / "face_surface.html").read_text(encoding="utf-8")
+    # COMMENTS STRIPPED FIRST: the page's own note that it avoids min() is not a
+    # use of min(), and the first run of this gate failed on exactly that note.
+    script = page[page.find("<script>"):]
+    script = re.sub(r"/\*.*?\*/", "", script, flags=re.S)
+    script = re.sub(r"^\s*//.*$", "", script, flags=re.M)
+    style = re.sub(r"/\*.*?\*/", "", page[page.find("<style>"):page.find("</style>")], flags=re.S)
+    for pat, what in [(r"\?\.(?!\d)", "optional chaining (Chrome 80)"),
+                      (r"\?\?", "nullish coalescing (Chrome 80)"),
+                      (r"\{\s*\.\.\.", "object spread (Chrome 60)"),
+                      (r"\bimport\s*\(|^\s*import\s", "modules")]:
+        if re.search(pat, script, re.M):
+            r.err(f"the served page uses {what}, which the display node's Chrome 55 cannot parse: the face never draws")
+    if re.search(r"\b(min|max|clamp)\(", style):
+        r.err("the served page's CSS uses min()/max()/clamp() (Chrome 79): on that browser the declaration is "
+              "invalid and the layout falls back to shrink-to-fit, as SPIKE-004's page did")
+
+    face_bin = REPO / "app" / "island-macos" / "face.bin"
+    with _tfj.TemporaryDirectory() as td:
+        sd = Path(td)
+        (sd / "home.json").write_text(_j.dumps({
+            "face": {"behaviour": "listening", "since_s": 12.34, "reason": "a private reason"},
+            "transcript": [{"who": "owner", "text": "words a neighbour must not read"}]}), encoding="utf-8")
+        try:
+            srv = J.start(port=0, host="127.0.0.1", state_dir=sd,
+                          face_bin=face_bin if face_bin.is_file() else None)
+        except OSError as exc:
+            r.err(f"the face surface could not bind a local port: {exc!r}")
+            return r
+        base = f"http://127.0.0.1:{srv.server_address[1]}"
+
+        def get(path, method="GET"):
+            req = _ur.Request(base + path, method=method)
+            try:
+                with _ur.urlopen(req, timeout=5) as resp:
+                    return resp.status, resp.read()
+            except _ue.HTTPError as e:
+                return e.code, e.read()
+
+        def readings():
+            rp = sd / J.READINGS
+            return [_j.loads(x) for x in rp.read_text(encoding="utf-8").splitlines()] if rp.exists() else []
+
+        try:
+            st, body = get("/face/")
+            if st != 200 or b"createElement('canvas')" not in body:
+                r.err(f"the served page is not served at /face/ ({st})")
+            if face_bin.is_file():
+                st, body = get("/face/face.bin")
+                if st != 200 or body != face_bin.read_bytes():
+                    r.err("the node is not sent the island's own face cloud, byte for byte: a second "
+                          "face rather than a second surface")
+            st, body = get("/face/state.json")
+            try:
+                sj = _j.loads(body)
+            except ValueError:
+                sj = None
+            if st != 200 or not isinstance(sj, dict) or sj.get("behaviour") != "listening":
+                r.err(f"the node does not learn what the face is doing: {st} {body[:120]!r}")
+            elif set(sj) - {"behaviour", "since_s"}:
+                r.err(f"the node's state carries {sorted(set(sj) - {'behaviour', 'since_s'})}: a listener on "
+                      "the LAN serves more than the face's behaviour to everyone on the network")
+            if b"neighbour" in body or b"private reason" in body:
+                r.err("the transcript or the face's private reason crossed the network")
+            st, _ = get("/face/reading?fps=31.5&points=9000&w=720&h=1280")
+            recs = readings()
+            if st != 204 or not recs or recs[-1].get("fps") != 31.5:
+                r.err(f"a frame rate measured on the device was not recorded ({st}, {recs[-1:]!r})")
+            n = len(recs)
+            for bad in ("fps=abc&points=1&w=1&h=1", "fps=9999&points=9000&w=720&h=1280"):
+                st, _ = get("/face/reading?" + bad)
+                if st != 400 or len(readings()) != n:
+                    r.err(f"the reading {bad!r} was recorded as a measurement ({st}): a number no display "
+                          "produces would stand where the node's sustained rate belongs")
+            st, _ = get("/face/state.json", method="POST")
+            if st != 405:
+                r.err(f"the face surface accepted a write ({st}); it serves the face and records a reading, "
+                      "nothing else")
+            st, _ = get("/home.json")
+            if st != 404:
+                r.err(f"a path outside the surface answered {st}")
+        finally:
+            J.stop(srv)
+
+    # AND THE RUNTIME ACTUALLY SERVES IT, behind the owner's own switch.
+    rt = (REPO / "tools" / "ops" / "vesper_runtime.py").read_text(encoding="utf-8")
+    if not re.search(r'^\s+if _prefs_face\.read\(\)\.get\("face_surface\.enabled", True\):\n\s+_face_server = _face_surface\.start\(\)',
+                     rt, re.M):
+        r.err("the runtime never starts the face surface behind the owner's face_surface.enabled switch: "
+              "a face served by nothing, or served with no way to turn it off")
+    from core import preferences as _Pface
+    if (_Pface.SCHEMA.get("face_surface.enabled") or ("",))[0] != "bool":
+        r.err("face_surface.enabled is not a boolean preference, so the owner cannot turn the served face off")
+
+    if not r.errors:
+        r.note("driven on an ephemeral port: the page, the island's own cloud byte for byte and the "
+               "behaviour's name are served; the transcript and the private reason are not; a measured "
+               "frame rate is recorded and non-numbers or impossible ones are refused; writes are "
+               "refused; and the page carries no syntax the display node's Chrome 55 cannot parse")
+    return r
+
+
 def check_the_expandable_menu_reads_what_it_names() -> Result:
     """Every expandable-menu row reads what it names, or says what is missing.
 
@@ -29308,6 +29436,7 @@ CHECK_FNS = {
     "the-model-rows-read-a-real-completion": check_the_model_rows_read_a_real_completion,
     "a-window-belongs-to-someone": check_a_window_belongs_to_someone,
     "the-expandable-menu-reads-what-it-names": check_the_expandable_menu_reads_what_it_names,
+    "a-served-face-is-the-face-and-nothing-else": check_a_served_face_is_the_face_and_nothing_else,
     "spaces-hatch-contained": check_spaces_hatch,
     "notes-are-never-instructions": check_notes_are_titles_and_never_instructions,
     "taint-ceiling-binds-the-act-path": check_taint_ceiling_binds_the_act_path,

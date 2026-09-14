@@ -467,12 +467,35 @@ if [ -f "$HOME/Library/LaunchAgents/$ID.plist" ]; then
   # four times over: "when a reading says a mechanism did nothing, suspect the
   # reading first". A fixed wait is a guess about how long something takes;
   # polling asks the world until it answers or the budget runs out.
-  for _ in 1 2 3 4 5 6 7 8 9 10; do
-    launchctl list 2>/dev/null | grep -q "$ID" && break
-    sleep 0.5
+  # LISTED IS NOT RUNNING. `launchctl list` keeps a job that has exited, with "-"
+  # where its pid would be, and on 2026-09-14 this block printed "VESPER is
+  # supervised (pid 58421)" for an island that then exited 0 on its
+  # single-instance guard while the old instance was still going down. KeepAlive
+  # restarts only an unsuccessful exit, so VESPER stayed down for hours, the
+  # runtime with it, and every control queued meanwhile went unread. So the row
+  # must carry a pid, the pid must still be the job's a few seconds later, and a
+  # job that exited is started once more before the build reports anything.
+  _vesper_pid() { launchctl list 2>/dev/null | awk -v l="$ID" '$3 == l && $1 ~ /^[0-9]+$/ {print $1}'; }
+  _pid=""
+  for _attempt in 1 2; do
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+      _pid="$(_vesper_pid)"
+      [ -n "$_pid" ] && break
+      sleep 0.5
+    done
+    if [ -n "$_pid" ]; then
+      sleep 3
+      if kill -0 "$_pid" 2>/dev/null && [ "$(_vesper_pid)" = "$_pid" ]; then
+        break
+      fi
+    fi
+    _pid=""
+    launchctl kickstart "gui/$(id -u)/$ID" 2>/dev/null || true
   done
-  if launchctl list 2>/dev/null | grep -q "$ID"; then
-    echo "VESPER is supervised (pid $(pgrep -f "VESPER.app/Contents/MacOS/VESPER" | head -1))"
+  if [ -n "$_pid" ]; then
+    echo "VESPER is supervised and still running 3 s later (pid $_pid)"
+  elif launchctl list 2>/dev/null | grep -q "$ID"; then
+    echo "WARNING: $ID is listed but NOT RUNNING after reload and a kickstart -- VESPER is DOWN." >&2
   else
     echo "WARNING: $ID is not in launchctl after reload." >&2
   fi
