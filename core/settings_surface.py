@@ -123,7 +123,9 @@ ITEMS: tuple[tuple[str, str, str], ...] = (
     ("microphone", "Microphone",
      "Input gain applied before recognition, set from a measured level."),
     ("claude-limits", "Claude limits",
-     "VESPER's own share of each Claude account's window: the agents' and the advisor's."),
+     "Where VESPER stops using each Claude account -- the agents' and the "
+     "advice one -- as a share of that account's own limit, read from what "
+     "Claude reports on every call. VESPER never spends paid extra usage."),
 )
 
 # item -> the preference keys a control on that row sets.
@@ -137,7 +139,18 @@ PREFERENCE_KEYS: dict[str, tuple[str, ...]] = {
     "endpoint-selection": ("endpoint_selection",),
     "island": ("island.enabled",),
     "microphone": ("microphone.gain_db",),
+    # ONE CONTROL PER ACCOUNT. Owner, 2026-09-14: "i can set it for both anytime
+    # just from the settings". Two accounts, two numbers, one row.
+    "claude-limits": ("claude.agents_stop_at_percent",
+                      "claude.advisor_stop_at_percent"),
 }
+
+# WHAT THE CONTROL IS CALLED WHERE THE KEY IS NOT A SENTENCE. The default label
+# is the key with its punctuation opened out, which reads well for
+# `microphone.gain_db` and badly for two percentages that differ only by which
+# account they govern.
+CONTROL_LABELS = {"claude.agents_stop_at_percent": "agents' account",
+                  "claude.advisor_stop_at_percent": "advice account"}
 
 # WHICH ITEMS ARE THE OWNER'S PREFERENCE AND WHICH ARE GOVERNED CONTRACTS.
 #
@@ -150,6 +163,15 @@ PREFERENCE_KEYS: dict[str, tuple[str, ...]] = {
 OWNER_PREFERENCE = frozenset({
     "voice-and-speed", "wake-word", "language", "quiet-hours", "do-not-disturb",
     "notification-rules", "endpoint-selection", "island", "microphone",
+    # THE CLAUDE LIMITS MOVED HERE ON 2026-09-14, and the move is the whole
+    # point. They were GOVERNED -- read out of `soft_cap_ratio` in the supply
+    # contract, changeable only by a reviewed edit -- and the owner's question
+    # was "why can't i set it?". The share in the contract needs a MEASURED
+    # ceiling to bind and a subscription publishes none, so it never bound; the
+    # preference is compared against the percentage Claude itself reports, which
+    # is a number that exists. The contract's share still governs rungs whose
+    # ceiling IS measured.
+    "claude-limits",
 })
 
 
@@ -302,6 +324,21 @@ def _reading(item_id: str) -> tuple[str, str, str]:
             v = doc.get("voice") or {}
             name = str(v.get("name") or v.get("voice") or "default voice")
             parts.insert(0, name)
+        if item_id == "claude-limits":
+            # THE OWNER'S NUMBER BESIDE THE ACCOUNT'S OWN, for the reason the
+            # microphone row shows the measured level beside the gain: a limit
+            # with nothing to compare it to is a number the owner cannot act on.
+            # Each account says where it stops, what Claude last reported, when
+            # that reading was taken, and whether VESPER is running or stopped.
+            try:
+                from core import claude_limits as CL
+                lim = CL.default()
+                # One element, joined with semicolons: each account's line
+                # already has commas in it, and a comma join makes the two read
+                # as one sentence about neither.
+                parts = ["; ".join(lim.says(a) for a in CL.ACCOUNTS)]
+            except Exception as exc:                      # noqa: BLE001
+                return "", "", f"the Claude readings could not be read ({exc!r})"
         if item_id == "microphone":
             # THE MEASURED LEVEL BESIDE THE GAIN, because a gain chosen before a
             # reading is a guess (PLAN §12).
@@ -313,21 +350,6 @@ def _reading(item_id: str) -> tuple[str, str, str]:
         src = ("your preference" if any(k in was_set for k in keys)
                else "default (you have not set it)")
         return ", ".join(parts), src, ""
-
-    if item_id == "claude-limits":
-        doc = _toml("contracts/policy/provider_supply.toml")
-        if not doc:
-            return "", "", "the provider supply contract could not be read"
-        rows_ = [r for r in doc.get("provider") or [] if str(r.get("id", "")).startswith("claude-")]
-        adv = next((r for r in rows_ if r.get("id") == "claude-advisor"), None)
-        agents = [r for r in rows_ if r.get("id") != "claude-advisor"]
-        a_caps = sorted({r.get("soft_cap_ratio") for r in agents if r.get("soft_cap_ratio") is not None})
-        a_txt = (f"{int(a_caps[0] * 100)}%" if len(a_caps) == 1
-                 else ", ".join(f"{int(c * 100)}%" for c in a_caps) or "none")
-        d_txt = f"{int(adv['soft_cap_ratio'] * 100)}%" if adv and adv.get("soft_cap_ratio") else "none"
-        return (f"agents {a_txt} of a measured window, advisor {d_txt}; "
-                f"{len(rows_)} Claude rows",
-                "contracts/policy/provider_supply.toml, soft_cap_ratio", "")
 
     if item_id == "rule-authoring":
         doc = _toml("contracts/policy/trigger_registry.toml")
@@ -551,9 +573,11 @@ def rows() -> list:
             try:
                 from core import preferences as P
                 vals = P.read()
-                row["controls"] = [{**P.describe(k), "value": vals.get(k),
-                                    "label": k.replace("_", " ").replace(".", " ")}
-                                   for k in PREFERENCE_KEYS[item_id]]
+                row["controls"] = [
+                    {**P.describe(k), "value": vals.get(k),
+                     "label": CONTROL_LABELS.get(
+                         k, k.replace("_", " ").replace(".", " "))}
+                    for k in PREFERENCE_KEYS[item_id]]
             except Exception as exc:                      # noqa: BLE001
                 row["controls"] = []
                 row["control_error"] = repr(exc)

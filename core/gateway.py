@@ -91,7 +91,17 @@ TRANSIENT = ("rate_limited", "timeout", "server_error", "connection_error")
 # measured 2026-08-26, a 413 classified `server_error` was retried against a
 # ceiling it could never get under, twice per turn.
 TERMINAL = ("auth_failed", "quota_exhausted", "revoked", "bad_request",
-            "budget_too_large", "model_gone")
+            "budget_too_large", "model_gone", "owner_limit")
+
+# `owner_limit` IS VESPER STOPPING ITSELF, NOT A PROVIDER REFUSING. The owner
+# sets a percentage per Claude account in settings and VESPER stops that account
+# there (core/claude_limits.py). It is TERMINAL so the ladder descends at once
+# instead of retrying a rung that will refuse itself identically, and it is
+# deliberately NOT in `QUOTA_CLASSIFICATIONS` below: booking it as a quota
+# refusal would measure a ceiling nobody hit, and that measured ceiling would
+# outlive the owner raising the slider -- the setting would stop working after
+# the first time it worked.
+OWNER_LIMIT = "owner_limit"
 
 # `model_gone` IS TERMINAL FOR THIS ROW AND SAYS NOTHING ABOUT THE PROVIDER.
 # The owner's rule: "if the provider dropped that model, vesper should mark that
@@ -1197,6 +1207,22 @@ class ModelGateway:
                     cls = getattr(err, "classification", "server_error")
                     hint = getattr(err, "retry_after_ms", None)
                     permanent = False
+                    if cls == OWNER_LIMIT:
+                        # NOT A CALL, SO NOT AN ATTEMPT. VESPER stopped itself
+                        # before a process existed: nothing was sent, nothing was
+                        # spent, and the provider does not know this request
+                        # happened. MEASURED 2026-09-15: 17 of the 57 supply rows
+                        # are Claude rows sharing two accounts, and nothing
+                        # narrows an ordinary text request to fewer of them -- so
+                        # charging an attempt each would spend the whole
+                        # chain-wide budget of ten on rungs nobody called, and the
+                        # request would fail with every non-Claude provider
+                        # untried. The `limit == 0` refund below is the same
+                        # argument: that is knowledge, not an attempt.
+                        budget += 1
+                        with self._lock:
+                            self.attempts_by_class[eff] = max(
+                                0, self.attempts_by_class.get(eff, 0) - 1)
                     if cls in QUOTA_CLASSIFICATIONS:
                         permanent = self._book_refusal(p, err, hint)
                         if permanent:

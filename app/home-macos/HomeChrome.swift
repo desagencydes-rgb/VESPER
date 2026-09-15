@@ -2134,7 +2134,7 @@ final class HomeChrome {
               catch (e) { (window.__vesperErrs = window.__vesperErrs || []).push('control: ' + (e && e.message)); }
             }
             ctls.forEach(function(c){
-              var el = null;
+              var el = null, shown = null;
               if (c.kind === 'bool') {
                 el = document.createElement('input'); el.type = 'checkbox'; el.checked = !!c.value;
                 el.addEventListener('change', function(){ post('preference.set', {key: c.key, value: el.checked}); });
@@ -2143,8 +2143,19 @@ final class HomeChrome {
                 (c.options || []).forEach(function(o){ var op = document.createElement('option'); op.value = o; op.textContent = o; if (o === c.value) op.selected = true; el.appendChild(op); });
                 el.addEventListener('change', function(){ post('preference.set', {key: c.key, value: el.value}); });
               } else if (c.kind === 'range') {
+                // THE NUMBER IS ON THE SCREEN, NOT IN A TOOLTIP. A slider the owner is
+                // asked to set a percentage with has to show that percentage while they
+                // drag it; `title` appears on hover, after a pause, and never at all on
+                // a trackpad tap. The unit comes from the producer (preferences.UNITS),
+                // because "70" and "0" beside each other say nothing and "70%" and
+                // "0 dB" say what they are.
                 el = document.createElement('input'); el.type = 'range'; el.min = c.min; el.max = c.max; el.step = c.step; el.value = c.value; el.title = String(c.value);
-                el.addEventListener('change', function(){ el.title = el.value; post('preference.set', {key: c.key, value: Number(el.value)}); });
+                shown = document.createElement('span'); shown.className = 'st-val';
+                shown.setAttribute('data-for', c.key || '');
+                shown.style.cssText = 'font:12px var(--face-body);color:var(--ink);opacity:.72;min-width:36px;text-align:right';
+                shown.textContent = String(c.value) + (c.unit || '');
+                el.addEventListener('input', function(){ shown.textContent = el.value + (c.unit || ''); });
+                el.addEventListener('change', function(){ el.title = el.value; shown.textContent = el.value + (c.unit || ''); post('preference.set', {key: c.key, value: Number(el.value)}); });
               } else if (c.kind === 'text') {
                 el = document.createElement('input'); el.type = 'text'; el.value = c.value == null ? '' : String(c.value); el.size = 6;
                 el.addEventListener('change', function(){ post('preference.set', {key: c.key, value: el.value}); });
@@ -2154,6 +2165,7 @@ final class HomeChrome {
                 el.setAttribute('aria-label', c.label || c.key || 'setting');
                 el.style.cssText = 'font:12px var(--face-body);color:var(--ink);background:rgba(255,255,255,.06);border:1px solid rgba(244,230,220,.18);border-radius:8px;padding:3px 6px';
                 wrap.appendChild(el);
+                if (shown) wrap.appendChild(shown);
               }
             });
             return wrap;

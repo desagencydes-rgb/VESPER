@@ -147,6 +147,21 @@ told a working provider was broken, and the chain retried a request that could
 not succeed."""
 
 [[line]]
+classification = "owner_limit"
+text = "That account is past the limit you set for it in settings. Moving to {next_rung}."
+why = """NOT A PROVIDER REFUSAL, AND THE OWNER MUST HEAR THE DIFFERENCE. Nothing
+is spent, nothing is broken and nobody refused VESPER: the owner set a
+percentage per Claude account in settings (Owner, 2026-09-14: "vesper stops
+itself when the limit i set for it in settings is reached, for both accounts")
+and VESPER stopped itself there. Said as a quota line it would sound like an
+account running out, and the owner would go looking at their account page for a
+problem that is a slider in their own settings.
+
+The line does not tell them to go and change it. The settings row carries both
+accounts' live numbers beside the control, and a rung moving down the ladder is
+not a moment to send anybody anywhere."""
+
+[[line]]
 classification = "bad_request"
 text = "I sent that provider something it couldn't accept. Moving to {next_rung} and queuing this to fix."
 why = """Owns the fault plainly, because it IS ours and it will recur

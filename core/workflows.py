@@ -417,11 +417,20 @@ def _claude_binary() -> str | None:
 
 
 def _agents_config_dir() -> str | None:
-    """The account the agents share (VESPER_CLAUDE_CONFIG_DIR), never the owner's own."""
+    """The account the agents share, never the owner's own.
+
+    AND "NEVER THE OWNER'S OWN" WAS NOT TRUE UNTIL 2026-09-14. This read
+    `VESPER_CLAUDE_CONFIG_DIR` out of `secrets.env`; that key is not on this
+    machine; and the None it returned is not "no account" -- it is the CLI's
+    DEFAULT account, which here is the owner's personal one. Every research and
+    project run was spending the owner's own subscription while this docstring
+    said the opposite, and nothing could see it because an absent fallback looks
+    like an omission rather than a choice of whose subscription to spend.
+    `core/claude_limits.py` resolves the secret first and the contract second.
+    """
     try:
-        from routing.supply import read_secrets
-        v = read_secrets().get("VESPER_CLAUDE_CONFIG_DIR")
-        return str(v) if v else None
+        from core import claude_limits
+        return claude_limits.default().config_dir(claude_limits.AGENTS)
     except Exception:                                     # noqa: BLE001
         return None
 

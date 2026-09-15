@@ -698,7 +698,8 @@ def _cli_token(raw: dict, secrets: dict) -> str:
 
 def _cli_call(row: SupplyRow, binary: str, argv: list, config_env: str | None,
               config_dir: str | None, timeout: float = 300.0,
-              oauth_token: str = ""):
+              oauth_token: str = "", account: str | None = None,
+              limits=None):
     """A subscription rung. The official CLI, headless, as a subprocess.
 
     `binary` IS SEPARATE FROM `argv` BECAUSE IT WAS BEING TAKEN FROM IT. This
@@ -718,6 +719,18 @@ def _cli_call(row: SupplyRow, binary: str, argv: list, config_env: str | None,
 
     def call(prompt: str, options: dict) -> dict:
         from routing.http_completion import EndpointError
+        # THE OWNER'S CEILING ON THIS ACCOUNT, BEFORE THE PROCESS EXISTS. Owner,
+        # 2026-09-14: "vesper stops itself when the limit i set for it in
+        # settings is reached, for both accounts". `owner_limit` is TERMINAL in
+        # the gateway, so the ladder descends to the next rung at once, and it is
+        # not a quota classification, so nothing is booked against the provider:
+        # raising the slider must take effect on the very next call, and a
+        # booked refusal would outlive it.
+        if limits is not None and account is not None:
+            stopped = limits.refusal(account)
+            if stopped:
+                from core.gateway import OWNER_LIMIT
+                raise EndpointError(f"{row.provider_id}: {stopped}", OWNER_LIMIT)
         env = dict(os.environ)
         if config_env and config_dir:
             env[config_env] = os.path.expanduser(config_dir)
@@ -773,6 +786,14 @@ def _cli_call(row: SupplyRow, binary: str, argv: list, config_env: str | None,
         text = "\n\n---\n\n".join(parts)
         cmd = [_resolve_binary(binary)] + [a.replace("{prompt}", text)
                                            for a in argv]
+        if limits is not None and account is not None:
+            # THE ACCOUNT'S OWN USAGE COMES BACK WITH THE ANSWER, and only in
+            # this format. Appended HERE rather than written into the contract's
+            # `argv` on purpose: the flags are how this wire reads a rate-limit
+            # event, not a policy decision about the rung -- and a check must
+            # read the argv that runs, never the contract's description of it.
+            from core.claude_limits import STREAM_FLAGS
+            cmd += list(STREAM_FLAGS)
         try:
             cp = subprocess.run(cmd, capture_output=True, text=True,
                                 timeout=timeout, env=env, input="")
@@ -789,13 +810,41 @@ def _cli_call(row: SupplyRow, binary: str, argv: list, config_env: str | None,
                 "bad_request") from e
         except subprocess.TimeoutExpired as e:
             raise EndpointError(f"{row.provider_id}: timed out", "timeout") from e
+        # WHAT THE RUN SAID ABOUT THE ACCOUNT, BEFORE ANYTHING IS DECIDED ABOUT
+        # THE ANSWER, and including when it failed: a refusal is the most
+        # informative reading there is -- it is the account saying it is full.
+        stream = (limits.parse_stream(cp.stdout)
+                  if (limits is not None and account is not None)
+                  else {"json": False})
+        if limits is not None and account is not None and stream.get("info"):
+            limits.record(account, stream["info"])
         if cp.returncode != 0:
             kind, said, after = classify_cli_failure(
                 cp.returncode, cp.stdout or "", cp.stderr or "")
+            if stream.get("json"):
+                # THE STREAM'S OWN ERROR, NOT ITS LAST LINE. With
+                # `--output-format stream-json` stdout is a series of JSON
+                # objects, so quoting the output verbatim puts a payload where a
+                # sentence belongs and classification reads the wrong text.
+                kind, said, after = classify_cli_failure(
+                    cp.returncode, str(stream.get("error") or ""), cp.stderr or "")
             raise EndpointError(
                 f"{row.provider_id} exited {cp.returncode}: "
                 f"{said[:400] or '(it printed nothing on either stream)'}",
                 kind, retry_after_ms=after)
+        if stream.get("json"):
+            # A FAILED RUN THAT EXITS ZERO IS THE COMMON SHAPE ON A SUBSCRIPTION
+            # CLI: the quota notice arrives as a normal process with an error
+            # result. Returning it as `text` would hand a limit notice to a
+            # caller expecting an answer, which is the confusion
+            # `core/agents.py:_exhaustion` was written for on the other path.
+            if stream.get("error"):
+                kind, said, after = classify_cli_failure(
+                    1, str(stream["error"]), "")
+                raise EndpointError(f"{row.provider_id}: {said[:400]}",
+                                    kind, retry_after_ms=after)
+            return {"text": str(stream.get("text") or "").strip(),
+                    "stop_reason": "stop", "usage": {}}
         return {"text": (cp.stdout or "").strip(), "stop_reason": "stop",
                 "usage": {}}
 
@@ -892,9 +941,18 @@ def register(gateway, cost, ledger: QuotaLedger, *,
     for row in permitted:
         raw = by_id[row.provider_id]
         if row.wire == "cli_subprocess":
+            # WHOSE ACCOUNT THIS RUNG SPENDS. The row says it in the credential
+            # it declares, not in its name and not in its config directory --
+            # eight Claude rows declare no directory at all, which is why the
+            # account has to be read from the credential name.
+            from core import claude_limits as _cl
+            _account = (_cl.default().account_for_row(raw)
+                        if _cl.is_claude(raw.get("endpoint") or "") else None)
             call = _cli_call(row, raw["endpoint"], raw.get("argv", []),
                              raw.get("config_dir_env"), raw.get("config_dir"),
-                             oauth_token=_cli_token(raw, secrets))
+                             oauth_token=_cli_token(raw, secrets),
+                             account=_account,
+                             limits=_cl.default() if _account else None)
         else:
             call = _http_call(row, raw["endpoint"],
                               secrets.get(raw.get("credential_env", ""), ""),

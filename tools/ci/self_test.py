@@ -8556,6 +8556,120 @@ CASES += [
      "pyramid face on SPIKE-004's page"),
 ]
 
+CLAUDE_LIMITS_PY = "core/claude_limits.py"
+CLAUDE_STOP = "each-claude-account-stops-at-the-owners-number"
+
+CASES += [
+    (CLAUDE_STOP, AGENTS_PY,
+     _sub("            if stopped:", "            if False:", 1),
+     "the owner's number is read and then ignored: the account is called at 81% "
+     "against a limit of 70% and refused afterwards, when the call is already made"),
+
+    (CLAUDE_STOP, AGENTS_PY,
+     _sub("        if claude_limits.is_claude(binary):", "        if False:", 1),
+     "an agent run resolves no account at all, so it spends whichever account is "
+     "signed in to the machine -- the owner's own -- and no limit governs it"),
+
+    (CLAUDE_STOP, AGENTS_PY,
+     _sub("            *claude_limits.STREAM_FLAGS]", "            ]", 1),
+     "the command line stops asking for the account's usage, so every call reports "
+     "nothing and the owner's percentage has nothing to compare against"),
+
+    (CLAUDE_STOP, AGENTS_PY,
+     _sub('        if account is not None and said.get("info"):', "        if False:", 1),
+     "what the account said about itself is thrown away with the answer, and a "
+     "limit with no reading behind it never binds"),
+
+    (CLAUDE_STOP, CLAUDE_LIMITS_PY,
+     _sub("        if used < limit:", "        if used < 200.0:", 1),
+     "the owner's number is replaced by one no account can reach: the setting is on "
+     "the screen and decides nothing"),
+
+    (CLAUDE_STOP, CLAUDE_LIMITS_PY,
+     _sub('                if float((w or {}).get("resets_at_s") or 0.0) > now]',
+          "                if True]", 1),
+     "a window that has already rolled still stops VESPER, and no call is allowed to "
+     "refresh it: the account never comes back"),
+
+    (CLAUDE_STOP, CLAUDE_LIMITS_PY,
+     _sub('        if rec.get("paid_extra"):', "        if False:", 1),
+     "an account that has rolled onto paid extra usage is spent as if it were still "
+     "on the plan"),
+
+    (CLAUDE_STOP, CLAUDE_LIMITS_PY,
+     _sub('            if str(raw.get("credential_env") or "") == env and raw.get("config_dir"):',
+          "            if False:", 1),
+     "the account's directory falls back to nothing again, which is not 'no account' "
+     "but the CLI's default one -- the owner's personal subscription"),
+
+    (CLAUDE_STOP, CLAUDE_LIMITS_PY,
+     _sub("            json_seen = True", "            json_seen = False", 1),
+     "the stream is not recognised as one, so the JSON payload itself is handed back "
+     "as the agent's answer"),
+
+    (CLAUDE_STOP, CLAUDE_LIMITS_PY,
+     _sub("        return ADVISOR if cred == CREDENTIAL_ENV[ADVISOR] else AGENTS",
+          "        return AGENTS", 1),
+     "every supply row is attributed to the agents' account, so the advice account's "
+     "own number governs nothing"),
+
+    (CLAUDE_STOP, SUPPLY_PY,
+     _sub("            stopped = limits.refusal(account)", "            stopped = None", 1),
+     "the conversation ladder calls a Claude rung whose account is past the owner's "
+     "number, while the workflows on the same account are stopped"),
+
+    (CLAUDE_STOP, SUPPLY_PY,
+     _sub("            cmd += list(STREAM_FLAGS)", "            cmd = cmd", 1),
+     "the ladder's own calls stop reporting the account's usage, so the readings only "
+     "ever come from workflows"),
+
+    (CLAUDE_STOP, SUPPLY_PY,
+     _sub("                             account=_account,", "                             account=None,", 1),
+     "the registered rungs are built with no account, so the wire that enforces the "
+     "limit is reached by nothing in production"),
+
+    (CLAUDE_STOP, GATEWAY_PY,
+     _sub('            "budget_too_large", "model_gone", "owner_limit")',
+          '            "budget_too_large", "model_gone")', 1),
+     "VESPER stopping itself is retried rather than descended past: a rung that will "
+     "refuse itself identically is called again"),
+
+    (CLAUDE_STOP, GATEWAY_PY,
+     _sub("                        budget += 1\n                        with self._lock:",
+          "                        budget += 0\n                        with self._lock:", 1),
+     "every rung VESPER stopped itself on is charged one of the request's ten "
+     "attempts, so one stopped account fails the request with every other "
+     "provider untried"),
+
+    (CLAUDE_STOP, GATEWAY_PY,
+     _sub("                                0, self.attempts_by_class.get(eff, 0) - 1)",
+          "                                0, self.attempts_by_class.get(eff, 0) + 1)", 1),
+     "rungs nothing ever called are counted as attempts on the owner's boards, so "
+     "a request that made one call reports thirteen"),
+
+    (CLAUDE_STOP, SETTINGS_PY,
+     _sub('    "claude-limits",\n})', "})", 1),
+     "the Claude limits row is governed again: it shows a number and tells the owner "
+     "to change it by a reviewed edit, which was the complaint"),
+
+    (CLAUDE_STOP, SETTINGS_PY,
+     _sub('                parts = ["; ".join(lim.says(a) for a in CL.ACCOUNTS)]',
+          '                parts = ["set in the supply contract"]', 1),
+     "the row stops saying where each account stops and what it has used, so the "
+     "controls are two sliders with nothing to set them against"),
+
+    (CLAUDE_STOP, F7_PREFS,
+     _sub("    if key in UNITS:", "    if False:", 1),
+     "the controls lose their unit, and a percentage renders as a bare number beside "
+     "a gain in decibels"),
+
+    (CLAUDE_STOP, F7_HOME_HTML,
+     _sub("        if (shown) wrap.appendChild(shown);",
+          "        if (false) wrap.appendChild(shown);", 1),
+     "the slider's own number is built and never attached: the owner drags a limit "
+     "they cannot read"),
+]
+
 NAMED_REAL = '        named = [str(r.get("label")).strip() for r in can\n                 if str(r.get("label") or "").strip()]'
 ROLEBACK_BAD = '        named = [str(r.get("label") or r.get("role")).strip() for r in can]'
 THROTTLE_REAL = '            if last and (now - last) < REPEAT_SILENCE_S:'

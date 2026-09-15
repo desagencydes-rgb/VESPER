@@ -54,6 +54,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from core import claude_limits
+
 REPO = Path(__file__).resolve().parents[1]
 ROSTER = REPO / "contracts" / "policy" / "subagents.toml"
 
@@ -215,7 +217,15 @@ def _argv_for(exe: str, binary: str, task: str, persona: str,
             argv += ["-m", model]
         return argv + [prompt]
 
-    argv = [exe, "-p", task, "--append-system-prompt", persona]
+    # THE ACCOUNT'S OWN USAGE COMES BACK WITH THE ANSWER, and only in this
+    # format. `--output-format stream-json` makes the CLI emit its
+    # `rate_limit_event` -- the percentage the owner sees on their account page
+    # -- ahead of the result, which is what lets the owner's limit be compared
+    # against a measurement instead of a guess (core/claude_limits.py). The
+    # flags are named there, not spelled here, so the argv that runs and the
+    # thing a check reads are the same object.
+    argv = [exe, "-p", task, "--append-system-prompt", persona,
+            *claude_limits.STREAM_FLAGS]
     if tools:
         argv += ["--allowedTools", *tools]
     else:
@@ -233,10 +243,14 @@ class AgentRunner:
     """Runs one named agent, and never lets it break the caller."""
 
     def __init__(self, *, roster: dict | None = None, bus: Any = None,
-                 cwd: str | None = None) -> None:
+                 cwd: str | None = None, limits: Any = None) -> None:
         self._roster = roster if roster is not None else load_roster()
         self._bus = bus
         self._cwd = cwd or str(REPO)
+        # The owner's per-account ceiling. Injected by the check with temporary
+        # files, because a test that writes the real readings could stop VESPER
+        # on a real account.
+        self._limits = limits if limits is not None else claude_limits.default()
 
     def names(self) -> list:
         return sorted(self._roster)
@@ -265,8 +279,30 @@ class AgentRunner:
         tools = list(spec.get("tools") or [])
         argv = _argv_for(exe, binary, task, persona, tools, model, self._cwd)
 
+        # WHICH ACCOUNT THIS RUN SPENDS, AND WHETHER THE OWNER STILL ALLOWS IT.
+        # Owner, 2026-09-14: "vesper stops itself when the limit i set for it in
+        # settings is reached, for both accounts".
+        #
+        # THE ACCOUNT IS RESOLVED HERE RATHER THAN LEFT TO THE CLI. An absent
+        # `config_dir` is not "no account": it is the CLI's default account,
+        # which on this machine is the OWNER'S OWN -- measured 2026-09-14, and
+        # invisible, because a fallback to None looks like an omission rather
+        # than a choice of whose subscription to spend.
+        account = None
+        if claude_limits.is_claude(binary):
+            account = self._limits.account_for(config_dir)
+            config_dir = config_dir or self._limits.config_dir(account)
+            stopped = self._limits.refusal(account)
+            if stopped:
+                # REFUSED BEFORE SPAWNING, which is the whole point: a limit
+                # enforced after the call has already spent what it was guarding.
+                return self._emit(_result(agent, UNAVAILABLE, rung=binary,
+                                          why=stopped))
+
         env = dict(os.environ)
-        if config_dir:
+        if account is not None:
+            env = self._limits.environment(env, account, config_dir)
+        elif config_dir:
             env["CLAUDE_CONFIG_DIR"] = os.path.expanduser(config_dir)
 
         try:
@@ -303,19 +339,46 @@ class AgentRunner:
                                       why=f"{type(exc).__name__} while reading "
                                           "the agent's output"))
 
+        # WHAT THE RUN SAID ABOUT THE ACCOUNT, BEFORE ANYTHING IS DECIDED ABOUT
+        # THE ANSWER -- including when the run failed. A refusal is the most
+        # informative reading there is: it is the account saying it is full.
+        said: dict = ({"json": False} if account is None
+                      else self._limits.parse_stream(out))
+        if account is not None and said.get("info"):
+            self._limits.record(account, said["info"])
+
         if proc.returncode != 0:
             # THE CLI'S OWN WORDS, WHEREVER IT PUT THEM. This read stderr alone,
             # and twice on 2026-09-14 a research step failed as "exit 1: no
             # detail" -- a CLI that explains itself on stdout and exits non-zero
             # had its explanation thrown away with the output. The output still
             # never becomes an answer; only its last line becomes the reason.
-            reason = (str(err or "").strip().splitlines()
-                      or str(out or "").strip().splitlines() or ["no detail"])[-1]
+            #
+            # A STREAM'S OWN ERROR FIELD BEATS ITS LAST LINE, and its raw lines
+            # are not a sentence: with `--output-format stream-json` the last
+            # line of stdout is a JSON object, so quoting it would put a payload
+            # where the reason belongs.
+            lines = (str(err or "").strip().splitlines()
+                     or ([] if said.get("json")
+                         else str(out or "").strip().splitlines())
+                     or ["no detail"])
+            reason = str(said.get("error") or lines[-1])
             return self._emit(_result(
                 agent, UNAVAILABLE, rung=binary,
                 why=f"exit {proc.returncode}: {reason[:160]}"))
 
         text = str(out or "").strip()
+        if said.get("json"):
+            # A FAILED RUN THAT EXITS ZERO IS THE COMMON SHAPE HERE: the quota
+            # notice arrives as a normal process with an error result, and
+            # handing that on as an answer is exactly the confusion
+            # `_exhaustion` below was written for -- caught earlier now, with
+            # the CLI's own words kept as the reason.
+            if said.get("error"):
+                return self._emit(_result(
+                    agent, UNAVAILABLE, rung=binary,
+                    why=f"the rung answered nothing: {str(said['error'])[:160]}"))
+            text = str(said.get("text") or "").strip()
         if len(text) < MIN_ANSWER_CHARS:
             # AN EMPTY ANSWER IS NOT AN ANSWER. Passing it on would put a blank
             # where the caller expects a finding, and a blank reads as "nothing

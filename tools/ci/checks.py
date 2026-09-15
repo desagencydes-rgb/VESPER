@@ -17022,6 +17022,391 @@ def check_the_model_rows_read_a_real_completion() -> Result:
     return r
 
 
+def check_each_claude_account_stops_at_the_owners_number() -> Result:
+    """VESPER stops using each Claude account where the owner's own number says.
+
+    OWNER, 2026-09-14: "i want it flexible, vesper stops itself when the limit i set for it in
+    settings is reached, for both accounts, and i can set it for both anytime just from the
+    settings".
+
+    THE SHARE ALREADY IN THE SUPPLY CONTRACT COULD NOT BE THAT. `soft_cap_ratio` (70% for the
+    account the agents share, 40% for the advice one) binds only on a MEASURED ceiling, and a
+    subscription publishes none -- so for every Claude agent rung it has never once bound. The
+    research and language-model runs were stopped by Claude's own "You've hit your monthly spend
+    limit" while VESPER's declared 70% sat in settings reading like a working brake. A number
+    that cannot bind is worse than no number.
+
+    DRIVEN, NOT READ. A fake CLI named `claude` records every spawn AND the argv it was spawned
+    with, so "refused before the process started" is asserted against a process that did not
+    start, and "the call asks for the account's usage" is asserted against the command line that
+    actually ran -- never against the contract's description of it, which is the divergence
+    `routing/supply.py:_cli_call` already paid for once.
+    """
+    r = Result("each-claude-account-stops-at-the-owners-number")
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    import json as _j
+    import os as _os
+    import stat as _st
+    import tempfile as _tf
+    import time as _tm
+    try:
+        from core import claude_limits as CL
+        from core import gateway as G
+        from core import preferences as P
+        from core import settings_surface as SS
+        from core.agents import AgentRunner, _argv_for
+        from routing import supply as SUP
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"the Claude limit path does not import: {exc!r}")
+        return r
+
+    # VESPER'S REAL READINGS ARE NOT THIS CHECK'S TO TOUCH. self_test disables the
+    # repo write guard, so a mutation that drops the temporary paths would write
+    # the owner's live file -- and a live file saying 99% would stop VESPER's real
+    # accounts. Snapshotted here and compared at the end.
+    real_before = CL.PATH.read_bytes() if CL.PATH.exists() else None
+
+    def stream(used7: float = 0.81, used5: float = 0.03, ahead7: float = 200_000.0,
+               ahead5: float = 3_600.0, text: str = "an answer long enough to count as one",
+               overage: bool = False, error: str | None = None) -> str:
+        now = _tm.time()
+        evs: list = [
+            {"type": "system", "subtype": "init", "model": "claude-sonnet-5"},
+            {"type": "rate_limit_event", "rate_limit_info": {
+                "status": "allowed_warning", "rateLimitType": "seven_day",
+                "utilization": used7, "isUsingOverage": overage,
+                "unifiedWindows": {
+                    "five_hour": {"utilization": used5, "resetsAt": now + ahead5},
+                    "seven_day": {"utilization": used7, "resetsAt": now + ahead7}}}}]
+        if error:
+            evs.append({"type": "result", "subtype": "error_during_execution",
+                        "is_error": True, "result": error})
+        else:
+            evs.append({"type": "result", "subtype": "success", "is_error": False,
+                        "result": text, "total_cost_usd": 0.1447})
+        return "\n".join(_j.dumps(e) for e in evs) + "\n"
+
+    with _tf.TemporaryDirectory() as td:
+        T = Path(td)
+        prefs = T / "preferences.json"
+        lim = CL.ClaudeLimits(state_path=T / "claude-limits.json",
+                              preferences_path=prefs)
+        (T / "bin").mkdir()
+        fake, spawns, argv_log, saying = (T / "bin" / "claude", T / "spawns",
+                                          T / "argv", T / "stream.txt")
+        fake.write_text(
+            "#!/bin/sh\n"
+            f"printf 'x' >> '{spawns}'\n"
+            f"printf '%s\\n' \"$*\" >> '{argv_log}'\n"
+            f"cat '{saying}'\n", encoding="utf-8")
+        fake.chmod(fake.stat().st_mode | _st.S_IXUSR | _st.S_IXGRP | _st.S_IXOTH)
+        saying.write_text(stream(), encoding="utf-8")
+
+        def spawned() -> int:
+            return len(spawns.read_text(encoding="utf-8")) if spawns.exists() else 0
+
+        def last_argv() -> str:
+            return (argv_log.read_text(encoding="utf-8").strip().splitlines()
+                    or [""])[-1]
+
+        def stop_at(account: str, pct: float) -> None:
+            P.write(CL.PREFERENCE_KEY[account], float(pct), path=prefs)
+
+        runner = AgentRunner(roster={"auditor": {"prompt": "be terse"}}, limits=lim)
+
+        # 1. WHOSE ACCOUNT IS WHOSE, and neither of them the owner's own. Measured
+        #    2026-09-14: the secret naming the agents' directory is not on this
+        #    machine, the resolver returned None, and None is the CLI's DEFAULT
+        #    account -- so VESPER's agents were spending the owner's personal
+        #    subscription while the code said "never the owner's own".
+        agents_dir, advisor_dir = lim.config_dir(CL.AGENTS), lim.config_dir(CL.ADVISOR)
+        default_dir = _os.path.normpath(_os.path.expanduser("~/.claude"))
+        if not agents_dir or not advisor_dir or agents_dir == advisor_dir:
+            r.err(f"the two accounts do not resolve to two directories "
+                  f"({agents_dir!r}, {advisor_dir!r}): an unresolved account is not "
+                  "'no account', it is whoever is signed in to this machine")
+        for who, where in ((CL.AGENTS, agents_dir), (CL.ADVISOR, advisor_dir)):
+            if where and _os.path.normpath(_os.path.expanduser(where)) == default_dir:
+                r.err(f"the {who} account resolves to the machine's default Claude "
+                      "directory, which is the owner's own account")
+        if lim.account_for(None) != CL.AGENTS:
+            r.err("an agent run that names no directory is not attributed to the "
+                  "agents' account, so nothing bounds it")
+        if advisor_dir and lim.account_for(advisor_dir) != CL.ADVISOR:
+            r.err("the advice directory is not read as the advice account: the two "
+                  "accounts collapse into one and one limit governs both")
+        if (lim.account_for_row({"credential_env": "VESPER_CLAUDE_ADVISOR_CONFIG_DIR"}) != CL.ADVISOR
+                or lim.account_for_row({"credential_env": "VESPER_CLAUDE_CONFIG_DIR"}) != CL.AGENTS):
+            r.err("a supply row's account is not read from the credential it declares "
+                  "-- and eight Claude rows declare no directory at all, so there is "
+                  "nothing else to read it from")
+
+        # 2. THE ARGV THAT RUNS asks for the usage. A contract that describes the
+        #    call is not the call.
+        argv = _argv_for("/x/claude", "claude", "task", "persona", [], "", str(REPO))
+        if not any(list(argv[i:i + len(CL.STREAM_FLAGS)]) == list(CL.STREAM_FLAGS)
+                   for i in range(len(argv))):
+            r.err("the claude command line does not ask for the stream format, so no "
+                  "call reports the account's own usage and the owner's limit has "
+                  "nothing to compare against")
+        if any(f in _argv_for("/x/codex", "codex", "t", "p", [], "", str(REPO))
+               for f in CL.STREAM_FLAGS):
+            r.err("codex is handed claude's output flags: a rung nothing can invoke, "
+                  "which measures as a provider outage")
+
+        # 3. A CALL UNDER THE LIMIT ANSWERS, and leaves a reading behind.
+        stop_at(CL.AGENTS, 95)
+        res = runner.run("auditor", "is this safe?", binary=str(fake), config_dir=None)
+        if res.get("status") != "answered" or "an answer long enough" not in res.get("text", ""):
+            r.err(f"a call under the owner's number did not answer: {res.get('why') or res.get('text')!r}")
+        if "--output-format stream-json --verbose" not in last_argv():
+            r.err(f"the command actually executed was {last_argv()!r}: it never asked "
+                  "for the stream, so nothing could have read the account's usage")
+        rec = lim.reading(CL.AGENTS)
+        if sorted(rec.get("windows") or {}) != ["five_hour", "seven_day"]:
+            r.err(f"the run recorded no usable reading ({rec!r}): the limit can only "
+                  "bind on what the last call reported")
+
+        # 4. AT THE OWNER'S NUMBER, NOTHING SPAWNS. A limit enforced after the call
+        #    has already spent the thing it was guarding.
+        stop_at(CL.AGENTS, 70)
+        n = spawned()
+        res2 = runner.run("auditor", "is this safe?", binary=str(fake), config_dir=None)
+        why = str(res2.get("why") or "")
+        if res2.get("status") != "unavailable" or res2.get("text"):
+            r.err("the agents' account was used at 81% against an owner limit of 70%")
+        if spawned() != n:
+            r.err("VESPER spawned the CLI anyway and refused afterwards: the call was "
+                  "already made and already counted")
+        for token in ("81%", "70%", "Settings", "resets"):
+            if token not in why:
+                r.err(f"the refusal does not say {token!r}: {why!r}. The owner has to "
+                      "be told what stopped it, what their number is, and how to "
+                      "change it")
+
+        # 5. THE NUMBER IS LIVE. Raising it in settings resumes the account on the
+        #    next call -- not at the next restart.
+        stop_at(CL.AGENTS, 95)
+        if lim.refusal(CL.AGENTS) is not None:
+            r.err("raising the limit did not resume the account: a setting that needs "
+                  "a restart is not 'i can set it for both anytime'")
+
+        # 6. TWO ACCOUNTS, TWO LIMITS, INDEPENDENTLY.
+        lim.record(CL.ADVISOR, {"status": "allowed", "isUsingOverage": False,
+                                "unifiedWindows": {"five_hour": {
+                                    "utilization": 0.99,
+                                    "resetsAt": _tm.time() + 3_600}}})
+        stop_at(CL.ADVISOR, 40)
+        if lim.refusal(CL.ADVISOR) is None or lim.refusal(CL.AGENTS) is not None:
+            r.err("the two accounts do not stop independently: one account at its "
+                  "limit either stops both or stops neither")
+        n = spawned()
+        res3 = runner.run("auditor", "is this safe?", binary=str(fake),
+                          config_dir=advisor_dir)
+        if res3.get("status") != "unavailable" or spawned() != n:
+            r.err("a run against the advice directory was not judged by the advice "
+                  "account's own number")
+
+        # 7. A WINDOW THAT HAS ROLLED SAYS NOTHING ABOUT NOW, or a Monday refusal
+        #    stops VESPER on Thursday with no call allowed to find out otherwise.
+        lim.record(CL.AGENTS, {"status": "allowed", "isUsingOverage": False,
+                               "unifiedWindows": {"seven_day": {
+                                   "utilization": 0.99,
+                                   "resetsAt": _tm.time() - 10}}})
+        stop_at(CL.AGENTS, 70)
+        if lim.refusal(CL.AGENTS) is not None:
+            r.err("a reading whose window has already reset still stops VESPER, and "
+                  "nothing may call to refresh it: the account never comes back")
+
+        # 8. PAID EXTRA USAGE IS NOT VESPER'S TO SPEND, at any percentage.
+        lim.record(CL.AGENTS, {"status": "allowed", "isUsingOverage": True,
+                               "unifiedWindows": {"five_hour": {
+                                   "utilization": 0.01,
+                                   "resetsAt": _tm.time() + 3_600}}})
+        stop_at(CL.AGENTS, 100)
+        paid = lim.refusal(CL.AGENTS) or ""
+        if "extra usage" not in paid:
+            r.err("an account on paid extra usage is used as if it were still on the "
+                  "plan: past the plan every call is money, and that is the owner's "
+                  "to decide, not VESPER's")
+
+        # 9. PLAIN TEXT STILL ANSWERS. The fixtures and an older CLI print no JSON,
+        #    and turning every one of them into a silent failure would be a worse
+        #    bug than the one the parser exists for.
+        lim.record(CL.AGENTS, {"status": "allowed", "isUsingOverage": False,
+                               "unifiedWindows": {"five_hour": {
+                                   "utilization": 0.10,
+                                   "resetsAt": _tm.time() + 3_600}}})
+        stop_at(CL.AGENTS, 95)
+        saying.write_text("a plain answer with no JSON anywhere in it\n", encoding="utf-8")
+        res4 = runner.run("auditor", "is this safe?", binary=str(fake), config_dir=None)
+        if res4.get("status") != "answered" or "plain answer" not in res4.get("text", ""):
+            r.err(f"a CLI that prints plain text is no longer understood: {res4.get('why')!r}")
+
+        # 10. THE CLI'S OWN REFUSAL IS NOT AN ANSWER, and it is still a reading.
+        saying.write_text(stream(used7=0.86,
+                                 error="You've hit your monthly spend limit"), encoding="utf-8")
+        res5 = runner.run("auditor", "is this safe?", binary=str(fake), config_dir=None)
+        if res5.get("status") != "unavailable" or "monthly spend limit" not in str(res5.get("why")):
+            r.err(f"a quota notice was handed back as an answer: {res5!r}")
+        if abs(float((lim.reading(CL.AGENTS).get("windows") or {})
+                     .get("seven_day", {}).get("used", 0.0)) - 0.86) > 1e-6:
+            r.err("the reading that came with the refusal was thrown away: a refusal "
+                  "is the most informative reading there is")
+
+        # 11. THE OTHER CALLER: the supply wire the conversation ladder uses.
+        class _Row:
+            provider_id = "claude-test"
+
+        saying.write_text(stream(), encoding="utf-8")
+        call = SUP._cli_call(_Row(), str(fake), ["-p", "{prompt}"], "CLAUDE_CONFIG_DIR",
+                             str(T / "cfg"), timeout=60.0, account=CL.AGENTS, limits=lim)
+        stop_at(CL.AGENTS, 95)
+        got = call("a question", {})
+        if "an answer long enough" not in str(got.get("text")):
+            r.err(f"the wire returned {str(got.get('text'))[:80]!r} rather than the "
+                  "stream's answer: a caller expecting words gets a JSON payload")
+        if "--output-format stream-json --verbose" not in last_argv():
+            r.err("the wire's command line does not ask for the stream either")
+        stop_at(CL.AGENTS, 70)
+        n = spawned()
+        try:
+            call("a question", {})
+            r.err("the ladder called a Claude rung whose account is past the owner's "
+                  "number")
+        except Exception as exc:                          # noqa: BLE001
+            cls = str(getattr(exc, "classification", ""))
+            if cls != G.OWNER_LIMIT:
+                r.err(f"the wire refused as {cls!r} rather than {G.OWNER_LIMIT!r}")
+            if cls in G.QUOTA_CLASSIFICATIONS:
+                r.err("VESPER stopping itself is booked as a provider quota refusal: "
+                      "that measures a ceiling nobody hit, and the measurement "
+                      "outlives the owner raising their number")
+            if cls not in G.TERMINAL:
+                r.err("the refusal is retried rather than descended past, so a rung "
+                      "that will refuse itself identically is called again")
+        if spawned() != n:
+            r.err("the wire spawned the CLI despite the owner's number")
+        if not re.search(r"account=_account,\s*\n\s*limits=_cl\.default\(\) if _account else None",
+                         (REPO / "routing" / "supply.py").read_text(encoding="utf-8")):
+            r.err("the registered rungs are built without an account or a limit, so "
+                  "the wire above is reached by nothing in production")
+
+        # 12. A LIMIT OUTSIDE ITS RANGE IS REFUSED rather than stored.
+        try:
+            P.write(CL.PREFERENCE_KEY[CL.AGENTS], 400, path=prefs)
+            r.err("a limit of 400% was accepted")
+        except P.PreferenceRefused:
+            pass
+
+    # 13. THE LADDER STILL REACHES SOMEBODY WHO CAN ANSWER. 17 of the 57 supply
+    #     rows are Claude rows on two accounts and nothing narrows an ordinary
+    #     text request to fewer of them, so if each stopped rung cost one of the
+    #     ten chain-wide attempts, one stopped account would fail every request
+    #     with every other provider untried.
+    try:
+        import tempfile as _tf2
+        from core.bus import EventBus
+        from core.cost import CostPolicy
+        from core.gateway import E1_PRIVATE, ModelGateway, Provider
+        from core.hlc import HybridLogicalClock
+        from core.store import StoreSet
+        from routing.http_completion import EndpointError
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"the gateway fixtures do not import: {exc!r}")
+        return r
+    _clock = HybridLogicalClock(node_id="ci")
+    _bus = EventBus(_clock, StoreSet(_tf2.mkdtemp(), node_id="ci"))
+    _cost = CostPolicy(_bus, _clock)
+    gw = ModelGateway(_bus, _cost, sleep=lambda s: None)
+
+    def _stopped(_q, _o):
+        raise EndpointError("stopped at the owner's number", G.OWNER_LIMIT)
+
+    # TWELVE, AGAINST A CHAIN BUDGET OF TEN. Fewer stopped rungs than attempts
+    # would answer whether or not a stopped rung is charged, and the assertion
+    # would pass under its own violation -- which is the "alive and useless"
+    # shape this corpus refuses. Seventeen Claude rows share two accounts, so
+    # twelve is under-stating the real ladder rather than contriving a case.
+    for i in range(12):
+        _cost.register_credential(f"stopped{i}", "free")
+        gw.register(Provider(f"stopped{i}", "prof", _stopped, model="m",
+                             egress_class=E1_PRIVATE))
+    _cost.register_credential("elsewhere", "free")
+    gw.register(Provider("elsewhere", "prof",
+                         lambda _q, _o: {"text": "an answer from another provider",
+                                         "usage": {}},
+                         model="m", egress_class=E1_PRIVATE))
+    try:
+        out = gw.complete("hello", profile_id="prof", difficulty="trivial")
+    except Exception as exc:                              # noqa: BLE001
+        out = {}
+        r.err(f"twelve rungs stopped at the owner's number failed the whole "
+              f"request ({type(exc).__name__}): every other provider went untried")
+    tried = [a for a in gw.history if a.classification == G.OWNER_LIMIT]
+    if len(tried) < 3:
+        r.err(f"only {len(tried)} stopped rungs were reached, so the budget "
+              "assertion below proves nothing")
+    if "another provider" not in str((out.get("result") or {}).get("text")):
+        r.err("twelve rungs stopped at the owner's number spent the whole "
+              "request: the ladder never reached a provider that could answer")
+    if sum(gw.attempts_by_class.values()) != 1:
+        r.err(f"a rung VESPER stopped itself on was charged as an attempt "
+              f"({dict(gw.attempts_by_class)!r}): nothing was sent, so nothing "
+              "was attempted")
+
+    # 14. THE SETTINGS ROW: the owner's to set, with both accounts on it.
+    if "claude-limits" not in SS.OWNER_PREFERENCE:
+        r.err("the Claude limits row is still governed: it shows a number the owner "
+              "is told to change by a reviewed edit, which was the owner's whole "
+              "complaint")
+    if tuple(SS.PREFERENCE_KEYS.get("claude-limits") or ()) != tuple(
+            CL.PREFERENCE_KEY[a] for a in CL.ACCOUNTS):
+        r.err("the settings row does not carry one control per account")
+    row = next((x for x in SS.rows() if x["id"] == "claude-limits"), None)
+    ctls = (row or {}).get("controls") or []
+    if not row or row.get("status") != "available" or len(ctls) != 2:
+        r.err(f"the Claude limits row reads {row!r}")
+    for c in ctls:
+        if (c.get("kind") != "range" or c.get("unit") != "%"
+                or c.get("min") is None or c.get("max") is None):
+            r.err(f"the control {c!r} is not a percentage the owner can slide")
+    value = str((row or {}).get("value") or "")
+    if "stops at" not in value or "%" not in value:
+        r.err(f"the row's reading {value!r} does not say where each account stops")
+
+    # 15. AND THE NUMBER IS ON THE SCREEN. A percentage in a tooltip is a
+    #     percentage the owner cannot read while they drag it.
+    html = (REPO / "app" / "home-macos" / "chrome" / "home.html").read_text(encoding="utf-8")
+    if "st-val" not in html or "shown.textContent = el.value + (c.unit" not in html:
+        r.err("a slider's own number is never rendered beside it")
+    if "if (shown) wrap.appendChild(shown);" not in html:
+        r.err("the number is built and never attached: built and unreached")
+    swift = (REPO / "app" / "home-macos" / "HomeChrome.swift").read_text(encoding="utf-8")
+    if "st-val" not in swift:
+        r.err("the binary's fallback chrome is older than the page: run "
+              "tools/sync_chrome_fallback.py")
+
+    real_after = CL.PATH.read_bytes() if CL.PATH.exists() else None
+    if real_after != real_before:
+        r.err("this check wrote VESPER's real Claude readings: a stale 99% left "
+              "there would stop the owner's real accounts")
+
+    if r.ok:
+        r.note("driven over a fake claude that records every spawn and its argv: both "
+               "accounts resolve to VESPER's own directories and never the machine "
+               "default, the command line that runs asks for the account's usage, a "
+               "reading is kept from every call including refusals, the owner's number "
+               "stops the NEXT call before any process starts, raising it resumes the "
+               "account immediately, the two accounts stop independently, a rolled "
+               "window stops nothing, paid extra usage stops everything, plain text "
+               "still answers, the ladder descends past a stopped rung without booking "
+               "a quota refusal, and the settings row carries two live percentage "
+               "controls")
+    return r
+
+
 def check_a_served_face_is_the_face_and_nothing_else() -> Result:
     """A display node gets VESPER's face over the LAN, and nothing a neighbour should read.
 
@@ -29504,6 +29889,7 @@ CHECK_FNS = {
     "a-window-belongs-to-someone": check_a_window_belongs_to_someone,
     "the-expandable-menu-reads-what-it-names": check_the_expandable_menu_reads_what_it_names,
     "a-served-face-is-the-face-and-nothing-else": check_a_served_face_is_the_face_and_nothing_else,
+    "each-claude-account-stops-at-the-owners-number": check_each_claude_account_stops_at_the_owners_number,
     "spaces-hatch-contained": check_spaces_hatch,
     "notes-are-never-instructions": check_notes_are_titles_and_never_instructions,
     "taint-ceiling-binds-the-act-path": check_taint_ceiling_binds_the_act_path,

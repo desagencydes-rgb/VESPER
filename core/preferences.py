@@ -71,7 +71,28 @@ SCHEMA: dict[str, tuple[str, Any, Any, str]] = {
                                         "Owner's rule 31 (2026-09-13): windows "
                                         "that are not VESPER's are managed only "
                                         "when asked; VESPER's own, always."),
+    # THE OWNER'S OWN BRAKE ON EACH CLAUDE ACCOUNT, and the first one that can
+    # actually bind. The ledger's 70/40 share needs a MEASURED ceiling and a
+    # subscription publishes none, so it never fired; these are compared against
+    # the percentage Claude reports on every call. core/claude_limits.py carries
+    # the argument and the measurement.
+    "claude.agents_stop_at_percent": ("range", 70.0, (5.0, 100.0, 1.0),
+                                      "Where VESPER stops using the account its "
+                                      "agents work on, as a share of that "
+                                      "account's own limit."),
+    "claude.advisor_stop_at_percent": ("range", 40.0, (5.0, 100.0, 1.0),
+                                       "Where VESPER stops using the advice "
+                                       "account, as a share of that account's "
+                                       "own limit."),
 }
+
+# WHAT THE NUMBER IS IN, for the one screen that renders it. A slider showing
+# "70" beside a slider showing "0" says nothing; "70%" and "0 dB" say what they
+# are. Kept beside the schema rather than in the page, because the page must
+# render what the producer declares and invent nothing.
+UNITS = {"claude.agents_stop_at_percent": "%",
+         "claude.advisor_stop_at_percent": "%",
+         "microphone.gain_db": " dB"}
 
 _LOCK = threading.RLock()
 
@@ -185,6 +206,8 @@ def describe(key: str) -> dict:
     """What a screen needs to render a control for this key."""
     kind, default, constraint, what = SCHEMA[key]
     d: dict = {"key": key, "kind": kind, "default": default, "what": what}
+    if key in UNITS:
+        d["unit"] = UNITS[key]
     if kind == "choice":
         d["options"] = list(constraint)
     elif kind == "range":
