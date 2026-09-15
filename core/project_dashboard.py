@@ -82,6 +82,35 @@ def _count(root: Path, pattern: str) -> int:
         return -1
 
 
+IMAGE_SUFFIXES = (".png", ".svg", ".jpg", ".jpeg", ".webp", ".gif", ".pdf")
+
+
+def _design_references(docs: Path, design: Path) -> int:
+    """Every visual reference under docs/, however it happens to be named.
+
+    Case is not a property of the thing being counted, and neither is depth: a
+    reference put in `docs/design/ui-refs/` is the same reference as one put
+    beside it. Counted once even when a file satisfies both rules.
+    """
+    found = set()
+    try:
+        # A PICTURE UNDER docs/design, AT ANY DEPTH. Scanning all of docs/ would
+        # count the scanned handwritten pages and a spike's screenshots as
+        # interface references, which is a number that would look like progress
+        # and mean nothing.
+        for p in design.rglob("*"):
+            if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES:
+                found.add(p)
+        # And anything named as a reference, wherever it was filed.
+        for p in docs.rglob("*"):
+            if (p.is_file() and "reference" in p.name.lower()
+                    and p.suffix.lower() in IMAGE_SUFFIXES):
+                found.add(p)
+    except OSError:
+        return -1
+    return len(found)
+
+
 def panels(project_root: Path | None = None, mode: str = "work") -> list:
     """One row per panel, each reading its real source or saying why it cannot.
 
@@ -130,13 +159,20 @@ def panels(project_root: Path | None = None, mode: str = "work") -> list:
                  "no core/ directory here -- this may not be the project"),
           source="core/*.py")
 
-    refs = _count(docs, "**/*REFERENCE*") + _count(design, "*.png") + _count(design, "*.svg")
+    # COUNTED THE WAY THE FILES ARE ACTUALLY NAMED. This asked for `*REFERENCE*`
+    # in capitals and for `.png`/`.svg` directly under `docs/design`, and this
+    # project's references are `docs/design/ui-refs/home-reference-1.jpg` and
+    # `docs/design/assets/face-reference.jpg` -- lower case, nested, and JPEG. So
+    # the dashboard told the owner "no design reference found under docs/ on this
+    # node" while the interface was being built against two of them (2026-09-15).
+    # A false absence is worse than a missing panel: it is an answer.
+    refs = _design_references(docs, design)
     panel("designs", "Designs",
           "the visual references the interface is built against",
           status="available" if refs > 0 else "unavailable",
           value=(f"{refs} reference(s)" if refs > 0 else
                  "no design reference found under docs/ on this node"),
-          source="docs/**")
+          source="docs/design/** images, plus anything named *reference*")
 
     # THE ROADMAP IS THE BUILD ORDER AND IS ALREADY PARSED. Reading it a second
     # way here would be a second thing to keep in step with the first, which is

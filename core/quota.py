@@ -47,6 +47,7 @@ event ordering remains HLC's job everywhere else in the system.
 
 from __future__ import annotations
 
+import os
 import json
 import math
 import threading
@@ -488,7 +489,15 @@ class QuotaLedger:
         if not self._path:
             return
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self._path.with_suffix(".tmp")
+        # A UNIQUE TEMP PER WRITER, NOT ONE NAME FOR ALL OF THEM. `with_suffix('.tmp')`
+        # hands every process and thread the SAME path: the second writer's rename
+        # runs after the first has already moved the file away, and `replace` raises
+        # FileNotFoundError. That is not theory -- it killed the runtime once from
+        # `home.json` (see core/home_state.write), and it was still doing it here on
+        # 2026-09-15, where the pump logged the same FileNotFoundError on
+        # `heard.offset` and dropped the whole pass.
+        tmp = self._path.with_name(
+            f"{self._path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
         tmp.write_text(json.dumps(
             {f"{k[0]}||{k[1]}": asdict(v) for k, v in self._entries.items()},
             indent=2), encoding="utf-8")

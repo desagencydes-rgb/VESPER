@@ -97,6 +97,25 @@ def _enrolled_nodes() -> tuple[list, str]:
     return [], "the live registry has not been published yet"
 
 
+def _published_mode() -> dict:
+    """Mode, stage and ambience as last published -- the file the screen paints from.
+
+    The producer runs with no `home` object in the gates and with one whose
+    memory is empty after a restart, and in both cases the published file is the
+    honest answer rather than a blank. Same rule as `HomeState.mode_now`.
+    """
+    try:
+        home = json.loads((STATE / "home.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    # `stage` here is the STAGE OF WORK, not the sentence on the stage -- the
+    # sentence lives in the transcript. `home_state.write` puts all three of
+    # these together and only once a mode has actually been chosen.
+    return {"mode": str(home.get("mode") or ""),
+            "stage": str(home.get("stage") or ""),
+            "ambience": str(home.get("ambience") or "")}
+
+
 def _counts(hours: float, kinds: tuple) -> dict:
     since = int((time.time() - hours * 3600) * 1000)
     marks = ",".join("?" for _ in kinds)
@@ -483,8 +502,21 @@ def cards(home: Any = None) -> dict:
     # --- modes --------------------------------------------------------------
     pair = _toml("contracts/policy/mode_pairings.toml")
     pairings = pair.get("pairings") or {}
-    cur = {"mode": getattr(home, "_mode", None), "stage": getattr(home, "_stage", None),
-           "ambience": getattr(home, "_ambience", None)} if home is not None else {}
+    # THE MODE IS READ THE WAY THE SCREEN READS IT, and this card was reading it
+    # the one way `HomeState.mode_now` exists to forbid. It took `_mode` off the
+    # object; that field is EMPTY UNTIL SOMETHING SETS A MODE IN THIS PROCESS, so
+    # after every restart -- including every build -- the card said "current
+    # unknown (stage ?, ambience ?)" while `home.json`, which the Swift side
+    # paints from, held `mode = work, ambience = Working`. The owner was looking
+    # at the mode on screen and at a card denying there was one (2026-09-15).
+    cur = {}
+    if home is not None and hasattr(home, "mode_now"):
+        try:
+            cur = home.mode_now() or {}
+        except Exception:                                     # noqa: BLE001
+            cur = {}
+    if not cur.get("mode"):
+        cur = _published_mode() or cur
     out["modes"] = {
         "title": "Modes",
         "summary": "A mode pairs a stage of work with an ambience. Switching changes only VESPER's own Desktop.",

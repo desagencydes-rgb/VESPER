@@ -17039,6 +17039,221 @@ def check_the_model_rows_read_a_real_completion() -> Result:
     return r
 
 
+def check_the_home_page_survives_what_the_host_sends() -> Result:
+    """Every renderer the host calls, driven with the payloads it really sends -- and then
+    every button pressed.
+
+    OWNER, 2026-09-15: "go sweep the whole frontend, and fix all bugs, do not ruin anything."
+
+    READING A 3 000-LINE PAGE FINDS THE DEFECTS A READER CAN SEE. The ones that matter here are
+    the other kind: a renderer that throws on a row with a missing field, a handler that dies
+    when clicked, a destination that draws nothing. Each reaches the owner as "it shows and does
+    nothing", and none of them is visible in the source -- which is why the settings and flag-bar
+    stubs exist and why this drives the WHOLE page rather than one function.
+
+    THE PAYLOADS ARE THE PRODUCERS' OWN, plus the shapes a host can actually send: nothing at
+    all, no argument, truncated JSON, a model's output with a script tag in it, 200 000
+    characters. The page must survive every one; a throw in an early receiver silently kills
+    every later one (`HomeChrome`'s `step()` carries that night's finding).
+    """
+    r = Result("the-home-page-survives-what-the-host-sends")
+    import shutil as _sh
+    import subprocess as _sp
+    import tempfile as _tf
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+
+    node = _sh.which("node")
+    if not node:
+        r.err("node is not on this machine, so the page cannot be driven at all")
+        return r
+    sweep = REPO / "tools" / "ci" / "js" / "home_sweep.js"
+    page = REPO / "app" / "home-macos" / "chrome" / "home.html"
+    if not sweep.is_file() or not page.is_file():
+        r.err(f"missing {'the sweep' if not sweep.is_file() else 'the page'}")
+        return r
+
+    # THE PRODUCERS' OWN OUTPUT, so the page is judged against what it will really be handed.
+    payloads: dict = {}
+    try:
+        from core import menu_cards as MC
+        from core import settings_surface as SS
+        payloads["cards"] = MC.cards(None)
+        payloads["settings"] = SS.rows()
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"the card and settings producers do not run: {exc!r}")
+        return r
+    try:
+        from core import boards as B
+        payloads["boards"] = {k: B.board(k) for k in ("projects", "research")}
+    except Exception:                                     # noqa: BLE001
+        payloads["boards"] = {}
+    try:
+        from core import project_dashboard as PD
+        from core import places as PL
+        root = next((x["path"] for x in PL.places()
+                     if x.get("name") == "the project" and x.get("path")), None)
+        payloads["dashboard"] = {"phases": PD.phases(), "modes": PD.modes(),
+                                 "panels": PD.panels(Path(root) if root else None),
+                                 "project_root": root or ""}
+    except Exception:                                     # noqa: BLE001
+        payloads["dashboard"] = {}
+    try:
+        from core import rail_surfaces as RS
+        payloads["projects"] = RS.project_rows()
+        payloads["research"] = RS.research_rows()
+    except Exception:                                     # noqa: BLE001
+        payloads["projects"] = payloads["research"] = []
+    payloads.setdefault("history", [{"who": "owner", "text": "what is running?"},
+                                    {"who": "vesper", "text": "the pump and the wake listener."}])
+    payloads.setdefault("metrics", [])
+    payloads.setdefault("work", {})
+    payloads.setdefault("flags", [])
+    payloads.setdefault("flagHistory", [])
+    payloads.setdefault("changes", {})
+    payloads.setdefault("stage", "I'm here.")
+    payloads.setdefault("term", "ready\n")
+    payloads.setdefault("actResult", {"kind": "acted", "said": "opened it", "detail": {}})
+
+    with _tf.TemporaryDirectory() as td:
+        pfile = Path(td) / "payloads.json"
+        pfile.write_text(json.dumps(payloads, default=str), encoding="utf-8")
+        try:
+            cp = _sp.run([node, str(sweep), str(page), str(pfile), "--report"],
+                         capture_output=True, text=True, timeout=180)
+        except _sp.TimeoutExpired:
+            r.err("the page did not finish rendering in 180 s")
+            return r
+    out = (cp.stdout or "") + (cp.stderr or "")
+    if cp.returncode != 0 or "FAILURES" in out:
+        for line in out.splitlines():
+            if line.strip().startswith(("FAILURES", "  ")) and "destination" not in line:
+                r.err(line.strip()[:400])
+        if r.ok:
+            r.err(f"the sweep exited {cp.returncode} without naming a failure: {out[-300:]}")
+        return r
+
+    # AND THE SWEEP MUST HAVE ACTUALLY DONE SOMETHING. A stub that renders nothing passes
+    # every assertion about what it rendered; that is the vacuity this corpus refuses.
+    drew = int((re.search(r"nodes_drawn=(\d+)", out) or re.match("", "")).group(1) or 0) \
+        if re.search(r"nodes_drawn=(\d+)", out) else 0
+    pressed = int(re.search(r"buttons_clicked=(\d+)", out).group(1)) if re.search(r"buttons_clicked=(\d+)", out) else 0
+    if drew < 1500:
+        r.err(f"the page drew only {drew} nodes: it rendered almost nothing, so nothing was tested")
+    if pressed < 80:
+        r.err(f"only {pressed} controls were pressed: the destinations did not open")
+    # PARSED, NOT SEARCHED FOR. `"act" in out` is true of the word "actions" in the
+    # sweep's own heading, so the assertion passed with every control dead -- caught by
+    # its own red run, which is what red runs are for.
+    line = re.search(r"actions reached the host: (.*)$", out, re.M)
+    reached = {a.strip() for a in (line.group(1) if line else "").split(",") if a.strip()}
+    # THREE POSTERS, NOT ONE, AND EACH IS ASSERTED. The page sends through
+    # `menuPost` (the menu's own buttons), `boardPost` (a board's pickers) and the
+    # settings controls' `post` -- so naming only one leaves the other two free to
+    # be dead while this stays green, which is precisely what the red run found.
+    for action in ("act", "history.export", "preference.set", "board.add_card"):
+        if action not in reached:
+            r.err(f"no control reached the host as {action!r} (it saw {sorted(reached)}): "
+                  "the page renders and manages nothing")
+    if r.ok:
+        r.note(f"every receiver driven with the producers' own payloads and with malformed, "
+               f"empty, absent and hostile ones; {drew} nodes drawn, {pressed} controls pressed, "
+               f"each destination opened and its controls fired")
+    return r
+
+
+def check_an_atomic_write_never_shares_its_temp_name() -> Result:
+    """Every write-then-rename uses a temp path no other writer can be holding.
+
+    THIS ONE KILLED THE RUNTIME ONCE AND WAS STILL LIVE. `core/home_state.write` carries the
+    story: five bus handlers wrote `home.json` through the same `home.tmp`, two overlapped, the
+    second renamed it away and the first's `replace` raised `FileNotFoundError` out of the pump
+    loop. The fix went into that one writer and nowhere else -- so on 2026-09-15 the pump was
+    still logging the identical FileNotFoundError, this time on `heard.offset`, and dropping the
+    whole pass each time. Five more modules were one line from the same failure.
+
+    A UNIQUE NAME MEANS THE PROCESS *AND* THE THREAD. A thread id alone collides across
+    processes and is reused after a thread exits, which is exactly the overlap that happens
+    while a runtime is being restarted over a running one.
+
+    Scanned AND driven: the pattern is read out of the source, and then the real writers are run
+    concurrently against one path, which is the failure a reader cannot see.
+    """
+    r = Result("an-atomic-write-never-shares-its-temp-name")
+    import ast as _ast
+    import tempfile as _tf
+    import threading as _th
+
+    # 1. NO WRITER NAMES A TEMP FILE EVERY OTHER WRITER COULD NAME TOO.
+    scanned = shared = 0
+    for path in sorted(list((REPO / "core").glob("*.py"))
+                       + list((REPO / "tools" / "ops").glob("*.py"))):
+        try:
+            tree = _ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError):
+            continue
+        scanned += 1
+        for node in _ast.walk(tree):
+            if not isinstance(node, _ast.Call):
+                continue
+            src = _ast.unparse(node)
+            if ".tmp" not in src or not re.search(r"with_suffix|with_name", src):
+                continue
+            # mkstemp makes its own unique name; nothing else may improvise one.
+            if "mkstemp" in src:
+                continue
+            if "getpid" in src and "get_ident" in src:
+                continue
+            shared += 1
+            r.err(f"{path.relative_to(REPO)} builds a temp path {src[:90]!r} that another "
+                  "process or thread can build identically: the second rename lands on a file "
+                  "the first has already moved, and `replace` raises FileNotFoundError")
+
+    # 2. AND THE WRITERS SURVIVE EACH OTHER, which is the half a scan cannot see.
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core import agenda as AG
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"core.agenda does not import: {exc!r}")
+        return r
+    with _tf.TemporaryDirectory() as td:
+        target = Path(td) / "plan.json"
+        failures: list = []
+
+        def hammer(n: int) -> None:
+            for i in range(25):
+                try:
+                    AG.write_plan([], path=target)
+                except Exception as exc:                  # noqa: BLE001
+                    failures.append(f"{type(exc).__name__}: {exc}")
+
+        threads = [_th.Thread(target=hammer, args=(i,)) for i in range(8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        if failures:
+            r.err(f"{len(failures)} of 200 concurrent writes failed, the first being "
+                  f"{failures[0][:120]}: two writers shared a temp name")
+        if not target.exists():
+            r.err("the file does not exist after 200 writes")
+        else:
+            try:
+                json.loads(target.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                r.err("the file left behind is not valid JSON: a torn write reached the reader")
+        leftovers = [p.name for p in Path(td).iterdir() if p.name != "plan.json"]
+        if leftovers:
+            r.err(f"temp files were left behind: {leftovers[:4]}")
+
+    if r.ok:
+        r.note(f"{scanned} modules scanned, none building a temp name another writer could "
+               "build; 8 threads x 25 writes through the real writer left one valid file and "
+               "no temp behind")
+    return r
+
+
 def check_each_claude_account_stops_at_the_owners_number() -> Result:
     """VESPER stops using each Claude account where the owner's own number says.
 
@@ -29921,6 +30136,8 @@ CHECK_FNS = {
     "a-window-belongs-to-someone": check_a_window_belongs_to_someone,
     "the-expandable-menu-reads-what-it-names": check_the_expandable_menu_reads_what_it_names,
     "a-served-face-is-the-face-and-nothing-else": check_a_served_face_is_the_face_and_nothing_else,
+    "the-home-page-survives-what-the-host-sends": check_the_home_page_survives_what_the_host_sends,
+    "an-atomic-write-never-shares-its-temp-name": check_an_atomic_write_never_shares_its_temp_name,
     "each-claude-account-stops-at-the-owners-number": check_each_claude_account_stops_at_the_owners_number,
     "spaces-hatch-contained": check_spaces_hatch,
     "notes-are-never-instructions": check_notes_are_titles_and_never_instructions,

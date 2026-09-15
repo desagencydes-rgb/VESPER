@@ -309,8 +309,20 @@ enum WindowBridge {
                   AXUIElementCopyAttributeValue(w, kAXSizeAttribute as CFString, &sv) == .success
             else { continue }
             var p = CGPoint.zero, s = CGSize.zero
-            AXValueGetValue(pv as! AXValue, .cgPoint, &p)
-            AXValueGetValue(sv as! AXValue, .cgSize, &s)
+            // A FORCED CAST ON SOMEBODY ELSE'S WINDOW CRASHES VESPER. The
+            // accessibility API answers `.success` with a value whose TYPE it
+            // does not promise, and these run against every application on the
+            // machine -- an Electron or Java window answering `AXPosition` with
+            // anything but an AXValue takes the home process down with it, which
+            // the owner sees as VESPER vanishing. Conditional, and the window is
+            // skipped rather than the process ended.
+            // Swift refuses `as?` on a CoreFoundation type (it 'always succeeds'),
+            // so the type is asked for by id -- which is the check that actually
+            // matters here.
+            guard let pvv = pv, CFGetTypeID(pvv) == AXValueGetTypeID(),
+                  let svv = sv, CFGetTypeID(svv) == AXValueGetTypeID() else { continue }
+            AXValueGetValue(pvv as! AXValue, .cgPoint, &p)
+            AXValueGetValue(svv as! AXValue, .cgSize, &s)
             if abs(p.x - target.bounds.origin.x) < 2, abs(p.y - target.bounds.origin.y) < 2,
                abs(s.width - target.bounds.width) < 2, abs(s.height - target.bounds.height) < 2 {
                 matches.append(w)
@@ -370,8 +382,10 @@ enum WindowBridge {
                   AXUIElementCopyAttributeValue(w, kAXSizeAttribute as CFString, &sv) == .success
             else { return nil }
             var p = CGPoint.zero, s = CGSize.zero
-            AXValueGetValue(pv as! AXValue, .cgPoint, &p)
-            AXValueGetValue(sv as! AXValue, .cgSize, &s)
+            guard let pvv = pv, CFGetTypeID(pvv) == AXValueGetTypeID(),
+                  let svv = sv, CFGetTypeID(svv) == AXValueGetTypeID() else { return nil }
+            AXValueGetValue(pvv as! AXValue, .cgPoint, &p)
+            AXValueGetValue(svv as! AXValue, .cgSize, &s)
             return "(\(Int(p.x)),\(Int(p.y)) \(Int(s.width))x\(Int(s.height)))"
         }
     }
@@ -500,11 +514,13 @@ enum WindowBridge {
         var pv: CFTypeRef?
         var sv: CFTypeRef?
         var p = CGPoint.zero, s = CGSize.zero
-        if AXUIElementCopyAttributeValue(el, kAXPositionAttribute as CFString, &pv) == .success {
-            AXValueGetValue(pv as! AXValue, .cgPoint, &p)
+        if AXUIElementCopyAttributeValue(el, kAXPositionAttribute as CFString, &pv) == .success,
+           let pvv = pv, CFGetTypeID(pvv) == AXValueGetTypeID() {
+            AXValueGetValue(pvv as! AXValue, .cgPoint, &p)
         }
-        if AXUIElementCopyAttributeValue(el, kAXSizeAttribute as CFString, &sv) == .success {
-            AXValueGetValue(sv as! AXValue, .cgSize, &s)
+        if AXUIElementCopyAttributeValue(el, kAXSizeAttribute as CFString, &sv) == .success,
+           let svv = sv, CFGetTypeID(svv) == AXValueGetTypeID() {
+            AXValueGetValue(svv as! AXValue, .cgSize, &s)
         }
         return CGRect(origin: p, size: s)
     }
@@ -582,7 +598,8 @@ enum WindowBridge {
         // whatever happens to be focused.
         var btn: CFTypeRef?
         if AXUIElementCopyAttributeValue(el, kAXCloseButtonAttribute as CFString,
-                                         &btn) == .success, let b = btn {
+                                         &btn) == .success,
+           let b = btn, CFGetTypeID(b) == AXUIElementGetTypeID() {
             AXUIElementPerformAction(b as! AXUIElement, kAXPressAction as CFString)
         } else if AXUIElementPerformAction(el, kAXCancelAction as CFString) != .success {
             return ["ok": false, "reason": "this window has neither a close button "
@@ -849,6 +866,7 @@ enum WindowBridge {
                                             &barRef) == .success,
               let bar = barRef else { return nil }
         var menusRef: CFTypeRef?
+        guard CFGetTypeID(bar) == AXUIElementGetTypeID() else { return nil }
         guard AXUIElementCopyAttributeValue(bar as! AXUIElement,
                                             kAXChildrenAttribute as CFString,
                                             &menusRef) == .success,

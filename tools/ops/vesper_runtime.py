@@ -663,7 +663,7 @@ def _publish_island(bench, changes, bus) -> None:
     # `os.getpid()` because `os` is not imported in this module -- the first
     # version used it and would have raised NameError on the first publish,
     # inside the try/except that turns it into a bus event nobody reads.
-    tmp = path.with_name(f"island.{threading.get_ident()}.tmp")
+    tmp = path.with_name(f"island.{os.getpid()}.{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(existing, indent=1), encoding="utf-8")
     tmp.replace(path)
 
@@ -1950,7 +1950,8 @@ def _drain_heard(bus, transcriber) -> int:
     # died with `ValueError: invalid literal for int() with base 10: ''` on
     # every tick, so nothing the owner typed was processed, the cards stopped
     # updating and every model row read UNAVAILABLE -- from a zero-byte file.
-    _tmp = HEARD_OFFSET.with_name(f"heard.offset.{threading.get_ident()}.tmp")
+    _tmp = HEARD_OFFSET.with_name(
+        f"heard.offset.{os.getpid()}.{threading.get_ident()}.tmp")
     _tmp.write_text(str(seen), encoding="utf-8")
     _tmp.replace(HEARD_OFFSET)
     return done
@@ -2085,7 +2086,7 @@ def _drain_ambience(bus) -> int:
             done += 1
         seen = f.tell()
     _tmp = AMBIENCE_OFFSET.with_name(
-        f"ambience.offset.{threading.get_ident()}.tmp")
+        f"ambience.offset.{os.getpid()}.{threading.get_ident()}.tmp")
     _tmp.write_text(str(seen), encoding="utf-8")
     _tmp.replace(AMBIENCE_OFFSET)
     return done

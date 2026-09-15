@@ -46,6 +46,7 @@ there is no path here where damage to this file grants anything.
 
 from __future__ import annotations
 
+import threading
 import json
 import os
 import pathlib
@@ -218,7 +219,14 @@ def write(mode: str, *, principal: str, path: pathlib.Path | None = None,
     p = path or _default_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     payload = {"mode": m, "set_by": principal, "set_at_ms": now_ms}
-    tmp = p.with_suffix(".json.tmp")
+    # A UNIQUE TEMP PER WRITER, NOT ONE NAME FOR ALL OF THEM. `with_suffix('.tmp')`
+    # hands every process and thread the SAME path: the second writer's rename
+    # runs after the first has already moved the file away, and `replace` raises
+    # FileNotFoundError. That is not theory -- it killed the runtime once from
+    # `home.json` (see core/home_state.write), and it was still doing it here on
+    # 2026-09-15, where the pump logged the same FileNotFoundError on
+    # `heard.offset` and dropped the whole pass.
+    tmp = p.with_name(f"{p.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(payload), encoding="utf-8")
     # 0600 BEFORE THE RENAME. A world-writable mode file is a promotion anyone
     # on the machine can hand themselves, and chmod-after-rename leaves a

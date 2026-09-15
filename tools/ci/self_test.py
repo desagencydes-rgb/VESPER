@@ -8566,6 +8566,60 @@ CASES += [
      "two real language-model runs died"),
 ]
 
+HOME_SWEEP = "the-home-page-survives-what-the-host-sends"
+
+CASES += [
+    (HOME_SWEEP, F7_HOME_HTML,
+     _sub("  function renderHistory(){", "  function renderHistory(){ (null).x;", 1),
+     "a renderer throws when the host pushes, and every receiver after it in the same "
+     "push dies silently with it"),
+
+    (HOME_SWEEP, F7_HOME_HTML,
+     _sub("  function renderSettings(){", "  function renderSettings(){ return;", 1),
+     "a destination opens and draws nothing: the owner's 'it shows and does nothing', "
+     "with no error anywhere to find"),
+
+    (HOME_SWEEP, F7_HOME_HTML,
+     _sub("  function menuPost(action,args){", "  function menuPost(action,args){ return;", 1),
+     "every button on the main menu renders and reaches no message handler, so the "
+     "surface manages nothing while looking exactly as it should"),
+]
+
+ATOMIC_TEMP = "an-atomic-write-never-shares-its-temp-name"
+AGENDA_PY = "core/agenda.py"
+ARM_PY = "tools/ops/vesper_arm.py"
+HOME_STATE_PY = "core/home_state.py"
+
+CASES += [
+    (ATOMIC_TEMP, AGENDA_PY,
+     _sub('    tmp = p.with_name(f"{p.name}.{os.getpid()}.{threading.get_ident()}.tmp")',
+          '    tmp = p.with_suffix(".json.tmp")', 1),
+     "the agenda writes through one temp name every writer shares, so two overlapping "
+     "writes race and the loser's rename raises FileNotFoundError -- the defect that "
+     "killed the runtime once from home.json"),
+
+    (ATOMIC_TEMP, ARM_PY,
+     _sub('    tmp = TOKEN_PATH.with_name(\n'
+          '        f"{TOKEN_PATH.name}.{os.getpid()}.{threading.get_ident()}.tmp")',
+          '    tmp = TOKEN_PATH.with_suffix(".tmp")', 1),
+     "the minter's enable token goes back to a fixed temp name, so a second minter "
+     "started during a restart can delete the token the first is writing"),
+
+    (ATOMIC_TEMP, HOME_STATE_PY,
+     _sub('                f"{self._path.stem}.{os.getpid()}.{threading.get_ident()}"\n'
+          '                f".{self._writes}.tmp")',
+          '                f"{self._path.stem}.{os.getpid()}.{self._writes}.tmp")', 1),
+     "the home file's temp name counts per instance again, so two HomeState objects in "
+     "one process collide on their first write each"),
+
+    (ATOMIC_TEMP, RUNTIME_PY,
+     _sub('    _tmp = HEARD_OFFSET.with_name(\n'
+          '        f"heard.offset.{os.getpid()}.{threading.get_ident()}.tmp")',
+          '    _tmp = HEARD_OFFSET.with_name(f"heard.offset.{threading.get_ident()}.tmp")', 1),
+     "the heard-speech offset drops the process from its temp name -- the live failure "
+     "the pump logged on 2026-09-15, once per pass, dropping the whole pass with it"),
+]
+
 CLAUDE_LIMITS_PY = "core/claude_limits.py"
 CLAUDE_STOP = "each-claude-account-stops-at-the-owners-number"
 

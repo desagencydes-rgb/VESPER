@@ -4176,6 +4176,15 @@ final class HomeChrome {
               step('dashboard', function(){ if (window.__vesperRail) window.__vesperRail('dashboard', `\(dashSafe)`); });
               step('cards',     function(){ if (window.__vesperCards) window.__vesperCards(`\(cardsSafe)`); });
               step('boards',    function(){ if (window.__vesperRail) window.__vesperRail('boards', `\(boardsSafe)`); });
+              // AND IT RETURNS SOMETHING WebKit CAN CARRY BACK. An IIFE whose
+              // completion value is `undefined` is handed to the completion
+              // handler as WKError "JavaScript execution returned a result of an
+              // unsupported type" -- measured twice in 1 800 pushes on this
+              // machine (island.out, 2026-09-15). Nothing was wrong with the
+              // push: every receiver had run. The owner's log said FAILED
+              // anyway, which is the same class of defect as a silent success
+              // and costs the next reader the same hour.
+              return true;
             })();
             """
             // REPORT WHAT THE PUSH DID. `completionHandler: nil` swallowed

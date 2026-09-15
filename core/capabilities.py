@@ -38,6 +38,7 @@ costs something to honour.
 
 from __future__ import annotations
 
+import threading
 import hashlib
 import json
 import os
@@ -890,7 +891,8 @@ def _save_opened(rows: list) -> None:
     """Write the claims atomically. A failure here loses memory, never safety."""
     try:
         _OPENED_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp = _OPENED_PATH.with_name(f"windows_opened.{os.getpid()}.tmp")
+        tmp = _OPENED_PATH.with_name(
+        f"windows_opened.{os.getpid()}.{threading.get_ident()}.tmp")
         tmp.write_text(json.dumps({"boot_id": _boot_id(), "windows": rows},
                                   indent=1), encoding="utf-8")
         tmp.replace(_OPENED_PATH)

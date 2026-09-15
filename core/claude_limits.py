@@ -48,6 +48,7 @@ call is money, and the owner decides that at their account page, not here.
 
 from __future__ import annotations
 
+import threading
 import json
 import os
 import pathlib
@@ -289,7 +290,8 @@ class ClaudeLimits:
         state = self._read_state()
         state[account] = reading
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.state_path.with_name(f"{self.state_path.name}.{os.getpid()}.tmp")
+        tmp = self.state_path.with_name(
+            f"{self.state_path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
         tmp.write_text(json.dumps(state, indent=1), encoding="utf-8")
         tmp.replace(self.state_path)
         return reading

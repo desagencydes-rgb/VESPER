@@ -36,6 +36,7 @@ opposite of a lifetime you chose. `--install` writes the LaunchAgent.
 """
 from __future__ import annotations
 
+import threading
 import argparse
 import json
 import os
@@ -89,7 +90,8 @@ def mint(principal: str = "owner") -> dict:
     sig = hmac.new(_key().encode(), body.encode(), hashlib.sha256).hexdigest()
     token = {"token_id": tid, "issued_at_ms": now, "ttl_ms": TTL_MS,
              "issued_by": principal, "signature": sig}
-    tmp = TOKEN_PATH.with_suffix(".tmp")
+    tmp = TOKEN_PATH.with_name(
+        f"{TOKEN_PATH.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(token), encoding="utf-8")
     tmp.chmod(0o600)
     os.replace(tmp, TOKEN_PATH)

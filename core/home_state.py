@@ -725,8 +725,16 @@ class HomeState:
             # The pid and a counter make collision impossible between processes
             # and within one, and the rename stays atomic per POSIX.
             self._writes += 1
+            # AND THE THREAD, which the counter only covers while every writer
+            # shares this instance's lock. Two HomeState objects in one process
+            # -- a test beside the runtime, a second pump -- each count from
+            # zero, and their temp names then collide exactly as the fixed name
+            # did. Written the same way as every other atomic write in the
+            # corpus so the rule is one rule (`an-atomic-write-never-shares-its-
+            # temp-name`).
             tmp = self._path.with_name(
-                f"{self._path.stem}.{os.getpid()}.{self._writes}.tmp")
+                f"{self._path.stem}.{os.getpid()}.{threading.get_ident()}"
+                f".{self._writes}.tmp")
             try:
                 tmp.write_text(json.dumps(existing, indent=1), encoding="utf-8")
                 tmp.replace(self._path)

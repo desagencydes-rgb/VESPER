@@ -33,6 +33,8 @@ the same surface, not a human-only control.
 
 from __future__ import annotations
 
+import threading
+import os
 import json
 import time
 from pathlib import Path
@@ -84,7 +86,14 @@ def save(session_id: str, layout: dict) -> tuple[bool, str]:
         p = _path(session_id)
         # A UNIQUE TEMP AND A RENAME. A half-written layout read back as a room
         # is worse than no layout: the owner would be told this IS last session.
-        tmp = p.with_suffix(".tmp")
+        # A UNIQUE TEMP PER WRITER, NOT ONE NAME FOR ALL OF THEM. `with_suffix('.tmp')`
+        # hands every process and thread the SAME path: the second writer's rename
+        # runs after the first has already moved the file away, and `replace` raises
+        # FileNotFoundError. That is not theory -- it killed the runtime once from
+        # `home.json` (see core/home_state.write), and it was still doing it here on
+        # 2026-09-15, where the pump logged the same FileNotFoundError on
+        # `heard.offset` and dropped the whole pass.
+        tmp = p.with_name(f"{p.name}.{os.getpid()}.{threading.get_ident()}.tmp")
         tmp.write_text(json.dumps(body, indent=1), encoding="utf-8")
         tmp.replace(p)
         return True, ""
