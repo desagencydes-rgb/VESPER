@@ -5040,6 +5040,23 @@ def check_workflows_show_their_work() -> Result:
         files = {p.name for p in Path(res["dir"]).iterdir()}
         if res["status"] != "done" or not {"main.py", "README.txt", "run.md", "report.md", "where.md"} <= files:
             r.err(f"the project run ended {res['status']!r} with files {sorted(files)}")
+        # AN ENTRY POINT INSIDE A DIRECTORY IS STILL AN ENTRY POINT. The writer
+        # has always flattened `pkg/main.py` to `main.py`; the gate above it
+        # compared the whole header and refused the reply as having none. Two
+        # real language-model runs died that way -- "no files with a main.py came
+        # back" against replies that contained one -- so the agreement between
+        # the two is asserted here rather than left to read alike.
+        nested = dict(good)
+        nested["implementer"] = ("```python\n# file: char_lm/main.py\nprint('hello from a package')\n```\n"
+                                 "```text\n# file: char_lm/corpus.txt\nwords\n```")
+        res = W.start("project", "A project the implementer puts in a directory",
+                      runner=Runner(nested), act=act_ok, **common)
+        files = {p.name for p in Path(res["dir"]).iterdir()}
+        if res["status"] != "done" or not {"main.py", "corpus.txt"} <= files:
+            r.err(f"a reply whose entry point sits in a directory ended "
+                  f"{res['status']!r} with files {sorted(files)}: the writer "
+                  "flattens the path and the gate must read it the same way")
+
         evil = dict(proj); evil["implementer"] = "```python\n# file: ../../escape.py\nprint(1)\n```\n```python\n# file: main.py\nprint(2)\n```"
         res = W.start("project", "A project whose file names try to climb out", runner=Runner(evil), act=act_ok, **common)
         if (T / "escape.py").exists() or (Path(res["dir"]).parent.parent / "escape.py").exists():
@@ -17064,8 +17081,19 @@ def check_each_claude_account_stops_at_the_owners_number() -> Result:
     # VESPER'S REAL READINGS ARE NOT THIS CHECK'S TO TOUCH. self_test disables the
     # repo write guard, so a mutation that drops the temporary paths would write
     # the owner's live file -- and a live file saying 99% would stop VESPER's real
-    # accounts. Snapshotted here and compared at the end.
-    real_before = CL.PATH.read_bytes() if CL.PATH.exists() else None
+    # accounts.
+    #
+    # MARKED RATHER THAN SNAPSHOTTED, because VESPER IS RUNNING WHILE THIS RUNS.
+    # The live runtime records a reading on every Claude call, so comparing the
+    # file before and against after would call VESPER's own write this check's
+    # fault -- a gate that goes red on a passing system, which is worse than no
+    # gate. Every reading this check invents carries a window name no account can
+    # produce, so the assertion at the end is exact under a concurrent writer.
+    PROBE = "self_test_probe"
+
+    def _probe_window(now: float) -> dict:
+        # Already rolled, so it can never be the window a refusal is decided on.
+        return {PROBE: {"utilization": 0.0, "resetsAt": now - 10}}
 
     def stream(used7: float = 0.81, used5: float = 0.03, ahead7: float = 200_000.0,
                ahead5: float = 3_600.0, text: str = "an answer long enough to count as one",
@@ -17078,7 +17106,8 @@ def check_each_claude_account_stops_at_the_owners_number() -> Result:
                 "utilization": used7, "isUsingOverage": overage,
                 "unifiedWindows": {
                     "five_hour": {"utilization": used5, "resetsAt": now + ahead5},
-                    "seven_day": {"utilization": used7, "resetsAt": now + ahead7}}}}]
+                    "seven_day": {"utilization": used7, "resetsAt": now + ahead7},
+                    **_probe_window(now)}}}]
         if error:
             evs.append({"type": "result", "subtype": "error_during_execution",
                         "is_error": True, "result": error})
@@ -17164,7 +17193,7 @@ def check_each_claude_account_stops_at_the_owners_number() -> Result:
             r.err(f"the command actually executed was {last_argv()!r}: it never asked "
                   "for the stream, so nothing could have read the account's usage")
         rec = lim.reading(CL.AGENTS)
-        if sorted(rec.get("windows") or {}) != ["five_hour", "seven_day"]:
+        if not {"five_hour", "seven_day"} <= set(rec.get("windows") or {}):
             r.err(f"the run recorded no usable reading ({rec!r}): the limit can only "
                   "bind on what the last call reported")
 
@@ -17194,9 +17223,10 @@ def check_each_claude_account_stops_at_the_owners_number() -> Result:
 
         # 6. TWO ACCOUNTS, TWO LIMITS, INDEPENDENTLY.
         lim.record(CL.ADVISOR, {"status": "allowed", "isUsingOverage": False,
-                                "unifiedWindows": {"five_hour": {
-                                    "utilization": 0.99,
-                                    "resetsAt": _tm.time() + 3_600}}})
+                                "unifiedWindows": {
+                                    "five_hour": {"utilization": 0.99,
+                                                  "resetsAt": _tm.time() + 3_600},
+                                    **_probe_window(_tm.time())}})
         stop_at(CL.ADVISOR, 40)
         if lim.refusal(CL.ADVISOR) is None or lim.refusal(CL.AGENTS) is not None:
             r.err("the two accounts do not stop independently: one account at its "
@@ -17211,9 +17241,10 @@ def check_each_claude_account_stops_at_the_owners_number() -> Result:
         # 7. A WINDOW THAT HAS ROLLED SAYS NOTHING ABOUT NOW, or a Monday refusal
         #    stops VESPER on Thursday with no call allowed to find out otherwise.
         lim.record(CL.AGENTS, {"status": "allowed", "isUsingOverage": False,
-                               "unifiedWindows": {"seven_day": {
-                                   "utilization": 0.99,
-                                   "resetsAt": _tm.time() - 10}}})
+                               "unifiedWindows": {
+                                   "seven_day": {"utilization": 0.99,
+                                                 "resetsAt": _tm.time() - 10},
+                                   **_probe_window(_tm.time())}})
         stop_at(CL.AGENTS, 70)
         if lim.refusal(CL.AGENTS) is not None:
             r.err("a reading whose window has already reset still stops VESPER, and "
@@ -17221,9 +17252,10 @@ def check_each_claude_account_stops_at_the_owners_number() -> Result:
 
         # 8. PAID EXTRA USAGE IS NOT VESPER'S TO SPEND, at any percentage.
         lim.record(CL.AGENTS, {"status": "allowed", "isUsingOverage": True,
-                               "unifiedWindows": {"five_hour": {
-                                   "utilization": 0.01,
-                                   "resetsAt": _tm.time() + 3_600}}})
+                               "unifiedWindows": {
+                                   "five_hour": {"utilization": 0.01,
+                                                 "resetsAt": _tm.time() + 3_600},
+                                   **_probe_window(_tm.time())}})
         stop_at(CL.AGENTS, 100)
         paid = lim.refusal(CL.AGENTS) or ""
         if "extra usage" not in paid:
@@ -17235,9 +17267,10 @@ def check_each_claude_account_stops_at_the_owners_number() -> Result:
         #    and turning every one of them into a silent failure would be a worse
         #    bug than the one the parser exists for.
         lim.record(CL.AGENTS, {"status": "allowed", "isUsingOverage": False,
-                               "unifiedWindows": {"five_hour": {
-                                   "utilization": 0.10,
-                                   "resetsAt": _tm.time() + 3_600}}})
+                               "unifiedWindows": {
+                                   "five_hour": {"utilization": 0.10,
+                                                 "resetsAt": _tm.time() + 3_600},
+                                   **_probe_window(_tm.time())}})
         stop_at(CL.AGENTS, 95)
         saying.write_text("a plain answer with no JSON anywhere in it\n", encoding="utf-8")
         res4 = runner.run("auditor", "is this safe?", binary=str(fake), config_dir=None)
@@ -17388,10 +17421,9 @@ def check_each_claude_account_stops_at_the_owners_number() -> Result:
         r.err("the binary's fallback chrome is older than the page: run "
               "tools/sync_chrome_fallback.py")
 
-    real_after = CL.PATH.read_bytes() if CL.PATH.exists() else None
-    if real_after != real_before:
-        r.err("this check wrote VESPER's real Claude readings: a stale 99% left "
-              "there would stop the owner's real accounts")
+    if CL.PATH.exists() and PROBE in CL.PATH.read_text(encoding="utf-8"):
+        r.err("this check's own readings reached VESPER's real Claude file: a "
+              "stale 99% left there would stop the owner's real accounts")
 
     if r.ok:
         r.note("driven over a fake claude that records every spawn and its argv: both "

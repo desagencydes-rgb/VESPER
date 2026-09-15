@@ -709,7 +709,15 @@ class Collector:
         held={nid:[d for d in domains if nid in (devices.placement(d) or [])] for nid in ids}
         put('Enrollment',f"{len(ids)} enrolled: {', '.join(ids)}" if ids else 'no node enrolled','live DeviceRegistry.all',
             data=profiles,
-            details='The nodes this runtime has admitted. A new machine is measured by tools/profile_node.py on that machine, and its profile reaches placement only through a reviewed promotion; the display never admits a node.')
+            # THE PATH IS tools/spike/, AND A WRONG ONE HERE IS AN ERROR RATHER
+            # THAN A TYPO: `tools/reference_lint.py` reads every path a normative
+            # file names and refuses one that does not exist. This line named the
+            # wizard without its `spike/` segment and turned the lint red at
+            # baseline, which in turn made all six of the lint's own self-test
+            # cases misbehave -- a broken instrument reporting six broken tests
+            # (full run, 2026-09-15 00:32). The correction cannot spell the wrong
+            # path either: the lint reads comments too.
+            details='The nodes this runtime has admitted. A new machine is measured by tools/spike/profile_node.py on that machine, and its profile reaches placement only through a reviewed promotion; the display never admits a node.')
         put('Node roles',' · '.join(f"{nid} holds {', '.join(ds) if ds else 'nothing yet'}" for nid,ds in held.items()) or 'no node enrolled',
             'live DeviceRegistry.placement',data=held,
             details='What each node is used for, read from the live placement assignments: a role is what a node holds, not its availability class.')

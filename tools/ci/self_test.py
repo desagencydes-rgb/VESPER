@@ -8556,6 +8556,16 @@ CASES += [
      "pyramid face on SPIKE-004's page"),
 ]
 
+CASES += [
+    ("workflows-show-their-work", F11_WORKFLOWS,
+     _sub('        names_given = {pathlib.PurePosixPath(h).name for h, _ in blocks}\n'
+          '        if not ok or "main.py" not in names_given:',
+          '        if not ok or not any(h == "main.py" for h, _ in blocks):', 1),
+     "the entry-point gate reads the whole header while the writer reads its basename, "
+     "so a reply that puts main.py in a directory is refused as having none -- the way "
+     "two real language-model runs died"),
+]
+
 CLAUDE_LIMITS_PY = "core/claude_limits.py"
 CLAUDE_STOP = "each-claude-account-stops-at-the-owners-number"
 

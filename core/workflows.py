@@ -360,7 +360,16 @@ class Workflow:
             "```text) code block whose FIRST LINE is `# file: <name>`; include an entry point named "
             "main.py that runs in under 90 seconds, prints what it did and exits 0. Nothing else in the reply."))
         blocks = [(h, c) for h, c in _code_blocks(code_text) if h] if ok else []
-        if not ok or not any(h == "main.py" for h, _ in blocks):
+        # THE GATE AND THE WRITER MUST READ THE HEADER THE SAME WAY, and they did
+        # not. The writer below takes `PurePosixPath(h).name`, so a block headed
+        # `# file: char_lm_run/main.py` lands as `main.py` -- while this line
+        # compared the WHOLE header and declared the reply had no entry point.
+        # Two language-model project runs failed as "no files with a main.py came
+        # back" (2026-09-14 18:11, 2026-09-15 09:10) against replies that both
+        # contained one, in a directory. The agent is following a perfectly
+        # ordinary convention; the disagreement was ours.
+        names_given = {pathlib.PurePosixPath(h).name for h, _ in blocks}
+        if not ok or "main.py" not in names_given:
             path = self._write("implementer.md", code_text)
             self._step("implementer", "failed", "no files with a main.py came back", path)
             self._finish("failed", "no project files")
