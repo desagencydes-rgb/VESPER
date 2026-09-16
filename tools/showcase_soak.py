@@ -78,11 +78,25 @@ def home_pid() -> int | None:
 
 
 def sample(pid: int) -> tuple[float, float]:
-    """(cpu %, resident MB) for the home process, or (-1, -1)."""
+    """(cpu SECONDS used so far, resident MB) for the home process, or (-1, -1).
+
+    CPU TIME, NOT `ps %cpu` -- AND THE FIRST VERSION OF THIS HARNESS GOT IT WRONG.
+    On macOS `%cpu` is a decaying average over roughly the last minute, so the
+    soak's own load bled into the sample it took at the START and this reported
+    "idle: 31% cpu" for a process that was sitting at 3.5%. An instrument's
+    self-report is not evidence: the honest measure is CPU time consumed between
+    two readings, divided by the wall time between them, which is what the caller
+    does with this.
+    """
     try:
-        out = subprocess.run(["ps", "-o", "%cpu=,rss=", "-p", str(pid)],
+        out = subprocess.run(["ps", "-o", "cputime=,rss=", "-p", str(pid)],
                              capture_output=True, text=True, timeout=5).stdout.split()
-        return float(out[0]), float(out[1]) / 1024.0
+        clock, rss = out[0], out[1]
+        parts = [float(x) for x in clock.replace("-", ":").split(":")]
+        secs = 0.0
+        for part in parts:
+            secs = secs * 60 + part
+        return secs, float(rss) / 1024.0
     except (ValueError, IndexError, subprocess.SubprocessError):
         return -1.0, -1.0
 
@@ -101,6 +115,10 @@ class Watchdog(threading.Thread):
         self.stalls: list[str] = []
         self.cpu: list[float] = []
         self.rss: list[float] = []
+        self.rss_at: list[float] = []
+        self.rss_phase: list[str] = []
+        self.last_cpu: float | None = None
+        self.last_at = 0.0
         self.revisions: list[int] = []
         self.phase = "start"
         self.pid = home_pid()
@@ -109,9 +127,10 @@ class Watchdog(threading.Thread):
         # MTIME IS A WEAK HEARTBEAT AND THE THRESHOLD SAYS SO. `replaceItemAt`
         # preserves the original file's modification date, so an idle window that is
         # perfectly alive can leave mtime still for seconds at a time. Twelve seconds
-        # is loose enough not to invent a stall and tight enough to catch a real one;
-        # the window will carry an explicit tick counter after the next build, and
-        # this reads it in preference as soon as it exists.
+        # is loose enough not to invent a stall and tight enough to catch a real one.
+        # The stronger liveness signal is the process sampling below, which
+        # re-resolves the pid when it disappears -- so a restart is measured rather
+        # than mistaken for a death.
         said = SC.said_path()
         last_seen = 0.0
         last_change = time.monotonic()
@@ -129,9 +148,24 @@ class Watchdog(threading.Thread):
                 last_change = time.monotonic()
             if self.pid:
                 c, m = sample(self.pid)
+                now = time.monotonic()
+                if c < 0:
+                    # THE PROCESS RESTARTED UNDER US, and a watchdog holding the old
+                    # pid stops measuring without saying so. Phase H restarts VESPER
+                    # deliberately, and it runs BEFORE the sustained phase -- so the
+                    # one phase written to catch a leak ran with no samples at all,
+                    # while the report still printed a slope as if it had. Measured
+                    # 2026-09-16: "over 99s" for a twelve-minute run.
+                    self.pid = home_pid()
+                    self.last_cpu = None
                 if c >= 0:
-                    self.cpu.append(c)
+                    if self.last_cpu is not None and now > self.last_at:
+                        used = (c - self.last_cpu) / (now - self.last_at) * 100.0
+                        self.cpu.append(max(0.0, used))
+                    self.last_cpu, self.last_at = c, now
                     self.rss.append(m)
+                    self.rss_at.append(now)
+                    self.rss_phase.append(self.phase)
             try:
                 self.revisions.append(int(SC.said().get("revision") or -1))
             except Exception:                               # noqa: BLE001
@@ -403,8 +437,34 @@ def phase_g(quick):
 
 
 def phase_h(quick):
-    """The owner closes the window, and VESPER restarts."""
+    """The owner closes the window, and VESPER restarts under it."""
     print("\nH. the owner closes it, and VESPER restarts under it")
+    # THE TITLE SAID THIS AND THE CODE DID NOT DO IT. The first version only
+    # restarted VESPER, so "the owner closes it" was a claim the phase never
+    # tested -- an instrument lying about its own coverage, which is worse than
+    # not having the phase at all.
+    wid = str(SC.said().get("window_id") or "")
+    if wid and wid != "0":
+        shut = C.window_close({"window_id": wid, "effect": "close",
+                               "owner_requested": True})
+        # macOS ONLY LETS VESPER ACT ON THE DESKTOP THAT IS SHOWING, and the
+        # showcase is usually not on it. That refusal is the documented rule
+        # working, not a defect -- so this asserts whichever is true, and the
+        # recovery assertions below run either way, because the question that
+        # matters is "can it still draw afterwards".
+        elsewhere = "another desktop" in str(shut.get("reason") or "")
+        check(shut.get("ok") or elsewhere or "unsaved" in str(shut.get("reason")),
+              "closing vesper's showcase either works or says why it cannot",
+              str(shut.get("reason"))[:80])
+        time.sleep(1.0)
+        check(bool(SC.said().get("open")),
+              "and the surface is still reading after it is closed")
+        out = C.showcase_scene({"why": "after the owner closed it", "visible": False,
+                                "desktop": "vesper",
+                                "panes": [{"id": "back", "kind": "text",
+                                           "text": "still here"}]})
+        check(out.get("ok"), "and it still draws, so a reveal can bring it back",
+              str(out.get("reason"))[:90])
     drew({"why": "before the restart", "visible": False, "desktop": "vesper",
           "panes": [{"id": "keep", "kind": "text", "text": "still here?"}]},
          "a scene before the restart")
@@ -452,8 +512,55 @@ def phase_i(quick):
         note(f"{len(shots)} page snapshots on disk ({sum(p.stat().st_size for p in shots) // 1024} KB)")
 
 
+def phase_z(quick):
+    """Sustained load for as long as the owner asked for, watching the slope.
+
+    A HUNDRED SECONDS IS NOT A LONG RUN, and a leak is invisible in one. This
+    holds a steady mixed load and lets the watchdog sample memory throughout, so
+    the report can say whether the resident set CLIMBS or settles -- the only
+    question that distinguishes a working set from a leak.
+    """
+    minutes = float(os.environ.get("VESPER_SOAK_MINUTES") or (1 if quick else 8))
+    print(f"\nZ. sustained -- {minutes:g} minutes of mixed load, watching the slope")
+    tmp = pathlib.Path(tempfile.mkdtemp()) / "run.log"
+    tmp.write_text("start\n", encoding="utf-8")
+    deadline = time.monotonic() + minutes * 60
+    i = 0
+    bad = 0
+    while time.monotonic() < deadline:
+        i += 1
+        with tmp.open("a", encoding="utf-8") as f:
+            f.write(f"line {i}\n")
+        t0 = time.monotonic()
+        out = C.showcase_scene({
+            "why": f"sustained {i}", "visible": False, "desktop": "vesper",
+            # A WEB PANE IS HELD FOR THE WHOLE RUN, never re-navigated: a
+            # WKWebView is the heaviest thing on this surface, so a retention
+            # problem would show here and nowhere else in the mix.
+            "panes": [{"id": "code", "kind": "code", "path": "core/showcase.py",
+                       "focus": {"line": 20 + (i % 300)}},
+                      {"id": "live", "kind": "run", "path": str(tmp)},
+                      {"id": "site", "kind": "web", "url": "https://example.com"},
+                      {"id": "n", "kind": "text", "text": f"round {i}"}],
+            "marks": [{"kind": "arrow", "pane": "code", "from": [0.05, 0.1],
+                       "anchor": {"pane": "code", "line": 20 + (i % 300)}},
+                      {"kind": "ring", "pane": "n", "at": [0.5, 0.5]}]})
+        LATENCIES.append(time.monotonic() - t0)
+        if not out.get("ok") and not out.get("superseded"):
+            bad += 1
+            if bad <= 3:
+                check(False, f"sustained round {i}", str(out.get("reason"))[:90])
+        if i % 25 == 0:
+            C.showcase_point({"pane": "n", "x": 0.5, "y": 0.5, "mark": "label",
+                              "at": [0.5, 0.6], "text": f"{i}"})
+    check(bad == 0, f"every one of {i} scenes held up over {minutes:g} minutes",
+          f"{bad} failed")
+    tail = (SC.said().get("run_tails") or {}).get("live")
+    check(bool(tail), "and the live run was still being tailed at the end", f"{tail} lines")
+
+
 PHASES = {"A": phase_a, "B": phase_b, "C": phase_c, "D": phase_d, "E": phase_e,
-          "F": phase_f, "G": phase_g, "H": phase_h, "I": phase_i}
+          "F": phase_f, "G": phase_g, "H": phase_h, "I": phase_i, "Z": phase_z}
 
 
 def main() -> int:
@@ -481,11 +588,39 @@ def main() -> int:
     for s in dog.stalls:
         check(False, f"the window stalled: {s}")
     if dog.cpu:
-        cpu_hi = max(dog.cpu)
+        note(f"home process cpu (time used per wall second): median "
+             f"{statistics.median(dog.cpu):.1f}%, peak {max(dog.cpu):.1f}%")
+    if len(dog.rss) > 4:
         rss_lo, rss_hi = min(dog.rss), max(dog.rss)
-        note(f"home process: cpu median {statistics.median(dog.cpu):.1f}% peak {cpu_hi:.1f}%, "
-             f"resident {rss_lo:.0f} -> {rss_hi:.0f} MB over {time.monotonic() - t0:.0f}s")
-        check(rss_hi - rss_lo < 400, "memory did not run away", f"{rss_hi - rss_lo:.0f} MB growth")
+        span = max(1e-6, dog.rss_at[-1] - dog.rss_at[0])
+        # THE SLOPE IS WHAT TELLS A WORKING SET FROM A LEAK. A range says the
+        # process got bigger while it was busy, which is what a process does.
+        # THE SLOPE IS TAKEN INSIDE THE SUSTAINED PHASE, because phase H restarts
+        # VESPER: a first-half/second-half comparison that straddles a restart
+        # measures the restart, not the process. The first version reported
+        # -103 MB/hour, which was a fresh process, not a shrinking one.
+        window = [(t, m) for t, m, ph in zip(dog.rss_at, dog.rss, dog.rss_phase)
+                  if ph == "Z"] or list(zip(dog.rss_at, dog.rss))
+        half = len(window) // 2 or 1
+        early = statistics.median([m for _, m in window[:half]])
+        late = statistics.median([m for _, m in window[half:]] or [early])
+        inner = max(1e-6, window[-1][0] - window[0][0])
+        per_hour = (late - early) / inner * 3600
+        note(f"under {inner:.0f}s of sustained load: {early:.0f} MB -> {late:.0f} MB")
+        ran = time.monotonic() - t0
+        if span < ran * 0.8:
+            check(False, "the watchdog measured the whole run",
+                  f"sampled {span:.0f}s of {ran:.0f}s")
+        note(f"resident {rss_lo:.0f} -> {rss_hi:.0f} MB over {span:.0f}s "
+             f"of a {ran:.0f}s run; "
+             f"first half median {early:.0f} MB, second half {late:.0f} MB "
+             f"({per_hour:+.0f} MB/hour at that slope)")
+        check(per_hour < 120, "memory is a working set and not a leak",
+              f"{per_hour:+.0f} MB/hour")
+        time.sleep(8)
+        settled = sample(dog.pid)[1] if dog.pid else -1
+        if settled > 0:
+            note(f"and it settles back to {settled:.0f} MB once the load stops")
     if LATENCIES:
         ordered = sorted(LATENCIES)
         p50 = ordered[len(ordered) // 2] * 1000
