@@ -208,6 +208,17 @@ is next; `SR-034` is held below `SPECIFIED` deliberately and permanently.
   mid-build: `power_source = battery`, 53%, discharging, no charger attached.
   `core/host_probes.py` reads it; `world.current_host.power_source` carries it.
   Check it before starting anything long rather than after.
+- **The home WAITS for an empty Desktop, and everything after that wait is
+  skipped until it gets one.** The production launch is `--home
+  --on-empty-desktop`: it "refuses to create the ground on a Desktop with your
+  windows on it", so on any start where the owner has windows open, `startHome()`
+  stops at the wait and every line below it never runs. Measured 2026-09-16: the
+  showcase was started there and was therefore absent for a whole session, while
+  its own probe drew perfectly in a separate process. Anything that must exist
+  whether or not VESPER has a Desktop belongs in the `--home` entry block, not
+  after `h.present()`. It also means **VESPER has no Desktop of its own until the
+  owner switches to an empty one** -- surfaces that promise "on its Desktop" have
+  to say so rather than appear over the owner's work.
 - **`/code-review ultra` cannot run on this repo** — too large. Use a
   path-scoped local review and never gate a day on it.
 

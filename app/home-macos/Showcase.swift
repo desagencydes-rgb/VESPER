@@ -172,6 +172,8 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private var marksLoaded = false
     private var lastScene: [String: Any] = [:]
     private var lastRunBodies: [String: String] = [:]
+    /// Lines currently shown per `run` pane -- the live tail, made readable.
+    private var runTails: [String: Int] = [:]
     private var lastAskSeq = 0
     private var answers: [String: Any] = [:]
     private var drawnPanes: [String] = []
@@ -334,6 +336,13 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 panes[i]["body"] = body
                 if lastRunBodies[id] != body { changed = true }
                 lastRunBodies[id] = body
+                // WHAT THE OWNER IS WATCHING GROW, MADE OBSERVABLE. Without this
+                // the live tail is a claim: `panes_drawn` is identical whether
+                // the run produced another line or died, and the only other way
+                // to check would be a screenshot -- which needs a grant this
+                // machine does not have. One number per run pane turns "it keeps
+                // up with the run" into something a gate can assert.
+                runTails[id] = body.isEmpty ? 0 : body.components(separatedBy: "\n").count
             }
             scene2["panes"] = panes
         }
@@ -893,6 +902,7 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             "panes_drawn": drawnPanes,
             "marks_drawn": drawnMarks,
             "marks_blocked": marksBlocked,
+            "run_tails": runTails,
             "errors": pageErrors,
             "answers": answers,
             "board": boardStrokes,

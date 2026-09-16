@@ -314,6 +314,34 @@ def pass_c() -> None:
         check(scr.get("fallback", {}).get("args", {}).get("what") == "windows",
               "and it names the thing it CAN do instead")
 
+    # 4b. A RUN, LIVE. The window re-reads a growing record every tick, so the owner
+    #     watches it arrive without anything republishing. Asserted on the window's
+    #     own line count: `panes_drawn` reads identically whether the run produced
+    #     another line or died, so it could never have carried this claim.
+    import tempfile as _tf
+    log = pathlib.Path(_tf.mkdtemp()) / "run.log"
+    log.write_text("starting the run\n", encoding="utf-8")
+    live = C.showcase_scene({"why": "a run, live, while you work",
+                             "visible": False, "desktop": "vesper",
+                             "panes": [{"id": "live", "kind": "run", "path": str(log),
+                                        "title": "the run's own output"}]})
+    check(live.get("ok"), "a live run pane drew", str(live.get("reason"))[:70])
+    time.sleep(0.9)
+    before = (SC.said().get("run_tails") or {}).get("live")
+    at = SC.current().get("revision")
+    with log.open("a", encoding="utf-8") as f:
+        for n in range(2, 6):
+            f.write(f"step {n} done\n")
+            f.flush()
+            time.sleep(0.35)
+    time.sleep(0.6)
+    after = (SC.said().get("run_tails") or {}).get("live")
+    check(bool(before) and bool(after) and after > before,
+          "and it kept up with the run with nothing republishing",
+          f"{before} -> {after} lines, scene still at revision {SC.current().get('revision')}")
+    check(SC.current().get("revision") == at,
+          "the scene was never republished to make that happen")
+
     # 5. A DEMONSTRATION, WALKED, AND ITS TRANSCRIPT.
     script = [
         {"say": "this is the file that decides what a scene is", "dwell_s": 2,
