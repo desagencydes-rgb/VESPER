@@ -209,7 +209,59 @@ def _workflow(kind: str):
     return run
 
 
+SHOWCASE = "showcase"
+
+
+def _showcase(fn_name: str):
+    """The owner's own hand on the showcase.
+
+    THESE ARE CONTROLS, NOT SENTENCES. The standing rule for every surface in this
+    build -- the owner, 2026-09-13: surfaces MANAGE, they do not read out. A
+    showcase card that could only say "three panes are on it" and had to ask
+    VESPER in English to put them away would be a readout wearing a button.
+
+    `bring_here` IS SEPARATE FROM `reveal` on purpose. Showing it on VESPER's own
+    Desktop takes nothing from the owner; bringing it onto the Desktop they are
+    working on takes their screen. Two verbs, because they are two decisions, and
+    `showcase_reveal_level` prices them differently for the same reason.
+    """
+    def run(args: dict, ctx: dict) -> dict:
+        from core import demonstration as D
+        from core import showcase as SC
+        path = ctx.get("showcase_dir")
+        if fn_name == "reveal":
+            out = SC.patch(path, visible=True, desktop="vesper")
+        elif fn_name == "bring_here":
+            out = SC.patch(path, visible=True, desktop="here")
+        elif fn_name == "hide":
+            out = SC.patch(path, visible=False)
+        elif fn_name == "clear":
+            out = SC.clear(path, why="you cleared it")
+        elif fn_name == "stop_demonstration":
+            return D.stop(state_dir=path)
+        elif fn_name == "hold_demonstration":
+            return D.interrupt(state_dir=path)
+        elif fn_name == "resume_demonstration":
+            return D.resume(state_dir=path)
+        elif fn_name == "next_step":
+            return D.advance(reveal=True, state_dir=path)
+        else:
+            raise ControlRefused(f"no showcase operation {fn_name!r}")
+        if not out.get("ok"):
+            raise ControlRefused(str(out.get("reason") or "the showcase refused"))
+        return {**out, "line": SC.describe(state_dir=path)}
+    return run
+
+
 REGISTRY: dict[str, tuple[str, Callable[[dict, dict], dict]]] = {
+    "showcase.reveal": (SHOWCASE, _showcase("reveal")),
+    "showcase.bring_here": (SHOWCASE, _showcase("bring_here")),
+    "showcase.hide": (SHOWCASE, _showcase("hide")),
+    "showcase.clear": (SHOWCASE, _showcase("clear")),
+    "showcase.next_step": (SHOWCASE, _showcase("next_step")),
+    "showcase.hold": (SHOWCASE, _showcase("hold_demonstration")),
+    "showcase.resume": (SHOWCASE, _showcase("resume_demonstration")),
+    "showcase.stop": (SHOWCASE, _showcase("stop_demonstration")),
     "workflow.research": (WORKFLOW, _workflow("research")),
     "workflow.project": (WORKFLOW, _workflow("project")),
     "board.add_window": (BOARD, _board("add_window")),

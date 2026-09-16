@@ -32,7 +32,7 @@ swiftc -O -swift-version 5 -target arm64-apple-macosx13.0 \
   "$HOME_SRC/HomeVerify.swift" "$HOME_SRC/GlassGuard.swift" \
   "$HOME_SRC/HomeChrome.swift" "$HOME_SRC/HomeSurfaces.swift" "$HOME_SRC/RuntimeHost.swift" "$HOME_SRC/HomeCost.swift" \
   "$HOME_SRC/ChromeProbe.swift" "$HOME_SRC/ActBridge.swift" "$HOME_SRC/WindowBridge.swift" "$HOME_SRC/SpacesHatch.swift" "$HOME_SRC/AppsBridge.swift" "$HOME_SRC/Grants.swift" "$HOME_SRC/GrantsRequest.swift" "$HOME_SRC/UIBridge.swift" \
-  "$HOME_SRC/TerminalBridge.swift" \
+  "$HOME_SRC/TerminalBridge.swift" "$HOME_SRC/Showcase.swift" \
   "$HOME_SRC/OcclusionWatch.swift" "$HOME_SRC/DockSwap.swift" \
   -o island
 
@@ -44,6 +44,11 @@ cp face.bin "$APP/Contents/Resources/face.bin"
 # rebuild. The binary still carries an inline copy: a missing file must never
 # blank a layer that sits over the owner's whole Desktop.
 cp "$HOME_SRC/chrome/home.html" "$APP/Contents/Resources/home.html"
+# The showcase's markup ships the same way, and here the file is the ONLY copy --
+# `Showcase.page()` falls back to the repo and then to a visible complaint,
+# deliberately: this surface is opened on purpose to be looked at, so a missing
+# resource should be loud rather than silently empty.
+cp "$HOME_SRC/chrome/showcase.html" "$APP/Contents/Resources/showcase.html"
 
 # THE RUNTIME SHIPS INSIDE THE BUNDLE, and is started BY the app rather than by
 # a second login item.

@@ -187,6 +187,67 @@ The only capabilities that exist are:
               the owner is doing with how vesper looks, and choosing one sets
               both. Only the names listed exist -- do not invent one.
 
+  showcase.scene  args: {"why": "<one sentence: why this is on screen>",
+                     "visible": <true|false>, "desktop": "<vesper|here>",
+                     "panes": [{"id": "<short name>",
+                                "kind": "<code|image|video|web|board|text|run>",
+                                "path": "<for code, image, video, run>",
+                                "url": "<for web>", "text": "<for text>",
+                                "title": "<optional>", "span": <1 or 2>,
+                                "focus": {"line": <n>, "at_s": <n>,
+                                          "find": "<text>"}}],
+                     "marks": [{"kind": "<arrow|ring|ink|label>",
+                                "pane": "<pane id>", "at": [<x>, <y>],
+                                "from": [<x>, <y>],
+                                "anchor": {"pane": "<id>", "line": <n>},
+                                "text": "<for label>"}]}
+              SHOW the owner something, on VESPER's own showcase window. This is
+              how "show me", "pull that up", "let me see", "walk me through it"
+              are answered. Panes sit side by side in one window: a file AT a
+              line, a picture, a video AT a moment, a web page, a whiteboard, a
+              note, or the live output of a run. `at` and `from` are FRACTIONS of
+              the pane, 0 to 1. An `anchor` points at a line of a code pane and
+              keeps pointing at it when the window is resized -- prefer it to a
+              coordinate whenever the thing being pointed at is a line.
+              "desktop": "vesper" builds it on VESPER's own Desktop and does NOT
+              interrupt the owner; "here" puts it on the Desktop they are using
+              and does. Default to "vesper" unless they asked to see it now.
+              DIFFERENT FROM ui.open, which hands a file to another application
+              on the owner's screen. This one is VESPER's own surface, and it is
+              the only one that can be pointed at.
+
+  showcase.point  args: {"pane": "<pane id>", "x": <0..1>, "y": <0..1>,
+                     "gesture": "<move|tap|drag|none>",
+                     "mark": "<arrow|ring|label>", "at": [<x>, <y>],
+                     "from": [<x>, <y>], "text": "<for a label>"}
+              Move VESPER's own cursor on the showcase and leave an arrow, a ring
+              or a word where it is pointing. "point at it", "show me where",
+              "this bit here". The pane must already be on the showcase.
+
+  showcase.reveal args: {"visible": <true|false>, "desktop": "<vesper|here>",
+                     "why": "<one sentence>"}
+              Bring the showcase forward, or put it away. "show me what you did",
+              "let me see it", "put that away", "bring it over here". Revealing on
+              "vesper" costs the owner nothing; "here" takes the screen they are
+              working on, so only do that when they asked for it.
+
+  showcase.web    args: {"verb": "<navigate|click|type|key|scroll|read|back|reload|wait_for>",
+                     "url": "<for navigate>", "selector": "<a css selector>",
+                     "text": "<for type>", "key": "<for key, e.g. Enter>",
+                     "contains": "<for wait_for>"}
+              Drive the web pane on VESPER's OWN showcase, one step at a time,
+              reading the page back after each. "look it up", "go to that site
+              and find X", "fill that in". Use showcase.scene first to put a web pane
+              on the showcase. This is VESPER's browser, NOT the owner's -- for
+              the owner's browser the verbs are ui.view and ui.act.
+
+  showcase.follow args: {"what": "<windows|screen>"}
+              Watch what the owner is doing. "what am i looking at", "follow me",
+              "watch what i do". "windows" is which windows are open and which is
+              in front; "screen" is a picture of the display and needs the screen
+              recording permission -- vesper says which one it used, every time,
+              and never implies the larger one.
+
 Rules:
 - If unsure, return {"action": "none"}. A wrong action costs more than a
   missed one.
@@ -228,7 +289,14 @@ KNOWN = ("shell.run", "ui.open", "fs.read", "fs.write", "fs.edit",
          # THE OWNER'S INTERFACE (§11.5). `ui.view` reads the strongest untrusted
          # content in the system, and its NAME is what stops auto mode letting
          # that content lift the ceiling -- see `permission_mode`.
-         "ui.view", "ui.act")
+         "ui.view", "ui.act",
+         # THE SHOWCASE. The window VESPER shows things ON, and the fourth time
+         # this file has had to record the same gap: registered, bound, gated --
+         # and until this line, unreachable. The owner asked, 2026-09-15, whether
+         # VESPER can do these "whenever it thinks it's a good time to", and that
+         # question is answered HERE and nowhere else. A capability the proposer
+         # cannot name is one VESPER can never decide to use.
+         "showcase.scene", "showcase.point", "showcase.reveal", "showcase.web", "showcase.follow")
 
 
 # CAPABILITIES WHOSE CORRECT ARGUMENTS ARE EMPTY.
@@ -300,6 +368,21 @@ CAN_DO: dict[str, str] = {
                        "what each of them can do",
     "ui.act":          "press something on a window, type into a field, or "
                        "scroll it",
+    "showcase.scene":      "SHOW you something on my own window -- a file at a "
+                       "particular line, a picture, a video at a particular "
+                       "moment, a web page, a whiteboard, a note, or a run's "
+                       "output as it comes -- several of them side by side",
+    "showcase.point":      "point at what i am talking about while i talk: my own "
+                       "cursor, an arrow, a ring, a word",
+    "showcase.reveal":     "bring that window forward when you want to see it, or "
+                       "put it away -- on my Desktop so it does not interrupt "
+                       "you, or on yours if you ask",
+    "showcase.web":        "drive a web page on my own window and read it back "
+                       "after every step -- open it, click, type, wait for "
+                       "something to appear",
+    "showcase.follow":     "follow what you are doing -- which windows are open and "
+                       "which is in front, or a picture of your screen when you "
+                       "have allowed that",
 }
 
 _undescribed = set(KNOWN) - set(CAN_DO)

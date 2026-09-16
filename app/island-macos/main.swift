@@ -1463,6 +1463,19 @@ if args.contains("--agenda-dump") {
     exit(0)
 }
 
+// DOES THE SHOWCASE ACTUALLY DRAW? Dispatched here, BEFORE the island controller
+// is built, because a probe of one surface should not create another one. It
+// opens the window, publishes a scene with two panes and three marks, and prints
+// what the page said it drew -- not what was asked for. Exits 2 when the two
+// disagree, so a gate can run it.
+if args.contains("--showcase-probe") {
+    let app = NSApplication.shared
+    // `.accessory`: a probe must not steal the owner's focus to prove itself.
+    app.setActivationPolicy(.accessory)
+    Showcase.probe()
+    app.run()
+}
+
 if args.contains("--uninstall-login-item") {
     if #available(macOS 13.0, *) {
         try? SMAppService.agent(plistName: "ai.vesper.island.plist").unregister()
@@ -2450,6 +2463,31 @@ if args.contains("--grants") {
     exit(0)
 }
 
+// THE GRANTS, AS JSON, FOR A CALLER RATHER THAN A READER. `--grants` prints a
+// table for the owner; this is the same reading in a shape something can branch
+// on without scraping a human table that a reword would break.
+//
+// IT REPORTS THE GRANTS OF WHOEVER LAUNCHED IT, AND THAT IS NOT ALWAYS VESPER.
+// Run from a shell it answers for the TERMINAL -- measured 2026-08-30 and
+// recorded in CLAUDE.md. `showcase.follow` used this for one afternoon and was told
+// "screen recording: granted" by a terminal that had it; it now asks the running
+// home instead, whose identity is the bundle's. Read this with `open -n`, or read
+// the `grants` block of `showcase-said.json`, which the home writes about itself.
+if args.contains("--grants-json") {
+    var out: [String: String] = [:]
+    for row in Grants.all() {
+        let key = row.what.lowercased()
+            .replacingOccurrences(of: " ", with: "_")
+            .replacingOccurrences(of: "&", with: "and")
+        out[key] = row.state
+    }
+    let body: [String: Any] = ["ok": true, "grants": out]
+    if let d = try? JSONSerialization.data(withJSONObject: body),
+       let s = String(data: d, encoding: .utf8) { print(s) }
+    else { print("{\"ok\":false,\"reason\":\"the grants would not serialise\"}") }
+    exit(0)
+}
+
 if args.contains("--apps-run") {
     // ONE ENTRY POINT FOR THE WHOLE APP VOCABULARY, and the verb is a name the
     // binary already knows. Nothing here accepts a script: see AppsBridge's
@@ -3392,6 +3430,9 @@ func startHome() {
 
     let fp = SpaceWatch.fingerprint()
     h.present()
+    // THE SHOWCASE IS NOT STARTED HERE ANY MORE. It was, and that made it
+    // exist only once the ground had landed -- see the `--home` entry block,
+    // which now builds it before anything can decide not to.
     print("home: ground on the ACTIVE Desktop — \(fp.count) foreign windows here")
     print("      \(Ambience.modes().count) modes loaded from modes.json")
     if Ambience.repoRoot() == nil {
@@ -3404,6 +3445,21 @@ if args.contains("--home") {
     // does not survive a crash, a logout or a reboot, and the owner asked for
     // "no buttons" -- which is an autostart requirement, not just a recogniser.
     // Home is the process the LaunchAgent keeps alive, so it is the right host.
+    // THE SHOWCASE IS BUILT HERE, BEFORE ANYTHING ELSE CAN DECIDE NOT TO.
+    //
+    // IT USED TO BE STARTED AFTER THE GROUND LANDED, AND THAT LEFT IT DEAD IN
+    // THE ORDINARY CASE. The production launch is `--home --on-empty-desktop`,
+    // and that flag makes the home WAIT: "it refuses to create the ground on a
+    // Desktop with your windows on it". So on any start where the owner has
+    // windows open, startup stops at that wait and every line after it -- the
+    // showcase included -- never runs. Measured 2026-09-16: the window was absent
+    // for a whole session while its own probe drew perfectly in a separate
+    // process, which is exactly why no gate that skipped the RUNNING home could
+    // see it.
+    //
+    // `start()` is idempotent and orders the window OUT, so building it this early
+    // costs nothing and is what makes a later reveal instant.
+    Showcase.shared.start()
     publishHomeMarker()
     startWakeWordInProcess()
     // Self-installing, because "no buttons" means the owner does not run an

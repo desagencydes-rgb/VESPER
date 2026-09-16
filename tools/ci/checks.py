@@ -4680,6 +4680,562 @@ def check_main_menu_manages() -> Result:
     return r
 
 
+def check_the_showcase_page_draws_every_kind_and_points_at_the_line() -> Result:
+    """The page that draws what VESPER is showing, driven in both its layers.
+
+    OWNER, 2026-09-15: *"can vesper show stuff on screen actively fast (open windows, open
+    website, open files, codes, in specific locations to show specific details, open images,
+    videos ... pull up whiteboard ... show arrows, have it's own cursor?"*
+
+    `--showcase-probe` OPENS THE REAL WINDOW and is the better instrument for "did anything
+    appear". It cannot run without a display and it cannot throw forty malformed scenes a
+    second at the receiver. This is the other half: every pane kind, both layers, and the
+    properties that are about CORRECTNESS rather than pixels -- that a code pane numbers from
+    its own first line rather than from 1, that an arrow anchored to line 120 lands on line
+    120 and not in the middle of the pane, that a mark naming a pane that did not draw is
+    REPORTED rather than drawn at the origin, and that a scene arriving as a truncated string
+    does not take the surface out.
+    """
+    r = Result("the-showcase-page-draws-every-kind-and-points-at-the-line")
+    import shutil as _sh
+    import subprocess as _sp
+
+    node = _sh.which("node")
+    if not node:
+        r.err("node is not on this machine, so the page cannot be driven at all")
+        return r
+    sweep = REPO / "tools" / "ci" / "js" / "showcase_sweep.js"
+    page = REPO / "app" / "home-macos" / "chrome" / "showcase.html"
+    if not sweep.is_file() or not page.is_file():
+        r.err(f"missing {'the sweep' if not sweep.is_file() else 'the page'}")
+        return r
+    try:
+        cp = _sp.run([node, str(sweep), str(page), "--report"],
+                     capture_output=True, text=True, timeout=120)
+    except _sp.TimeoutExpired:
+        r.err("the showcase page did not finish rendering in 120 s")
+        return r
+    out = (cp.stdout or "") + (cp.stderr or "")
+    if cp.returncode != 0:
+        for line in out.splitlines():
+            if line.strip().startswith("- "):
+                r.err(line.strip()[2:][:400])
+        if r.ok:
+            r.err(f"the sweep exited {cp.returncode} without naming a failure: {out[-300:]}")
+        return r
+
+    # AND THE SWEEP MUST HAVE ACTUALLY DRAWN. A stub that renders nothing passes every
+    # assertion about what it rendered, which is the vacuity this corpus refuses -- and this
+    # very sweep had a vacuous assertion on its first day (it counted "something scrolled",
+    # which the text pane satisfied while the code pane's scroll was gone).
+    m = re.search(r"panes_drawn=([a-z,]*)", out)
+    drew = {x for x in (m.group(1).split(",") if m else []) if x}
+    for kind in ("code", "pic", "vid", "site", "board", "note", "run"):
+        if kind not in drew:
+            r.err(f"the base layer did not draw the {kind!r} pane (it drew {sorted(drew)})")
+    nodes = int(re.search(r"nodes_drawn=(\d+)", out).group(1)) if re.search(r"nodes_drawn=(\d+)", out) else 0
+    hostile = int(re.search(r"hostile_payloads_survived=(\d+)", out).group(1)) \
+        if re.search(r"hostile_payloads_survived=(\d+)", out) else 0
+    if nodes < 40:
+        r.err(f"the page drew only {nodes} nodes: it rendered almost nothing, so nothing was tested")
+    if hostile < 30:
+        r.err(f"only {hostile} malformed scenes were survived: the hostile pass did not run")
+    if r.ok:
+        r.note(f"both layers driven from one file; {len(drew)} pane kinds drawn, {nodes} nodes, "
+               f"the focused line numbered and scrolled to, an anchored arrow resolved to its "
+               f"line, a mark on an absent pane reported rather than drawn, the whiteboard's "
+               f"own strokes returned to the host, and {hostile} malformed scenes survived")
+    return r
+
+
+def check_the_showcase_says_what_it_drew_not_what_it_asked_for() -> Result:
+    """Putting something on screen is verified by reading the surface back, never by the
+    publish returning -- and the room is free while the work in it is priced.
+
+    §9r, VERBATIM: *"every instrument used mounted its OWN webview and fired ONE push, which is
+    a different question from 'is the surface the owner is looking at rendering'."*
+
+    DRIVEN AGAINST A FAKE WINDOW THAT BEHAVES LIKE THE REAL ONE: a thread that reads the
+    published scene the way `Showcase.swift`'s tick does and writes back the revision it drew,
+    the panes that appeared and the marks it managed. The first version of this gate wrote a
+    readback with a huge FIXED revision instead -- and the day the act learned to tell a
+    SUPERSEDED scene from a drawn one, that fixture became a window that had always already drawn
+    something newer, so it could no longer produce "this scene drew" at all. Everything runs on
+    a temporary state directory; the owner's showcase is untouched.
+
+    IT NEVER TOUCHES A REAL SECRET, EVEN IN A RED RUN. The credential cases point at decoy files
+    this gate creates, named the way a secret is named. `self_test.py` removes the refusal to
+    prove this gate notices; with a real path, that red run would have read the owner's key into
+    a scene file.
+    """
+    r = Result("the-showcase-says-what-it-drew-not-what-it-asked-for")
+    import os
+    import tempfile as _tf
+    import threading as _th
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core import capabilities as C
+        from core import showcase as SC
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"the showcase does not import: {exc!r}")
+        return r
+
+    class FakeWindow:
+        """all | half (pane b never draws) | drop_mark | ahead (a later scene won) | stopped"""
+
+        def __init__(self, d):
+            self.d = Path(d)
+            self.mode = "all"
+            self.awaiting = False
+            self.halt = _th.Event()
+            self.thread = _th.Thread(target=self.run, daemon=True)
+
+        def run(self):
+            last = None
+            while not self.halt.is_set():
+                if self.mode != "stopped":
+                    try:
+                        scene = json.loads((self.d / "showcase.json").read_text(encoding="utf-8"))
+                    except (OSError, ValueError):
+                        scene = None
+                    if isinstance(scene, dict) and (scene.get("revision"), self.mode) != last:
+                        last = (scene.get("revision"), self.mode)
+                        self.draw(scene)
+                self.halt.wait(0.02)
+
+        def draw(self, scene):
+            panes = [str(p.get("id")) for p in (scene.get("panes") or []) if isinstance(p, dict)]
+            if self.mode == "half":
+                panes = [p for p in panes if p != "b"]
+            marks = len([m for m in (scene.get("marks") or []) if isinstance(m, dict)])
+            cur = scene.get("cursor")
+            if (isinstance(cur, dict) and cur.get("visible") is not False
+                    and str(cur.get("pane") or "") in panes):
+                marks += 1
+            if self.mode == "drop_mark":
+                marks = max(0, marks - 1)
+            body = {"open": True, "awaiting_desktop": self.awaiting,
+                    "revision": int(scene.get("revision") or 0) + (5 if self.mode == "ahead" else 0),
+                    "panes_drawn": panes, "marks_drawn": marks,
+                    "errors": (["b: unknown kind"] if self.mode == "half" else
+                               ["the marks layer is hidden"] if self.mode == "drop_mark" else [])}
+            try:
+                tmp = self.d / f"showcase-said.json.{os.getpid()}.{_th.get_ident()}.tmp"
+                tmp.write_text(json.dumps(body), encoding="utf-8")
+                os.replace(tmp, self.d / "showcase-said.json")
+            except OSError:
+                return
+
+    prev = os.environ.get("VESPER_SHOWCASE_DIR")
+    with _tf.TemporaryDirectory() as td:
+        os.environ["VESPER_SHOWCASE_DIR"] = td
+        fw = FakeWindow(td)
+        fw.thread.start()
+
+        def behave(mode=None, awaiting=None, settle=True):
+            """Change what the window does, and wait until its readback says so.
+
+            WITHOUT THE WAIT THE NEXT SECTION READS THE PREVIOUS ONE'S ANSWER, which
+            is not a hypothetical: section 10 inherited the readback left by the
+            "a later scene won" section and reported two failures that were the
+            fixture's, not the code's. The real window has the same lag -- it reads
+            on a timer -- so waiting here is what the real one does, not a fiction.
+            """
+            import time as _t
+            if mode is not None:
+                fw.mode = mode
+            if awaiting is not None:
+                fw.awaiting = awaiting
+            if not settle or fw.mode == "stopped":
+                return True
+            deadline = _t.monotonic() + 3.0
+            while _t.monotonic() < deadline:
+                try:
+                    cur = json.loads((Path(td) / "showcase.json").read_text(encoding="utf-8"))
+                    saw = json.loads((Path(td) / "showcase-said.json").read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    _t.sleep(0.02)
+                    continue
+                want = int(cur.get("revision") or 0) + (5 if fw.mode == "ahead" else 0)
+                if (int(saw.get("revision") or -1) == want
+                        and bool(saw.get("awaiting_desktop")) == fw.awaiting):
+                    return True
+                _t.sleep(0.02)
+            return False
+
+        try:
+            if str(SC.scene_path()) != str(Path(td) / "showcase.json"):
+                r.err("the showcase ignored its state-directory override, so this gate would "
+                      "have driven the owner's real surface")
+                return r
+            scene = {"why": "a gate", "panes": [
+                {"id": "a", "kind": "text", "text": "one"},
+                {"id": "b", "kind": "code", "path": "README.md", "focus": {"line": 3}}]}
+
+            # 1. THE WINDOW DREW IT -- and a code pane carries its slice, not just its path.
+            got = C.showcase_scene(dict(scene))
+            if not got.get("ok"):
+                r.err(f"a scene the window drew came back as a failure: {got!r}")
+            if sorted(got.get("panes_drawn") or []) != ["a", "b"]:
+                r.err(f"the result did not carry what drew: {got!r}")
+            pane = next((p for p in SC.current().get("panes") or [] if p.get("id") == "b"), {})
+            if not str(pane.get("body") or "").strip():
+                r.err("a code pane was published with no body: the window would draw an empty box")
+            if not pane.get("first_line"):
+                r.err("a code pane was published with no first_line, so it would number from 1")
+
+            # 2. THE WINDOW DREW HALF OF IT. Not a success, and the missing pane is named.
+            behave(mode="half")
+            half = C.showcase_scene(dict(scene))
+            if half.get("ok"):
+                r.err("a scene with a pane that never drew was reported as shown")
+            if "b" not in str(half.get("reason") or ""):
+                r.err(f"the refusal did not name the pane that did not draw: {half!r}")
+            if half.get("flag_id") != "showcase.pane_missing":
+                r.err(f"no flag was raised for a pane that did not appear: {half!r}")
+
+            # 3. THE MARKS ARE COUNTED: two marks and a visible cursor is three.
+            behave(mode="all")
+            pointed = dict(scene, marks=[
+                {"kind": "arrow", "pane": "a", "from": [0.1, 0.1], "at": [0.5, 0.5]},
+                {"kind": "ring", "pane": "b", "at": [0.5, 0.5]}],
+                cursor={"pane": "a", "x": 0.5, "y": 0.5, "visible": True})
+            if not C.showcase_scene(dict(pointed)).get("ok"):
+                r.err("a scene whose marks and cursor all drew was not reported as shown")
+            behave(mode="drop_mark")
+            dropped = C.showcase_scene(dict(pointed))
+            if dropped.get("ok") or dropped.get("flag_id") != "showcase.marks_missing":
+                r.err(f"an arrow that did not draw went unnoticed -- vesper would say 'look where "
+                      f"I am pointing' at nothing: {dropped!r}")
+
+            # 4. THE UNDO PUTS BACK WHAT WAS THERE, and refuses beyond its depth.
+            behave(mode="all")
+            C.showcase_scene({"why": "before", "panes": [{"id": "a", "kind": "text", "text": "one"}]})
+            second = C.showcase_scene({"why": "after", "panes": [{"id": "z", "kind": "text", "text": "two"}]})
+            back = C.showcase_scene_compensate({}, second)
+            ids = [p.get("id") for p in (SC.current().get("panes") or [])]
+            if not back.get("compensated") or ids != ["a"]:
+                r.err(f"the undo did not put back what the owner was looking at: {back!r} -> {ids}")
+            if C.showcase_scene_compensate({}, {"previous_revision": 1}).get("compensated"):
+                r.err("the undo claimed to restore a revision further back than it keeps")
+
+            # 5. THE WINDOW IS NOT DRAWING. A short wait, then an honest refusal.
+            behave(mode="stopped")
+            gone = C.showcase_scene(dict(scene))
+            if gone.get("ok"):
+                r.err("a scene published to a showcase that is not drawing was reported as shown")
+            if gone.get("flag_id") != "showcase.not_drawing":
+                r.err(f"no flag was raised for a showcase that is not drawing: {gone!r}")
+
+            # 6. A LATER SCENE WON. Neither a success nor a false 'pane missing' flag.
+            behave(mode="ahead")
+            beaten = C.showcase_scene(dict(scene))
+            if beaten.get("ok") or not beaten.get("superseded"):
+                r.err(f"a scene another writer replaced before it was read back was not reported "
+                      f"as superseded: {beaten!r}")
+            if beaten.get("flag_id"):
+                r.err(f"a superseded scene raised a flag on the owner's bar: {beaten!r}")
+
+            # 7. BOUNDS ARE REFUSALS, NOT TRUNCATIONS -- and a credential is never a pane.
+            for scene_, expect in (
+                ({"why": "x", "panes": [{"id": str(i), "kind": "text", "text": "t"}
+                                        for i in range(SC.MAX_PANES + 1)]}, "bound"),
+                ({"why": "x", "panes": [{"id": "a", "kind": "text", "text": "t"}],
+                  "marks": [{"kind": "ring", "pane": "nope", "at": [0.1, 0.1]}]}, "not in this scene"),
+                ({"panes": [{"id": "a", "kind": "text", "text": "t"}]}, "why"),
+                ({"why": "x", "panes": [{"id": "a", "kind": "zzz", "text": "t"}]}, "closed"),
+            ):
+                ok, why = SC.validate(scene_)
+                if ok or expect not in why:
+                    r.err(f"a scene that should have been refused was not: {scene_!r} -> {ok}/{why}")
+            decoys = Path(td) / "decoys"
+            (decoys / ".config" / "vesper").mkdir(parents=True)
+            (decoys / ".ssh").mkdir(parents=True)
+            env_decoy = decoys / ".config" / "vesper" / "secrets.env"
+            key_decoy = decoys / ".ssh" / "id_rsa"
+            env_decoy.write_text("DECOY_ONLY=1\n", encoding="utf-8")
+            key_decoy.write_text("not a key -- a decoy this gate made\n", encoding="utf-8")
+            if SC.read_code(str(env_decoy)).get("ok"):
+                r.err("the showcase read a credential-named file to put on a screen")
+            if SC.publish({"why": "x", "panes": [{"id": "a", "kind": "code",
+                                                  "path": str(key_decoy)}]}).get("ok"):
+                r.err("a credential path was published to the showcase")
+
+            # 8. §30: THE ROOM IS FREE AND THE WORK IS NOT. Asserted by name, because the
+            #    general check (`a-surface-is-not-an-act`) sees only a namespace word.
+            SC.publish({"why": "on vesper's", "visible": True, "desktop": "vesper",
+                        "panes": [{"id": "a", "kind": "text", "text": "x"}]})
+            free = {
+                "putting it away": C.showcase_reveal_level({"visible": False}),
+                "revealing it on vesper's own desktop":
+                    C.showcase_reveal_level({"visible": True, "desktop": "vesper"}),
+                "a note on vesper's own desktop":
+                    C.showcase_scene_level({"why": "x", "panes": [{"id": "a", "kind": "text", "text": "hi"}]}),
+                "a repo file on vesper's own desktop":
+                    C.showcase_scene_level({"why": "x", "panes": [{"id": "a", "kind": "code", "path": "README.md"}]}),
+                "pointing on vesper's own window":
+                    C.showcase_point_level({"pane": "a", "x": 0.5, "y": 0.5}),
+            }
+            for what, lvl in free.items():
+                if lvl != "L1":
+                    r.err(f"{what} is priced {lvl}: a surface gated behind the ladder, which the "
+                          f"owner removed in every permission mode (§30)")
+            SC.publish({"why": "on the owner's", "visible": True, "desktop": "here",
+                        "panes": [{"id": "a", "kind": "text", "text": "x"}]})
+            priced = {
+                "bringing it onto the owner's desktop":
+                    (C.showcase_reveal_level({"visible": True, "desktop": "here"}), "L3"),
+                "pointing while it sits on the owner's desktop":
+                    (C.showcase_point_level({"pane": "a", "x": 0.5, "y": 0.5}), "L3"),
+                "a repo file thrown onto the owner's desktop":
+                    (C.showcase_scene_level({"why": "x", "visible": True, "desktop": "here",
+                                             "panes": [{"id": "a", "kind": "code", "path": "README.md"}]}), "L3"),
+                "clicking on a live page":
+                    (C.showcase_web_level({"verb": "click", "selector": "a"}), "L3"),
+                "photographing the owner's screen":
+                    (C.showcase_follow_level({"what": "screen"}), "L4"),
+                "a scene naming a credential":
+                    (C.showcase_scene_level({"why": "x", "panes": [{"id": "a", "kind": "code",
+                                                                     "path": "~/.config/vesper/secrets.env"}]}), "L5"),
+            }
+            for what, (lvl, want) in priced.items():
+                if lvl != want:
+                    r.err(f"{what} is priced {lvl}, not {want}: the work inside the room lost "
+                          f"its ladder")
+
+            # 9. AND THE LOOP CAN SEE WHAT IT JUST DID. A receipt per verb, bounded, and
+            #    never the scene's own content coming back.
+            #
+            #    THIS SECTION EXISTS BECAUSE A RENAME BROKE IT SILENTLY. `observe()`
+            #    branched on `startswith("show.")`; when the namespace became
+            #    `showcase.*` the prefix matched nothing, every one of these acts fell
+            #    through to "observed: False", and the surface went on working perfectly
+            #    while the next step of the loop could no longer see what had been shown.
+            #    Nothing failed and nothing was logged. Only an end-to-end run that
+            #    asserted on the OBSERVATION found it.
+            obs = C.observe("showcase.scene", {}, {"ok": True, "revision": 4,
+                                                   "panes_drawn": ["code"], "marks_drawn": 2})
+            if obs.get("observed") is False or obs.get("panes_drawn") != ["code"] \
+                    or obs.get("revision") != 4:
+                r.err(f"a scene produced no usable observation, so the next step cannot see "
+                      f"what drew: {obs!r}")
+            for cid in ("showcase.point", "showcase.reveal", "showcase.web", "showcase.follow"):
+                got = C.observe(cid, {}, {"ok": True, "url": "https://x", "title": "t",
+                                          "text": "y" * 9000, "watching": "windows",
+                                          "front": "an app", "visible": True,
+                                          "desktop": "vesper", "revision": 2})
+                if got.get("observed") is False or len(got) < 3:
+                    r.err(f"{cid} produced no observation the next step can plan on: {got!r}")
+                if len(json.dumps(got)) > 9000:
+                    r.err(f"{cid}'s observation is unbounded at {len(json.dumps(got))} chars: "
+                          f"a driven page would fill the planner's window")
+            if C.observation_trust("showcase.web") != C.EXTERNAL:
+                r.err("a page vesper drove is not marked as external content")
+            if C.observation_trust("showcase.scene") != "verified_local":
+                r.err("the surface's own receipt is marked as external content")
+
+            # 10. NOWHERE TO SHOW IT. The production launch waits for an empty Desktop
+            #     before VESPER's ground exists, and until then there is no Desktop of
+            #     its own to reveal onto. Bringing the window forward anyway would drop
+            #     it over the owner's work -- the one thing this surface exists not to
+            #     do -- so the reveal must REFUSE, keep the scene built, and name what
+            #     would work instead. Measured on the running home, 2026-09-16.
+            behave(mode="all", awaiting=True)
+            built = C.showcase_scene(dict(scene))
+            if not built.get("ok"):
+                r.err(f"a scene could not even be BUILT while vesper has no desktop: {built!r}")
+            rv = C.showcase_reveal({"visible": True, "desktop": "vesper"})
+            if rv.get("ok") or rv.get("flag_id") != "showcase.no_desktop_yet":
+                r.err(f"a reveal onto a Desktop vesper does not have was reported as shown: {rv!r}")
+            if (rv.get("repair") or {}).get("args", {}).get("desktop") != "here":
+                r.err(f"the refusal does not name the thing that would work: {rv!r}")
+            behave(awaiting=False)
+            if not C.showcase_reveal({"visible": True, "desktop": "vesper"}).get("ok"):
+                r.err("a reveal onto a Desktop vesper DOES have was refused")
+        finally:
+            fw.halt.set()
+            fw.thread.join(2)
+            if prev is None:
+                os.environ.pop("VESPER_SHOWCASE_DIR", None)
+            else:
+                os.environ["VESPER_SHOWCASE_DIR"] = prev
+    if r.ok:
+        r.note("against a window that reads and draws: drew / half-drew / dropped a mark / not "
+               "drawing / superseded each gave its own answer, and only the first was a success; "
+               "a code pane carries its slice; the undo restores and refuses beyond its depth; "
+               "bounds, unknown kinds, dangling marks and credential-named decoys refused; "
+               "hiding, revealing on vesper's own desktop and pointing on its own window are L1 "
+               "in every mode, while the owner's screen, a live click, a screen photograph and "
+               "a credential keep their price; and every verb hands the loop a bounded "
+               "receipt of what it did; and a reveal with no Desktop of its own refuses, keeps the scene built and names what would work")
+    return r
+
+
+def check_a_demonstration_shows_what_its_check_passed() -> Result:
+    """A demonstration runs the scenes its check verified, one step at a time, and records
+    what it actually showed.
+
+    OWNER, 2026-09-15: *"can vesper actively show me stuff while explaning something? ... how
+    can i keep going with it live ... can it do these capabilities whenever it thinks it's a
+    good time to?"*
+
+    THE DEFECT THIS GATE WAS WRITTEN AFTER. `advance` published a PATCH onto whatever was on
+    the screen while `check` validated a fold from an empty start, so the scene that was
+    verified and the scene that ran were two different things -- and the check was worthless
+    in exactly the case it existed for. The fold is asserted here in both directions.
+
+    "WHENEVER IT THINKS IT'S A GOOD TIME TO" IS THE INTERRUPTION BUDGET AND NOT A NEW RULE:
+    hidden work is `[preparation]`, which that contract declares unbudgeted, and a reveal is
+    charged. Both are driven against a real `InterruptionBudget`.
+    """
+    r = Result("a-demonstration-shows-what-its-check-passed")
+    import os
+    import tempfile as _tf
+    if str(REPO) not in sys.path:
+        sys.path.insert(0, str(REPO))
+    try:
+        from core import demonstration as D
+        from core import showcase as SC
+        from core.interruption import InterruptionBudget
+    except Exception as exc:                              # noqa: BLE001
+        r.err(f"the demonstration modules do not import: {exc!r}")
+        return r
+
+    steps = [
+        {"say": "the file", "dwell_s": 2,
+         "scene": {"panes": [{"id": "code", "kind": "code", "path": "README.md",
+                              "focus": {"line": 3}}]}},
+        {"say": "the arrow", "dwell_s": 2,
+         "scene": {"marks": [{"kind": "arrow", "pane": "code", "from": [0.1, 0.1],
+                              "anchor": {"pane": "code", "line": 3}}]}},
+        {"say": "and the board", "dwell_s": 2,
+         "scene": {"panes": [{"id": "code", "kind": "code", "path": "README.md",
+                              "focus": {"line": 3}},
+                             {"id": "board", "kind": "board"}], "marks": []}},
+    ]
+    prev = os.environ.get("VESPER_SHOWCASE_DIR")
+    with _tf.TemporaryDirectory() as td:
+        os.environ["VESPER_SHOWCASE_DIR"] = td
+        try:
+            (Path(td) / "showcase-said.json").write_text(
+                json.dumps({"open": True, "revision": 10 ** 9, "panes_drawn":
+                            ["code", "board"], "marks_drawn": 1, "errors": []}),
+                encoding="utf-8")
+            # A SCRIPT THAT BREAKS LATER IS REFUSED BEFORE THE FIRST WORD.
+            # INSERTED AFTER THE ARROW AND BEFORE THE STEP THAT CLEARS IT.
+            # Appended at the END it is not broken at all -- step 3 already drops
+            # the marks -- and the first version of this gate appended it and went
+            # green against a script that was fine. A negative control that passes
+            # is a defect, and its own first run said so.
+            broken = steps[:2] + [{"say": "gone", "scene": {"panes": []}}]
+            ok, why = D.check(broken)
+            if ok or "mark" not in why:
+                r.err(f"a script whose last step drops the pane an arrow points at was accepted: {why}")
+            if D.check([{"scene": {"panes": []}}])[0]:
+                r.err("a step that shows something and says nothing was accepted")
+            if D.check([{"say": "x", "dwell_s": 10_000, "scene": {}}])[0]:
+                r.err("a step that holds the screen for hours was accepted")
+
+            # WHAT IS CHECKED AND WHAT IS RUN ARE THE SAME FOLD.
+            for i in range(1, len(steps) + 1):
+                folded = D.carried(steps, i)
+                folded["why"] = steps[i - 1]["say"]
+                good, bad = SC.validate(folded)
+                if not good:
+                    r.err(f"the fold after step {i} is not a scene the check would pass: {bad}")
+
+            loaded = D.load("a gate", steps)
+            if not loaded.get("ok"):
+                r.err(f"a checked script would not load: {loaded!r}")
+                return r
+            for i in range(1, len(steps) + 1):
+                out = D.advance(reveal=False)
+                if not out.get("ok"):
+                    r.err(f"step {i} did not run: {out!r}")
+                    break
+                live = {p.get("id") for p in (SC.current().get("panes") or [])}
+                want = {p.get("id") for p in (D.carried(steps, i).get("panes") or [])}
+                if live != want:
+                    r.err(f"after step {i} the screen held {sorted(live)} and the script says "
+                          f"{sorted(want)}: the run and the check are different scenes")
+            done = D.advance(reveal=False)
+            if done.get("state") != D.DONE:
+                r.err(f"the demonstration did not finish: {done!r}")
+            shown = D.transcript()
+            if len(shown) != len(steps) or [s["say"] for s in shown] != [s["say"] for s in steps]:
+                r.err(f"the transcript is not what was shown: {shown!r}")
+            if any(s.get("revision") is None for s in shown):
+                r.err("a step was recorded with no revision, so the claim has no artefact")
+
+            # A STEP THE WINDOW DID NOT DRAW IS NOT A STEP THAT WAS SHOWN.
+            (Path(td) / "showcase-said.json").unlink()
+            D.load("undrawn", steps)
+            missed = D.advance(reveal=True)
+            if missed.get("ok") or not missed.get("published"):
+                r.err(f"a step the showcase never drew was reported as shown: {missed!r}")
+            if D.state()["at"] != 0:
+                r.err("a step that was never drawn moved the demonstration on, so the owner "
+                      "would never see it")
+            (Path(td) / "showcase-said.json").write_text(
+                json.dumps({"open": True, "revision": 10 ** 9, "panes_drawn": ["code", "board"],
+                            "marks_drawn": 1, "errors": []}), encoding="utf-8")
+
+            # HOLD, AND CARRY ON FROM THE SAME PLACE.
+            D.load("held", steps)
+            D.advance(reveal=False)
+            held = D.interrupt()
+            if held.get("state") != D.HELD or D.state()["at"] != 1:
+                r.err(f"an interruption lost the place: {held!r} / {D.state()!r}")
+            if D.resume().get("state") != D.RUNNING:
+                r.err("a held demonstration would not carry on")
+
+            # THE INTERRUPTION BUDGET DECIDES, AND HIDDEN WORK IS UNBUDGETED.
+            # A RECORDER RATHER THAN THE REAL BUS, and that is a stronger test
+            # here, not a weaker one: the budget's only use of a bus is to
+            # PUBLISH its allocation, and this asserts the allocation was
+            # published with the right period and attention -- which the real
+            # bus would swallow into a database nobody reads back.
+            said = []
+
+            class Recorder:
+                def publish(self, kind, *, subject="", payload=None, component=""):
+                    said.append((kind, dict(payload or {})))
+
+            budget = InterruptionBudget(Recorder())
+            D.load("budgeted", steps)
+            quiet = D.advance(budget=budget, period="DO_NOT_DISTURB",
+                              attention="focused", reveal=False)
+            if not quiet.get("ok"):
+                r.err(f"preparing on vesper's own desktop was charged against the owner's "
+                      f"attention: {quiet!r}")
+            D.load("budgeted2", steps)
+            loud = D.advance(budget=budget, period="DO_NOT_DISTURB",
+                             attention="focused", reveal=True)
+            if loud.get("ok") or not loud.get("held"):
+                r.err(f"a reveal during do-not-disturb was not held: {loud!r}")
+            alloc = [p for k, p in said if k == "interruption.allocated"]
+            if not alloc:
+                r.err("the budget was never consulted: nothing was published")
+            elif not any(p.get("prepared") for p in alloc):
+                r.err(f"hidden work was not recorded as preparation: {alloc!r}")
+            elif not any(p.get("period") == "DO_NOT_DISTURB" for p in alloc):
+                r.err(f"the budget was asked about the wrong period: {alloc!r}")
+            D.stop()
+        finally:
+            if prev is None:
+                os.environ.pop("VESPER_SHOWCASE_DIR", None)
+            else:
+                os.environ["VESPER_SHOWCASE_DIR"] = prev
+    if r.ok:
+        r.note("a script that breaks at step four is refused at step zero; the fold the check "
+               "walks is the scene the run publishes, asserted step by step; a step the window "
+               "did not draw does not advance; hold and resume keep the place; the transcript "
+               "carries a revision per step; preparation is unbudgeted and a reveal in "
+               "do-not-disturb is held")
+    return r
+
+
 def check_boards_hold_windows_and_cards() -> Result:
     """The projects and research boards hold windows and cards the owner picked
     from a list, show each one's live status, and offer the acts that manage it.
@@ -29374,6 +29930,13 @@ def check_a_surface_is_not_an_act() -> Result:
 
     # 1. NO CAPABILITY GATES A SURFACE. The vocabulary is acts; a namespace that
     #    means "show" would put a permission check in front of drawing a card.
+    #    `showcase.*` IS DELIBERATELY NOT IN THIS LIST. It names a window VESPER does
+    #    priced WORK on -- reading the owner's files onto a screen, driving a live
+    #    page, photographing the display -- while its pure surface cases (putting
+    #    it away, revealing it on VESPER's own Desktop, pointing on its own window)
+    #    are L1 and so free in every mode. That half of §30 is asserted case by
+    #    case in `the-showcase-says-what-it-drew-not-what-it-asked-for` rather than
+    #    left to a namespace word, which this list can only approximate.
     SURFACE_NAMESPACES = ("card", "panel", "surface", "rail", "dashboard",
                           "show", "render", "view.open", "menu")
     for cid in ids:
@@ -30182,6 +30745,12 @@ CHECK_FNS = {
     "settings-manage-not-only-show": check_settings_manage_not_only_show,
     "main-menu-manages": check_main_menu_manages,
     "boards-hold-windows-and-cards": check_boards_hold_windows_and_cards,
+    "the-showcase-page-draws-every-kind-and-points-at-the-line":
+        check_the_showcase_page_draws_every_kind_and_points_at_the_line,
+    "the-showcase-says-what-it-drew-not-what-it-asked-for":
+        check_the_showcase_says_what_it_drew_not_what_it_asked_for,
+    "a-demonstration-shows-what-its-check-passed":
+        check_a_demonstration_shows_what_its_check_passed,
     "microphone-and-camera-are-measured-first": check_microphone_and_camera_are_measured_first,
     "workflows-show-their-work": check_workflows_show_their_work,
     "triage-excludes-quota": check_triage_excludes_quota,

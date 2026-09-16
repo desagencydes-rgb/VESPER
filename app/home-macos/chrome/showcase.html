@@ -1,0 +1,488 @@
+<!-- VESPER's showcase — the page that draws what VESPER is showing.
+     ONE FILE, TWO LAYERS. `window.__vesperShowLayer` is set by Showcase.swift
+     before this loads: "base" draws the panes, "marks" draws the arrows, rings,
+     ink, labels and VESPER's cursor over them. One file rather than two because
+     the gate that drives this DOM must drive what the app actually loads; a
+     second copy is a second thing to keep in step, and this corpus has already
+     spent a night on a surface that had drifted from its instrument.
+     EVERY RECEIVER RETURNS WHAT IT DREW. `__vesperShow` answers with the pane
+     ids that rendered, their rects, and any error it caught — never with
+     "done". §9r: a push that did not throw is not a surface that rendered. -->
+<title>VESPER — showing</title>
+<style>
+  :root {
+    --ink: #e8e6e3; --dim: #8e8b87; --line: #2a2825;
+    --ground: #0d0c0b; --pane: #151412; --edge: #262320;
+    --mark: #d8a657; --ring: #7daea3; --cursor: #e8e6e3;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; background: transparent; }
+  body {
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+    color: var(--ink);
+  }
+  body[data-layer="base"] { background: var(--ground); }
+  /* The marks layer paints nothing of its own: it is glass over the base. */
+  body[data-layer="marks"] { background: transparent; pointer-events: none; }
+
+  #why {
+    padding: 10px 18px 8px; color: var(--dim); font-size: 12px;
+    letter-spacing: .01em; border-bottom: 1px solid var(--line);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #why b { color: var(--ink); font-weight: 600; }
+  #grid {
+    display: grid; gap: 10px; padding: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    height: calc(100% - 36px);
+  }
+  #grid[data-one="true"] { grid-template-columns: minmax(0, 1fr); }
+  .pane {
+    background: var(--pane); border: 1px solid var(--edge); border-radius: 8px;
+    overflow: hidden; display: flex; flex-direction: column; min-height: 120px;
+  }
+  .pane[data-span="2"] { grid-column: span 2; }
+  .pane > header {
+    padding: 6px 10px; font-size: 11px; color: var(--dim);
+    border-bottom: 1px solid var(--edge); display: flex; gap: 8px;
+    white-space: nowrap; overflow: hidden;
+  }
+  .pane > header .kind { color: #5f5c58; text-transform: uppercase;
+    letter-spacing: .06em; font-size: 10px; }
+  .body { flex: 1; overflow: auto; position: relative; }
+  pre.code { margin: 0; padding: 8px 0; font: 12px/1.45 "SF Mono", Menlo, monospace; }
+  pre.code .ln { display: block; padding: 0 10px 0 0; white-space: pre; }
+  pre.code .ln .n {
+    display: inline-block; width: 52px; text-align: right; padding-right: 12px;
+    color: #55524e; user-select: none;
+  }
+  pre.code .ln.on { background: rgba(216, 166, 87, .14); }
+  pre.code .ln.on .n { color: var(--mark); }
+  .body img, .body video { display: block; max-width: 100%; margin: 0 auto; }
+  .body .note { padding: 10px 12px; white-space: pre-wrap; }
+  .body .note mark { background: rgba(216, 166, 87, .3); color: inherit; }
+  pre.run {
+    margin: 0; padding: 8px 12px; white-space: pre-wrap; word-break: break-word;
+    font: 11.5px/1.45 "SF Mono", Menlo, monospace; color: #cfcbc6;
+  }
+  .site {
+    /* A HOLE, NOT A FRAME. Showcase.swift puts a real WKWebView over this rect;
+       anything drawn here would sit underneath it and never be seen. */
+    flex: 1; background: #000; display: flex; align-items: center;
+    justify-content: center; color: #4a4744; font-size: 11px;
+  }
+  canvas.board { display: block; background: #13120f; cursor: crosshair; }
+  .broken { padding: 10px 12px; color: #d08a7a; }
+  #marks { position: fixed; inset: 0; width: 100%; height: 100%; }
+</style>
+
+<div id="why"></div>
+<div id="grid"></div>
+<svg id="marks" xmlns="http://www.w3.org/2000/svg"></svg>
+
+<script>
+(function () {
+  "use strict";
+
+  var LAYER = (window.__vesperShowLayer === "marks") ? "marks" : "base";
+  var SVGNS = "http://www.w3.org/2000/svg";
+  var board = null;           // the whiteboard's own strokes, drawn by the owner
+  var lastRevision = -1;
+
+  function ready(fn) {
+    if (document.body) { fn(); return; }
+    document.addEventListener("DOMContentLoaded", fn);
+  }
+
+  function el(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) { n.className = cls; }
+    if (text !== undefined && text !== null) { n.textContent = String(text); }
+    return n;
+  }
+
+  function fileURL(path) {
+    // A LOCAL PATH REACHES THE PAGE ONLY THROUGH THE SCHEME HANDLER, which
+    // checks it against the same refusal list Python does. Encoded per segment
+    // so a space or a hash in a filename does not truncate the URL.
+    var p = String(path || "");
+    if (!p) { return ""; }
+    var parts = p.split("/").map(function (s) { return encodeURIComponent(s); });
+    return "vesper-file://" + parts.join("/");
+  }
+
+  function num(v, fallback) {
+    var f = parseFloat(v);
+    return (isFinite(f)) ? f : fallback;
+  }
+
+  // ------------------------------------------------------------- the panes
+
+  function drawCode(body, pane) {
+    var pre = el("pre", "code");
+    var first = num(pane.first_line, 1);
+    var focus = pane.focus || {};
+    var want = num(focus.line, 0);
+    var lines = String(pane.body || "").split("\n");
+    var target = null;
+    for (var i = 0; i < lines.length; i++) {
+      var n = first + i;
+      var row = el("span", "ln" + (n === want ? " ln on" : ""));
+      row.className = "ln" + (n === want ? " on" : "");
+      row.appendChild(el("span", "n", String(n)));
+      row.appendChild(document.createTextNode(lines[i]));
+      pre.appendChild(row);
+      if (n === want) { target = row; }
+    }
+    body.appendChild(pre);
+    if (target && target.scrollIntoView) {
+      // SCROLLED TO THE LINE, WHICH IS THE WHOLE POINT. "Open the file" is not
+      // the ask; "open the file AT line 42" is, and a pane showing line 1 of a
+      // 900-line file has answered a different question.
+      try { target.scrollIntoView({ block: "center" }); } catch (e) {
+        body.scrollTop = Math.max(0, target.offsetTop - body.clientHeight / 2);
+      }
+    }
+    return true;
+  }
+
+  function drawText(body, pane) {
+    var wrap = el("div", "note");
+    var text = String(pane.text || pane.body || "");
+    var find = String(((pane.focus || {}).find) || "");
+    if (find && text.indexOf(find) >= 0) {
+      var at = text.indexOf(find);
+      wrap.appendChild(document.createTextNode(text.slice(0, at)));
+      var hit = el("mark", null, find);
+      wrap.appendChild(hit);
+      wrap.appendChild(document.createTextNode(text.slice(at + find.length)));
+      body.appendChild(wrap);
+      if (hit.scrollIntoView) {
+        try { hit.scrollIntoView({ block: "center" }); } catch (e) { /* older engine */ }
+      }
+      return true;
+    }
+    wrap.textContent = text;
+    body.appendChild(wrap);
+    return true;
+  }
+
+  function drawImage(body, pane) {
+    var img = el("img");
+    img.src = fileURL(pane.path);
+    img.alt = String(pane.title || pane.path || "");
+    body.appendChild(img);
+    return true;
+  }
+
+  function drawVideo(body, pane) {
+    var v = document.createElement("video");
+    v.src = fileURL(pane.path);
+    v.controls = true;
+    if (pane.autoplay) { v.autoplay = true; v.muted = true; }
+    var at = num((pane.focus || {}).at_s, -1);
+    if (at >= 0) {
+      // SEEKED TO THE MOMENT, for the same reason the code pane scrolls: the ask
+      // was to show a specific detail, and a video at 00:00 shows a thumbnail.
+      v.addEventListener("loadedmetadata", function () {
+        try { v.currentTime = at; } catch (e) { /* unseekable */ }
+      });
+    }
+    body.appendChild(v);
+    return true;
+  }
+
+  function drawRun(body, pane) {
+    var pre = el("pre", "run", String(pane.body || ""));
+    body.appendChild(pre);
+    // A LIVE RUN IS READ AT ITS END. Anchored to the bottom so new output stays
+    // in view without the owner chasing it.
+    body.scrollTop = body.scrollHeight;
+    return true;
+  }
+
+  function drawSite(body, pane) {
+    var hole = el("div", "site", String(pane.url || ""));
+    body.appendChild(hole);
+    return true;
+  }
+
+  function drawBoard(body, pane) {
+    var c = document.createElement("canvas");
+    c.className = "board";
+    var w = Math.max(80, body.clientWidth || 600);
+    var h = Math.max(80, body.clientHeight || 360);
+    c.width = w; c.height = h;
+    c.style.width = "100%";
+    body.appendChild(c);
+    var ctx = c.getContext ? c.getContext("2d") : null;
+    if (!ctx) { return true; }
+    board = { canvas: c, ctx: ctx, strokes: (pane.strokes || []).slice(0) };
+    redrawBoard();
+    var drawing = false, current = null;
+    c.addEventListener("mousedown", function (e) {
+      drawing = true;
+      current = [[e.offsetX / c.width, e.offsetY / c.height]];
+    });
+    c.addEventListener("mousemove", function (e) {
+      if (!drawing || !current) { return; }
+      current.push([e.offsetX / c.width, e.offsetY / c.height]);
+      redrawBoard(current);
+    });
+    c.addEventListener("mouseup", function () {
+      if (!drawing || !current) { return; }
+      drawing = false;
+      board.strokes.push(current);
+      current = null;
+      redrawBoard();
+      // WHAT THE OWNER DREW GOES BACK TO VESPER. A whiteboard VESPER can only
+      // write to is a slide; the ask was for a whiteboard.
+      post({ board: board.strokes });
+    });
+    return true;
+  }
+
+  function redrawBoard(extra) {
+    if (!board) { return; }
+    var c = board.canvas, ctx = board.ctx;
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.strokeStyle = "#e8e6e3";
+    var all = board.strokes.concat(extra ? [extra] : []);
+    for (var i = 0; i < all.length; i++) {
+      var s = all[i];
+      if (!s || !s.length) { continue; }
+      ctx.beginPath();
+      ctx.moveTo(s[0][0] * c.width, s[0][1] * c.height);
+      for (var j = 1; j < s.length; j++) {
+        ctx.lineTo(s[j][0] * c.width, s[j][1] * c.height);
+      }
+      ctx.stroke();
+    }
+  }
+
+  var DRAW = { code: drawCode, text: drawText, image: drawImage,
+               video: drawVideo, run: drawRun, web: drawSite, board: drawBoard };
+
+  function drawBase(scene, errors) {
+    var grid = document.getElementById("grid");
+    var whyBox = document.getElementById("why");
+    if (!grid) { errors.push("the page has no grid"); return { panes: [], rects: {} }; }
+    grid.textContent = "";
+    var panes = (scene && scene.panes) || [];
+    if (!panes.length) { grid.textContent = ""; }
+    grid.setAttribute("data-one", String(panes.length <= 1));
+    if (whyBox) {
+      whyBox.textContent = "";
+      whyBox.appendChild(el("b", null, String((scene && scene.why) || "")));
+    }
+    var drawn = [], rects = {};
+    for (var i = 0; i < panes.length; i++) {
+      var pane = panes[i] || {};
+      var id = String(pane.id || "");
+      if (!id) { errors.push("a pane arrived with no id"); continue; }
+      try {
+        var box = el("div", "pane");
+        box.setAttribute("data-pane", id);
+        box.setAttribute("data-span", String(pane.span === 2 ? 2 : 1));
+        var head = el("header");
+        head.appendChild(el("span", "kind", String(pane.kind || "?")));
+        head.appendChild(el("span", "title",
+          String(pane.title || pane.path || pane.url || id)));
+        box.appendChild(head);
+        var body = el("div", "body");
+        box.appendChild(body);
+        grid.appendChild(box);
+        var fn = DRAW[String(pane.kind || "")];
+        if (!fn) {
+          body.appendChild(el("div", "broken", "vesper does not show a " + pane.kind));
+          errors.push(id + ": unknown kind " + pane.kind);
+          continue;
+        }
+        // EACH PANE GUARDED ON ITS OWN. HomeChrome's `step()` finding: one throw
+        // in a sequence kills every later member and still reports success.
+        fn(body, pane);
+        drawn.push(id);
+        if (box.getBoundingClientRect) {
+          var r = box.getBoundingClientRect();
+          var inner = body.getBoundingClientRect ? body.getBoundingClientRect() : r;
+          rects[id] = { x: num(inner.left, 0), y: num(inner.top, 0),
+                        w: num(inner.width, 0), h: num(inner.height, 0) };
+        }
+      } catch (e) {
+        errors.push(id + ": " + (e && e.message ? e.message : e));
+      }
+    }
+    return { panes: drawn, rects: rects };
+  }
+
+  // ------------------------------------------------------------- the marks
+
+  function svgEl(tag, attrs) {
+    var n = document.createElementNS(SVGNS, tag);
+    for (var k in attrs) {
+      if (Object.prototype.hasOwnProperty.call(attrs, k)) {
+        n.setAttribute(k, String(attrs[k]));
+      }
+    }
+    return n;
+  }
+
+  function point(rect, at) {
+    // FRACTIONS OF A PANE, TURNED INTO PIXELS ONLY HERE. Everything upstream
+    // stores fractions, so a resize moves the arrow with the thing it points at.
+    var x = num(at && at[0], 0.5), y = num(at && at[1], 0.5);
+    return [rect.x + rect.w * x, rect.y + rect.h * y];
+  }
+
+  function anchorPoint(rect, anchor, scene) {
+    // AN ANCHOR IS AN IDENTITY, NOT A COORDINATE. "line 42" survives a reflow;
+    // y = 0.31 does not. Resolved against the pane's own geometry at draw time.
+    if (!anchor || typeof anchor !== "object") { return null; }
+    if (anchor.line !== undefined) {
+      var pane = null, panes = (scene && scene.panes) || [];
+      for (var i = 0; i < panes.length; i++) {
+        if (String(panes[i] && panes[i].id) === String(anchor.pane || "")) {
+          pane = panes[i]; break;
+        }
+      }
+      var first = num(pane && pane.first_line, 1);
+      var total = String((pane && pane.body) || "").split("\n").length || 1;
+      var frac = Math.min(1, Math.max(0, (num(anchor.line, first) - first + 0.5) / total));
+      return [rect.x + rect.w * 0.5, rect.y + rect.h * frac];
+    }
+    if (anchor.at) { return point(rect, anchor.at); }
+    return null;
+  }
+
+  function drawMarks(scene, errors) {
+    var svg = document.getElementById("marks");
+    if (!svg) { errors.push("the page has no marks layer"); return 0; }
+    while (svg.firstChild) { svg.removeChild(svg.firstChild); }
+    var defs = svgEl("defs", {});
+    var head = svgEl("marker", { id: "head", viewBox: "0 0 10 10", refX: "9",
+                                 refY: "5", markerWidth: "7", markerHeight: "7",
+                                 orient: "auto-start-reverse" });
+    head.appendChild(svgEl("path", { d: "M 0 0 L 10 5 L 0 10 z",
+                                     fill: "var(--mark)" }));
+    defs.appendChild(head);
+    svg.appendChild(defs);
+
+    var rects = (scene && scene.rects) || {};
+    var marks = (scene && scene.marks) || [];
+    var n = 0;
+    for (var i = 0; i < marks.length; i++) {
+      var m = marks[i] || {};
+      var rect = rects[String(m.pane || "")];
+      if (!rect) { errors.push("mark " + i + " points at a pane that did not draw"); continue; }
+      try {
+        var to = anchorPoint(rect, m.anchor, scene) || point(rect, m.at);
+        if (m.kind === "arrow") {
+          var from = m.from ? point(rect, m.from)
+                            : [to[0] - rect.w * 0.25, to[1] - rect.h * 0.2];
+          svg.appendChild(svgEl("line", {
+            x1: from[0], y1: from[1], x2: to[0], y2: to[1],
+            stroke: "var(--mark)", "stroke-width": 2.5,
+            "marker-end": "url(#head)" }));
+        } else if (m.kind === "ring") {
+          svg.appendChild(svgEl("circle", {
+            cx: to[0], cy: to[1], r: num(m.r, 26),
+            fill: "none", stroke: "var(--ring)", "stroke-width": 2.5 }));
+        } else if (m.kind === "ink") {
+          var pts = (m.points || []).map(function (p) {
+            var q = point(rect, p); return q[0] + "," + q[1];
+          }).join(" ");
+          svg.appendChild(svgEl("polyline", {
+            points: pts, fill: "none", stroke: "var(--mark)",
+            "stroke-width": 2.5, "stroke-linecap": "round",
+            "stroke-linejoin": "round" }));
+        } else if (m.kind === "label") {
+          var t = svgEl("text", { x: to[0], y: to[1], fill: "var(--mark)",
+                                  "font-size": 13,
+                                  "font-family": "-apple-system, sans-serif" });
+          t.textContent = String(m.text || "");
+          svg.appendChild(t);
+        } else {
+          errors.push("mark " + i + " is a " + m.kind + ", which nothing draws");
+          continue;
+        }
+        n++;
+      } catch (e) {
+        errors.push("mark " + i + ": " + (e && e.message ? e.message : e));
+      }
+    }
+
+    var cur = scene && scene.cursor;
+    if (cur && cur.visible !== false && rects[String(cur.pane || "")]) {
+      var r = rects[String(cur.pane)];
+      var p = point(r, [num(cur.x, 0.5), num(cur.y, 0.5)]);
+      // VESPER'S OWN POINTER, DRAWN. Never the system cursor: warping that would
+      // take the mouse out of the owner's hand, which is the opposite of the ask.
+      var g = svgEl("g", { transform: "translate(" + p[0] + "," + p[1] + ")" });
+      g.appendChild(svgEl("path", {
+        d: "M0,0 L0,17 L4.2,13.2 L6.8,19 L9.4,17.8 L6.8,12.2 L12,12 z",
+        fill: "var(--cursor)", stroke: "#000", "stroke-width": 1,
+        "stroke-linejoin": "round" }));
+      if (cur.gesture === "tap") {
+        g.appendChild(svgEl("circle", { cx: 0, cy: 0, r: 16, fill: "none",
+                                        stroke: "var(--cursor)",
+                                        "stroke-width": 2, opacity: 0.5 }));
+      }
+      svg.appendChild(g);
+      n++;
+    }
+    return n;
+  }
+
+  // ------------------------------------------------------------- the receiver
+
+  function post(body) {
+    try {
+      if (window.webkit && window.webkit.messageHandlers
+          && window.webkit.messageHandlers.showcaseSaid) {
+        window.webkit.messageHandlers.showcaseSaid.postMessage(body);
+      }
+    } catch (e) { /* the host is not listening; drawing still worked */ }
+  }
+
+  window.__vesperShow = function (raw) {
+    var errors = [];
+    var scene = null;
+    try {
+      scene = (typeof raw === "string") ? JSON.parse(raw) : raw;
+    } catch (e) {
+      errors.push("the scene was not readable json");
+    }
+    if (!scene || typeof scene !== "object") { scene = {}; }
+    if (!scene.panes || !scene.panes.length) { scene.panes = scene.panes || []; }
+    lastRevision = num(scene.revision, lastRevision);
+    var out;
+    try {
+      if (LAYER === "marks") {
+        out = { marks: drawMarks(scene, errors) };
+      } else {
+        var got = drawBase(scene, errors);
+        out = { panes: got.panes, rects: got.rects };
+      }
+    } catch (e) {
+      errors.push("the layer threw: " + (e && e.message ? e.message : e));
+      out = (LAYER === "marks") ? { marks: 0 } : { panes: [], rects: {} };
+    }
+    out.revision = lastRevision;
+    out.layer = LAYER;
+    out.errors = errors.concat(window.__vesperShowErrs || []);
+    // RETURNED AS A STRING, because `evaluateJavaScript` hands back an opaque
+    // value for anything richer and the host then cannot tell an empty result
+    // from a failed one.
+    return JSON.stringify(out);
+  };
+
+  ready(function () {
+    document.body.setAttribute("data-layer", LAYER);
+    // AN EMPTY DRAW AT LOAD, so the receiver is proved to exist before the first
+    // real scene rather than at the moment somebody is watching.
+    try { window.__vesperShow({ panes: [], marks: [], why: "" }); } catch (e) { /* */ }
+  });
+})();
+</script>

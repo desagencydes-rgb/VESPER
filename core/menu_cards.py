@@ -1,4 +1,4 @@
-"""The seventeen main-menu destinations as CARDS that manage, not readings.
+"""The eighteen main-menu destinations as CARDS that manage, not readings.
 
 THE OWNER, 2026-09-13: *"its buttons need to open cards where i can manage
 stuff not just look at some json bullshit."* Until tonight every destination on
@@ -454,6 +454,67 @@ def cards(home: Any = None) -> dict:
         "settings": ["endpoint-selection"],
         "actions": [_action("plan", "What would it take?", "act",
                             {"text": "what would it take to reach you from my phone?"})],
+    }
+
+    # --- showcase (the window VESPER shows things on) ---------------------
+    # MANAGED, NOT READ. The owner's standing rule for every card in this menu,
+    # and this one is the card most likely to be built as a readout: a scene is
+    # easy to describe and the interesting part is the four buttons that move it.
+    #
+    # THE ROWS COME FROM THE WINDOW'S OWN REPORT, never from what was published.
+    # `showcase-said.json` is written by the running home about itself -- which
+    # revision it DREW, which panes appeared, whether it is on VESPER's Desktop.
+    # Reading the scene file instead would show the owner what VESPER asked for
+    # and call it what happened, which is the fault this whole surface's
+    # verification path exists to prevent.
+    from core import demonstration as DEM
+    from core import showcase as SHOW
+
+    said = SHOW.said()
+    scene = SHOW.current()
+    demo = DEM.state()
+    drew = list(said.get("panes_drawn") or [])
+    open_ = bool(said.get("open"))
+    where = ("vesper's desktop" if said.get("on_vespers_desktop")
+             else ("yours" if open_ else "nowhere: it is not open"))
+    out["showcase"] = {
+        "title": "Showcase",
+        "summary": ("The window VESPER shows things on. A file at a line, an image, a video, "
+                    "a browser it drives itself, a whiteboard, arrows and its own cursor — "
+                    "built on its Desktop while you work on yours."),
+        "rows": [
+            _row("window", "open" if open_ else "not open", "showcase-said.json",
+                 "built at startup and kept hidden until something is shown"),
+            _row("showing", "yes" if said.get("visible") else "held back",
+                 "showcase-said.json", SHOW.describe(scene)),
+            _row("on", where, "showcase-said.json",
+                 "vesper's own windows relocate; a foreign app's do not (measured 2026-09-09)"),
+            _row("panes drawn", ", ".join(drew) if drew else "none",
+                 "showcase-said.json",
+                 f"revision {said.get('revision', '?')} drawn, "
+                 f"{said.get('read_revision', '?')} read"),
+            _row("marks drawn", said.get("marks_drawn", 0), "showcase-said.json",
+                 "arrows, rings, ink, labels and vesper's cursor"),
+            _row("page errors", ", ".join(str(e) for e in (said.get("errors") or []))
+                 or "none", "showcase-said.json"),
+            _row("demonstration", demo.get("line") or "nothing is being demonstrated",
+                 "demonstration.json",
+                 f"next: {demo.get('next')}" if demo.get("next") else ""),
+        ],
+        "actions": [
+            _action("reveal", "Show it on VESPER's desktop", "showcase.reveal",
+                    note="takes nothing from you: it appears where vesper works"),
+            _action("bring", "Bring it to my desktop", "showcase.bring_here",
+                    note="this one takes your screen"),
+            _action("hide", "Put it away", "showcase.hide"),
+            _action("clear", "Clear it", "showcase.clear"),
+            _action("next", "Next step", "showcase.next_step"),
+            _action("hold", "Hold the demonstration", "showcase.hold"),
+            _action("resume", "Carry on", "showcase.resume"),
+            _action("stop", "End the demonstration", "showcase.stop"),
+            _action("what", "What did you just show me?", "act",
+                    {"text": "show me exactly what you showed on the showcase, step by step"}),
+        ],
     }
 
     # --- grant-templates (the permission mode) ---------------------------

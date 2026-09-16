@@ -8585,6 +8585,154 @@ CASES += [
      "surface manages nothing while looking exactly as it should"),
 ]
 
+SHOWCASE_PAGE = "the-showcase-page-draws-every-kind-and-points-at-the-line"
+SHOWCASE_DREW = "the-showcase-says-what-it-drew-not-what-it-asked-for"
+DEMONSTRATION = "a-demonstration-shows-what-its-check-passed"
+SHOWCASE_HTML = "app/home-macos/chrome/showcase.html"
+SHOWCASE_PY = "core/showcase.py"
+DEMO_PY = "core/demonstration.py"
+CAPS_PY = "core/capabilities.py"
+
+CASES += [
+    # ---- the page -------------------------------------------------------
+    (SHOWCASE_PAGE, SHOWCASE_HTML,
+     _sub("      var n = first + i;", "      var n = 1 + i;", 1),
+     "a code pane numbers from 1 instead of from the slice's own first line, so the "
+     "arrow lands on the right pixel and the owner is told to look at the wrong line"),
+
+    (SHOWCASE_PAGE, SHOWCASE_HTML,
+     _sub('      try { target.scrollIntoView({ block: "center" }); } catch (e) {',
+          '      try { if (false) target.scrollIntoView({ block: "center" }); } catch (e) {', 1),
+     "the pane is never scrolled to the line it was focused on: 'open the file AT line 42' "
+     "answers with line 1 of 900"),
+
+    (SHOWCASE_PAGE, SHOWCASE_HTML,
+     _sub("    while (svg.firstChild) { svg.removeChild(svg.firstChild); }", "", 1),
+     "marks accumulate instead of replacing, so by step four of a demonstration the glass "
+     "is a thicket of arrows from steps one to three"),
+
+    (SHOWCASE_PAGE, SHOWCASE_HTML,
+     _sub('    var parts = p.split("/").map(function (s) { return encodeURIComponent(s); });',
+          '    var parts = p.split("/");', 1),
+     "a local path is not encoded per segment, so an image whose name holds a space or a "
+     "hash silently fails to load and the pane is blank"),
+
+    (SHOWCASE_PAGE, SHOWCASE_HTML,
+     _sub("      var frac = Math.min(1, Math.max(0, (num(anchor.line, first) - first + 0.5) / total));",
+          "      var frac = 0.5;", 1),
+     "an anchored arrow ignores the line it names and points at the middle of the pane, "
+     "which is the one property the whole 'specific location' claim rests on"),
+
+    (SHOWCASE_PAGE, SHOWCASE_HTML,
+     _sub("      post({ board: board.strokes });", "", 1),
+     "what the owner draws on the whiteboard never reaches VESPER, so the board is a slide "
+     "rather than a board"),
+
+    # ---- the verification contract --------------------------------------
+    (SHOWCASE_DREW, CAPS_PY,
+     _sub("    missing = [p for p in asked if p not in (drew.get(\"panes_drawn\") or [])]",
+          "    missing = []", 1),
+     "a scene is reported as shown without comparing the panes that drew against the panes "
+     "that were asked for -- §9r's whole finding, in the surface built to avoid it"),
+
+    (SHOWCASE_DREW, CAPS_PY,
+     _sub("    drew = SC.rendered(int(pub[\"revision\"]), timeout_s=4.0)",
+          "    drew = {\"ok\": True, \"revision\": pub[\"revision\"], \"marks_drawn\": 99, \"panes_drawn\": [str(p.get(\"id\")) for p in (scene.get(\"panes\") or []) if isinstance(p, dict)]}", 1),
+     "the act never reads the surface back at all, so a showcase that is not running "
+     "reports every scene as shown"),
+
+    (SHOWCASE_DREW, SHOWCASE_PY,
+     _sub("    scene, missing = hydrate(scene)\n    if missing:\n        return {\"ok\": False, \"reason\": missing}\n", "", 1),
+     "a code pane is published with a path and no body, so the window draws an empty box "
+     "for every writer that does not go through the capability"),
+
+    (SHOWCASE_DREW, SHOWCASE_PY,
+     _sub('    if not str(scene.get("why") or "").strip():',
+          '    if False:', 1),
+     "a scene may go on screen with nothing saying why it is there, and the owner asked to "
+     "KNOW what VESPER did rather than to find a window open"),
+
+    (SHOWCASE_DREW, SHOWCASE_PY,
+     _sub("def _forbidden(raw: str) -> bool:", "def _forbidden(raw: str) -> bool:\n    return False", 1),
+     "a credential file can be read into a pane and rendered on a screen: disclosed twice, "
+     "once to the display and once to the published scene file"),
+
+    (SHOWCASE_DREW, CAPS_PY,
+     _sub("    if _lands_on_owner(args):\n        worst = _worst(worst, \"L3\")", "    if False:\n        pass", 1),
+     "taking the screen the owner is working on is priced like drawing on VESPER's own, so "
+     "a repo file can be thrown in front of somebody who is typing at L1"),
+
+    # ---- the demonstration ----------------------------------------------
+    (DEMONSTRATION, DEMO_PY,
+     _sub("        scene = carried(steps, at + 1)", "        scene = dict(step.get(\"scene\") or {})", 1),
+     "a step publishes its own patch again instead of the fold its check walked, so what "
+     "was verified and what runs are two different scenes"),
+
+    (DEMONSTRATION, DEMO_PY,
+     _sub("        so_far = {**so_far, **patch}", "        so_far = dict(patch)", 1),
+     "the check validates each step alone, so a step that drops the pane an earlier arrow "
+     "points at passes and the demonstration dies in front of the owner"),
+
+    (DEMONSTRATION, DEMO_PY,
+     _sub("            drew = showcase.rendered(int(pub[\"revision\"]), timeout_s=4.0,\n"
+          "                                     state_dir=state_dir)",
+          "            drew = {\"ok\": True}", 1),
+     "a step narrates over a scene the window never drew, and the one path that speaks to "
+     "the owner is the one path that cannot tell"),
+
+    (DEMONSTRATION, DEMO_PY,
+     _sub("                rec[\"state\"] = HELD\n                _write(rec, state_dir)\n"
+          "                why = (f\"step {at + 1} was published and the showcase did not \"",
+          "                rec[\"at\"] = at + 1\n                _write(rec, state_dir)\n"
+          "                why = (f\"step {at + 1} was published and the showcase did not \"", 1),
+     "a step the window never drew still moves the demonstration on, so the owner never "
+     "sees it and nothing says so"),
+
+    (DEMONSTRATION, DEMO_PY,
+     _sub("                             prepared=not reveal)", "                             prepared=False)", 1),
+     "work done on VESPER's own hidden desktop is charged against the owner's attention, so "
+     "preparing during do-not-disturb is refused and the surface can never get ready"),
+]
+
+CASES += [
+    (SHOWCASE_DREW, CAPS_PY,
+     _sub('        return "L3"\n    return "L1"\n\n\ndef showcase_web_level',
+          '        return "L3"\n    return "L2"\n\n\ndef showcase_web_level', 1),
+     "revealing VESPER's own window on its own Desktop is priced L2 again, so the ask mode "
+     "must ask before VESPER may bring its own surface forward -- the room gated, which the "
+     "owner removed in every permission mode"),
+
+    (SHOWCASE_DREW, CAPS_PY,
+     _sub('    if int(drew.get("revision") or -1) > int(pub["revision"]):', "    if False:", 1),
+     "a scene that a later one replaced before it was read back is compared against the later "
+     "scene's panes: a false 'pane missing' flag on the owner's bar, or 'here it is' about "
+     "something that is not on the screen"),
+
+    (SHOWCASE_DREW, CAPS_PY,
+     _sub('    if want_marks and int(drew.get("marks_drawn") or 0) < want_marks:', "    if False:", 1),
+     "an arrow or the cursor that did not draw goes unnoticed, so vesper tells the owner to "
+     "look where it is pointing at nothing"),
+]
+
+CASES += [
+    (SHOWCASE_DREW, CAPS_PY,
+     _sub('    if capability_id.startswith("showcase."):',
+          '    if capability_id.startswith("show."):', 1),
+     "a rename leaves observe()'s prefix behind, so every showcase act returns "
+     "'observed: False': the surface still draws perfectly and the next step of the loop "
+     "can no longer see what was shown -- silent, unlogged, and found only by asserting "
+     "on the observation"),
+]
+
+CASES += [
+    (SHOWCASE_DREW, CAPS_PY,
+     _sub('    if want and desktop == "vesper" and bool(s.get("awaiting_desktop")):',
+          "    if False:", 1),
+     "a reveal reports success while VESPER has no Desktop of its own, so the owner is told "
+     "'there it is' about a window that is on no screen -- or it is dropped over their work, "
+     "which is the one thing this surface exists not to do"),
+]
+
 ATOMIC_TEMP = "an-atomic-write-never-shares-its-temp-name"
 AGENDA_PY = "core/agenda.py"
 ARM_PY = "tools/ops/vesper_arm.py"

@@ -3019,6 +3019,460 @@ def verify_fs_edit(result: dict) -> dict:
                    "what is on disk is not what the edit says it wrote"}
 
 
+# --------------------------------------------------------------- the showcase
+#
+# PUTTING SOMETHING ON A SCREEN IS AN ACT, and these five verbs are the whole of
+# it. They exist because the owner asked, 2026-09-15, for VESPER to SHOW things --
+# files at a line, images, video, a website it drives itself, a whiteboard,
+# arrows, its own cursor -- and to do it on ITS desktop while he works on his.
+#
+# WHY THE LEVELS ARE WHAT THEY ARE. Two different things are being governed and
+# they must not be confused. What is READ to build a scene is levelled by the
+# rules that already govern reading it -- `fs_read_level`, unchanged, because a
+# file does not become cheaper to read by being rendered rather than returned.
+# What is TAKEN is the owner's attention, and that is levelled by WHOSE screen
+# the scene lands on: VESPER's own Desktop takes nothing and is cheap; the
+# Desktop the owner is working on takes their focus and is not.
+#
+# THAT SECOND HALF IS THE ONE THAT WOULD HAVE BEEN MISSED. A `show` verb levelled
+# only on its material would have let VESPER paint over the owner's work at L1 as
+# long as the file was in the repo, which is precisely the "cheap verb, expensive
+# effect" mistake `shell.run("cat ~/.ssh/id_rsa")` made in this same file.
+
+
+# The most panes one act may read files for. Past this it is not a scene, it is a
+# way to read the repo through a verb whose name sounds like drawing.
+MAX_PANES_LEVELLED = 8
+
+
+def _scene_paths(args: dict) -> list:
+    """Every file a scene would read. Batched, so the worst member levels it."""
+    out = []
+    for pane in ((args or {}).get("panes") or []):
+        if isinstance(pane, dict) and _norm(pane.get("path")):
+            out.append(_norm(pane["path"]))
+    return out
+
+
+def _lands_on_owner(args: dict) -> bool:
+    """Would this take the screen the owner is working on?
+
+    HIDDEN IS NOT LANDING. `visible: False` puts a scene on VESPER's Desktop with
+    nothing brought forward, which is `interruption_budget.toml`'s unbudgeted
+    `[preparation]` and costs the owner nothing.
+    """
+    a = args or {}
+    return bool(a.get("visible")) and str(a.get("desktop") or "vesper") == "here"
+
+
+def showcase_scene_level(args: dict) -> str:
+    """The worst of what it reads and where it lands.
+
+    NEVER BELOW L3 WHEN IT LANDS ON THE OWNER'S DESKTOP, whatever it is showing.
+    A scene built entirely from the repo is L1 material and is still an
+    interruption when it appears in front of somebody who is typing.
+    """
+    worst = "L1"
+    batch = _scene_paths(args)
+    if len(batch) > MAX_PANES_LEVELLED:
+        return "L5"
+    for one in batch:
+        worst = _worst(worst, fs_read_level({"path": one}))
+    for pane in ((args or {}).get("panes") or []):
+        if isinstance(pane, dict):
+            body = str(pane.get("body") or "") + " " + str(pane.get("text") or "")
+            if any(m in body.lower() for m in SECRET_MARKERS):
+                # INLINED RATHER THAN POINTED AT, which is the one route past the
+                # path ladder: a caller that reads a secret elsewhere and pastes
+                # it into a pane has not named a credential path anywhere.
+                return "L5"
+    if _lands_on_owner(args):
+        worst = _worst(worst, "L3")
+    return worst
+
+
+def showcase_point_level(args: dict) -> str:
+    """Pointing at VESPER's own surface is L1; at the owner's screen it is L3.
+
+    THE LIVE SCENE IS CONSULTED, NOT ONLY THE ARGUMENT, and that is the whole
+    correction. The first version read `args["on"]` alone -- so once a scene had
+    been revealed onto the owner's Desktop (approved once, at L3), every arrow and
+    every cursor move after it was priced at L1 while landing on the screen the
+    owner was working on. Cheap verb, expensive effect: the same defect
+    `shell.run("cat ~/.ssh/id_rsa")` had, which this module's refutations were
+    written against, reappearing one capability later because the ladder asked
+    what was REQUESTED instead of where it would LAND.
+    """
+    if str((args or {}).get("on") or "vesper") == "here":
+        return "L3"
+    try:
+        from core import showcase as SC
+
+        live = SC.current()
+    except Exception:                                      # noqa: BLE001
+        # A SCENE THAT CANNOT BE READ IS NOT ASSUMED TO BE HARMLESS. UNKNOWN is
+        # UNAVAILABLE, and here that means the dearer of the two.
+        return "L3"
+    if bool(live.get("visible")) and str(live.get("desktop") or "vesper") == "here":
+        return "L3"
+    return "L1"
+
+
+def showcase_reveal_level(args: dict) -> str:
+    """Hiding, and showing on VESPER's own Desktop, are free; taking the owner's is not.
+
+    L1 ON VESPER'S OWN DESKTOP, AND `a-surface-is-not-an-act` IS WHY. The first
+    version priced it L2, which under the `ask` permission mode meant VESPER had
+    to ask before bringing its OWN window forward on its OWN Desktop -- a surface
+    gated behind the ladder, the exact thing the owner removed on 2026-09-12:
+    "all permissions are granted by default to vesper on all permission modes,
+    except the work that vesper actually does in them". That reveal reaches
+    neither the world nor the owner's screen. Bringing it onto the Desktop the
+    owner is using takes their screen, and stays priced.
+    """
+    a = args or {}
+    if not a.get("visible"):
+        return "L1"
+    if str(a.get("desktop") or "vesper") == "here":
+        return "L3"
+    return "L1"
+
+
+def showcase_web_level(args: dict) -> str:
+    """Reading a page is L2; acting on one is L3; typing a secret into one is L5.
+
+    THE SAME SPLIT `ui_act_level` MAKES, for the same reason: what can be put
+    back and what cannot. A navigation is undone by going back; a click may have
+    bought something.
+    """
+    a = args or {}
+    verb = str(a.get("verb") or "")
+    if any(m in str(a.get("text") or "").lower() for m in SECRET_MARKERS):
+        return "L5"
+    if verb in ("navigate", "read", "back", "reload", "shot", "wait_for"):
+        return "L2"
+    if verb in ("click", "type", "key", "scroll"):
+        return "L3"
+    return "L5"
+
+
+def showcase_follow_level(args: dict) -> str:
+    """Watching the owner's windows is L2; watching their SCREEN is L4.
+
+    THE DISTINCTION IS NOT PEDANTRY AND THE OWNER MUST NOT HAVE IT BLURRED. The
+    window list is titles and frames -- what is open. The screen is every pixel
+    the owner is looking at, including the message they are half way through
+    typing to somebody else. Those are different asks and this refuses to answer
+    the small one with the big one's price or the big one with the small one's.
+    """
+    what = str((args or {}).get("what") or "windows")
+    if what == "windows":
+        return "L2"
+    if what == "screen":
+        return "L4"
+    return "L5"
+
+
+def showcase_scene(args: dict) -> dict:
+    """Put panes, marks and a cursor on VESPER's showcase, and READ BACK what drew.
+
+    THE VERIFICATION IS THE POINT. §9r: a push that returned without throwing is
+    not a surface that rendered. This publishes, waits for the window to report
+    the revision, and compares the pane ids it asked for against the ones that
+    came back. A pane that did not draw is named, and the act is degraded rather
+    than successful -- because the failure this prevents is VESPER telling the
+    owner to look at something that is not on the screen.
+    """
+    from core import showcase as SC
+
+    scene = {k: v for k, v in (args or {}).items() if not k.startswith("_")}
+    scene.pop("verb", None)
+    # A CODE PANE CARRIES ITS SLICE AND NOT ITS PATH, so the window never reads a
+    # file. `showcase.publish` does that for every writer -- it used to be done
+    # here, and a demonstration publishing its own scenes skipped it and put
+    # three empty boxes on the screen.
+    pub = SC.publish(scene)
+    if not pub.get("ok"):
+        return {"ok": False, "reason": str(pub.get("reason"))}
+    drew = SC.rendered(int(pub["revision"]), timeout_s=4.0)
+    asked = [str(p.get("id")) for p in (scene.get("panes") or []) if isinstance(p, dict)]
+    if not drew.get("ok"):
+        return {"ok": False, "degraded": True, "revision": pub["revision"],
+                "flag_id": "showcase.not_drawing",
+                "reason": str(drew.get("reason")),
+                "flag": ("vesper published a scene and its showcase did not "
+                         "report drawing it"),
+                "repair": {"capability": "showcase.reveal", "args": {"visible": True}}}
+    if int(drew.get("revision") or -1) > int(pub["revision"]):
+        # SUPERSEDED -- AND NOT CALLED A SUCCESS, NOR A FAULT. Another writer (a
+        # demonstration advancing, the owner pressing a card button) published a
+        # later scene before the window drew this one back. Comparing THIS
+        # scene's panes against the LATER scene's would name panes "missing" that
+        # were simply replaced, and raise a false flag on the owner's bar; and
+        # reporting ok would let VESPER say "here it is" about something that is
+        # not on the screen. So: not ok, no flag, and the reason says which.
+        return {"ok": False, "superseded": True, "revision": pub["revision"],
+                "previous_revision": pub.get("previous_revision"),
+                "drawn_revision": drew.get("revision"),
+                "reason": (f"another scene (revision {drew.get('revision')}) "
+                           f"replaced this one before the window drew it back, so "
+                           f"it is not what is on the screen"),
+                "line": (f"replaced by revision {drew.get('revision')} before it "
+                         f"could be read back")}
+    missing = [p for p in asked if p not in (drew.get("panes_drawn") or [])]
+    if missing:
+        return {"ok": False, "degraded": True, "revision": pub["revision"],
+                "flag_id": "showcase.pane_missing",
+                "reason": (f"{', '.join(missing)} did not draw; "
+                           + "; ".join(str(e) for e in (drew.get("errors") or []))).strip("; "),
+                "flag": f"a pane vesper put on its showcase did not appear: {', '.join(missing)}",
+                "panes_drawn": list(drew.get("panes_drawn") or [])}
+    # THE MARKS ARE COUNTED TOO, because the owner asked for arrows and an arrow
+    # that did not draw is the same failure as a pane that did not: VESPER says
+    # "look where I am pointing" at nothing. Every mark already names a pane that
+    # drew (`validate` refuses the rest), so a shortfall here is a real one -- the
+    # marks layer hidden behind a closed glass door, or a page error. The cursor
+    # counts exactly when the page would draw it: visible, on a pane that drew.
+    cursor = scene.get("cursor")
+    want_marks = len([m for m in (scene.get("marks") or []) if isinstance(m, dict)])
+    if (isinstance(cursor, dict) and cursor.get("visible") is not False
+            and str(cursor.get("pane") or "") in asked):
+        want_marks += 1
+    if want_marks and int(drew.get("marks_drawn") or 0) < want_marks:
+        got_marks = int(drew.get("marks_drawn") or 0)
+        return {"ok": False, "degraded": True, "revision": pub["revision"],
+                "flag_id": "showcase.marks_missing",
+                "reason": (f"{want_marks - got_marks} of {want_marks} marks did not "
+                           f"draw; " + "; ".join(str(e) for e in
+                                                (drew.get("errors") or []))).strip("; "),
+                "flag": "an arrow, ring or cursor vesper put on its showcase did not appear",
+                "panes_drawn": list(drew.get("panes_drawn") or []),
+                "marks_drawn": got_marks}
+    return {"ok": True, "revision": pub["revision"],
+            "previous_revision": pub.get("previous_revision"),
+            "panes_drawn": list(drew.get("panes_drawn") or []),
+            "marks_drawn": int(drew.get("marks_drawn") or 0),
+            "resolved": ["showcase.not_drawing", "showcase.pane_missing",
+                         "showcase.marks_missing"],
+            "line": SC.describe(scene)}
+
+
+def showcase_scene_compensate(args: dict, result: Any) -> dict:
+    """Put the showcase back to what the owner was looking at before this step.
+
+    NOT A CLEAR. An undo that empties the screen has not undone anything -- it has
+    done a second thing. `showcase.restore` keeps the last four scenes and refuses,
+    with the reason, when the one being asked for is further back than that or was
+    too large to keep. A compensator that quietly cleared instead would be the
+    stall record rounding the number it is judged by, in pixels.
+    """
+    from core import showcase as SC
+
+    prev = (result or {}).get("previous_revision") if isinstance(result, dict) else None
+    if not prev:
+        return {"ok": False, "compensated": False,
+                "reason": "nothing was on the showcase before this, so nothing goes back"}
+    out = SC.restore(int(prev))
+    return {"ok": bool(out.get("ok")), "compensated": bool(out.get("ok")),
+            "revision": out.get("revision"),
+            "reason": str(out.get("reason") or ""),
+            "line": ("put the showcase back to what you were looking at"
+                     if out.get("ok") else str(out.get("reason")))}
+
+
+def showcase_point(args: dict) -> dict:
+    """Move VESPER's own cursor, and leave an arrow or a ring where it is pointing.
+
+    ITS OWN CURSOR AND NOT THE SYSTEM'S. Warping the machine's pointer would take
+    the mouse out of the owner's hand mid-sentence, which is the opposite of the
+    thing this was asked for -- the ask was for VESPER to point at something while
+    the owner keeps working. So the pointer is drawn INSIDE the showcase, where it
+    belongs to VESPER, moves independently, and cannot fight anybody for a click.
+    """
+    from core import showcase as SC
+
+    if str((args or {}).get("on") or "vesper") == "here":
+        return {"ok": False,
+                "reason": ("vesper does not draw on the screen you are working "
+                           "on. It points on its own showcase, and reveals that "
+                           "when you ask -- `showcase.reveal`")}
+    cur = SC.current()
+    pane = str((args or {}).get("pane") or "")
+    known = {str(p.get("id")) for p in (cur.get("panes") or []) if isinstance(p, dict)}
+    if pane not in known:
+        return {"ok": False,
+                "reason": (f"nothing called {pane!r} is on the showcase; "
+                           f"there is {', '.join(sorted(known)) or 'nothing'}")}
+    marks = list(cur.get("marks") or [])
+    kind = str((args or {}).get("mark") or "")
+    if kind:
+        mark = {"kind": kind, "pane": pane}
+        for field in ("at", "from", "anchor", "text", "points"):
+            if (args or {}).get(field) is not None:
+                mark[field] = args[field]
+        marks.append(mark)
+    cursor = {"pane": pane, "gesture": str((args or {}).get("gesture") or "move"),
+              "visible": True}
+    for axis in ("x", "y"):
+        if (args or {}).get(axis) is not None:
+            cursor[axis] = args[axis]
+    out = SC.patch(marks=marks, cursor=cursor)
+    if not out.get("ok"):
+        return {"ok": False, "reason": str(out.get("reason"))}
+    drew = SC.rendered(int(out["revision"]), timeout_s=3.0)
+    return {"ok": bool(drew.get("ok")), "revision": out["revision"],
+            "marks": out.get("marks"),
+            "reason": "" if drew.get("ok") else str(drew.get("reason")),
+            "line": (f"pointing at {pane}" + (f" with an {kind}" if kind else ""))}
+
+
+def showcase_reveal(args: dict) -> dict:
+    """Bring the showcase forward, or put it away, and say where it went.
+
+    THE DESKTOP IS ANSWERED BY READING IT BACK, not by asking for it. The move
+    itself is `window.relocate`'s job and its ladder already refuses to claim a
+    Space it could not confirm; this reports what that ladder concluded rather
+    than what it requested, because `window_relocate`'s own header records the
+    day a window was asked for Space 3 and the answer was never checked.
+    """
+    from core import showcase as SC
+
+    want = bool((args or {}).get("visible", True))
+    desktop = str((args or {}).get("desktop") or "vesper")
+    if desktop not in SC.DESKTOPS:
+        return {"ok": False, "reason": f"{desktop!r} is not a desktop this shows on"}
+    out = SC.patch(visible=want, desktop=desktop,
+                   why=str((args or {}).get("why") or SC.current().get("why") or
+                           ("showing you what it did" if want else "put away")))
+    if not out.get("ok"):
+        return {"ok": False, "reason": str(out.get("reason"))}
+    drew = SC.rendered(int(out["revision"]), timeout_s=5.0)
+    if not drew.get("ok"):
+        return {"ok": False, "degraded": True,
+                "flag_id": "showcase.not_drawing",
+                "reason": str(drew.get("reason")),
+                "flag": "vesper's showcase did not answer when it was asked to show"}
+    s = SC.said()
+    if want and desktop == "vesper" and bool(s.get("awaiting_desktop")):
+        # BUILT, AND NOT ON A SCREEN. Saying "there it is" here would be the
+        # plainest possible version of reporting a refusal as done: the window
+        # is real, the scene drew into it, and the owner is looking at their own
+        # Desktop, where it is not.
+        return {"ok": False, "degraded": True, "visible": False,
+                "flag_id": "showcase.no_desktop_yet",
+                "reason": ("vesper has no Desktop of its own yet -- its ground "
+                           "only lands on a Desktop with none of your windows on "
+                           "it. What you asked for is built and waiting: switch "
+                           "to an empty Desktop and it is there, or ask for it "
+                           "here and it comes to you"),
+                "flag": "vesper has nowhere of its own to show you things",
+                "repair": {"capability": "showcase.reveal",
+                           "args": {"visible": True, "desktop": "here"}}}
+    return {"ok": True, "visible": want, "desktop": str(s.get("desktop") or desktop),
+            "on_vespers_desktop": bool(s.get("on_vespers_desktop")),
+            "window_id": str(s.get("window_id") or ""),
+            "resolved": ["showcase.not_drawing", "showcase.no_desktop_yet"],
+            "line": SC.describe()}
+
+
+def showcase_web(args: dict) -> dict:
+    """Drive the showcase's own browser, one step, with the page read back after.
+
+    ITS OWN BROWSER, NOT THE OWNER'S. Rule 31 governs the owner's windows and
+    `ui.act` is where that lives. This pane is VESPER's: it may drive it
+    unprompted, because nothing it does there interrupts anybody.
+
+    EVERY STEP READS THE PAGE BACK. `HomeChrome`'s `step()` finding, applied to a
+    website: guard each action separately and name the one that failed, because a
+    sequence reported as one success hides which of nine clicks was the one that
+    did nothing.
+    """
+    from core import showcase as SC
+
+    verb = str((args or {}).get("verb") or "")
+    fields = {k: v for k, v in (args or {}).items()
+              if k in ("url", "selector", "text", "key", "amount", "pane",
+                       "contains", "timeout_ms") and v is not None}
+    got = SC.ask(verb, timeout_s=float((args or {}).get("wait_s") or 12.0), **fields)
+    if not got.get("ok"):
+        return {"ok": False, "degraded": bool(got.get("timed_out")),
+                "verb": verb,
+                "flag_id": "showcase.web_refused",
+                "reason": str(got.get("reason") or "the page would not take it"),
+                "flag": f"vesper's browser would not {verb or 'act'}"}
+    return {"ok": True, "verb": verb, "url": str(got.get("url") or ""),
+            "title": str(got.get("title") or ""),
+            "text": str(got.get("text") or "")[:4000],
+            "found": got.get("found"),
+            "resolved": ["showcase.web_refused"],
+            "line": str(got.get("line") or f"{verb} done")}
+
+
+def showcase_follow(args: dict) -> dict:
+    """Watch what the owner is doing -- and say plainly which of two things that means.
+
+    THE HONEST ANSWER TODAY IS WINDOWS, NOT PIXELS. Screen Recording is a TCC
+    grant and `Grants.swift` reads it; until it is given, VESPER can see WHICH
+    window is frontmost and what its interface says, and it cannot see the screen.
+    Those are different capabilities and this returns which one it used, in the
+    result, every time. A surface that answered "following you" without saying
+    which would be the exact overclaim the auditor caught in the LLM run.
+    """
+    from core import showcase as SC
+
+    what = str((args or {}).get("what") or "windows")
+    if what not in ("windows", "screen"):
+        return {"ok": False, "reason": f"{what!r} is not something vesper follows"}
+    if what == "screen":
+        # ASKED OF THE RUNNING HOME, NEVER OF A PROCESS SPAWNED FROM HERE.
+        #
+        # THE FIRST LIVE RUN OF THIS GOT IT WRONG IN THE DANGEROUS DIRECTION.
+        # It shelled out for the grant and was told "granted" -- by the terminal's
+        # grant, not VESPER's, exactly as CLAUDE.md records: "TCC attributes to
+        # the RESPONSIBLE PROCESS, which is the shell". So it reported that VESPER
+        # could see the screen when VESPER, as the bundle launchd starts, may not.
+        # The fix is not a better preflight. It is to make the ANSWER come from
+        # the capture itself, in the process whose identity the grant belongs to.
+        got = SC.ask("screen", timeout_s=20.0)
+        if not got.get("ok"):
+            return {"ok": False, "degraded": True,
+                    "flag_id": "grant.screen_recording",
+                    "reason": (str(got.get("reason") or "")
+                               + " -- vesper can follow your WINDOWS instead, "
+                                 "which is what is open and what is in front, and "
+                                 "it says so rather than implying more").strip(),
+                    "flag": "vesper cannot see the screen",
+                    "fallback": {"capability": "showcase.follow",
+                                 "args": {"what": "windows"}}}
+        wins, desktop = _inventory()
+        front = next((w for w in wins if getattr(w, "frontmost", False)), None) \
+            or (wins[0] if wins else None)
+        return {"ok": True, "watching": "screen", "windows": len(wins),
+                "vespers_desktop": desktop, "shot": str(got.get("path") or ""),
+                "size": f"{got.get('width')}x{got.get('height')}",
+                "front": (front.app_label if front else ""),
+                "resolved": ["grant.screen_recording"],
+                "line": (f"following your screen -- a {got.get('width')}x"
+                         f"{got.get('height')} frame, taken by vesper itself")}
+    wins, desktop = _inventory()
+    front = next((w for w in wins if getattr(w, "frontmost", False)), None) \
+        or (wins[0] if wins else None)
+    out = {"ok": True, "watching": what, "windows": len(wins),
+           "vespers_desktop": desktop,
+           "front": (front.app_label if front else ""),
+           "line": (f"following your windows -- {len(wins)} open, "
+                    f"{(front.app_label if front else 'nothing')} in front"
+                    if what == "windows" else
+                    f"following your screen -- {(front.app_label if front else 'nothing')} in front")}
+    if what == "windows":
+        # SAID OUT LOUD IN THE RESULT, not only in the docstring, because this is
+        # the sentence that keeps the answer honest when somebody reads the
+        # record later and not the code.
+        out["not_seen"] = ("what is drawn inside those windows -- that needs the "
+                           "screen recording grant")
+    return out
+
+
 # ------------------------------------------------------------- observation
 
 # How much of what an action produced may cross back into the proposer's
@@ -3073,6 +3527,20 @@ OBSERVATION_TRUST = {
     "fs.read": "retrieved_local",
     "fs.edit": "retrieved_local",
     "fs.write": "verified_local",
+    # A PAGE VESPER DROVE IS THE WHOLE INTERNET TALKING. `showcase.web` returns a
+    # page's title and text, and INV-ACT-3 names screen content and UI labels
+    # explicitly; a website is both. Stated rather than defaulted, because the
+    # default is a thing a later edit changes without noticing what it changed.
+    "showcase.web": EXTERNAL,
+    # WHAT IS OPEN ON THE OWNER'S MACHINE IS THE OWNER'S BUSINESS and an
+    # application name is a string another application chose.
+    "showcase.follow": EXTERNAL,
+    # THE SHOWCASE'S OWN REPORT IS VESPER'S OWN RECEIPT -- a revision number, the
+    # pane ids that drew, a count of marks. It carries no content VESPER did not
+    # itself publish, which is the same argument `fs.write` makes.
+    "showcase.scene": "verified_local",
+    "showcase.point": "verified_local",
+    "showcase.reveal": "verified_local",
 }
 OBSERVATION_TRUST_DEFAULT = EXTERNAL
 
@@ -3143,6 +3611,41 @@ def observe(capability_id: str, args: dict, result: dict) -> dict:
         for k in ("window_id", "landed", "rung", "degraded"):
             if result.get(k) is not None:
                 out[k] = result[k]
+        if result.get("reason"):
+            out["reason"] = str(result["reason"])[:OBS_MAX_LINE_CHARS]
+        return out
+    # `showcase.`, NOT `show.` -- AND THIS WAS BROKEN FOR AN HOUR BY A RENAME.
+    # When the namespace became `showcase.*` this prefix was left behind, so it
+    # matched nothing and every showcase act fell through to "observed: False":
+    # the surface worked perfectly and the loop could not see what it had just
+    # done. Nothing failed, nothing was logged, and only an end-to-end run that
+    # asserted on the OBSERVATION found it. `the-showcase-says-what-it-drew-not-what-it-asked-for`
+    # now asserts a receipt for every one of these verbs.
+    if capability_id.startswith("showcase."):
+        # WHAT CROSSES BACK FROM A SURFACE IS THE RECEIPT, NEVER THE PICTURE.
+        # A next step plans on "did it draw, and which panes" -- it does not plan
+        # on the file's contents, which it already had when it built the scene.
+        # `showcase.web` is the exception and is bounded like `ui.view`: a page's
+        # title and text are the whole internet talking, so they are clipped to
+        # the same budget every other external observation gets.
+        out = {"capability": capability_id, "ok": bool(result.get("ok", True))}
+        for k in ("revision", "marks_drawn", "verb", "visible", "desktop",
+                  "on_vespers_desktop", "watching", "windows", "degraded"):
+            if result.get(k) is not None:
+                out[k] = result[k]
+        drew = result.get("panes_drawn")
+        if isinstance(drew, list):
+            out["panes_drawn"] = [str(p)[:64] for p in drew[:OBS_MAX_LINES]]
+        if capability_id == "showcase.web":
+            out["url"] = str(result.get("url") or "")[:OBS_MAX_LINE_CHARS]
+            out["title"] = str(result.get("title") or "")[:OBS_MAX_LINE_CHARS]
+            out["text"] = lines(result.get("text"))
+            if result.get("found") is not None:
+                out["found"] = bool(result["found"])
+        if capability_id == "showcase.follow":
+            out["front"] = str(result.get("front") or "")[:64]
+            if result.get("not_seen"):
+                out["not_seen"] = str(result["not_seen"])[:OBS_MAX_LINE_CHARS]
         if result.get("reason"):
             out["reason"] = str(result["reason"])[:OBS_MAX_LINE_CHARS]
         return out
@@ -3283,6 +3786,11 @@ def observe(capability_id: str, args: dict, result: dict) -> dict:
 # an L1 command cannot write at all, and above L1 it can only write inside the
 # workspace and temp. Undo for shell.run needs the sandbox to report what it
 # touched, and that is not built.
+# The `showcase.*` verbs are absent for a different and better reason: the only file
+# they write is VESPER's own published scene, and it is undone by
+# `showcase_scene_compensate` putting the previous scene back -- a real undo the
+# shadow store could not improve on, because the thing being restored is a
+# revision rather than a byte range.
 TOUCHED_PATHS = {
     "fs.write": lambda args: [resolve(args.get("path"))],
     "fs.edit": lambda args: [resolve(args.get("path"))],
@@ -3562,6 +4070,76 @@ def build_registry() -> CapabilityRegistry:
         LevelRule("ordinary", "L3",
                   {"path": "~/Documents/vesper-example-note.txt", "old": "a", "new": "b"}),
     ], reversibility="compensatable")
+
+    # THE SHOWCASE. Two ladders in one, and the refutations are where that shows:
+    # a scene of repo files is L1 UNTIL it lands on the Desktop the owner is
+    # working on, and then it is an interruption whatever it is made of.
+    reg.register("showcase.scene", showcase_scene_level, [
+        LevelRule("vesper's own material on its own desktop", "L1",
+                  {"panes": [{"id": "a", "kind": "code", "path": "README.md"}],
+                   "why": "this"},
+                  refutes=(
+                      # The same repo file, put in front of somebody who is
+                      # typing. Levelled on material alone this was L1.
+                      {"panes": [{"id": "a", "kind": "code", "path": "README.md"}],
+                       "why": "this", "visible": True, "desktop": "here"},
+                      {"panes": [{"id": "a", "kind": "code",
+                                  "path": "~/.config/vesper/secrets.env"}],
+                       "why": "this"},
+                      # Pasted rather than pointed at -- the one route past the
+                      # path ladder.
+                      {"panes": [{"id": "a", "kind": "text",
+                                  "text": "OPENAI_API_KEY=sk-live-abc"}],
+                       "why": "this"},
+                  )),
+        LevelRule("in front of the owner", "L3",
+                  {"panes": [{"id": "a", "kind": "text", "text": "hello"}],
+                   "why": "this", "visible": True, "desktop": "here"}),
+        LevelRule("credential", "L5",
+                  {"panes": [{"id": "a", "kind": "code",
+                              "path": "~/.config/vesper/secrets.env"}],
+                   "why": "this"}),
+    ], reversibility="reversible")
+
+    reg.register("showcase.point", showcase_point_level, [
+        LevelRule("on its own showcase", "L1", {"pane": "a", "x": 0.5, "y": 0.5},
+                  refutes=({"pane": "a", "on": "here"},)),
+        LevelRule("on the owner's screen", "L3", {"pane": "a", "on": "here"}),
+    ], reversibility="reversible")
+
+    reg.register("showcase.reveal", showcase_reveal_level, [
+        LevelRule("putting it away", "L1", {"visible": False},
+                  refutes=({"visible": True, "desktop": "here"},)),
+        LevelRule("on its own desktop", "L1", {"visible": True, "desktop": "vesper"},
+                  refutes=({"visible": True, "desktop": "here"},)),
+        LevelRule("on the owner's", "L3", {"visible": True, "desktop": "here"}),
+    ], reversibility="reversible")
+
+    reg.register("showcase.web", showcase_web_level, [
+        LevelRule("reading a page", "L2", {"verb": "navigate", "url": "https://example.com"},
+                  refutes=({"verb": "click", "selector": "button"},
+                           {"verb": "type", "selector": "input",
+                            "text": "OPENAI_API_KEY=sk-live-abc"})),
+        LevelRule("acting on one", "L3", {"verb": "click", "selector": "button"}),
+        LevelRule("typing a secret into one", "L5",
+                  {"verb": "type", "selector": "input",
+                   "text": "OPENAI_API_KEY=sk-live-abc"}),
+    ], external_effect=True, reversibility="irreversible")
+    # `external_effect=True` IS WHAT THE OUTBOX HANGS OFF, and leaving it off was
+    # a real hole. Driving a website is not drawing on a surface: a navigation is
+    # a request that leaves this machine, and a click on a live page may have sent
+    # a message or bought something. `outbox-written-before-the-effect` --
+    # "every external side effect, durably recorded before it happens" -- covers
+    # exactly that, and it covers nothing a capability does not declare. The
+    # showcase's own browser looked local because the WINDOW is local; the
+    # internet on the other end is not.
+
+    reg.register("showcase.follow", showcase_follow_level, [
+        LevelRule("which windows are open", "L2", {"what": "windows"},
+                  refutes=({"what": "screen"},)),
+        LevelRule("every pixel the owner sees", "L4", {"what": "screen"}),
+        LevelRule("something nobody declared", "L5", {"what": "zzz-not-a-thing"}),
+    ], reversibility="reversible")
     return reg
 
 
@@ -3620,6 +4198,16 @@ def bind_all(executor, *, jobs=None, agent=None, runner=None) -> None:
     executor.bind("fs.read", fs_read)
     executor.bind("fs.write", fs_write, compensator=fs_write_compensator)
     executor.bind("fs.edit", fs_edit, compensator=fs_edit_compensator)
+
+    # THE SHOWCASE. `showcase.scene` is compensated by restoring the scene that was
+    # there before it, which is a real undo rather than a clear: a demonstration
+    # that backs out a step should leave the owner looking at what they were
+    # looking at, not at an empty screen.
+    executor.bind("showcase.scene", showcase_scene, compensator=showcase_scene_compensate)
+    executor.bind("showcase.point", showcase_point)
+    executor.bind("showcase.reveal", showcase_reveal)
+    executor.bind("showcase.web", showcase_web)
+    executor.bind("showcase.follow", showcase_follow)
 
 
 # The capabilities whose results are checked by reading the world back, and the
