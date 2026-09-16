@@ -548,10 +548,11 @@ SAID = "showcase-said.json"
 # indistinguishable from one that worked.
 ASK_VERBS = ("navigate", "click", "type", "key", "scroll", "read", "back",
              "reload", "shot", "wait_for",
-             # NOT ABOUT A PAGE. `screen` photographs the display, and it goes
-             # down this channel for one reason: the answer is only true when the
-             # process answering IS vesper. See `run(_:seq:)` in Showcase.swift.
-             "screen")
+             # NOT ABOUT A PAGE. `screen` photographs the display and
+             # `shot_window` photographs the showcase itself; both go down this
+             # channel for one reason: the answer is only true when the process
+             # answering IS vesper. See `run(_:seq:)` in Showcase.swift.
+             "screen", "shot_window")
 MAX_ASKS = 32
 
 

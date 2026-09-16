@@ -1468,6 +1468,68 @@ if args.contains("--agenda-dump") {
 // opens the window, publishes a scene with two panes and three marks, and prints
 // what the page said it drew -- not what was asked for. Exits 2 when the two
 // disagree, so a gate can run it.
+// DRIVING THE INTERFACE HAS TO RUN AS VESPER, BECAUSE TCC ANSWERS THE
+// RESPONSIBLE PROCESS AND NOT THE ONE THAT ASKED.
+//
+// `tools/ui_endtoend.py` drives the accessibility bridge. Run from a shell every
+// call comes back "accessibility is not granted to VESPER" -- true, and about the
+// wrong app: TCC attributes the request to whoever is RESPONSIBLE for the process
+// tree, which is the terminal. CLAUDE.md records the same trap for the microphone
+// and for speech; measured again here 2026-09-16, with the grant plainly given.
+//
+// So the harness is a MODE of this binary. Launched with `open -n` it runs under
+// VESPER's own identity, the python it starts inherits that, and so does the
+// bridge that python starts. `open` discards stdout, so the script writes its
+// report to `--out` and the caller reads the file.
+//
+// IT RUNS ONE FIXED SCRIPT FROM INSIDE THE BUNDLE, never a path from the command
+// line. A mode that ran arbitrary python as VESPER would hand every local process
+// this app's permissions.
+if args.contains("--ui-endtoend") {
+    func arg(_ n: String) -> String? {
+        guard let i = args.firstIndex(of: n), i + 1 < args.count else { return nil }
+        return args[i + 1]
+    }
+    guard let py = RuntimeHost.interpreter() else {
+        FileHandle.standardError.write(Data("no python3.13 to run the check with\n".utf8))
+        exit(3)
+    }
+    var script: String?
+    var root = FileManager.default.currentDirectoryPath
+    if let res = Bundle.main.resourceURL {
+        let bundled = res.appendingPathComponent("runtime/tools/ui_endtoend.py").path
+        if FileManager.default.isReadableFile(atPath: bundled) {
+            script = bundled
+            root = res.appendingPathComponent("runtime").path
+        }
+    }
+    if script == nil {
+        let dev = FileManager.default.currentDirectoryPath + "/tools/ui_endtoend.py"
+        if FileManager.default.isReadableFile(atPath: dev) { script = dev }
+    }
+    guard let found = script else {
+        FileHandle.standardError.write(Data("ui_endtoend.py is in neither the bundle nor the repo\n".utf8))
+        exit(4)
+    }
+    let p = Process()
+    p.executableURL = URL(fileURLWithPath: py)
+    var pass = [found]
+    for flag in ["--out", "--rounds", "--drive-owner-window"] {
+        if let v = arg(flag) { pass += [flag, v] }
+    }
+    p.arguments = pass
+    var env = ProcessInfo.processInfo.environment
+    env["PYTHONPATH"] = root
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    p.environment = env
+    do { try p.run() } catch {
+        FileHandle.standardError.write(Data("could not start the check: \(error)\n".utf8))
+        exit(5)
+    }
+    p.waitUntilExit()
+    exit(p.terminationStatus)
+}
+
 if args.contains("--showcase-probe") {
     let app = NSApplication.shared
     // `.accessory`: a probe must not steal the owner's focus to prove itself.

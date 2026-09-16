@@ -147,6 +147,8 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private var marks: PassThroughWeb?
     private var sites: [String: WKWebView] = [:]
     private var siteRects: [String: CGRect] = [:]
+    /// The address each site pane was last SENT to, so a changed one is noticed.
+    private var siteURLs: [String: String] = [:]
     private let files = ShowcaseFiles()
 
     private var timer: Timer?
@@ -504,11 +506,26 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         for (id, view) in sites where wanted[id] == nil {
             view.removeFromSuperview()
             sites.removeValue(forKey: id)
+            siteURLs.removeValue(forKey: id)
         }
         for (id, url) in wanted where !id.isEmpty {
             let view: WKWebView
             if let existing = sites[id] {
                 view = existing
+                // AND IF THE PANE'S ADDRESS CHANGED, GO THERE.
+                //
+                // It did not, and the owner caught it on screen: a scene reused
+                // the pane id `site` with a new url, this branch handed back the
+                // view that was already there, and the showcase drew a header
+                // reading "duckduckgo.com" over a page that was still
+                // example.com. The readback could not see it -- the pane DID
+                // draw, and `panes_drawn` says nothing about what is inside one.
+                // A surface that prints an address it is not showing is lying in
+                // the one place the owner is looking. Measured 2026-09-16.
+                if siteURLs[id] != url, let u = URL(string: url) {
+                    siteURLs[id] = url
+                    view.load(URLRequest(url: u))
+                }
             } else {
                 let cfg = WKWebViewConfiguration()
                 let v = WKWebView(frame: .zero, configuration: cfg)
@@ -519,6 +536,7 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                 if let m = marks { host.addSubview(m, positioned: .above, relativeTo: v) }
                 sites[id] = v
                 view = v
+                siteURLs[id] = url
                 if let u = URL(string: url) { v.load(URLRequest(url: u)) }
             }
             if let rect = siteRects[id] {
@@ -656,6 +674,80 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         // run -- it answered "yes, vesper can see your screen" from a reading that
         // was not about VESPER. The home is launched by launchd as the bundle, so
         // its answer is the one that is true, and it is the only one taken.
+        // A PICTURE OF WHAT THIS WINDOW IS ACTUALLY SHOWING.
+        //
+        // THE OWNER, 2026-09-16: *"you should take screenshots of visual stuff
+        // after testing them and look at them to check if what you wanted to show
+        // up showed up."* He was right, and the bug that prompted it proves the
+        // point: `panes_drawn` reported the web pane drew, which was true, and the
+        // page inside it was the wrong one. A readback describes structure; only
+        // an image shows content.
+        //
+        // COMPOSITED FROM THE THREE LAYERS, because that is what the window is.
+        // `cacheDisplay` renders nothing for a WKWebView -- its content is drawn
+        // out of process -- and `CGWindowListCreateImage` is both unavailable on
+        // this SDK and gated behind Screen Recording. `takeSnapshot` is neither:
+        // it asks each web view for its own picture and needs no grant at all,
+        // which is what lets this work on a machine where the screen grant has
+        // just been wiped by a rebuild.
+        if verb == "shot_window" {
+            guard let host = window?.contentView, let b = base else {
+                finish(seq, ["ok": false, "reason": "the showcase window is not built"])
+                return
+            }
+            let size = host.bounds.size
+            let out = Self.stateDir.appendingPathComponent("showcase-window.png")
+            let group = DispatchGroup()
+            var layers: [(NSImage, CGRect)] = []
+            let lock = NSLock()
+
+            func grab(_ view: WKWebView, at rect: CGRect) {
+                group.enter()
+                view.takeSnapshot(with: nil) { img, _ in
+                    if let img {
+                        lock.lock(); layers.append((img, rect)); lock.unlock()
+                    }
+                    group.leave()
+                }
+            }
+            grab(b, at: host.bounds)
+            for (_, v) in sites { grab(v, at: v.frame) }
+            if let m = marks, !marksBlocked { grab(m, at: host.bounds) }
+
+            group.notify(queue: .main) {
+                let canvas = NSImage(size: size)
+                canvas.lockFocus()
+                NSColor.black.setFill()
+                NSBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
+                // BASE FIRST, THEN THE SITES OVER THEIR HOLES, THEN THE GLASS --
+                // the same order the window stacks them in, or the picture shows
+                // a layering the owner is not looking at.
+                for (img, rect) in layers.sorted(by: { $0.1.size.width > $1.1.size.width }) {
+                    img.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
+                }
+                canvas.unlockFocus()
+                guard let tiff = canvas.tiffRepresentation,
+                      let rep = NSBitmapImageRep(data: tiff),
+                      let png = rep.representation(using: .png, properties: [:]) else {
+                    self.finish(seq, ["ok": false, "reason": "the window would not compose"])
+                    return
+                }
+                do {
+                    try FileManager.default.createDirectory(
+                        at: Showcase.stateDir, withIntermediateDirectories: true)
+                    try png.write(to: out)
+                } catch {
+                    self.finish(seq, ["ok": false, "reason": "\(error)"])
+                    return
+                }
+                self.finish(seq, ["ok": true, "path": out.path,
+                                  "width": Int(size.width), "height": Int(size.height),
+                                  "layers": layers.count,
+                                  "line": "photographed its own window"])
+            }
+            return
+        }
+
         if verb == "screen" {
             let allowed = CGPreflightScreenCaptureAccess()
             guard allowed else {

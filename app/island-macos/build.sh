@@ -86,6 +86,10 @@ cp "$REPO/tools/ops/vesper_arm.py" "$APP/Contents/Resources/runtime/tools/ops/"
 # Measured 2026-09-07: exactly that. `menu_catalogue.json` has to land BESIDE
 # `menu_snapshot.py`, not merely somewhere in the bundle -- the module reads
 # it via `Path(__file__).with_name(...)`.
+# THE INTERFACE CHECK SHIPS TOO, because it can only run as VESPER: launched
+# from a shell, TCC answers for the terminal and every accessibility call is
+# refused. `--ui-endtoend` runs this copy, and only this copy.
+cp "$REPO/tools/ui_endtoend.py" "$APP/Contents/Resources/runtime/tools/"
 cp "$REPO/tools/menu_snapshot.py" "$REPO/tools/menu_catalogue.json" \
    "$REPO/tools/home_snapshot.py" \
    "$APP/Contents/Resources/runtime/tools/"

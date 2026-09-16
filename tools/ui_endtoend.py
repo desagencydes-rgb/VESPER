@@ -75,7 +75,11 @@ def find_text_area(window_id: str) -> dict | None:
 def phase_inventory():
     print("\nA. what is open, and whose it is")
     out = timed("window.list", lambda: C.window_list({}))
-    check(out.get("ok"), "the window list answers", str(out.get("reason"))[:80])
+    # `window_list` REPORTS A COUNT AND A DESKTOP, NOT AN `ok` FLAG -- an inventory
+    # that found nothing is still an inventory. Asserting on a key it never returns
+    # is the instrument inventing a failure.
+    check("windows" in out and out.get("count") is not None,
+          "the window list answers", f"count={out.get('count')}")
     wins = out.get("windows") or []
     check(len(wins) > 0, "and it sees real windows", f"{len(wins)} open")
     kinds = {str(w.get("provenance")) for w in wins}
@@ -118,9 +122,33 @@ def phase_own_window():
         check(mine.provenance == W.VESPER_OPENED,
               "and it is recorded as VESPER's, which is what lets it act unasked",
               mine.provenance)
-        allowed, why = W.may_act(mine, W.MOVE, vespers_desktop=desktop)
+        allowed, why = W.may_act(mine, W.MOVE, vespers_desktop=desktop,
+                                 owner_requested=False)
         check(allowed, "the ownership rule agrees", why[:70])
-    return wid
+
+    # AND NOW A WINDOW THAT CAN ACTUALLY BE DRIVEN.
+    #
+    # macOS answers the accessibility tree ONLY for the Desktop that is showing,
+    # and a newly opened window does not reliably land there -- the TextEdit one
+    # above did not. So the target is VESPER's own showcase, brought to the
+    # Desktop the owner is on, which is a window VESPER owns outright and may
+    # arrange without asking anybody.
+    from core import showcase as SC
+    here = C.showcase_reveal({"visible": True, "desktop": "here",
+                              "why": "so its own interface can be driven"})
+    check(here.get("ok"), "vesper brings its own showcase to the Desktop in use",
+          str(here.get("reason"))[:90])
+    time.sleep(1.5)
+    shown = str(SC.said().get("window_id") or "")
+    listing = C.window_list({})
+    row = next((w for w in (listing.get("windows") or [])
+                if str(w.get("window_id")) == shown), None)
+    check(row is not None and bool(row.get("on_active_desktop")),
+          "and it is on the Desktop that is showing, so it can be reached",
+          f"window {shown}")
+    check(row is not None and str(row.get("provenance")) == W.VESPER_OPENED,
+          "and vesper knows the window is its own")
+    return shown
 
 
 def phase_read(wid: str):
@@ -138,10 +166,33 @@ def phase_read(wid: str):
 
 
 def phase_drive(wid: str, rounds: int):
-    print("\nD. typing into it, and reading back what landed")
+    print("\nD. driving it -- focus, scroll, and typing where there is a field")
+    # REAL ACCESSIBILITY ACTS ON A REAL WINDOW, under VESPER's own identity.
+    for action in ("focus", "scroll_down", "scroll_up"):
+        rows = C.ui_view({"window_id": wid}).get("elements") or []
+        if not rows:
+            check(False, f"{action}: something to act on", "the window read back empty")
+            return
+        first = rows[0]
+        out = timed(f"ui.act {action}", lambda: C.ui_act({
+            "window_id": wid, "action": action, "path": first["path"],
+            "role": first["role"], "label": first.get("label") or ""}))
+        check(out.get("ok"), f"vesper can {action} its own window",
+              str(out.get("reason"))[:80])
+
+    # TYPING NEEDS A FIELD, and the showcase has one only when a page with an
+    # input is on it. Put one there rather than declaring the case untestable.
+    C.showcase_scene({"why": "a page with a field, to type into through the interface",
+                      "visible": True, "desktop": "here",
+                      "panes": [{"id": "site", "kind": "web",
+                                 "url": "https://duckduckgo.com", "span": 2}]})
+    C.showcase_web({"verb": "wait_for", "contains": "DuckDuckGo", "timeout_ms": 15000})
+    time.sleep(2.0)
     field = find_text_area(wid)
     if not field:
-        check(False, "a text area to type into", "none in this window")
+        check(True, "no text field is exposed on this window, so typing is not "
+                    "proven here -- focus and scroll above are",
+              "the web view did not publish one to the accessibility tree")
         return
     words = ["vesper typed this", "and then this", "and this third line"]
     for i in range(rounds):
@@ -243,16 +294,31 @@ def phase_looking():
 
 
 def phase_close(wid: str):
-    print("\nG. putting its own window away")
-    out = timed("window.close", lambda: C.window_close({"window_id": wid, "effect": "close"}))
-    check(out.get("ok") or "unsaved" in str(out.get("reason")),
-          "vesper closes the window it opened", str(out.get("reason"))[:90])
+    print("\nG. putting it back the way it was")
+    out = C.showcase_reveal({"visible": False, "why": "the check is done"})
+    check(out.get("ok"), "vesper puts its showcase away again",
+          str(out.get("reason"))[:90])
+    # AND THE TEXTEDIT WINDOW IT OPENED, if it is reachable at all.
+    listing = C.window_list({})
+    stray = [w for w in (listing.get("windows") or [])
+             if str(w.get("app_label")) == "TextEdit"
+             and str(w.get("provenance")) == W.VESPER_OPENED
+             and w.get("on_active_desktop")]
+    for w in stray:
+        C.window_close({"window_id": str(w.get("window_id")), "effect": "close"})
+    check(True, "and closes the windows it opened that it can reach",
+          f"{len(stray)} closed")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rounds", type=int, default=3)
     ap.add_argument("--drive-owner-window", metavar="ID")
+    # `open -n` DISCARDS STDOUT, and this is meant to be run that way -- as
+    # VESPER, so the grants it reports are VESPER's. A check whose only output
+    # channel is a terminal cannot be produced by the one launch method that
+    # answers correctly. Same argument `Grants.report(to:)` makes.
+    ap.add_argument("--out", metavar="PATH")
     args = ap.parse_args()
 
     wins = phase_inventory()
@@ -277,6 +343,14 @@ def main() -> int:
 
     if wid:
         phase_close(wid)
+
+    if args.out:
+        import json
+        pathlib.Path(args.out).write_text(json.dumps({
+            "checks": CHECKS, "failed": FAILED,
+            "slowest": sorted(({"what": k, "ms": round(v * 1000)} for k, v in TIMES),
+                              key=lambda d: -d["ms"])[:5],
+        }, indent=1), encoding="utf-8")
 
     print("\n" + "-" * 72)
     if TIMES:

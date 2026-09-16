@@ -1,0 +1,246 @@
+# VESPER — open work, problems and constraints
+
+**This is the active place.** One document for what is broken, what is unfinished,
+what is not solved, what is hard, and what cannot be changed. Every session reads
+it before starting and updates it before stopping.
+
+**Updated:** 2026-09-16, 15:45.
+
+## How this document is kept honest
+
+1. **An item leaves only with evidence.** Moving something to §7 means naming the
+   command, the gate or the image that shows it. "It should work now" is not a
+   close.
+2. **A bug the owner found is written in his words first**, then in mine. The
+   gap between the two is usually where the real defect is.
+3. **Nothing here is aspirational.** If something is not built, it is in §3 or
+   §4, not described as though it exists.
+4. **Anything measured gets its number and its date.** A figure without those is
+   a guess wearing a decimal point.
+
+---
+
+## 1. RIGHT NOW
+
+| | |
+|---|---|
+| **Branch** | `feat/macos-host-profile`, pushed through `1b040e5` |
+| **Gates** | 203/203 checks, 1081 self-test cases, both lints clean |
+| **The app** | Built, signature valid, bundle clean of bytecode |
+| **VESPER's own Desktop** | **Does not exist.** The ground only lands on a Desktop with none of the owner's windows on it, and he has windows everywhere. Everything "on its desktop" is waiting on this |
+| **Model access** | **None.** Both Claude accounts are past the owner's own limits (agents 88% of the week vs 70%; advisor 51% vs 40%). No other provider key is configured. VESPER cannot hold a conversation or decide anything with a model until a window resets or a limit moves |
+| **Grants** | accessibility, automation, calendar: granted. microphone, screen recording, speech: **wiped by the last build** |
+
+---
+
+## 2. OPEN BUGS — confirmed, with evidence
+
+### 2.1 The showcase collapses its panes into a strip
+> *"don't you realize there some black shit hiding the whole page except top?"*
+
+`#grid` in `app/home-macos/chrome/showcase.html` sets `align-content: start`, so
+grid rows are sized to their CONTENT rather than stretched. A web pane's body is
+an empty div until the site view is laid over it, so it collapses to about
+100 px and the rest of the window is the black ground showing through.
+
+- **Seen:** the owner's screenshot, 2026-09-16 15:30, and again at 15:43.
+- **Fix:** stretch the rows (`grid-auto-rows: minmax(160px, 1fr)`, drop
+  `align-content: start`), then LOOK at a photograph of the window before
+  claiming it.
+- **Why no gate caught it:** the readback reports `panes_drawn`, which is about
+  structure. Nothing asserted a pane's SIZE. The DOM sweep stubs
+  `getBoundingClientRect`, so it cannot see layout at all.
+
+### 2.2 VESPER speaks in the wrong voice
+> *"what i heard just now is a woman's voice, not jarvis's voice"*
+
+Nothing sets `plan.voice`, so `say` uses the host default. This machine has
+`Daniel (en_GB)` — the British male voice — plus Oliver/Eddy (en_GB).
+`contracts/policy/voice.toml` governs the PERSONA (name, rules), not the
+synthesiser, and `vesper_runtime.py` says in a comment that "the good voice is
+not being used yet". Owner has to choose; I should not pick his assistant's voice
+for him.
+
+### 2.3 Speaking blocks everything for as long as it speaks
+> *"vesper can actually talk while all those are running right? because it should be"*
+
+`speech.speak()` runs the synthesiser through a blocking `subprocess.run`, called
+INLINE on the pump — the one thread that hears, decides, acts and answers.
+
+- **Measured 2026-09-16:** a 19-word sentence took **6.1 s**, and for all 6.1 s
+  the pump was deaf and still.
+- **Half-done:** `core/speech.Voice` is written (queue, worker, `interrupt()` for
+  barge-in) and is reached by NOTHING. The runtime still calls the blocking path
+  at `vesper_runtime.py:1431` and `:2987`. No gate, no self-test. See §3.1.
+
+### 2.4 A web pane that changes address kept showing the old page — FIXED, keep the lesson
+The pane header read `duckduckgo.com` over example.com's content, because
+`layoutSites` reused a view by pane id and never navigated it. Fixed 2026-09-16
+and confirmed by photograph. **The lesson stands:** `panes_drawn` said the pane
+drew, which was true, and the content was wrong. A readback describes structure;
+only an image shows content.
+
+---
+
+## 3. UNFINISHED — started, not landed
+
+### 3.1 The non-blocking voice (§2.3)
+Wire `Voice` into the runtime at both call sites, give it a gate ("speaking never
+blocks the turn" — `say()` returns in under 100 ms while a sentence is still
+playing; `interrupt()` stops mid-sentence and drops the queue), and self-test
+cases. Then prove it live: speak a long line and run work at the same time.
+
+### 3.2 Typing through the accessibility bridge is not proven on this machine
+`ui.view` and `ui.act` now run under VESPER's identity (as a mode of the app
+binary — see §5.3). Focus, scroll and the refusals are exercised. **Typing is
+not**, because no window with a text field was reachable on the Desktop that was
+showing. The run was interrupted before it finished.
+
+### 3.3 Screenshot verification is not built into the harnesses
+> *"you should take screenshots of visual stuff after testing them and look at them"*
+
+The capability exists now — `shot_window` photographs VESPER's own window by
+compositing its three layers and needs no grant; `screen` photographs the display
+and needs the grant. Neither is wired into `showcase_endtoend.py`,
+`showcase_soak.py` or `ui_endtoend.py`, and no gate asserts a pane's size or
+position from an image.
+
+### 3.4 Showing and talking are still scripted by hand
+> *"they are talkative, and reactive, they could differ at each case, so i do not
+> want some generic hardcoded bullshit, i want vesper to actively decide, choose
+> and act each time, fast"*
+
+Every scene and demonstration so far was composed BY ME in a test, not by VESPER
+deciding what to show. The mechanism is right (a scene is data; a demonstration
+is a checked script), and the judgement is missing. VESPER must compose the scene
+and the words per situation. **Blocked on model access (§1).**
+
+### 3.5 Documentation
+`VESPER_ENGINEERING_STATUS.md` has counts and a ledger row; it does not describe
+the showcase as a subsystem.
+
+### 3.6 Release items carried from `PLAN_2026-09-13-RELEASE.md`
+- **D3** — write and register rules for the ~88 unregistered checks, immediately
+  before the final build.
+- **J3 face page** — last, by the owner's call.
+- **Wake word and microphone end to end**, with the owner speaking. Needs the
+  grants back.
+- An honest write-up of what the camera can and cannot do.
+
+---
+
+## 4. NOT SOLVED — no known answer yet
+
+### 4.1 VESPER has no Desktop of its own
+Its ground refuses to land on a Desktop holding the owner's windows — his own
+rule, and right. So until he switches to an empty Desktop once, "show it on your
+desktop, not mine" cannot be honoured. The showcase now REFUSES that reveal and
+says why rather than dropping a window over his work. **There is no way around
+this that does not break the rule.**
+
+### 4.2 macOS will not move another application's window between Desktops
+Measured 2026-09-08/09: neither `CGSMoveWindowsToManagedSpace` nor the older
+add/remove pair moves a foreign window. VESPER's own windows move. This is why
+the showcase is one window VESPER owns rather than a herd of applications.
+
+### 4.3 Accessibility answers only for the Desktop that is showing
+So driving the owner's windows works only on the Desktop currently displayed. A
+window elsewhere can be SEEN in the inventory and not touched.
+
+### 4.4 A new window does not reliably land on the active Desktop
+Measured 2026-09-09 and again 2026-09-16: the TextEdit window VESPER opened
+landed somewhere else, which is why §3.2 had nothing to type into.
+
+### 4.5 TCC grants and rebuilds — the rule is more specific than it was
+Believed: every grant dies on every rebuild. **Measured 2026-09-16:**
+accessibility, automation and calendar SURVIVED a rebuild; microphone, screen
+recording and speech did not. The rule needs re-deriving; until then, assume the
+three sensitive ones die and plan the grant trip after the last build.
+
+### 4.6 No model, therefore no judgement
+§1. Everything in §3.4 waits on this. The owner's limits are working exactly as
+designed; the decision to raise one is his.
+
+---
+
+## 5. HARD — solved, and the answer is worth keeping
+
+### 5.1 An instrument's own faults look exactly like the system's
+The soak's first three "findings" were all its own: `ps %cpu` is a decaying
+average (reported 31% for a 3.5% process); the watchdog held a dead pid across a
+deliberate restart and measured the leak-hunting phase for zero seconds while
+still printing a slope; the slope straddled that restart. **Drive the instrument
+before believing it.**
+
+### 5.2 VESPER invalidated its own code signature every time it ran
+The bundled runtime wrote `__pycache__` into the signed bundle, so macOS refused
+to relaunch the app the one moment it mattered — after a permission grant. Four
+crashes in fourteen seconds. Fixed, gated, and deleting the files restored the
+SAME cdhash so the grants survived.
+
+### 5.3 TCC answers the responsible process, not the one that asked
+A harness run from a shell gets the TERMINAL's grants. `ui_endtoend.py` was
+refused "accessibility is not granted to VESPER" while VESPER plainly had it. A
+helper that needs a grant must be a MODE of the app binary, launched with
+`open -n`.
+
+### 5.4 A surface must report what it DREW, not what it was asked to draw
+Everything on the showcase is verified against the window's own readback, and a
+scene another writer replaced first is reported superseded rather than counted.
+
+---
+
+## 6. CONSTRAINTS — standing, not negotiable in passing
+
+**The owner's rules**
+- Windows he opened are his; VESPER's are VESPER's. His are `ON_REQUEST` (rule 31).
+- Surfaces are free in every permission mode; only the WORK inside them is priced (§30).
+- Never take the Desktop he is working on.
+- Claude spend stops at HIS numbers: agents 70%, advisor 40%, set in Settings.
+- Never change his billing or account settings.
+- Downloads need his explicit permission.
+
+**The machine**
+- `python3.13` (`~/.local/bin/python3.13`). System `python3` is 3.9 and every
+  gate dies on `tomllib` while still exiting 0.
+- Stdlib only in `tools/` and `verification/`.
+- No local models on this Mac; don't stress it.
+- A TCC prompt must be triggered with `open -n`, never from a shell.
+- The home waits for an empty Desktop; anything that must exist regardless
+  belongs in the `--home` entry block, not after the ground lands.
+
+**The corpus**
+- A check lands with an executed red run or it does not land.
+- A negative control that passes is a defect.
+- An instrument's self-report is not evidence; read the world back.
+- `INV-HW-1` no product names in routing/resource/policy paths · `INV-HW-2`
+  measured, never declared · `INV-COORD-4` wall clock never orders ·
+  `INV-STOP-2` the stop never goes through the runtime.
+- Never commit while `self_test.py` is running; commit messages via `git commit -F`.
+- Push the feature branch only. Never `main`, never forced.
+
+---
+
+## 7. WAITING ON THE OWNER
+
+1. **Switch to an empty Desktop once**, so VESPER's ground lands and it has a
+   Desktop of its own (§4.1).
+2. **The grant trip, after the last build** — microphone, screen recording,
+   speech: `open -n app/VESPER.app --args --request-grants`.
+3. **Choose the voice** (§2.2). `Daniel (en_GB)` is the British male on this
+   machine; Oliver and Eddy are the other en_GB options.
+4. **Whether to raise a Claude limit** so VESPER can think and talk again (§1,
+   §3.4), or wait for the week to reset (agents: Wed 16 Sep 19:00).
+
+---
+
+## 8. CLOSED RECENTLY — with what proves it
+
+| what | proof |
+|---|---|
+| The showcase: panes, marks, its own cursor, its own browser, a whiteboard, a live run tail | 203/203 checks, 1081 cases, 396 end-to-end assertions over five rounds |
+| It survives a long crowded run | 1972 acts, 8 min sustained, three writers at once, 7.9% cpu, 73→76 MB settling to 75, p95 283 ms |
+| It never claims a scene it did not draw | drew / half-drew / not-drawing / superseded each answered separately, gated |
+| Following the owner's screen | a real 1728×1117 frame, confirmed by the owner |
+| The app can be reopened after a grant | §5.2, gated by `the-app-does-not-invalidate-its-own-signature` |
+| A pane that changes address goes there | §2.4, confirmed by photograph |

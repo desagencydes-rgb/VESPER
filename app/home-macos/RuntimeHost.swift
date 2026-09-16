@@ -33,7 +33,9 @@ final class RuntimeHost {
     /// doing it. Checked rather than assumed: an absent interpreter is reported,
     /// not silently skipped, because a home with no runtime looks exactly like
     /// a home whose runtime has nothing to say.
-    private static func interpreter() -> String? {
+    /// Shared with the `--ui-endtoend` mode, which has to launch python as
+    /// VESPER rather than from a shell -- see that mode for why.
+    static func interpreter() -> String? {
         let candidates = [
             FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".local/bin/python3.13").path,

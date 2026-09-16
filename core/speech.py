@@ -40,7 +40,9 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import shutil
+import threading
 import subprocess
 import urllib.error
 import urllib.request
@@ -577,6 +579,25 @@ class Speech:
                 "rungs_tried": len(tried),
                 "reason": tried[-1].get("reason") if tried else "no rung tried"}
 
+    def argv(self, plan: SpeechPlan, *, voice: str | None = None) -> list:
+        """The command that speaks this plan.
+
+        SPLIT OUT SO SOMETHING ELSE CAN OWN THE PROCESS. `speak()` waits for the
+        synthesiser to finish, which is correct for a caller that wants the
+        sentence said before it does anything else -- and wrong for the one that
+        matters, the turn. See `Voice`.
+        """
+        cmd = [LOCAL_BINARY if shutil.which(LOCAL_BINARY) else "say"]
+        # THE PLAN'S VOICE, not the host's default. An explicit override wins,
+        # but the default of the default is what produced "comma".
+        chosen = voice or plan.voice
+        if chosen:
+            cmd += ["-v", chosen]
+        if plan.rate:
+            cmd += ["-r", str(plan.rate)]
+        cmd.append(plan.text)
+        return cmd
+
     def speak(self, plan: SpeechPlan, *, voice: str | None = None) -> dict:
         """Execute a plan. Only local synthesis is implemented.
 
@@ -596,15 +617,7 @@ class Speech:
         if not shutil.which(LOCAL_BINARY) and not shutil.which("say"):
             return {"spoke": False, "attempted": LOCAL,
                     "reason": "no local speech binary on this host"}
-        cmd = [LOCAL_BINARY if shutil.which(LOCAL_BINARY) else "say"]
-        # THE PLAN'S VOICE, not the host's default. An explicit override wins,
-        # but the default of the default is what produced "comma".
-        chosen = voice or plan.voice
-        if chosen:
-            cmd += ["-v", chosen]
-        if plan.rate:
-            cmd += ["-r", str(plan.rate)]
-        cmd.append(plan.text)
+        cmd = self.argv(plan, voice=voice)
         try:
             proc = subprocess.run(cmd, capture_output=True, timeout=60)
             code = proc.returncode
@@ -617,3 +630,132 @@ class Speech:
                                             "not that a sound reached the room")},
                           component="speech")
         return {"spoke": code == 0, "attempted": LOCAL, "exit_code": code}
+
+
+class Voice:
+    """Speaking that does not stop VESPER hearing, thinking or working.
+
+    THE OWNER, 2026-09-16: *"vesper can actually talk while all those are running
+    right? because it should be, just like jarvis from iron man, even for long
+    runs, complicated ones, multi consecutive runs."*
+
+    IT COULD NOT. `speech.speak()` runs the synthesiser through a blocking
+    `subprocess.run`, and the runtime called it INLINE on the pump -- the one
+    thread that reads what the owner said, decides, acts and answers. Measured
+    2026-09-16: a nineteen-word sentence took 6.1 seconds, and for all 6.1 the
+    pump was deaf and still. Every reply spent its own length doing nothing,
+    which is the exact opposite of the thing being asked for.
+
+    SO THE SENTENCE GOES ON A QUEUE AND A WORKER SAYS IT. `say()` returns in
+    microseconds; the turn carries on. The worker holds the synthesiser's PROCESS
+    rather than waiting on a closed call, which is what makes `interrupt()`
+    possible at all -- barge-in has to stop a sentence half-said, and you cannot
+    stop a `subprocess.run`.
+
+    WHAT IS SPOKEN IS STILL ORDERED. One worker, one queue: two lines never
+    overlap into noise, and a line queued after another is said after it. That is
+    the property a second thread per sentence would lose.
+    """
+
+    def __init__(self, engine, *, bus=None) -> None:
+        self._engine = engine
+        self._bus = bus
+        self._queue: "queue.Queue" = queue.Queue()
+        self._proc: subprocess.Popen | None = None
+        self._lock = threading.Lock()
+        self._said = 0
+        self._dropped = 0
+        self._worker = threading.Thread(target=self._run, daemon=True,
+                                        name="vesper-voice")
+        self._worker.start()
+
+    def say(self, plan: SpeechPlan, *, voice: str | None = None) -> dict:
+        """Queue a sentence. Returns immediately, always."""
+        if not getattr(plan, "spoken", False):
+            return {"queued": False, "reason": getattr(plan, "reason", "not spoken")}
+        self._queue.put((plan, voice))
+        return {"queued": True, "pending": self._queue.qsize()}
+
+    def speaking(self) -> bool:
+        with self._lock:
+            return self._proc is not None and self._proc.poll() is None
+
+    def pending(self) -> int:
+        return self._queue.qsize()
+
+    def counts(self) -> dict:
+        return {"said": self._said, "dropped": self._dropped,
+                "pending": self._queue.qsize(), "speaking": self.speaking()}
+
+    def interrupt(self) -> dict:
+        """Stop mid-sentence and drop what was waiting.
+
+        THE QUEUE IS DROPPED TOO, and that is the whole point. The owner
+        interrupting does not want the next three sentences either; a barge-in
+        that only silenced the current line would be followed by the rest of the
+        speech it was meant to stop.
+        """
+        dropped = 0
+        while True:
+            try:
+                self._queue.get_nowait()
+                self._queue.task_done()
+                dropped += 1
+            except queue.Empty:
+                break
+        with self._lock:
+            proc, self._proc = self._proc, None
+        stopped = False
+        if proc is not None and proc.poll() is None:
+            try:
+                proc.terminate()
+                stopped = True
+            except OSError:
+                pass
+        self._dropped += dropped
+        if self._bus is not None:
+            self._bus.publish("speech.interrupted", subject="voice",
+                              payload={"stopped_mid_sentence": stopped,
+                                       "dropped": dropped},
+                              component="speech")
+        return {"stopped": stopped, "dropped": dropped}
+
+    def _run(self) -> None:
+        while True:
+            plan, voice = self._queue.get()
+            try:
+                self._one(plan, voice)
+            except Exception:                                  # noqa: BLE001
+                # LOSING THE AUDIO NEVER TAKES THE VOICE DOWN WITH IT. A worker
+                # that dies on one bad sentence leaves VESPER mute for the rest
+                # of the session, and nothing would say why.
+                pass
+            finally:
+                self._queue.task_done()
+
+    def _one(self, plan: SpeechPlan, voice: str | None) -> None:
+        argv = self._engine.argv(plan, voice=voice)
+        try:
+            proc = subprocess.Popen(argv, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL)
+        except OSError:
+            return
+        with self._lock:
+            self._proc = proc
+        try:
+            proc.wait(timeout=120)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+        finally:
+            with self._lock:
+                if self._proc is proc:
+                    self._proc = None
+        self._said += 1
+        if self._bus is not None:
+            self._bus.publish("speech.attempted", subject=LOCAL,
+                              payload={"exit_code": proc.returncode,
+                                       "chars": len(plan.text), "queued": True,
+                                       "note": ("exit 0 means the command "
+                                                "returned, not that a sound "
+                                                "reached the room")},
+                              component="speech")

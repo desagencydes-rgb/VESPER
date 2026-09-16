@@ -801,6 +801,22 @@ def _inventory() -> tuple[list, str | None]:
     # stamp against a window the bridge just reported.
     mine = set(_VESPER_OPENED_WINDOWS) | _corroborate(_load_opened(),
                                                       raw.get("windows", []))
+    # AND VESPER'S OWN SHOWCASE, WHICH NOTHING HAD RECORDED. It is created
+    # natively by the app rather than through `window.open`, so it never entered
+    # the opened record -- and `core/windows.py` treats an unrecorded window as the
+    # owner's, deliberately. The consequence was absurd: VESPER could not arrange,
+    # read or drive the one window on the machine that is unambiguously its own,
+    # and asking it to came back "this window is the owner's ... and was not asked
+    # about". The window id comes from the surface's own readback, so this claims
+    # only a window the running showcase says it has.
+    try:
+        from core import showcase as _SC
+
+        own = str((_SC.said() or {}).get("window_id") or "")
+        if own and own != "0":
+            mine.add(own)
+    except Exception:                                      # noqa: BLE001
+        pass
     return ([W.Window(window_id=str(w["window_id"]), pid=int(w["pid"]),
                       app_label=str(w.get("app_label") or "?"),
                       desktop_id=str(w.get("desktop_id") or desktop or "?"),

@@ -14,6 +14,7 @@ output, **the command wins** and this file is stale — fix it.
 
 | File | What it holds |
 |---|---|
+| `VESPER_OPEN_WORK.md` | **The active place.** What is broken, unfinished, unsolved, hard, and what constrains it. Read it before starting; update it before stopping |
 | `MEMORY.md` | Hardware, measured numbers **with provenance**, mistakes already made, doctrine. Most of what looks like a judgement call has been measured |
 | `VESPER_ENGINEERING_STATUS.md` | Where the build stands |
 | `HANDOFF_TO_MACBOOK.md` | What a clone does not bring; per-node setup |
