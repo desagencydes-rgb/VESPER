@@ -182,6 +182,25 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     private var boardStrokes: [Any] = []
     private var grantsCache: [String: String] = [:]
     private var grantsAt = Date.distantPast
+    private var desktopCache = false
+    private var desktopAt = Date.distantPast
+    private var lastSaidBlob = Data()
+    private var lastSaidAt = Date.distantPast
+
+    /// Is the showcase on VESPER's Desktop? Asked of the Spaces hatch at most
+    /// every two seconds.
+    ///
+    /// THE READBACK IS WRITTEN FOUR TIMES A SECOND AND THIS IS A PRIVATE CGS
+    /// CALL. Asking it on every tick means 345,000 private-API round trips a day
+    /// to answer a question whose answer changes when the owner switches Desktop
+    /// -- which is not 345,000 times a day.
+    private func desktopAnswer() -> Bool {
+        if Date().timeIntervalSince(desktopAt) > 2.0 {
+            desktopCache = onVespersDesktop()
+            desktopAt = Date()
+        }
+        return desktopCache
+    }
 
     /// A navigation that somebody is waiting on. Keyed by the pane, because two
     /// panes may be loading at once and the answer must reach the right ask.
@@ -908,7 +927,7 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             "board": boardStrokes,
             "window_id": String(window?.windowNumber ?? 0),
             "desktop": (lastScene["desktop"] as? String) ?? "vesper",
-            "on_vespers_desktop": onVespersDesktop(),
+            "on_vespers_desktop": desktopAnswer(),
             "awaiting_desktop": awaitingDesktop,
             "sites": Array(sites.keys),
         ]
@@ -928,8 +947,24 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             grantsAt = Date()
         }
         out["grants"] = grantsCache
-        guard let d = try? JSONSerialization.data(withJSONObject: out,
-                                                  options: [.prettyPrinted]) else { return }
+        guard let d = try? JSONSerialization.data(
+            withJSONObject: out, options: [.prettyPrinted, .sortedKeys]) else { return }
+        // AN IDENTICAL READBACK IS NOT REWRITTEN.
+        //
+        // This ran on every tick: four writes a second, 345,000 a day, for a file
+        // whose contents had not changed -- on a machine whose stated goal is to
+        // still be working in ten years, with SSD write endurance as the thing
+        // being spent. `.sortedKeys` is what makes the comparison meaningful:
+        // without it two identical states serialise to different bytes whenever a
+        // dictionary rehashes, and nothing would ever match.
+        //
+        // A HEARTBEAT IS STILL WRITTEN EVERY TWO SECONDS, unchanged or not,
+        // because a reader outside this process can only tell "alive and idle"
+        // from "stopped" by the file moving. Losing that would trade a real
+        // diagnostic for a saving nobody asked for.
+        if d == lastSaidBlob, Date().timeIntervalSince(lastSaidAt) < 2.0 { return }
+        lastSaidBlob = d
+        lastSaidAt = Date()
         let p = Self.saidPath
         try? FileManager.default.createDirectory(at: Self.stateDir,
                                                  withIntermediateDirectories: true)

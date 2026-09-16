@@ -98,6 +98,14 @@ final class RuntimeHost {
         var env = ProcessInfo.processInfo.environment
         // The runtime imports `core` and `routing` relative to its root.
         env["PYTHONPATH"] = root
+        // AND NEVER LET IT WRITE BYTECODE BACK INTO THE BUNDLE. The runtime is
+        // inside a SIGNED app: a __pycache__ directory next to these modules
+        // invalidates the seal, and macOS then refuses to relaunch VESPER --
+        // measured 2026-09-16, four crashes in fourteen seconds after the owner
+        // accepted a permission and the system offered to quit and reopen.
+        // The LaunchAgent sets this too; here as well, because a home started by
+        // hand inherits a shell environment that does not.
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
         p.environment = env
         do { try p.run() } catch {
             return "the runtime failed to start: \(error)"

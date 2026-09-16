@@ -8733,6 +8733,25 @@ CASES += [
      "which is the one thing this surface exists not to do"),
 ]
 
+SIGNATURE = "the-app-does-not-invalidate-its-own-signature"
+BUILD_SH = "app/island-macos/build.sh"
+RUNTIME_HOST = "app/home-macos/RuntimeHost.swift"
+
+CASES += [
+    (SIGNATURE, BUILD_SH,
+     _sub("    <key>PYTHONDONTWRITEBYTECODE</key><string>1</string>\n", "", 1),
+     "the LaunchAgent stops setting PYTHONDONTWRITEBYTECODE, so the runtime writes "
+     ".pyc into the signed bundle again and macOS refuses to reopen VESPER the next "
+     "time a permission grant asks it to -- four crashes in fourteen seconds, and the "
+     "owner told the app is not responding"),
+
+    (SIGNATURE, RUNTIME_HOST,
+     _sub('        env["PYTHONDONTWRITEBYTECODE"] = "1"\n', "", 1),
+     "a home started any way other than by the LaunchAgent poisons its own bundle, "
+     "because the one place that cannot rely on the agent's environment stopped "
+     "setting it"),
+]
+
 ATOMIC_TEMP = "an-atomic-write-never-shares-its-temp-name"
 AGENDA_PY = "core/agenda.py"
 ARM_PY = "tools/ops/vesper_arm.py"

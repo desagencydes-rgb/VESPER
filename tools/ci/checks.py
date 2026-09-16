@@ -5236,6 +5236,83 @@ def check_a_demonstration_shows_what_its_check_passed() -> Result:
     return r
 
 
+def check_the_app_does_not_invalidate_its_own_signature() -> Result:
+    """VESPER must not break its own code signature by running.
+
+    WHAT HAPPENED, 2026-09-16. The owner accepted the Screen Recording grant; macOS
+    offered to quit and reopen VESPER; the app crashed four times in fourteen seconds
+    and launchd gave up, and the owner was told VESPER could not be opened because it
+    was not responding. The crash report said `EXC_CRASH SIGKILL (Code Signature
+    Invalid)` / `Launch Constraint Violation`.
+
+    THE CAUSE WAS NINETY-NINE .pyc FILES. VESPER's runtime lives inside the signed
+    bundle, so importing it wrote `__pycache__` directories next to those modules.
+    Those files are not in the seal, so the app invalidated its OWN signature the
+    first time it ran -- every run, since the runtime moved into the bundle. Nothing
+    noticed, because nothing asks macOS to RELAUNCH the app on an ordinary day. A
+    permission grant does, and that is the one moment it cannot be allowed to fail.
+
+    Deleting them restored the seal with the SAME cdhash, so the grants survived.
+
+    THIS CHECK IS THE CONSEQUENCE. It asserts the rule in the two places that enforce
+    it -- the LaunchAgent `build.sh` writes, and the environment `RuntimeHost` hands
+    the runtime -- and then reads the BUILT BUNDLE back, because a rule held in source
+    while the shipped bundle is already poisoned is a rule that is not doing anything.
+    `plutil` rather than `plistlib`: launchd's parser is the authority on whether
+    launchd can read a plist, and it accepts comments Python's XML parser rejects.
+    """
+    r = Result("the-app-does-not-invalidate-its-own-signature")
+    import shutil as _sh
+    import subprocess as _sp
+
+    build = REPO / "app" / "island-macos" / "build.sh"
+    host = REPO / "app" / "home-macos" / "RuntimeHost.swift"
+    if not build.is_file() or not host.is_file():
+        r.err("the build script or the runtime host is missing")
+        return r
+    if "PYTHONDONTWRITEBYTECODE" not in build.read_text(encoding="utf-8"):
+        r.err("the LaunchAgent that build.sh writes does not set "
+              "PYTHONDONTWRITEBYTECODE: the runtime will write __pycache__ into the "
+              "signed bundle, and the next time a grant asks macOS to reopen VESPER "
+              "the kernel will refuse it")
+    if 'env["PYTHONDONTWRITEBYTECODE"]' not in host.read_text(encoding="utf-8"):
+        r.err("RuntimeHost does not set PYTHONDONTWRITEBYTECODE on the runtime it "
+              "spawns, so a home started any other way still poisons the bundle")
+
+    app = REPO / "app" / "VESPER.app"
+    if not app.is_dir():
+        r.note("no built bundle on this tree; the source rules above are all that apply")
+        return r
+    stray = sorted(app.rglob("*.pyc"))
+    if stray:
+        r.err(f"{len(stray)} .pyc file(s) inside the signed bundle (e.g. "
+              f"{stray[0].relative_to(REPO)}): the seal is broken NOW, and the owner "
+              f"will be told VESPER is not responding the next time macOS tries to "
+              f"reopen it")
+    plists = sorted((app / "Contents" / "Library" / "LaunchAgents").glob("*.plist"))
+    if not plists:
+        r.err("the bundle carries no LaunchAgent plists at all")
+    lint = _sh.which("plutil")
+    for p in plists:
+        if lint:
+            out = _sp.run([lint, "-lint", str(p)], capture_output=True, text=True)
+            if out.returncode != 0:
+                r.err(f"{p.name} is not a plist launchd can read: "
+                      f"{(out.stdout + out.stderr).strip()[:150]}")
+    signer = _sh.which("codesign")
+    if signer:
+        out = _sp.run([signer, "-v", "--strict", str(app)], capture_output=True, text=True)
+        blob = (out.stdout + out.stderr).strip()
+        if out.returncode != 0 or "invalid" in blob.lower() or "missing" in blob.lower():
+            r.err(f"the bundle's signature does not verify: {blob[:170]}")
+    if r.ok:
+        r.note(f"the rule is set in the LaunchAgent and in RuntimeHost; the built "
+               f"bundle carries no bytecode, its {len(plists)} plists all pass "
+               f"plutil, and its signature verifies -- so macOS can still reopen it "
+               f"when a grant asks")
+    return r
+
+
 def check_boards_hold_windows_and_cards() -> Result:
     """The projects and research boards hold windows and cards the owner picked
     from a list, show each one's live status, and offer the acts that manage it.
@@ -30745,6 +30822,8 @@ CHECK_FNS = {
     "settings-manage-not-only-show": check_settings_manage_not_only_show,
     "main-menu-manages": check_main_menu_manages,
     "boards-hold-windows-and-cards": check_boards_hold_windows_and_cards,
+    "the-app-does-not-invalidate-its-own-signature":
+        check_the_app_does_not_invalidate_its_own_signature,
     "the-showcase-page-draws-every-kind-and-points-at-the-line":
         check_the_showcase_page_draws_every_kind_and_points_at_the_line,
     "the-showcase-says-what-it-drew-not-what-it-asked-for":

@@ -96,8 +96,8 @@ tools/traceability_lint.py                    PASS   0 errors, 0 warnings, 0 inf
 tools/traceability_lint.py --profile release  FAIL   2 errors, DEPTH only (SR-017, SR-034)
 tools/reference_lint.py                       PASS   0 errors — 179 normative files scanned
 tools/reference_lint.py --self-test           PASS   6/6 red-then-green
-tools/ci/checks.py all                        PASS   202/202 runnable checks, ran 2026-09-16
-tools/ci/self_test.py                         STALE  1079/1079 red-then-green -- last FULL run 1022/1029 on 2026-09-15 00:32, whose 7 misbehaving cases were both instrument faults and are fixed (6 reference_lint: the lint was red at baseline on a path that does not exist; 1 documented-counts: this row was not in the PASS/date shape its mutation needs). Cases added since were run on their own, check by check: 20/20 each-claude-account-stops-at-the-owners-number, 4/4 an-atomic-write-never-shares-its-temp-name, 3/3 the-home-page-survives-what-the-host-sends, 12/12 workflows-show-their-work
+tools/ci/checks.py all                        PASS   203/203 runnable checks, ran 2026-09-16
+tools/ci/self_test.py                         STALE  1081/1081 red-then-green -- last FULL run 1022/1029 on 2026-09-15 00:32, whose 7 misbehaving cases were both instrument faults and are fixed (6 reference_lint: the lint was red at baseline on a path that does not exist; 1 documented-counts: this row was not in the PASS/date shape its mutation needs). Cases added since were run on their own, check by check: 20/20 each-claude-account-stops-at-the-owners-number, 4/4 an-atomic-write-never-shares-its-temp-name, 3/3 the-home-page-survives-what-the-host-sends, 12/12 workflows-show-their-work
 tools/ci/checks.py status                            189/207 check IDs implemented, 18 PENDING
 tools/ci/checks.py ci-registry                       ENFORCED TODAY: 131/182 invariants
 verification/run_f0_acceptance.py             PASS

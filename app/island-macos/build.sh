@@ -131,6 +131,9 @@ mkdir -p "$APP/Contents/Resources/runtime/docs/planning/spike-results"
 cp "$REPO"/docs/planning/spike-results/REMOTE-SUPPLY-*.json \
    "$APP/Contents/Resources/runtime/docs/planning/spike-results/" 2>/dev/null || \
    echo "WARNING: no REMOTE-SUPPLY measurement to bundle -- the app will have no route" >&2
+# NOT TIDINESS: THE SIGNATURE. A .pyc inside the bundle breaks the seal, and a
+# broken seal means macOS refuses to relaunch the app at all. This clears what a
+# previous RUN left behind; the plist above is what stops it happening again.
 find "$APP/Contents/Resources/runtime" -name "__pycache__" -type d -exec rm -rf {} + 2>/dev/null || true
 cp "$REPO/docs/design/assets/vesper-icon.png" "$APP/Contents/Resources/vesper-icon.png"
 
@@ -219,6 +222,28 @@ cat > "$APP/Contents/Library/LaunchAgents/$ID.plist" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>$ID</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- PYTHON MUST NOT WRITE BYTECODE INTO THE BUNDLE.
+
+         The runtime lives in Contents/Resources/runtime, so importing it creates
+         __pycache__ directories there. Those files are not part of the signed
+         seal, so the app invalidates its OWN code signature the first time it
+         runs. Nothing notices until something asks macOS to relaunch the app,
+         and then the kernel refuses it outright: "Code Signature Invalid, Launch
+         Constraint Violation".
+
+         Measured 2026-09-16: the owner accepted the Screen Recording grant, the
+         system offered to quit and reopen VESPER, and it crashed four times in
+         fourteen seconds until launchd gave up and the owner was told VESPER was
+         not responding. 99 stray .pyc files were the whole cause. Deleting them
+         restored the signature with the SAME cdhash, so the grant survived.
+
+         The cleanup below runs at BUILD time and cannot help: the files appear
+         at RUN time. The home passes its own environment to the runtime it
+         spawns, so this one line reaches every python VESPER starts. -->
+    <key>PYTHONDONTWRITEBYTECODE</key><string>1</string>
+  </dict>
   <!-- THE WHOLE THING, AND IT DOES NOT STOP. Owner, 2026-08-24: "is it better
        to put everything built there and not stop it?" -- yes, and this is where
        that decision lives.
