@@ -50,7 +50,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 WAKEALARM = Path("/sys/class/rtc/rtc0/wakealarm")
-INTENT = Path("/home/csf/VESPER/.alarm-state/intent.json")
+# The repo this file lives in, not one machine's checkout. This runs as root from a
+# systemd unit, so $HOME is no guide; VESPER_REPO overrides for an unusual layout.
+INTENT = Path(os.environ.get("VESPER_REPO", Path(__file__).resolve().parents[2])) / ".alarm-state" / "intent.json"
 # How early to wake. The primary preflights 300 s before due; waking earlier
 # than that gives PipeWire, the watchdog timer and the session time to settle.
 MARGIN_MIN = 15

@@ -855,7 +855,8 @@ func installLoginItem() {
 /// One background item instead of two, and the owner sees VESPER rather than a
 /// stray interpreter. `--auto` re-measures only when a reading is going stale.
 func startSnapshotRefresh(repo: String) {
-    let py = ["/Users/macbook/.local/bin/python3.13", "/usr/bin/python3", "/usr/local/bin/python3"]
+    let py = [NSHomeDirectory() + "/.local/bin/python3.13", "/opt/homebrew/bin/python3.13",
+              "/usr/local/bin/python3.13", "/usr/bin/python3", "/usr/local/bin/python3"]
         .first { FileManager.default.isExecutableFile(atPath: $0) }
     guard let py else { return }
     let script = (repo as NSString).appendingPathComponent("tools/island_snapshot.py")
@@ -947,8 +948,8 @@ if args.contains("--arm") {
         FileHandle.standardError.write(Data("pass --repo <path>\n".utf8))
         exit(2)
     }
-    let py = ["/Users/macbook/.local/bin/python3.13", "/usr/bin/python3",
-              "/usr/local/bin/python3"]
+    let py = [NSHomeDirectory() + "/.local/bin/python3.13", "/opt/homebrew/bin/python3.13",
+              "/usr/local/bin/python3.13", "/usr/bin/python3", "/usr/local/bin/python3"]
         .first { FileManager.default.isExecutableFile(atPath: $0) }
     guard let py else {
         FileHandle.standardError.write(Data("--arm: no python3 found\n".utf8))

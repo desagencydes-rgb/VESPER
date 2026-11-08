@@ -247,7 +247,7 @@ app/tool/model removals — Eclipse, Antigravity, mtkclient, Evil-Droid/FuzzyAI,
 InsightFace models, an old kernel); Code-OSS and the active `.pyenv` Python were kept by owner
 choice. **All sleep/blank paths disabled** at the owner's explicit request ("I won't be here to
 wake it") across three independent layers (live `systemd-inhibit` lock, xfce settings, and a
-logind drop-in that makes it reboot-proof). **Timezone corrected** to Africa/Casablanca. No
+logind drop-in that makes it reboot-proof). **Timezone corrected** to the local timezone. No
 credentials, keys, network config, Wi-Fi driver trees, or unidentified files were touched.
 
 ---

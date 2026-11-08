@@ -12,7 +12,9 @@
 set -u
 
 DIR="$HOME/.config/vesper/claude-vesper"
-OWNER_EMAIL="<owner-email>"
+# YOUR personal Claude login -- the one VESPER must NOT share. Read from the
+# environment so no address is committed: VESPER_OWNER_EMAIL=you@example.com
+OWNER_EMAIL="${VESPER_OWNER_EMAIL:?set VESPER_OWNER_EMAIL to your own Claude account email first}"
 
 read_acct() {
   python3 -c "

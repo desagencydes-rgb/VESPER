@@ -306,7 +306,13 @@ enum HostActions {
         case "host.run_gates":
             let root = projectRoot()
             guard !root.isEmpty else { return (false, "the build recorded no project root") }
-            let py = "/Users/macbook/.local/bin/python3.13"
+            // The gates need python >= 3.11 (tomllib); macOS ships 3.9. Look where a
+            // per-user install lands rather than at one machine's home folder.
+            guard let py = [NSHomeDirectory() + "/.local/bin/python3.13", "/opt/homebrew/bin/python3.13",
+                            "/usr/local/bin/python3.13"]
+                .first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+                return (false, "no python3.13 found in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin")
+            }
             let log = state.appendingPathComponent("gates.log")
             let (_, msg) = run([py, "tools/ci/checks.py", "all"], cwd: root, wait: false, stdout: log)
             return (true, "gates \(msg); output in gates.log")

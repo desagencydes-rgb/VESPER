@@ -125,7 +125,7 @@ left:
   `/etc/systemd/logind.conf.d/10-vesper-nosleep.conf` sets `HandleLidSwitch=ignore` (+ external
   power/docked). Verified live over D-Bus (`HandleLidSwitch = "ignore"`). This is the
   reboot-proof layer the §1 note said was still open; it is now closed.
-- **Timezone corrected** from `America/New_York` to `Africa/Casablanca` (+01), the machine's
+- **Timezone corrected** from `America/New_York` to the local timezone (+01), the machine's
   actual location. (Was flagged as a caveat in the findings; now fixed.)
 
 **Security note for the owner:** the sudo password was supplied in the chat session, so it is
