@@ -24,12 +24,12 @@ it before starting and updates it before stopping.
 
 | | |
 |---|---|
-| **Branch** | `feat/macos-host-profile`, pushed through `1b040e5` |
+| **Branch** | `main` on the public repo `desagencydes-rgb/VESPER` |
 | **Gates** | **202/203 checks** — `speech-is-egress-and-says-so` is red and was before today's work: nothing sets `plan.voice`, so `speak()` computes a voice, publishes it and discards it (§2.2). 1090 self-test cases, both lints clean |
 | **The app** | Built, signature valid, bundle clean of bytecode |
 | **VESPER's own Desktop** | **It arrives when called.** Globe x3 now plants the ground on whichever Desktop is showing -- the owner's included -- because being called is not taking (2026-11-08, driven four ways; see §7.1). Vesper still never TAKES a Desktop unasked, so "on its own desktop, away from mine" is still waiting on an empty one |
 | **Model access** | **None.** Both Claude accounts are past the owner's own limits (agents 88% of the week vs 70%; advisor 51% vs 40%). No other provider key is configured. VESPER cannot hold a conversation or decide anything with a model until a window resets or a limit moves |
-| **Open source** | **Prepared 2026-11-08, not yet public.** MIT `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, a per-user `docs/INSTALL.md`, and `docs/SHOWROOM_BRIEF.md` for whoever writes the README. Owner emails and city names scrubbed from tracked files; a personal screenshot removed from `spike015-assets/`. **History is unchanged:** both emails remain as commit authors and the screenshot remains at `98770af`. Rewriting that history is an open owner decision. Flipping the repo to public is the owner's own click on GitHub |
+| **Open source** | **Public since 2026-11-08, MIT.** This repository is a CLEANED copy of the original history: 643 commits with their original messages and dates, and every author mapped to the owner's GitHub noreply address. The owner's emails, cities, school and first name, and a personal screenshot, were removed from every commit, not only the tip. The unedited original, with its pull requests, is the private `VESPER-Archive`. **Commit hashes quoted in documents written before 2026-11-08 name the archive's commits, not this repository's.** Find one here by its subject line. README showroom: `docs/SHOWROOM_BRIEF.md` |
 | **In flight, uncommitted** | The owner's 2026-11-08 ask: *"if no desktop is empty, it shows up in any desktop and it should still take full screen"*. When called to a busy Desktop, open the **showcase full screen**. A partial change sits uncommitted in `app/home-macos/Showcase.swift` and `chrome/showcase.html`, unbuilt and unverified |
 | **Grants** | automation, calendar, speech: granted. **accessibility: WIPED by the 2026-11-08 build, and the globe key does nothing without it** (`open -n app/VESPER.app --args --fn-status` reads `accessibility: false`). microphone, screen recording: wiped |
 
@@ -231,7 +231,7 @@ scene another writer replaced first is reported superseded rather than counted.
   measured, never declared · `INV-COORD-4` wall clock never orders ·
   `INV-STOP-2` the stop never goes through the runtime.
 - Never commit while `self_test.py` is running; commit messages via `git commit -F`.
-- Push the feature branch only. Never `main`, never forced.
+- This repository is PUBLIC. Never commit a key, a personal path, a screenshot of the owner's screen, or anything the owner would not post. Push branches; never force-push `main`.
 
 ---
 
