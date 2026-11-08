@@ -7628,6 +7628,70 @@ CASES += [
      "the showing space is read from the plist again, and that value was "
      "measured 4.5 minutes stale across live desktop switches -- it answers "
      "wrongly and confidently, so the guard never fails closed"),
+
+    # THE OWNER'S EXCEPTION, 2026-11-08, AND THE EIGHT WAYS IT STOPS WORKING.
+    # Every one of these was a live state on 2026-11-02: the globe key started a
+    # home that waited for an empty Desktop with its microphone open, and the
+    # owner reported hearing "i'm here" and seeing no vesper anywhere.
+    ("vesper-never-takes-the-owners-first-desktop", ISLAND_SWIFT,
+     _sub("            if Summons.consume(requiring: .globe) {",
+          "            if false {", 1),
+     "nothing can end the wait for an empty desktop, so globe x3 starts a home "
+     "that waits: the owner presses the key, the microphone comes on, vesper "
+     "says it is here and no ground is ever created"),
+
+    ("vesper-never-takes-the-owners-first-desktop", ISLAND_SWIFT,
+     _sub("            if Summons.consume(requiring: .globe) {",
+          "            if Summons.consume() {", 1),
+     "the wait honours any summons rather than the globe key's. launchd's "
+     "keepalive and build.sh write one on every relaunch nobody asked for, so a "
+     "waiting home plants itself on the desktop that is showing unasked -- the "
+     "desktop-1 rule broken by its own exception"),
+
+    ("vesper-never-takes-the-owners-first-desktop", ISLAND_SWIFT,
+     _sub("                startHome()\n                // NO LANDING JUDGEMENT",
+          "                startHome()\n                verifyGroundLanding()\n                // NO LANDING JUDGEMENT", 1),
+     "the summoned plant is judged by the landing rule, which retracts a ground "
+     "that landed where the owner's windows are -- exactly what a summons asks "
+     "for, so vesper arrives and takes itself away again"),
+
+    ("vesper-never-takes-the-owners-first-desktop", ISLAND_SWIFT,
+     _sub("                startHome()\n                // NO LANDING JUDGEMENT",
+          "                startHome()\n                _ = armResumeWatch()\n                // NO LANDING JUDGEMENT", 1),
+     "the summoned plant arms the resume watch, so the ground the owner called "
+     "is carried off to the next empty desktop -- one they are by definition not "
+     "looking at"),
+
+    ("vesper-never-takes-the-owners-first-desktop", ISLAND_SWIFT,
+     _sub("    Summons.ask(by: .launch)", "    Summons.ask(by: .globe)", 1),
+     "an unasked second launch writes the one tag that ends a wait, and launchd "
+     "produces those by the hundred -- 694 in two hours on 2026-09-13 -- so the "
+     "owner's gesture stops being what takes a desktop"),
+
+    ("vesper-never-takes-the-owners-first-desktop", FN_SWIFT,
+     _sub("    Summons.ask(by: .globe)\n\n    // SUPERVISED, NOT MERELY RUNNING.",
+          "\n    // SUPERVISED, NOT MERELY RUNNING.", 1),
+     "the start path writes no summons, so the home launchd brings up still "
+     "carries --on-empty-desktop and still waits: the exact fault of 2026-11-02, "
+     "with the fix present everywhere but the one path that starts vesper"),
+
+    ("vesper-never-takes-the-owners-first-desktop", FN_SWIFT,
+     _sub("        if groundIsVisible() {", "        if true {", 1),
+     "globe x3 stops a home whose ground is not on the desktop that is showing. "
+     "the owner pressed the key because they could not see vesper, and vesper "
+     "answers by taking its microphone and its island away too"),
+
+    ("vesper-never-takes-the-owners-first-desktop", FN_SWIFT,
+     _sub("        let fresh = Date().timeIntervalSince(written) <= FRESH_S",
+          "        let fresh = true", 1),
+     "a summons never goes stale, so a marker left by a home that was killed "
+     "while waiting answers for the owner at the next login -- when every "
+     "desktop is empty, which is the state this rule exists for"),
+
+    ("vesper-never-takes-the-owners-first-desktop", FN_SWIFT,
+     _sub("        try? FileManager.default.removeItem(at: p)", "", 1),
+     "the summons is not removed when it is read, so one press of the globe key "
+     "ends every wait that follows it"),
 ]
 
 

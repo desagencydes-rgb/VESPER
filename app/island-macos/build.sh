@@ -258,7 +258,15 @@ cat > "$APP/Contents/Library/LaunchAgents/$ID.plist" <<PLIST
        KeepAlive an exit is a restart loop.
 
        The wait does not block: the island is up the moment the process is,
-       whether or not a Desktop is free. -->
+       whether or not a Desktop is free.
+
+       AND THE WAIT ENDS ON A SUMMONS (2026-11-08). These arguments are fixed,
+       so the globe key cannot ask for a different start -- it writes a
+       come-here marker instead, and the home's wait takes it on its first
+       tick and plants the ground on whichever Desktop is showing. That is
+       the owner's decision: this flag governs vesper starting UNASKED, and
+       being called is not taking. Only the globe key writes that marker;
+       the unasked relaunches this KeepAlive produces cannot end a wait. -->
   <key>ProgramArguments</key><array>
     <string>$APP/Contents/MacOS/VESPER</string>
     <string>--home</string>

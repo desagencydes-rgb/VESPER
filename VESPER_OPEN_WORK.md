@@ -4,7 +4,7 @@
 what is not solved, what is hard, and what cannot be changed. Every session reads
 it before starting and updates it before stopping.
 
-**Updated:** 2026-09-16, 15:45.
+**Updated:** 2026-11-08, 19:30.
 
 ## How this document is kept honest
 
@@ -25,11 +25,11 @@ it before starting and updates it before stopping.
 | | |
 |---|---|
 | **Branch** | `feat/macos-host-profile`, pushed through `1b040e5` |
-| **Gates** | 203/203 checks, 1081 self-test cases, both lints clean |
+| **Gates** | **202/203 checks** — `speech-is-egress-and-says-so` is red and was before today's work: nothing sets `plan.voice`, so `speak()` computes a voice, publishes it and discards it (§2.2). 1090 self-test cases, both lints clean |
 | **The app** | Built, signature valid, bundle clean of bytecode |
-| **VESPER's own Desktop** | **Does not exist.** The ground only lands on a Desktop with none of the owner's windows on it, and he has windows everywhere. Everything "on its desktop" is waiting on this |
+| **VESPER's own Desktop** | **It arrives when called.** Globe x3 now plants the ground on whichever Desktop is showing -- the owner's included -- because being called is not taking (2026-11-08, driven four ways; see §7.1). Vesper still never TAKES a Desktop unasked, so "on its own desktop, away from mine" is still waiting on an empty one |
 | **Model access** | **None.** Both Claude accounts are past the owner's own limits (agents 88% of the week vs 70%; advisor 51% vs 40%). No other provider key is configured. VESPER cannot hold a conversation or decide anything with a model until a window resets or a limit moves |
-| **Grants** | accessibility, automation, calendar: granted. microphone, screen recording, speech: **wiped by the last build** |
+| **Grants** | automation, calendar, speech: granted. **accessibility: WIPED by the 2026-11-08 build, and the globe key does nothing without it** (`open -n app/VESPER.app --args --fn-status` reads `accessibility: false`). microphone, screen recording: wiped |
 
 ---
 
@@ -131,12 +131,21 @@ the showcase as a subsystem.
 
 ## 4. NOT SOLVED — no known answer yet
 
-### 4.1 VESPER has no Desktop of its own
+### 4.1 VESPER has no Desktop of its own *unless it is called to one*
 Its ground refuses to land on a Desktop holding the owner's windows — his own
 rule, and right. So until he switches to an empty Desktop once, "show it on your
 desktop, not mine" cannot be honoured. The showcase now REFUSES that reveal and
 says why rather than dropping a window over his work. **There is no way around
 this that does not break the rule.**
+
+**NARROWED 2026-11-08.** The rule governs vesper starting UNASKED. Globe x3 is
+the owner asking, so it now writes a `globe` summons that the home's wait takes
+on its first tick and plants the ground on the Desktop that is showing, Desktop 1
+included — recorded as `called=globe foreign=N` in `ground-log.txt` with the
+windows that were on screen. What has NOT changed: vesper takes nothing by
+itself, and a ground called onto a busy Desktop is `.managed`, so it stays on
+that Space when the owner moves. Another globe x3 brings it along; the ground
+cannot follow on its own, and §4.2 is why.
 
 ### 4.2 macOS will not move another application's window between Desktops
 Measured 2026-09-08/09: neither `CGSMoveWindowsToManagedSpace` nor the older
@@ -208,6 +217,9 @@ scene another writer replaced first is reported superseded rather than counted.
 - A TCC prompt must be triggered with `open -n`, never from a shell.
 - The home waits for an empty Desktop; anything that must exist regardless
   belongs in the `--home` entry block, not after the ground lands.
+- The globe key cannot pass an argument: it bootstraps the LOGIN agent's plist,
+  whose arguments are fixed. A gesture that needs to change how the home starts
+  is a `Summons` marker, read inside the wait (FnTrigger.swift).
 
 **The corpus**
 - A check lands with an executed red run or it does not land.
@@ -223,13 +235,19 @@ scene another writer replaced first is reported superseded rather than counted.
 
 ## 7. WAITING ON THE OWNER
 
-1. **Switch to an empty Desktop once**, so VESPER's ground lands and it has a
-   Desktop of its own (§4.1).
-2. **The grant trip, after the last build** — microphone, screen recording,
-   speech: `open -n app/VESPER.app --args --request-grants`.
-3. **Choose the voice** (§2.2). `Daniel (en_GB)` is the British male on this
+1. **Re-grant Accessibility** — System Settings → Privacy & Security →
+   Accessibility, tick VESPER. The 2026-11-08 build changed the signature and
+   wiped it, and the globe key is a global event tap: without this, pressing it
+   three times does nothing at all. Everything below depends on it.
+   Read it back with `open -n app/VESPER.app --args --fn-status`, never from a
+   shell.
+2. **The grant trip, after the last build** — microphone, screen recording:
+   `open -n app/VESPER.app --args --request-grants`.
+3. **Switch to an empty Desktop once** if he wants vesper to have a Desktop of
+   its own rather than one it was called to (§4.1).
+4. **Choose the voice** (§2.2). `Daniel (en_GB)` is the British male on this
    machine; Oliver and Eddy are the other en_GB options.
-4. **Whether to raise a Claude limit** so VESPER can think and talk again (§1,
+5. **Whether to raise a Claude limit** so VESPER can think and talk again (§1,
    §3.4), or wait for the week to reset (agents: Wed 16 Sep 19:00).
 
 ---

@@ -24986,6 +24986,30 @@ def _swift_body(src: str, opener: str) -> str:
     return ""
 
 
+def _swift_brace_span(src: str, at: int) -> tuple[int, int]:
+    """The half-open span of the block whose `{` follows `at`, in RAW source.
+
+    `_swift_body` strips comments first, which is right for reading a body and
+    wrong for EXCISING one: the caller here has to hand back source whose other
+    offsets still line up with the file it read. A brace inside a comment or a
+    string literal would miscount, so a caller must assert something about what
+    it excised rather than trusting the span -- the callers below do.
+    """
+    j = src.find("{", at)
+    if j < 0:
+        return (-1, -1)
+    depth, k = 0, j
+    while k < len(src):
+        if src[k] == "{":
+            depth += 1
+        elif src[k] == "}":
+            depth -= 1
+            if depth == 0:
+                return (at, k + 1)
+        k += 1
+    return (-1, -1)
+
+
 def check_a_stage_bounds_what_vesper_opens() -> Result:
     """A stage of work names the windows its work may open, and that is enforced.
 
@@ -27126,11 +27150,141 @@ def check_vesper_never_takes_the_owners_first_desktop() -> Result:
                       "every Desktop including the ones it may have -- it would "
                       "never set up anywhere")
 
+    # 4a. THE ONE EXCEPTION IS A SUMMONS, AND NOTHING UNASKED MAY REACH IT.
+    #
+    #     THE OWNER TOOK THIS DECISION 2026-11-08, on being shown that their two
+    #     rules collide: the globe key means "come here, now" (2026-09-06) and
+    #     vesper never takes Desktop 1 (2026-09-10). Being called is not taking,
+    #     so a summons plants on whichever Desktop is showing -- Desktop 1
+    #     included -- and this section exists because that is the only way the
+    #     rule above can now be broken.
+    #
+    #     THE FAULT IT CLOSES, measured 2026-11-02 and reported in the owner's
+    #     own words: *"i click the globe button 3 times, the microphone turns on
+    #     for vesper, and i hear 'i'm here' but i don't see vesper nowhere"*.
+    #     Globe x3 bootstraps the LOGIN agent, whose plist carries
+    #     `--on-empty-desktop`, so the home waited; the flag-free launch written
+    #     for exactly this case on 2026-09-06 had become unreachable when the
+    #     start was put under launchd supervision on 2026-09-14. The marker that
+    #     was supposed to mean "come here" was read only by a timer installed
+    #     AFTER the ground was mounted -- so in the one state where the owner
+    #     could not see vesper, nothing was reading their summons at all.
+    fn_p = REPO / "app" / "island-macos" / "FnTrigger.swift"
+    fn_src = fn_p.read_text(encoding="utf-8") if fn_p.exists() else ""
+    unasked = main_src
+    s_at = main_src.find("if Summons.consume(")
+    if s_at < 0:
+        r.err("nothing can end the wait for an empty Desktop, so globe x3 starts "
+              "a home that waits: the owner presses the key, the microphone comes "
+              "on, vesper says it is here and no ground is ever created")
+    else:
+        # THE CONDITION, NOT ITS CONTENTS. Widening it to any summons is the
+        # whole danger -- launchd's KeepAlive and build.sh write one on every
+        # unasked relaunch -- and every line inside the branch survives that
+        # widening untouched, so what has to be read is what DECIDES.
+        c_at = main_src.find("Summons.consume(", s_at)
+        arg = main_src[c_at + len("Summons.consume("):main_src.find(")", c_at)]
+        if arg.strip() != "requiring: .globe":
+            r.err(f"the wait honours a summons from {arg.strip()!r} rather than from "
+                  f"the globe key alone. launchd's KeepAlive and build.sh write one "
+                  f"on every relaunch nobody asked for, so a waiting home would "
+                  f"plant itself on the Desktop that is showing with nobody having "
+                  f"asked -- which is this rule, broken by its own exception")
+        lo, hi = _swift_brace_span(main_src, s_at)
+        branch = main_src[lo:hi] if lo >= 0 else ""
+        # ASSERTED ABOUT THE EXCISION ITSELF, because a miscounted span would
+        # hand section 4 a truncated file and let it pass on a path it never read.
+        if "startHome()" not in branch or "return" not in branch:
+            r.err("the summons branch does not read as a plant that ends the tick: "
+                  "either it no longer creates the ground, or this check has lost "
+                  "the shape of the block it is excising and the ordering question "
+                  "below is being asked of the wrong source")
+        else:
+            unasked = main_src[:lo] + main_src[hi:]
+        # THE CODE, NOT THE PROSE. The branch's own comment NAMES both of
+        # these to say why neither is called, so a test of the raw text fires on
+        # the explanation -- it did, on the first run of this section.
+        branch_code = _swift_code(branch)
+        if "verifyGroundLanding" in branch_code:
+            r.err("the summoned plant is judged by the landing rule, which RETRACTS "
+                  "a ground that landed on a Desktop with the owner's windows on "
+                  "it -- exactly what a summons asks for. The owner calls vesper "
+                  "and it takes the ground away again half a second later")
+        if "armResumeWatch" in branch_code:
+            r.err("the summoned plant arms the resume watch, so the ground the owner "
+                  "called is carried off to the next empty Desktop -- one they are "
+                  "by definition not looking at")
+    if "Summons.ask(by: .globe)" in main_src:
+        r.err("main.swift writes the one summons tag that may end a wait. Every "
+              "path in it is reachable without the owner pressing anything, so "
+              "the exception to the Desktop-1 rule stops being the owner's gesture")
+    if "Summons.ask(by: .launch)" not in main_src:
+        r.err("a second launch of the bundle no longer leaves a summons, so "
+              "double-clicking vesper while its ground sits on another Desktop "
+              "goes on doing nothing visible -- the complaint this marker exists for")
+    if not fn_src:
+        r.err("app/island-macos/FnTrigger.swift is missing")
+    else:
+        consume = _swift_body(fn_src, "static func consume(requiring who: By? = nil) -> Bool {")
+        if not consume:
+            r.err("`Summons.consume` is gone from FnTrigger.swift, so the gesture "
+                  "has no single reader and the freshness rule has nowhere to live")
+        else:
+            if "modificationDate" not in consume or "FRESH_S" not in consume:
+                r.err("a summons never goes stale. A marker left behind by a home "
+                      "that was killed while waiting answers for the owner at the "
+                      "next login -- when every Desktop is empty, which is the "
+                      "exact state this rule was written for")
+            if "removeItem" not in consume:
+                r.err("the summons is not removed when it is read, so one press of "
+                      "the globe key ends every wait that follows it")
+        m_fresh = re.search(r"static let FRESH_S = ([0-9.]+)", fn_src)
+        if not m_fresh:
+            r.err("`Summons.FRESH_S` is not a literal this check can read")
+        elif float(m_fresh.group(1)) > 600:
+            r.err(f"a summons stays answerable for {m_fresh.group(1)}s. It is a human "
+                  f"gesture; a window that long lets a press from before a reboot "
+                  f"decide which Desktop vesper takes afterwards")
+        launch_body = fn_src[fn_src.find("func launchVesper()"):]
+        launch_body = launch_body[:launch_body.find("\n}\n")]
+        boot_at = launch_body.find('boot.arguments = ["bootstrap"')
+        # BETWEEN DECIDING TO START AND STARTING, not merely somewhere before the
+        # bootstrap: the toggle above also writes a summons, and a file-wide or
+        # function-wide test is satisfied by THAT one while the start path -- the
+        # one the whole fault was in -- writes nothing.
+        start_at = launch_body.find('note("globe x3 -- starting VESPER")')
+        if start_at < 0:
+            r.err("the start path in launchVesper() has changed shape and this "
+                  "check can no longer find where the summons has to be written")
+        elif launch_body.find("Summons.ask(by: .globe)", start_at,
+                              boot_at if boot_at > 0 else len(launch_body)) < 0:
+            r.err("globe x3 does not leave its summons between deciding to start "
+                  "and bootstrapping the agent. That agent's plist carries "
+                  "--on-empty-desktop and cannot be handed another argument, so a "
+                  "request written later misses the home's first tick, the wait "
+                  "stands, and the owner gets a microphone and no ground")
+        running = _swift_body(fn_src, "if homeIsRunning() {")
+        if "groundIsVisible()" not in running:
+            r.err("globe x3 STOPS a home whose ground is not on the Desktop that is "
+                  "showing. The owner pressed the key because they could not see "
+                  "vesper, and vesper answers by taking its microphone and its "
+                  "island away too -- the gesture doing the opposite of its job")
+        if "Summons.ask(by: .globe)" not in running:
+            r.err("globe x3 does nothing for a home that is up with no ground here, "
+                  "which is the state a login start leaves on a machine in use")
+        if "stopVesper" not in running:
+            r.err("globe x3 can no longer stop a vesper that IS here, so the toggle "
+                  "has become one-way")
+
     # 4. AND THE PLANT DECISION ACTUALLY CONSULTS IT, BEFORE PLANTING. A rule
     #    consulted after the ground exists is not a rule, it is a cleanup problem
     #    on a Desktop vesper has already taken.
-    i_ref = main_src.find("SpaceOrder.refusal(")
-    i_plant = main_src.find("timer.invalidate(); t = nil")
+    #
+    #    ASKED OF THE UNASKED PATHS. The summons branch excised in 4a is the
+    #    owner's own exception and is read there on its own terms; everything
+    #    that remains is vesper deciding for itself, and must consult the rule.
+    i_ref = unasked.find("SpaceOrder.refusal(")
+    i_plant = unasked.find("timer.invalidate(); t = nil")
     if i_ref < 0:
         r.err("the wait for an empty Desktop never asks which Desktop it is, so "
               "the owner's rule is written down and enforced by nothing")
@@ -27148,19 +27302,19 @@ def check_vesper_never_takes_the_owners_first_desktop() -> Result:
         # the fourth time this shape has caught me in two days. What must be read
         # is what DECIDES, not what sits inside the decision.
         opener = "if let why = SpaceOrder.refusal("
-        j = main_src.find(opener)
+        j = unasked.find(opener)
         if j < 0 or j > i_plant:
             r.err("the refusal is computed and never used as a condition, so "
                   "vesper works out that this is Desktop 1 and plants anyway")
         else:
-            brace = main_src.find("{", j)
-            cond = main_src[j + len("if "):brace].strip()
+            brace = unasked.find("{", j)
+            cond = unasked[j + len("if "):brace].strip()
             if cond != "let why = SpaceOrder.refusal(first)":
                 r.err(f"the plant is guarded by {cond!r} rather than by the "
                       f"refusal alone. An extra clause makes the guard "
                       f"unreachable while leaving every line inside it intact, "
                       f"which is exactly what a test of the block cannot see")
-            body = main_src[brace:i_plant]
+            body = unasked[brace:i_plant]
             if "return" not in body:
                 r.err("the guard fires and does not return, so the refusal is "
                       "announced and the ground is planted regardless")
@@ -27168,7 +27322,8 @@ def check_vesper_never_takes_the_owners_first_desktop() -> Result:
     r.note("the desktop order is read from macos's own space list rather than "
            "SPI, fullscreen spaces are not counted as desktops, 'cannot tell' "
            "refuses rather than guessing, and the rule is consulted before the "
-           "ground is created")
+           "ground is created -- and its one exception is a fresh summons that "
+           "only the globe key can write")
     return r
 
 

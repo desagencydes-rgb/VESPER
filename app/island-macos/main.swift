@@ -1366,9 +1366,12 @@ if args.contains("--home") && homeIsRunning() {
     // different act from `--on-empty-desktop`, which governs VESPER starting
     // UNASKED at login and correctly refuses to take a Desktop in use. Being
     // called is not taking.
-    let summon = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Application Support/VESPER/come-here")
-    try? Data().write(to: summon)
+    // TAGGED `launch`, NOT `globe`, AND THE DIFFERENCE IS LOAD-BEARING. This
+    // path also fires on launches nobody asked for -- launchd's KeepAlive and
+    // build.sh both produce them, 694 in two hours on 2026-09-13 -- so a
+    // `launch` summons moves a ground that EXISTS and is never allowed to end
+    // the wait for an empty Desktop. Only the globe key may do that.
+    Summons.ask(by: .launch)
     print("home is already running -- asked it to come to this Desktop")
     exit(0)
 }
@@ -2812,6 +2815,41 @@ if args.contains("--home") {
         var announcedFirst = false
         var t: Timer?
         t = Timer(timeInterval: 0.5, repeats: true) { timer in
+            // A SUMMONS ENDS THE WAIT, AND IT IS THE ONLY THING THAT MAY.
+            //
+            // FIRST IN THE TICK, BEFORE BOTH REFUSALS, because everything below
+            // answers "may vesper TAKE this Desktop" and a summons is not
+            // vesper taking anything -- it is the owner saying come here.
+            //
+            // MEASURED 2026-11-02: the globe key started a home that waited,
+            // microphone open, while the owner looked at a Desktop with one
+            // window on it and reported seeing no vesper at all. Before this
+            // branch existed the marker was read only by a timer installed
+            // AFTER the ground was mounted, so in the one state where the owner
+            // could not see vesper, nothing was reading their summons.
+            //
+            // WHAT IT COSTS, SAID PLAINLY: this plants on the Desktop that is
+            // showing, Desktop 1 included, and the owner took that decision
+            // knowing so (2026-11-08). The Desktop-1 rule below governs vesper
+            // starting UNASKED, and nothing unasked reaches here -- only the
+            // globe key writes a `globe` summons, and a stale one is refused.
+            if Summons.consume(requiring: .globe) {
+                timer.invalidate(); t = nil
+                anchor.close()
+                let here = SpaceWatch.fingerprint().count
+                print("home: called here — the ground is created on THIS "
+                    + "Desktop, with \(here) of your window(s) on it.")
+                recordGroundPlanted("called=globe foreign=\(here)")
+                startHome()
+                // NO LANDING JUDGEMENT AND NO RESUME WATCH ON THIS PATH.
+                // `verifyGroundLanding()` RETRACTS a ground that landed on a
+                // Desktop with the owner's windows on it -- which is precisely
+                // what a summons asks for. Judging this plant by that rule
+                // would take the ground away half a second after the owner
+                // called it, and `armResumeWatch()` would then carry it off to
+                // the next empty Desktop they are not looking at.
+                return
+            }
             let fp = SpaceWatch.fingerprint()
             if !fp.isEmpty {
                 if !announced {
@@ -2863,34 +2901,10 @@ if args.contains("--home") {
             timer.invalidate(); t = nil
             anchor.close()
             print("home: empty Desktop — the ground is created HERE.")
-            // WRITTEN DOWN, BECAUSE `open -n` THROWS STDOUT AWAY.
-            //
-            // 2026-09-08: the owner found VESPER's ground sharing a Desktop
-            // with all seven of their windows and asked why. The answer was
-            // unavailable -- this decision is printed, and the instance that
-            // made it had been launched with `open -n`, whose output goes
-            // nowhere. A launcher that discards the only record of the one
-            // decision that can take the owner's workspace leaves every future
-            // occurrence equally unattributable.
-            //
-            // So it lands in a file, with what was ACTUALLY SEEN at the moment
-            // of deciding rather than the conclusion alone: an empty count is
-            // the whole justification, and a later reader has to be able to
-            // check it rather than take it.
-            let record = FileManager.default.homeDirectoryForCurrentUser
-                .appendingPathComponent("Library/Application Support/VESPER/ground-log.txt")
-            let seen = SpaceWatch.onScreen()
-                .filter { $0.layer == 0 }
-                .map { "\($0.owner)#\($0.number)" }
-                .joined(separator: " ")
-            let line = "\(ISO8601DateFormatter().string(from: Date())) "
-                     + "planted pid=\(ProcessInfo.processInfo.processIdentifier) "
-                     + "foreign=0 layer0_on_this_desktop=[\(seen)]\n"
-            if let h = try? FileHandle(forWritingTo: record) {
-                h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close()
-            } else {
-                try? line.write(to: record, atomically: true, encoding: .utf8)
-            }
+            // `foreign=0` IS A MEASUREMENT, NOT A LABEL: the fingerprint
+            // above was empty, and `recordGroundPlanted` writes down what was
+            // on screen at this moment so a later reader can check it.
+            recordGroundPlanted("foreign=0")
             startHome()
             // AND NOW READ THE WORLD BACK, BECAUSE THE CHECK AND THE CREATION
             // ARE TWO DIFFERENT MOMENTS ON TWO POSSIBLY DIFFERENT DESKTOPS.
@@ -2982,6 +2996,42 @@ func armResumeWatch() -> Timer {
         if !fp.isEmpty { return }
         timer.invalidate()
         startHome()
+    }
+}
+
+/// WRITTEN DOWN, BECAUSE `open -n` THROWS STDOUT AWAY.
+///
+/// 2026-09-08: the owner found VESPER's ground sharing a Desktop with all seven
+/// of their windows and asked why. The answer was unavailable -- the decision is
+/// printed, and the instance that made it had been launched with `open -n`,
+/// whose output goes nowhere. A launcher that discards the only record of the
+/// one decision that can take the owner's workspace leaves every future
+/// occurrence equally unattributable.
+///
+/// So it lands in a file, with what was ACTUALLY SEEN at the moment of deciding
+/// rather than the conclusion alone: the count is the whole justification, and a
+/// later reader has to be able to check it rather than take it.
+///
+/// ONE IMPLEMENTATION, TWO PLANTS. It was inline in the empty-Desktop branch
+/// until 2026-11-08, when the summons gained a plant of its own -- and a second
+/// copy of this is one place the format drifts out of step with the reader.
+/// `why` carries what the plant was decided on, which is the only part that
+/// differs: `foreign=0` for an empty Desktop, `called=globe foreign=N` for one
+/// the owner asked for.
+func recordGroundPlanted(_ why: String) {
+    let record = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/VESPER/ground-log.txt")
+    let seen = SpaceWatch.onScreen()
+        .filter { $0.layer == 0 }
+        .map { "\($0.owner)#\($0.number)" }
+        .joined(separator: " ")
+    let line = "\(ISO8601DateFormatter().string(from: Date())) "
+             + "planted pid=\(ProcessInfo.processInfo.processIdentifier) "
+             + "\(why) layer0_on_this_desktop=[\(seen)]\n"
+    if let h = try? FileHandle(forWritingTo: record) {
+        h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); try? h.close()
+    } else {
+        try? line.write(to: record, atomically: true, encoding: .utf8)
     }
 }
 
@@ -3458,11 +3508,13 @@ func startHome() {
         // rule -- so it leaves a marker and this brings the existing one here.
         // Polled on a slow timer because it is a human gesture: a person
         // double-clicks and waits a moment, and half a second is not a wait.
-        let summonPath = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Application Support/VESPER/come-here")
+        // EITHER ASKER IS HONOURED HERE, and that is the difference from the
+        // wait: there is a ground, so answering a summons MOVES a window the
+        // owner can already see rather than deciding which Desktop becomes
+        // vesper's. A double-clicked bundle means come here just as much as the
+        // globe key does. Stale markers are refused by `consume` itself.
         let summonTimer = Timer(timeInterval: 0.5, repeats: true) { _ in
-            guard FileManager.default.fileExists(atPath: summonPath.path) else { return }
-            try? FileManager.default.removeItem(at: summonPath)
+            guard Summons.consume() else { return }
             // `.moveToActiveSpace` IS THE PUBLIC ROUTE and the only one. The
             // alternative is posting the Desktop-switch hotkey, which needs
             // Accessibility -- the grant every rebuild revokes and the reason

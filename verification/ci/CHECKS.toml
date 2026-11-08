@@ -3641,7 +3641,7 @@ kind = "structural"
 impl = "tools/ci/checks.py vesper-never-takes-the-owners-first-desktop"
 blocking = "pr"
 self_test = '''vesper cannot tell which desktop this is, and you asked it \"; ManagedSpaceID\"] as? Int : nil                 s[\"ManagedSpaceID\"] as? Int; ManagedSpaceID\"] as? Int else { return nil }'''
-self_test_evidence = "tools/ci/self_test.py vesper-never-takes-the-owners-first-desktop -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py vesper-never-takes-the-owners-first-desktop -- 13 case(s), red then green, EXECUTED 2026-11-08: 13/13 behaved correctly. The nine added that day pin the owner's summons exception -- globe x3 plants on the Desktop that is showing -- and each was watched going red under its own violation. The first four were executed in the 2026-09-12 full run (900/900); registered 2026-09-14 (D3)."
 subject = "tools/ci/checks.py "
 note = ''''''
 
