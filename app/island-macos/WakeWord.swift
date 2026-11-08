@@ -80,6 +80,7 @@ final class WakeListener {
         request = req
 
         let input = engine.inputNode
+        cancelTheMacsOwnSound(input)
         let format = input.outputFormat(forBus: 0)
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buf, _ in
@@ -158,6 +159,9 @@ final class WakeListener {
 func recordClip(seconds: Double, out: String) -> Int {
     let engine = AVAudioEngine()
     let input = engine.inputNode
+    // THE CLIP TOO, or the wake word is heard over the music and the sentence
+    // after it is recorded with the music in it.
+    cancelTheMacsOwnSound(input)
     let format = input.outputFormat(forBus: 0)
     guard let file = try? AVAudioFile(forWriting: URL(fileURLWithPath: out),
                                       settings: format.settings) else { return 0 }
@@ -171,6 +175,38 @@ func recordClip(seconds: Double, out: String) -> Int {
     input.removeTap(onBus: 0)
     let n = (try? FileManager.default.attributesOfItem(atPath: out)[.size] as? Int) ?? 0
     return n ?? 0
+}
+
+/// Subtract what the Mac itself is playing from what the microphone hears.
+///
+/// THE OWNER, 2026-11-08: *"i listen to music a lot from the mac, so vesper
+/// should be able to listen to me even with music on, and not pay attention to
+/// the lyrics"*. In 69 days the wake word fired twice: the built-in microphone
+/// hears the built-in speakers, and an on-device recogniser handed a song
+/// transcribes the singer, so "vesper" is lost inside the lyrics.
+///
+/// APPLE'S VOICE PROCESSING, the echo canceller calls use, with the Mac's own
+/// output as its reference. Nothing new leaves the machine and nothing is
+/// private: it is a public switch on the input node.
+///
+/// DUCKING OFF. Voice processing turns other audio DOWN by default, which would
+/// make vesper listening audible as the owner's music getting quieter. The
+/// owner wants the music; vesper is the one that has to cope.
+///
+/// IF IT CANNOT BE TURNED ON, THE LISTENER STILL RUNS, and says so -- a missing
+/// canceller is worse hearing, not deafness.
+func cancelTheMacsOwnSound(_ input: AVAudioInputNode) {
+    do {
+        if !input.isVoiceProcessingEnabled { try input.setVoiceProcessingEnabled(true) }
+    } catch {
+        note("echo cancellation unavailable: \(error) -- music on the speakers will reach the wake word")
+        return
+    }
+    if #available(macOS 14.0, *) {
+        input.voiceProcessingOtherAudioDuckingConfiguration =
+            AVAudioVoiceProcessingOtherAudioDuckingConfiguration(
+                enableAdvancedDucking: false, duckingLevel: .min)
+    }
 }
 
 private func appendHeard(_ obj: [String: Any]) {

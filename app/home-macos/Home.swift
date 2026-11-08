@@ -251,9 +251,17 @@ final class HomeController: NSObject {
         metal.contentsScale = screen.backingScaleFactor
         // The face as a bust at the centre -- the owner's home reference,
         // §14.1. The rail and the transcript line arrive with the chrome.
+        // THE WINDOW'S OWN COORDINATES, NOT THE SCREEN'S. A layer's frame is in
+        // its window, whose corner is always 0,0; `screen.frame` is GLOBAL, and
+        // its origin is 0,0 only on the screen that carries the menu bar.
+        // Measured 2026-11-08 on a second display at (1728, 37): the face was
+        // placed at x=2688 in a 1920-wide window -- off the right edge -- and
+        // every chrome surface laid out around it went with it. The ground
+        // showed its wallpaper, rail and dock and nothing in the middle.
+        let inWindow = CGRect(origin: .zero, size: screen.frame.size)
         let side = min(screen.frame.width, screen.frame.height) * 0.62
-        metal.frame = CGRect(x: screen.frame.midX - side / 2,
-                             y: screen.frame.midY - side / 2,
+        metal.frame = CGRect(x: inWindow.midX - side / 2,
+                             y: inWindow.midY - side / 2,
                              width: side, height: side)
         // THE LINE WHOSE ABSENCE MADE THE FIRST MEASUREMENT MEANINGLESS.
         // Without it nextDrawable() returns nil, every draw is a silent no-op,
@@ -276,8 +284,8 @@ final class HomeController: NSObject {
         // shadow is clipped by it -- DESIGN-FOUNDATION SS4 asks for both on every
         // glass tier, so the shadow lives on a container that does not clip.
         let pw = side * 1.16, ph = side * 1.16
-        plateShadow.frame = CGRect(x: screen.frame.midX - pw / 2,
-                                   y: screen.frame.midY - ph / 2,
+        plateShadow.frame = CGRect(x: inWindow.midX - pw / 2,
+                                   y: inWindow.midY - ph / 2,
                                    width: pw, height: ph)
         plateShadow.wantsLayer = true
         plateShadow.layer?.shadowColor = NSColor.black.cgColor
@@ -466,7 +474,7 @@ final class HomeController: NSObject {
     func setTier(_ t: FaceTier) {
         tier = t
         let full = min(screen.frame.width, screen.frame.height) * 0.62
-        let mid = CGPoint(x: screen.frame.midX, y: screen.frame.midY)
+        let mid = CGPoint(x: inWindow.midX, y: inWindow.midY)
         switch t {
         case .centre:
             metal.isHidden = false
@@ -482,8 +490,8 @@ final class HomeController: NSObject {
             plateShadow.isHidden = false
             let w = full * 0.42
             let inset = w * 0.58 + 40
-            layoutFace(width: w, centre: CGPoint(x: screen.frame.maxX - inset,
-                                                 y: screen.frame.minY + inset))
+            layoutFace(width: w, centre: CGPoint(x: inWindow.maxX - inset,
+                                                 y: inWindow.minY + inset))
             amplitude = 0.45
             disperseTarget = 0
             startRendering()
@@ -585,6 +593,8 @@ final class HomeController: NSObject {
     /// Where the face's layer sits, for whoever needs to READ that region
     /// rather than trust that something was drawn into it.
     var faceRect: CGRect { metal.frame }
+    /// The ground's own coordinate space -- see the note in `init`.
+    private var inWindow: CGRect { CGRect(origin: .zero, size: screen.frame.size) }
 
     /// Re-lay the face at a different width, point size derived to match.
     ///
@@ -597,8 +607,8 @@ final class HomeController: NSObject {
     /// something.
     func setFaceWidth(_ w: CGFloat) {
         let side = max(1, w)
-        metal.frame = CGRect(x: screen.frame.midX - side / 2,
-                             y: screen.frame.midY - side / 2,
+        metal.frame = CGRect(x: inWindow.midX - side / 2,
+                             y: inWindow.midY - side / 2,
                              width: side, height: side)
         metal.drawableSize = CGSize(width: side * screen.backingScaleFactor,
                                     height: side * screen.backingScaleFactor)
