@@ -34,8 +34,15 @@
   #grid {
     display: grid; gap: 10px; padding: 10px;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-content: start;
+    /* ROWS SHARE THE HEIGHT. They used to be `align-content: start`, which sizes
+       every row to its CONTENT -- and a web pane's body is an empty div until the
+       real browser view is laid over it, so one web pane collapsed to about a
+       hundred pixels and the rest of the window was the black ground showing
+       through. The owner saw it before any gate did, because `panes_drawn` is
+       about structure and says nothing about size. */
+    grid-auto-rows: minmax(160px, 1fr);
     height: calc(100% - 36px);
+    overflow: auto;
   }
   #grid[data-one="true"] { grid-template-columns: minmax(0, 1fr); }
   .pane {

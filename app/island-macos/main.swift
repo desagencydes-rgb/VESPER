@@ -1538,7 +1538,7 @@ if args.contains("--showcase-probe") {
     let app = NSApplication.shared
     // `.accessory`: a probe must not steal the owner's focus to prove itself.
     app.setActivationPolicy(.accessory)
-    Showcase.probe()
+    Showcase.probe(take: args.contains("--take"))
     app.run()
 }
 
@@ -2814,6 +2814,11 @@ if args.contains("--home") {
         // PRINTED ONCE, like `announced` above and for the same reason: this
         // poll runs twice a second and the owner can sit on Desktop 1 all day.
         var announcedFirst = false
+        // THE BUSY DESKTOPS THE OWNER HAS SHOWN VESPER during this wait, by live
+        // Space id, and the id seen busy on the previous tick (see the debounce
+        // in the tick). Read by `BusyTake.ready`.
+        var busySeen = Set<Int>()
+        var lastBusy: Int?
         var t: Timer?
         t = Timer(timeInterval: 0.5, repeats: true) { timer in
             // A SUMMONS ENDS THE WAIT, AND IT IS THE ONLY THING THAT MAY.
@@ -2842,6 +2847,14 @@ if args.contains("--home") {
                     + "Desktop, with \(here) of your window(s) on it.")
                 recordGroundPlanted("called=globe foreign=\(here)")
                 startHome()
+                // CALLED ONTO A BUSY DESKTOP, IT HAS TO BE SEEN THERE. The ground
+                // is below ordinary windows, so with the owner's windows on screen
+                // the summons would plant something they cannot see -- the
+                // 2026-11-02 complaint again, one layer down.
+                if here > 0 {
+                    Showcase.shared.takeTheScreen(
+                        why: "you called vesper here — your \(here) window(s) are behind it")
+                }
                 // NO LANDING JUDGEMENT AND NO RESUME WATCH ON THIS PATH.
                 // `verifyGroundLanding()` RETRACTS a ground that landed on a
                 // Desktop with the owner's windows on it -- which is precisely
@@ -2853,20 +2866,39 @@ if args.contains("--home") {
             }
             let fp = SpaceWatch.fingerprint()
             if !fp.isEmpty {
-                if !announced {
-                    print("      here now: \(fp.count) foreign window(s) — not VESPER's Desktop.")
-                    announced = true
+                // COUNTED ONLY ON THE SECOND TICK IN A ROW. The fingerprint and
+                // the Space id are two readings taken a moment apart, and during
+                // a switch they can describe different rooms -- the windows of
+                // the Desktop being left, the id of the one arriving. Counting on
+                // one tick would let an EMPTY Desktop be recorded as busy, and the
+                // busy take would then fire while there was an empty one to have.
+                let now = SpaceOrder.activeSpaceId()
+                if let now, now == lastBusy { busySeen.insert(now) }
+                lastBusy = now
+                let desktops = now.flatMap { SpaceOrder.desktops(containing: $0) }
+                if !BusyTake.ready(seen: busySeen, current: now, desktops: desktops) {
+                    if !announced {
+                        print("      here now: \(fp.count) foreign window(s) — not VESPER's Desktop.")
+                        announced = true
+                    }
+                    if let want = AmbienceReport.wanted(), want != reportedWant {
+                        reportedWant = want
+                        AmbienceReport.append(
+                            want, ok: false,
+                            why: "vesper has no desktop of its own yet: \(fp.count) of "
+                               + "your windows are on the one showing, and it will not "
+                               + "take a desktop you are working on. switch to an empty "
+                               + "desktop and it will set up there and apply \(want)")
+                    }
+                    return
                 }
-                if let want = AmbienceReport.wanted(), want != reportedWant {
-                    reportedWant = want
-                    AmbienceReport.append(
-                        want, ok: false,
-                        why: "vesper has no desktop of its own yet: \(fp.count) of "
-                           + "your windows are on the one showing, and it will not "
-                           + "take a desktop you are working on. switch to an empty "
-                           + "desktop and it will set up there and apply \(want)")
-                }
-                return
+                // NO EMPTY DESKTOP AMONG THE ONES THE OWNER HAS SHOWN IT, so this
+                // busy one may be taken -- and it FALLS THROUGH to the same
+                // Desktop-1 refusal and the same single plant as an empty one.
+                // `BusyTake` widens "empty" to "nothing empty was found"; it does
+                // not get a plant of its own that could skip the rule below.
+            } else {
+                lastBusy = nil
             }
             // EMPTY IS NO LONGER THE WHOLE CONDITION -- ORDER IS THE OTHER HALF.
             //
@@ -2890,7 +2922,8 @@ if args.contains("--home") {
             let first = SpaceOrder.onFirstDesktop()
             if let why = SpaceOrder.refusal(first) {
                 if !announcedFirst {
-                    print("      here now: an EMPTY desktop, and vesper will not take it — \(why)")
+                    print("      here now: \(fp.isEmpty ? "an EMPTY desktop" : "a busy desktop, with none empty found"), "
+                        + "and vesper will not take it — \(why)")
                     announcedFirst = true
                 }
                 if let want = AmbienceReport.wanted(), want != reportedWant {
@@ -2901,6 +2934,28 @@ if args.contains("--home") {
             }
             timer.invalidate(); t = nil
             anchor.close()
+            if !fp.isEmpty {
+                // THE BUSY TAKE. Reached only through `BusyTake.ready` above and
+                // only past the Desktop-1 refusal, so this is vesper taking a room
+                // the owner works in because it was shown there is no other.
+                //
+                // AND THEN IT TAKES THE SCREEN, because the ground alone cannot be
+                // seen here: it sits one level BELOW ordinary windows, so on a
+                // Desktop with the owner's windows on it vesper is underneath all
+                // of them. That is "vesper does not take full screen" in the
+                // owner's words, and their answer was the showcase, full screen.
+                print("home: no empty Desktop among the \(busySeen.count) you showed me — "
+                    + "taking THIS one, with \(fp.count) of your window(s) on it.")
+                recordGroundPlanted("taken=busy seen=\(busySeen.count) foreign=\(fp.count)")
+                startHome()
+                Showcase.shared.takeTheScreen(
+                    why: "no desktop was empty, so vesper took this one — your "
+                       + "\(fp.count) window(s) are behind it")
+                // NO LANDING JUDGEMENT AND NO RESUME WATCH, for the summons'
+                // reason: `verifyGroundLanding()` retracts a ground that landed
+                // among the owner's windows, which is what this plant is.
+                return
+            }
             print("home: empty Desktop — the ground is created HERE.")
             // `foreign=0` IS A MEASUREMENT, NOT A LABEL: the fingerprint
             // above was empty, and `recordGroundPlanted` writes down what was

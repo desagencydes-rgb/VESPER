@@ -377,4 +377,71 @@ enum SpaceOrder {
             return nil
         }
     }
+
+    /// The plain Desktops on the display showing `id`, in order. `nil` when
+    /// that cannot be read, or when `id` is not a plain Desktop at all.
+    ///
+    /// THE SAME FILTER AS `onFirstDesktop()`, for the same measured reason: a
+    /// fullscreen Space sits in the list between Desktops, and counting it would
+    /// let one full-screened window pass for a Desktop the owner switched to.
+    static func desktops(containing id: Int) -> [Int]? {
+        guard let data = try? Data(contentsOf: plist),
+              let root = try? PropertyListSerialization.propertyList(
+                  from: data, options: [], format: nil) as? [String: Any],
+              let cfg = root["SpacesDisplayConfiguration"] as? [String: Any],
+              let mgmt = cfg["Management Data"] as? [String: Any],
+              let monitors = mgmt["Monitors"] as? [[String: Any]]
+        else { return nil }
+        for m in monitors {
+            guard let spaces = m["Spaces"] as? [[String: Any]] else { continue }
+            let desktops = spaces.compactMap { s -> Int? in
+                ((s["type"] as? Int) ?? 0) == 0 ? s["ManagedSpaceID"] as? Int : nil
+            }
+            if desktops.contains(id) { return desktops }
+        }
+        return nil
+    }
+}
+
+/// When no Desktop is empty, VESPER takes one anyway -- but only after the owner
+/// has shown it there is no empty one to find.
+///
+/// THE OWNER, 2026-11-08: *"vesper should only take empty desktops with no
+/// windows, if no desktop is empty, it shows up in any desktop and it should
+/// still take full screen even with windows happening to be in the screen, and
+/// it should not just take any open desktop after loading, only empty ones, if 3
+/// desktops have been switched but still none of them are empty, it should take
+/// just one of them"*. Asked how it should look on a busy Desktop: the showcase,
+/// full screen.
+///
+/// "SWITCHED" IS READ AS DISTINCT DESKTOPS SEEN BUSY, not as a count of switch
+/// events. Going back and forth between two busy Desktops three times has shown
+/// vesper two rooms, not three, and the third may well be empty.
+///
+/// NEVER TRUE ON A FRESH LOAD. The floor of two means the Desktop vesper started
+/// on can never qualify by itself -- "it should not just take any open desktop
+/// after loading". With only two Desktops, both seen busy is all there is to see.
+///
+/// PURE, AND THAT IS THE POINT. The wait calls it with live readings; a gate
+/// reads it. Taking the owner's busy Desktop is decided HERE and nowhere else,
+/// and the Desktop-1 refusal still runs after it -- this widens "empty" to
+/// "nothing empty was found"; it never widens "not Desktop 1".
+enum BusyTake {
+    /// Distinct busy Desktops the owner has to have shown vesper, at most.
+    static let DESKTOPS = 3
+
+    static func needed(_ desktopCount: Int) -> Int {
+        max(2, min(DESKTOPS, desktopCount))
+    }
+
+    /// `seen`: the Desktops counted busy during this wait. `current`: the one
+    /// showing. `desktops`: the plain Desktops on its display, in order.
+    static func ready(seen: Set<Int>, current: Int?, desktops: [Int]?) -> Bool {
+        // CANNOT TELL MEANS NO, for the reason it does in `SpaceOrder`: an
+        // unreadable list, or a current Space that is not a plain Desktop (a
+        // fullscreen window), is not a room vesper has any business taking.
+        guard let current, let desktops, desktops.contains(current) else { return false }
+        let counted = seen.intersection(desktops)
+        return counted.contains(current) && counted.count >= needed(desktops.count)
+    }
 }

@@ -27319,11 +27319,111 @@ def check_vesper_never_takes_the_owners_first_desktop() -> Result:
                 r.err("the guard fires and does not return, so the refusal is "
                       "announced and the ground is planted regardless")
 
+    # 4b. THE BUSY TAKE: WHEN NO DESKTOP IS EMPTY, VESPER TAKES ONE -- NARROWLY.
+    #
+    #     THE OWNER, 2026-11-08: *"vesper should only take empty desktops with no
+    #     windows, if no desktop is empty, it shows up in any desktop and it should
+    #     still take full screen even with windows happening to be in the screen,
+    #     and it should not just take any open desktop after loading, only empty
+    #     ones, if 3 desktops have been switched but still none of them are empty,
+    #     it should take just one of them"* -- and, asked how: the showcase, full
+    #     screen.
+    #
+    #     Each clause below is one way that permission silently widens into vesper
+    #     taking whatever Desktop the owner is on.
+    busy = _swift_body(watch, "enum BusyTake {")
+    if not busy:
+        r.err("SpaceWatch has no `BusyTake`, so either vesper never takes a busy "
+              "Desktop -- the owner switches through every one and vesper stays "
+              "invisible -- or that decision lives somewhere no gate reads")
+    else:
+        m_n = re.search(r"static let DESKTOPS = (\d+)", busy)
+        if not m_n or int(m_n.group(1)) != 3:
+            r.err(f"`BusyTake.DESKTOPS` is {m_n.group(1) if m_n else 'unreadable'}, "
+                  f"not the owner's three. Fewer takes their Desktop before they "
+                  f"have shown vesper there is no empty one")
+        needed = _swift_body(busy, "static func needed(_ desktopCount: Int) -> Int {")
+        if "max(2," not in needed.replace(" ", ""):
+            r.err("`BusyTake.needed` has lost its floor of two, so the one Desktop "
+                  "vesper loads on can qualify by itself -- \"it should not just "
+                  "take any open desktop after loading\"")
+        ready = _swift_body(busy, "static func ready(seen: Set<Int>, current: Int?, desktops: [Int]?) -> Bool {")
+        if "desktops.contains(current)" not in ready:
+            r.err("`BusyTake.ready` no longer refuses a Space that is not a plain "
+                  "Desktop, so a fullscreen window -- or a list vesper could not "
+                  "read -- counts as a room it may take")
+        if "counted.contains(current)" not in ready:
+            r.err("`BusyTake.ready` can fire on a Desktop it has not itself seen "
+                  "busy, so the take lands on a room nobody counted")
+
+    unasked_code = _swift_code(unasked)
+    b_at = unasked_code.find("BusyTake.ready(")
+    ref_at = unasked_code.find("if let why = SpaceOrder.refusal(")
+    plant_at = unasked_code.find("timer.invalidate(); t = nil")
+    if b_at < 0:
+        r.err("the wait never asks `BusyTake.ready`, so a machine with no empty "
+              "Desktop leaves vesper waiting forever, invisible")
+    elif ref_at < 0 or not (b_at < ref_at < plant_at):
+        r.err("the busy take is decided after the Desktop-1 refusal or after the "
+              "plant, so a busy Desktop 1 can be taken -- the exception has grown "
+              "past the rule it is an exception to")
+    else:
+        between = unasked_code[b_at:ref_at]
+        if "startHome()" in between:
+            r.err("the busy take plants before the Desktop-1 refusal runs. It must "
+                  "fall through to the one plant, or a busy Desktop 1 is taken")
+        if "busySeen.insert" not in unasked_code[:b_at] or "now == lastBusy" \
+                not in unasked_code[:b_at]:
+            r.err("a busy Desktop is counted on a single tick. The fingerprint and "
+                  "the Space id are read a moment apart and disagree during a "
+                  "switch, so an EMPTY Desktop can be counted busy and the take "
+                  "fires while there was an empty one to have")
+        post = unasked_code[plant_at:]
+        bp_at = post.find("if !fp.isEmpty {")
+        if bp_at < 0:
+            r.err("the plant no longer separates a busy take from an empty one, so "
+                  "either the busy take is judged and retracted by the landing rule "
+                  "or it never takes the screen")
+        else:
+            lo2, hi2 = _swift_brace_span(post, bp_at)
+            bplant = post[lo2:hi2] if lo2 >= 0 else ""
+            if "Showcase.shared.takeTheScreen(" not in bplant:
+                r.err("a busy take plants the ground and stops there. The ground sits "
+                      "below ordinary windows, so on a busy Desktop the owner sees "
+                      "nothing of vesper -- \"vesper does not take full screen\"")
+            if "verifyGroundLanding" in bplant or "armResumeWatch" in bplant:
+                r.err("the busy take is judged by the landing rule, which retracts a "
+                      "ground among the owner's windows -- exactly what this plant is")
+            if "return" not in bplant:
+                r.err("the busy plant falls on into the empty-Desktop path and is "
+                      "judged and retracted there")
+
+    summons_code = _swift_code(main_src[main_src.find("if Summons.consume("):])
+    summons_code = summons_code[:summons_code.find("let fp = SpaceWatch.fingerprint()")]
+    if "if here > 0" not in summons_code or "takeTheScreen(" not in summons_code:
+        r.err("a globe summons onto a busy Desktop plants a ground the owner cannot "
+              "see: it sits below their windows, and the showcase never takes the "
+              "screen")
+
+    show_p = REPO / "app" / "home-macos" / "Showcase.swift"
+    show = show_p.read_text(encoding="utf-8") if show_p.exists() else ""
+    place = _swift_code(_swift_body(show, "private func place(_ scene: [String: Any]) {"))
+    if "tookTheScreen != nil" not in place:
+        r.err("a taken screen is hidden by the next scene that says visible: false "
+              "-- one written for a vesper with a Desktop of its own -- and the "
+              "owner is left with nothing of vesper on screen")
+    take = _swift_code(_swift_body(show, "func takeTheScreen(why: String) {"))
+    if "visibleFrame" not in take or "toggleFullScreen" in take:
+        r.err("the showcase does not take the visible screen of the Desktop that "
+              "is showing. macOS fullscreen makes a NEW Space, and the owner asked "
+              "vesper to take one of theirs")
+
     r.note("the desktop order is read from macos's own space list rather than "
            "SPI, fullscreen spaces are not counted as desktops, 'cannot tell' "
            "refuses rather than guessing, and the rule is consulted before the "
-           "ground is created -- and its one exception is a fresh summons that "
-           "only the globe key can write")
+           "ground is created -- its exceptions are a fresh summons only the globe "
+           "key can write, and a busy take after the owner has shown vesper three "
+           "busy desktops, which still never takes desktop 1 and takes the screen")
     return r
 
 

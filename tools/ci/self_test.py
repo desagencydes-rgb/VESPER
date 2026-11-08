@@ -7649,15 +7649,15 @@ CASES += [
      "desktop-1 rule broken by its own exception"),
 
     ("vesper-never-takes-the-owners-first-desktop", ISLAND_SWIFT,
-     _sub("                startHome()\n                // NO LANDING JUDGEMENT",
-          "                startHome()\n                verifyGroundLanding()\n                // NO LANDING JUDGEMENT", 1),
+     _sub("                recordGroundPlanted(\"called=globe foreign=\\(here)\")\n                startHome()\n",
+          "                recordGroundPlanted(\"called=globe foreign=\\(here)\")\n                startHome()\n                verifyGroundLanding()\n", 1),
      "the summoned plant is judged by the landing rule, which retracts a ground "
      "that landed where the owner's windows are -- exactly what a summons asks "
      "for, so vesper arrives and takes itself away again"),
 
     ("vesper-never-takes-the-owners-first-desktop", ISLAND_SWIFT,
-     _sub("                startHome()\n                // NO LANDING JUDGEMENT",
-          "                startHome()\n                _ = armResumeWatch()\n                // NO LANDING JUDGEMENT", 1),
+     _sub("                recordGroundPlanted(\"called=globe foreign=\\(here)\")\n                startHome()\n",
+          "                recordGroundPlanted(\"called=globe foreign=\\(here)\")\n                startHome()\n                _ = armResumeWatch()\n", 1),
      "the summoned plant arms the resume watch, so the ground the owner called "
      "is carried off to the next empty desktop -- one they are by definition not "
      "looking at"),
@@ -7692,6 +7692,71 @@ CASES += [
      _sub("        try? FileManager.default.removeItem(at: p)", "", 1),
      "the summons is not removed when it is read, so one press of the globe key "
      "ends every wait that follows it"),
+]
+
+# THE BUSY TAKE (owner, 2026-11-08): one case per way the permission widens.
+SHOWCASE_SWIFT = "app/home-macos/Showcase.swift"
+CASES += [
+    ("vesper-never-takes-the-owners-first-desktop", WATCH_SWIFT,
+     _sub("    static let DESKTOPS = 3", "    static let DESKTOPS = 1", 1),
+     "vesper takes a busy desktop before the owner has shown it three, so the "
+     "first room it sees is the one it takes"),
+
+    ("vesper-never-takes-the-owners-first-desktop", WATCH_SWIFT,
+     _sub("        max(2, min(DESKTOPS, desktopCount))", "        max(1, min(DESKTOPS, desktopCount))", 1),
+     "the floor of two is gone, so the desktop vesper loads on qualifies by "
+     "itself -- \"it should not just take any open desktop after loading\""),
+
+    ("vesper-never-takes-the-owners-first-desktop", WATCH_SWIFT,
+     _sub("        guard let current, let desktops, desktops.contains(current) else { return false }",
+          "        guard let current, let desktops else { return false }", 1),
+     "a fullscreen window, or a space vesper cannot place, counts as a desktop "
+     "it may take"),
+
+    ("vesper-never-takes-the-owners-first-desktop", ISLAND_SWIFT,
+     _sub("                if let now, now == lastBusy { busySeen.insert(now) }",
+          "                if let now { busySeen.insert(now) }", 1),
+     "a desktop is counted busy on one tick, while the windows and the space id "
+     "can still describe different rooms -- so an empty desktop is counted busy "
+     "and the take fires with an empty one available"),
+
+    ("vesper-never-takes-the-owners-first-desktop", ISLAND_SWIFT,
+     _sub("                // NO EMPTY DESKTOP AMONG THE ONES THE OWNER HAS SHOWN IT, so this",
+          "                startHome(); timer.invalidate(); t = nil; return\n"
+          "                // NO EMPTY DESKTOP AMONG THE ONES THE OWNER HAS SHOWN IT, so this", 1),
+     "the busy take plants on its own, before the desktop-1 refusal runs, so a "
+     "busy desktop 1 is taken"),
+
+    ("vesper-never-takes-the-owners-first-desktop", ISLAND_SWIFT,
+     _sub("                    why: \"no desktop was empty, so vesper took this one — your \"",
+          "                    why: \"no desktop was empty, so vesper took this one — your \")\n"
+          "                _ = verifyGroundLanding(); _ = (\"\"", 1),
+     "the busy take is judged by the landing rule, which retracts a ground among "
+     "the owner's windows -- exactly what it just planted"),
+
+    ("vesper-never-takes-the-owners-first-desktop", ISLAND_SWIFT,
+     _sub("                Showcase.shared.takeTheScreen(\n                    why: \"no desktop was empty",
+          "                print(\n                    \"no desktop was empty", 1),
+     "the busy take plants the ground and stops: it sits below the owner's "
+     "windows, so vesper is on the desktop and nowhere to be seen"),
+
+    ("vesper-never-takes-the-owners-first-desktop", ISLAND_SWIFT,
+     _sub("                if here > 0 {\n                    Showcase.shared.takeTheScreen(",
+          "                if here > 0 {\n                    print(", 1),
+     "globe x3 onto a busy desktop plants a ground under the owner's windows "
+     "and nothing they can see"),
+
+    ("vesper-never-takes-the-owners-first-desktop", SHOWCASE_SWIFT,
+     _sub("        if (visible && !awaitingDesktop) || tookTheScreen != nil {",
+          "        if visible && !awaitingDesktop {", 1),
+     "the next scene that says visible: false hides the screen vesper took, and "
+     "the owner is left with nothing of vesper on it"),
+
+    ("vesper-never-takes-the-owners-first-desktop", SHOWCASE_SWIFT,
+     _sub("        if let f = screen?.visibleFrame { w.setFrame(f, display: true) }",
+          "        w.toggleFullScreen(nil)", 1),
+     "the showcase goes macos-fullscreen, which makes a NEW space -- the owner "
+     "asked vesper to take one of their desktops, not to leave it"),
 ]
 
 

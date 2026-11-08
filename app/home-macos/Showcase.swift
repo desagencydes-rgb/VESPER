@@ -125,6 +125,17 @@ final class ShowcaseFiles: NSObject, WKURLSchemeHandler {
 final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     static let shared = Showcase()
 
+    /// Why vesper took the whole screen, or nil if it has not.
+    ///
+    /// SET ONLY WHEN THE HOME LANDS ON A DESKTOP WITH THE OWNER'S WINDOWS ON IT --
+    /// a busy take or a globe summons. There the ground is invisible, because it
+    /// sits below ordinary windows, and the owner asked for the showcase, full
+    /// screen (2026-11-08). Everywhere else the inset frame in `start()` stands.
+    private(set) var tookTheScreen: String?
+    /// A status line waiting for the page to load. Never a script of things to
+    /// say: what vesper SHOWS is the runtime's to compose (VESPER_OPEN_WORK §3.4).
+    private var pendingTakenNote: [String: Any]?
+
     /// Where the scene, the asks and the readback live.
     ///
     /// OVERRIDABLE FOR THE PROBE, AND ONLY FOR IT. Without this the probe and the
@@ -377,6 +388,14 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             push(scene2)
             place(scene2)
         }
+        // AFTER THE SCENE, NOT BEFORE IT. On the first tick a scene file with no
+        // panes still counts as a change, and a note pushed before it would be
+        // wiped by it -- leaving the owner a full screen of nothing. So the note
+        // goes in last, and only while the runtime has drawn nothing of its own.
+        if let note = pendingTakenNote {
+            pendingTakenNote = nil
+            if ((lastScene["panes"] as? [Any]) ?? []).isEmpty { push(note) }
+        }
         serveAsks()
         writeSaid()
     }
@@ -585,11 +604,49 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         // and `showcase.reveal` reports that rather than claiming a screen it
         // never took.
         awaitingDesktop = (desktop == "vesper" && Self.groundWindow() == nil)
-        if visible && !awaitingDesktop {
+        // A TAKEN SCREEN STAYS TAKEN. The first scene the runtime publishes after
+        // the take may say `visible: false` -- it was written for a vesper that
+        // had a Desktop of its own -- and honouring it would hide the only thing
+        // of vesper's the owner can see on this one.
+        if (visible && !awaitingDesktop) || tookTheScreen != nil {
             w.orderFrontRegardless()
         } else {
             w.orderOut(nil)
         }
+    }
+
+    /// Take the whole visible screen, on the Desktop that is showing.
+    ///
+    /// `visibleFrame`, NOT A FULLSCREEN SPACE. macOS fullscreen makes a NEW Space,
+    /// which is exactly what the owner did not ask for: vesper was to take one of
+    /// THEIR Desktops, the one they are on, windows and all. The menu bar and the
+    /// Dock stay theirs.
+    func takeTheScreen(why: String) {
+        start()
+        guard let w = window else { return }
+        tookTheScreen = why
+        let screen = NSScreen.main ?? NSScreen.screens.first
+        if let f = screen?.visibleFrame { w.setFrame(f, display: true) }
+        var behaviour = w.collectionBehavior
+        behaviour.insert(.moveToActiveSpace)
+        w.collectionBehavior = behaviour
+        w.orderFrontRegardless()
+        pendingTakenNote = [
+            "why": why,
+            "panes": [["id": "taken", "kind": "text", "title": "vesper is here",
+                       "text": why]],
+            "marks": [],
+        ]
+        print("showcase: took the screen — \(why)")
+        writeSaid()
+    }
+
+    /// Does the window, as it stands, cover its screen's visible frame?
+    private func fillsScreen() -> Bool {
+        guard let w = window, w.isVisible,
+              let f = (w.screen ?? NSScreen.main)?.visibleFrame else { return false }
+        // Within a few points: AppKit may round a frame it was handed.
+        return abs(w.frame.width - f.width) < 4 && abs(w.frame.height - f.height) < 4
     }
 
     /// Put the showcase where the home's ground is, and READ BACK whether it went.
@@ -691,42 +748,14 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         // which is what lets this work on a machine where the screen grant has
         // just been wiped by a rebuild.
         if verb == "shot_window" {
-            guard let host = window?.contentView, let b = base else {
+            guard window?.contentView != nil, base != nil else {
                 finish(seq, ["ok": false, "reason": "the showcase window is not built"])
                 return
             }
-            let size = host.bounds.size
             let out = Self.stateDir.appendingPathComponent("showcase-window.png")
-            let group = DispatchGroup()
-            var layers: [(NSImage, CGRect)] = []
-            let lock = NSLock()
-
-            func grab(_ view: WKWebView, at rect: CGRect) {
-                group.enter()
-                view.takeSnapshot(with: nil) { img, _ in
-                    if let img {
-                        lock.lock(); layers.append((img, rect)); lock.unlock()
-                    }
-                    group.leave()
-                }
-            }
-            grab(b, at: host.bounds)
-            for (_, v) in sites { grab(v, at: v.frame) }
-            if let m = marks, !marksBlocked { grab(m, at: host.bounds) }
-
-            group.notify(queue: .main) {
-                let canvas = NSImage(size: size)
-                canvas.lockFocus()
-                NSColor.black.setFill()
-                NSBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
-                // BASE FIRST, THEN THE SITES OVER THEIR HOLES, THEN THE GLASS --
-                // the same order the window stacks them in, or the picture shows
-                // a layering the owner is not looking at.
-                for (img, rect) in layers.sorted(by: { $0.1.size.width > $1.1.size.width }) {
-                    img.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
-                }
-                canvas.unlockFocus()
-                guard let tiff = canvas.tiffRepresentation,
+            photograph { img, layers in
+                guard let img,
+                      let tiff = img.tiffRepresentation,
                       let rep = NSBitmapImageRep(data: tiff),
                       let png = rep.representation(using: .png, properties: [:]) else {
                     self.finish(seq, ["ok": false, "reason": "the window would not compose"])
@@ -740,9 +769,12 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                     self.finish(seq, ["ok": false, "reason": "\(error)"])
                     return
                 }
+                let cov = Showcase.coverage(rep)
                 self.finish(seq, ["ok": true, "path": out.path,
-                                  "width": Int(size.width), "height": Int(size.height),
-                                  "layers": layers.count,
+                                  "width": Int(img.size.width),
+                                  "height": Int(img.size.height),
+                                  "layers": layers,
+                                  "painted": cov.all, "painted_lower": cov.lower,
                                   "line": "photographed its own window"])
             }
             return
@@ -1021,6 +1053,10 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             "desktop": (lastScene["desktop"] as? String) ?? "vesper",
             "on_vespers_desktop": desktopAnswer(),
             "awaiting_desktop": awaitingDesktop,
+            // WHAT IS TRUE, not what was asked: the reason only while the window is
+            // actually up and actually covers the screen it is on.
+            "took_screen": tookTheScreen ?? "",
+            "fills_screen": fillsScreen(),
             "sites": Array(sites.keys),
         ]
         out["hatch"] = SpacesHatch.verify().usable
@@ -1083,6 +1119,114 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         }
     }
 
+    // MARK: Looking at itself
+
+    /// A picture of all three layers, as the window actually stacks them.
+    ///
+    /// SHARED BY THE `shot_window` ASK AND THE PROBE, so the thing a gate measures
+    /// is the thing the owner is handed.
+    func photograph(_ done: @escaping (NSImage?, Int) -> Void) {
+        guard let host = window?.contentView, let b = base else { done(nil, 0); return }
+        let size = host.bounds.size
+        let group = DispatchGroup()
+        var layers: [(NSImage, CGRect)] = []
+        let lock = NSLock()
+
+        func grab(_ view: WKWebView, at rect: CGRect) {
+            group.enter()
+            view.takeSnapshot(with: nil) { img, _ in
+                if let img { lock.lock(); layers.append((img, rect)); lock.unlock() }
+                group.leave()
+            }
+        }
+        grab(b, at: host.bounds)
+        for (_, v) in sites { grab(v, at: v.frame) }
+        if let m = marks, !marksBlocked { grab(m, at: host.bounds) }
+
+        group.notify(queue: .main) {
+            let canvas = NSImage(size: size)
+            canvas.lockFocus()
+            NSColor.black.setFill()
+            NSBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
+            // BASE FIRST, THEN THE SITES OVER THEIR HOLES, THEN THE GLASS -- the
+            // order the window stacks them in, or the picture shows a layering
+            // nobody is looking at.
+            for (img, rect) in layers.sorted(by: { $0.1.size.width > $1.1.size.width }) {
+                img.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1.0)
+            }
+            canvas.unlockFocus()
+            done(canvas, layers.count)
+        }
+    }
+
+    /// How much of the window is painted, and how much of its LOWER half is.
+    ///
+    /// THE LOWER HALF IS THE MEASUREMENT THAT MATTERS, and it exists because of a
+    /// bug no structural check could see: the grid sized its rows to their content,
+    /// so a single web pane drew as a strip across the top and everything below it
+    /// was bare ground. `panes_drawn` said the pane drew, which was true. The owner
+    /// saw a black window. A pane that fills nothing is a pane that showed nothing.
+    static func coverage(_ rep: NSBitmapImageRep) -> (all: Double, lower: Double) {
+        let w = rep.pixelsWide, h = rep.pixelsHigh
+        guard w > 8, h > 8 else { return (0, 0) }
+        var painted = 0, total = 0, paintedLower = 0, totalLower = 0
+        // Every fourth pixel: this is a coverage figure, not a rendering.
+        for y in stride(from: 0, to: h, by: 4) {
+            for x in stride(from: 0, to: w, by: 4) {
+                guard let c = rep.colorAt(x: x, y: y) else { continue }
+                // COVERED, NOT BRIGHT -- and the first version measured brightness.
+                // It counted a pixel as painted above a luminance of 0.12, which
+                // is a threshold for a light interface. This one is deliberately
+                // dark: the pane fill is #151412 and the ground behind it #0d0c0b,
+                // both far below that. So a window entirely full of panes measured
+                // 0.9% "painted" and the gate called a correct layout a collapsed
+                // one. The question was never how bright the window is. It is how
+                // much of it is something OTHER than bare ground.
+                let dr = abs(c.redComponent - 13.0 / 255.0)
+                let dg = abs(c.greenComponent - 12.0 / 255.0)
+                let db = abs(c.blueComponent - 11.0 / 255.0)
+                let isGround = max(dr, max(dg, db)) <= 0.015
+                // And nothing at all: the composite fills black before it draws,
+                // so pure black is a region no layer reached.
+                let isBlack = c.redComponent < 0.02 && c.greenComponent < 0.02
+                           && c.blueComponent < 0.02
+                let lit = !isGround && !isBlack
+                total += 1
+                if lit { painted += 1 }
+                if y > h / 2 {
+                    totalLower += 1
+                    if lit { paintedLower += 1 }
+                }
+            }
+        }
+        return (total > 0 ? Double(painted) / Double(total) : 0,
+                totalLower > 0 ? Double(paintedLower) / Double(totalLower) : 0)
+    }
+
+    /// `BusyTake.ready` over the cases the owner's rule names, against what the
+    /// rule says. Space ids are this Mac's measured shape: Desktops 1, 6 and 38,
+    /// and 54 for a fullscreen window sitting between them.
+    static func busyTakeTable() -> Bool {
+        let three = [1, 6, 38]
+        let cases: [(String, Set<Int>, Int?, [Int]?, Bool)] = [
+            ("fresh load, one desktop seen",        [6],        6,   three,  false),
+            ("two of three seen busy",              [1, 6],     6,   three,  false),
+            ("all three seen busy, on desktop 38",  [1, 6, 38], 38,  three,  true),
+            ("all three seen, on a fullscreen space", [1, 6, 38], 54, three, false),
+            ("space list unreadable",               [1, 6, 38], 38,  nil,    false),
+            ("showing a desktop not counted busy",  [1, 6, 99], 38,  three,  false),
+            ("only two desktops, both seen busy",   [1, 6],     6,   [1, 6], true),
+            ("only one desktop",                    [1],        1,   [1],    false),
+        ]
+        var ok = true
+        for (name, seen, cur, desks, want) in cases {
+            let got = BusyTake.ready(seen: seen, current: cur, desktops: desks)
+            if got != want { ok = false }
+            print("    \(got == want ? "ok " : "BAD") \(name): \(got ? "takes" : "waits")")
+        }
+        return ok
+    }
+
     // MARK: Diagnosis
 
     /// `--showcase-probe`: open it, draw a known scene, and print what came back.
@@ -1090,7 +1234,7 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
     /// AN INSTRUMENT THAT DRIVES THE REAL WINDOW, because the alternative is a
     /// gate that proves the JSON is well-formed and proves nothing about whether
     /// anything appeared.
-    static func probe() {
+    static func probe(take: Bool = false) {
         // ITS OWN STATE DIRECTORY, so this can run while the home is running and
         // neither one sees the other's scene.
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -1101,7 +1245,12 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let scene: [String: Any] = [
             "revision": 999_000,
             "why": "a probe, so the showcase can be proved rather than assumed",
-            "visible": true, "desktop": "vesper",
+            // "here", NOT "vesper": this process has no ground, so a scene asking
+            // for VESPER's own Desktop is correctly kept HIDDEN -- and a hidden
+            // window photographs blank, which the probe would then report as a
+            // collapsed grid. The probe is a diagnostic looking at pixels; it has
+            // to be on a screen to have any.
+            "visible": true, "desktop": "here",
             "panes": [
                 ["id": "note", "kind": "text", "title": "a note",
                  "text": "if you can read this, the base layer drew"],
@@ -1120,10 +1269,23 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
                                                      withIntermediateDirectories: true)
             try? d.write(to: scenePath)
         }
+        // `--take`: THE SAME CALL THE HOME MAKES on a busy Desktop, so what this
+        // measures is what the owner gets -- not a frame set by the probe.
+        if take { shared.takeTheScreen(why: "a probe of the busy take") }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) {
             let s = shared
-            print("showcase probe")
+            print("showcase probe\(take ? " --take" : "")")
             print(String(repeating: "-", count: 60))
+            var takeOK = true
+            if take {
+                let table = busyTakeTable()
+                takeOK = table && s.fillsScreen()
+                let f = s.window?.frame ?? .zero
+                let v = (s.window?.screen ?? NSScreen.main)?.visibleFrame ?? .zero
+                print("  busy-take table    \(table ? "every case decided as the owner asked" : "*** a case decided wrongly ***")")
+                print("  fills the screen   \(s.fillsScreen())  (window \(Int(f.width))x\(Int(f.height)), "
+                    + "visible screen \(Int(v.width))x\(Int(v.height)))")
+            }
             print("  window open        \(s.window != nil)")
             print("  visible            \(s.window?.isVisible ?? false)")
             print("  panes drawn        \(s.drawnPanes.joined(separator: ", "))")
@@ -1135,13 +1297,48 @@ final class Showcase: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
             // against a surface that was drawing correctly -- the cursor is a
             // mark on that layer and counts like one, which is worth stating
             // because the number is otherwise a reader's guess.
-            let good = s.drawnPanes.contains("note") && s.drawnPanes.contains("board")
+            let structural = s.drawnPanes.contains("note") && s.drawnPanes.contains("board")
                 && s.drawnMarks == 4 && s.pageErrors.isEmpty
-            print(String(repeating: "-", count: 60))
-            print(good ? "  the showcase drew what it was asked to draw"
-                       : "  *** the showcase did NOT draw what it was asked to ***")
-            if let dir = stateDirOverride { try? FileManager.default.removeItem(at: dir) }
-            exit(good ? 0 : 2)
+            // AND THEN IT LOOKS. Everything above is structure; this is whether
+            // anything is actually ON the window.
+            // A WINDOW ORDERED FRONT A MOMENT AGO HAS NOT NECESSARILY PAINTED.
+            // Photographing it immediately measures the paint that has not
+            // happened yet, which reads exactly like a surface that drew nothing.
+            Thread.sleep(forTimeInterval: 1.2)
+            s.photograph { img, layers in
+                var covered = 0.0, lower = 0.0
+                if let img, let tiff = img.tiffRepresentation,
+                   let rep = NSBitmapImageRep(data: tiff) {
+                    let cov = coverage(rep)
+                    covered = cov.all; lower = cov.lower
+                    if let png = rep.representation(using: .png, properties: [:]) {
+                        // OUTSIDE THE TEMP DIRECTORY THIS PROBE DELETES ON EXIT.
+                        // It wrote the picture into the directory it then removed,
+                        // so the one artefact worth having -- the thing a reader
+                        // has to LOOK at when the number is wrong -- was gone
+                        // before anyone could open it.
+                        let keep = URL(fileURLWithPath: NSTemporaryDirectory())
+                            .appendingPathComponent("vesper-probe.png")
+                        try? png.write(to: keep)
+                        print("  picture            \(keep.path)")
+                    }
+                }
+                print(String(format: "  painted            %.1f%% of the window, "
+                                   + "%.1f%% of its lower half  (%d layers)",
+                             covered * 100, lower * 100, layers))
+                // A COLLAPSED GRID PAINTS THE TOP AND LEAVES THE REST BARE, so the
+                // lower half is where that shows. Two panes over a full window
+                // cover far more than a tenth of it.
+                let filled = lower > 0.10
+                let good = structural && filled && takeOK
+                print(String(repeating: "-", count: 60))
+                if !structural { print("  *** the showcase did NOT draw what it was asked to ***") }
+                if !filled { print("  *** the panes do not fill the window: its lower half is bare ***") }
+                if !takeOK { print("  *** the busy take did not decide or fill as the owner asked ***") }
+                if good { print("  the showcase drew what it was asked to, and it fills the window") }
+                if let dir = stateDirOverride { try? FileManager.default.removeItem(at: dir) }
+                exit(good ? 0 : 2)
+            }
         }
     }
 }
