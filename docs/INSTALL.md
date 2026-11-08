@@ -52,9 +52,11 @@ python3.13 tools/traceability_lint.py
 python3.13 tools/reference_lint.py
 ```
 
-Read the **summary line**, not the exit code. A handful of checks need a built
-`app/VESPER.app` and will be red until §5. One check,
-`speech-is-egress-and-says-so`, is a known open bug (`VESPER_OPEN_WORK.md` §2.2).
+Read the **summary line**, not the exit code. Measured in a fresh clone on
+2026-11-08: **201/203**. The two reds are expected:
+`wake-word-listens-locally-and-starts-once` needs the built `app/VESPER.app`
+(§5), and `speech-is-egress-and-says-so` is a known open bug
+(`VESPER_OPEN_WORK.md` §2.2).
 
 The acceptance runners are slower, and each one is self-contained:
 

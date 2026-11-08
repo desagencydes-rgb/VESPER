@@ -186,8 +186,8 @@ something moved:
 |---|---|
 | Registered checks | 207 (18 PENDING) |
 | Invariants enforced by a real, red-run check | 131 / 182 |
-| `checks.py all` | see `VESPER_OPEN_WORK.md` §1; one known red (`speech-is-egress-and-says-so`) |
-| Self-test cases (red-then-green) | 1090 |
+| `checks.py all` | 202/203 in the working copy; **201/203 in a fresh clone** (`wake-word-listens-locally-and-starts-once` needs the built app). `speech-is-egress-and-says-so` is the known open bug |
+| Self-test cases (red-then-green) | 1090 (the figure `CI-089` checks; `self_test.py` was not re-run on 2026-11-08) |
 | Python | ~109,500 lines |
 | Swift | ~21,300 lines |
 | Commits | 639, first on 2026-08-12 |
