@@ -13998,7 +13998,12 @@ def check_wake_word_listens_locally_and_starts_once() -> Result:
                   "and that is the ORDER the grant always arrives in, because "
                   "every build re-signs and TCC revokes.")
     # AND THE RETRY IS A LOOP THAT CAN ACTUALLY FIRE, not a name.
-    if "repeats: true" not in w:
+    # READ IN THE RETRY'S OWN BODY. This tested the whole file, and on
+    # 2026-11-08 a second repeating timer arrived in it (the speaker watch that
+    # turns the ears off while music plays) -- after which the retry could be
+    # made one-shot and this stayed green. The self-test caught it.
+    retry_body = _swift_body(w, "private func scheduleWakeRetry() {")
+    if "repeats: true" not in retry_body:
         r.err("the wake retry does not repeat, so it asks once more and then "
               "gives up -- which is the same defect with one extra attempt")
     if "wakeRetry = nil" not in w:

@@ -1,6 +1,8 @@
 import Foundation
 import AVFoundation
 import Speech
+import CoreAudio
+import AppKit
 
 // WAKE WORD -- always listening, and nothing leaves the machine until it fires.
 //
@@ -50,6 +52,10 @@ final class WakeListener {
     private var capturing = false
     private let diagnose: Bool
     private(set) var wakeCount = 0
+    /// The apps playing sound, while vesper's ears are off for them. Empty
+    /// means listening.
+    private var pausedFor: [String] = []
+    private var earsTimer: Timer?
 
     init?(diagnose: Bool) {
         guard let r = SFSpeechRecognizer(locale: Locale(identifier: "en-US")) else {
@@ -69,18 +75,72 @@ final class WakeListener {
     }
 
     func start() throws {
-        try startTask()
+        let playing = MacAudio.othersPlaying()
+        if playing.isEmpty { try startTask() } else { earsOff(playing) }
         note("wake word active: say \(WAKE_PHRASES.map { "\"\($0)\"" }.joined(separator: ", "))")
+        if playing.isEmpty { writeEars(listening: true, because: []) }
+        watchTheSpeakers()
+    }
+
+    /// EARS OFF WHILE THE MAC PLAYS SOUND, ON WHEN IT STOPS.
+    ///
+    /// THE OWNER, 2026-11-08: *"if it's not possible [to listen through the
+    /// music], make it stop the microphone by itself and know the music is
+    /// running and show it on vesper's place, when music stops from the mac, or
+    /// any sound played on speakers, microphone comes back on"*.
+    ///
+    /// WHY NOT LISTEN THROUGH IT. Measured the same evening: the built-in
+    /// microphone hears the built-in speakers, and a recorded sentence played at
+    /// 31% came back from this recogniser word for word -- lyrics included,
+    /// "vesper" lost among them. Apple's voice processing (the canceller calls
+    /// use) was tried and made it WORSE: it delivers nine channels instead of
+    /// three, the recogniser accepted none of them, and five minutes of the
+    /// owner speaking produced not one word. Hearing through music is a real
+    /// feature, and it is not this one.
+    ///
+    /// ONCE A SECOND, PER APP, NOT PER DEVICE. The device-wide "is the output
+    /// running" reading stayed true with the music paused, because macOS's own
+    /// speech daemon holds the speakers open permanently -- read that way,
+    /// vesper would never get its ears back.
+    private func watchTheSpeakers() {
+        earsTimer?.invalidate()
+        earsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self, !self.capturing else { return }
+            let playing = MacAudio.othersPlaying()
+            if !playing.isEmpty && self.pausedFor.isEmpty {
+                self.earsOff(playing)
+            } else if playing.isEmpty && !self.pausedFor.isEmpty {
+                self.pausedFor = []
+                note("ears on: nothing else is playing")
+                writeEars(listening: true, because: [])
+                try? self.startTask()
+            } else if !playing.isEmpty && playing != self.pausedFor {
+                self.pausedFor = playing
+                writeEars(listening: false, because: playing)
+            }
+        }
+    }
+
+    private func earsOff(_ playing: [String]) {
+        pausedFor = playing
+        engine.inputNode.removeTap(onBus: 0)
+        engine.stop(); task?.cancel(); task = nil; request = nil
+        note("ears off: \(playing.joined(separator: ", ")) is playing")
+        writeEars(listening: false, because: playing)
     }
 
     private func startTask() throws {
         let req = SFSpeechAudioBufferRecognitionRequest()
         req.requiresOnDeviceRecognition = true      // THE LINE. Nothing leaves.
         req.shouldReportPartialResults = true
+        // "VESPER" IS NOT A COMMON WORD, and a recogniser with no hint writes
+        // the nearest common one -- "vespa", "whisper", "hey esper" -- none of
+        // which matches a wake phrase. The supported fix is to say which words
+        // to expect; it biases, it does not force.
+        req.contextualStrings = ["Vesper", "hey Vesper", "ok Vesper", "yo Vesper"]
         request = req
 
         let input = engine.inputNode
-        cancelTheMacsOwnSound(input)
         let format = input.outputFormat(forBus: 0)
         input.removeTap(onBus: 0)
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buf, _ in
@@ -119,7 +179,7 @@ final class WakeListener {
         engine.stop()
         task = nil; request = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-            guard let self, !self.capturing else { return }
+            guard let self, !self.capturing, self.pausedFor.isEmpty else { return }
             try? self.startTask()
         }
     }
@@ -148,7 +208,7 @@ final class WakeListener {
             }
             DispatchQueue.main.async {
                 self?.capturing = false
-                try? self?.startTask()
+                if self?.pausedFor.isEmpty ?? false { try? self?.startTask() }
             }
         }
     }
@@ -159,9 +219,6 @@ final class WakeListener {
 func recordClip(seconds: Double, out: String) -> Int {
     let engine = AVAudioEngine()
     let input = engine.inputNode
-    // THE CLIP TOO, or the wake word is heard over the music and the sentence
-    // after it is recorded with the music in it.
-    cancelTheMacsOwnSound(input)
     let format = input.outputFormat(forBus: 0)
     guard let file = try? AVAudioFile(forWriting: URL(fileURLWithPath: out),
                                       settings: format.settings) else { return 0 }
@@ -177,36 +234,64 @@ func recordClip(seconds: Double, out: String) -> Int {
     return n ?? 0
 }
 
-/// Subtract what the Mac itself is playing from what the microphone hears.
+/// Which OTHER apps are sending sound to the speakers right now.
 ///
-/// THE OWNER, 2026-11-08: *"i listen to music a lot from the mac, so vesper
-/// should be able to listen to me even with music on, and not pay attention to
-/// the lyrics"*. In 69 days the wake word fired twice: the built-in microphone
-/// hears the built-in speakers, and an on-device recogniser handed a song
-/// transcribes the singer, so "vesper" is lost inside the lyrics.
-///
-/// APPLE'S VOICE PROCESSING, the echo canceller calls use, with the Mac's own
-/// output as its reference. Nothing new leaves the machine and nothing is
-/// private: it is a public switch on the input node.
-///
-/// DUCKING OFF. Voice processing turns other audio DOWN by default, which would
-/// make vesper listening audible as the owner's music getting quieter. The
-/// owner wants the music; vesper is the one that has to cope.
-///
-/// IF IT CANNOT BE TURNED ON, THE LISTENER STILL RUNS, and says so -- a missing
-/// canceller is worse hearing, not deafness.
-func cancelTheMacsOwnSound(_ input: AVAudioInputNode) {
-    do {
-        if !input.isVoiceProcessingEnabled { try input.setVoiceProcessingEnabled(true) }
-    } catch {
-        note("echo cancellation unavailable: \(error) -- music on the speakers will reach the wake word")
-        return
+/// Per process (macOS 14+), and two kinds are left out: vesper itself, and
+/// macOS's own processes under /System -- `corespeechd` holds the speakers open
+/// permanently, measured, and counting it would keep vesper deaf forever.
+enum MacAudio {
+    static func othersPlaying() -> [String] {
+        let sys = AudioObjectID(kAudioObjectSystemObject)
+        var a = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList,
+                                           mScope: kAudioObjectPropertyScopeGlobal,
+                                           mElement: kAudioObjectPropertyElementMain)
+        var size = UInt32(0)
+        guard AudioObjectGetPropertyDataSize(sys, &a, 0, nil, &size) == noErr, size > 0 else { return [] }
+        var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(sys, &a, 0, nil, &size, &ids) == noErr else { return [] }
+        let me = getpid()
+        var names: [String] = []
+        for id in ids {
+            var out = UInt32(0), pid = pid_t(0)
+            var sz = UInt32(MemoryLayout<UInt32>.size)
+            var pa = AudioObjectPropertyAddress(mSelector: kAudioProcessPropertyIsRunningOutput,
+                                                mScope: kAudioObjectPropertyScopeGlobal,
+                                                mElement: kAudioObjectPropertyElementMain)
+            guard AudioObjectGetPropertyData(id, &pa, 0, nil, &sz, &out) == noErr, out != 0 else { continue }
+            sz = UInt32(MemoryLayout<pid_t>.size)
+            pa.mSelector = kAudioProcessPropertyPID
+            guard AudioObjectGetPropertyData(id, &pa, 0, nil, &sz, &pid) == noErr, pid != me else { continue }
+            let app = NSRunningApplication(processIdentifier: pid)
+            let path = app?.executableURL?.path ?? Self.path(of: pid)
+            if path.hasPrefix("/System/") || path.hasPrefix("/usr/") { continue }
+            // VESPER's OTHER PROCESSES TOO: the home, the wake agent and a
+            // diagnostic all come from this bundle, and vesper speaking is not
+            // the owner's music.
+            if app?.bundleIdentifier == Bundle.main.bundleIdentifier, app?.bundleIdentifier != nil { continue }
+            names.append(app?.localizedName ?? (path as NSString).lastPathComponent)
+        }
+        return Array(Set(names)).sorted()
     }
-    if #available(macOS 14.0, *) {
-        input.voiceProcessingOtherAudioDuckingConfiguration =
-            AVAudioVoiceProcessingOtherAudioDuckingConfiguration(
-                enableAdvancedDucking: false, duckingLevel: .min)
+
+    private static func path(of pid: pid_t) -> String {
+        var buf = [CChar](repeating: 0, count: 4096)
+        return proc_pidpath(pid, &buf, UInt32(buf.count)) > 0 ? String(cString: buf) : ""
     }
+}
+
+/// What the wake listener is doing, for the home to show: a file, because the
+/// runtime owns the flag bar and two writers on `home.json` would race.
+private let earsPath = FileManager.default.homeDirectoryForCurrentUser
+    .appendingPathComponent("Library/Application Support/VESPER/ears.json")
+
+func writeEars(listening: Bool, because playing: [String]) {
+    let o: [String: Any] = ["listening": listening, "because": playing,
+                            "at_s": Int(Date().timeIntervalSince1970)]
+    guard let d = try? JSONSerialization.data(withJSONObject: o) else { return }
+    let tmp = earsPath.deletingLastPathComponent()
+        .appendingPathComponent("ears.json.\(getpid()).tmp")
+    // rename(2) is atomic: the runtime never reads half a file.
+    if (try? d.write(to: tmp)) != nil { rename(tmp.path, earsPath.path) }
 }
 
 private func appendHeard(_ obj: [String: Any]) {

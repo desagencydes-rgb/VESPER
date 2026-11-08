@@ -159,6 +159,8 @@ OUTBOX = STATE / "say.jsonl"
 # decision live here, and the microphone lives in the app that holds
 # the permission for it.
 HEARD = STATE / "heard.jsonl"
+EARS = STATE / "ears.json"
+_LAST_EARS: tuple | None = None
 HEARD_OFFSET = STATE / "heard.offset"
 # WHAT THE OWNER ASKED FOR WITH A BUTTON. Appended by the Swift host's
 # ControlBridge, drained here, applied by core/controls.py.
@@ -1957,6 +1959,35 @@ def _drain_heard(bus, transcriber) -> int:
     return done
 
 
+def _reflect_ears(home) -> None:
+    """Show on the home when vesper's ears are off, and why.
+
+    THE OWNER, 2026-11-08: when music or any sound plays from the Mac, the
+    microphone stops "and know the music is running and show it on vesper's
+    place". The wake listener writes `ears.json`; this turns it into a flag on
+    the bar the owner already reads, and takes the flag down when the sound
+    stops. ON CHANGE ONLY: the pump runs constantly and `raise_flag` writes
+    `home.json` and the flag history every time it is called.
+    """
+    global _LAST_EARS
+    try:
+        o = json.loads(EARS.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    listening = bool(o.get("listening", True))
+    because = tuple(sorted(str(x) for x in (o.get("because") or [])))
+    state = (listening, because)
+    if state == _LAST_EARS:
+        return
+    _LAST_EARS = state
+    if listening or not because:
+        home.clear_flag("ears.off")
+    else:
+        home.raise_flag("ears.off",
+                        f"{', '.join(because)} is playing, so vesper's ears are "
+                        f"off -- it listens again when the sound stops")
+
+
 def _drain_control(bus, home, *, path=None, offset_path=None, outbox=None,
                    preferences_path=None, actor=None) -> int:
     """Apply every control the home posted since the last pass.
@@ -2444,6 +2475,10 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
         # A CONTROL THAT FAILS MUST NOT STOP THE PUMP. Answering is the job.
         bus.publish("control.drain_failed", subject="control",
                     payload={"error": repr(_exc)}, component="runtime")
+    try:
+        _reflect_ears(home)
+    except Exception:                                      # noqa: BLE001
+        pass                     # a status line must never stop the pump
     # THE MANAGEMENT SURFACES RE-READ EVERY 30 s. Until 2026-09-14 the
     # settings rows and the menu cards were built once at startup and again
     # only after a control landed, so a card showed the arm agent's pid from
