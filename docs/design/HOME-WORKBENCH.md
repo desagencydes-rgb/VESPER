@@ -766,7 +766,7 @@ was gone.
    with the token in place and the runtime's exact environment:
 
    ```
-   You've hit your session limit · resets 3:50am (the local timezone)
+   You've hit your session limit · resets 3:50am (Africa/Casablanca)
    ```
 
    That is case ONE, the only case where plain retrying is correct — and the
