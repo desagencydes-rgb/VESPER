@@ -138,7 +138,32 @@ enum SpaceWatch {
     /// every ordinary window that is not ours.
     static func fingerprint() -> Set<Int> {
         let me = Int(ProcessInfo.processInfo.processIdentifier)
-        return Set(onScreen().filter { $0.pid != me && $0.layer == 0 }.map(\.number))
+        let display = focusedDisplay()
+        return Set(onScreen().filter {
+            $0.pid != me && $0.layer == 0
+                && (display == nil || display!.contains(CGPoint(x: $0.bounds.midX, y: $0.bounds.midY)))
+        }.map(\.number))
+    }
+
+    /// The display the owner is working on, in the window list's coordinates
+    /// (top-left origin) -- or nil with one display, where every window counts.
+    ///
+    /// ONE DESKTOP IS ON ONE DISPLAY. The window list `onScreen()` reads covers
+    /// EVERY display, so with two screens the question "is this Desktop empty"
+    /// was answered about both at once. Measured 2026-11-08: the owner had two
+    /// empty Desktops, one of them showing, while the second display showed
+    /// ChatGPT, Claude, Safari and VS Code -- seven windows that made every room
+    /// look occupied, so vesper never saw an empty one and took the owner's
+    /// busy Desktop instead. A window counts for the display its centre is on.
+    ///
+    /// `NSScreen.main` is the display with the keyboard focus, which is the one
+    /// `CGSGetActiveSpace` answers for and the one `startHome()` plants on -- so
+    /// the room judged is the room the ground lands in.
+    static func focusedDisplay() -> CGRect? {
+        guard NSScreen.screens.count > 1, let s = NSScreen.main,
+              let top = NSScreen.screens.first else { return nil }
+        let f = s.frame
+        return CGRect(x: f.minX, y: top.frame.maxY - f.maxY, width: f.width, height: f.height)
     }
 
     /// Two empty sets count as identical, not as a switch. An empty Desktop is

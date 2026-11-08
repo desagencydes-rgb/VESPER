@@ -56,6 +56,11 @@ final class WakeListener {
     /// means listening.
     private var pausedFor: [String] = []
     private var earsTimer: Timer?
+    /// The lock this process holds while it is THE listener; -1 when not.
+    private var lockFD: Int32 = -1
+    private var standByTimer: Timer?
+    /// True while another vesper process holds the microphone and this one waits.
+    private(set) var standingBy = false
 
     init?(diagnose: Bool) {
         guard let r = SFSpeechRecognizer(locale: Locale(identifier: "en-US")) else {
@@ -75,6 +80,25 @@ final class WakeListener {
     }
 
     func start() throws {
+        // ONE LISTENER PER MACHINE. Measured 2026-11-08: the owner said "hey
+        // vesper" once and BOTH the home's in-process listener and the `--wake`
+        // agent woke, each recording into the same temp file name in the same
+        // second and each queueing it. One answer came back by luck; the clip
+        // can as easily be garbled, or answered twice. Whichever process takes
+        // this lock listens; the other stands by and takes over only if the
+        // holder dies (the kernel drops the lock with the process). A
+        // diagnostic run listens regardless -- it exists to hear the room.
+        if !diagnose && lockFD < 0 && !takeTheMicrophone() {
+            standingBy = true
+            note("wake word standing by: another vesper process is listening")
+            standByTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { [weak self] t in
+                guard let self, self.takeTheMicrophone() else { return }
+                t.invalidate(); self.standingBy = false
+                note("wake word: the other listener stopped; this one takes over")
+                try? self.start()
+            }
+            return
+        }
         let playing = MacAudio.othersPlaying()
         if playing.isEmpty { try startTask() } else { earsOff(playing) }
         note("wake word active: say \(WAKE_PHRASES.map { "\"\($0)\"" }.joined(separator: ", "))")
@@ -119,6 +143,16 @@ final class WakeListener {
                 writeEars(listening: false, because: playing)
             }
         }
+    }
+
+    private func takeTheMicrophone() -> Bool {
+        let path = heardQueue.deletingLastPathComponent().appendingPathComponent("wake.lock").path
+        let fd = open(path, O_CREAT | O_RDWR, 0o644)
+        // A LOCK FILE THAT CANNOT BE OPENED MUST NOT MAKE VESPER DEAF: listen.
+        guard fd >= 0 else { return true }
+        if flock(fd, LOCK_EX | LOCK_NB) == 0 { lockFD = fd; return true }
+        close(fd)
+        return false
     }
 
     private func earsOff(_ playing: [String]) {
@@ -380,6 +414,7 @@ func startWakeWordInProcess() -> Bool {
         return false
     }
     inProcessWake = w
+    if w.standingBy { return true }
     note("wake word ON: listening on-device")
     return true
 }
