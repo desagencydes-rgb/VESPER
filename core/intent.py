@@ -58,6 +58,18 @@ Examples that are ACTIONS, not questions:
   "open the nordvpn png from Downloads"
       -> {"action": "ui.open", "args": {"path": "~/Downloads/NordVPN-Emblem.png"},
           "why": "show the owner the image"}
+  "pull up a window so I can see if you work well"
+      -> {"action": "window.open", "args": {"app": "Terminal"},
+          "why": "the owner wants to see a window appear"}
+  "show me a window" / "bring something up" / "open anything"
+      -> {"action": "window.open", "args": {"app": "Terminal"},
+          "why": "an unnamed window means: open one, and Terminal is the plainest"}
+
+ASKING FOR A WINDOW IS ASKING YOU TO OPEN ONE, even when no application is
+named. Measured 2026-11-08: "pull up a window so I can see if you work well"
+came back {"action": "none"} on every try, and the owner was told a window was
+opening while nothing was opened at all. When the owner names no application,
+open Terminal.
 
 A MULTI-STEP REQUEST STARTS WITH ITS FIRST STEP. "Write a file and run it" is
 `fs.write` now; you will be asked again with the result and can run it then.

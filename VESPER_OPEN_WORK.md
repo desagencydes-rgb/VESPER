@@ -82,6 +82,25 @@ and confirmed by photograph. **The lesson stands:** `panes_drawn` said the pane
 drew, which was true, and the content was wrong. A readback describes structure;
 only an image shows content.
 
+### 2.5 VESPER is slow — FOR CONTRIBUTORS, not yet worked on
+> *"it's working with a lot of defect, it's slow af, very slow"* — the owner, 2026-11-08
+
+Measured 2026-11-08 from VESPER's own records, on the MacBook, mains power:
+
+| Where the time goes | Measured | Read from |
+|---|---|---|
+| Spoken question → answer on screen | **~30 s** (`gap_ms` 29876 for one turn) | the `turn` event on the bus |
+| Recording after the wake word | **a fixed 6.0 s**, however short the sentence | `WAKE_CAPTURE_SECONDS` in `WakeWord.swift`; its comment says silence should end it, and nothing does |
+| Runtime start after a restart | **60–120 s** before it answers anything | `runtime started` → `watching the field` in `island.out` |
+| Model ladder | **13 of 15 rungs skipped** as `quota_ledger_exhausted` (every Groq and Mistral row); only Ollama answered | `gateway.attempt` events for one turn |
+| Context gathering | two `osascript` calls to System Events fail every turn (`-1728`, `-54`: no Automation grant) | the Commands card |
+
+Starting points, cheapest first: end the capture on silence instead of a
+fixed 6 s; check whether the quota ledger's "exhausted" is real or stale (the
+keys are present and `check_credentials.py` reads them); stop running the
+System Events probes when the grant is absent; profile runtime startup.
+Speed is a feature here — a 30 s round trip reads as "it did not hear me".
+
 ---
 
 ## 3. UNFINISHED — started, not landed

@@ -92,13 +92,16 @@ python3.13 tools/ci/self_test.py         # red-then-green; see the warning below
 See [`docs/SHOWROOM_BRIEF.md`](docs/SHOWROOM_BRIEF.md) §4 for the current
 inventory. In short:
 
-1. **Windows and Linux surfaces.** The Python core runs there and its
+1. **Latency.** A spoken question takes about 30 s to answer and the runtime
+   1–2 minutes to start. Measured breakdown and starting points:
+   `VESPER_OPEN_WORK.md` §2.5.
+2. **Windows and Linux surfaces.** The Python core runs there and its
    acceptance suites were run there. The visual shell (island, home, showcase)
    exists only for macOS. The decided frontend for everything except the island
    is Tauri.
-2. **The non-blocking voice**: `core/speech.Voice` is written and reached by
+3. **The non-blocking voice**: `core/speech.Voice` is written and reached by
    nothing (`VESPER_OPEN_WORK.md` §2.3, §3.1).
-3. **Model-driven composition.** The showcase's scenes are still scripted by
+4. **Model-driven composition.** The showcase's scenes are still scripted by
    hand (§3.4).
-4. **The 18 checks still `impl = "PENDING"`** in `verification/ci/CHECKS.toml`.
+5. **The 18 checks still `impl = "PENDING"`** in `verification/ci/CHECKS.toml`.
    That count is a better measure of real coverage than the check total.

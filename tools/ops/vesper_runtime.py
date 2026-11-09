@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import os
 import pathlib
 import sys
@@ -1652,6 +1653,29 @@ def _what_was_tried(steps: list, final: str) -> str:
     return f"I tried {len(tried)} things: {shown}{more}. The last one: {final}"
 
 
+# A REPLY THAT CLAIMS AN ACTION NO STEP TOOK. Measured 2026-11-08: the owner
+# asked by voice for a window, the action step returned nothing, and the reply
+# said "Opening a new Terminal window..." -- while the prompt above it said, in
+# capitals, that no action had been taken. An instruction to a model is a
+# request; this is the check. Matched on the opening words, where a claim of
+# doing lives, not on mentions anywhere in the sentence.
+_FALSE_ACTION = re.compile(
+    r"^\W*(?:okay[,.!]?\s+|sure[,.!]?\s+|alright[,.!]?\s+)?"
+    r"(?:i(?:'m| am| will|'ll| have| just)\s+)?"
+    r"(?:opening|opened|launching|launched|starting|started|running|ran|"
+    r"creating|created|pulling up|bringing up|showing)\b",
+    re.IGNORECASE)
+
+
+def _no_false_action(reply: str) -> str:
+    """The reply, unless it opens by claiming something was done this turn."""
+    if reply and _FALSE_ACTION.search(reply.strip()):
+        return ("I haven't done that -- I took it as conversation rather than "
+                "a request. Say it as an instruction, like \"open Terminal\", "
+                "and I'll do it.")
+    return reply
+
+
 def answer(gw, router, persona, utterance, renderer=None,
            updater=None, misses=None, chooser=None,
            context_cmds=None, can_do=None, recent=None, state=None,
@@ -1772,10 +1796,12 @@ def answer(gw, router, persona, utterance, renderer=None,
     # this point "nothing was done" is a FACT this code holds and never said.
     if acted_this_turn is None:
         request = ("YOU HAVE TAKEN NO ACTION THIS TURN. You have not opened, "
-                   "run, written, changed, moved or created anything. Do not "
-                   "say that you have. If the owner's words call for an action "
-                   "you did not take, say what you would do and ask, or simply "
-                   "answer them.\n\n") + request
+                   "run, written, changed, moved or created anything, and you "
+                   "are not doing so now. Do not say that you have, that you "
+                   "are, or that you are about to -- no \"opening...\", no "
+                   "\"launching...\". If the owner's words call for an action "
+                   "you did not take, say plainly that you have not done it "
+                   "and ask, or simply answer them.\n\n") + request
     if flags:
         try:
             from core.intent import render_flags
@@ -2930,6 +2956,7 @@ def pump(bus, gw, router, persona, bench, home, intake, transcript: list,
                                can_do=capability_statement(),
                                recent=transcript,
                                state=home.mode_now()))
+                    reply = _no_false_action(reply)
                 # VESPER'S REPLY IS NOT AN UTTERANCE, and the first version put
                 # it into `intake.history` as one. `Intake` is the record of
                 # things said TO VESPER -- its confidence, its partials and its

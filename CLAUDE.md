@@ -72,7 +72,7 @@ had. Use `python3.13` (`~/.local/bin/python3.13`). Verified 2026-08-23.
 
 ```sh
 python3.13 tools/ci/checks.py all       # 203 checks
-python3.13 tools/ci/self_test.py        # red-then-green, 1100 cases
+python3.13 tools/ci/self_test.py        # red-then-green, 1101 cases
 python3.13 tools/traceability_lint.py
 python3.13 tools/reference_lint.py
 python3.13 verification/run_f0_acceptance.py   # ... f1 .. f6

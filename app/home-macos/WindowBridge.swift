@@ -706,7 +706,47 @@ enum WindowBridge {
     }
 
     /// Open a fresh window of the same application. The "same app" half.
+    /// Open a new window of `bundleId` AND PUT IT IN FRONT OF THE OWNER.
+    ///
+    /// THE OWNER, 2026-11-08: asked by voice for a window, was told one was
+    /// opening, and saw nothing. It had opened -- 1724x983 on the Desktop that
+    /// was showing -- directly BEHIND their full-screen Claude window, because
+    /// the launch below is deliberately not activated. A window opened for the
+    /// owner to look at and left underneath their work has not been shown.
+    ///
+    /// THE SAFETY RULE BELOW STILL HOLDS. Activating at LAUNCH can switch the
+    /// owner's Desktop; raising a window that is ALREADY on the Desktop they
+    /// are looking at cannot, so `bringForward` refuses any window that is not
+    /// there and reports it instead.
     static func reopen(bundleId: String) -> [String: Any] {
+        var out = reopenBehind(bundleId: bundleId)
+        if (out["ok"] as? Bool) == true, let wid = out["window_id"] as? String,
+           let pid = out["pid"] as? Int {
+            out["front"] = bringForward(pid: pid, windowId: wid)
+        }
+        return out
+    }
+
+    /// Raise one window and make its application frontmost, through the
+    /// accessibility interface -- `NSRunningApplication.activate` from a
+    /// background agent is routinely declined on current macOS. Returns
+    /// whether the window is now the frontmost ordinary window, READ BACK from
+    /// the window server rather than assumed from the calls succeeding.
+    static func bringForward(pid: Int, windowId: String) -> Bool {
+        guard let n = Int(windowId), SpaceWatch.isOnActiveSpace(n), accessible() else { return false }
+        let app = AXUIElementCreateApplication(pid_t(pid))
+        AXUIElementSetAttributeValue(app, kAXFrontmostAttribute as CFString, kCFBooleanTrue)
+        if let el = element(forPID: pid, windowId: windowId) {
+            AXUIElementPerformAction(el, kAXRaiseAction as CFString)
+        }
+        for _ in 0..<10 {
+            usleep(100_000)
+            if SpaceWatch.onScreen().first(where: { $0.layer == 0 })?.number == n { return true }
+        }
+        return false
+    }
+
+    private static func reopenBehind(bundleId: String) -> [String: Any] {
         guard !bundleId.isEmpty,
               let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId)
         else { return ["ok": false, "reason": "no application to reopen for that window"] }

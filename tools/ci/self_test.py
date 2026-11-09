@@ -6898,6 +6898,12 @@ WATCH_SWIFT = "app/home-macos/SpaceWatch.swift"
 
 CASES += [
     ("a-window-is-claimed-only-by-the-app-that-opened-it", BRIDGE_SWIFT,
+     _sub("        var out = reopenBehind(bundleId: bundleId)",
+          "        var out: [String: Any] = [\"ok\": false]", 1),
+     "the window-opening wrapper stops delegating to the one claiming path, so a "
+     "window can be stamped as vesper's without the frontier and pid rules"),
+
+    ("a-window-is-claimed-only-by-the-app-that-opened-it", BRIDGE_SWIFT,
      _sub("        let frontier = SpaceWatch.highWaterNumber()",
           "        let frontier = SpaceWatch.onScreen().map(\\.number).max() ?? 0", 1),
      "the frontier is taken from the ACTIVE Desktop again, so a Desktop change "

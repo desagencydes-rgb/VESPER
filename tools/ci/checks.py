@@ -27633,8 +27633,18 @@ def check_a_window_is_claimed_only_by_the_app_that_opened_it() -> Result:
             r.err(f"{f.name} is missing")
             return r
     bridge = bridge_p.read_text(encoding="utf-8")
-    reopen = _swift_nostrings(_swift_body(bridge, "static func reopen(bundleId: String) -> [String: Any] {"))
-    press = _swift_nostrings(_swift_body(bridge, "private static func pressNew(pid: Int, since frontier: Int) -> [String: Any]? {"))
+    # THE CLAIMING LIVES IN `reopenBehind` SINCE 2026-11-08. `reopen` became a
+    # wrapper that calls it and then brings the claimed window forward, so the
+    # rules below are read where they now are -- and the wrapper is held to
+    # doing nothing else, or a second claiming path could grow beside them.
+    reopen = _swift_nostrings(_swift_body(bridge, "private static func reopenBehind(bundleId: String) -> [String: Any] {"))
+    wrapper = _swift_nostrings(_swift_body(bridge, "static func reopen(bundleId: String) -> [String: Any] {"))
+    if "reopenBehind(bundleId:" not in wrapper or "openApplication" in wrapper \
+            or "allWindows" in wrapper:
+        r.err("reopen(bundleId:) no longer delegates the claiming to reopenBehind, "
+              "or claims windows itself -- a second path that can stamp a window "
+              "vesper_opened without the frontier and pid rules below")
+    press =_swift_nostrings(_swift_body(bridge, "private static func pressNew(pid: Int, since frontier: Int) -> [String: Any]? {"))
 
     if not reopen:
         r.err("WindowBridge has no reopen(bundleId:); the path that creates a "

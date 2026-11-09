@@ -99,11 +99,14 @@ final class WakeListener {
             }
             return
         }
-        let playing = MacAudio.othersPlaying()
-        if playing.isEmpty { try startTask() } else { earsOff(playing) }
+        // ALWAYS LISTENING. The ears-off-while-sound-plays rule (added and
+        // removed 2026-11-08) made vesper deaf: macOS reported Spotify as
+        // playing while the owner heard no music, and every time they spoke the
+        // microphone was off. A wake word that is sometimes off is a wake word
+        // the owner cannot trust, so nothing turns it off any more.
+        try startTask()
         note("wake word active: say \(WAKE_PHRASES.map { "\"\($0)\"" }.joined(separator: ", "))")
-        if playing.isEmpty { writeEars(listening: true, because: []) }
-        watchTheSpeakers()
+        writeEars(listening: true, because: [])
     }
 
     /// EARS OFF WHILE THE MAC PLAYS SOUND, ON WHEN IT STOPS.
