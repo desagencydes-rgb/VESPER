@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Status · VESPER</title>
+    <meta
+      name="description"
+      content="A dated map of completed, broken, unfinished and unsolved work in VESPER."
+    />
+    <meta name="theme-color" content="#03141f" />
+    <link rel="icon" href="assets/mark.webp" />
+    <link rel="stylesheet" href="site.css" />
+    <script defer src="site.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="mast">
+      <div class="wrap mast-inner">
+        <a class="brand" href="index.html"
+          ><img width="34" height="34" src="assets/mark.webp" alt="" />VESPER</a
+        >
+        <nav aria-label="Primary">
+          <a href="index.html">Home</a><a href="status.html" aria-current="page">Status</a
+          ><a href="install.html">Install</a><a href="contribute.html">Contribute</a
+          ><a href="faq.html">FAQ</a>
+        </nav>
+        <a class="git" href="https://github.com/desagencydes-rgb/VESPER"
+          ><svg aria-hidden="true" viewBox="0 0 24 24" width="17" height="17" fill="currentColor">
+            <path
+              d="M12 .9a11.1 11.1 0 0 0-3.51 21.63c.55.1.76-.24.76-.54v-2.1c-3.09.67-3.74-1.31-3.74-1.31-.5-1.28-1.24-1.62-1.24-1.62-1.01-.69.08-.68.08-.68 1.12.08 1.7 1.15 1.7 1.15.99 1.7 2.6 1.21 3.23.93.1-.72.39-1.21.7-1.49-2.47-.28-5.07-1.23-5.07-5.49 0-1.21.43-2.2 1.14-2.98-.12-.28-.5-1.41.11-2.94 0 0 .93-.3 3.05 1.14a10.6 10.6 0 0 1 5.55 0c2.12-1.44 3.05-1.14 3.05-1.14.61 1.53.23 2.66.11 2.94.71.78 1.14 1.77 1.14 2.98 0 4.27-2.6 5.21-5.08 5.49.4.35.75 1.02.75 2.06v3.06c0 .3.2.65.77.54A11.1 11.1 0 0 0 12 .9Z"
+            />
+          </svg>
+          GitHub <span>↗</span></a
+        >
+      </div>
+    </header>
+    <main id="main">
+      <div class="inner-intro">
+        <div class="wrap">
+          <span class="eyebrow">Project status · 8 November 2026</span>
+          <h1>Where things <em>stand.</em></h1>
+          <p>
+            A map of what you can rely on, where the build breaks, and where a contributor can change the
+            answer.
+          </p>
+        </div>
+      </div>
+      <section class="wrap status-row">
+        <div>
+          <span class="eyebrow state s0">Done</span>
+          <h2>What you can build on</h2>
+        </div>
+        <dl>
+          <dt>Foundation and memory</dt>
+          <dd>
+            The spec, contracts, state machines and governed memory system are built. Acceptance suites
+            exercised the runtime and network fabric on Windows and Linux.
+          </dd>
+          <dt>Action and evidence</dt>
+          <dd>
+            The runtime can take contained, checkpointed actions under two-axis authority. The showcase has
+            panes, marks, a cursor, a browser, a whiteboard and a live run tail.
+          </dd>
+          <dt>On the Desktop</dt>
+          <dd>
+            Globe ×3 calls VESPER to the current Desktop. The showcase follows the owner’s screen. The app can
+            reopen after a grant without invalidating its own signature.
+          </dd>
+          <dt>Busy Desktops</dt>
+          <dd>
+            The 8 November evening record confirms the full-screen showcase was driven on a busy Desktop and
+            the home landed on an empty second display.
+          </dd>
+        </dl>
+      </section>
+      <section class="wrap status-row">
+        <div>
+          <span class="eyebrow state s1">Broken</span>
+          <h2>Where behavior breaks</h2>
+        </div>
+        <dl>
+          <dt>Showcase layout</dt>
+          <dd>
+            Panes can collapse into a shallow strip. Structural readback counted the panes while missing their
+            size.
+          </dd>
+          <dt>Voice selection</dt>
+          <dd>
+            The runtime computes a voice and discards it. The host default speaks instead, and the speech
+            egress check is red.
+          </dd>
+          <dt>Speaking blocks the pump</dt>
+          <dd>
+            On 16 September 2026 a 19-word sentence held the runtime for 6.1 seconds. It could neither hear
+            nor act while the sentence played.
+          </dd>
+          <dt>Spoken latency</dt>
+          <dd>
+            On 8 November 2026 one spoken turn took about 30 seconds to reach the screen. Capture duration,
+            startup and provider selection each need measurement.
+          </dd>
+        </dl>
+      </section>
+      <section class="wrap status-row">
+        <div>
+          <span class="eyebrow state s2">Unfinished</span>
+          <h2>Where a first patch fits</h2>
+        </div>
+        <dl>
+          <dt>Voice and typing</dt>
+          <dd>
+            The queued voice worker exists but has no callers. Focus and scroll have been exercised through
+            the accessibility bridge. Typing into a real field still needs proof.
+          </dd>
+          <dt>Verification by image</dt>
+          <dd>
+            The app can photograph its own window. The showcase and UI harnesses still need to assert pane
+            size and position from the image.
+          </dd>
+          <dt>Scene composition</dt>
+          <dd>
+            The showcase runs hand-authored scenes. Composing a different scene for each situation needs a
+            working model rung.
+          </dd>
+          <dt>Pending checks</dt>
+          <dd>
+            On 9 November 2026 the registry listed 18 of 207 checks as PENDING, with 10 more runnable checks
+            outside the registry. Each needs an executed negative control.
+          </dd>
+          <dt>Other desktops</dt>
+          <dd>Windows and Linux run the core and gates. The Tauri home and showcase shell is open work.</dd>
+        </dl>
+      </section>
+      <section class="wrap status-row">
+        <div>
+          <span class="eyebrow state s3">Not solved</span>
+          <h2>Where an experiment is needed</h2>
+        </div>
+        <dl>
+          <dt>A Desktop of its own</dt>
+          <dd>
+            VESPER may be summoned to a busy Space, but will only take an empty one unasked. Finding an empty
+            Desktop still depends on the user.
+          </dd>
+          <dt>Foreign windows</dt>
+          <dd>
+            macOS would not move another app’s windows between Spaces in the recorded probes. Accessibility
+            can drive only the visible Desktop, and a new window can land elsewhere.
+          </dd>
+          <dt>Permission identity</dt>
+          <dd>
+            Which macOS grants survive an ad-hoc rebuild remains unresolved. A Developer ID would give the app
+            a stable identity.
+          </dd>
+          <dt>Hearing through music</dt>
+          <dd>
+            The recorded voice-processing path exposed a channel layout the recogniser rejected. Listening
+            pauses while another app plays sound.
+          </dd>
+        </dl>
+      </section>
+      <p class="wrap source">
+        <a href="https://github.com/desagencydes-rgb/VESPER/blob/main/VESPER_OPEN_WORK.md"
+          >Read the dated evidence ↗</a
+        >
+        ·
+        <a href="https://github.com/desagencydes-rgb/VESPER/blob/main/docs/SHOWROOM_BRIEF.md"
+          >Showroom inventory ↗</a
+        >
+      </p>
+      <section class="endband">
+        <div class="wrap">
+          <h2>Start with <em>one finding.</em></h2>
+          <p>Choose a bounded change and the evidence that will show it works.</p>
+          <a class="btn" href="contribute.html">Find a contribution <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div class="wrap foot">
+        <a class="brand" href="index.html"
+          ><img width="34" height="34" src="assets/mark.webp" alt="" />VESPER</a
+        ><span>Open source · MIT license</span
+        ><a href="https://github.com/desagencydes-rgb/VESPER/blob/main/LICENSE">License ↗</a
+        ><a href="https://github.com/desagencydes-rgb/VESPER">Repository ↗</a>
+      </div>
+    </footer>
+  </body>
+</html>

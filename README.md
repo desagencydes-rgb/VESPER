@@ -1,4 +1,5 @@
 # VESPER
+[Visit the VESPER website](https://desagencydes-rgb.github.io/VESPER/)
 
 A persistent, distributed artificial operating presence — **not** an LLM with tools and a chat UI.
 

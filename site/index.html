@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VESPER — A presence that persists</title>
+    <meta
+      name="description"
+      content="Meet VESPER, a persistent open-source AI presence, and pick up a piece of its unfinished work."
+    />
+    <meta name="theme-color" content="#03141f" />
+    <link rel="icon" href="assets/mark.webp" />
+    <link rel="stylesheet" href="site.css" />
+    <script defer src="site.js"></script>
+    <script defer src="portrait.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="mast">
+      <div class="wrap mast-inner">
+        <a class="brand" href="index.html"
+          ><img width="34" height="34" src="assets/mark.webp" alt="" />VESPER</a
+        >
+        <nav aria-label="Primary">
+          <a href="index.html" aria-current="page">Home</a><a href="status.html">Status</a
+          ><a href="install.html">Install</a><a href="contribute.html">Contribute</a
+          ><a href="faq.html">FAQ</a>
+        </nav>
+        <a class="git" href="https://github.com/desagencydes-rgb/VESPER"
+          ><svg aria-hidden="true" viewBox="0 0 24 24" width="17" height="17" fill="currentColor">
+            <path
+              d="M12 .9a11.1 11.1 0 0 0-3.51 21.63c.55.1.76-.24.76-.54v-2.1c-3.09.67-3.74-1.31-3.74-1.31-.5-1.28-1.24-1.62-1.24-1.62-1.01-.69.08-.68.08-.68 1.12.08 1.7 1.15 1.7 1.15.99 1.7 2.6 1.21 3.23.93.1-.72.39-1.21.7-1.49-2.47-.28-5.07-1.23-5.07-5.49 0-1.21.43-2.2 1.14-2.98-.12-.28-.5-1.41.11-2.94 0 0 .93-.3 3.05 1.14a10.6 10.6 0 0 1 5.55 0c2.12-1.44 3.05-1.14 3.05-1.14.61 1.53.23 2.66.11 2.94.71.78 1.14 1.77 1.14 2.98 0 4.27-2.6 5.21-5.08 5.49.4.35.75 1.02.75 2.06v3.06c0 .3.2.65.77.54A11.1 11.1 0 0 0 12 .9Z"
+            />
+          </svg>
+          GitHub <span>↗</span></a
+        >
+      </div>
+    </header>
+    <main id="main">
+      <section class="hero">
+        <div class="terrain"></div>
+        <div class="wrap hero-inner">
+          <div class="hero-copy">
+            <div class="eyebrow"><i class="led"></i> Open-source AI presence</div>
+            <h1>A presence<br /><em>that persists.</em></h1>
+            <p>
+              VESPER lives on a Mac. Its models, devices and providers can change. Its identity and memory
+              stay with it.
+            </p>
+            <div class="actions">
+              <a class="btn" href="contribute.html"
+                >Find your contribution <span aria-hidden="true">↗</span></a
+              ><a class="quiet" href="#project">Meet VESPER <span>↓</span></a>
+            </div>
+          </div>
+          <figure class="specimen">
+            <div class="chamber">
+              <div class="orbit"></div>
+              <div class="reticle" aria-hidden="true"><b></b><b></b><b></b><b></b></div>
+              <img
+                class="poster"
+                src="assets/portrait.webp"
+                alt="VESPER’s face formed from thousands of points of light"
+                width="700"
+                height="700"
+                fetchpriority="high"
+              /><canvas hidden aria-hidden="true"></canvas>
+            </div>
+            <figcaption>
+              <span class="signal" aria-hidden="true">▂▅▇▃▆▂</span> FACE CLOUD
+              <span class="pipe">/</span> 39,805 POINTS
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+      <section class="ambience">
+        <div class="wrap">
+          <div class="mode-title">
+            <h2><span class="dial" aria-hidden="true">◉</span> Ambience selector</h2>
+            <span class="mode-read" aria-live="polite"
+              ><i class="led"></i><strong id="mode-label">Idle</strong
+              ><span id="mode-note">Nothing asked. One light left on.</span></span
+            >
+          </div>
+          <div class="strip" aria-label="Eleven ambience modes">
+            <a
+              class="tile"
+              href="assets/modes/home.webp"
+              data-mode="home"
+              data-accent="#8b7848"
+              data-ground="#ebd7c2"
+              data-note="The workspace at rest, with you in it."
+              aria-label="Home ambience"
+              ><span class="thumb"
+                ><img src="assets/modes/home-thumb.webp" width="186" height="104" alt="" /></span
+              ><span class="tile-name">Home</span></a
+            ><a
+              class="tile"
+              href="assets/modes/idle.webp"
+              data-mode="idle"
+              data-accent="#D99A52"
+              data-ground="#020b11"
+              data-note="Nothing asked. One light left on."
+              aria-label="Idle ambience"
+              aria-current="true"
+              ><span class="thumb"
+                ><img src="assets/modes/idle-thumb.webp" width="186" height="104" alt="" /></span
+              ><span class="tile-name">Idle</span></a
+            ><a
+              class="tile"
+              href="assets/modes/watch.webp"
+              data-mode="watch"
+              data-accent="#81609f"
+              data-ground="#151b25"
+              data-note="A trigger is armed and waiting — an alarm, a deadline."
+              aria-label="Watch ambience"
+              ><span class="thumb"
+                ><img src="assets/modes/watch-thumb.webp" width="186" height="104" alt="" /></span
+              ><span class="tile-name">Watch</span></a
+            ><a
+              class="tile"
+              href="assets/modes/listening.webp"
+              data-mode="listening"
+              data-accent="#77559a"
+              data-ground="#020b11"
+              data-note="Microphone open, or the input has focus."
+              aria-label="Listening ambience"
+              ><span class="thumb"
+                ><img src="assets/modes/listening-thumb.webp" width="186" height="104" alt="" /></span
+              ><span class="tile-name">Listening</span></a
+            ><a
+              class="tile"
+              href="assets/modes/thinking.webp"
+              data-mode="thinking"
+              data-accent="#e8829d"
+              data-ground="#040e19"
+              data-note="Reasoning. The panel up-left is filling."
+              aria-label="Thinking ambience"
+              ><span class="thumb"
+                ><img src="assets/modes/thinking-thumb.webp" width="186" height="104" alt="" /></span
+              ><span class="tile-name">Thinking</span></a
+            ><a
+              class="tile"
+              href="assets/modes/working.webp"
+              data-mode="working"
+              data-accent="#C5A35A"
+              data-ground="#0a151f"
+              data-note="A long task is running and holding."
+              aria-label="Working ambience"
+              ><span class="thumb"
+                ><img src="assets/modes/working-thumb.webp" width="186" height="104" alt="" /></span
+              ><span class="tile-name">Working</span></a
+            ><a
+              class="tile"
+              href="assets/modes/speaking.webp"
+              data-mode="speaking"
+              data-accent="#D99A52"
+              data-ground="#161c1f"
+              data-note="Answering — aloud, or in text."
+              aria-label="Speaking ambience"
+              ><span class="thumb"
+                ><img src="assets/modes/speaking-thumb.webp" width="186" height="104" alt="" /></span
+              ><span class="tile-name">Speaking</span></a
+            ><a
+              class="tile"
+              href="assets/modes/flow.webp"
+              data-mode="flow"
+              data-accent="#997243"
+              data-ground="#f6decd"
+              data-note="Work going well. nothing needed from you."
+              aria-label="Flow ambience"
+              ><span class="thumb"
+                ><img src="assets/modes/flow-thumb.webp" width="186" height="104" alt="" /></span
+              ><span class="tile-name">Flow</span></a
+            ><a
+              class="tile"
+              href="assets/modes/alert.webp"
+              data-mode="alert"
+              data-accent="#B96645"
+              data-ground="#061016"
+              data-note="Something needs you. Everything else drops out."
+              aria-label="Alert ambience"
+              ><span class="thumb"
+                ><img src="assets/modes/alert-thumb.webp" width="186" height="104" alt="" /></span
+              ><span class="tile-name">Alert</span></a
+            ><a
+              class="tile"
+              href="assets/modes/rest.webp"
+              data-mode="rest"
+              data-accent="#5e6e57"
+              data-ground="#d2c0b5"
+              data-note="Quiet hours, or the host is under pressure."
+              aria-label="Rest ambience"
+              ><span class="thumb"
+                ><img src="assets/modes/rest-thumb.webp" width="186" height="104" alt="" /></span
+              ><span class="tile-name">Rest</span></a
+            ><a
+              class="tile"
+              href="assets/modes/milestone.webp"
+              data-mode="milestone"
+              data-accent="#e8829d"
+              data-ground="#0a0e15"
+              data-note="Something finished that mattered."
+              aria-label="Milestone ambience"
+              ><span class="thumb"
+                ><img src="assets/modes/milestone-thumb.webp" width="186" height="104" alt="" /></span
+              ><span class="tile-name">Milestone</span></a
+            >
+          </div>
+          <noscript><p>Select a mode to view its full wallpaper.</p></noscript>
+        </div>
+      </section>
+      <section class="wrap statement" id="project">
+        <div>
+          <span class="eyebrow">Identity &amp; continuity</span>
+          <h2>What stays<br /><em>with VESPER?</em></h2>
+        </div>
+        <blockquote>
+          The model is replaceable. The device is replaceable. The UI is replaceable. The network path is
+          replaceable. The provider is replaceable.<br /><br /><strong
+            >VESPER's identity, goals, state, policies, memory, capabilities and continuity are not supposed
+            to disappear merely because one of those components disappears.</strong
+          >
+        </blockquote>
+      </section>
+      <section class="wrap spaced">
+        <span class="eyebrow">On macOS</span>
+        <h2>Three surfaces, <em>one presence.</em></h2>
+        <div class="surface-grid">
+          <article class="surface">
+            <img
+              src="assets/surfaces/island.webp"
+              loading="lazy"
+              width="400"
+              height="230"
+              alt="Island above a macOS desktop"
+            /><small>Design reference</small>
+            <h3>The island</h3>
+            <p>
+              Welded to the notch, the island keeps VESPER within reach. The face turns, dissolves and speaks.
+            </p>
+          </article>
+          <article class="surface">
+            <img
+              src="assets/surfaces/home.webp"
+              loading="lazy"
+              width="400"
+              height="230"
+              alt="Home design with transcript and right-hand rail"
+            /><small>Design reference</small>
+            <h3>The home</h3>
+            <p>
+              VESPER has a Desktop of its own. Call it with three taps of the globe key, or give it an empty
+              Desktop to inhabit.
+            </p>
+          </article>
+          <article class="surface">
+            <img
+              src="assets/surfaces/showcase-study.webp"
+              loading="lazy"
+              width="400"
+              height="230"
+              alt="Design study of the face surrounded by hologram panels"
+            /><small>Design reference</small>
+            <h3>The showcase</h3>
+            <p>
+              A window for work in progress. VESPER can lay out panes, mark a whiteboard, use its own browser
+              and follow your screen.
+            </p>
+          </article>
+        </div>
+      </section>
+      <section class="wrap study">
+        <div>
+          <span class="eyebrow">Face study</span>
+          <h2>A face made <em>of light.</em></h2>
+          <p>
+            The island’s face is sampled from the owner’s reference, with depth added to the lit points. The
+            site’s export held 39,805 points on 9 November 2026. Move your pointer over the portrait to turn
+            it, or scroll to see it disperse and gather again.
+          </p>
+          <a href="https://github.com/desagencydes-rgb/VESPER/blob/main/docs/design/source/face_cloud.py"
+            >Read the face generator ↗</a
+          >
+        </div>
+        <figure>
+          <img
+            src="assets/surfaces/face-reference.webp"
+            alt="Owner’s reference for the luminous face"
+            loading="lazy"
+          />
+          <figcaption>Face · design reference</figcaption>
+        </figure>
+      </section>
+      <section class="wrap spaced films">
+        <span class="eyebrow">Motion studies</span>
+        <h2>Ambience <em>in motion.</em></h2>
+        <div class="film-grid">
+          <figure>
+            <video
+              loading="lazy"
+              controls
+              muted
+              playsinline
+              preload="none"
+              poster="assets/modes/idle.webp"
+              aria-label="Introduction animated wallpaper"
+              src="assets/modes/intro.mp4"
+            ></video>
+            <figcaption>Introduction</figcaption>
+          </figure>
+          <figure>
+            <video
+              loading="lazy"
+              controls
+              muted
+              playsinline
+              preload="none"
+              poster="assets/modes/speaking.webp"
+              aria-label="Speaking animated wallpaper"
+              src="assets/modes/speaking_animated.mp4"
+            ></video>
+            <figcaption>Speaking</figcaption>
+          </figure>
+          <figure>
+            <video
+              loading="lazy"
+              controls
+              muted
+              playsinline
+              preload="none"
+              poster="assets/modes/rest.webp"
+              aria-label="Rest animated wallpaper"
+              src="assets/modes/rest_animated.mp4"
+            ></video>
+            <figcaption>Rest</figcaption>
+          </figure>
+          <figure>
+            <video
+              loading="lazy"
+              controls
+              muted
+              playsinline
+              preload="none"
+              poster="assets/modes/milestone.webp"
+              aria-label="Milestone animated wallpaper"
+              src="assets/modes/milestone_animated.mp4"
+            ></video>
+            <figcaption>Milestone</figcaption>
+          </figure>
+        </div>
+      </section>
+      <section class="endband">
+        <div class="wrap">
+          <h2>What will you <em>pick up?</em></h2>
+          <p>
+            One person built VESPER and opened the work. The voice queue, the desktop shell and the next scene
+            are places to begin.
+          </p>
+          <a class="btn" href="contribute.html">Explore open work <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div class="wrap foot">
+        <a class="brand" href="index.html"
+          ><img width="34" height="34" src="assets/mark.webp" alt="" />VESPER</a
+        ><span>Open source · MIT license</span
+        ><a href="https://github.com/desagencydes-rgb/VESPER/blob/main/LICENSE">License ↗</a
+        ><a href="https://github.com/desagencydes-rgb/VESPER">Repository ↗</a>
+      </div>
+    </footer>
+  </body>
+</html>

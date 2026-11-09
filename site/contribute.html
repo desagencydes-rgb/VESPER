@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Contribute · VESPER</title>
+    <meta
+      name="description"
+      content="Five concrete contributions to VESPER, with starting files and issue drafts."
+    />
+    <meta name="theme-color" content="#03141f" />
+    <link rel="icon" href="assets/mark.webp" />
+    <link rel="stylesheet" href="site.css" />
+    <script defer src="site.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="mast">
+      <div class="wrap mast-inner">
+        <a class="brand" href="index.html"
+          ><img width="34" height="34" src="assets/mark.webp" alt="" />VESPER</a
+        >
+        <nav aria-label="Primary">
+          <a href="index.html">Home</a><a href="status.html">Status</a><a href="install.html">Install</a
+          ><a href="contribute.html" aria-current="page">Contribute</a><a href="faq.html">FAQ</a>
+        </nav>
+        <a class="git" href="https://github.com/desagencydes-rgb/VESPER"
+          ><svg aria-hidden="true" viewBox="0 0 24 24" width="17" height="17" fill="currentColor">
+            <path
+              d="M12 .9a11.1 11.1 0 0 0-3.51 21.63c.55.1.76-.24.76-.54v-2.1c-3.09.67-3.74-1.31-3.74-1.31-.5-1.28-1.24-1.62-1.24-1.62-1.01-.69.08-.68.08-.68 1.12.08 1.7 1.15 1.7 1.15.99 1.7 2.6 1.21 3.23.93.1-.72.39-1.21.7-1.49-2.47-.28-5.07-1.23-5.07-5.49 0-1.21.43-2.2 1.14-2.98-.12-.28-.5-1.41.11-2.94 0 0 .93-.3 3.05 1.14a10.6 10.6 0 0 1 5.55 0c2.12-1.44 3.05-1.14 3.05-1.14.61 1.53.23 2.66.11 2.94.71.78 1.14 1.77 1.14 2.98 0 4.27-2.6 5.21-5.08 5.49.4.35.75 1.02.75 2.06v3.06c0 .3.2.65.77.54A11.1 11.1 0 0 0 12 .9Z"
+            />
+          </svg>
+          GitHub <span>↗</span></a
+        >
+      </div>
+    </header>
+    <main id="main">
+      <div class="inner-intro">
+        <div class="wrap">
+          <span class="eyebrow">Contributor field guide</span>
+          <h1>Pick up <em>a piece.</em></h1>
+          <p>
+            The original author has stepped back. Choose one change, say how you will prove it, and open an
+            issue so someone else can build alongside you.
+          </p>
+        </div>
+      </div>
+      <article class="wrap work" id="latency">
+        <div>
+          <span class="eyebrow">Runtime</span>
+          <h2>Give spoken questions a quicker answer.</h2>
+        </div>
+        <div>
+          <p>
+            A recorded turn took about 30 seconds on 8 November 2026. Someone waiting that long cannot tell
+            whether VESPER heard them.
+          </p>
+          <h3>Where to start</h3>
+          <p>
+            Start with the fixed capture window. End recording on silence, then compare wake-to-answer timings
+            on the same question. The open-work ledger also names quota, missing grants and startup probes.
+          </p>
+          <div class="actions">
+            <a
+              class="btn"
+              href="https://github.com/desagencydes-rgb/VESPER/issues/new?title=Runtime+%E2%80%94+Give+spoken+questions+a+quicker+answer.&amp;body=I+would+like+to+pick+this+up.%0A%0AStarting+point%3A+app%2Fisland-macos%2FWakeWord.swift%0A%0AProposed+change%3A%0A%0AHow+I+will+verify+it%3A%0A%0APlatform+and+relevant+observations%3A%0A"
+              >Open an issue <span aria-hidden="true">↗</span></a
+            ><a href="https://github.com/desagencydes-rgb/VESPER/blob/main/app/island-macos/WakeWord.swift"
+              >WakeWord.swift ↗</a
+            >
+          </div>
+        </div>
+      </article>
+      <article class="wrap work" id="shell">
+        <div>
+          <span class="eyebrow">Desktop surfaces</span>
+          <h2>Give Windows and Linux a home.</h2>
+        </div>
+        <div>
+          <p>
+            The core and gates already run on both platforms. People there need a visual shell to see the work
+            unfold.
+          </p>
+          <h3>Where to start</h3>
+          <p>
+            Begin with the showcase’s scene format. Build one pane in a Tauri window, feed it a real scene and
+            verify the rendered result. The island has its own native requirements.
+          </p>
+          <div class="actions">
+            <a
+              class="btn"
+              href="https://github.com/desagencydes-rgb/VESPER/issues/new?title=Desktop+surfaces+%E2%80%94+Give+Windows+and+Linux+a+home.&amp;body=I+would+like+to+pick+this+up.%0A%0AStarting+point%3A+app%2Fhome-macos%2Fchrome%2Fshowcase.html%0A%0AProposed+change%3A%0A%0AHow+I+will+verify+it%3A%0A%0APlatform+and+relevant+observations%3A%0A"
+              >Open an issue <span aria-hidden="true">↗</span></a
+            ><a
+              href="https://github.com/desagencydes-rgb/VESPER/blob/main/app/home-macos/chrome/showcase.html"
+              >Showcase layout ↗</a
+            >
+          </div>
+        </div>
+      </article>
+      <article class="wrap work" id="voice">
+        <div>
+          <span class="eyebrow">Speech</span>
+          <h2>Keep the runtime listening while it speaks.</h2>
+        </div>
+        <div>
+          <p>
+            A synchronous call leaves the pump deaf for an entire sentence. The queue, worker and interruption
+            path already exist.
+          </p>
+          <h3>Where to start</h3>
+          <p>
+            Connect core.speech.Voice at both blocking runtime call sites. Prove the pump can work during a
+            long line and that interrupt stops speech and clears the queue.
+          </p>
+          <div class="actions">
+            <a
+              class="btn"
+              href="https://github.com/desagencydes-rgb/VESPER/issues/new?title=Speech+%E2%80%94+Keep+the+runtime+listening+while+it+speaks.&amp;body=I+would+like+to+pick+this+up.%0A%0AStarting+point%3A+core%2Fspeech.py%0A%0AProposed+change%3A%0A%0AHow+I+will+verify+it%3A%0A%0APlatform+and+relevant+observations%3A%0A"
+              >Open an issue <span aria-hidden="true">↗</span></a
+            ><a href="https://github.com/desagencydes-rgb/VESPER/blob/main/core/speech.py">Speech worker ↗</a>
+          </div>
+        </div>
+      </article>
+      <article class="wrap work" id="scenes">
+        <div>
+          <span class="eyebrow">Showcase</span>
+          <h2>Let VESPER compose the scene.</h2>
+        </div>
+        <div>
+          <p>
+            The showcase can draw and annotate a scene, but each demonstration so far was written by hand.
+          </p>
+          <h3>Where to start</h3>
+          <p>
+            Trace a checked scene through the end-to-end harness. With model access configured, let a
+            situation choose the panes and words, then inspect the window it actually drew.
+          </p>
+          <div class="actions">
+            <a
+              class="btn"
+              href="https://github.com/desagencydes-rgb/VESPER/issues/new?title=Showcase+%E2%80%94+Let+VESPER+compose+the+scene.&amp;body=I+would+like+to+pick+this+up.%0A%0AStarting+point%3A+tools%2Fshowcase_endtoend.py%0A%0AProposed+change%3A%0A%0AHow+I+will+verify+it%3A%0A%0APlatform+and+relevant+observations%3A%0A"
+              >Open an issue <span aria-hidden="true">↗</span></a
+            ><a href="https://github.com/desagencydes-rgb/VESPER/blob/main/tools/showcase_endtoend.py"
+              >Showcase harness ↗</a
+            >
+          </div>
+        </div>
+      </article>
+      <article class="wrap work" id="checks">
+        <div>
+          <span class="eyebrow">Verification</span>
+          <h2>Make a pending check enforce its rule.</h2>
+        </div>
+        <div>
+          <p>
+            On 9 November 2026, 18 of 207 registered checks were still marked PENDING. An executed red run
+            shows the check can catch the fault.
+          </p>
+          <h3>Where to start</h3>
+          <p>
+            Choose one PENDING row. Implement it, add its sabotage case to tools/ci/self_test.py and observe
+            red, then green. Run the self-test alone and let it restore the tree before committing.
+          </p>
+          <div class="actions">
+            <a
+              class="btn"
+              href="https://github.com/desagencydes-rgb/VESPER/issues/new?title=Verification+%E2%80%94+Make+a+pending+check+enforce+its+rule.&amp;body=I+would+like+to+pick+this+up.%0A%0AStarting+point%3A+verification%2Fci%2FCHECKS.toml%0A%0AProposed+change%3A%0A%0AHow+I+will+verify+it%3A%0A%0APlatform+and+relevant+observations%3A%0A"
+              >Open an issue <span aria-hidden="true">↗</span></a
+            ><a href="https://github.com/desagencydes-rgb/VESPER/blob/main/verification/ci/CHECKS.toml"
+              >Check registry ↗</a
+            >
+          </div>
+        </div>
+      </article>
+      <div class="wrap prose spaced">
+        <h2>Before your first change</h2>
+        <p>
+          Read the open-work record and its measurements. Keep tools and verification in the Python standard
+          library. A successful launch is only the start of a test. Look at the window, listen to the
+          sentence, or read the state back.
+        </p>
+        <p>
+          <a href="https://github.com/desagencydes-rgb/VESPER/blob/main/CONTRIBUTING.md"
+            >Contributor guide ↗</a
+          >
+          ·
+          <a href="https://github.com/desagencydes-rgb/VESPER/blob/main/VESPER_OPEN_WORK.md"
+            >Open-work ledger ↗</a
+          >
+          ·
+          <a
+            href="mailto:desagencydes@gmail.com?subject=VESPER%20contribution&body=Area%20of%20work%3A%0AProposed%20change%3A%0AHow%20I%20will%20verify%20it%3A"
+            >Email a proposal ↗</a
+          >
+        </p>
+      </div>
+    </main>
+    <footer>
+      <div class="wrap foot">
+        <a class="brand" href="index.html"
+          ><img width="34" height="34" src="assets/mark.webp" alt="" />VESPER</a
+        ><span>Open source · MIT license</span
+        ><a href="https://github.com/desagencydes-rgb/VESPER/blob/main/LICENSE">License ↗</a
+        ><a href="https://github.com/desagencydes-rgb/VESPER">Repository ↗</a>
+      </div>
+    </footer>
+  </body>
+</html>

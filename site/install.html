@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Install · VESPER</title>
+    <meta
+      name="description"
+      content="A step-by-step guide to installing the VESPER runtime and macOS surfaces with your own accounts and permissions."
+    />
+    <meta name="theme-color" content="#03141f" />
+    <link rel="icon" href="assets/mark.webp" />
+    <link rel="stylesheet" href="site.css" />
+    <script defer src="site.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="mast">
+      <div class="wrap mast-inner">
+        <a class="brand" href="index.html"
+          ><img width="34" height="34" src="assets/mark.webp" alt="" />VESPER</a
+        >
+        <nav aria-label="Primary">
+          <a href="index.html">Home</a><a href="status.html">Status</a
+          ><a href="install.html" aria-current="page">Install</a><a href="contribute.html">Contribute</a
+          ><a href="faq.html">FAQ</a>
+        </nav>
+        <a class="git" href="https://github.com/desagencydes-rgb/VESPER"
+          ><svg aria-hidden="true" viewBox="0 0 24 24" width="17" height="17" fill="currentColor">
+            <path
+              d="M12 .9a11.1 11.1 0 0 0-3.51 21.63c.55.1.76-.24.76-.54v-2.1c-3.09.67-3.74-1.31-3.74-1.31-.5-1.28-1.24-1.62-1.24-1.62-1.01-.69.08-.68.08-.68 1.12.08 1.7 1.15 1.7 1.15.99 1.7 2.6 1.21 3.23.93.1-.72.39-1.21.7-1.49-2.47-.28-5.07-1.23-5.07-5.49 0-1.21.43-2.2 1.14-2.98-.12-.28-.5-1.41.11-2.94 0 0 .93-.3 3.05 1.14a10.6 10.6 0 0 1 5.55 0c2.12-1.44 3.05-1.14 3.05-1.14.61 1.53.23 2.66.11 2.94.71.78 1.14 1.77 1.14 2.98 0 4.27-2.6 5.21-5.08 5.49.4.35.75 1.02.75 2.06v3.06c0 .3.2.65.77.54A11.1 11.1 0 0 0 12 .9Z"
+            />
+          </svg>
+          GitHub <span>↗</span></a
+        >
+      </div>
+    </header>
+    <main id="main">
+      <div class="inner-intro">
+        <div class="wrap">
+          <span class="eyebrow">Install guide</span>
+          <h1>Run <em>VESPER.</em></h1>
+          <p>
+            Start with your platform, bring your own keys, and verify each step. The guide comes from one
+            installation on one Mac. A failure on a second machine is worth reporting.
+          </p>
+        </div>
+      </div>
+      <div class="wrap doc-layout">
+        <aside>
+          <nav aria-label="Installation steps">
+            <a href="#step-0"><small>00</small> Choose your platform</a
+            ><a href="#step-1"><small>01</small> Check prerequisites</a
+            ><a href="#step-2"><small>02</small> Clone and verify</a
+            ><a href="#step-3"><small>03</small> Configure providers</a
+            ><a href="#step-4"><small>04</small> Connect subscriptions</a
+            ><a href="#step-5"><small>05</small> Build and run on macOS</a
+            ><a href="#step-6"><small>06</small> Run the core on any platform</a
+            ><a href="#step-7"><small>07</small> Check your installation</a
+            ><a href="#step-8"><small>08</small> Remove VESPER</a>
+          </nav>
+        </aside>
+        <div class="guide">
+          <section id="step-0">
+            <span class="eyebrow">Step 00</span>
+            <h2>Choose your platform</h2>
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Scrollable reference table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Platform</th>
+                    <th>What you get</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>macOS 13+, Apple Silicon</strong></td>
+                    <td>
+                      Everything: the Python core, every gate, and the native surfaces — the
+                      <strong>island</strong> (welded to the notch), the <strong>home</strong> (VESPER's own
+                      Desktop ground), the <strong>showcase</strong> window, the wake word and the globe-key
+                      summon
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><strong>macOS, Intel</strong></td>
+                    <td>
+                      The core and gates. <code>build.sh</code> targets <code>arm64</code> only; change
+                      <code>-target</code> to try an Intel build
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><strong>Windows / Linux</strong></td>
+                    <td>
+                      The Python core, the routing ladder and every gate. The F0–F6 acceptance suites were run
+                      on a Windows desktop and a Linux laptop. <strong>There is no visual shell yet</strong>:
+                      the decided frontend for everything except the island is Tauri, and nobody has built it
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <section id="step-1">
+            <span class="eyebrow">Step 01</span>
+            <h2>Check prerequisites</h2>
+            <ul>
+              <li>
+                <strong>Python ≥ 3.11</strong> (3.13 recommended). The system <code>python3</code> on macOS is
+                3.9, and <strong>every gate fails on it while still exiting 0</strong>. Install 3.13 from
+                python.org, Homebrew or <code>uv</code>, then confirm:
+                <pre><code>python3.13 --version</code></pre>
+                The app looks for it at <code>~/.local/bin/python3.13</code>,
+                <code>/opt/homebrew/bin/python3.13</code> or <code>/usr/local/bin/python3.13</code>.
+              </li>
+              <li>
+                <strong>macOS only: Swift.</strong> <code>xcode-select --install</code> is enough. Full Xcode
+                is not needed: the app is built with plain <code>swiftc</code>, with no package manager and no
+                dependencies.
+              </li>
+              <li>
+                <strong>Optional CLIs for the subscription rungs:</strong> <code>claude</code> (Claude Code)
+                and/or <code>codex</code> (OpenAI Codex CLI). See §4.
+              </li>
+            </ul>
+            <p>
+              The core has <strong>no third-party Python dependencies</strong>. <code>tools/</code> and
+              <code>verification/</code> are stdlib only, by rule.
+            </p>
+          </section>
+          <section id="step-2">
+            <span class="eyebrow">Step 02</span>
+            <h2>Clone and verify</h2>
+            <pre><code class="language-sh">git clone https://github.com/desagencydes-rgb/VESPER.git
+cd VESPER
+python3.13 tools/ci/checks.py all
+python3.13 tools/traceability_lint.py
+python3.13 tools/reference_lint.py
+</code></pre>
+            <p>
+              Read the <strong>summary line</strong>, not the exit code. Measured in a fresh clone on
+              2026-11-08: <strong>201/203</strong>. The two reds are expected:
+              <code>wake-word-listens-locally-and-starts-once</code> needs the built
+              <code>app/VESPER.app</code> (§5), and <code>speech-is-egress-and-says-so</code> is a known open
+              bug (<code>VESPER_OPEN_WORK.md</code> §2.2).
+            </p>
+            <p>The acceptance runners are slower, and each one is self-contained:</p>
+            <pre><code class="language-sh">python3.13 verification/run_f0_acceptance.py     # … through run_f6_acceptance.py
+python3.13 verification/stress_placement.py      # 160,000 property assertions
+python3.13 verification/stress_fabric.py         # 180,000 property assertions
+</code></pre>
+          </section>
+          <section id="step-3">
+            <span class="eyebrow">Step 03</span>
+            <h2>Configure providers</h2>
+            <p>
+              Everything that belongs to you lives <strong>outside the repository</strong>, in
+              <code>~/.config/vesper/</code>:
+            </p>
+            <pre><code class="language-sh">mkdir -p ~/.config/vesper
+touch ~/.config/vesper/secrets.env
+chmod 600 ~/.config/vesper/secrets.env
+</code></pre>
+            <p>
+              <code>secrets.env</code> is plain <code>NAME=value</code> lines. The provider table below lists
+              the variable names. <strong>Copy the names, never paste values into the repo.</strong>
+            </p>
+            <p>Check what VESPER can see. This prints lengths and shapes, never values:</p>
+            <pre><code class="language-sh">python3.13 tools/ops/check_credentials.py
+</code></pre>
+            <h3>3.1 Provider keys — bring any subset</h3>
+            <p>
+              VESPER routes every model call through a ladder of
+              <strong>rungs</strong> (<code>contracts/policy/provider_supply.toml</code>). A rung whose
+              credential is absent simply does not exist. <strong>You need at least one</strong> for VESPER to
+              think and talk; with none, it runs, draws and listens, but cannot decide anything.
+            </p>
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Scrollable reference table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Provider</th>
+                    <th>Variable(s)</th>
+                    <th>Privacy step before it may see private data</th>
+                    <th>Egress class</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Cloudflare Workers AI</td>
+                    <td><code>CLOUDFLARE_ACCOUNT_ID</code>, <code>CLOUDFLARE_API_TOKEN</code></td>
+                    <td>none</td>
+                    <td><code>E1-PRIVATE</code></td>
+                  </tr>
+                  <tr>
+                    <td>Groq</td>
+                    <td><code>GROQ_API_KEY</code></td>
+                    <td>enable Zero Data Retention</td>
+                    <td><code>E1</code> after the step</td>
+                  </tr>
+                  <tr>
+                    <td>Ollama Cloud</td>
+                    <td><code>OLLAMA_API_KEY</code></td>
+                    <td>none</td>
+                    <td><code>E1-PRIVATE</code></td>
+                  </tr>
+                  <tr>
+                    <td>Mistral</td>
+                    <td><code>MISTRAL_API_KEY</code></td>
+                    <td>take the training opt-out</td>
+                    <td><code>E1</code> after the step</td>
+                  </tr>
+                  <tr>
+                    <td>NVIDIA NIM</td>
+                    <td><code>NVIDIA_NIM_API_KEY</code></td>
+                    <td>terms unconfirmed</td>
+                    <td><code>E2-PUBLIC</code></td>
+                  </tr>
+                  <tr>
+                    <td>OpenRouter (free)</td>
+                    <td><code>OPENROUTER_API_KEY</code></td>
+                    <td>cannot be fixed</td>
+                    <td><code>E2-PUBLIC</code> only</td>
+                  </tr>
+                  <tr>
+                    <td>Google AI Studio</td>
+                    <td><code>GOOGLE_API_KEY_A1</code> … <code>_A4</code></td>
+                    <td>cannot be fixed</td>
+                    <td><code>E2-PUBLIC</code> only</td>
+                  </tr>
+                  <tr>
+                    <td>ElevenLabs (voice)</td>
+                    <td><code>ELEVENLABS_API_KEY</code></td>
+                    <td>—</td>
+                    <td>speech</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p>
+              <strong>Egress class decides what a provider may see, before quota does.</strong>
+              <code>E2-PUBLIC</code> providers never receive your private content. The full reasoning and the
+              step-by-step privacy settings are in
+              <a href="https://github.com/desagencydes-rgb/VESPER/blob/main/docs/planning/CREDENTIALS.md"
+                ><code>docs/planning/CREDENTIALS.md</code></a
+              >
+              §3 and
+              <a href="https://github.com/desagencydes-rgb/VESPER/blob/main/docs/planning/PROVIDER_SUPPLY.md"
+                ><code>docs/planning/PROVIDER_SUPPLY.md</code></a
+              >.
+            </p>
+            <p>
+              <strong>More than one account of the same provider:</strong> add numbered siblings
+              (<code>GROQ_API_KEY_2</code>, <code>_3</code>, …). <code>core/rung_credentials.py</code> turns
+              each into its own rung with the same policy. No code change is needed. Role-specific variables
+              in the contract (<code>GROQ_API_KEY_CHOOSER</code>, <code>MISTRAL_API_KEY_ARBITER</code>, …) let
+              you put a role on its own account; they are optional.
+            </p>
+          </section>
+          <section id="step-4">
+            <span class="eyebrow">Step 04</span>
+            <h2>Connect subscriptions</h2>
+            <p>
+              VESPER can use a Claude or ChatGPT <strong>subscription</strong> through the official CLIs in
+              headless mode. This is <strong>not</strong> MCP, and it does not involve the desktop apps: the
+              apps are MCP <em>clients</em>, and VESPER needs something that answers a prompt (<code
+                >docs/planning/CREDENTIALS.md</code
+              >
+              §4.0).
+            </p>
+            <p>
+              <strong>The rule that matters: VESPER gets its own account, never yours.</strong> Each CLI keeps
+              its login per config directory, so VESPER's directory must be separate from your personal one.
+              If the variable below is unset, VESPER <strong>does not</strong> fall back to
+              <code>~/.claude</code>. That fallback once let VESPER spend its owner's personal quota while
+              every comment said it could not.
+            </p>
+            <pre><code class="language-sh"># in ~/.config/vesper/secrets.env
+VESPER_CLAUDE_CONFIG_DIR=~/.config/vesper/claude-vesper          # VESPER's agents
+VESPER_CLAUDE_ADVISOR_CONFIG_DIR=~/.config/vesper/claude-advisor # a second account for advice (optional)
+VESPER_CODEX_HOME=~/.config/vesper/codex                         # Codex (optional) ...
+VESPER_CODEX_CONFIG_DIR=~/.config/vesper/codex                   # ... the same folder: the contract names both
+</code></pre>
+            <p>
+              Log the agents' directory in as <strong>VESPER's</strong> account and verify which account it
+              bound to. The browser will happily reuse whichever login it already holds:
+            </p>
+            <pre><code class="language-sh">VESPER_OWNER_EMAIL=you@your-personal-account.com tools/ops/claude_rung2_login.sh
+</code></pre>
+            <p>
+              The script clears the isolated credential, walks you through the login, and refuses the result
+              if it came back as <code>VESPER_OWNER_EMAIL</code>. For a headless token instead of a login, set
+              <code>VESPER_CLAUDE_TOKEN</code> (or <code>VESPER_CLAUDE_ADVISOR_TOKEN</code>,
+              <code>VESPER_CODEX_TOKEN</code>). A per-account token always wins over a shared
+              <code>CLAUDE_CODE_OAUTH_TOKEN</code>.
+            </p>
+            <p>
+              <strong>Spending limits are yours to set.</strong> VESPER reads each account's 5-hour and 7-day
+              utilisation on every call and stops at the percentages you choose in the home's Settings. It
+              never changes billing or account settings.
+            </p>
+            <h3>MCP servers</h3>
+            <p>
+              <code>core/mcp.py</code> is a bounded MCP <strong>client</strong>. Every tool a server declares
+              arrives as <strong>untrusted data</strong> and starts at the highest authority level (ask
+              first), whatever the server says about itself. A tool runs at a lower level only if you level it
+              in a contract.
+            </p>
+          </section>
+          <section id="step-5">
+            <span class="eyebrow">Step 05</span>
+            <h2>Build and run on macOS</h2>
+            <pre><code class="language-sh">./app/island-macos/build.sh
+</code></pre>
+            <p>
+              This produces <code>app/VESPER.app</code>: one binary that is the island, the home and every
+              helper mode. The bundle carries a copy of the Python runtime and records your checkout's path in
+              <code>Contents/Resources/runtime/place.toml</code>, so
+              <strong>rebuild after moving the repo</strong>.
+            </p>
+            <p>
+              The bundle is <strong>ad-hoc signed</strong>, and that is a measured trade-off (see the comment
+              at the end of <code>build.sh</code>). A Developer ID certificate would give both a stable
+              permission identity and a working login item. Without one, macOS may call it an unidentified
+              developer the first time: right-click → <em>Open</em>.
+            </p>
+            <h3>5.1 The grant trip — after your last build</h3>
+            <p>
+              macOS grants are keyed to the app's signature, and an ad-hoc rebuild can wipe Microphone, Screen
+              Recording and Speech. So build first, then grant.
+            </p>
+            <pre><code class="language-sh">open -n app/VESPER.app --args --request-grants   # asks for each one
+open -n app/VESPER.app --args --grants           # reads back what it holds
+</code></pre>
+            <p>
+              <strong>Always use <code>open -n</code>, never run the binary from a shell.</strong> A request
+              from a terminal is attributed to the terminal, so it can come back "granted" with no dialog, or
+              crash. <strong>Accessibility</strong> has no prompt: tick VESPER in System Settings → Privacy
+              &amp; Security → Accessibility. The globe-key summon does nothing without it.
+            </p>
+            <div class="table-scroll" role="region" tabindex="0" aria-label="Scrollable reference table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Grant</th>
+                    <th>What it is for</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Accessibility</td>
+                    <td>
+                      Globe-key summon; reading and driving windows (<code>ui.view</code>,
+                      <code>ui.act</code>)
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Screen Recording</td>
+                    <td>Seeing the screen; following your display in the showcase</td>
+                  </tr>
+                  <tr>
+                    <td>Microphone + Speech</td>
+                    <td>
+                      The wake word. On-device for <code>en-US</code>; other locales go to Apple's servers,
+                      which is egress and is labelled as such
+                    </td>
+                  </tr>
+                  <tr>
+                    <td>Camera</td>
+                    <td>Presence, carried as a flag rather than as images</td>
+                  </tr>
+                  <tr>
+                    <td>Automation, Calendars</td>
+                    <td>Notes and agenda bridges</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <h3>5.2 Run it</h3>
+            <pre><code class="language-sh">tools/install_island_agent.sh        # start now, at every login, and after a crash
+</code></pre>
+            <p>
+              On first start the home also registers the <strong>globe watcher</strong> and the
+              <strong>wake listener</strong> as their own login agents. Then:
+            </p>
+            <ul>
+              <li>
+                <strong>Press the globe (fn) key three times</strong> to call VESPER onto the Desktop you are
+                on.
+              </li>
+              <li>
+                Or switch to an <strong>empty Desktop</strong>: VESPER only <em>takes</em> a Desktop with none
+                of your windows on it. That is a rule, not a bug (<code>VESPER_OPEN_WORK.md</code> §4.1).
+              </li>
+              <li>Stop and remove: <code>tools/install_island_agent.sh --uninstall</code>.</li>
+            </ul>
+            <p>
+              Logs are in <code>~/Library/Application Support/VESPER/</code> (<code>island.out</code>,
+              <code>fnwatch.out</code>, <code>arm.out</code>, <code>ground-log.txt</code>).
+            </p>
+          </section>
+          <section id="step-6">
+            <span class="eyebrow">Step 06</span>
+            <h2>Run the core on any platform</h2>
+            <pre><code class="language-sh">python3.13 tools/ops/vesper_runtime.py --status
+python3.13 tools/ops/vesper_runtime.py --say &quot;what can you do right now?&quot;
+</code></pre>
+            <p>
+              <code>VESPER_NODE_ID</code> names this node in the fabric and
+              <code>VESPER_DATA_DIR</code> chooses where its state lives.
+              <code>core/config.py</code> documents both and what happens when one is unset.
+            </p>
+          </section>
+          <section id="step-7">
+            <span class="eyebrow">Step 07</span>
+            <h2>Check your installation</h2>
+            <ul>
+              <li class="check-item">
+                <span aria-hidden="true">□</span> <code>python3.13 --version</code> prints 3.11 or newer
+              </li>
+              <li class="check-item">
+                <span aria-hidden="true">□</span> <code>checks.py all</code> summary read, not just its exit
+                code
+              </li>
+              <li class="check-item">
+                <span aria-hidden="true">□</span> <code>~/.config/vesper/secrets.env</code> exists with mode
+                <code>0600</code>
+              </li>
+              <li class="check-item">
+                <span aria-hidden="true">□</span> At least one provider key, with its privacy step done (§3.1)
+              </li>
+              <li class="check-item">
+                <span aria-hidden="true">□</span> <code>check_credentials.py</code> shows the keys you expect,
+                with no placeholders
+              </li>
+              <li class="check-item">
+                <span aria-hidden="true">□</span> If you use Claude/Codex: VESPER's own config dir, verified
+                <strong>not</strong> your account (§4)
+              </li>
+              <li class="check-item">
+                <span aria-hidden="true">□</span> macOS: built, <strong>then</strong> granted, both via
+                <code>open -n</code> (§5.1)
+              </li>
+              <li class="check-item"><span aria-hidden="true">□</span> Accessibility ticked by hand</li>
+              <li class="check-item">
+                <span aria-hidden="true">□</span> Login agent installed; globe ×3 brings VESPER to your
+                Desktop
+              </li>
+              <li class="check-item">
+                <span aria-hidden="true">□</span> You have read <code>VESPER_OPEN_WORK.md</code> §2 for the
+                bugs you are about to meet
+              </li>
+            </ul>
+          </section>
+          <section id="step-8">
+            <span class="eyebrow">Step 08</span>
+            <h2>Remove VESPER</h2>
+            <pre><code class="language-sh">tools/install_island_agent.sh --uninstall
+launchctl bootout gui/$(id -u)/ai.vesper.island.fnwatch 2&gt;/dev/null
+launchctl bootout gui/$(id -u)/ai.vesper.island.wake 2&gt;/dev/null
+tccutil reset All ai.vesper.island
+rm -rf ~/Library/Application\ Support/VESPER ~/.config/vesper
+</code></pre>
+          </section>
+        </div>
+      </div>
+      <section class="endband">
+        <div class="wrap">
+          <h2>Hit <em>a snag?</em></h2>
+          <p>
+            Include the command, platform and observed output. Remove credentials and personal details before
+            sharing.
+          </p>
+          <a
+            class="btn"
+            href="https://github.com/desagencydes-rgb/VESPER/issues/new?title=Installation+finding&amp;body=Platform%3A%0AStep+and+command%3A%0AObserved+output+%28redacted%29%3A%0AExpected+result%3A%0A"
+            >Report an install issue <span aria-hidden="true">↗</span></a
+          >
+        </div>
+      </section>
+    </main>
+    <footer>
+      <div class="wrap foot">
+        <a class="brand" href="index.html"
+          ><img width="34" height="34" src="assets/mark.webp" alt="" />VESPER</a
+        ><span>Open source · MIT license</span
+        ><a href="https://github.com/desagencydes-rgb/VESPER/blob/main/LICENSE">License ↗</a
+        ><a href="https://github.com/desagencydes-rgb/VESPER">Repository ↗</a>
+      </div>
+    </footer>
+  </body>
+</html>
