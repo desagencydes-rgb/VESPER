@@ -132,6 +132,6 @@ python3.13 tools/traceability_lint.py
 python3.13 tools/reference_lint.py
 ```
 
-For the native macOS surfaces, follow the build and permission steps in the [installation guide](docs/INSTALL.md).
+For the native macOS surfaces, follow the build and permission steps in the [installation guide](docs/INSTALL.md). If you get stuck, [ask in Discussions Q&A](https://github.com/desagencydes-rgb/VESPER/discussions/categories/q-a). Include your platform, the step you reached, and what you saw.
 
 Contributors can start with the Windows and Linux shell, connect the voice implementation, or help verify what appears on screen. Longer-term work includes composing scenes with a model and extending placement across enrolled machines. [Contributing guide](CONTRIBUTING.md) · [Security policy](SECURITY.md) · [MIT license](LICENSE)
