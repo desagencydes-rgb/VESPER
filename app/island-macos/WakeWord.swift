@@ -107,6 +107,7 @@ final class WakeListener {
         try startTask()
         note("wake word active: say \(WAKE_PHRASES.map { "\"\($0)\"" }.joined(separator: ", "))")
         writeEars(listening: true, because: [])
+        watchOwnVoice()
     }
 
     /// EARS OFF WHILE THE MAC PLAYS SOUND, ON WHEN IT STOPS.
@@ -205,8 +206,35 @@ final class WakeListener {
         }
     }
 
+    /// VESPER'S OWN VOICE IS NOT THE OWNER'S. Measured 2026-11-08: vesper
+    /// answered aloud "Terminal on vesper's desktop -- vesper opened it", its
+    /// own microphone heard "vesper", woke, and queued "Vespa opened it." as
+    /// the owner speaking -- which it then answered. While vesper's players
+    /// (`say`, `afplay`) are sending sound, and for a moment after, a wake
+    /// phrase is ignored; and when it stops, the recogniser is restarted so
+    /// the half-heard reply cannot complete a match afterwards.
+    private var selfSpeaking = false
+    private var mutedUntil = Date.distantPast
+    private var selfTimer: Timer?
+
+    private func watchOwnVoice() {
+        selfTimer?.invalidate()
+        selfTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let now = MacAudio.vesperSpeaking()
+            if now && !self.selfSpeaking {
+                self.selfSpeaking = true
+            } else if !now && self.selfSpeaking {
+                self.selfSpeaking = false
+                self.mutedUntil = Date().addingTimeInterval(1.0)
+                if !self.capturing { self.restartSoon() }
+            }
+        }
+    }
+
     private func matches(_ heard: String) -> Bool {
         guard !capturing else { return false }
+        guard !selfSpeaking, Date() > mutedUntil else { return false }
         guard Date().timeIntervalSince(lastWake) > WAKE_DEBOUNCE_S else { return false }
         return WAKE_PHRASES.contains { heard.contains($0) }
     }
@@ -308,6 +336,34 @@ enum MacAudio {
             names.append(app?.localizedName ?? (path as NSString).lastPathComponent)
         }
         return Array(Set(names)).sorted()
+    }
+
+    /// Is vesper itself talking? Its speech goes out through `/usr/bin/say`
+    /// (local) or `/usr/bin/afplay` (a synthesised file) -- the two players
+    /// `core/speech.py` uses -- so either one sending sound is vesper's voice.
+    static func vesperSpeaking() -> Bool {
+        let sys = AudioObjectID(kAudioObjectSystemObject)
+        var a = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyProcessObjectList,
+                                           mScope: kAudioObjectPropertyScopeGlobal,
+                                           mElement: kAudioObjectPropertyElementMain)
+        var size = UInt32(0)
+        guard AudioObjectGetPropertyDataSize(sys, &a, 0, nil, &size) == noErr, size > 0 else { return false }
+        var ids = [AudioObjectID](repeating: 0, count: Int(size) / MemoryLayout<AudioObjectID>.size)
+        guard AudioObjectGetPropertyData(sys, &a, 0, nil, &size, &ids) == noErr else { return false }
+        for id in ids {
+            var out = UInt32(0), pid = pid_t(0)
+            var sz = UInt32(MemoryLayout<UInt32>.size)
+            var pa = AudioObjectPropertyAddress(mSelector: kAudioProcessPropertyIsRunningOutput,
+                                                mScope: kAudioObjectPropertyScopeGlobal,
+                                                mElement: kAudioObjectPropertyElementMain)
+            guard AudioObjectGetPropertyData(id, &pa, 0, nil, &sz, &out) == noErr, out != 0 else { continue }
+            sz = UInt32(MemoryLayout<pid_t>.size)
+            pa.mSelector = kAudioProcessPropertyPID
+            guard AudioObjectGetPropertyData(id, &pa, 0, nil, &sz, &pid) == noErr else { continue }
+            let p = path(of: pid)
+            if p == "/usr/bin/say" || p == "/usr/bin/afplay" { return true }
+        }
+        return false
     }
 
     private static func path(of pid: pid_t) -> String {

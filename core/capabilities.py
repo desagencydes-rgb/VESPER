@@ -1674,10 +1674,25 @@ def window_open(args: dict) -> dict:
                         "it to move or close it. it is yours to close.",
                 "line": W.describe(made, vespers_desktop=vespers),
                 **made.meta}
+    # AND IN FRONT, OR IT HAS NOT BEEN SHOWN. Measured 2026-11-08: the owner
+    # asked by voice for a window and got one -- behind their full-screen
+    # Claude window, invisible. This runs for WHICHEVER window the steps above
+    # settled on: a fresh one, or one of vesper's that already existed because
+    # the application would not make a second. The binary raises it only if it
+    # is on the Desktop that is showing, so this cannot move the owner between
+    # Desktops, and `front` is READ BACK, never assumed.
+    front = False
+    try:
+        fr = _window_bridge("--window-act", "front", "--window-id", str(new_id),
+                            "--window-pid", str(made.pid))
+        front = bool(fr.get("ok"))
+    except Exception:                                   # noqa: BLE001
+        front = False
     return {"ok": True, "window_id": new_id,
             "provenance": W.classify_opened(by_vesper=True),
             "landed": "vespers_desktop" if vespers else "active_desktop",
             "owner_keeps": _keeps,
+            "front": front,
             "line": W.describe(made, vespers_desktop=vespers),
             **made.meta}
 

@@ -2603,6 +2603,12 @@ if args.contains("--window-act") {
         out["ok"] = true
     case "reopen":
         out = WindowBridge.reopen(bundleId: arg("--bundle") ?? "")
+    case "front":
+        // A window already open, brought in front of the owner -- only if it is
+        // on the Desktop they are looking at (see WindowBridge.bringForward).
+        let up = WindowBridge.bringForward(pid: pid, windowId: wid)
+        out = ["ok": up, "window_id": wid,
+               "reason": up ? "" : "it is not on the desktop that is showing, or it would not come forward"]
     default:
         // FAIL CLOSED ON AN UNKNOWN EFFECT, matching the action vocabulary's
         // own posture: anything not named is refused rather than approximated
