@@ -1013,256 +1013,256 @@ statement = "A name the runtime cannot resolve is a defect the sweep finds, not 
 owner_rem = "REM-013"
 enforced_by = ["CI-137", "CI-198"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-PROC-6]
 statement = "A map of the corpus is rebuilt from the corpus: a moved or deleted file does not stay mapped, and a map that outlives what it maps is worse than none."
 owner_rem = "REM-013"
 enforced_by = ["CI-146"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-PROC-7]
 statement = "A subsystem whose only caller is its own check is not enforced: every gated module is reached by the running system, and a check whose subject nothing else reaches is vacuous."
 owner_rem = "REM-013"
 enforced_by = ["CI-184"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-PROC-8]
 statement = "What the owner runs is what the repo holds: every module the build ships is byte-identical to its source, and the shipped copy resolves what it needs from inside the bundle rather than from the checkout it was built from."
 owner_rem = "REM-013"
 enforced_by = ["CI-195"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-ACT-7]
 statement = "Session continuity is carried as state, never as a long-lived shell: cwd, environment and venv survive between contained commands, no command runs through a shell, and the working directory stays inside the declared roots."
 owner_rem = "REM-012"
 enforced_by = ["CI-138"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-ACT-8]
 statement = "Nothing that changes a file runs before its pre-state is recorded; the record precedes the change and never follows it, so every change is undoable."
 owner_rem = "REM-012"
 enforced_by = ["CI-153"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-ACT-9]
 statement = "A surgical edit changes exactly one place or nothing: a match at more than one place has not identified its target, and an edit never reindents what it did not touch."
 owner_rem = "REM-012"
 enforced_by = ["CI-154"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-ACT-10]
 statement = "Containment is enforced by the platform, never by recognising a command: every contained command runs under the kernel sandbox, and a string classifier is a heuristic, not a boundary."
 owner_rem = "REM-012"
 enforced_by = ["CI-155"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-ACT-11]
 statement = "An interface element is corroborated by role AND label before it is touched; an element that was merely located is not yet a target."
 owner_rem = "REM-012"
 enforced_by = ["CI-159"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-SCHEMA-3]
 statement = "Rotation is not a schema change: sequence numbers continue across log segments and no record is dropped, rewritten or reordered by it."
 owner_rem = "REM-016"
 enforced_by = ["CI-141"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-SCHEMA-4]
 statement = "Compression is a storage decision, never an availability one: an archived log segment answers reads a record at a time without being unpacked."
 owner_rem = "REM-016"
 enforced_by = ["CI-142"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-COST-11]
 statement = "A terminal refusal descends the ladder; a transient one is retried on the same rung. Retrying a terminal refusal spends a call confirming what the first already settled, and a withdrawn model is never asked for again."
 owner_rem = "REM-006"
 enforced_by = ["CI-143"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-COST-12]
 statement = "Every text-shaped ladder ends in the subscription rung (Claude, then Codex where one exists) and holds only completions -- an image generator is never the fallback for a question. VESPER's own share of a subscription window is declared per row and binds only on a measured ceiling. A ladder whose rows are all spent borrows a same-or-stronger-tier rung by measured headroom, never a weaker one."
 owner_rem = "REM-006"
 enforced_by = ["CI-186", "CI-207"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-HW-3]
 statement = "A platform reading is translated at the adapter, never interpreted upstream: a band is not a size, and no consumer reads a raw platform signal."
 owner_rem = "REM-011"
 enforced_by = ["CI-144"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-MEM-3]
 statement = "L2 is a projection of L3; drift between them is detected and repaired, never tolerated."
 owner_rem = "REM-010"
 enforced_by = ["CI-147"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-MEM-4]
 statement = "Context is spent in tokens: a block bounded by an item count is unbounded in the unit the provider charges."
 owner_rem = "REM-010"
 enforced_by = ["CI-148"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-MEM-5]
 statement = "A turn is not a fact: what the system knows is extracted and stored as facts, and the transcript alone is not memory."
 owner_rem = "REM-010"
 enforced_by = ["CI-188"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-AUTO-6]
 statement = "A decision that cannot change is not re-decided: a refusal recorded against unchanged inputs is not re-taken on every pass, and is never counted as an attempt."
 owner_rem = "REM-008"
 enforced_by = ["CI-149"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-AUTH-8]
 statement = "How dangerous an act is and how strongly it was authorised are independent axes; neither substitutes for the other, and a level rule that cannot name what it refuses has not stated what it permits."
 owner_rem = "REM-003"
 enforced_by = ["CI-140", "CI-150"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-PRIV-9]
 statement = "A credential store is used when present and the plaintext file remains the fallback; adding a store never becomes a single point of failure."
 owner_rem = "REM-011"
 enforced_by = ["CI-151"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-PRIV-10]
 statement = "Reading a permission's state never prompts for it: a status probe makes no call that can raise a dialog, and reads are attributed to VESPER, never to the shell that launched it."
 owner_rem = "REM-011"
 enforced_by = ["CI-163"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-HOME-9]
 statement = "Every settings row shows a real reading with its source, never UNAVAILABLE without a reason; a row that is the owner's to set carries a control that writes the owner's preference through one recorded channel, bounded by a declared schema; a governed row says where a change is made and is never written from a button."
 owner_rem = "REM-009"
 enforced_by = ["CI-157", "CI-212"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-HOME-10]
 statement = "Every kind of trouble VESPER meets reaches one flag bar: a refusal, an unreachable window and a missing grant each raise a flag; a flag outlives the process that raised it and is retracted only by re-checking its condition; repeats do not stack; and what went wrong is read by the next turn, not only reported."
 owner_rem = "REM-009"
 enforced_by = ["CI-158", "CI-164", "CI-191", "CI-208", "CI-217", "CI-218"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-HOME-11]
 statement = "The board shows what VESPER did: every command with its working directory and outcome, every changed file with a real diff and its source, every long explanation shown and never spoken; the board survives a restart, and looking at it never empties it."
 owner_rem = "REM-009"
 enforced_by = ["CI-170", "CI-171", "CI-172", "CI-175", "CI-206"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-HOME-12]
 statement = "The owner's terminal in the home is the owner's: nothing VESPER produces can be typed into it."
 owner_rem = "REM-009"
 enforced_by = ["CI-176"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-HOME-13]
 statement = "The island and the home report VESPER's own state from VESPER's own records: the island's VESPER rows, and model rows read off a completion VESPER actually made, or nothing -- never a machine reading standing in."
 owner_rem = "REM-009"
 enforced_by = ["CI-179", "CI-180"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-HOME-14]
 statement = "The projects dashboard renders the owner's own build order, with phases from a contract and panels read from the project by name; the research room reopens as it was left, and a room it cannot vouch for is refused."
 owner_rem = "REM-009"
 enforced_by = ["CI-200", "CI-201"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-HOME-15]
 statement = "A mode is a pairing of a stage and an ambience, neither welded to the other; a stage names the windows its work may open, that bound is enforced before the launch, and only the owner's own request lifts it, once."
 owner_rem = "REM-009"
 enforced_by = ["CI-210", "CI-211"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-HOST-3]
 statement = "A window VESPER opens is located before it is judged: on VESPER's Desktop, on the owner's, or unfindable are three different outcomes and are reported as such, and a window the owner asked for opens on the Desktop they are on."
 owner_rem = "REM-012"
 enforced_by = ["CI-161", "CI-203"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-HOST-4]
 statement = "A window off the showing Desktop may be moved by the window server and is never resized or closed by an interface that cannot see it."
 owner_rem = "REM-012"
 enforced_by = ["CI-162"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-HOST-5]
 statement = "VESPER may manage any window: its own always, the owner's only on demand -- a sentence the owner typed or a button they pressed is the demand, and the demand is the grant, so what the owner asked for is not turned into a second question (owner, rule 31, 2026-09-13). Where a window sits never makes it VESPER's. A window is claimed as VESPER's only with proof it opened it; a claim restored from disk is corroborated against the world; and what VESPER did with windows is written down and reopens nothing."
 owner_rem = "REM-012"
 enforced_by = ["CI-181", "CI-190", "CI-193", "CI-194"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-SELF-8]
 statement = "VESPER works in its own place: a command with no place named runs there and a relative file lands there; the place is outside the owner's repo and outside the bundle; and where the project is, is told and checked, never derived from where the code sits."
 owner_rem = "REM-004"
 enforced_by = ["CI-187", "CI-199"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-PERSONA-3]
 statement = "What VESPER says it can do is drawn from the registered capabilities, complete, and said in the owner's words -- never an internal identifier, an accessibility role code or this system's jargon."
 owner_rem = "REM-009"
 enforced_by = ["CI-192", "CI-204"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-HOME-16]
 statement = "Every main-menu destination opens a card with rows that carry a source and at least one action, control or settings row; every action names a control the runtime or the host implements, checked in both directions; the stop is the host's and never the runtime's."
 owner_rem = "REM-009"
 enforced_by = ["CI-213"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-HOME-17]
 statement = "The projects and research boards hold windows picked from the live inventory and cards picked from VESPER's own panels, each with its live status and the acts that manage it; a closed window reads as gone, the picker never re-offers a choice, and the owner's window closes only on demand."
 owner_rem = "REM-009"
 enforced_by = ["CI-214"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-HW-4]
 statement = "The microphone's level is measured before any gain, and gain is applied to a copy, bounded and clipped; the camera is measured (frames, faces, cpu) before a recognition model is chosen, keeps no frame, and reports presence as detection with identity unknown, expiring to unknown."
 owner_rem = "REM-011"
 enforced_by = ["CI-215"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
 
 [invariants.INV-EVID-4]
 statement = "A research or project run writes every step's artefact in VESPER's own place, runs its experiment only through the actor, and never writes findings without sources or for a run that did not happen."
 owner_rem = "REM-010"
 enforced_by = ["CI-216"]
 kind = "runtime"
-note = "Ratified 2026-09-14 (PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."
+note = "Ratified 2026-09-14 (docs/history/PLAN_2026-09-13-RELEASE.md D3): the check(s) named here ran unregistered before this sentence existed; the sentence is what they had been enforcing."

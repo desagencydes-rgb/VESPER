@@ -6,7 +6,7 @@
 > git history: the measured numbers with their provenance, the **bandwidth law** that governs
 > every model decision on node 1, the mistakes already made and corrected, and the doctrine this
 > project keeps rediscovering. Not required reading — a place to stand on. The current plan is
-> `PLAN_2026-08-24.md`.
+> `docs/history/PLAN_2026-08-24.md`.
 
 ---
 
@@ -66,7 +66,7 @@ security model without owner review.
 `tools/ops/vesper_runtime.py`'s live turn; `l2.db` is created by the supervised
 runtime. **56 checks, 206 self-tests, both lints.** Five invariants gained a CI
 enforcer, two of which previously had only an acceptance test: `INV-MEM-1` and
-`INV-EVID-3`. Details and the findings are in `OVERNIGHT_REPORT_2026-08-30.md`.
+`INV-EVID-3`. Details and the findings are in `docs/history/OVERNIGHT_REPORT_2026-08-30.md`.
 
 **Two things that change plans rather than just adding code.** The `~18 ms`
 quoted for L2 in `HANDOFF_MEMORY_BUILD.md` is the full-text stage alone; the

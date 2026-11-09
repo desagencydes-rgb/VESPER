@@ -17,7 +17,7 @@ is not due until week 3. Nothing of value was lost: ~80 heartbeats is not eviden
 valuable **23.00 h partial is committed** under
 `docs/planning/spike-results/A-029-endurance-2026-08-16/`.
 
-**A-029 is scheduled for week 3** of `PLAN_2026-08-17.md`, run alongside the C1 pure-cron
+**A-029 is scheduled for week 3** of `docs/history/PLAN_2026-08-17.md`, run alongside the C1 pure-cron
 control on the Kali laptop the same night. It gates F5, which is **7th of 9** in the build
 order (`F0→F1→F2→F4→F3→F6→F5→F7→F8`), so it blocks nothing before then.
 

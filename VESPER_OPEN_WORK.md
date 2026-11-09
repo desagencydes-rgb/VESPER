@@ -140,7 +140,7 @@ and the words per situation. **Blocked on model access (§1).**
 `VESPER_ENGINEERING_STATUS.md` has counts and a ledger row; it does not describe
 the showcase as a subsystem.
 
-### 3.6 Release items carried from `PLAN_2026-09-13-RELEASE.md`
+### 3.6 Release items carried from `docs/history/PLAN_2026-09-13-RELEASE.md`
 - **D3** — write and register rules for the ~88 unregistered checks, immediately
   before the final build.
 - **J3 face page** — last, by the owner's call.

@@ -9,7 +9,7 @@ FIRST, READ THESE, IN THIS ORDER, BEFORE DOING OR PLANNING ANYTHING:
                                It states the invariants that are CHECKED
                                MECHANICALLY, the verification order, and the
                                machine facts that bite.
-  2. HANDOFF_TO_MACBOOK.md   — written for you specifically on the night of
+  2. docs/history/HANDOFF_TO_MACBOOK.md   — written for you specifically on the night of
                                2026-08-18/19 by the session handing this over.
                                Start at its §0, which supersedes part of §1.
   3. MEMORY.md               — the repo's own memory: hardware, measured
@@ -19,7 +19,7 @@ FIRST, READ THESE, IN THIS ORDER, BEFORE DOING OR PLANNING ANYTHING:
                                judgement call has already been measured. If it
                                contradicts a command's output, the command wins
                                and the file is stale — fix it.
-  4. VESPER_ENGINEERING_STATUS.md and SESSION_2026-08-18.md — where the work
+  4. VESPER_ENGINEERING_STATUS.md and docs/history/SESSION_2026-08-18.md — where the work
                                stands, and what the last day's plan got wrong.
 
 INSTALL YOUR OWN MEMORY, FIRST, BEFORE ANY OTHER WORK

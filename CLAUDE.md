@@ -4,11 +4,13 @@ Loaded automatically every session. Its job is to stop each session
 rediscovering the same things. If a statement here contradicts a command's
 output, **the command wins** and this file is stale — fix it.
 
-> **2026-09-13, TONIGHT'S RELEASE: read `PLAN_2026-09-13-RELEASE.md` first.** It
-> holds the model and effort for every remaining item, the owner's grant-trip,
-> acceptance and microphone guides, and the ledger that every session appends to.
-> For what comes next it supersedes the dated `HANDOFF_2026-*.md` files;
-> `docs/design/HOME-WORKBENCH.md` is still the track.
+> **Since 2026-11-08 this repository is PUBLIC (MIT).** Start at
+> `VESPER_OPEN_WORK.md` -- what is broken, unfinished and open for
+> contributors -- and `CONTRIBUTING.md`. Everything you commit and push here is
+> public: never commit a key, a personal path or detail, or a picture of anyone's
+> screen. The dated plans, handoffs and overnight reports are the project's
+> diary and now live in `docs/history/`; `docs/design/HOME-WORKBENCH.md` is
+> still the track for the home.
 
 ## Read these before reasoning, not after
 
@@ -17,7 +19,7 @@ output, **the command wins** and this file is stale — fix it.
 | `VESPER_OPEN_WORK.md` | **The active place.** What is broken, unfinished, unsolved, hard, and what constrains it. Read it before starting; update it before stopping |
 | `MEMORY.md` | Hardware, measured numbers **with provenance**, mistakes already made, doctrine. Most of what looks like a judgement call has been measured |
 | `VESPER_ENGINEERING_STATUS.md` | Where the build stands |
-| `HANDOFF_TO_MACBOOK.md` | What a clone does not bring; per-node setup |
+| `docs/history/HANDOFF_TO_MACBOOK.md` | What a clone does not bring; per-node setup |
 | `docs/spikes/INDEX.toml` | **The status authority for every spike.** The protocol documents' headers follow it, never the reverse (`RF-047`) |
 
 Do **not** answer a hardware, model or throughput question from general

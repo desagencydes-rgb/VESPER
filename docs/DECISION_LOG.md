@@ -263,7 +263,7 @@ The thirteen rows below are the **decisions** taken in response, not a defect li
 
 ## Depth pass — 2026-08-17 · four of the seven raised, three deliberately left red
 
-`PLAN_2026-08-17.md` scheduled "the seven under-specified requirements" as a day's writing and
+`docs/history/PLAN_2026-08-17.md` scheduled "the seven under-specified requirements" as a day's writing and
 described them as *"the only thing keeping `--profile release` red."* Applying row 9's
 discriminator to each row before writing anything found that framing wrong in a way that
 matters: **`--profile release` cannot go green today, and should not.** Three of the seven are

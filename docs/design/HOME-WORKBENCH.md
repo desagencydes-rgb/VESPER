@@ -5203,7 +5203,7 @@ assert coverage the registry does not carry.
 On completeness, in the owner's words: *"not forget anything that should be done
 before production."*
 
-**`PLAN_2026-09-13-RELEASE.md`** at the repo root carries the execution plan, the
+**`docs/history/PLAN_2026-09-13-RELEASE.md`** at the repo root carries the execution plan, the
 model and effort for every item, the money rules, the owner's grant-trip,
 acceptance and microphone guides, and the ledger. This document stays the track;
 that one sequences tonight.

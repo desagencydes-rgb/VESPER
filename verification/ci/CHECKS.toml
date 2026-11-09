@@ -2723,7 +2723,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py every-turn-recorded-with-its-outcome"
 blocking = "pr"
 self_test = '''if baseline is not None:\n                     if did is not None:                 if False:\n                     if did is not None:; outcome: str                      #     outcome: str = \"answered\"  #; self.failed += 1             pass'''
-self_test_evidence = "tools/ci/self_test.py every-turn-recorded-with-its-outcome -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py every-turn-recorded-with-its-outcome -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_every_turn_is_recorded_with_its_outcome"
 note = '''What VESPER answered is written down, and a choice is not a failure.'''
 
@@ -2734,7 +2734,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py the-runtime-resolves-every-name-it-uses"
 blocking = "pr"
 self_test = '''floor=None, baseline=None, interlock=None, jobs=None,          floor=None, baseline=None, jobs=None,'''
-self_test_evidence = "tools/ci/self_test.py the-runtime-resolves-every-name-it-uses -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py the-runtime-resolves-every-name-it-uses -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_the_runtime_resolves_every_name_it_uses"
 note = '''No function in the runtime reads a name that does not exist.'''
 
@@ -2745,7 +2745,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-shell-session-carries-context-not-a-shell"
 blocking = "pr"
 self_test = '''cases in tools/ci/self_test.py'''
-self_test_evidence = "tools/ci/self_test.py a-shell-session-carries-context-not-a-shell -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-shell-session-carries-context-not-a-shell -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_shell_session_carries_context_not_a_shell"
 note = '''`cd`, env and a venv survive between commands -- without a live shell.'''
 
@@ -2756,7 +2756,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-read-window-moves-and-proves-only-what-it-saw"
 blocking = "pr"
 self_test = ''','''
-self_test_evidence = "tools/ci/self_test.py a-read-window-moves-and-proves-only-what-it-saw -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-read-window-moves-and-proves-only-what-it-saw -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_read_window_moves_and_proves_only_what_it_saw"
 note = '''`fs.read` can page through a file, and a page is not a whole file.'''
 
@@ -2767,7 +2767,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-level-rule-means-what-it-says-and-names-what-it-refuses"
 blocking = "pr"
 self_test = '''if lvl != r.level:\n                raise LevelRuleContradicted(             if False:\n                raise LevelRuleContradicted(; if got == r.level:\n                    raise LevelRuleContradicted(                 if False:\n                    raise LevelRuleContradicted('''
-self_test_evidence = "tools/ci/self_test.py a-level-rule-means-what-it-says-and-names-what-it-refuses -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-level-rule-means-what-it-says-and-names-what-it-refuses -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_level_rule_means_what_it_says_and_names_what_it_refuses"
 note = '''A rule's declaration is checked against its function, and against what must NOT reach it.'''
 
@@ -2778,7 +2778,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-rotated-log-keeps-one-sequence-and-loses-nothing"
 blocking = "pr"
 self_test = '''cases in tools/ci/self_test.py'''
-self_test_evidence = "tools/ci/self_test.py a-rotated-log-keeps-one-sequence-and-loses-nothing -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-rotated-log-keeps-one-sequence-and-loses-nothing -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_rotated_log_keeps_one_sequence_and_loses_nothing"
 note = '''The log can be split into segments without the history changing meaning.'''
 
@@ -2789,7 +2789,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-compressed-archive-is-still-a-readable-log"
 blocking = "pr"
 self_test = ''','''
-self_test_evidence = "tools/ci/self_test.py a-compressed-archive-is-still-a-readable-log -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-compressed-archive-is-still-a-readable-log -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_compressed_archive_is_still_a_readable_log"
 note = '''An archived segment sits compressed on disk and is read without unpacking.'''
 
@@ -2800,7 +2800,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-withdrawn-model-descends-instead-of-being-retried"
 blocking = "pr"
 self_test = '''bad_request server_error; rate_limited bad_request'''
-self_test_evidence = "tools/ci/self_test.py a-withdrawn-model-descends-instead-of-being-retried -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-withdrawn-model-descends-instead-of-being-retried -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_withdrawn_model_descends_instead_of_being_retried"
 note = '''A model that is gone is not asked for again, and a busy one still is.'''
 
@@ -2811,7 +2811,7 @@ kind = "structural"
 impl = "tools/ci/checks.py host-pressure-read-through-the-adapter"
 blocking = "pr"
 self_test = '''check which processes are using the most memory and cpu kill the process using the most memory; ,'''
-self_test_evidence = "tools/ci/self_test.py host-pressure-read-through-the-adapter -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py host-pressure-read-through-the-adapter -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_host_pressure_is_read_through_the_adapter"
 note = '''The platform's signals reach VESPER translated, and never raw.'''
 
@@ -2822,7 +2822,7 @@ kind = "structural"
 impl = "tools/ci/checks.py floor-held-and-offered-to"
 blocking = "pr"
 self_test = '''if floor is not None and floor.holding:             if False:; pass; ,; ,'''
-self_test_evidence = "tools/ci/self_test.py floor-held-and-offered-to -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py floor-held-and-offered-to -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_the_floor_is_held_and_offered_to"
 note = '''Four mid-hold outcomes that differ in behaviour, not in name.'''
 
@@ -2833,7 +2833,7 @@ kind = "structural"
 impl = "tools/ci/checks.py map-built-and-kept-true"
 blocking = "pr"
 self_test = ''',; if stale:\n                # REBUILT, NOT PATCHED.             if False:\n                # REBUILT, NOT PATCHED.; ,'''
-self_test_evidence = "tools/ci/self_test.py map-built-and-kept-true -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py map-built-and-kept-true -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_the_map_is_built_and_kept_true"
 note = '''The corpus is mapped, in submaps, and a moved file does not stay mapped.'''
 
@@ -2844,7 +2844,7 @@ kind = "structural"
 impl = "tools/ci/checks.py memory-repairs-its-own-drift"
 blocking = "pr"
 self_test = ''',; converged\": True, \"reprojected\": False}; debounce_s=900,\n        handler=handler,         debounce_s=900,; ,'''
-self_test_evidence = "tools/ci/self_test.py memory-repairs-its-own-drift -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py memory-repairs-its-own-drift -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_memory_repairs_its_own_drift"
 note = '''L2 stops being what L3 projects, and something notices and fixes it.'''
 
@@ -2855,7 +2855,7 @@ kind = "structural"
 impl = "tools/ci/checks.py l1-spends-a-token-budget"
 blocking = "pr"
 self_test = '''if self._budget is not None:         if False:; ,; if out.tokens_used + f.tokens <= self.budget_tokens or f.pinned:             if out.tokens_used + f.tokens <= self.budget_tokens:'''
-self_test_evidence = "tools/ci/self_test.py l1-spends-a-token-budget -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py l1-spends-a-token-budget -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_l1_spends_a_token_budget"
 note = '''Block B fits a budget in TOKENS, not a count of facts.'''
 
@@ -2866,7 +2866,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-decline-is-not-an-attempt"
 blocking = "pr"
 self_test = '''return [i for i in items if i.grade == grade and i.resolution is None]         return [i for i in items if i.resolution is None]; if item.grade != CRITICAL_NOW:         if False:'''
-self_test_evidence = "tools/ci/self_test.py a-decline-is-not-an-attempt -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-decline-is-not-an-attempt -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_decline_is_not_an_attempt"
 note = '''A refusal that cannot change is not re-taken on every pass.'''
 
@@ -2877,7 +2877,7 @@ kind = "structural"
 impl = "tools/ci/checks.py authorization-strength-is-its-own-axis"
 blocking = "pr"
 self_test = '''unknown L2 unknown L5; free_time unknown owner_task owner_explicit owner_explicit; weak_authorization weak_authorization'''
-self_test_evidence = "tools/ci/self_test.py authorization-strength-is-its-own-axis -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py authorization-strength-is-its-own-axis -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_authorization_strength_is_its_own_axis"
 note = '''How dangerous, and how strongly asked, are two questions.'''
 
@@ -2888,7 +2888,7 @@ kind = "structural"
 impl = "tools/ci/checks.py credentials-can-leave-the-plaintext-file"
 blocking = "pr"
 self_test = ''',; except Exception:                                # noqa: BLE001\n        return \"\"\n    if out.returncode != 0:\n        return \"\"     except Exception:                                # noqa: BLE001\n        raise\n    if out.returncode != 0:\n        return \"\"; _KEYCHAIN_TIMEOUT_S = 3.0 _KEYCHAIN_TIMEOUT_S = 100000.0; if kc and kc != v:         if False:; the startup credential check is removed entirely, so a key rotated in the  file after migration is detectable and undetected -- and the home card  has no event to render'''
-self_test_evidence = "tools/ci/self_test.py credentials-can-leave-the-plaintext-file -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py credentials-can-leave-the-plaintext-file -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_credentials_can_leave_the_plaintext_file"
 note = '''A credential in the Keychain is used, and the file remains the fallback.'''
 
@@ -2899,7 +2899,7 @@ kind = "structural"
 impl = "tools/ci/checks.py autonomy-can-act-and-still-cannot-decide"
 blocking = "pr"
 self_test = '''if self._actor is None:             if True:; check which directories are using the most disk space; ,; autonomy.no_actor autonomy.no_actor'''
-self_test_evidence = "tools/ci/self_test.py autonomy-can-act-and-still-cannot-decide -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py autonomy-can-act-and-still-cannot-decide -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_autonomy_can_act_and_still_cannot_decide"
 note = '''The outer loop has hands, and still no model in the decision path.'''
 
@@ -2910,7 +2910,7 @@ kind = "structural"
 impl = "tools/ci/checks.py every-change-is-undoable"
 blocking = "pr"
 self_test = ''',; if self._shadow is None:             if False:; ,; ,'''
-self_test_evidence = "tools/ci/self_test.py every-change-is-undoable -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py every-change-is-undoable -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_every_change_is_undoable"
 note = '''Nothing that changes a file runs without its pre-state recorded first.'''
 
@@ -2921,7 +2921,7 @@ kind = "structural"
 impl = "tools/ci/checks.py edit-names-one-place"
 blocking = "pr"
 self_test = ''',; L5 L5; fs.write fs.edit fs.write; verified'''
-self_test_evidence = "tools/ci/self_test.py edit-names-one-place -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py edit-names-one-place -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_edit_names_one_place"
 note = '''A surgical edit changes one place or nothing, and never reindents.'''
 
@@ -2932,7 +2932,7 @@ kind = "structural"
 impl = "tools/ci/checks.py shell-runs-contained"
 blocking = "pr"
 self_test = ''','''
-self_test_evidence = "tools/ci/self_test.py shell-runs-contained -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py shell-runs-contained -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_shell_runs_contained"
 note = '''`shell.run` is contained by the kernel, not only classified by a string.'''
 
@@ -2943,7 +2943,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-failure-is-something-the-next-step-can-see"
 blocking = "pr"
 self_test = '''Done — {why}. Done. it ran and printed nothing; why = err or out\n             why = out\n; ,; consecutive_refusals += 1\n                 consecutive_refusals += 1\n                 consecutive_refusals = 0\n'''
-self_test_evidence = "tools/ci/self_test.py a-failure-is-something-the-next-step-can-see -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-failure-is-something-the-next-step-can-see -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_failure_is_something_the_next_step_can_see"
 note = '''VESPER can fix what it just got wrong, and can say what it did.'''
 
@@ -2954,7 +2954,7 @@ kind = "structural"
 impl = "tools/ci/checks.py the-settings-surface-reads-and-explains"
 blocking = "pr"
 self_test = ''',; .settings{position:fixed;inset:28px;   .settings{position:fixed;inset:0px;'''
-self_test_evidence = "tools/ci/self_test.py the-settings-surface-reads-and-explains -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py the-settings-surface-reads-and-explains -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_the_settings_surface_reads_and_explains"
 note = ''''''
 
@@ -2965,7 +2965,7 @@ kind = "structural"
 impl = "tools/ci/checks.py the-flag-bar-is-what-the-owner-asked-for"
 blocking = "pr"
 self_test = ''',; ,; ,; ,; HISTORY_BAR_CAP = 64 HISTORY_BAR_CAP = 8'''
-self_test_evidence = "tools/ci/self_test.py the-flag-bar-is-what-the-owner-asked-for -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py the-flag-bar-is-what-the-owner-asked-for -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_the_flag_bar_is_what_the_owner_asked_for"
 note = ''''''
 
@@ -2977,7 +2977,7 @@ impl = "tools/ci/checks.py an-interface-element-is-corroborated-before-it-is-tou
 blocking = "pr"
 self_test = '''if !expectRole.isEmpty && role != expectRole {         if false {; if !expectLabel.isEmpty && now != expectLabel {         if false {; ,; ok action verified ok action verified; ok ok; press L4 press L3; ok reason a press cannot be undone by vesper.',
           '    return { : True,  :'''
-self_test_evidence = "tools/ci/self_test.py an-interface-element-is-corroborated-before-it-is-touched -- 7 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py an-interface-element-is-corroborated-before-it-is-touched -- 7 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_an_interface_element_is_corroborated_before_it_is_touched"
 note = ''''''
 
@@ -2988,7 +2988,7 @@ kind = "structural"
 impl = "tools/ci/checks.py an-application-write-is-proved-and-undoable"
 blocking = "pr"
 self_test = ''',; while stillThere != wantPresent && waited < 3_000_000 {             while false {; ,; if verb == \"document_delete\":\n        return \"L4\"     if verb == \"document_delete\":\n        return \"L3\"; if origin != VESPER_CREATED:\n         if False:\n'''
-self_test_evidence = "tools/ci/self_test.py an-application-write-is-proved-and-undoable -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py an-application-write-is-proved-and-undoable -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_an_application_write_is_proved_and_undoable"
 note = ''''''
 
@@ -2999,7 +2999,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-new-window-is-located-before-it-is-judged"
 blocking = "pr"
 self_test = '''if False:; if False:\n; # `on_vespers_desktop` may be absent     return {'ok': True, 'window_id': new_id, 'landed': 'on_vespers_desktop'}\n    # `on_vespers_desktop` may be absent; ,; let all = (CGWindowListCopyWindowInfo([.excludeDesktopElements],         let all = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements],; ,'''
-self_test_evidence = "tools/ci/self_test.py a-new-window-is-located-before-it-is-judged -- 6 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-new-window-is-located-before-it-is-judged -- 6 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_new_window_is_located_before_it_is_judged"
 note = ''''''
 
@@ -3010,7 +3010,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-window-elsewhere-is-moved-not-resized"
 blocking = "pr"
 self_test = '''if _off_desktop and _move_only:     if False:; _move_only = effect == W.MOVE     _move_only = True; note moved from the window server rather than  _note moved from the window server rather than; CGSMoveWindow                            ]; if w != nil || h != nil {             if false {'''
-self_test_evidence = "tools/ci/self_test.py a-window-elsewhere-is-moved-not-resized -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-window-elsewhere-is-moved-not-resized -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_window_elsewhere_is_moved_not_resized"
 note = ''''''
 
@@ -3021,7 +3021,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-permission-reader-never-asks"
 blocking = "pr"
 self_test = ''',; com.apple.Notes     static let TARGETS: [String] = []; REBUILDING VESPER REVOKES ALL OF THESE. Grants are keyed to  all set. Grants are keyed to'''
-self_test_evidence = "tools/ci/self_test.py a-permission-reader-never-asks -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-permission-reader-never-asks -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_permission_reader_never_asks"
 note = ''''''
 
@@ -3032,7 +3032,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-flag-outlives-the-process-that-raised-it"
 blocking = "pr"
 self_test = ''',; id text carried id text; if False:; elif d.reason not in PAUSED_NOT_BLOCKED:\n             elif False:\n; var words = f.carried\n         var words = false\n'''
-self_test_evidence = "tools/ci/self_test.py a-flag-outlives-the-process-that-raised-it -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-flag-outlives-the-process-that-raised-it -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_flag_outlives_the_process_that_raised_it"
 note = ''''''
 
@@ -3043,7 +3043,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-screen-never-lifts-its-own-ceiling"
 blocking = "pr"
 self_test = '''return False\n; ,; return all(\n     return any(\n; if not observations:\n        return False\n'''
-self_test_evidence = "tools/ci/self_test.py a-screen-never-lifts-its-own-ceiling -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-screen-never-lifts-its-own-ceiling -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_screen_never_lifts_its_own_ceiling"
 note = ''''''
 
@@ -3054,7 +3054,7 @@ kind = "structural"
 impl = "tools/ci/checks.py an-application-is-never-driven-without-permission"
 blocking = "pr"
 self_test = '''guard state == GRANTED else {\n         if false {\n; granted zzz-never; vesper reads freely where the owner has granted it no'''
-self_test_evidence = "tools/ci/self_test.py an-application-is-never-driven-without-permission -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py an-application-is-never-driven-without-permission -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_app_never_driven_without_permission"
 note = ''''''
 
@@ -3065,7 +3065,7 @@ kind = "structural"
 impl = "tools/ci/checks.py an-app-refusal-is-not-a-success"
 blocking = "pr"
 self_test = '''ok degraded verb bundle_id state refused ok degraded verb bundle_id state refused; flag_id app.not_permitted:{bundle} reason flag why reason flag why; reason flag why why'''
-self_test_evidence = "tools/ci/self_test.py an-app-refusal-is-not-a-success -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py an-app-refusal-is-not-a-success -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_app_refusal_is_not_a_success"
 note = ''''''
 
@@ -3076,7 +3076,7 @@ kind = "structural"
 impl = "tools/ci/checks.py the-app-verb-set-is-closed"
 blocking = "pr"
 self_test = '''document_delete document_delete rename; ,; document_delete L4 document_delete L5'''
-self_test_evidence = "tools/ci/self_test.py the-app-verb-set-is-closed -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py the-app-verb-set-is-closed -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_app_verb_set_is_closed"
 note = ''''''
 
@@ -3087,7 +3087,7 @@ kind = "structural"
 impl = "tools/ci/checks.py an-application-rule-branches-on-a-class-not-a-program"
 blocking = "pr"
 self_test = '''if target_class == VESPER_ITSELF:\n com.apple.terminal; if target_class not in CLASSES:\n        raise AppRuleViolation(     if False:\n        raise AppRuleViolation('''
-self_test_evidence = "tools/ci/self_test.py an-application-rule-branches-on-a-class-not-a-program -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py an-application-rule-branches-on-a-class-not-a-program -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_app_rule_branches_on_a_class"
 note = ''''''
 
@@ -3098,7 +3098,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py commands-card-shows-what-ran"
 blocking = "pr"
 self_test = '''exit_code; stderr contained stderr  contained; shell.run; return out, cut     return out, False; lines = lines[:COMMAND_OUT_MAX_LINES]         lines = lines[-COMMAND_OUT_MAX_LINES:]; commands; ,; cmdrows.textContent = '';       cmdrows.innerHTML = '';; pbody cmdrows pbody cmdrowsX'''
-self_test_evidence = "tools/ci/self_test.py commands-card-shows-what-ran -- 9 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py commands-card-shows-what-ran -- 9 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_commands_card_shows_what_ran"
 note = '''The owner can see the command, and can see why it failed.'''
 
@@ -3109,7 +3109,7 @@ kind = "structural"
 impl = "tools/ci/checks.py an-explanation-is-shown-and-never-spoken"
 blocking = "pr"
 self_test = ''',; ,; That one is written out on the board.; id id; del self._explanations[:-EXPLANATIONS_MAX]\n; turn_id turn_id; reply = _split.spoken\n; plan = speech.plan(reply, privacy_class=\"private\",                         plan = speech.plan(reply_full, privacy_class=\"private\",; question=text, answer=reply_full, outcome=outcome,                         question=text, answer=reply, outcome=outcome,; ,; exprows.textContent = '';       exprows.innerHTML = '';'''
-self_test_evidence = "tools/ci/self_test.py an-explanation-is-shown-and-never-spoken -- 11 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py an-explanation-is-shown-and-never-spoken -- 11 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_an_explanation_is_shown_and_never_spoken"
 note = '''The long half of a reply reaches the board and never the room.'''
 
@@ -3120,7 +3120,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py the-board-survives-a-restart"
 blocking = "pr"
 self_test = ''',; if not self._commands:\n             if True:\n; ,; ,'''
-self_test_evidence = "tools/ci/self_test.py the-board-survives-a-restart -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py the-board-survives-a-restart -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_the_board_survives_a_restart"
 note = '''What VESPER did last session is still on the board this session.'''
 
@@ -3131,7 +3131,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-path-is-not-a-secret"
 blocking = "pr"
 self_test = ''',; return None\n; ,'''
-self_test_evidence = "tools/ci/self_test.py a-path-is-not-a-secret -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-path-is-not-a-secret -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_path_is_not_a_secret"
 note = '''The redactor does not rewrite the owner's own file paths.'''
 
@@ -3143,7 +3143,7 @@ impl = "tools/ci/checks.py auto-mode-does-not-ask-and-does-not-overreach"
 blocking = "pr"
 self_test = '''if mode != permission_mode.AUTO:\n            return d\n; ,
           '        top =; capability_id level capability_id level; d = self._elevate_in_auto(d, p, mode=mode, mode_ceiling=mode_ceiling,\n             d = d or self._elevate_in_auto(d, p, mode=mode, mode_ceiling=mode_ceiling,\n'''
-self_test_evidence = "tools/ci/self_test.py auto-mode-does-not-ask-and-does-not-overreach -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py auto-mode-does-not-ask-and-does-not-overreach -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_auto_mode_does_not_ask_and_does_not_overreach"
 note = '''Auto mode acts without asking, and still cannot exceed its ceilings.'''
 
@@ -3154,7 +3154,7 @@ kind = "structural"
 impl = "tools/ci/checks.py changes-are-shown-with-their-source"
 blocking = "pr"
 self_test = ''',; ,; ,; CHANGES_MAX = 60 CHANGES_MAX = 5000; chgrows.textContent = '';       chgrows.innerHTML = '';; ,'''
-self_test_evidence = "tools/ci/self_test.py changes-are-shown-with-their-source -- 6 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py changes-are-shown-with-their-source -- 6 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_changes_are_shown_with_their_source"
 note = '''Every file VESPER touches is on the board, with a real diff and a label.'''
 
@@ -3165,7 +3165,7 @@ kind = "structural"
 impl = "tools/ci/checks.py the-terminal-is-the-owners"
 blocking = "pr"
 self_test = '''input input paste; SHELL /bin/zsh /bin/zsh'''
-self_test_evidence = "tools/ci/self_test.py the-terminal-is-the-owners -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py the-terminal-is-the-owners -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_the_terminal_is_the_owners"
 note = '''Nothing VESPER produces can be typed into the owner's shell.'''
 
@@ -3176,7 +3176,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-provider-failure-says-which-kind-it-is"
 blocking = "pr"
 self_test = '''after = None'''
-self_test_evidence = "tools/ci/self_test.py a-provider-failure-says-which-kind-it-is -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-provider-failure-says-which-kind-it-is -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_provider_failure_says_which_kind_it_is"
 note = '''A rung's refusal is read, not guessed at from an exit code.'''
 
@@ -3187,7 +3187,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-provider-failure-reaches-the-owner"
 blocking = "pr"
 self_test = ''',; rate_limited quota_exhausted; model_gone; auth_failed {rung} will not accept its credential, and that is  yours to fix rather than mine. The board has the steps.; if cls == \"bad_request\" and not repaired:                     if False:; repaired = True\n; if kind in SILENT_ON_THE_TALK:\n        return\n'''
-self_test_evidence = "tools/ci/self_test.py a-provider-failure-reaches-the-owner -- 7 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-provider-failure-reaches-the-owner -- 7 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_provider_failure_reaches_the_owner"
 note = '''A dead rung is said out loud once and written out in full.'''
 
@@ -3198,7 +3198,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py the-island-shows-vespers-own-state"
 blocking = "pr"
 self_test = ''','''
-self_test_evidence = "tools/ci/self_test.py the-island-shows-vespers-own-state -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py the-island-shows-vespers-own-state -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_the_island_shows_vespers_own_state"
 note = '''The island says what VESPER is set to, not only what the Mac is doing.'''
 
@@ -3209,7 +3209,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py the-model-rows-read-a-real-completion"
 blocking = "pr"
 self_test = ''',; ,; card host'''
-self_test_evidence = "tools/ci/self_test.py the-model-rows-read-a-real-completion -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py the-model-rows-read-a-real-completion -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_the_model_rows_read_a_real_completion"
 note = '''The home's four model rows come off a call VESPER made, or say nothing.'''
 
@@ -3220,7 +3220,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-window-belongs-to-someone"
 blocking = "pr"
 self_test = '''if effect == RELOCATE_OFF:\n         if window.provenance == VESPER_OPENED:\n             return FREE\n         return ON_REQUEST\n; if window.provenance == VESPER_OPENED:\n         return FREE                                   # clause 2, VESPER's own\n     return ON_REQUEST                                 # clause 2, owner's/unknown     return FREE; $0.owner == name && $0.pid != selfPid && $0.layer < 0 $0.owner == name && $0.pid != selfPid; $0.owner == name && $0.pid != selfPid && $0.layer < 0 $0.owner == name && $0.layer < 0; ok ok'''
-self_test_evidence = "tools/ci/self_test.py a-window-belongs-to-someone -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-window-belongs-to-someone -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_window_belongs_to_someone"
 note = '''VESPER may arrange its own workspace and not the owner's session.'''
 
@@ -3231,7 +3231,7 @@ kind = "structural"
 impl = "tools/ci/checks.py spaces-hatch-contained"
 blocking = "pr"
 self_test = '''/// an off-screen window is on. The private route exists and lives in one     /// an off-screen window is on -- CGSCopySpacesForWindows answers it.\n     /// an off-screen window is on. The private route exists and lives in one; case ineffective          // symbols resolve; the call does nothing\n; ', ' tested; ,; + \"VESPER's own windows relocate. Foreign windows are the \"\n                      + \"rebuild fallback's job.\"                      + \"windows relocate.\"'''
-self_test_evidence = "tools/ci/self_test.py spaces-hatch-contained -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py spaces-hatch-contained -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_spaces_hatch"
 note = ''''''
 
@@ -3242,7 +3242,7 @@ kind = "structural"
 impl = "tools/ci/checks.py notes-are-never-instructions"
 blocking = "pr"
 self_test = '''if False:; high; NOTE_BODY_MAX_CHARS = 1000 NOTE_BODY_MAX_CHARS = 10_000_000'''
-self_test_evidence = "tools/ci/self_test.py notes-are-never-instructions -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py notes-are-never-instructions -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_notes_are_titles_and_never_instructions"
 note = '''Notes reach the agenda as titles, undated, and marked as retrieved.'''
 
@@ -3253,7 +3253,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py gated-subsystems-are-reachable"
 blocking = "pr"
 self_test = '''core/cache.py  OWED', '  =; core/gateway.py declared unwired while it has callers; [^  ', r'\1'''
-self_test_evidence = "tools/ci/self_test.py gated-subsystems-are-reachable -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py gated-subsystems-are-reachable -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_gated_subsystems_are_reachable"
 note = '''A subsystem that only its own check can reach is not enforced.'''
 
@@ -3264,7 +3264,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py narration-follows-the-ladder"
 blocking = "pr"
 self_test = '''gateway.descended gateway.descended_DISABLED; ,; ,; ,; if spent + self._speech_cost > max_cost:         if False:; ambient_visual visual_notice ambient_visual visual_notice speech'''
-self_test_evidence = "tools/ci/self_test.py narration-follows-the-ladder -- 6 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py narration-follows-the-ladder -- 6 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_narration_follows_the_ladder"
 note = '''A descent is narrated ONCE, on ARRIVAL, with a MEASURED destination; and the interruption budget's RATE is read, not only its lattice.'''
 
@@ -3275,7 +3275,7 @@ kind = "structural"
 impl = "tools/ci/checks.py claude-backs-every-ladder"
 blocking = "pr"
 self_test = '''claude-chooser chooser claude-chooser chooser_DISABLED; claude-advisor claude-advisor; return eff is not None and self.used >= eff         return False; elif e.limit is None and e.used > 0:             elif False:; if profile_id is not None and not ranked:         if False:'''
-self_test_evidence = "tools/ci/self_test.py claude-backs-every-ladder -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py claude-backs-every-ladder -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_claude_backs_every_ladder"
 note = '''Every text-shaped ladder ends in Claude (then Codex); Claude is capped at the owner's share of a MEASURED window; a spent ladder borrows by headroom.'''
 
@@ -3286,7 +3286,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py vesper-works-in-its-own-place"
 blocking = "pr"
 self_test = '''name your own place name your own place_DISABLED; <key>WorkingDirectory</key><string>$HOME/Library/Application Support/VESPER/workspace</string>   <key>WorkingDirectory</key><string>$REPO</string>; <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>   <key>KeepAlive</key><true/>'''
-self_test_evidence = "tools/ci/self_test.py vesper-works-in-its-own-place -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py vesper-works-in-its-own-place -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_vesper_works_in_its_own_place"
 note = '''A command with no place named runs in VESPER's own place; a relative file lands there; the planner is told so; and no agent is spawned into the repo.'''
 
@@ -3297,7 +3297,7 @@ kind = "structural"
 impl = "tools/ci/checks.py memory-stores-facts-not-only-transcript"
 blocking = "pr"
 self_test = ''',; rank=RANK_DERIVED, privacy=privacy,                         rank=RANK_USER_STATEMENT, privacy=privacy,; model_generated; if not value or not subject:\n            continue         if not value:\n            continue'''
-self_test_evidence = "tools/ci/self_test.py memory-stores-facts-not-only-transcript -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py memory-stores-facts-not-only-transcript -- 4 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_memory_stores_facts_not_only_transcript"
 note = '''A memory that records what was SAID and not what is KNOWN.'''
 
@@ -3308,7 +3308,7 @@ kind = "structural"
 impl = "tools/ci/checks.py speech-in-declares-language-and-measures-confidence"
 blocking = "pr"
 self_test = ''',; TRANSCRIBED_CONFIDENCE_FLOOR = 0.37 TRANSCRIBED_CONFIDENCE_FLOOR = 0.75; transcriber         return TRANSCRIBED_CONFIDENCE_FLOOR\n     return CONFIDENCE_FLOOR     return TRANSCRIBED_CONFIDENCE_FLOOR; TRANSCRIBED_CONFIDENCE_FLOOR_MEASURED = False TRANSCRIBED_CONFIDENCE_FLOOR_MEASURED = True; return True; @cf/openai/whisper-large-v3-turbo @cf/openai/whisper-large-v3-turbo ar'''
-self_test_evidence = "tools/ci/self_test.py speech-in-declares-language-and-measures-confidence -- 6 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py speech-in-declares-language-and-measures-confidence -- 6 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_speech_in_declares_language_and_measures_confidence"
 note = '''Darija speech in, and the two things that made it useless at first.'''
 
@@ -3319,7 +3319,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-window-is-claimed-only-by-the-app-that-opened-it"
 blocking = "pr"
 self_test = ''',; guard let launchedPid = launched?.processIdentifier else {         let launchedPid = launched?.processIdentifier ?? 0\n        if false {; $0.pid == pid && $0.number > frontier && $0.layer == 0                         $0.number > frontier && $0.layer == 0; $0.pid == pid && $0.number > frontier && $0.layer == 0                         $0.pid == pid && $0.layer == 0; ,'''
-self_test_evidence = "tools/ci/self_test.py a-window-is-claimed-only-by-the-app-that-opened-it -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-window-is-claimed-only-by-the-app-that-opened-it -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_window_is_claimed_only_by_the_app_that_opened_it"
 note = '''VESPER may stamp a window as its own only if it can prove it opened it.'''
 
@@ -3330,7 +3330,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py every-flag-reaches-one-bar"
 blocking = "pr"
 self_test = '''id id; flags; ,'''
-self_test_evidence = "tools/ci/self_test.py every-flag-reaches-one-bar -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py every-flag-reaches-one-bar -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_every_flag_reaches_one_bar"
 note = '''A flag vesper raises reaches the bar, and repeating it does not stack.'''
 
@@ -3341,7 +3341,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py vesper-answers-in-the-owners-words"
 blocking = "pr"
 self_test = '''idle, work; \\n\\nTHE MODES THAT EXIST are: {_names}. There are no others. If   THE MODES THAT EXIST are: . There are no others. If; mode.set enter a named mode, which sets both what you are doing  mode.set use mode.set to enter a named mode, which sets what you are doing; ,; recent=transcript,\n; reply = strip_internal_prefix(\n                        answer(gw, router, persona, intake.history[-1],                     reply = (\n                        answer(gw, router, persona, intake.history[-1],'''
-self_test_evidence = "tools/ci/self_test.py vesper-answers-in-the-owners-words -- 6 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py vesper-answers-in-the-owners-words -- 6 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_vesper_answers_in_the_owners_words"
 note = '''What vesper says it can do is real, complete, and not this system's jargon.'''
 
@@ -3352,7 +3352,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-restored-stamp-is-corroborated"
 blocking = "pr"
 self_test = '''usec'''
-self_test_evidence = "tools/ci/self_test.py a-restored-stamp-is-corroborated -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-restored-stamp-is-corroborated -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_restored_stamp_is_corroborated"
 note = '''A provenance stamp read off disk must be confirmed against the world.'''
 
@@ -3363,7 +3363,7 @@ kind = "structural"
 impl = "tools/ci/checks.py the-window-log-records-and-never-reopens"
 blocking = "pr"
 self_test = '''.gz; .gz; ,'''
-self_test_evidence = "tools/ci/self_test.py the-window-log-records-and-never-reopens -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py the-window-log-records-and-never-reopens -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_the_window_log_records_and_never_reopens"
 note = '''What VESPER did with windows is written down, and reopens nothing.'''
 
@@ -3374,7 +3374,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py the-shipped-runtime-can-reach-what-it-needs"
 blocking = "pr"
 self_test = '''cases in tools/ci/self_test.py'''
-self_test_evidence = "tools/ci/self_test.py the-shipped-runtime-can-reach-what-it-needs -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py the-shipped-runtime-can-reach-what-it-needs -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_the_shipped_runtime_can_reach_what_it_needs"
 note = '''What the owner says must reach the capabilities, from the SHIPPED copy.'''
 
@@ -3385,7 +3385,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-refusal-is-never-reported-as-done"
 blocking = "pr"
 self_test = '''_off_desktop = False; ,'''
-self_test_evidence = "tools/ci/self_test.py a-refusal-is-never-reported-as-done -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-refusal-is-never-reported-as-done -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_refusal_is_never_reported_as_done"
 note = '''What VESPER says happened must match what happened.'''
 
@@ -3396,7 +3396,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py the-loop-can-see-what-it-just-did"
 blocking = "pr"
 self_test = ''',; ,; ,; out = [f\"     {label}:\"]\n    for row in rows:     out = [f\"     {label}:\"]\n    for row in rows[:1]:; cmd cwd path exit_code bytes truncated cmd path exit_code bytes truncated'''
-self_test_evidence = "tools/ci/self_test.py the-loop-can-see-what-it-just-did -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py the-loop-can-see-what-it-just-did -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_the_loop_can_see_what_it_just_did"
 note = '''An observation the planner cannot read is a step the loop cannot take.'''
 
@@ -3407,7 +3407,7 @@ kind = "structural"
 impl = "tools/ci/checks.py an-accumulator-is-not-also-a-string"
 blocking = "pr"
 self_test = ''','''
-self_test_evidence = "tools/ci/self_test.py an-accumulator-is-not-also-a-string -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py an-accumulator-is-not-also-a-string -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_an_accumulator_is_not_also_a_string"
 note = '''A name bound to a list and to a string inside one function.'''
 
@@ -3418,7 +3418,7 @@ kind = "structural"
 impl = "tools/ci/checks.py vesper-knows-where-it-is"
 blocking = "pr"
 self_test = '''%s $REPO $APP/Contents/Resources/runtime/place.toml; ,; from core.places import render as _render_places             _render_places = None'''
-self_test_evidence = "tools/ci/self_test.py vesper-knows-where-it-is -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py vesper-knows-where-it-is -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_vesper_knows_where_it_is"
 note = '''The places are named and told, never derived from where the code sits.'''
 
@@ -3429,7 +3429,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py the-projects-dashboard-is-what-the-owner-asked-for"
 blocking = "pr"
 self_test = ''',; ,; prototype prototype'''
-self_test_evidence = "tools/ci/self_test.py the-projects-dashboard-is-what-the-owner-asked-for -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py the-projects-dashboard-is-what-the-owner-asked-for -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_the_projects_dashboard_is_what_the_owner_asked_for"
 note = '''§28, driven rather than read.'''
 
@@ -3440,7 +3440,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py a-research-session-reopens-the-room-it-left"
 blocking = "pr"
 self_test = '''cases in tools/ci/self_test.py'''
-self_test_evidence = "tools/ci/self_test.py a-research-session-reopens-the-room-it-left -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-research-session-reopens-the-room-it-left -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_research_session_reopens_the_room_it_left"
 note = '''§29, driven: the room remembers, and a room it cannot vouch for is refused.'''
 
@@ -3451,7 +3451,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-surface-is-not-an-act"
 blocking = "pr"
 self_test = '''var railData = {projects: null, research: null, dashboard: null};   var railData = {projects: null, research: null, dashboard: null};\n  var permissionMode = '';'''
-self_test_evidence = "tools/ci/self_test.py a-surface-is-not-an-act -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-surface-is-not-an-act -- 1 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_surface_is_not_an_act"
 note = '''§30: showing something is ungated; doing something is not.'''
 
@@ -3462,7 +3462,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py what-the-owner-asks-for-opens-where-they-are"
 blocking = "pr"
 self_test = '''cases in tools/ci/self_test.py'''
-self_test_evidence = "tools/ci/self_test.py what-the-owner-asks-for-opens-where-they-are -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py what-the-owner-asks-for-opens-where-they-are -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_what_the_owner_asks_for_opens_where_they_are"
 note = '''§23 / §26.7: the owner's own request lifts the workspace guard, once.'''
 
@@ -3473,7 +3473,7 @@ kind = "structural"
 impl = "tools/ci/checks.py vesper-never-speaks-an-internal-identifier"
 blocking = "pr"
 self_test = '''cases in tools/ci/self_test.py'''
-self_test_evidence = "tools/ci/self_test.py vesper-never-speaks-an-internal-identifier -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py vesper-never-speaks-an-internal-identifier -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_vesper_never_speaks_an_internal_identifier"
 note = '''What reaches the speaker is English, not an accessibility role code.'''
 
@@ -3484,7 +3484,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py one-runtime-and-one-voice"
 blocking = "pr"
 self_test = '''cases in tools/ci/self_test.py'''
-self_test_evidence = "tools/ci/self_test.py one-runtime-and-one-voice -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py one-runtime-and-one-voice -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_one_runtime_and_one_voice"
 note = '''One runtime answers, and one failure is announced once.'''
 
@@ -3495,7 +3495,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py a-reader-cannot-empty-the-owners-board"
 blocking = "pr"
 self_test = '''cases in tools/ci/self_test.py'''
-self_test_evidence = "tools/ci/self_test.py a-reader-cannot-empty-the-owners-board -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-reader-cannot-empty-the-owners-board -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_reader_cannot_empty_the_owners_board"
 note = '''Looking at the board must not erase it.'''
 
@@ -3506,7 +3506,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py a-completion-ladder-holds-only-completions"
 blocking = "pr"
 self_test = '''cases in tools/ci/self_test.py'''
-self_test_evidence = "tools/ci/self_test.py a-completion-ladder-holds-only-completions -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-completion-ladder-holds-only-completions -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_completion_ladder_holds_only_completions"
 note = '''An image generator must never be the fallback for a question.'''
 
@@ -3517,7 +3517,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-failure-reaches-the-bar-and-the-next-turn"
 blocking = "pr"
 self_test = '''flag.raised gateway; if False:\n        out.append(\"SOMETHING ABOVE DID NOT WORK.; THESE ARE NOTES.; if not rows:\n        return \"nothing on the bar\"; Always refuse an action'''
-self_test_evidence = "tools/ci/self_test.py a-failure-reaches-the-bar-and-the-next-turn -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-failure-reaches-the-bar-and-the-next-turn -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_failure_reaches_the_bar_and_the_next_turn"
 note = '''What went wrong is recorded, read, and worked around rather than reported.'''
 
@@ -3528,7 +3528,7 @@ kind = "structural"
 impl = "tools/ci/checks.py the-wallpaper-changes-only-on-vespers-desktop"
 blocking = "pr"
 self_test = '''cases in tools/ci/self_test.py'''
-self_test_evidence = "tools/ci/self_test.py the-wallpaper-changes-only-on-vespers-desktop -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py the-wallpaper-changes-only-on-vespers-desktop -- 0 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_the_wallpaper_changes_only_on_vespers_desktop"
 note = '''VESPER has exactly one way to write the system picture: the owner asking.'''
 
@@ -3539,7 +3539,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-mode-is-a-pairing-of-two-axes"
 blocking = "pr"
 self_test = '''Working Concentrating; research reserach; if key not in ps:\n        raise UnknownMode(     if False:\n        raise UnknownMode(; browser; stage stage; ,'''
-self_test_evidence = "tools/ci/self_test.py a-mode-is-a-pairing-of-two-axes -- 6 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-mode-is-a-pairing-of-two-axes -- 6 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_mode_is_a_pairing_of_two_axes"
 note = '''A mode names a stage and an ambience, and neither is welded to the other.'''
 
@@ -3550,7 +3550,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-stage-bounds-what-vesper-opens"
 blocking = "pr"
 self_test = '''\"; if True:\n        from core import modes as M; browser telescope; max_windows = 1 max_windows = 9; I do not know what kind of window {label or bundle!r}   I do not know what kind of window {label or bundle!r}'''
-self_test_evidence = "tools/ci/self_test.py a-stage-bounds-what-vesper-opens -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-stage-bounds-what-vesper-opens -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_a_stage_bounds_what_vesper_opens"
 note = '''A stage of work names the windows its work may open, and that is enforced.'''
 
@@ -3561,7 +3561,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py settings-manage-not-only-show"
 blocking = "pr"
 self_test = ''',; island Island island_DISABLED Island'''
-self_test_evidence = "tools/ci/self_test.py settings-manage-not-only-show -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py settings-manage-not-only-show -- 2 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_settings_manage_not_only_show"
 note = '''Every settings row reads something real, the owner's rows carry a control that WRITES, and the write reaches the runtime through one recorded channel.'''
 
@@ -3572,7 +3572,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py main-menu-manages"
 blocking = "pr"
 self_test = '''emergency-stop emergency-stop_DISABLED; actions; ,'''
-self_test_evidence = "tools/ci/self_test.py main-menu-manages -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py main-menu-manages -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_main_menu_manages"
 note = '''Every main-menu destination opens a card with real rows AND something to do; every action names a control somebody applies; the stop never goes through the runtime.'''
 
@@ -3584,7 +3584,7 @@ impl = "tools/ci/checks.py boards-hold-windows-and-cards"
 blocking = "pr"
 self_test = '''vesper_opened; ',
           '        status =; boards boards'''
-self_test_evidence = "tools/ci/self_test.py boards-hold-windows-and-cards -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py boards-hold-windows-and-cards -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_boards_hold_windows_and_cards"
 note = '''The projects and research boards hold windows and cards the owner picked from a list, show each one's live status, and offer the acts that manage it.'''
 
@@ -3595,7 +3595,7 @@ kind = "structural"
 impl = "tools/ci/checks.py microphone-and-camera-are-measured-first"
 blocking = "pr"
 self_test = ''',; identity unknown identity owner; ,; QUIET: check the system input volume and device before adding gain QUIET: check the system input volume and device before adding gain; WakeWord.swift FnTrigger.swift Camera.swift \\ WakeWord.swift FnTrigger.swift \\'''
-self_test_evidence = "tools/ci/self_test.py microphone-and-camera-are-measured-first -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py microphone-and-camera-are-measured-first -- 5 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_microphone_and_camera_are_measured_first"
 note = '''The microphone's level is measured before any gain, the gain is bounded and applied to a copy, and the camera is measured -- fps, faces, cpu -- and reports presence as detection with identity UNKNOWN, expiring to UNKNOWN.'''
 
@@ -3606,7 +3606,7 @@ kind = "runtime-fixture"
 impl = "tools/ci/checks.py workflows-show-their-work"
 blocking = "pr"
 self_test = '''if not ok or not urls:         if not ok:; ,; WebSearch WebFetch Read WebSearch WebFetch Read Bash'''
-self_test_evidence = "tools/ci/self_test.py workflows-show-their-work -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py workflows-show-their-work -- 3 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py check_workflows_show_their_work"
 note = '''A research or project run writes every step's artefact, runs its experiment through the actor's own door, and never writes findings without sources or for a run that did not happen.'''
 
@@ -3617,7 +3617,7 @@ kind = "structural"
 impl = "tools/ci/checks.py a-flag-is-retracted-when-its-condition-clears"
 blocking = "pr"
 self_test = ''',; ,; out.setdefault(\"resolved\", [\"host.accessibility\",         _unused = ([\"host.accessibility\",; \"resolved\": resolved,\n; bus.subscribe(\"flag.cleared\", _off_flag, name=\"home-flags-cleared\",     bus.subscribe(\"flag.clearedX\", _off_flag, name=\"home-flags-cleared\",; flag_id window.landed_elsewhere:{new_id} flag vesper opened a window and the system placed it on  flag vesper opened a window and the system placed it on; ,'''
-self_test_evidence = "tools/ci/self_test.py a-flag-is-retracted-when-its-condition-clears -- 7 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-flag-is-retracted-when-its-condition-clears -- 7 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py "
 note = ''''''
 
@@ -3630,7 +3630,7 @@ blocking = "pr"
 self_test = ''',; ,; ,; ,; ,; '            line += ( ',
            
           '            line += (; except Exception:                                     # noqa: BLE001\n        # AN UNREADABLE WORLD ADDS NOTHING.     except Exception:                                     # noqa: BLE001\n        line += \" — set, though the picture will not change until you come to my desktop\"\n        # AN UNREADABLE WORLD ADDS NOTHING.; line'''
-self_test_evidence = "tools/ci/self_test.py a-mode-that-does-not-land-reaches-the-bar -- 8 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py a-mode-that-does-not-land-reaches-the-bar -- 8 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py "
 note = ''''''
 
@@ -3652,6 +3652,6 @@ kind = "structural"
 impl = "tools/ci/checks.py vespers-wallpapers-never-touch-the-owners"
 blocking = "pr"
 self_test = '''wallpaper.contents = img\n             wallpaper.contents = nil\n; ,; playedThisModeSession = false\n; videoEnd = NotificationCenter.default.addObserver(\n            forName: .AVPlayerItemDidPlayToEndTime,         videoEnd = NotificationCenter.default.addObserver(\n            forName: .AVPlayerItemTimeJumped,; player.isMuted = true         player.isMuted = false; VESPER VESPER'''
-self_test_evidence = "tools/ci/self_test.py vespers-wallpapers-never-touch-the-owners -- 6 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- PLAN_2026-09-13-RELEASE.md §9"
+self_test_evidence = "tools/ci/self_test.py vespers-wallpapers-never-touch-the-owners -- 6 case(s), red then green; executed in the 2026-09-12 full run (900/900) or in the session that added them; registered 2026-09-14 (D3) without a fresh full run -- docs/history/PLAN_2026-09-13-RELEASE.md §9"
 subject = "tools/ci/checks.py "
 note = ''''''

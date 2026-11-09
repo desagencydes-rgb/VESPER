@@ -21,7 +21,7 @@ and 2026-08-25's power work added a second reason for it:
 - **Remote is primary for work.** A network request costs this host ~nothing.
 - **Local is the offline backup, in bursts.** MEASURED: generation is 34–41 W
   against 5.1 W idle, and the levers cut that 2–3x at best because the floor is
-  memory bandwidth. See `PLAN_2026-08-25-power.md` §6.
+  memory bandwidth. See `docs/history/PLAN_2026-08-25-power.md` §6.
 - **Neither alone.** A network-only VESPER dies with the router, which the
   survival core and `INV-PLACE-3` forbid.
 

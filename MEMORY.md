@@ -710,7 +710,7 @@ Measured on it, same code as node 1: F5 gate **6.8 s** against the ≈15 s
 `CLAUDE.md` quotes, placement stress **12.0 s** against ≈20 s. Roughly 2× on
 iteration speed.
 
-**`HANDOFF_TO_MACBOOK.md` §2's throughput table is superseded, not merely
+**`docs/history/HANDOFF_TO_MACBOOK.md` §2's throughput table is superseded, not merely
 unmet.** It predicted the 24B dense and the 30B MoE becoming usable "if 32 GB".
 `docs/planning/MACBOOK_PROCUREMENT_BENCHMARK.md` §2 had already settled it
 *before purchase*: macOS caps GPU-wired memory near 75% (~12 GB on 16 GB), the
@@ -1236,7 +1236,7 @@ make draft, small and standard unroutable at every context length.
 | | |
 |---|---|
 | Handoff / live verification figures | `VESPER_ENGINEERING_STATUS.md` |
-| Current plan | `PLAN_2026-08-24.md` |
+| Current plan | `docs/history/PLAN_2026-08-24.md` |
 | Build order and gate placement | `docs/architecture/IMPLEMENTATION_SEQUENCE.md` |
 | Acceptance tests (the normative ones) | `verification/acceptance/AT-0*.md` |
 | Measurements | `docs/planning/spike-results/`, with `README.md` as the record |

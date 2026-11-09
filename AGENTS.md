@@ -10,7 +10,7 @@ output, **the command wins** and this file is stale — fix it.
 |---|---|
 | `MEMORY.md` | Hardware, measured numbers **with provenance**, mistakes already made, doctrine. Most of what looks like a judgement call has been measured |
 | `VESPER_ENGINEERING_STATUS.md` | Where the build stands |
-| `HANDOFF_TO_MACBOOK.md` | What a clone does not bring; per-node setup |
+| `docs/history/HANDOFF_TO_MACBOOK.md` | What a clone does not bring; per-node setup |
 | `docs/spikes/INDEX.toml` | **The status authority for every spike.** The protocol documents' headers follow it, never the reverse (`RF-047`) |
 
 Do **not** answer a hardware, model or throughput question from general
