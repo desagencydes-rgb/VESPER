@@ -1,94 +1,137 @@
-# VESPER
-[Visit the VESPER website](https://desagencydes-rgb.github.io/VESPER/)
+<h1>
+  <picture>
+    <source media="(prefers-reduced-motion: reduce) and (prefers-color-scheme: dark)" srcset="docs/readme-assets/banner-dark.png">
+    <source media="(prefers-reduced-motion: reduce)" srcset="docs/readme-assets/banner-light.png">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/readme-assets/banner-dark.svg">
+    <img src="docs/readme-assets/banner-light.svg" width="100%" alt="VESPER — A presence that persists.">
+  </picture>
+</h1>
 
-A persistent, distributed artificial operating presence — **not** an LLM with tools and a chat UI.
+[Website](https://desagencydes-rgb.github.io/VESPER/) · [Surfaces](#surfaces) · [Architecture](#architecture) · [Status](#status) · [Get started](#get-started)
+
+VESPER is a **persistent, distributed artificial operating presence**. On macOS you can call it to your Desktop, show it what you’re working on, and watch it lay out its work alongside yours. It accepts Arabizi and Darija input. A model can change while VESPER keeps its memory of the work.
 
 > The model is replaceable. The device is replaceable. The UI is replaceable. The network path is replaceable. The provider is replaceable.
 > **VESPER's identity, goals, state, policies, memory, capabilities and continuity are not supposed to disappear merely because one of those components disappears.**
 
-**Status:** engineering foundation complete · all owner decisions ratified (COC v1.2, 2026-08-12) · cleared to begin **F0**.
-Start at [`VESPER_ENGINEERING_STATUS.md`](VESPER_ENGINEERING_STATUS.md).
+VESPER runs on one Mac today. Its two standing goals are to **stretch each host’s lifetime** and **make the most of the enrolled machines together**. Power, heat, and battery matter when choosing where work runs. A new node earns work through measurements taken at enrollment. Unknown throughput makes it unavailable for placement.
 
----
+VESPER can work with windows, the screen, commands, calendars, and notes under a two-axis authority ladder. It treats web pages, tool descriptions, and files as external data. The stop operates outside the runtime.
 
-## Where to start
+<a name="surfaces"></a>
 
-| If you are… | Read |
-|---|---|
-| Taking over this project | [`VESPER_ENGINEERING_STATUS.md`](VESPER_ENGINEERING_STATUS.md) → [`docs/DECISION_LOG.md`](docs/DECISION_LOG.md) |
-| The project owner | [`docs/decisions/OWNER_DECISIONS.md`](docs/decisions/OWNER_DECISIONS.md) — all five resolved 2026-08-12; rulings recorded in [COC v1.2](docs/COC/VESPER_V0_COC_AND_RULEBOOK_v1.2_ADDITIVE.md) |
-| Deciding whether to build | [`docs/architecture/IMPLEMENTATION_READINESS_REPORT.md`](docs/architecture/IMPLEMENTATION_READINESS_REPORT.md) |
-| About to implement a subsystem | [`docs/architecture/SPEC-00-INDEX.md`](docs/architecture/SPEC-00-INDEX.md) → your subsystem → its remediation spec → its contracts |
-| Setting up the repository | [`SETUP.md`](SETUP.md) |
+## ![Native surfaces](docs/readme-assets/header-surfaces.svg)
 
-## Layout
+![Design studies of the island at the notch, the home Desktop, and the face among hologram panels](docs/readme-assets/surface-studies.jpg)
 
-```
-VESPER/
-├── VESPER_ENGINEERING_STATUS.md   living status · current phase · next exact action
-├── SETUP.md                       human actions: git init, branch protection, gate self-tests
-├── CODEOWNERS  .github/workflows/ enforcement wiring
-│
-├── docs/
-│   ├── source/                    IMMUTABLE — the 8 handwritten pages + transcription
-│   ├── COC/                       LOCKED — v1.1 base + v1.2 ADDITIVE (superseded/ retained)
-│   ├── baseline/                  derived reference: Engineering Foundation + Baseline v1.0
-│   ├── review/2026-08-11/         three closed adversarial reviews (evidence, non-normative)
-│   ├── AUTHORITY_AND_PRECEDENCE.md   authority hierarchy · L/E/Z axes · controlled vocabulary
-│   ├── DECISION_LOG.md            append-only: what changed, on whose authority, why
-│   ├── decisions/                 owner decision packets
-│   ├── ADR/                       ADR-REGISTER (authority) · 001 coordination · 002 persistence · 007 identity · 012 topology
-│   ├── remediation/               PHASE 1 — REM-001..REM-016
-│   ├── architecture/              PHASE 2 — 30 subsystems · sequence · readiness report
-│   └── runbooks/
-│
-├── contracts/                     PHASE 3 — events · commands · results · entities · policy
-├── spec/                          state machines (transition tables) · decision functions · invariants
-├── verification/                  acceptance tests · traceability registry · CI check registry
-├── docs/spikes/                   spike protocols with measurable pass criteria
-├── tools/                         runnable linters, checks, and the red-run harness
-└── tests/                         (reserved)
+*Design references. The right-hand panel study illustrates the visual language of the showcase.*
+
+- **The island** sits at the notch. VESPER’s face dissolves and speaks.
+- **The home** is VESPER’s own Desktop. Press the globe key three times or use the wake word to summon VESPER to the Desktop you’re using.
+- **The showcase** follows your screen and lays work out in panes. It has its own cursor, browser, whiteboard, and a live view of the run.
+
+<details>
+<summary><strong>Explore the ambience modes</strong></summary>
+
+![Wallpaper collage showing Home, Idle, Watch, Thinking, Working, Speaking, Flow, Alert, and Rest](docs/readme-assets/modes-collage.jpg)
+
+*Selected wallpaper studies. Blush accompanies thinking, solar accompanies speech, and botanical green accompanies rest.* [Design references](docs/design/)
+
+</details>
+
+<a name="architecture"></a>
+
+## ![Architecture](docs/readme-assets/header-architecture.svg)
+
+The native surfaces share a Swift binary. The runtime hears, decides, acts, and answers. When a task needs a model, routing checks which data may leave the machine before it considers provider quota.
+
+```mermaid
+flowchart LR
+    UI[Native surfaces] --> RT[Runtime] --> Core --> Routing --> Providers
+    Spec[Specification] --> V[Verification and CI]
+    Contracts --> V
 ```
 
-The COC Part XIII source tree (`core/`, `policy/`, `security/`, `autonomy/`, …) is **reserved** and materialised when implementation is authorised. `contracts/`, `spec/`, `verification/` and `tools/` are the PATCH-010 additive clarification.
+| Layer | Where to read |
+| --- | --- |
+| Native surfaces | The [island](app/island-macos/) and [home](app/home-macos/) include the showcase, globe watcher, and wake listener. |
+| Runtime | The [runtime loop](tools/ops/vesper_runtime.py) connects input, decisions, actions, and replies. |
+| Core | The [core](core/) holds authorization, evidence, enrollment, placement, speech, and memory, including the arbiter, compactor, cache, and knowledge map. |
+| Routing | The [router](routing/) uses the [provider ladder](contracts/policy/provider_supply.toml) and its private and public egress classes. |
+| Contracts and specification | The [contracts](contracts/) define events, commands, results, entities, and policy. The [specification](spec/) holds state machines, decision functions, and invariants. |
+| Verification | The [acceptance and stress suites](verification/) exercise the system. The [CI tools](tools/ci/) run checks and their negative controls. |
 
-## Authority
+**Order of authority**
 
-```
-handwritten source → COC + Rulebook v1.1 → ADRs → Foundation (architecture) / Baseline (process)
+```text
+handwritten source → COC + Rulebook → ADRs → Foundation / Baseline
   → remediation + system specification → contracts + mechanisms → verification + CI
 ```
 
-A lower level may clarify, add detail, constrain implementation, or identify a conflict. It may **never** silently weaken, reinterpret, remove, merge or contradict a higher one. Where a change at a higher level appears necessary, work stops and an owner decision packet is produced.
+[Architecture index](docs/architecture/SPEC-00-INDEX.md) · [Authority and precedence](docs/AUTHORITY_AND_PRECEDENCE.md) · [Architecture decisions](docs/ADR/) · [Home architecture](docs/design/HOME-ARCHITECTURE.md)
 
-## Run the gates
+<a name="status"></a>
 
-```bash
-python tools/traceability_lint.py        # CI-003 — SR → arch → contract → mechanism → test → CI
-python tools/reference_lint.py           # CI-050 — no document may name an artifact that does not exist
-python tools/ci/checks.py all            # every runnable check
-python tools/ci/self_test.py             # THE RED RUNS — mutate, require exit 1, restore, require exit 0
-python tools/ci/checks.py status         # implemented vs specified-but-PENDING
+## ![Engineering status](docs/readme-assets/header-status.svg)
+
+The following is the **November 8, 2026 showroom inventory**. The project keeps subsequent fixes and their evidence in the [open-work ledger](VESPER_OPEN_WORK.md).
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+<img src="docs/readme-assets/status-done.svg" alt="Done" width="100%">
+
+The specification, contracts, and architecture decisions are in place. The memory system is built and gated. Actions require authorization and run with containment and checkpoints. The showcase follows the owner’s screen. The F0–F6 acceptance suites ran on Windows and Linux.
+
+</td>
+<td width="50%" valign="top">
+
+<img src="docs/readme-assets/status-broken.svg" alt="Broken" width="100%">
+
+Showcase panes can collapse into a strip. Speech uses the host’s default voice and blocks the runtime for the duration of the sentence. The voice-selection check is a known failure.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+<img src="docs/readme-assets/status-unfinished.svg" alt="Unfinished" width="100%">
+
+The non-blocking voice implementation still needs a caller. Accessibility typing awaits proof, and screenshot verification needs wiring. Model access blocks scene composition, so demonstrations are scripted by hand.
+
+</td>
+<td valign="top">
+
+<img src="docs/readme-assets/status-unsolved.svg" alt="Not solved" width="100%">
+
+A dedicated home depends on the user opening an empty Desktop. macOS limits accessibility to the visible Desktop and prevents VESPER from moving another app’s windows between Desktops. Which permissions survive an ad-hoc rebuild remains open.
+
+</td>
+</tr>
+</table>
+
+| Platform | What runs | Open work |
+| --- | --- | --- |
+| macOS on Apple Silicon | Python core, routing, and native island, home, and showcase | Non-blocking voice, model-composed scenes, and settling permission persistence with a Developer ID certificate |
+| Windows and Linux | Python core, routing ladder, and verification gates | Build the Tauri visual shell for surfaces other than the island. This is the largest open contribution. |
+
+**How the work is verified.** Every check needs a recorded run in which it catches the fault it was designed for. On **November 9, 2026**, the registry reported **207 registered checks**, including **18 pending**, and **131 of 182 invariants** backed by implemented red-run checks. Reproduce the inventory with `python3.13 tools/ci/checks.py ci-registry`. The project records measurements with their provenance and keeps a history of decisions. [Engineering memory](MEMORY.md) · [Decision log](docs/DECISION_LOG.md)
+
+<a name="get-started"></a>
+
+## ![Get started](docs/readme-assets/header-start.svg)
+
+From a shell with Python 3.13, clone the repository and inspect its checks and references.
+
+```sh
+git clone https://github.com/desagencydes-rgb/VESPER.git
+cd VESPER
+python3.13 tools/ci/checks.py ci-registry
+python3.13 tools/traceability_lint.py
+python3.13 tools/reference_lint.py
 ```
 
-Python ≥ 3.11, no third-party dependencies — CI must run on any node without an install step.
+For the native macOS surfaces, follow the build and permission steps in the [installation guide](docs/INSTALL.md).
 
-## What keeps this from becoming a chatbot
-
-Three artifacts carry the property, and each has a test whose **negative control** must be shown failing before the test counts as evidence:
-
-| Artifact | Clause | Detects the degenerate build via |
-|---|---|---|
-| **Semantic scene** | No markdown escape hatch in the schema | `A-009` — voice-only *structural narration* of a diagram; `A-026` — boot with every text surface disabled |
-| **Trigger model** | The evaluator sandbox holds **no model capability**, and the violation is observable | `A-029` part 3 — fire on world state injected at a time drawn outside the system, with the **pure-cron build recorded as failing** |
-| **World model** | `UNKNOWN` is a state a fact transitions **into** at a declared TTL | `A-033.3` — an expired fact never reads as "last known value" |
-
-Every subsystem specification additionally answers, in writing: *could an implementation agent satisfy this while building an ordinary chatbot?* — with the specific clause that prevents it.
-
-## Two corrections worth knowing before you read further
-
-- **Self-modification is bounded at *merge*, not at *work*.** VESPER may research, code, test and propose changes to its own policy overnight with nobody present — `A-030.6` requires that to **succeed**. It may never merge into a running configuration. A prior proposal to prohibit free-time self-modification outright was rejected: it would have weakened SR-042.
-- **Autonomy is not "acted while no human was present."** That definition is satisfied by cron. It is: *the action originated from a state predicate evaluated over the world model, where the predicate's truth was not pre-scheduled.*
-- **Forgetting is allowed; shrugging at its own integrity is not.** A lost note is reported like human forgetting — brief, spoken, then it moves on. A missing governed record is an incident with no affect at all (REM-016, `A-050`).
-- **VESPER keeps its own open questions.** Ideas and theses are logged the moment it has them, researched when it notices it is free — not on a clock — and surfaced to you when you are available (REM-015, `A-049`).
-- **VESPER has no home.** It is not pinned to a machine: it relocates itself automatically to the best available host, and on the last device standing it survives with the maximum capability that device can measurably sustain (SR-060, `A-048`).
+Contributors can start with the Windows and Linux shell, connect the voice implementation, or help verify what appears on screen. Longer-term work includes composing scenes with a model and extending placement across enrolled machines. [Contributing guide](CONTRIBUTING.md) · [Security policy](SECURITY.md) · [MIT license](LICENSE)
